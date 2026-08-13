@@ -10,6 +10,7 @@ from app.core.logging import logger
 from app.core.time import local_today
 from app.db.session import SessionLocal
 from app.jobs.orchestrator import JobOrchestrator
+from app.services.game_refresh_state_service import GameRefreshStateService
 
 
 async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
@@ -21,6 +22,21 @@ async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
             )
         except Exception as exc:
             logger.error("scheduled_job_failed", job=job_name, error=str(exc))
+
+
+def select_event_relative_refresh_states(settings: Settings) -> None:
+    """Persist due lifecycle selections without calling a provider or job."""
+
+    if not (settings.scheduler_enabled and settings.event_relative_scheduler_enabled):
+        return
+    with SessionLocal() as session:
+        try:
+            states = GameRefreshStateService(session).record_due_states()
+            session.commit()
+            logger.info("event_relative_states_selected", records=len(states))
+        except Exception as exc:
+            session.rollback()
+            logger.error("event_relative_state_selection_failed", error=str(exc))
 
 
 def build_scheduler(settings: Settings) -> AsyncIOScheduler:
@@ -56,6 +72,15 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             id="asp-odds-poll",
             kwargs={"job_name": "refresh-odds", "settings": settings},
             next_run_time=datetime.now(UTC),
+            **common,
+        )
+    if settings.scheduler_enabled and settings.event_relative_scheduler_enabled:
+        scheduler.add_job(
+            select_event_relative_refresh_states,
+            "interval",
+            minutes=1,
+            id="asp-event-relative-selector",
+            kwargs={"settings": settings},
             **common,
         )
     return scheduler

@@ -5,6 +5,16 @@ import { demoGames } from '../data/demo'
 import { ForecastCard } from './ForecastCard'
 
 describe('ForecastCard missing-data integrity', () => {
+  it('shows the persisted lifecycle, countdown, lineups, and refresh cadence', () => {
+    render(<MemoryRouter><ForecastCard game={demoGames[0]} /></MemoryRouter>)
+
+    expect(screen.getByText('T−60m')).toBeInTheDocument()
+    expect(screen.getByText('33m to first pitch')).toBeInTheDocument()
+    expect(screen.getByText(/Lineups: NYM Projected · complete · ATL Confirmed · complete/)).toBeInTheDocument()
+    expect(screen.getByText(/Data as of Illustrative snapshot · 6:42 PM/)).toBeInTheDocument()
+    expect(screen.getByText(/Last refresh Illustrative source refresh · 6:40 PM/)).toBeInTheDocument()
+  })
+
   it('uses explicit unavailable copy instead of fabricated zero projections', () => {
     const unavailableGame = {
       ...demoGames[0],

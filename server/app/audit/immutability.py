@@ -4,14 +4,40 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 from app.models import (
+    BattingFeature,
+    BullpenAvailabilityObservation,
+    BullpenFeature,
     Forecast,
     ForecastComponent,
+    ForecastMovementEvidence,
     ForecastStatus,
+    GameContext,
+    GameFeatureSnapshot,
+    GameRefreshState,
+    GameStateObservation,
+    LineupEntry,
+    LineupObservation,
     MarketComparison,
     OddsSnapshot,
     OfficialAspPosition,
+    ParkFactorVersion,
+    PitchEvent,
+    PitchingFeature,
+    PlayerGameStat,
+    PlayerTalentEstimate,
+    PlayerTeamHistory,
     PositionSettlement,
     PositionStatus,
+    ProviderRequestLedger,
+    Roster,
+    RosterAvailabilityObservation,
+    SourceFreshnessPolicy,
+    StarterObservation,
+    StatcastPlayerObservation,
+    TeamFeature,
+    TeamGameStat,
+    TeamRatingObservation,
+    WeatherSnapshot,
 )
 
 
@@ -20,6 +46,36 @@ class ImmutableRecordError(RuntimeError):
 
 
 _installed = False
+
+
+_APPEND_ONLY_TYPES = (
+    BattingFeature,
+    BullpenAvailabilityObservation,
+    BullpenFeature,
+    ForecastMovementEvidence,
+    GameContext,
+    GameFeatureSnapshot,
+    GameRefreshState,
+    GameStateObservation,
+    LineupEntry,
+    LineupObservation,
+    ParkFactorVersion,
+    PitchEvent,
+    PitchingFeature,
+    PlayerGameStat,
+    PlayerTalentEstimate,
+    PlayerTeamHistory,
+    ProviderRequestLedger,
+    Roster,
+    RosterAvailabilityObservation,
+    SourceFreshnessPolicy,
+    StarterObservation,
+    StatcastPlayerObservation,
+    TeamFeature,
+    TeamGameStat,
+    TeamRatingObservation,
+    WeatherSnapshot,
+)
 
 
 def install_immutability_guards() -> None:
@@ -37,6 +93,8 @@ def install_immutability_guards() -> None:
         for record in session.deleted:
             if isinstance(record, OddsSnapshot):
                 raise ImmutableRecordError("Odds snapshots are append-only")
+            if isinstance(record, _APPEND_ONLY_TYPES):
+                raise ImmutableRecordError(f"{type(record).__name__} records are append-only")
             if isinstance(record, Forecast) and record.status == ForecastStatus.PUBLISHED:
                 raise ImmutableRecordError("Published forecasts cannot be deleted")
             if isinstance(record, OfficialAspPosition) and record.status == PositionStatus.SETTLED:
@@ -48,6 +106,8 @@ def install_immutability_guards() -> None:
         for record in session.dirty:
             if isinstance(record, OddsSnapshot) and session.is_modified(record, include_collections=False):
                 raise ImmutableRecordError("Odds snapshots are append-only")
+            if isinstance(record, _APPEND_ONLY_TYPES) and session.is_modified(record, include_collections=False):
+                raise ImmutableRecordError(f"{type(record).__name__} records are append-only")
             if isinstance(record, Forecast) and session.is_modified(record, include_collections=False):
                 state = inspect(record)
                 history = state.attrs.status.history

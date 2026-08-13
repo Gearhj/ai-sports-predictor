@@ -24,6 +24,24 @@ DEFAULT_WEIGHTS = {
     "feature_completeness": 10.0,
 }
 
+# Gate 2 keeps market and Statcast evidence visible without making either a
+# prerequisite for a baseball forecast. Dynamic critical fields are supplied
+# by the forecast lifecycle at evaluation time.
+GATE2_WEIGHTS = {
+    "schedule": 10.0,
+    "probable_pitchers": 10.0,
+    "pitcher_confirmation": 5.0,
+    "lineups": 10.0,
+    "roster": 5.0,
+    "team_stats": 15.0,
+    "statcast": 5.0,
+    "bullpen": 5.0,
+    "odds": 10.0,
+    "sportsbook_count": 5.0,
+    "weather": 10.0,
+    "feature_completeness": 10.0,
+}
+
 STATUS_FACTOR = {
     ReadinessStatus.READY: 1.0,
     ReadinessStatus.STALE: 0.5,
@@ -58,6 +76,7 @@ def calculate_readiness(
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
     critical: frozenset[str] = frozenset({"schedule", "probable_pitchers", "team_stats", "feature_completeness"}),
     minimum_publish_score: float = 55.0,
+    block_stale_critical: bool = False,
 ) -> ReadinessResult:
     details = details or {}
     components: list[ReadinessComponent] = []
@@ -79,7 +98,10 @@ def calculate_readiness(
         )
         numerator += component_score
         denominator += weight
-        if key in critical and status == ReadinessStatus.MISSING:
+        if key in critical and (
+            status == ReadinessStatus.MISSING
+            or (block_stale_critical and status == ReadinessStatus.STALE)
+        ):
             missing.append(key)
     score = round(100.0 * numerator / denominator, 1) if denominator else 0.0
     return ReadinessResult(

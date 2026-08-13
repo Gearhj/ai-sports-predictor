@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from hashlib import sha256
+import json
 from time import perf_counter
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -14,7 +17,17 @@ from app.analytics import ParquetSnapshotWriter
 from app.bankroll.settlement import settle_completed_positions
 from app.bankroll.positions import publish_official_positions
 from app.data_sources import BaseballSavantStatcastAdapter, DemoSportsSource, MLBStatsAPIAdapter, OpenMeteoAdapter, SourceError, TheOddsAPIAdapter
-from app.data_sources.base import AdapterResponse, OddsEventDTO, ScheduleGameDTO, SourceEnvelope, TeamStatsDTO, WeatherDTO
+from app.data_sources.base import (
+    AdapterResponse,
+    BullpenAvailabilityDTO,
+    LineupDTO,
+    OddsEventDTO,
+    RosterAvailabilityDTO,
+    ScheduleGameDTO,
+    SourceEnvelope,
+    TeamStatsDTO,
+    WeatherDTO,
+)
 from app.data_sources.fixtures import demo_games
 from app.ingestion import CanonicalNormalizer, RawArchive
 from app.models import (
@@ -27,6 +40,7 @@ from app.models import (
     IngestionRun,
     JobRun,
     ModelVersion,
+    ProviderRequestLedger,
     RunStatus,
     Team,
     Venue,
@@ -49,6 +63,7 @@ AVAILABLE_JOBS = {
     "recalculate-performance": "Recalculate Performance",
     "daily-pipeline": "Daily Pipeline",
     "finalize-games": "Refresh Finals, Settle Positions, Recalculate Performance",
+    "controlled-live-validation": "Controlled Gate 2 Live Validation",
 }
 
 ALIASES = {
@@ -67,6 +82,7 @@ class JobOrchestrator:
         self.archive = RawArchive(settings.raw_data_root)
         self.normalizer = CanonicalNormalizer(session)
         self.demo = DemoSportsSource()
+        self._active_job_run_id: Any | None = None
 
     async def run(self, name: str, *, requested_by_user_id: Any | None = None, event_date: date | None = None) -> JobRun:
         canonical = _job_key(name)
@@ -84,7 +100,9 @@ class JobOrchestrator:
         self.session.commit()
         started = perf_counter()
         try:
+            self._active_job_run_id = run.id
             result = await self._execute(canonical, event_date)
+            self._active_job_run_id = None
             run = self.session.get(JobRun, run.id)
             assert run is not None
             run.status = RunStatus.SUCCEEDED
@@ -101,6 +119,7 @@ class JobOrchestrator:
             logger.info("job_completed", job_id=str(run.id), job=canonical, **result)
             return run
         except Exception as exc:
+            self._active_job_run_id = None
             self.session.rollback()
             run = self.session.get(JobRun, run.id)
             assert run is not None
@@ -134,6 +153,7 @@ class JobOrchestrator:
             "recalculate-performance": self.recalculate_performance,
             "daily-pipeline": self.daily_pipeline,
             "finalize-games": self.finalize_games,
+            "controlled-live-validation": self.controlled_live_validation,
         }
         return await handlers[name](event_date)
 
@@ -151,23 +171,48 @@ class JobOrchestrator:
             mode = "LIVE"
         archived = self.archive.write(envelope.source, raw)
         games = [ScheduleGameDTO.model_validate(item) for item in envelope.data]
-        persisted = self.normalizer.ingest_schedule(games, envelope.source)
+        persisted = self.normalizer.ingest_schedule(
+            games,
+            envelope.source,
+            available_as_of=envelope.fetched_at,
+        )
         self._ingestion_run(envelope, archived.raw_file_reference, len(persisted), "refresh-schedule")
         self.session.commit()
         return {"records": len(persisted), "games": len(persisted), "source": envelope.source, "source_mode": mode}
 
     async def refresh_mlb_data(self, event_date: date) -> dict[str, Any]:
+        live_game_exists = self.session.scalar(
+            select(Game.id).where(
+                Game.starts_at >= self._day_bounds(event_date)[0],
+                Game.starts_at < self._day_bounds(event_date)[1],
+                Game.source_mode == "LIVE",
+            ).limit(1)
+        ) is not None
+        # Never mix provenance within a refresh. Live games take precedence;
+        # explicit demo seeding works only when the target date has no live row.
+        target_mode = "LIVE" if live_game_exists else "DEMO"
         team_rows = list(self.session.execute(
             select(Team, ExternalIdMapping.source, ExternalIdMapping.external_id)
             .join(GameTeam, GameTeam.team_id == Team.id)
             .join(Game, Game.id == GameTeam.game_id)
             .join(ExternalIdMapping, (ExternalIdMapping.entity_id == Team.id) & (ExternalIdMapping.entity_type == "team"))
-            .where(Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1])
+            .where(
+                Game.starts_at >= self._day_bounds(event_date)[0],
+                Game.starts_at < self._day_bounds(event_date)[1],
+                Game.source_mode == target_mode,
+                ExternalIdMapping.source == (
+                    "MLB_STATS_API" if target_mode == "LIVE" else self.demo.source
+                ),
+            )
             .order_by((ExternalIdMapping.source == self.demo.source).asc())
         ))
         processed = 0
+        roster_processed = 0
+        bullpen_processed = 0
+        lineup_processed = 0
         warnings: list[str] = []
         seen: set[Any] = set()
+        live_adapter = MLBStatsAPIAdapter()
         for team, source, external_id in team_rows:
             if team.id in seen:
                 continue
@@ -176,7 +221,7 @@ class JobOrchestrator:
                 if source == self.demo.source or self.settings.app_env == "test":
                     envelope = await self.demo.get_team_stats(external_id, event_date.year)
                 else:
-                    response = await MLBStatsAPIAdapter().get_team_stats(external_id, event_date.year)
+                    response = await live_adapter.get_team_stats(external_id, event_date.year)
                     envelope = response.envelope
                     self.archive.write(envelope.source, response.raw_payload)
                 dto = TeamStatsDTO.model_validate(envelope.data)
@@ -188,8 +233,78 @@ class JobOrchestrator:
                         dto.available_as_of = min(dto.available_as_of, _aware(first_pitch) - timedelta(hours=2))
                 if self.normalizer.ingest_team_stats(dto, source):
                     processed += 1
+                if source != self.demo.source and self.settings.app_env != "test":
+                    try:
+                        roster_response = await live_adapter.get_active_roster(external_id, event_date)
+                        self.archive.write(roster_response.envelope.source, roster_response.raw_payload)
+                        roster_rows = [
+                            RosterAvailabilityDTO.model_validate(item)
+                            for item in roster_response.envelope.data
+                        ]
+                        roster_processed += self.normalizer.ingest_roster_availability(
+                            roster_rows,
+                            roster_response.envelope.source,
+                        )
+                    except SourceError as exc:
+                        warnings.append(f"{team.name} roster: {exc}")
+
+                    try:
+                        bullpen_response = await live_adapter.get_bullpen_workload(
+                            external_id,
+                            event_date,
+                        )
+                        self.archive.write(
+                            bullpen_response.envelope.source,
+                            bullpen_response.raw_payload,
+                        )
+                        bullpen_rows = [
+                            BullpenAvailabilityDTO.model_validate(item)
+                            for item in bullpen_response.envelope.data
+                        ]
+                        target_games = list(self.session.scalars(
+                            select(Game)
+                            .join(GameTeam, GameTeam.game_id == Game.id)
+                            .where(
+                                GameTeam.team_id == team.id,
+                                Game.starts_at >= self._day_bounds(event_date)[0],
+                                Game.starts_at < self._day_bounds(event_date)[1],
+                                Game.source_mode == "LIVE",
+                            )
+                            .order_by(Game.starts_at)
+                        ))
+                        for game in target_games:
+                            bullpen_processed += self.normalizer.ingest_bullpen_availability(
+                                game.id,
+                                bullpen_rows,
+                                bullpen_response.envelope.source,
+                            )
+                    except SourceError as exc:
+                        warnings.append(f"{team.name} bullpen workload: {exc}")
             except SourceError as exc:
                 warnings.append(f"{team.name}: {exc}")
+        if self.settings.app_env != "test":
+            game_mappings = list(self.session.scalars(
+                select(ExternalIdMapping)
+                .join(Game, Game.id == ExternalIdMapping.entity_id)
+                .where(
+                    ExternalIdMapping.entity_type == "game",
+                    ExternalIdMapping.source == "MLB_STATS_API",
+                    Game.starts_at >= self._day_bounds(event_date)[0],
+                    Game.starts_at < self._day_bounds(event_date)[1],
+                    Game.source_mode == "LIVE",
+                )
+            ))
+            for mapping in game_mappings:
+                try:
+                    lineup_response = await live_adapter.get_game_lineups(mapping.external_id)
+                    self.archive.write(lineup_response.envelope.source, lineup_response.raw_payload)
+                    lineups = [LineupDTO.model_validate(item) for item in lineup_response.envelope.data]
+                    lineup_processed += self.normalizer.ingest_lineups(
+                        lineups,
+                        lineup_response.envelope.source,
+                    )
+                except SourceError as exc:
+                    warnings.append(f"game {mapping.external_id} lineup: {exc}")
         mode_source = self.demo.source if team_rows and all(row[1] == self.demo.source for row in team_rows) else "MLB_STATS_API"
         envelope = SourceEnvelope(
             source=mode_source,
@@ -202,42 +317,141 @@ class JobOrchestrator:
         self._ingestion_run(
             envelope,
             None,
-            processed,
+            processed + roster_processed + bullpen_processed + lineup_processed,
             "refresh-mlb-data",
             status=RunStatus.FAILED if failed else RunStatus.SUCCEEDED,
         )
         self.session.commit()
         if failed:
             raise SourceError("MLB_STATS_API", f"No team statistics were ingested: {warnings[0]}")
-        return {"records": processed, "teams": len(seen), "warnings": warnings}
+        return {
+            "records": processed + roster_processed + bullpen_processed + lineup_processed,
+            "team_stats": processed,
+            "roster_observations": roster_processed,
+            "bullpen_observations": bullpen_processed,
+            "lineup_observations": lineup_processed,
+            "teams": len(seen),
+            "warnings": warnings,
+        }
 
-    async def refresh_odds(self, event_date: date, *, demo_only: bool = False) -> dict[str, Any]:
-        if demo_only:
-            # Fixture odds are available only through an explicitly requested
-            # demo path. Missing credentials must never change provenance.
-            envelope = await self.demo.get_market_snapshot(event_date)
-            archive = self.archive.write(envelope.source, envelope.data)
-        elif self.settings.the_odds_api_key:
-            self._enforce_odds_quota_policy()
-            response = await TheOddsAPIAdapter(
-                self.settings.the_odds_api_key,
-                self.settings.odds_market_list,
-                self.settings.odds_regions,
-            ).get_market_snapshot()
-            envelope = response.envelope
-            archive = self.archive.write(envelope.source, response.raw_payload)
-        else:
-            raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
-        events = [OddsEventDTO.model_validate(item) for item in envelope.data]
-        count = self.normalizer.ingest_odds(events, envelope.source, envelope.fetched_at)
-        self._ingestion_run(envelope, archive.raw_file_reference, count, "refresh-odds")
-        self.session.commit()
-        return {"records": count, "events": len(events), "source": envelope.source, "source_mode": envelope.source_mode, "quota": envelope.metadata}
+    async def refresh_odds(
+        self,
+        event_date: date,
+        *,
+        demo_only: bool = False,
+        controlled_live_request: bool = False,
+    ) -> dict[str, Any]:
+        ledger: ProviderRequestLedger | None = None
+        provider_metadata: dict[str, Any] = {}
+        provider_records_received: int | None = None
+        response_received = False
+        try:
+            if demo_only:
+                # Fixture odds are available only through an explicitly requested
+                # demo path. Missing credentials must never change provenance.
+                envelope = await self.demo.get_market_snapshot(event_date)
+                raw_payload = envelope.data
+            elif self.settings.the_odds_api_key:
+                self._enforce_odds_quota_policy()
+                ledger = self._reserve_provider_request(
+                    "THE_ODDS_API",
+                    "baseball_mlb_odds",
+                    controlled_live_request=controlled_live_request,
+                    request_shape={
+                        "regions": self.settings.odds_regions,
+                        "markets": sorted(self.settings.odds_market_list),
+                        # The upstream endpoint is not date-filtered. Key the
+                        # exactly-once reservation to its real request shape and
+                        # UTC budget day, not the caller's normalization date.
+                        "request_day_utc": datetime.now(UTC).date().isoformat(),
+                    },
+                )
+                self.session.commit()
+                response = await TheOddsAPIAdapter(
+                    self.settings.the_odds_api_key,
+                    self.settings.odds_market_list,
+                    self.settings.odds_regions,
+                ).get_market_snapshot()
+                envelope = response.envelope
+                raw_payload = response.raw_payload
+                provider_metadata = dict(envelope.metadata or {})
+                provider_records_received = len(envelope.data) if isinstance(envelope.data, list) else 1
+                response_received = True
+            else:
+                raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+            archive = self.archive.write(envelope.source, raw_payload)
+            events = [OddsEventDTO.model_validate(item) for item in envelope.data]
+            count = self.normalizer.ingest_odds(
+                events,
+                envelope.source,
+                envelope.fetched_at,
+                source_mode=envelope.source_mode.upper(),
+                event_date=event_date,
+            )
+            if ledger is not None:
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider,
+                    endpoint_key=ledger.endpoint_key,
+                    requested_at=ledger.requested_at,
+                    completed_at=datetime.now(UTC),
+                    status="SUCCEEDED",
+                    request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=_int_or_none(provider_metadata.get("requests_last")),
+                    quota_remaining=_int_or_none(provider_metadata.get("requests_remaining")),
+                    records_received=len(events),
+                    controlled_live_request=ledger.controlled_live_request,
+                    source_mode=ledger.source_mode,
+                    job_run_id=self._active_job_run_id,
+                    reservation_id=ledger.id,
+                    response_metadata={
+                        "reservation_id": str(ledger.id),
+                        "event_count": len(events),
+                        "requests_used": _int_or_none(provider_metadata.get("requests_used")),
+                        "response_received": response_received,
+                    },
+                ))
+            self._ingestion_run(envelope, archive.raw_file_reference, count, "refresh-odds")
+            self.session.commit()
+            return {
+                "records": count,
+                "events": len(events),
+                "source": envelope.source,
+                "source_mode": envelope.source_mode,
+                "quota": envelope.metadata,
+            }
+        except Exception as exc:
+            self.session.rollback()
+            if ledger is not None:
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider,
+                    endpoint_key=ledger.endpoint_key,
+                    requested_at=ledger.requested_at,
+                    completed_at=datetime.now(UTC),
+                    status="FAILED",
+                    request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=_int_or_none(provider_metadata.get("requests_last")),
+                    quota_remaining=_int_or_none(provider_metadata.get("requests_remaining")),
+                    records_received=provider_records_received,
+                    controlled_live_request=ledger.controlled_live_request,
+                    source_mode=ledger.source_mode,
+                    job_run_id=self._active_job_run_id,
+                    reservation_id=ledger.id,
+                    error_type=type(exc).__name__,
+                    response_metadata={
+                        "reservation_id": str(ledger.id),
+                        "requests_used": _int_or_none(provider_metadata.get("requests_used")),
+                        "response_received": response_received,
+                    },
+                ))
+                self.session.commit()
+            raise
 
     async def refresh_weather(self, event_date: date, *, demo_only: bool = False) -> dict[str, Any]:
         rows = list(self.session.execute(
             select(Game, Venue).join(Venue, Venue.id == Game.venue_id).where(
-                Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1]
+                Game.starts_at >= self._day_bounds(event_date)[0],
+                Game.starts_at < self._day_bounds(event_date)[1],
+                Game.source_mode == ("DEMO" if demo_only else "LIVE"),
             )
         ))
         count = 0
@@ -284,14 +498,50 @@ class JobOrchestrator:
     async def refresh_statcast(self, event_date: date) -> dict[str, Any]:
         if not self.settings.statcast_enabled:
             return {"records": 0, "status": "unavailable", "warning": "STATCAST_ENABLED=false; no synthetic Statcast values were created"}
-        response = await BaseballSavantStatcastAdapter().get_batting_leaderboard(event_date.year)
-        archived = self.archive.write(response.envelope.source, response.raw_payload)
+        adapter = BaseballSavantStatcastAdapter()
+        batting = await adapter.get_batting_leaderboard(event_date.year)
+        pitching = await adapter.get_pitching_leaderboard(event_date.year)
+        batting_archive = self.archive.write(batting.envelope.source, batting.raw_payload)
+        pitching_archive = self.archive.write(pitching.envelope.source, pitching.raw_payload)
+        combined_rows = [*batting.envelope.data, *pitching.envelope.data]
         snapshot = ParquetSnapshotWriter(self.settings.curated_data_root).write(
-            "statcast_batting", response.envelope.data, event_date=datetime(event_date.year, event_date.month, event_date.day, tzinfo=UTC)
+            "statcast_player",
+            combined_rows,
+            event_date=datetime(event_date.year, event_date.month, event_date.day, tzinfo=UTC),
         )
-        self._ingestion_run(response.envelope, archived.raw_file_reference, snapshot.row_count, "refresh-statcast")
+        promoted = self.normalizer.ingest_statcast(
+            combined_rows,
+            batting.envelope.source,
+            season=event_date.year,
+            available_as_of=max(batting.envelope.fetched_at, pitching.envelope.fetched_at),
+            raw_reference=f"{batting_archive.raw_file_reference},{pitching_archive.raw_file_reference}",
+            source_mode="LIVE",
+        )
+        combined_envelope = SourceEnvelope(
+            source=batting.envelope.source,
+            source_mode="LIVE",
+            fetched_at=max(batting.envelope.fetched_at, pitching.envelope.fetched_at),
+            data=[],
+            metadata={
+                "batting_rows": len(batting.envelope.data),
+                "pitching_rows": len(pitching.envelope.data),
+            },
+        )
+        self._ingestion_run(
+            combined_envelope,
+            f"{batting_archive.raw_file_reference},{pitching_archive.raw_file_reference}",
+            promoted,
+            "refresh-statcast",
+        )
         self.session.commit()
-        return {"records": snapshot.row_count, "status": "success", "parquet_reference": snapshot.path, "checksum": snapshot.checksum}
+        return {
+            "records": promoted,
+            "downloaded_rows": snapshot.row_count,
+            "canonical_observations": promoted,
+            "status": "success",
+            "parquet_reference": snapshot.path,
+            "checksum": snapshot.checksum,
+        }
 
     async def rebuild_features(self, event_date: date) -> dict[str, Any]:
         # Team features are normalized as part of MLB data ingestion. This job is
@@ -386,6 +636,103 @@ class JobOrchestrator:
         steps["performance"] = await self.recalculate_performance(event_date)
         return {"records": sum(int(value.get("records", 0)) for value in steps.values()), "steps": steps}
 
+    async def controlled_live_validation(self, event_date: date) -> dict[str, Any]:
+        """Run the one-shot Gate 2 validation under strict quota safeguards.
+
+        This operator-only path never enables schedulers, polling, Statcast, or
+        official positions. The single Odds request is attempted only after
+        live schedule/context/weather acquisition and a clean provenance/budget
+        preflight; provider failures are terminal and are never retried here.
+        """
+
+        unsafe_flags = {
+            "scheduler_enabled": self.settings.scheduler_enabled,
+            "event_relative_scheduler_enabled": self.settings.event_relative_scheduler_enabled,
+            "odds_polling_enabled": self.settings.odds_polling_enabled,
+            "statcast_enabled": self.settings.statcast_enabled,
+            "official_positions_enabled": self.settings.official_positions_enabled,
+        }
+        enabled = [name for name, value in unsafe_flags.items() if value]
+        if enabled:
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                f"Controlled validation requires disabled background/optional flags: {', '.join(enabled)}",
+                retryable=False,
+            )
+        if self.settings.app_env == "test":
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                "Controlled live validation is disabled in the test environment",
+                retryable=False,
+            )
+        if self.settings.odds_daily_request_budget != 1:
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                "ODDS_DAILY_REQUEST_BUDGET must equal 1",
+                retryable=False,
+            )
+        if not self.settings.the_odds_api_key:
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                "THE_ODDS_API_KEY is not configured",
+                retryable=False,
+            )
+
+        bounds = self._day_bounds(event_date)
+        demo_games_before = self.session.scalar(select(func.count(Game.id)).where(
+            Game.starts_at >= bounds[0],
+            Game.starts_at < bounds[1],
+            Game.source_mode == "DEMO",
+        )) or 0
+        if demo_games_before:
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                f"Target date contains {demo_games_before} DEMO game rows; use a clean live date/database",
+                retryable=False,
+            )
+        self._enforce_odds_quota_policy()
+
+        steps: dict[str, Any] = {}
+        steps["schedule"] = await self.refresh_schedule(event_date)
+        live_games = self.session.scalar(select(func.count(Game.id)).where(
+            Game.starts_at >= bounds[0],
+            Game.starts_at < bounds[1],
+            Game.source_mode == "LIVE",
+        )) or 0
+        if live_games == 0:
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                "MLB schedule returned no live games for the target date; Odds request was not spent",
+                retryable=False,
+            )
+        steps["mlb_data"] = await self.refresh_mlb_data(event_date)
+        steps["weather"] = await self.refresh_weather(event_date)
+        demo_games_after = self.session.scalar(select(func.count(Game.id)).where(
+            Game.starts_at >= bounds[0],
+            Game.starts_at < bounds[1],
+            Game.source_mode == "DEMO",
+        )) or 0
+        if demo_games_after:
+            raise SourceError(
+                "GATE2_CONTROLLED_VALIDATION",
+                "Demo provenance appeared during live preflight; Odds request was not spent",
+                retryable=False,
+            )
+        steps["odds"] = await self.refresh_odds(
+            event_date,
+            controlled_live_request=True,
+        )
+        steps["features"] = await self.rebuild_features(event_date)
+        steps["forecasts"] = await self.generate_forecasts(event_date)
+        return {
+            "records": sum(int(value.get("records", 0)) for value in steps.values()),
+            "event_date": event_date.isoformat(),
+            "live_games": live_games,
+            "demo_games": demo_games_after,
+            "one_odds_request_attempted": True,
+            "steps": steps,
+        }
+
     def _games_for_date(self, event_date: date) -> list[Game]:
         games = list(self.session.scalars(select(Game).where(
             Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1]
@@ -420,6 +767,21 @@ class JobOrchestrator:
         return local_day_bounds(value, self.settings.display_timezone)
 
     def _enforce_odds_quota_policy(self) -> None:
+        start_of_day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        requests_today = self.session.scalar(
+            select(func.count(ProviderRequestLedger.id)).where(
+                ProviderRequestLedger.provider == "THE_ODDS_API",
+                ProviderRequestLedger.requested_at >= start_of_day,
+                ProviderRequestLedger.source_mode == "LIVE",
+                ProviderRequestLedger.status == "RESERVED",
+            )
+        ) or 0
+        if requests_today >= self.settings.odds_daily_request_budget:
+            raise SourceError(
+                "THE_ODDS_API",
+                f"Daily request budget reached ({requests_today}/{self.settings.odds_daily_request_budget})",
+                retryable=False,
+            )
         latest = self.session.scalar(select(IngestionRun).where(
             IngestionRun.source == "THE_ODDS_API",
             IngestionRun.status == RunStatus.SUCCEEDED,
@@ -435,6 +797,41 @@ class JobOrchestrator:
             if elapsed < cooldown:
                 seconds = int((cooldown - elapsed).total_seconds())
                 raise SourceError("THE_ODDS_API", f"Odds refresh cooldown active for {seconds} more seconds", retryable=False)
+
+    def _reserve_provider_request(
+        self,
+        provider: str,
+        endpoint_key: str,
+        *,
+        controlled_live_request: bool,
+        request_shape: dict[str, Any],
+    ) -> ProviderRequestLedger:
+        now = datetime.now(UTC)
+        fingerprint = sha256(
+            json.dumps(request_shape, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        ledger = ProviderRequestLedger(
+            provider=provider,
+            endpoint_key=endpoint_key,
+            requested_at=now,
+            status="RESERVED",
+            request_fingerprint=fingerprint,
+            controlled_live_request=controlled_live_request,
+            source_mode="LIVE",
+            job_run_id=self._active_job_run_id,
+            response_metadata={"request_shape": request_shape},
+        )
+        self.session.add(ledger)
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise SourceError(
+                provider,
+                "An equivalent provider request is already reserved for this UTC budget day",
+                retryable=False,
+            ) from exc
+        return ledger
 
 
 async def seed_demo_data(session: Session, settings: Settings, event_date: date | None = None) -> dict[str, Any]:
@@ -471,3 +868,10 @@ def _job_key(value: str) -> str:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None

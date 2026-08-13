@@ -35,6 +35,13 @@ async def _run(command: str, event_date: date | None) -> dict[str, Any]:
         elif command == "run-pipeline":
             run = await JobOrchestrator(session, settings).run("daily-pipeline", requested_by_user_id=admin.id, event_date=event_date)
             result = {"job_id": str(run.id), "status": run.status.value, "result": run.result}
+        elif command == "controlled-live-validation":
+            run = await JobOrchestrator(session, settings).run(
+                "controlled-live-validation",
+                requested_by_user_id=admin.id,
+                event_date=event_date,
+            )
+            result = {"job_id": str(run.id), "status": run.status.value, "result": run.result}
         elif command == "create-admin":
             result = {"admin_id": str(admin.id), "email": admin.email, "password": "configured via ADMIN_PASSWORD"}
         else:
@@ -52,7 +59,10 @@ def _upgrade_database(database_url: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Sports Predictor backend operations")
-    parser.add_argument("command", choices=["init-db", "seed-demo", "run-pipeline", "create-admin"])
+    parser.add_argument(
+        "command",
+        choices=["init-db", "seed-demo", "run-pipeline", "controlled-live-validation", "create-admin"],
+    )
     parser.add_argument("--date", dest="event_date", type=date.fromisoformat, help="Event date (YYYY-MM-DD)")
     args = parser.parse_args()
     result = asyncio.run(_run(args.command, args.event_date))

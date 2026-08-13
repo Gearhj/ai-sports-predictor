@@ -23,6 +23,8 @@ from app.models import (
     ForecastComponent,
     ForecastStatus,
     Game,
+    GameFeatureSnapshot,
+    GameRefreshState,
     GameStatus,
     GameTeam,
     IngestionRun,
@@ -41,6 +43,8 @@ from app.models import (
     Sportsbook,
     Team,
     TeamFeature,
+    LineupObservation,
+    StarterObservation,
     Venue,
     WeatherSnapshot,
     ExternalIdMapping,
@@ -73,6 +77,54 @@ TEAM_COLORS = {
 }
 
 
+def _simulation_over_probability(simulation: dict[str, Any], total: float | None) -> float:
+    """Return an over probability for both standard and consensus total lines."""
+    if total is None:
+        return 0.0
+
+    precomputed = (simulation.get("total_probabilities") or {}).get(f"{total:g}")
+    if precomputed is not None:
+        return float(precomputed.get("over", 0.0))
+
+    distribution = simulation.get("total_runs_distribution") or {}
+    if not distribution:
+        return 0.0
+
+    probability = 0.0
+    for runs, share in distribution.items():
+        if runs == ">20":
+            if total < 20:
+                probability += float(share)
+            continue
+        if runs == "<0":
+            continue
+        try:
+            if float(runs) > total:
+                probability += float(share)
+        except (TypeError, ValueError):
+            continue
+    return min(max(probability, 0.0), 1.0)
+
+
+def _snapshot_evidence_timestamp(
+    snapshot: GameFeatureSnapshot | None,
+    *families: str,
+) -> datetime | None:
+    if snapshot is None:
+        return None
+    candidates: list[datetime] = []
+    for item in snapshot.source_evidence or []:
+        if item.get("family") not in families or not item.get("available_as_of"):
+            continue
+        value = item["available_as_of"]
+        try:
+            parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            continue
+        candidates.append(_aware(parsed))
+    return max(candidates, default=None)
+
+
 class ReadService:
     def __init__(self, session: Session, settings: Settings) -> None:
         self.session = session
@@ -85,7 +137,10 @@ class ReadService:
         complete = sum(forecast is not None and forecast.status == ForecastStatus.PUBLISHED for forecast in forecasts)
         readiness = [card.data_readiness for card in cards if card.data_readiness is not None]
         bankroll = self.bankroll()
-        last_refresh = max((card.last_update for card in cards), default=None)
+        last_refresh = max(
+            (card.last_refresh_at for card in cards if card.last_refresh_at is not None),
+            default=None,
+        )
         return DashboardData(
             data_mode=self._data_mode(event_date),
             date=event_date,
@@ -106,6 +161,32 @@ class ReadService:
     def game_card(self, game: Game) -> ForecastGame:
         home_side, home, away_side, away = self._sides(game.id)
         forecast = self._latest_forecast(game.id)
+        refresh_state = self._latest_refresh_state(game.id, game.source_mode)
+        feature_snapshot_id = (
+            forecast.feature_snapshot_id
+            if forecast and forecast.feature_snapshot_id
+            else refresh_state.last_feature_snapshot_id if refresh_state else None
+        )
+        feature_snapshot = self.session.get(GameFeatureSnapshot, feature_snapshot_id) if feature_snapshot_id else None
+        lineage_cutoff = (
+            _aware(feature_snapshot.data_as_of)
+            if feature_snapshot
+            else _aware(forecast.available_as_of)
+            if forecast
+            else _aware(refresh_state.available_as_of) if refresh_state else datetime.now(UTC)
+        )
+        away_lineup = self._lineup_summary(
+            game,
+            away.id,
+            lineage_cutoff,
+            feature_snapshot.away_lineup_observation_id if feature_snapshot else None,
+        )
+        home_lineup = self._lineup_summary(
+            game,
+            home.id,
+            lineage_cutoff,
+            feature_snapshot.home_lineup_observation_id if feature_snapshot else None,
+        )
         venue = self.session.get(Venue, game.venue_id) if game.venue_id else None
         market = self._market_context(game.id, home.id, away.id)
         home_probability = forecast.home_win_probability if forecast else None
@@ -137,8 +218,42 @@ class ReadService:
             venue=venue.name if venue else "Venue unavailable",
             away_team=self._team_summary(away, away_side),
             home_team=self._team_summary(home, home_side),
-            away_pitcher=self._pitcher_summary(away_side, away.id, game.id),
-            home_pitcher=self._pitcher_summary(home_side, home.id, game.id),
+            away_pitcher=self._pitcher_summary(
+                away_side,
+                away.id,
+                game.id,
+                cutoff=lineage_cutoff,
+                observation_id=(
+                    feature_snapshot.away_starter_observation_id if feature_snapshot else None
+                ),
+                starter_era=(
+                    feature_snapshot.feature_values.get("away_starter_era")
+                    if feature_snapshot else None
+                ),
+                starter_xera=(
+                    feature_snapshot.feature_values.get("away_starter_xera")
+                    if feature_snapshot else None
+                ),
+                snapshot_bound=feature_snapshot is not None,
+            ),
+            home_pitcher=self._pitcher_summary(
+                home_side,
+                home.id,
+                game.id,
+                cutoff=lineage_cutoff,
+                observation_id=(
+                    feature_snapshot.home_starter_observation_id if feature_snapshot else None
+                ),
+                starter_era=(
+                    feature_snapshot.feature_values.get("home_starter_era")
+                    if feature_snapshot else None
+                ),
+                starter_xera=(
+                    feature_snapshot.feature_values.get("home_starter_xera")
+                    if feature_snapshot else None
+                ),
+                snapshot_bound=feature_snapshot is not None,
+            ),
             forecast_available=forecast is not None,
             market_available=bool(market["has_moneyline"]),
             projected_away_runs=forecast.expected_away_runs if forecast else None,
@@ -159,6 +274,34 @@ class ReadService:
             opportunity=opportunity,
             confidence=forecast.confidence if forecast else None,
             data_readiness=forecast.readiness_score if forecast else None,
+            data_as_of=(
+                _aware(feature_snapshot.data_as_of)
+                if feature_snapshot
+                else _aware(forecast.available_as_of)
+                if forecast
+                else _aware(refresh_state.available_as_of) if refresh_state else None
+            ),
+            lifecycle_stage=(
+                refresh_state.lifecycle_stage
+                if refresh_state
+                else forecast.lifecycle.value.upper() if forecast else "NOT_STARTED"
+            ),
+            time_to_first_pitch_seconds=refresh_state.time_to_first_pitch_seconds if refresh_state else None,
+            last_refresh_at=_aware(refresh_state.last_source_refresh_at) if refresh_state and refresh_state.last_source_refresh_at else None,
+            next_scheduled_refresh_at=(
+                _aware(refresh_state.next_scheduled_refresh_at)
+                if refresh_state and refresh_state.next_scheduled_refresh_at
+                else None
+            ),
+            final_forecast_status=(
+                refresh_state.final_forecast_status
+                if refresh_state
+                else "PUBLISHED" if forecast and forecast.lifecycle.value.upper() == "FINAL" else "NOT_STARTED"
+            ),
+            final_snapshot_frozen=refresh_state.final_snapshot_frozen if refresh_state else None,
+            away_lineup=away_lineup,
+            home_lineup=home_lineup,
+            readiness_detail=self._readiness_detail(forecast),
             books_reporting=market["book_count"],
             last_update=_aware(last_update),
         )
@@ -172,14 +315,33 @@ class ReadService:
         if not forecast:
             return self._empty_game_analysis(game, card)
         home_side, home, away_side, away = self._sides(game.id)
-        home_feature = self._latest_feature(home.id, forecast.available_as_of, game.source_mode)
-        away_feature = self._latest_feature(away.id, forecast.available_as_of, game.source_mode)
+        feature_snapshot = (
+            self.session.get(GameFeatureSnapshot, forecast.feature_snapshot_id)
+            if forecast.feature_snapshot_id else None
+        )
+        lineage_cutoff = (
+            _aware(feature_snapshot.data_as_of)
+            if feature_snapshot else _aware(forecast.available_as_of)
+        )
+        snapshot_values = feature_snapshot.feature_values if feature_snapshot else {}
+        snapshot_missing = set(feature_snapshot.missing_features or []) if feature_snapshot else set()
+
+        def snapshot_value(key: str) -> Any:
+            return None if key in snapshot_missing else snapshot_values.get(key)
+
+        home_feature = self._latest_feature(home.id, lineage_cutoff, game.source_mode)
+        away_feature = self._latest_feature(away.id, lineage_cutoff, game.source_mode)
         home_values, away_values = (home_feature.values if home_feature else {}), (away_feature.values if away_feature else {})
-        weather = self.session.scalar(select(WeatherSnapshot).where(
-            WeatherSnapshot.game_id == game.id,
-            WeatherSnapshot.available_as_of <= forecast.available_as_of,
-        ).order_by(WeatherSnapshot.available_as_of.desc()).limit(1))
-        market = self._market_context(game.id, home.id, away.id)
+        weather = (
+            self.session.get(WeatherSnapshot, feature_snapshot.weather_snapshot_id)
+            if feature_snapshot and feature_snapshot.weather_snapshot_id
+            else self.session.scalar(select(WeatherSnapshot).where(
+                WeatherSnapshot.game_id == game.id,
+                WeatherSnapshot.available_as_of <= lineage_cutoff,
+                WeatherSnapshot.source_mode == game.source_mode,
+            ).order_by(WeatherSnapshot.available_as_of.desc()).limit(1))
+        )
+        market = self._market_context(game.id, home.id, away.id, cutoff=lineage_cutoff)
         model_version = self.session.get(ModelVersion, forecast.model_version_id)
         components = list(self.session.scalars(select(ForecastComponent).where(ForecastComponent.forecast_id == forecast.id)))
         history = list(self.session.scalars(select(Forecast).where(
@@ -193,22 +355,42 @@ class ReadService:
             {"runs": runs, "away": round(float(away_dist.get(str(runs), 0)) * 100, 2), "home": round(float(home_dist.get(str(runs), 0)) * 100, 2)}
             for runs in range(10)
         ]
-        baseline = next((component.output for component in components if component.component_name == "elo_strength_baseline"), {})
+        baseline = next((
+            component.output
+            for component in components
+            if component.component_name == "record_strength_baseline"
+        ), {})
         feature_updated = max(
             (_aware(item.available_as_of) for item in (home_feature, away_feature) if item),
             default=_aware(forecast.available_as_of),
         )
-        audit_updates = {
-            "schedule": _aware(game.created_at),
-            "probable_pitchers": _aware(home_side.pitcher_status_observed_at or forecast.available_as_of),
-            "pitcher_confirmation": _aware(home_side.pitcher_status_observed_at or forecast.available_as_of),
-            "team_stats": feature_updated,
-            "statcast": feature_updated,
-            "odds": market["last_update"],
-            "sportsbook_count": market["last_update"],
-            "weather": _aware(weather.available_as_of) if weather else None,
-            "feature_completeness": feature_updated,
-        }
+        if feature_snapshot:
+            starter_updated = _snapshot_evidence_timestamp(feature_snapshot, "home_starter", "away_starter")
+            audit_updates = {
+                "schedule": _snapshot_evidence_timestamp(feature_snapshot, "game_state"),
+                "probable_pitchers": starter_updated,
+                "pitcher_confirmation": starter_updated,
+                "lineups": _snapshot_evidence_timestamp(feature_snapshot, "home_lineup", "away_lineup"),
+                "roster": _snapshot_evidence_timestamp(feature_snapshot, "roster"),
+                "team_stats": _snapshot_evidence_timestamp(feature_snapshot, "home_team_feature", "away_team_feature"),
+                "statcast": _snapshot_evidence_timestamp(feature_snapshot, "statcast", "talent"),
+                "bullpen": _snapshot_evidence_timestamp(feature_snapshot, "bullpen"),
+                "odds": market["last_update"],
+                "sportsbook_count": market["last_update"],
+                "weather": _snapshot_evidence_timestamp(feature_snapshot, "weather"),
+                "feature_completeness": _aware(feature_snapshot.generated_at),
+            }
+        else:
+            audit_updates = {
+                "schedule": _aware(game.created_at),
+                "probable_pitchers": _aware(home_side.pitcher_status_observed_at or forecast.available_as_of),
+                "pitcher_confirmation": _aware(home_side.pitcher_status_observed_at or forecast.available_as_of),
+                "team_stats": feature_updated,
+                "odds": market["last_update"],
+                "sportsbook_count": market["last_update"],
+                "weather": _aware(weather.available_as_of) if weather else None,
+                "feature_completeness": feature_updated,
+            }
         data_audit = [
             {
                 "source": key.replace("_", " ").title(),
@@ -217,13 +399,22 @@ class ReadService:
                 "detail": value.get("detail", "No detail supplied"),
             }
             for key, value in (forecast.readiness_components or {}).items()
+            if not key.startswith("_")
         ]
         most_home = _distribution_mode(home_dist)
         most_away = _distribution_mode(away_dist)
-        probability_comparison = [
-            {"label": "ASP ensemble", "home": forecast.home_win_probability * 100, "away": forecast.away_win_probability * 100},
-            {"label": "Baseline rating", "home": float(baseline.get("home_win_probability", 0)) * 100, "away": (1 - float(baseline.get("home_win_probability", 0))) * 100},
-        ]
+        probability_comparison = [{
+            "label": "ASP ensemble",
+            "home": forecast.home_win_probability * 100,
+            "away": forecast.away_win_probability * 100,
+        }]
+        if baseline.get("home_win_probability") is not None:
+            baseline_probability = float(baseline["home_win_probability"])
+            probability_comparison.append({
+                "label": "Record strength baseline",
+                "home": baseline_probability * 100,
+                "away": (1 - baseline_probability) * 100,
+            })
         if market["has_moneyline"]:
             probability_comparison.insert(1, {
                 "label": "No-vig market",
@@ -233,7 +424,7 @@ class ReadService:
         return GameAnalysisData(
             data_mode=self._game_data_mode(game.id),
             game=card,
-            data_as_of=_aware(forecast.available_as_of),
+            data_as_of=lineage_cutoff,
             model_version=f"{model_version.name} v{model_version.version}" if model_version else "Unknown model version",
             forecast_version=f"{forecast.lifecycle.value.upper()} · v{forecast.version}",
             weather={
@@ -251,7 +442,13 @@ class ReadService:
             market_prices=market["market_prices"],
             pitcher_metrics=[
                 self._metric("ERA", away_values.get("starter_era"), home_values.get("starter_era"), lower=True, digits=2),
-                self._metric("xERA", away_values.get("starter_xera"), home_values.get("starter_xera"), lower=True, digits=2),
+                self._metric(
+                    "xERA",
+                    snapshot_value("away_starter_xera"),
+                    snapshot_value("home_starter_xera"),
+                    lower=True,
+                    digits=2,
+                ),
                 self._metric("Confirmation", "Confirmed" if away_side.pitcher_confirmed else "Probable", "Confirmed" if home_side.pitcher_confirmed else "Probable"),
             ],
             offense_metrics=[
@@ -264,13 +461,19 @@ class ReadService:
             ],
             bullpen_metrics=[
                 self._metric("Season ERA", away_values.get("bullpen_era"), home_values.get("bullpen_era"), lower=True, digits=2),
-                ComparisonMetric(metric="Workload", away="Unavailable", home="Unavailable", preferred="neutral", context="No reliable reliever-availability feed configured"),
+                self._metric(
+                    "Workload availability",
+                    snapshot_value("away_bullpen_availability"),
+                    snapshot_value("home_bullpen_availability"),
+                    percent=True,
+                ),
             ],
             statcast_metrics=[
-                self._metric("Team xwOBA", away_values.get("xwoba"), home_values.get("xwoba"), digits=3),
-                self._metric("Barrel rate", away_values.get("barrel_rate"), home_values.get("barrel_rate"), percent=True),
-                self._metric("Hard-hit rate", away_values.get("hard_hit_rate"), home_values.get("hard_hit_rate"), percent=True),
-                self._metric("Average exit velocity", away_values.get("average_exit_velocity"), home_values.get("average_exit_velocity"), digits=1),
+                self._metric("Lineup xwOBA", snapshot_value("away_lineup_xwoba"), snapshot_value("home_lineup_xwoba"), digits=3),
+                self._metric("Statcast xwOBA", snapshot_value("away_statcast_xwoba"), snapshot_value("home_statcast_xwoba"), digits=3),
+                self._metric("Barrel rate", snapshot_value("away_statcast_barrel_rate"), snapshot_value("home_statcast_barrel_rate"), percent=True),
+                self._metric("Hard-hit rate", snapshot_value("away_statcast_hard_hit_rate"), snapshot_value("home_statcast_hard_hit_rate"), percent=True),
+                self._metric("Average exit velocity", snapshot_value("away_statcast_average_exit_velocity"), snapshot_value("home_statcast_average_exit_velocity"), digits=1),
             ],
             model_components=[{
                 "model": component.component_name,
@@ -299,7 +502,7 @@ class ReadService:
             simulation={
                 "iterations": int(simulation.get("simulations", 0)),
                 "home_cover_probability": float((simulation.get("home_cover_probabilities") or {}).get("-1.5", 0)) * 100,
-                "over_probability": float((simulation.get("total_probabilities") or {}).get(f"{market['total']:g}", {}).get("over", 0)) * 100 if market["total"] else 0,
+                "over_probability": _simulation_over_probability(simulation, market["total"]) * 100,
                 "most_likely_score": f"{home.abbreviation} {most_home} – {away.abbreviation} {most_away}",
             },
         )
@@ -370,9 +573,18 @@ class ReadService:
 
     def performance(self) -> PerformanceData:
         all_rows = list(self.session.execute(
-            select(Forecast, Game).join(Game, Game.id == Forecast.game_id).where(
+            select(Forecast, Game)
+            .join(Game, Game.id == Forecast.game_id)
+            .join(GameFeatureSnapshot, GameFeatureSnapshot.id == Forecast.feature_snapshot_id)
+            .where(
                 Forecast.status == ForecastStatus.PUBLISHED,
                 Forecast.generated_at < Game.starts_at,
+                Forecast.published_at.is_not(None),
+                Forecast.published_at < Game.starts_at,
+                Forecast.source_mode == "LIVE",
+                Game.source_mode == "LIVE",
+                GameFeatureSnapshot.data_as_of < Game.starts_at,
+                GameFeatureSnapshot.source_mode == "LIVE",
                 Game.status == GameStatus.FINAL,
                 Game.home_score.is_not(None),
                 Game.away_score.is_not(None),
@@ -441,6 +653,10 @@ class ReadService:
         market_probabilities = [item[2] for item in market_rows]
         market_outcomes = [int((item[1].home_score or 0) > (item[1].away_score or 0)) for item in market_rows]
         market_brier = brier_score(market_probabilities, market_outcomes) if market_rows else None
+        asp_market_subset_brier = brier_score(
+            [item[0].home_win_probability for item in market_rows],
+            market_outcomes,
+        ) if market_rows else None
 
         rolling_groups: dict[str, list[tuple[Forecast, Game]]] = defaultdict(list)
         for forecast, game in rows:
@@ -533,7 +749,13 @@ class ReadService:
             evaluated_games=len(rows), brier_score=asp_brier,
             log_loss=asp_log_loss, accuracy=sum((p >= .5) == bool(o) for p, o in zip(probabilities, outcomes)) / len(rows) * 100,
             run_mae=mean_absolute_error(run_errors_actual, run_errors_pred), total_mae=mean_absolute_error(total_actual, total_pred),
-            versus_market_brier=asp_brier - market_brier if market_brier is not None else None,
+            # The comparison must use the identical game subset for ASP and
+            # market probabilities; otherwise missing market evidence biases it.
+            versus_market_brier=(
+                asp_market_subset_brier - market_brier
+                if asp_market_subset_brier is not None and market_brier is not None
+                else None
+            ),
             calibration=[{"predicted": (item.mean_probability or 0) * 100, "observed": (item.observed_rate or 0) * 100, "count": item.count} for item in bins if item.count],
             rolling=rolling, model_components=model_components,
             by_confidence=by_confidence,
@@ -657,7 +879,10 @@ class ReadService:
         now = datetime.now(UTC)
         return GameAnalysisData(
             data_mode=self._game_data_mode(game.id),
-            game=card, data_as_of=now, model_version="No forecast available", forecast_version="UNPUBLISHED",
+            game=card,
+            data_as_of=card.data_as_of or card.last_refresh_at or _aware(game.created_at),
+            model_version="No forecast available",
+            forecast_version="UNPUBLISHED",
             weather={"temperature_f": None, "description": "Unavailable", "wind_mph": None, "wind_direction": "Unavailable", "humidity": None, "run_effect": None},
             probability_comparison=[], run_distribution=[], total_run_distribution=[], run_difference_distribution=[], market_prices=[], pitcher_metrics=[], offense_metrics=[], bullpen_metrics=[], statcast_metrics=[], model_components=[], drivers=[], forecast_history=[],
             data_audit=[{"source": "Forecast", "status": "missing", "updated": now.isoformat(), "detail": "Critical pregame inputs are incomplete; ASP did not fabricate a forecast"}],
@@ -678,6 +903,81 @@ class ReadService:
             Forecast.status == ForecastStatus.PUBLISHED,
         ).order_by(Forecast.version.desc()).limit(1))
 
+    def _latest_refresh_state(self, game_id: Any, source_mode: str) -> GameRefreshState | None:
+        return self.session.scalar(
+            select(GameRefreshState)
+            .where(
+                GameRefreshState.game_id == game_id,
+                GameRefreshState.source_mode == source_mode,
+            )
+            .order_by(GameRefreshState.available_as_of.desc(), GameRefreshState.evaluated_at.desc())
+            .limit(1)
+        )
+
+    def _lineup_summary(
+        self,
+        game: Game,
+        team_id: Any,
+        cutoff: datetime,
+        observation_id: Any | None,
+    ) -> dict[str, Any]:
+        observation = self.session.get(LineupObservation, observation_id) if observation_id else None
+        if observation is not None and (observation.game_id != game.id or observation.team_id != team_id):
+            observation = None
+        if observation is None:
+            candidates = list(self.session.scalars(
+                select(LineupObservation).where(
+                    LineupObservation.game_id == game.id,
+                    LineupObservation.team_id == team_id,
+                    LineupObservation.available_as_of <= cutoff,
+                    LineupObservation.source_mode == game.source_mode,
+                )
+            ))
+            status_rank = {"PROJECTED": 1, "EXPECTED": 2, "CONFIRMED": 3}
+            observation = max(
+                candidates,
+                key=lambda item: (
+                    status_rank.get(item.lineup_status.upper(), 0),
+                    _aware(item.available_as_of),
+                    _aware(item.observed_at),
+                ),
+                default=None,
+            )
+        if observation is None:
+            return {
+                "status": "MISSING",
+                "complete": False,
+                "observed_at": None,
+                "available_as_of": None,
+                "source": None,
+            }
+        return {
+            "status": observation.lineup_status.upper(),
+            "complete": observation.is_complete,
+            "observed_at": _aware(observation.observed_at),
+            "available_as_of": _aware(observation.available_as_of),
+            "source": observation.source,
+        }
+
+    def _readiness_detail(self, forecast: Forecast | None) -> list[dict[str, Any]]:
+        if forecast is None:
+            return []
+        details: list[dict[str, Any]] = []
+        for key, raw in (forecast.readiness_components or {}).items():
+            if key.startswith("_"):
+                continue
+            value = raw if isinstance(raw, dict) else {}
+            details.append({
+                "key": key,
+                "label": key.replace("_", " ").title(),
+                "status": str(value.get("status", "missing")),
+                "score": _optional_float(value.get("score")),
+                "weight": _optional_float(value.get("weight")),
+                "detail": str(value.get("detail", "No readiness detail recorded")),
+                "critical": bool(value.get("critical", False)),
+            })
+        return details
+
     def _sides(self, game_id: Any) -> tuple[GameTeam, Team, GameTeam, Team]:
         rows = list(self.session.execute(select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id == game_id)))
         home_side, home = next(row for row in rows if row[0].is_home)
@@ -692,17 +992,56 @@ class ReadService:
             color=TEAM_COLORS.get(team.abbreviation, "#47758f"),
         )
 
-    def _pitcher_summary(self, side: GameTeam, team_id: Any, game_id: Any) -> PitcherSummary:
-        player = self.session.get(Player, side.probable_pitcher_id) if side.probable_pitcher_id else None
+    def _pitcher_summary(
+        self,
+        side: GameTeam,
+        team_id: Any,
+        game_id: Any,
+        *,
+        cutoff: datetime,
+        observation_id: Any | None,
+        starter_era: Any,
+        starter_xera: Any,
+        snapshot_bound: bool,
+    ) -> PitcherSummary:
         game = self.session.get(Game, game_id)
-        feature = self._latest_feature(team_id, datetime.now(UTC), game.source_mode if game else None)
-        values = feature.values if feature else {}
+        observation = self.session.get(StarterObservation, observation_id) if observation_id else None
+        if observation is not None and (
+            observation.game_id != game_id or observation.team_id != team_id
+        ):
+            observation = None
+        if observation is None and not snapshot_bound and game is not None:
+            observation = self.session.scalar(
+                select(StarterObservation)
+                .where(
+                    StarterObservation.game_id == game_id,
+                    StarterObservation.team_id == team_id,
+                    StarterObservation.available_as_of <= cutoff,
+                    StarterObservation.source_mode == game.source_mode,
+                )
+                .order_by(StarterObservation.available_as_of.desc())
+                .limit(1)
+            )
+        player_id = (
+            observation.confirmed_pitcher_id or observation.probable_pitcher_id
+            if observation is not None else side.probable_pitcher_id
+        )
+        player = self.session.get(Player, player_id) if player_id else None
+        if snapshot_bound:
+            values = {"starter_era": starter_era, "starter_xera": starter_xera}
+        else:
+            feature = self._latest_feature(team_id, cutoff, game.source_mode if game else None)
+            values = feature.values if feature else {}
         pitcher = self.session.scalar(select(Pitcher).where(Pitcher.player_id == player.id)) if player else None
         throwing_hand = str(pitcher.throws).upper() if pitcher and pitcher.throws else None
         hand = "LHP" if throwing_hand == "L" else "RHP" if throwing_hand == "R" else None
         return PitcherSummary(
             name=player.full_name if player else "Probable pitcher unavailable", hand=hand,
-            confirmed=side.pitcher_confirmed,
+            confirmed=(
+                observation is not None
+                and observation.confirmation_state == "CONFIRMED"
+                and observation.confirmed_pitcher_id is not None
+            ) if observation is not None else side.pitcher_confirmed,
             era=float(values["starter_era"]) if values.get("starter_era") is not None else None,
             xera=float(values["starter_xera"]) if values.get("starter_xera") is not None else None,
         )
@@ -716,15 +1055,23 @@ class ReadService:
             query = query.where(TeamFeature.source_mode == source_mode)
         return self.session.scalar(query.order_by(TeamFeature.available_as_of.desc()).limit(1))
 
-    def _latest_market_snapshots(self, game_id: Any) -> list[tuple[Market, MarketOutcome, OddsSnapshot, Sportsbook]]:
-        rows = list(self.session.execute(
+    def _latest_market_snapshots(
+        self,
+        game_id: Any,
+        *,
+        cutoff: datetime | None = None,
+    ) -> list[tuple[Market, MarketOutcome, OddsSnapshot, Sportsbook]]:
+        query = (
             select(Market, MarketOutcome, OddsSnapshot, Sportsbook)
             .join(MarketOutcome, MarketOutcome.market_id == Market.id)
             .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
             .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
             .where(Market.game_id == game_id)
             .order_by(OddsSnapshot.observed_at.desc())
-        ))
+        )
+        if cutoff is not None:
+            query = query.where(OddsSnapshot.available_as_of <= _aware(cutoff))
+        rows = list(self.session.execute(query))
         game = self.session.get(Game, game_id)
         if game:
             rows = [row for row in rows if row[2].source_mode == game.source_mode]
@@ -745,8 +1092,15 @@ class ReadService:
                 seen.add(outcome_key)
         return latest
 
-    def _market_context(self, game_id: Any, home_team_id: Any, away_team_id: Any) -> dict[str, Any]:
-        rows = self._latest_market_snapshots(game_id)
+    def _market_context(
+        self,
+        game_id: Any,
+        home_team_id: Any,
+        away_team_id: Any,
+        *,
+        cutoff: datetime | None = None,
+    ) -> dict[str, Any]:
+        rows = self._latest_market_snapshots(game_id, cutoff=cutoff)
         by_book: dict[Any, dict[Any, tuple[OddsSnapshot, Sportsbook]]] = defaultdict(dict)
         total_lines: list[float] = []
         for market, outcome, snapshot, book in rows:
@@ -981,6 +1335,13 @@ def _audit_status(value: str) -> str:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _duration(started: datetime | None, completed: datetime | None) -> str:

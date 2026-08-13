@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { ForecastGame } from '../types/domain'
 import { formatTime, formatTimestamp } from '../services/format'
 import { formatMoneyline, formatNumber, formatPct, ScoreBar, TeamBadge } from './ui'
+import { GameLifecycleStrip } from './GameLifecycle'
 
 function OpportunityBadge({ label }: { label: ForecastGame['opportunity'] }) {
   const className = label === 'STRONG EDGE'
@@ -66,6 +67,8 @@ export function ForecastCard({ game, demo = false }: { game: ForecastGame; demo?
         <OpportunityBadge label={game.opportunity} />
       </header>
 
+      <GameLifecycleStrip game={game} />
+
       <div className="forecast-card__teams">
         <TeamRow side="away" game={game} />
         <div className="forecast-card__at">AT</div>
@@ -89,7 +92,8 @@ export function ForecastCard({ game, demo = false }: { game: ForecastGame; demo?
       </div>
 
       <footer className="forecast-card__footer">
-        <span><Database size={13} /> Updated {formatTimestamp(game.last_update)}</span>
+        <span><Database size={13} /> Data as of {game.data_as_of ? formatTimestamp(game.data_as_of) : 'not recorded'}</span>
+        <span>Last refresh {game.last_refresh_at ? formatTimestamp(game.last_refresh_at) : 'not recorded'} · next {game.next_scheduled_refresh_at ? formatTimestamp(game.next_scheduled_refresh_at) : 'not scheduled'}</span>
         <Link to={`${demo ? '/demo' : ''}/games/${game.id}`}>Open full analysis <ChevronRight size={15} /></Link>
       </footer>
     </article>

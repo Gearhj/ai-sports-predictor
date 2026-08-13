@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,9 +13,12 @@ class SourceError(RuntimeError):
         self.retryable = retryable
 
 
+SourceMode = Literal["LIVE", "DEMO"]
+
+
 class SourceEnvelope(BaseModel):
     source: str
-    source_mode: str = "LIVE"
+    source_mode: SourceMode = "LIVE"
     fetched_at: datetime
     source_event_time: datetime | None = None
     data: Any
@@ -54,10 +57,74 @@ class ScheduleGameDTO(BaseModel):
     away_pitcher: PitcherDTO | None = None
     home_pitcher: PitcherDTO | None = None
     venue: VenueDTO
-    source_mode: str = "LIVE"
+    source_mode: SourceMode = "LIVE"
     away_score: int | None = None
     home_score: int | None = None
     final_at: datetime | None = None
+    doubleheader_status: str | None = None
+    game_number: int | None = None
+    scheduled_innings: int | None = 9
+
+
+class LineupEntryDTO(BaseModel):
+    source_player_id: str
+    full_name: str
+    batting_order: int
+    defensive_position: str | None = None
+    bats: str | None = None
+    starter: bool = True
+    expected_plate_appearance_weight: float | None = None
+
+
+class LineupDTO(BaseModel):
+    source_game_id: str
+    source_team_id: str
+    available_as_of: datetime
+    status: str
+    entries: list[LineupEntryDTO]
+    source_mode: SourceMode = "LIVE"
+
+
+class RosterAvailabilityDTO(BaseModel):
+    source_team_id: str
+    source_player_id: str
+    full_name: str
+    available_as_of: datetime
+    effective_at: datetime
+    status: str
+    position: str | None = None
+    bats: str | None = None
+    throws: str | None = None
+    participation_probability: float | None = None
+    replacement_source_player_id: str | None = None
+    source_mode: SourceMode = "LIVE"
+
+
+class BullpenAvailabilityDTO(BaseModel):
+    """Provider evidence for one reliever's pregame workload.
+
+    ``participation_probability`` is a workload-only score when the evidence is
+    complete. It is not an official club availability declaration. The raw
+    inputs, formula, and missing fields remain in ``workload`` so downstream
+    consumers can distinguish an estimate from reported availability.
+    """
+
+    source_team_id: str
+    source_player_id: str
+    full_name: str
+    available_as_of: datetime
+    evidence_start_date: date
+    evidence_end_date: date
+    role: str | None = None
+    throws: str | None = None
+    pitches_previous_day: int | None = Field(default=None, ge=0)
+    appearances_last_three_days: int | None = Field(default=None, ge=0)
+    innings_last_three_days: float | None = Field(default=None, ge=0)
+    used_consecutive_days: bool | None = None
+    expected_available: bool | None = None
+    participation_probability: float | None = Field(default=None, ge=0, le=1)
+    workload: dict[str, Any] = Field(default_factory=dict)
+    source_mode: SourceMode = "LIVE"
 
 
 class TeamStatsDTO(BaseModel):
@@ -95,7 +162,7 @@ class WeatherDTO(BaseModel):
     pressure_hpa: float | None = None
     weather_code: int | None = None
     description: str | None = None
-    source_mode: str = "LIVE"
+    source_mode: SourceMode = "LIVE"
 
 
 class OddsOutcomeDTO(BaseModel):
@@ -123,23 +190,23 @@ class OddsEventDTO(BaseModel):
     home_team: str
     away_team: str
     bookmakers: list[BookmakerDTO]
-    source_mode: str = "LIVE"
+    source_mode: SourceMode = "LIVE"
 
 
 class ScheduleSource(Protocol):
-    async def get_schedule(self, event_date: date) -> SourceEnvelope: ...
+    async def get_schedule(self, event_date: date) -> "AdapterResponse": ...
 
 
 class StatsSource(Protocol):
-    async def get_team_stats(self, source_team_id: str, season: int) -> SourceEnvelope: ...
+    async def get_team_stats(self, source_team_id: str, season: int) -> "AdapterResponse": ...
 
 
 class OddsSource(Protocol):
-    async def get_market_snapshot(self) -> SourceEnvelope: ...
+    async def get_market_snapshot(self) -> "AdapterResponse": ...
 
 
 class WeatherSource(Protocol):
-    async def get_weather(self, latitude: float, longitude: float, at: datetime) -> SourceEnvelope: ...
+    async def get_weather(self, latitude: float, longitude: float, at: datetime) -> "AdapterResponse": ...
 
 
 class StatcastSource(Protocol):

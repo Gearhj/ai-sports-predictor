@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
 
 from .base import (
     AdapterResponse,
+    BullpenAvailabilityDTO,
+    LineupDTO,
+    LineupEntryDTO,
     PitcherDTO,
+    RosterAvailabilityDTO,
     ScheduleGameDTO,
     SourceEnvelope,
     SourceError,
@@ -94,7 +98,13 @@ class MLBStatsAPIAdapter:
                         venue=VenueDTO(source_id=str(venue.get("id", "")) or None, name=venue["name"]),
                         away_score=_to_int((teams.get("away") or {}).get("score")),
                         home_score=_to_int((teams.get("home") or {}).get("score")),
-                        final_at=(item.get("gameDate") if "final" in (item.get("status") or {}).get("detailedState", "").lower() else None),
+                        # The schedule feed does not provide a trustworthy
+                        # completion timestamp in this response. Do not reuse
+                        # first pitch as final-at provenance.
+                        final_at=None,
+                        doubleheader_status=item.get("doubleHeader"),
+                        game_number=_to_int(item.get("gameNumber")),
+                        scheduled_innings=_to_int(item.get("scheduledInnings")) or 9,
                     )
                 )
         fetched_at = datetime.now(UTC)
@@ -153,6 +163,146 @@ class MLBStatsAPIAdapter:
             raw_payload=raw,
         )
 
+    async def get_active_roster(self, source_team_id: str, at: date) -> AdapterResponse:
+        raw = await self._get(
+            f"/teams/{source_team_id}/roster",
+            {"rosterType": "active", "date": at.isoformat(), "hydrate": "person"},
+        )
+        fetched_at = datetime.now(UTC)
+        rows: list[RosterAvailabilityDTO] = []
+        for item in raw.get("roster", []):
+            person = item.get("person") or {}
+            player_id = person.get("id")
+            if player_id is None:
+                continue
+            rows.append(RosterAvailabilityDTO(
+                source_team_id=source_team_id,
+                source_player_id=str(player_id),
+                full_name=person.get("fullName") or "Player name unavailable",
+                available_as_of=fetched_at,
+                effective_at=fetched_at,
+                status="ACTIVE",
+                position=(item.get("position") or {}).get("abbreviation"),
+                bats=(person.get("batSide") or {}).get("code"),
+                throws=(person.get("pitchHand") or {}).get("code"),
+                participation_probability=1.0,
+            ))
+        return AdapterResponse(
+            envelope=SourceEnvelope(
+                source=self.source,
+                fetched_at=fetched_at,
+                data=[row.model_dump(mode="json") for row in rows],
+                metadata={"team_id": source_team_id, "date": at.isoformat(), "record_count": len(rows)},
+            ),
+            raw_payload=raw,
+        )
+
+    async def get_bullpen_workload(
+        self,
+        source_team_id: str,
+        target_date: date,
+    ) -> AdapterResponse:
+        """Return recent, explicitly evidenced relief workload for a team.
+
+        The provider date range ends on the day before ``target_date``. This
+        deliberately excludes target-day results, which could otherwise leak a
+        completed first game into an earlier doubleheader snapshot. Same-day
+        workload can be added later only with a reliable per-game completion
+        timestamp and a target-game cutoff.
+
+        Players are included only when StatsAPI explicitly reports at least one
+        relief appearance (games pitched minus games started). A missing pitch
+        count remains missing and suppresses the workload score.
+        """
+
+        evidence_end = target_date - timedelta(days=1)
+        evidence_start = target_date - timedelta(days=3)
+        raw = await self._get(
+            "/stats",
+            {
+                "stats": "gameLog",
+                "group": "pitching",
+                "teamId": source_team_id,
+                "startDate": evidence_start.isoformat(),
+                "endDate": evidence_end.isoformat(),
+                "playerPool": "all",
+                "limit": 1000,
+                "hydrate": "person",
+            },
+        )
+        fetched_at = datetime.now(UTC)
+        response_complete = _stats_payload_complete(raw)
+        rows = self._bullpen_rows(
+            raw,
+            source_team_id=source_team_id,
+            evidence_start=evidence_start,
+            evidence_end=evidence_end,
+            fetched_at=fetched_at,
+            response_complete=response_complete,
+        )
+        return AdapterResponse(
+            envelope=SourceEnvelope(
+                source=self.source,
+                source_mode="LIVE",
+                fetched_at=fetched_at,
+                data=[row.model_dump(mode="json") for row in rows],
+                metadata={
+                    "team_id": source_team_id,
+                    "record_count": len(rows),
+                    "evidence_start_date": evidence_start.isoformat(),
+                    "evidence_end_date": evidence_end.isoformat(),
+                    "score_method": "weighted_pitch_count_penalty_v1",
+                    "target_day_excluded": True,
+                    "response_complete": response_complete,
+                },
+            ),
+            raw_payload=raw,
+        )
+
+    async def get_game_lineups(self, source_game_id: str) -> AdapterResponse:
+        raw = await self._get(f"/game/{source_game_id}/boxscore", {})
+        fetched_at = datetime.now(UTC)
+        lineups: list[LineupDTO] = []
+        for side in ("away", "home"):
+            team_node = (raw.get("teams") or {}).get(side) or {}
+            team = team_node.get("team") or {}
+            source_team_id = team.get("id")
+            players = team_node.get("players") or {}
+            batting_order = team_node.get("battingOrder") or []
+            if source_team_id is None or not batting_order:
+                continue
+            entries: list[LineupEntryDTO] = []
+            for index, raw_player_id in enumerate(batting_order, start=1):
+                player_id = str(raw_player_id)
+                node = players.get(f"ID{player_id}") or {}
+                person = node.get("person") or {}
+                position = node.get("position") or {}
+                order = _to_int((node.get("battingOrder") or "")[:3]) or index
+                entries.append(LineupEntryDTO(
+                    source_player_id=player_id,
+                    full_name=person.get("fullName") or f"MLB player {player_id}",
+                    batting_order=max(1, min(9, order)),
+                    defensive_position=position.get("abbreviation"),
+                    bats=(person.get("batSide") or {}).get("code"),
+                    expected_plate_appearance_weight=_lineup_weight(max(1, min(9, order))),
+                ))
+            lineups.append(LineupDTO(
+                source_game_id=source_game_id,
+                source_team_id=str(source_team_id),
+                available_as_of=fetched_at,
+                status="CONFIRMED" if len(entries) >= 9 else "EXPECTED",
+                entries=entries,
+            ))
+        return AdapterResponse(
+            envelope=SourceEnvelope(
+                source=self.source,
+                fetched_at=fetched_at,
+                data=[lineup.model_dump(mode="json") for lineup in lineups],
+                metadata={"game_id": source_game_id, "lineup_count": len(lineups)},
+            ),
+            raw_payload=raw,
+        )
+
     @staticmethod
     def _team(side: dict[str, Any]) -> TeamDTO:
         team = side.get("team") or {}
@@ -178,6 +328,180 @@ class MLBStatsAPIAdapter:
             confirmed=False,
         )
 
+    @staticmethod
+    def _bullpen_rows(
+        raw: dict[str, Any],
+        *,
+        source_team_id: str,
+        evidence_start: date,
+        evidence_end: date,
+        fetched_at: datetime,
+        response_complete: bool,
+    ) -> list[BullpenAvailabilityDTO]:
+        relievers: dict[str, dict[str, Any]] = {}
+        for block in raw.get("stats", []):
+            group = block.get("group") or {}
+            group_name = str(group.get("displayName") or group.get("name") or "").lower()
+            if group_name and group_name != "pitching":
+                continue
+            for split in block.get("splits") or []:
+                stat = split.get("stat") or {}
+                games_started = _to_int(stat.get("gamesStarted"))
+                games_pitched = _to_int(stat.get("gamesPitched"))
+                if games_pitched is None:
+                    games_pitched = _to_int(stat.get("gamesPlayed"))
+                if games_started is None or games_pitched is None:
+                    # Do not label a pitcher a reliever without provider evidence.
+                    continue
+                relief_appearances = max(0, games_pitched - games_started)
+                if relief_appearances == 0:
+                    continue
+                player = split.get("player") or split.get("person") or {}
+                player_id = player.get("id")
+                if player_id is None:
+                    continue
+                key = str(player_id)
+                entry = relievers.setdefault(
+                    key,
+                    {
+                        "full_name": player.get("fullName") or f"MLB player {key}",
+                        "throws": (player.get("pitchHand") or {}).get("code"),
+                        "evidence": [],
+                    },
+                )
+                entry["evidence"].append(
+                    {
+                        "date": _split_date(split),
+                        "relief_appearances": relief_appearances,
+                        "pitches": _first_int(stat, "numberOfPitches", "pitchesThrown"),
+                        "innings": _innings_to_float(stat.get("inningsPitched")),
+                    }
+                )
+
+        rows: list[BullpenAvailabilityDTO] = []
+        expected_dates = [evidence_end - timedelta(days=offset) for offset in range(3)]
+        for player_id, player in sorted(relievers.items()):
+            daily = {
+                day: {"relief_appearances": 0, "pitches": 0, "innings": 0.0}
+                for day in expected_dates
+            }
+            missing_fields: set[str] = (
+                set() if response_complete else {"response_truncated"}
+            )
+            for evidence in player["evidence"]:
+                evidence_date = evidence["date"]
+                if evidence_date not in daily:
+                    missing_fields.add("appearance_date")
+                    continue
+                bucket = daily[evidence_date]
+                bucket["relief_appearances"] += evidence["relief_appearances"]
+                if evidence["pitches"] is None:
+                    bucket["pitches"] = None
+                    missing_fields.add("numberOfPitches")
+                elif bucket["pitches"] is not None:
+                    bucket["pitches"] += evidence["pitches"]
+                if evidence["innings"] is None:
+                    bucket["innings"] = None
+                    missing_fields.add("inningsPitched")
+                elif bucket["innings"] is not None:
+                    bucket["innings"] += evidence["innings"]
+
+            dated_evidence_complete = not {
+                "appearance_date", "response_truncated"
+            }.intersection(missing_fields)
+            pitch_evidence_complete = dated_evidence_complete and "numberOfPitches" not in missing_fields
+            innings_evidence_complete = dated_evidence_complete and "inningsPitched" not in missing_fields
+            pitches_by_recency = [daily[day]["pitches"] for day in expected_dates]
+            score = (
+                _workload_availability_score(*pitches_by_recency)
+                if pitch_evidence_complete
+                else None
+            )
+            appearances = (
+                sum(daily[day]["relief_appearances"] for day in expected_dates)
+                if dated_evidence_complete
+                else None
+            )
+            innings = (
+                round(sum(daily[day]["innings"] for day in expected_dates), 6)
+                if innings_evidence_complete
+                else None
+            )
+            used_consecutive = (
+                daily[expected_dates[0]]["relief_appearances"] > 0
+                and daily[expected_dates[1]]["relief_appearances"] > 0
+                if dated_evidence_complete
+                else None
+            )
+            cumulative_pitches = None
+            if pitch_evidence_complete:
+                one_day = pitches_by_recency[0]
+                two_days = one_day + pitches_by_recency[1]
+                three_days = two_days + pitches_by_recency[2]
+                cumulative_pitches = {
+                    "one_day": one_day,
+                    "two_days": two_days,
+                    "three_days": three_days,
+                }
+            workload = {
+                "schema_version": "mlb_statsapi_bullpen_workload_v1",
+                "score_status": "READY" if score is not None else "NOT_READY",
+                "score_method": "weighted_pitch_count_penalty_v1",
+                "score_formula": (
+                    "max(0, 1 - min(1, 0.55*P1/35 + 0.30*P2/60 + 0.15*P3/90))"
+                ),
+                "score_interpretation": (
+                    "workload-only estimate; not official club availability or a calibrated "
+                    "participation probability"
+                ),
+                "evidence_window": {
+                    "start_date": evidence_start.isoformat(),
+                    "end_date": evidence_end.isoformat(),
+                    "target_day_excluded": True,
+                },
+                "daily": [
+                    {"date": day.isoformat(), **daily[day]}
+                    for day in reversed(expected_dates)
+                ],
+                "cumulative_pitches": cumulative_pitches,
+                "pitches_last_2d": (
+                    cumulative_pitches["two_days"] if cumulative_pitches else None
+                ),
+                "pitches_last_3d": (
+                    cumulative_pitches["three_days"] if cumulative_pitches else None
+                ),
+                # Usage hierarchy is not reported by this endpoint. Keep it
+                # unknown instead of assigning an invented equal/closer weight.
+                "expected_usage_weight": None,
+                "availability_score": score,
+                "missing_fields": sorted(missing_fields),
+                "zero_usage_basis": (
+                    "absence from complete provider game-log splits"
+                    if response_complete else None
+                ),
+            }
+            rows.append(BullpenAvailabilityDTO(
+                source_team_id=source_team_id,
+                source_player_id=player_id,
+                full_name=player["full_name"],
+                available_as_of=fetched_at,
+                evidence_start_date=evidence_start,
+                evidence_end_date=evidence_end,
+                role="RELIEVER",
+                throws=player["throws"],
+                pitches_previous_day=(
+                    pitches_by_recency[0] if dated_evidence_complete else None
+                ),
+                appearances_last_three_days=appearances,
+                innings_last_three_days=innings,
+                used_consecutive_days=used_consecutive,
+                # StatsAPI game logs do not report an official availability flag.
+                expected_available=None,
+                participation_probability=score,
+                workload=workload,
+            ))
+        return rows
+
 
 def _to_float(value: Any) -> float | None:
     try:
@@ -193,6 +517,74 @@ def _to_int(value: Any) -> int | None:
         return None
 
 
+def _first_int(values: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        if key in values:
+            parsed = _to_int(values[key])
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _split_date(split: dict[str, Any]) -> date | None:
+    value = split.get("date") or (split.get("game") or {}).get("gameDate")
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _innings_to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    text = str(value)
+    try:
+        whole, separator, outs = text.partition(".")
+        if not separator:
+            return float(whole)
+        outs_value = int(outs)
+        if outs_value not in {0, 1, 2}:
+            return None
+        return int(whole) + outs_value / 3
+    except (TypeError, ValueError):
+        return None
+
+
+def _workload_availability_score(
+    pitches_one_day: int,
+    pitches_second_day: int,
+    pitches_third_day: int,
+) -> float:
+    cumulative_one = pitches_one_day
+    cumulative_two = cumulative_one + pitches_second_day
+    cumulative_three = cumulative_two + pitches_third_day
+    penalty = min(
+        1.0,
+        0.55 * cumulative_one / 35
+        + 0.30 * cumulative_two / 60
+        + 0.15 * cumulative_three / 90,
+    )
+    return round(max(0.0, 1.0 - penalty), 6)
+
+
+def _stats_payload_complete(raw: dict[str, Any]) -> bool:
+    """Fail closed when StatsAPI reports more splits than it returned."""
+
+    for block in raw.get("stats", []):
+        total = _to_int(block.get("totalSplits"))
+        if total is not None and total > len(block.get("splits") or []):
+            return False
+    return True
+
+
 def _rate(numerator: Any, denominator: Any) -> float | None:
     num, den = _to_float(numerator), _to_float(denominator)
     return num / den if num is not None and den else None
+
+
+def _lineup_weight(position: int) -> float:
+    # Approximate expected PA share by batting slot; normalized by the feature
+    # aggregator. This is a transparent participation weight, not a talent value.
+    return (1.00, 0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.86, 0.84)[position - 1]

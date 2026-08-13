@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
 from app.data_sources import MLBStatsAPIAdapter, SourceError
 from app.jobs import JobOrchestrator, seed_demo_data
-from app.models import Forecast, Game, IngestionRun, JobRun, ModelStatus, ModelVersion, RunStatus
+from app.models import Forecast, Game, GameFeatureSnapshot, IngestionRun, JobRun, ModelStatus, ModelVersion, RunStatus
 
 
 EVENT_DATE = date(2026, 8, 12)
@@ -105,13 +105,29 @@ def test_public_model_and_bankroll_policy_contract(client, session) -> None:
 
 @pytest.mark.asyncio
 async def test_deliberately_seeded_demo_reports_demo_provenance(client, session, settings) -> None:
+    started_at = datetime.now(UTC)
     result = await seed_demo_data(session, settings, EVENT_DATE)
+    completed_at = datetime.now(UTC)
 
     forecast_rows = list(session.execute(select(Forecast, Game).join(Game, Game.id == Forecast.game_id)))
     assert result["steps"]["forecasts"]["records"] == len(forecast_rows) == 3
     first_pitch = min(game.starts_at for _, game in forecast_rows)
-    assert all(forecast.generated_at == first_pitch - timedelta(minutes=90) for forecast, _ in forecast_rows)
-    assert all(forecast.generated_at < game.starts_at for forecast, game in forecast_rows)
+    assert all(
+        started_at <= forecast.generated_at.replace(tzinfo=UTC) <= completed_at
+        for forecast, _ in forecast_rows
+    )
+    assert all(forecast.source_mode == "DEMO" for forecast, _ in forecast_rows)
+    snapshots = [
+        session.get(GameFeatureSnapshot, forecast.feature_snapshot_id)
+        for forecast, _ in forecast_rows
+    ]
+    assert all(snapshot is not None for snapshot in snapshots)
+    assert all(
+        snapshot.data_as_of.replace(tzinfo=UTC)
+        == first_pitch.replace(tzinfo=UTC) - timedelta(minutes=90)
+        for snapshot in snapshots if snapshot is not None
+    )
+    assert all(snapshot.source_mode == "DEMO" for snapshot in snapshots if snapshot is not None)
 
     dashboard = client.get(f"/api/v1/dashboard/today?date={EVENT_DATE}").json()
     markets = client.get(f"/api/v1/markets/board?date={EVENT_DATE}").json()

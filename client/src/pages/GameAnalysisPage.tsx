@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles } from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
 import { ComparisonTable } from '../components/ComparisonTable'
+import { GameLifecyclePanel } from '../components/GameLifecycle'
 import {
   DataModeBanner,
   DataStatePanel,
@@ -128,6 +129,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </footer>
       </section>
 
+      <GameLifecyclePanel game={game} />
+
       <nav className="analysis-tabs" aria-label="Analysis sections">
         <a href="#forecast">Forecast</a><a href="#market">Market</a><a href="#matchup">Matchup</a><a href="#simulation">Simulation</a><a href="#history">History</a><a href="#audit">Data audit</a>
       </nav>
@@ -203,7 +206,7 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
             {data.drivers.map((driver) => (
               <div className="driver" key={driver.label}>
                 <div><strong>{driver.label}</strong><span className={driver.impact >= 0 ? 'positive' : 'negative'}>{driver.impact >= 0 ? '+' : ''}{driver.impact.toFixed(1)} pts</span></div>
-                <div className="driver__axis"><span className={driver.impact >= 0 ? 'driver__bar driver__bar--positive' : 'driver__bar driver__bar--negative'} style={{ width: `${Math.abs(driver.impact) / 4 * 48}%` }} /></div>
+                <div className="driver__axis"><span className={driver.impact >= 0 ? 'driver__bar driver__bar--positive' : 'driver__bar driver__bar--negative'} style={{ width: `${Math.min(Math.abs(driver.impact) / 4 * 48, 50)}%` }} /></div>
                 <p>{driver.detail}</p>
               </div>
             ))}
@@ -239,6 +242,17 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
       </div>
 
       <Panel title="Data audit" eyebrow="SOURCE FRESHNESS & COMPLETENESS" className="section-panel" action={<span className="score-chip">{game.data_readiness == null ? 'Readiness unavailable' : `${Math.round(game.data_readiness)}/100 ready`}</span>}>
+        <div className="readiness-breakdown" aria-label="Readiness component detail">
+          {(game.readiness_detail ?? []).map((component) => (
+            <article key={component.key}>
+              <div><StatusPill status={readinessState(component.status)} />{component.critical && <span className="critical-input">Critical</span>}</div>
+              <strong>{component.label}</strong>
+              <span>{component.detail}</span>
+              <small>{component.score == null || component.weight == null ? 'Score not recorded' : `${component.score.toFixed(1)} / ${component.weight.toFixed(1)} points`}</small>
+            </article>
+          ))}
+          {!(game.readiness_detail ?? []).length && <p className="readiness-breakdown__empty">No component-level readiness evidence is recorded for this forecast.</p>}
+        </div>
         <div className="audit-grid" id="audit">
           {data.data_audit.map((source) => (
             <article key={source.source}><StatusPill status={source.status} /><strong>{source.source}</strong><span>{source.detail}</span><small>{source.updated}</small></article>
@@ -249,6 +263,12 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
       <p className="page-footnote">All values on this page are pregame estimates tied to the forecast version shown. Published versions are retained. No model driver should be interpreted as proof of causality.</p>
     </div>
   )
+}
+
+function readinessState(status: string): 'ready' | 'watch' | 'stale' | 'missing' {
+  const normalized = status.toLowerCase()
+  if (normalized === 'ready' || normalized === 'stale' || normalized === 'missing') return normalized
+  return 'watch'
 }
 
 function TeamHero({

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     odds_regions: str = "us"
     odds_manual_cooldown_minutes: int = Field(default=5, ge=1)
     odds_quota_floor: int = Field(default=10, ge=0)
+    odds_daily_request_budget: int = Field(default=1, ge=0, le=100)
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False
     demo_mode: bool = True
@@ -59,6 +60,7 @@ class Settings(BaseSettings):
     opportunity_strong_threshold: float = Field(default=0.07, ge=0, le=1)
 
     scheduler_enabled: bool = False
+    event_relative_scheduler_enabled: bool = False
     raw_data_root: Path = ASP_ROOT / "data" / "raw"
     curated_data_root: Path = ASP_ROOT / "data" / "curated"
     feature_data_root: Path = ASP_ROOT / "data" / "features"

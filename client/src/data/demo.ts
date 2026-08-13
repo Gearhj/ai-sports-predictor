@@ -51,6 +51,19 @@ export const demoGames: ForecastGame[] = [
     opportunity: 'STANDARD EDGE',
     confidence: 74,
     data_readiness: 96,
+    data_as_of: 'Illustrative snapshot · 6:42 PM',
+    lifecycle_stage: 'T_MINUS_60M',
+    time_to_first_pitch_seconds: 1980,
+    last_refresh_at: 'Illustrative source refresh · 6:40 PM',
+    next_scheduled_refresh_at: 'Illustrative scheduled refresh · 6:45 PM',
+    final_forecast_status: 'NOT_STARTED',
+    final_snapshot_frozen: false,
+    away_lineup: { status: 'PROJECTED', complete: true, observed_at: null, available_as_of: null, source: 'Illustrative lineup source' },
+    home_lineup: { status: 'CONFIRMED', complete: true, observed_at: null, available_as_of: null, source: 'Illustrative lineup source' },
+    readiness_detail: [
+      { key: 'schedule', label: 'Schedule', status: 'ready', score: 10, weight: 10, detail: 'Illustrative schedule evidence present', critical: true },
+      { key: 'lineups', label: 'Lineups', status: 'stale', score: 7.5, weight: 10, detail: 'Atlanta confirmed; New York remains projected', critical: true },
+    ],
     books_reporting: 3,
     last_update: 'Illustrative snapshot',
   },
@@ -90,7 +103,7 @@ export const demoGameAnalysis: GameAnalysisData = {
   probability_comparison: [
     { label: 'ASP ensemble', home: 57.9, away: 42.1 },
     { label: 'No-vig market', home: 54.1, away: 45.9 },
-    { label: 'Baseline Elo', home: 53.8, away: 46.2 },
+    { label: 'Record strength baseline', home: 53.8, away: 46.2 },
   ],
   run_distribution: [
     { runs: 0, away: 4, home: 2 },

@@ -25,6 +25,22 @@ class GameFeatures:
     away_bullpen_era: float | None = None
     home_ops: float | None = None
     away_ops: float | None = None
+    home_lineup_xwoba: float | None = None
+    away_lineup_xwoba: float | None = None
+    home_statcast_xwoba: float | None = None
+    away_statcast_xwoba: float | None = None
+    home_barrel_rate: float | None = None
+    away_barrel_rate: float | None = None
+    home_hard_hit_rate: float | None = None
+    away_hard_hit_rate: float | None = None
+    home_average_exit_velocity: float | None = None
+    away_average_exit_velocity: float | None = None
+    home_bullpen_availability: float | None = None
+    away_bullpen_availability: float | None = None
+    home_days_since_previous_game: float | None = None
+    away_days_since_previous_game: float | None = None
+    home_travel_distance_miles: float | None = None
+    away_travel_distance_miles: float | None = None
     temperature_f: float | None = None
     wind_out_mph: float | None = None
     park_run_factor: float = 1.0
@@ -75,8 +91,8 @@ class EnsembleForecast:
 
 
 class BaselineRatingModel:
-    name = "elo_strength_baseline"
-    version = "1.0.0"
+    name = "record_strength_baseline"
+    version = "2.0.0"
 
     def predict(self, features: GameFeatures, weight: float) -> ComponentForecast:
         home_advantage = 24.0
@@ -92,7 +108,7 @@ class BaselineRatingModel:
             weight=weight,
             version=self.version,
             trained_artifact=False,
-            details={"home_advantage_elo": home_advantage, "rating_gap": features.home_rating - features.away_rating},
+            details={"home_advantage_rating_points": home_advantage, "rating_gap": features.home_rating - features.away_rating},
         )
 
 
@@ -103,8 +119,37 @@ class StatisticalRunModel:
     def predict(self, features: GameFeatures, weight: float) -> ComponentForecast:
         home_attack = _blend(features.home_runs_per_game, features.home_recent_runs)
         away_attack = _blend(features.away_runs_per_game, features.away_recent_runs)
+        # Confirmed/projected lineup talent is the player-first adjustment.
+        # .320 is a reference scale only; missing lineup evidence leaves the
+        # established team estimate unchanged and remains explicit upstream.
+        if features.home_lineup_xwoba is not None:
+            home_attack *= _clip(1 + (features.home_lineup_xwoba - 0.320) * 2.5, 0.90, 1.10)
+        if features.away_lineup_xwoba is not None:
+            away_attack *= _clip(1 + (features.away_lineup_xwoba - 0.320) * 2.5, 0.90, 1.10)
+        home_attack *= _underlying_contact_factor(
+            features.home_statcast_xwoba,
+            features.home_barrel_rate,
+            features.home_hard_hit_rate,
+            features.home_average_exit_velocity,
+        )
+        away_attack *= _underlying_contact_factor(
+            features.away_statcast_xwoba,
+            features.away_barrel_rate,
+            features.away_hard_hit_rate,
+            features.away_average_exit_velocity,
+        )
+        home_attack *= _schedule_factor(
+            features.home_days_since_previous_game,
+            features.home_travel_distance_miles,
+        )
+        away_attack *= _schedule_factor(
+            features.away_days_since_previous_game,
+            features.away_travel_distance_miles,
+        )
         home_pitch = _pitch_adjustment(features.away_starter_era, features.away_bullpen_era)
         away_pitch = _pitch_adjustment(features.home_starter_era, features.home_bullpen_era)
+        home_pitch *= _bullpen_availability_factor(features.away_bullpen_availability)
+        away_pitch *= _bullpen_availability_factor(features.home_bullpen_availability)
         weather_factor = 1.0
         if features.temperature_f is not None:
             weather_factor *= _clip(1 + (features.temperature_f - 70) * 0.0022, 0.93, 1.08)
@@ -244,6 +289,14 @@ class MLBForecastEnsemble:
                 + 0.15 * sample_score
                 + 0.20 * _clip(historical_calibration, 0, 1)
             )
+        # Agreement between development components cannot overpower missing
+        # evidence. This ceiling makes the displayed score monotonically
+        # accountable to both readiness and actually measured feature coverage.
+        evidence_ceiling = 100 * (
+            0.70 * readiness_score
+            + 0.30 * _clip(features.feature_completeness, 0, 1)
+        )
+        confidence = min(confidence, evidence_ceiling)
         drivers = _model_drivers(features)
         return EnsembleForecast(
             expected_home_runs=home_runs,
@@ -259,7 +312,7 @@ class MLBForecastEnsemble:
             components=components,
             drivers=drivers,
             simulation=simulation,
-            methodology_label="ASP MLB ensemble v1 — quantitative, reproducible, non-LLM forecast",
+            methodology_label="ASP MLB point-in-time ensemble v2 — development, quantitative, reproducible, non-LLM",
         )
 
 
@@ -292,6 +345,42 @@ def _pitch_adjustment(starter_era: float | None, bullpen_era: float | None) -> f
     bullpen = bullpen_era if bullpen_era is not None else 4.2
     combined = 0.60 * starter + 0.40 * bullpen
     return _clip(combined / 4.2, 0.72, 1.32)
+
+
+def _underlying_contact_factor(
+    xwoba: float | None,
+    barrel_rate: float | None,
+    hard_hit_rate: float | None,
+    exit_velocity: float | None,
+) -> float:
+    """Conservative development adjustment from observed underlying contact."""
+    shifts: list[float] = []
+    if xwoba is not None:
+        shifts.append((xwoba - 0.320) * 1.5)
+    if barrel_rate is not None:
+        shifts.append((barrel_rate - 0.080) * 0.4)
+    if hard_hit_rate is not None:
+        shifts.append((hard_hit_rate - 0.380) * 0.2)
+    if exit_velocity is not None:
+        shifts.append((exit_velocity - 88.0) * 0.005)
+    if not shifts:
+        return 1.0
+    return _clip(1.0 + sum(shifts) / len(shifts), 0.92, 1.08)
+
+
+def _bullpen_availability_factor(availability: float | None) -> float:
+    if availability is None:
+        return 1.0
+    return _clip(1.0 + (1.0 - availability) * 0.05, 1.0, 1.05)
+
+
+def _schedule_factor(days_since_previous: float | None, travel_miles: float | None) -> float:
+    factor = 1.0
+    if days_since_previous is not None and days_since_previous < 1.0:
+        factor -= (1.0 - max(days_since_previous, 0.0)) * 0.015
+    if travel_miles is not None:
+        factor -= min(max(travel_miles, 0.0) / 1000.0 * 0.005, 0.015)
+    return _clip(factor, 0.97, 1.0)
 
 
 def _logistic(value: float) -> float:

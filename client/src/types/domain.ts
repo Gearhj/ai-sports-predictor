@@ -38,6 +38,26 @@ export interface PitcherSummary {
   xera: number | null
 }
 
+export type LineupStatus = 'PROJECTED' | 'EXPECTED' | 'CONFIRMED' | 'MISSING'
+
+export interface LineupStatusSummary {
+  status: LineupStatus
+  complete: boolean
+  observed_at: string | null
+  available_as_of: string | null
+  source: string | null
+}
+
+export interface ReadinessComponentSummary {
+  key: string
+  label: string
+  status: string
+  score: number | null
+  weight: number | null
+  detail: string
+  critical: boolean
+}
+
 export interface ForecastGame {
   id: string
   start_time: string
@@ -67,6 +87,16 @@ export interface ForecastGame {
   opportunity: 'STRONG EDGE' | 'STANDARD EDGE' | 'WATCH' | 'NO BET'
   confidence: number | null
   data_readiness: number | null
+  data_as_of?: string | null
+  lifecycle_stage?: string
+  time_to_first_pitch_seconds?: number | null
+  last_refresh_at?: string | null
+  next_scheduled_refresh_at?: string | null
+  final_forecast_status?: string | null
+  final_snapshot_frozen?: boolean | null
+  away_lineup?: LineupStatusSummary
+  home_lineup?: LineupStatusSummary
+  readiness_detail?: ReadinessComponentSummary[]
   books_reporting: number
   last_update: string
 }
@@ -77,7 +107,7 @@ export interface DashboardData extends DataProvenance {
     games: number
     complete_forecasts: number
     qualifying_edges: number
-    last_refresh: string
+    last_refresh: string | null
     overall_data_health: number
     official_bankroll: number
     season_return: number

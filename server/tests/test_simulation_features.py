@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,6 +9,7 @@ from app.features.readiness import ReadinessStatus, calculate_readiness
 from app.features.rolling import TimeAwareObservation, eligible_observations, rolling_mean
 from app.forecasting.evaluation import brier_score, calibration_bins, chronological_split, ChronologicalRecord, log_loss
 from app.forecasting.simulation import simulate_game
+from app.services.read_service import _simulation_over_probability, _snapshot_evidence_timestamp
 
 
 def test_simulation_is_reproducible_and_complete() -> None:
@@ -17,6 +19,36 @@ def test_simulation_is_reproducible_and_complete() -> None:
     assert first.home_win_probability + first.away_win_probability == pytest.approx(1.0)
     assert first.mean_home_runs > first.mean_away_runs
     assert "8.5" in first.total_probabilities
+
+
+def test_simulation_over_probability_supports_consensus_total_lines() -> None:
+    simulation = simulate_game(4.8, 4.1, simulations=5000, seed=44)
+    summary = asdict(simulation)
+
+    expected = sum(
+        share
+        for runs, share in summary["total_runs_distribution"].items()
+        if runs == ">20" or (runs not in {"<0", ">20"} and float(runs) > 8.3)
+    )
+
+    assert _simulation_over_probability(summary, 8.3) == pytest.approx(expected)
+    assert _simulation_over_probability(summary, 8.3) > 0
+    assert _simulation_over_probability(summary, 8.5) == pytest.approx(
+        summary["total_probabilities"]["8.5"]["over"]
+    )
+
+
+def test_snapshot_evidence_timestamp_uses_only_requested_families() -> None:
+    snapshot = type("Snapshot", (), {
+        "source_evidence": [
+            {"family": "roster", "available_as_of": "2026-08-12T18:00:00Z"},
+            {"family": "roster", "available_as_of": "2026-08-12T18:05:00+00:00"},
+            {"family": "statcast", "available_as_of": "2026-08-12T19:00:00+00:00"},
+        ]
+    })()
+
+    assert _snapshot_evidence_timestamp(snapshot, "roster") == datetime(2026, 8, 12, 18, 5, tzinfo=UTC)
+    assert _snapshot_evidence_timestamp(snapshot, "bullpen") is None
 
 
 def test_rolling_features_exclude_future_late_and_current_game() -> None:

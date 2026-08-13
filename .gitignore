@@ -16,6 +16,7 @@ pytest-*/
 pytest-cache-files-*/
 .test-artifacts/
 .test-tmp/
+.tmp/
 test-output/
 htmlcov/
 .coverage

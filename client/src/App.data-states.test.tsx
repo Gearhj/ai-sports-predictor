@@ -27,10 +27,15 @@ describe('route-level data provenance and availability', () => {
   })
 
   it('shows LIVE DATA only when the API explicitly reports live provenance', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ...demoDashboard, data_mode: 'live' })))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      ...demoDashboard,
+      data_mode: 'live',
+      summary: { ...demoDashboard.summary, overall_data_health: 71.38888888888889 },
+    })))
     render(<App />)
 
     expect(await screen.findByText('LIVE DATA')).toBeInTheDocument()
+    expect(screen.getByText('71 / 100')).toBeInTheDocument()
     expect(screen.queryByText(/DEMO DATA/i)).not.toBeInTheDocument()
   })
 

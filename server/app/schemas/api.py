@@ -48,6 +48,24 @@ class PitcherSummary(BaseModel):
     xera: float | None
 
 
+class LineupStatusSummary(BaseModel):
+    status: Literal["PROJECTED", "EXPECTED", "CONFIRMED", "MISSING"]
+    complete: bool
+    observed_at: datetime | None = None
+    available_as_of: datetime | None = None
+    source: str | None = None
+
+
+class ReadinessComponentSummary(BaseModel):
+    key: str
+    label: str
+    status: str
+    score: float | None = None
+    weight: float | None = None
+    detail: str
+    critical: bool = False
+
+
 class ForecastGame(BaseModel):
     id: str
     start_time: datetime
@@ -77,6 +95,16 @@ class ForecastGame(BaseModel):
     opportunity: Literal["STRONG EDGE", "STANDARD EDGE", "WATCH", "NO BET"]
     confidence: float | None
     data_readiness: float | None
+    data_as_of: datetime | None
+    lifecycle_stage: str
+    time_to_first_pitch_seconds: int | None
+    last_refresh_at: datetime | None
+    next_scheduled_refresh_at: datetime | None
+    final_forecast_status: str | None
+    final_snapshot_frozen: bool | None
+    away_lineup: LineupStatusSummary
+    home_lineup: LineupStatusSummary
+    readiness_detail: list[ReadinessComponentSummary]
     books_reporting: int
     last_update: datetime
 

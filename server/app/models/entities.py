@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
 
@@ -264,6 +264,290 @@ class GameTeam(UUIDPrimaryKeyMixin, Base):
     __table_args__ = (UniqueConstraint("game_id", "team_id", name="uq_game_team"), UniqueConstraint("game_id", "is_home", name="uq_game_home_away"))
 
 
+class _PointInTimeObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Shared knowledge-time fields for append-only evidence.
+
+    ``observed_at`` is the source/event observation time. ``available_as_of`` is
+    the first instant ASP could use the record. Historical queries must always
+    constrain the latter, even when the source timestamp is older.
+    """
+
+    __abstract__ = True
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    source_record_id: Mapped[str | None] = mapped_column(String(255))
+    payload_checksum: Mapped[str | None] = mapped_column(String(64))
+    ingestion_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ingestion_runs.id"))
+
+
+class GameStateObservation(_PointInTimeObservation):
+    __tablename__ = "game_state_observations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    home_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    away_team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    is_postponed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    postponement_reason: Mapped[str | None] = mapped_column(Text)
+    venue_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("venues.id"))
+    doubleheader_status: Mapped[str | None] = mapped_column(String(40))
+    game_number: Mapped[int | None] = mapped_column(Integer)
+    scheduled_innings: Mapped[int | None] = mapped_column(Integer)
+    home_probable_pitcher_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    away_probable_pitcher_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    home_starter_confirmation: Mapped[str] = mapped_column(String(24), nullable=False, default="UNKNOWN")
+    away_starter_confirmation: Mapped[str] = mapped_column(String(24), nullable=False, default="UNKNOWN")
+    home_score: Mapped[int | None] = mapped_column(Integer)
+    away_score: Mapped[int | None] = mapped_column(Integer)
+    final_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "source", "source_mode", "available_as_of", "payload_checksum",
+            name="uq_game_state_obs_evidence",
+        ),
+        CheckConstraint("game_number IS NULL OR game_number > 0", name="ck_game_state_game_number"),
+        Index("ix_game_state_obs_game_asof", "game_id", "available_as_of"),
+        Index("ix_game_state_obs_home_team", "home_team_id"),
+        Index("ix_game_state_obs_away_team", "away_team_id"),
+    )
+
+
+class LineupObservation(_PointInTimeObservation):
+    __tablename__ = "lineup_observations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    lineup_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    is_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "team_id", "source", "source_mode", "available_as_of", "payload_checksum",
+            name="uq_lineup_obs_evidence",
+        ),
+        CheckConstraint("lineup_status IN ('PROJECTED', 'EXPECTED', 'CONFIRMED')", name="ck_lineup_obs_status"),
+        Index("ix_lineup_obs_game_team_asof", "game_id", "team_id", "available_as_of"),
+    )
+
+
+class LineupEntry(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    __tablename__ = "lineup_entries"
+    lineup_observation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lineup_observations.id"), nullable=False)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    batting_order: Mapped[int | None] = mapped_column(Integer)
+    defensive_position: Mapped[str | None] = mapped_column(String(32))
+    bats: Mapped[str | None] = mapped_column(String(8))
+    is_starter: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    expected_plate_appearances: Mapped[float | None] = mapped_column(Float)
+    expected_plate_appearance_weight: Mapped[float | None] = mapped_column(Float)
+    __table_args__ = (
+        UniqueConstraint("lineup_observation_id", "player_id", name="uq_lineup_entry_player"),
+        UniqueConstraint("lineup_observation_id", "batting_order", name="uq_lineup_entry_order"),
+        CheckConstraint("batting_order IS NULL OR (batting_order >= 1 AND batting_order <= 9)", name="ck_lineup_entry_order"),
+        CheckConstraint("expected_plate_appearances IS NULL OR expected_plate_appearances >= 0", name="ck_lineup_entry_pa"),
+        CheckConstraint(
+            "expected_plate_appearance_weight IS NULL OR (expected_plate_appearance_weight >= 0 AND expected_plate_appearance_weight <= 1)",
+            name="ck_lineup_entry_weight",
+        ),
+        Index("ix_lineup_entries_observation", "lineup_observation_id"),
+    )
+
+
+class StarterObservation(_PointInTimeObservation):
+    __tablename__ = "starter_observations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    probable_pitcher_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    confirmed_pitcher_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    confirmation_state: Mapped[str] = mapped_column(String(24), nullable=False, default="UNKNOWN")
+    throws: Mapped[str | None] = mapped_column(String(8))
+    days_rest: Mapped[int | None] = mapped_column(Integer)
+    pitches_previous_day: Mapped[int | None] = mapped_column(Integer)
+    pitches_last_start: Mapped[int | None] = mapped_column(Integer)
+    workload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "team_id", "source", "source_mode", "available_as_of", "payload_checksum",
+            name="uq_starter_obs_evidence",
+        ),
+        CheckConstraint("confirmation_state IN ('UNKNOWN', 'PROBABLE', 'EXPECTED', 'CONFIRMED')", name="ck_starter_obs_confirmation"),
+        CheckConstraint("days_rest IS NULL OR days_rest >= 0", name="ck_starter_obs_rest"),
+        Index("ix_starter_obs_game_team_asof", "game_id", "team_id", "available_as_of"),
+    )
+
+
+class RosterAvailabilityObservation(_PointInTimeObservation):
+    __tablename__ = "roster_availability_observations"
+    season_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("seasons.id"))
+    team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    availability_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    transaction_status: Mapped[str | None] = mapped_column(String(32))
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    participation_probability: Mapped[float | None] = mapped_column(Float)
+    replacement_player_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("players.id"))
+    active_roster: Mapped[bool | None] = mapped_column(Boolean)
+    reason: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (
+        UniqueConstraint(
+            "player_id", "team_id", "source", "source_mode", "available_as_of", "payload_checksum",
+            name="uq_roster_avail_obs_evidence",
+        ),
+        CheckConstraint(
+            "participation_probability IS NULL OR (participation_probability >= 0 AND participation_probability <= 1)",
+            name="ck_roster_avail_probability",
+        ),
+        Index("ix_roster_avail_player_asof", "player_id", "available_as_of"),
+        Index("ix_roster_avail_team_asof", "team_id", "available_as_of"),
+        Index("ix_roster_avail_effective", "effective_at"),
+    )
+
+
+class PlayerTalentEstimate(_PointInTimeObservation):
+    __tablename__ = "player_talent_estimates"
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(24), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    metric_class: Mapped[str] = mapped_column(String(32), nullable=False, default="UNDERLYING_SKILL")
+    prior_value: Mapped[float | None] = mapped_column(Float)
+    prior_sample_size: Mapped[float | None] = mapped_column(Float)
+    season_value: Mapped[float | None] = mapped_column(Float)
+    season_sample_size: Mapped[float | None] = mapped_column(Float)
+    recent_value: Mapped[float | None] = mapped_column(Float)
+    recent_sample_size: Mapped[float | None] = mapped_column(Float)
+    posterior_value: Mapped[float] = mapped_column(Float, nullable=False)
+    posterior_delta: Mapped[float | None] = mapped_column(Float)
+    reliability: Mapped[float | None] = mapped_column(Float)
+    evidence_cutoff: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    method: Mapped[str] = mapped_column(String(80), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    evidence_references: Mapped[list[Any] | None] = mapped_column(JSON)
+    __table_args__ = (
+        UniqueConstraint(
+            "player_id", "role", "metric_name", "version", "source", "source_mode", "available_as_of",
+            name="uq_player_talent_estimate",
+        ),
+        CheckConstraint("reliability IS NULL OR (reliability >= 0 AND reliability <= 1)", name="ck_player_talent_reliability"),
+        Index("ix_player_talent_player_metric_asof", "player_id", "metric_name", "available_as_of"),
+        Index("ix_player_talent_evidence_cutoff", "evidence_cutoff"),
+    )
+
+
+class BullpenAvailabilityObservation(_PointInTimeObservation):
+    __tablename__ = "bullpen_availability_observations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    true_talent_estimate_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("player_talent_estimates.id"))
+    role: Mapped[str | None] = mapped_column(String(40))
+    throws: Mapped[str | None] = mapped_column(String(8))
+    pitches_previous_day: Mapped[int | None] = mapped_column(Integer)
+    appearances_last_three_days: Mapped[int | None] = mapped_column(Integer)
+    innings_last_three_days: Mapped[float | None] = mapped_column(Float)
+    used_consecutive_days: Mapped[bool | None] = mapped_column(Boolean)
+    expected_available: Mapped[bool | None] = mapped_column(Boolean)
+    participation_probability: Mapped[float | None] = mapped_column(Float)
+    workload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "team_id", "player_id", "source", "source_mode", "available_as_of",
+            name="uq_bullpen_avail_obs",
+        ),
+        CheckConstraint(
+            "participation_probability IS NULL OR (participation_probability >= 0 AND participation_probability <= 1)",
+            name="ck_bullpen_avail_probability",
+        ),
+        Index("ix_bullpen_avail_game_team_asof", "game_id", "team_id", "available_as_of"),
+    )
+
+
+class StatcastPlayerObservation(_PointInTimeObservation):
+    __tablename__ = "statcast_player_observations"
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    team_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("teams.id"))
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(24), nullable=False)
+    evidence_cutoff: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sample_size: Mapped[float | None] = mapped_column(Float)
+    feature_schema_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    values: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    raw_reference: Mapped[str | None] = mapped_column(String(500))
+    __table_args__ = (
+        UniqueConstraint(
+            "player_id", "role", "season", "source", "source_mode", "available_as_of", "payload_checksum",
+            name="uq_statcast_player_obs",
+        ),
+        CheckConstraint("sample_size IS NULL OR sample_size >= 0", name="ck_statcast_player_sample"),
+        Index("ix_statcast_player_role_asof", "player_id", "role", "available_as_of"),
+        Index("ix_statcast_player_cutoff", "evidence_cutoff"),
+    )
+
+
+class ParkFactorVersion(_PointInTimeObservation):
+    __tablename__ = "park_factor_versions"
+    venue_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("venues.id"), nullable=False)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    overall_run_factor: Mapped[float | None] = mapped_column(Float)
+    home_run_factor: Mapped[float | None] = mapped_column(Float)
+    left_handed_run_factor: Mapped[float | None] = mapped_column(Float)
+    right_handed_run_factor: Mapped[float | None] = mapped_column(Float)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    sample_size: Mapped[float | None] = mapped_column(Float)
+    methodology: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (
+        UniqueConstraint(
+            "venue_id", "season", "version", "source", "source_mode",
+            name="uq_park_factor_version",
+        ),
+        CheckConstraint("overall_run_factor IS NULL OR overall_run_factor > 0", name="ck_park_factor_run"),
+        CheckConstraint("home_run_factor IS NULL OR home_run_factor > 0", name="ck_park_factor_hr"),
+        CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_park_factor_confidence"),
+        Index("ix_park_factor_venue_asof", "venue_id", "available_as_of"),
+    )
+
+
+class TeamRatingObservation(_PointInTimeObservation):
+    __tablename__ = "team_rating_observations"
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    rating: Mapped[float] = mapped_column(Float, nullable=False)
+    method: Mapped[str] = mapped_column(String(80), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    evidence_cutoff: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sample_size: Mapped[float | None] = mapped_column(Float)
+    components: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    __table_args__ = (
+        UniqueConstraint(
+            "team_id", "method", "version", "source", "source_mode", "available_as_of",
+            name="uq_team_rating_observation",
+        ),
+        Index("ix_team_rating_team_asof", "team_id", "available_as_of"),
+        Index("ix_team_rating_cutoff", "evidence_cutoff"),
+    )
+
+
+class SourceFreshnessPolicy(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    __tablename__ = "source_freshness_policies"
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    lifecycle_stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    fresh_threshold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    stale_threshold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    critical_threshold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    blocks_final: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    available_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    __table_args__ = (
+        UniqueConstraint("source_key", "lifecycle_stage", "version", name="uq_source_freshness_policy"),
+        CheckConstraint("fresh_threshold_minutes >= 0", name="ck_freshness_fresh_nonnegative"),
+        CheckConstraint("stale_threshold_minutes >= fresh_threshold_minutes", name="ck_freshness_stale_order"),
+        CheckConstraint("critical_threshold_minutes >= stale_threshold_minutes", name="ck_freshness_critical_order"),
+        Index("ix_source_freshness_lookup", "source_key", "lifecycle_stage", "available_as_of"),
+    )
+
+
 class TeamGameStat(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "team_game_stats"
     game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
@@ -390,11 +674,52 @@ class FeatureVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (UniqueConstraint("name", "version", name="uq_feature_name_version"),)
 
 
+class GameFeatureSnapshot(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable, checksum-addressed inputs used for one game forecast state."""
+
+    __tablename__ = "game_feature_snapshots"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    data_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    feature_schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    feature_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("feature_versions.id"))
+    game_state_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("game_state_observations.id"))
+    home_lineup_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lineup_observations.id"))
+    away_lineup_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lineup_observations.id"))
+    home_starter_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("starter_observations.id"))
+    away_starter_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("starter_observations.id"))
+    weather_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("weather_snapshots.id"))
+    park_factor_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("park_factor_versions.id"))
+    home_rating_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("team_rating_observations.id"))
+    away_rating_observation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("team_rating_observations.id"))
+    bullpen_observation_ids: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    roster_observation_ids: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    statcast_observation_ids: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    market_snapshot_ids: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    source_evidence: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    feature_values: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    feature_completeness: Mapped[float] = mapped_column(Float, nullable=False)
+    missing_features: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    stale_features: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    provisional_features: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    bayesian_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("feature_completeness >= 0 AND feature_completeness <= 1", name="ck_game_feature_completeness"),
+        CheckConstraint("data_as_of <= generated_at", name="ck_game_feature_data_asof"),
+        Index("ix_game_feature_snapshot_game_asof", "game_id", "data_as_of"),
+        Index("ix_game_feature_snapshot_generated", "generated_at"),
+    )
+
+
 class Forecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "forecasts"
     game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
     model_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("model_versions.id"), nullable=False)
     feature_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("feature_versions.id"), nullable=False)
+    feature_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("game_feature_snapshots.id"), index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     available_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -428,6 +753,29 @@ class ForecastComponent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     weight: Mapped[float | None] = mapped_column(Float)
     output: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     __table_args__ = (UniqueConstraint("forecast_id", "component_name", name="uq_forecast_component"),)
+
+
+class ForecastMovementEvidence(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    __tablename__ = "forecast_movement_evidence"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    previous_forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"))
+    current_forecast_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("forecasts.id"), nullable=False)
+    previous_feature_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("game_feature_snapshots.id"))
+    current_feature_snapshot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("game_feature_snapshots.id"), nullable=False)
+    feature_family: Mapped[str] = mapped_column(String(80), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    previous_value: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    current_value: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    delta: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    associated_input_updates: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    description: Mapped[str | None] = mapped_column(Text)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    __table_args__ = (
+        UniqueConstraint("current_forecast_id", "feature_family", name="uq_forecast_movement_family"),
+        Index("ix_forecast_movement_game_asof", "game_id", "available_as_of"),
+    )
 
 
 class MarketComparison(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -517,6 +865,74 @@ class JobRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ProviderRequestLedger(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Secret-free append-only provider quota and request accounting."""
+
+    __tablename__ = "provider_request_ledger"
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    endpoint_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_cost: Mapped[int | None] = mapped_column(Integer)
+    quota_remaining: Mapped[int | None] = mapped_column(Integer)
+    records_received: Mapped[int | None] = mapped_column(Integer)
+    controlled_live_request: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    job_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("job_runs.id"))
+    reservation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("provider_request_ledger.id"))
+    error_type: Mapped[str | None] = mapped_column(String(120))
+    response_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    __table_args__ = (
+        CheckConstraint("quota_cost IS NULL OR quota_cost >= 0", name="ck_provider_ledger_quota_cost"),
+        CheckConstraint("quota_remaining IS NULL OR quota_remaining >= 0", name="ck_provider_ledger_quota_remaining"),
+        CheckConstraint("records_received IS NULL OR records_received >= 0", name="ck_provider_ledger_records"),
+        CheckConstraint("status IN ('RESERVED', 'SUCCEEDED', 'FAILED')", name="ck_provider_ledger_status"),
+        CheckConstraint(
+            "(status = 'RESERVED' AND reservation_id IS NULL AND completed_at IS NULL) OR "
+            "(status IN ('SUCCEEDED', 'FAILED') AND reservation_id IS NOT NULL AND completed_at IS NOT NULL)",
+            name="ck_provider_ledger_lifecycle",
+        ),
+        UniqueConstraint("reservation_id", name="uq_provider_ledger_terminal_reservation"),
+        UniqueConstraint(
+            "provider", "endpoint_key", "request_fingerprint", "status",
+            name="uq_provider_ledger_request_status",
+        ),
+        Index("ix_provider_ledger_provider_requested", "provider", "requested_at"),
+        Index("ix_provider_ledger_job", "job_run_id"),
+        Index("ix_provider_ledger_reservation", "reservation_id"),
+    )
+
+
+class GameRefreshState(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only evaluation of a game's event-relative refresh lifecycle."""
+
+    __tablename__ = "game_refresh_states"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    lifecycle_stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_pitch_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    time_to_first_pitch_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_source_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_feature_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("game_feature_snapshots.id"))
+    last_forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"))
+    next_scheduled_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    final_forecast_status: Mapped[str] = mapped_column(String(32), nullable=False, default="NOT_STARTED")
+    final_snapshot_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    freeze_reason: Mapped[str | None] = mapped_column(Text)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "evaluated_at", "lifecycle_stage", "source_mode",
+            name="uq_game_refresh_state",
+        ),
+        Index("ix_game_refresh_state_game_asof", "game_id", "available_as_of"),
+        Index("ix_game_refresh_state_next", "next_scheduled_refresh_at"),
+    )
 
 
 class _FeatureSnapshot(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

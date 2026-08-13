@@ -40,8 +40,8 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
   const dataHealthDetail = data.summary.games === 0
     ? 'No games discovered'
     : data.summary.complete_forecasts === data.summary.games
-      ? 'All games forecast-ready'
-      : `${data.summary.games - data.summary.complete_forecasts} game(s) incomplete`
+      ? 'All games have published forecasts'
+      : `${data.summary.games - data.summary.complete_forecasts} game(s) without a published forecast`
 
   return (
     <div className="page today-page">
@@ -61,12 +61,12 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
       <section className="metric-grid metric-grid--six" aria-label="Daily forecast summary">
-        <MetricCard label={demo ? 'Example games' : 'Today’s games'} value={data.summary.games} detail={`${data.summary.complete_forecasts} ${demo ? 'illustrative' : 'complete'} forecast(s)`} />
+        <MetricCard label={demo ? 'Example games' : 'Today’s games'} value={data.summary.games} detail={`${data.summary.complete_forecasts} ${demo ? 'illustrative' : 'published'} forecast(s)`} />
         <MetricCard label={demo ? 'Example edges' : 'Qualifying edges'} value={data.summary.qualifying_edges} detail={demo ? 'Illustrative classification' : 'Server-configured classifications'} accent="#d97332" />
         <MetricCard label={demo ? 'Example bankroll' : 'Official bankroll'} value={formatCurrency(data.summary.official_bankroll)} detail={demo ? 'Illustrative ledger' : 'Virtual experiment'} trend={data.summary.official_bankroll > 1000 ? 'positive' : 'neutral'} />
         <MetricCard label={demo ? 'Example return' : 'Season return'} value={formatSignedPct(data.summary.season_return)} detail={demo ? 'Illustrative sample' : 'Since $1,000 opening'} trend={data.summary.season_return > 0 ? 'positive' : data.summary.season_return < 0 ? 'negative' : 'neutral'} />
-        <MetricCard label={demo ? 'Example readiness' : 'Data health'} value={`${data.summary.overall_data_health}/100`} detail={dataHealthDetail} />
-        <MetricCard label={demo ? 'Snapshot type' : 'Last refresh'} value={demo ? 'Illustrative' : formatTimestamp(data.summary.last_refresh)} detail={demo ? 'Static snapshot · never live' : 'Live pipeline'} />
+        <MetricCard label={demo ? 'Example readiness' : 'Data health'} value={`${Math.round(data.summary.overall_data_health)} / 100`} detail={dataHealthDetail} />
+        <MetricCard label={demo ? 'Snapshot type' : 'Last refresh'} value={demo ? 'Illustrative' : data.summary.last_refresh ? formatTimestamp(data.summary.last_refresh) : 'Not recorded'} detail={demo ? 'Static snapshot · never live' : 'Latest persisted lifecycle refresh'} />
       </section>
 
       <section className="desk-note">
