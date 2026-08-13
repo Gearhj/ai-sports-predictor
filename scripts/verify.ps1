@@ -11,8 +11,24 @@ $aspTestEnvironment = @{
     OPEN_METEO_ENABLED = "false"
     STATCAST_ENABLED = "false"
     SCHEDULER_ENABLED = "false"
+    EVENT_RELATIVE_SCHEDULER_ENABLED = "false"
     OFFICIAL_POSITIONS_ENABLED = "false"
 }
+
+# Python 3.12 on this Windows host can translate Pytest's requested mode 0700
+# into an owner-denying ACL. Force only test-created directories to 0777 so the
+# suite can collect and clean its own temporary paths deterministically.
+$pytestRunner = @"
+import pathlib
+import pytest
+import sys
+
+original_mkdir = pathlib.Path.mkdir
+pathlib.Path.mkdir = lambda self, mode=0o777, parents=False, exist_ok=False: original_mkdir(
+    self, mode=0o777, parents=parents, exist_ok=exist_ok
+)
+raise SystemExit(pytest.main(sys.argv[1:]))
+"@
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Missing ASP virtual environment. Run scripts\setup.ps1 first."
@@ -31,7 +47,7 @@ try {
     $pytestArtifacts = Join-Path $projectRoot ".test-artifacts"
     New-Item -ItemType Directory -Force -Path $pytestArtifacts | Out-Null
     $pytestTemp = Join-Path $pytestArtifacts ("backend-" + [guid]::NewGuid().ToString("N"))
-    & $python -m pytest --basetemp=$pytestTemp
+    & $python -c $pytestRunner --basetemp=$pytestTemp
     if ($LASTEXITCODE -ne 0) {
         throw "Backend test suite failed with exit code $LASTEXITCODE."
     }

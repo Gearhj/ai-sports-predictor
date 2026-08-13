@@ -187,6 +187,29 @@ invented. A provider or API failure produces an unavailable state; it never
 substitutes illustrative data. Use the explicit `/demo` routes when you intend
 to inspect examples.
 
+## Provider-free Gate 3 training audit
+
+Gate 3 model development reads only persisted point-in-time `LIVE` evidence. It
+does not call MLB, Odds, weather, or Statcast providers and does not fall back to
+demo data. Apply migrations separately, then select a fixed cutoff:
+
+```powershell
+cd C:\Users\james\ai-sports-predictor\server
+..\.venv\Scripts\python.exe -m alembic upgrade head
+..\.venv\Scripts\python.exe -m app.cli train-mlb-models --as-of 2026-08-13T16:00:00Z
+```
+
+The training command does not auto-upgrade the database, create an administrator,
+or start any job/adapters. It writes an immutable diagnostic dataset manifest
+under the Git-ignored `.runtime/gate3/` root even when the sample is empty.
+
+The current local sample has nine scheduled `LIVE` games, zero final outcomes,
+18 feature snapshots, 18 published lifecycle forecasts, and zero eligible
+labeled rows. The honest result is `INSUFFICIENT_DATA / NO_PROMOTION`: no real
+model, calibrator, holdout evaluation, or superiority claim exists. See the
+[Gate 3 training and validation report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md)
+for the exact controls and evidence boundary.
+
 ## Run tests and production builds
 
 Preferred full verification (forces provider integrations, polling, and the
@@ -232,7 +255,7 @@ ai-sports-predictor/
 └── docker-compose.yml   PostgreSQL, API, and web application
 ```
 
-Read [the implementation plan](docs/PHASE_1_IMPLEMENTATION_PLAN.md), [methodology](docs/METHODOLOGY.md), [data-source notes](docs/DATA_SOURCES.md), and [roadmap](docs/ROADMAP.md) before changing models or ingestion behavior.
+Read [the implementation plan](docs/PHASE_1_IMPLEMENTATION_PLAN.md), [methodology](docs/METHODOLOGY.md), [data-source notes](docs/DATA_SOURCES.md), [Gate 3 training report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md), and [roadmap](docs/ROADMAP.md) before changing models or ingestion behavior.
 
 ## Configuration reference
 
@@ -259,6 +282,11 @@ Read [the implementation plan](docs/PHASE_1_IMPLEMENTATION_PLAN.md), [methodolog
 | `SIMULATION_DRAWS` | Monte Carlo draws | `20000` |
 | `FORECAST_MIN_READINESS` | Minimum score for publication | `55` |
 | `SCHEDULER_ENABLED` | Enables background schedule | `false` |
+| `GATE3_ARTIFACT_ROOT` | Ignored root for immutable Gate 3 datasets/models | `.runtime/gate3` |
+| `GATE3_MIN_TRAINING_ROWS`, `GATE3_MIN_HOLDOUT_ROWS` | Hard fitting/evaluation sample floors | `200`, `50` |
+| `GATE3_PROMOTION_MIN_HOLDOUT_ROWS` | Minimum locked-holdout sample for promotion review | `200` |
+| `GATE3_HOLDOUT_FRACTION`, `GATE3_ROLLING_FOLDS` | Date-grouped temporal evaluation policy | `0.20`, `3` |
+| `GATE3_RANDOM_SEED`, `GATE3_BOOTSTRAP_ITERATIONS` | Reproducible fitting and uncertainty policy | `20260813`, `1000` |
 | `LLM_PROVIDER`, `LLM_API_KEY` | Optional future narrative provider | Empty; not required |
 | `VITE_API_URL` | Browser API base | `http://localhost:8000/api/v1` |
 

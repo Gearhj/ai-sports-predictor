@@ -206,6 +206,26 @@ be archived. Closing that diagnostic gap, defining encryption/access controls,
 setting retention/deletion periods, and confirming each source's storage and
 redistribution terms are required before production use.
 
+## Provider-free Gate 3 training boundary
+
+`python -m app.cli train-mlb-models --as-of 2026-08-13T16:00:00Z` never acquires
+provider data. It reads an already-migrated database, selects only frozen `LIVE`
+pregame snapshots and append-only final observations available by the cutoff,
+and writes checksum-addressed diagnostic or model artifacts under the ignored
+`.runtime/gate3/` tree. It does not create an administrator, start a scheduler,
+construct adapters, retry an upstream request, or use demo fixtures.
+
+Raw archives are provenance inputs to normalization, not direct training rows.
+An archived payload becomes eligible only through the canonical point-in-time
+contract; a current mutable provider response cannot reconstruct what was known
+at an earlier forecast cutoff. Missing historical fields and closing lines remain
+missing. Dataset manifests retain source mode, source-evidence checksums,
+feature/schema versions, cutoff, exclusions, coverage, and leakage results.
+
+The current local database has zero eligible labeled games, so the provider-free
+command must return `INSUFFICIENT_DATA / NO_PROMOTION` without fitting a model.
+See `GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the full boundary.
+
 ## Review record required before deployment
 
 For every external source, the deployment owner must record the reviewed terms

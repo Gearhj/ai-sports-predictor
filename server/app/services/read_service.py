@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
+from math import isfinite
 from typing import Any
 
 from sqlalchemy import func, select
@@ -19,6 +20,7 @@ from app.markets.odds import (
     probability_to_american,
 )
 from app.models import (
+    FeatureVersion,
     Forecast,
     ForecastComponent,
     ForecastStatus,
@@ -33,6 +35,7 @@ from app.models import (
     MarketComparison,
     MarketOutcome,
     MarketType,
+    ModelEvaluation,
     ModelVersion,
     OddsSnapshot,
     OfficialAspPosition,
@@ -43,6 +46,7 @@ from app.models import (
     Sportsbook,
     Team,
     TeamFeature,
+    TrainingDatasetManifest,
     LineupObservation,
     StarterObservation,
     Venue,
@@ -62,6 +66,11 @@ from app.schemas.api import (
     MarketBoardRow,
     MarketBookPrice,
     MarketPrice,
+    OfflineEvaluation,
+    OfflineEvaluationBaseline,
+    OfflineEvaluationMetrics,
+    OfflineEvaluationWindow,
+    OfflinePromotionDecision,
     PerformanceData,
     PitcherSummary,
     PositionSchema,
@@ -75,6 +84,8 @@ TEAM_COLORS = {
     "TOR": "#134A8E", "TB": "#092C5C", "ATL": "#CE1141", "NYM": "#FF5910",
     "CHC": "#0E3386", "HOU": "#002D62", "BAL": "#DF4601", "SEA": "#0C2C56",
 }
+
+OFFLINE_EVALUATION_POLICY_VERSION = "gate3-promotion-v1"
 
 
 def _simulation_over_probability(simulation: dict[str, Any], total: float | None) -> float:
@@ -601,6 +612,7 @@ class ReadService:
         forecasts = [row[0] for row in rows]
         games = [row[1] for row in rows]
         model = self.session.scalar(select(ModelVersion).order_by(ModelVersion.created_at.desc()).limit(1))
+        offline_evaluation = self._offline_evaluation()
         if not rows:
             return PerformanceData(
                 data_mode="empty",
@@ -613,6 +625,7 @@ class ReadService:
                 versus_market_brier=None, calibration=[], rolling=[],
                 model_components=[],
                 by_confidence=[],
+                offline_evaluation=offline_evaluation,
             )
         probabilities = [forecast.home_win_probability for forecast in forecasts]
         outcomes = [int((game.home_score or 0) > (game.away_score or 0)) for game in games]
@@ -759,6 +772,398 @@ class ReadService:
             calibration=[{"predicted": (item.mean_probability or 0) * 100, "observed": (item.observed_rate or 0) * 100, "count": item.count} for item in bins if item.count],
             rolling=rolling, model_components=model_components,
             by_confidence=by_confidence,
+            offline_evaluation=offline_evaluation,
+        )
+
+    def _offline_evaluation(self) -> OfflineEvaluation:
+        evaluation = self.session.scalar(
+            select(ModelEvaluation)
+            .where(ModelEvaluation.source_mode == "LIVE")
+            .order_by(
+                ModelEvaluation.evaluated_at.desc(),
+                ModelEvaluation.created_at.desc(),
+                ModelEvaluation.id.desc(),
+            )
+            .limit(1)
+        )
+        if evaluation is not None:
+            model = self.session.get(ModelVersion, evaluation.model_version_id)
+            manifest = self.session.get(TrainingDatasetManifest, evaluation.training_manifest_id)
+            feature_version = self._offline_feature_version(manifest)
+            policy_version = self._offline_policy_version(evaluation, manifest)
+            raw_status = str(evaluation.status or "").upper()
+            integrity_errors: list[str] = []
+            if raw_status in {"FAILED", "ERROR", "ABORTED"}:
+                status = "FAILED"
+                status_reason = evaluation.notes or "The latest governed offline evaluation failed. Partial results are not published."
+            elif raw_status == "INSUFFICIENT_DATA":
+                status = "INSUFFICIENT_DATA"
+                status_reason = evaluation.notes or "The governed evaluation sample did not meet the published policy."
+            elif raw_status == "COMPLETED":
+                integrity_errors = self._offline_evidence_integrity_errors(evaluation, model, manifest)
+                if integrity_errors:
+                    status = "FAILED"
+                    status_reason = (
+                        "The latest completed offline evaluation failed evidence-integrity checks: "
+                        + "; ".join(integrity_errors)
+                        + ". Metrics and promotion claims are blocked."
+                    )
+                else:
+                    status = "AVAILABLE"
+                    status_reason = None
+            else:
+                status = "NOT_RUN"
+                status_reason = (
+                    f"The latest governed evaluation status is {raw_status or 'not completed'}, not COMPLETED; "
+                    "no terminal offline results are published."
+                )
+
+            metrics = evaluation.metrics if isinstance(evaluation.metrics, dict) else {}
+            validation_metrics = self._offline_metrics(
+                self._first_mapping(metrics, "validation", "rolling_validation", "out_of_fold", "oof")
+            )
+            holdout_metrics = self._offline_metrics(
+                self._first_mapping(metrics, "holdout", "locked_holdout", "test")
+            )
+            # A FAILED or unfinished record may contain diagnostic partials.
+            # Fail closed: only a completed immutable evaluation publishes them.
+            if status != "AVAILABLE":
+                validation_metrics = None
+                holdout_metrics = None
+
+            return OfflineEvaluation(
+                status=status,
+                status_reason=status_reason,
+                model_version=self._offline_model_version(model),
+                manifest_version=manifest.version if manifest else None,
+                feature_version=feature_version,
+                evaluation_policy_version=policy_version,
+                rolling_origin_folds=self._offline_fold_count(evaluation, manifest),
+                train_window=self._offline_window(model.training_window if model else None),
+                validation_window=self._offline_window(evaluation.validation_window),
+                holdout_window=self._offline_window(evaluation.holdout_window),
+                validation_metrics=validation_metrics,
+                holdout_metrics=holdout_metrics,
+                baselines=self._offline_baselines(evaluation.baseline_metrics) if status == "AVAILABLE" else [],
+                promotion=(
+                    self._offline_promotion(model, evaluation, policy_version)
+                    if status == "AVAILABLE"
+                    else OfflinePromotionDecision(
+                        decision="PENDING" if status == "NOT_RUN" else "BLOCKED",
+                        reason=status_reason,
+                        criteria_version=policy_version,
+                    )
+                ),
+            )
+
+        manifest = self.session.scalar(
+            select(TrainingDatasetManifest)
+            .where(TrainingDatasetManifest.source_mode == "LIVE")
+            .order_by(
+                TrainingDatasetManifest.built_at.desc(),
+                TrainingDatasetManifest.created_at.desc(),
+                TrainingDatasetManifest.id.desc(),
+            )
+            .limit(1)
+        )
+        if manifest is None:
+            return OfflineEvaluation(
+                status="NOT_RUN",
+                status_reason="No governed offline evaluation or training-dataset manifest has been published.",
+                model_version=None,
+                manifest_version=None,
+                feature_version=None,
+                evaluation_policy_version=OFFLINE_EVALUATION_POLICY_VERSION,
+                rolling_origin_folds=0,
+                promotion=OfflinePromotionDecision(
+                    decision="PENDING",
+                    reason="No promotion decision exists because offline evaluation has not run.",
+                    criteria_version=OFFLINE_EVALUATION_POLICY_VERSION,
+                ),
+            )
+
+        model = self.session.scalar(
+            select(ModelVersion)
+            .where(ModelVersion.training_manifest_id == manifest.id)
+            .order_by(ModelVersion.created_at.desc(), ModelVersion.id.desc())
+            .limit(1)
+        )
+        policy_version = self._offline_policy_version(None, manifest)
+        sufficiency_status, sufficiency_reason = self._offline_training_sufficiency(manifest)
+        if sufficiency_status == "INSUFFICIENT_DATA":
+            reason = sufficiency_reason or (
+                "The governed training manifest records an insufficient temporal or outcome sample."
+            )
+            status = "INSUFFICIENT_DATA"
+            promotion = OfflinePromotionDecision(
+                decision="BLOCKED",
+                reason=reason,
+                criteria_version=policy_version,
+            )
+        elif manifest.row_count < self.settings.gate3_min_training_rows:
+            reason = (
+                f"Only {manifest.row_count} eligible LIVE games were available; "
+                f"the governed policy requires at least {self.settings.gate3_min_training_rows}."
+            )
+            status = "INSUFFICIENT_DATA"
+            promotion = OfflinePromotionDecision(
+                decision="BLOCKED",
+                reason=reason,
+                criteria_version=policy_version,
+            )
+        else:
+            reason = "A governed training manifest exists, but no immutable offline evaluation has completed."
+            status = "NOT_RUN"
+            promotion = OfflinePromotionDecision(
+                decision="PENDING",
+                reason="Promotion remains pending until a governed evaluation is published.",
+                criteria_version=policy_version,
+            )
+        return OfflineEvaluation(
+            status=status,
+            status_reason=reason,
+            model_version=self._offline_model_version(model),
+            manifest_version=manifest.version,
+            feature_version=self._offline_feature_version(manifest),
+            evaluation_policy_version=policy_version,
+            rolling_origin_folds=0,
+            promotion=promotion,
+        )
+
+    def _offline_feature_version(self, manifest: TrainingDatasetManifest | None) -> str | None:
+        if manifest is None:
+            return None
+        feature = self.session.get(FeatureVersion, manifest.feature_version_id)
+        return f"{feature.name}/{feature.version}" if feature else manifest.schema_version
+
+    @staticmethod
+    def _offline_model_version(model: ModelVersion | None) -> str | None:
+        return f"{model.name} v{model.version}" if model else None
+
+    @staticmethod
+    def _offline_training_sufficiency(
+        manifest: TrainingDatasetManifest,
+    ) -> tuple[str | None, str | None]:
+        """Read the canonical, immutable training preflight result when present."""
+
+        quality = manifest.quality_summary if isinstance(manifest.quality_summary, dict) else {}
+        sufficiency = quality.get("training_sufficiency")
+        if not isinstance(sufficiency, dict):
+            return None, None
+        status = str(sufficiency.get("status") or "").upper()
+        reason_value = sufficiency.get("reason")
+        reason = reason_value.strip() if isinstance(reason_value, str) and reason_value.strip() else None
+        if status == "INSUFFICIENT_DATA":
+            return status, reason
+        if status == "SUFFICIENT":
+            return status, reason
+        # An unrecognized structure cannot establish that a training run was
+        # sufficient, but it also must not invent an insufficient-data result.
+        return None, None
+
+    @classmethod
+    def _offline_evidence_integrity_errors(
+        cls,
+        evaluation: ModelEvaluation,
+        model: ModelVersion | None,
+        manifest: TrainingDatasetManifest | None,
+    ) -> list[str]:
+        """Return public-safe reasons a completed evaluation cannot be published."""
+
+        errors: list[str] = []
+        if model is None:
+            errors.append("the referenced model version does not exist")
+        if manifest is None:
+            errors.append("the referenced training manifest does not exist")
+        if model is None or manifest is None:
+            return errors
+
+        if model.training_manifest_id != manifest.id:
+            errors.append("model and evaluation training-manifest lineage do not match")
+        if model.feature_version_id is None or model.feature_version_id != manifest.feature_version_id:
+            errors.append("model and manifest feature-version lineage do not match")
+        if manifest.source_mode != "LIVE":
+            errors.append("the referenced training manifest is not LIVE evidence")
+        if model.code_revision != evaluation.code_revision:
+            errors.append("model and evaluation code revisions do not match")
+        if model.validation_window != evaluation.validation_window:
+            errors.append("model and evaluation validation windows do not match")
+        if model.holdout_window != evaluation.holdout_window:
+            errors.append("model and evaluation holdout windows do not match")
+
+        quality = manifest.quality_summary if isinstance(manifest.quality_summary, dict) else {}
+        leakage_checks = quality.get("leakage_checks")
+        if (
+            not isinstance(leakage_checks, dict)
+            or not leakage_checks
+            or any(result is not True for result in leakage_checks.values())
+        ):
+            errors.append("manifest leakage checks are missing or did not all pass")
+
+        required_references = (
+            ("training-manifest artifact", manifest.artifact_uri, manifest.artifact_checksum),
+            ("model artifact", model.artifact_uri, model.artifact_checksum),
+            ("calibrator artifact", model.calibrator_uri, model.calibrator_checksum),
+            (
+                "evaluation prediction artifact",
+                evaluation.prediction_artifact_uri,
+                evaluation.prediction_artifact_checksum,
+            ),
+        )
+        for label, uri, checksum in required_references:
+            if not cls._offline_complete_artifact_reference(uri, checksum):
+                errors.append(f"{label} URI/checksum reference is incomplete or invalid")
+
+        required_identities = (
+            ("training-manifest", manifest.identity_checksum),
+            ("model", model.identity_checksum),
+            ("evaluation", evaluation.identity_checksum),
+        )
+        for label, checksum in required_identities:
+            if not cls._offline_sha256(checksum):
+                errors.append(f"{label} identity checksum is missing or invalid")
+        return errors
+
+    @classmethod
+    def _offline_complete_artifact_reference(cls, uri: Any, checksum: Any) -> bool:
+        return isinstance(uri, str) and bool(uri.strip()) and cls._offline_sha256(checksum)
+
+    @staticmethod
+    def _offline_sha256(value: Any) -> bool:
+        return (
+            isinstance(value, str)
+            and len(value) == 64
+            and all(character in "0123456789abcdefABCDEF" for character in value)
+        )
+
+    @staticmethod
+    def _first_mapping(value: dict[str, Any], *keys: str) -> dict[str, Any] | None:
+        for key in keys:
+            candidate = value.get(key)
+            if isinstance(candidate, dict):
+                return candidate
+        return None
+
+    @staticmethod
+    def _offline_number(value: Any) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        result = float(value)
+        return result if isfinite(result) else None
+
+    @classmethod
+    def _offline_metrics(cls, value: dict[str, Any] | None) -> OfflineEvaluationMetrics | None:
+        if not isinstance(value, dict):
+            return None
+        return OfflineEvaluationMetrics(
+            brier_score=cls._offline_number(value.get("brier_score")),
+            log_loss=cls._offline_number(value.get("log_loss")),
+            expected_calibration_error=cls._offline_number(
+                value.get("expected_calibration_error", value.get("ece"))
+            ),
+            run_mae=cls._offline_number(value.get("run_mae")),
+        )
+
+    @classmethod
+    def _offline_baselines(cls, value: Any) -> list[OfflineEvaluationBaseline]:
+        rows: list[tuple[str, dict[str, Any]]] = []
+        if isinstance(value, dict):
+            rows = [(str(name), metrics) for name, metrics in value.items() if isinstance(metrics, dict)]
+        elif isinstance(value, list):
+            rows = [
+                (str(metrics.get("name") or "Baseline"), metrics)
+                for metrics in value
+                if isinstance(metrics, dict)
+            ]
+        result: list[OfflineEvaluationBaseline] = []
+        for name, metrics in sorted(rows, key=lambda item: item[0].lower()):
+            sample = metrics.get("sample_size", metrics.get("observations", metrics.get("games", 0)))
+            sample_size = int(sample) if isinstance(sample, (int, float)) and not isinstance(sample, bool) and sample >= 0 else 0
+            result.append(OfflineEvaluationBaseline(
+                name=str(metrics.get("name") or name),
+                sample_size=sample_size,
+                brier_score=cls._offline_number(metrics.get("brier_score")),
+                log_loss=cls._offline_number(metrics.get("log_loss")),
+                expected_calibration_error=cls._offline_number(
+                    metrics.get("expected_calibration_error", metrics.get("ece"))
+                ),
+                run_mae=cls._offline_number(metrics.get("run_mae")),
+            ))
+        return result
+
+    @staticmethod
+    def _offline_window(value: Any) -> OfflineEvaluationWindow | None:
+        if not isinstance(value, dict):
+            return None
+        start = value.get("start_date", value.get("start", value.get("date_start")))
+        end = value.get("end_date", value.get("end", value.get("date_end")))
+        games = value.get("games", value.get("row_count", value.get("observations", value.get("count"))))
+        if start is None or end is None or isinstance(games, bool) or not isinstance(games, (int, float)):
+            return None
+        return OfflineEvaluationWindow(
+            start_date=_offline_date_text(start),
+            end_date=_offline_date_text(end),
+            games=max(0, int(games)),
+        )
+
+    def _offline_fold_count(
+        self,
+        evaluation: ModelEvaluation,
+        manifest: TrainingDatasetManifest | None,
+    ) -> int:
+        candidates: list[Any] = []
+        if isinstance(evaluation.metrics, dict):
+            candidates.extend([
+                evaluation.metrics.get("rolling_origin_folds"),
+                evaluation.metrics.get("fold_count"),
+            ])
+            folds = evaluation.metrics.get("folds")
+            if isinstance(folds, list):
+                candidates.append(len(folds))
+        if manifest is not None and isinstance(manifest.split_policy, dict):
+            candidates.extend([
+                manifest.split_policy.get("rolling_origin_folds"),
+                manifest.split_policy.get("folds"),
+            ])
+        for candidate in candidates:
+            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool) and candidate >= 0:
+                return int(candidate)
+        return 0
+
+    @staticmethod
+    def _offline_policy_version(
+        evaluation: ModelEvaluation | None,
+        manifest: TrainingDatasetManifest | None,
+    ) -> str:
+        if evaluation is not None and isinstance(evaluation.slice_metrics, dict):
+            for key in ("evaluation_policy_version", "policy_version", "criteria_version"):
+                if evaluation.slice_metrics.get(key):
+                    return str(evaluation.slice_metrics[key])
+        if manifest is not None and isinstance(manifest.split_policy, dict):
+            for key in ("evaluation_policy_version", "policy_version", "version"):
+                if manifest.split_policy.get(key):
+                    return str(manifest.split_policy[key])
+        return OFFLINE_EVALUATION_POLICY_VERSION
+
+    @staticmethod
+    def _offline_promotion(
+        model: ModelVersion | None,
+        evaluation: ModelEvaluation,
+        policy_version: str,
+    ) -> OfflinePromotionDecision:
+        raw = str(model.promotion_decision if model and model.promotion_decision else "PENDING").upper()
+        if raw in {"PROMOTED", "APPROVED", "CHAMPION"}:
+            decision = "PROMOTED"
+        elif raw in {"NOT_PROMOTED", "REJECTED", "CHALLENGER_READY"}:
+            decision = "NOT_PROMOTED"
+        elif raw in {"BLOCKED", "NO_PROMOTION", "INSUFFICIENT_DATA"}:
+            decision = "BLOCKED"
+        else:
+            decision = "PENDING"
+        return OfflinePromotionDecision(
+            decision=decision,
+            reason=(model.promotion_reason if model else None) or evaluation.notes,
+            criteria_version=policy_version,
         )
 
     def bankroll(self) -> BankrollData:
@@ -1335,6 +1740,15 @@ def _audit_status(value: str) -> str:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _offline_date_text(value: Any) -> str:
+    if isinstance(value, datetime):
+        return _aware(value).date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value)
+    return text[:10] if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-" else text
 
 
 def _optional_float(value: Any) -> float | None:

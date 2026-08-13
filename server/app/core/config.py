@@ -64,6 +64,16 @@ class Settings(BaseSettings):
     raw_data_root: Path = ASP_ROOT / "data" / "raw"
     curated_data_root: Path = ASP_ROOT / "data" / "curated"
     feature_data_root: Path = ASP_ROOT / "data" / "features"
+    gate3_artifact_root: Path = ASP_ROOT / ".runtime" / "gate3"
+    gate3_min_training_rows: int = Field(default=200, ge=20)
+    gate3_min_holdout_rows: int = Field(default=50, ge=10)
+    gate3_promotion_min_holdout_rows: int = Field(default=200, ge=50)
+    gate3_holdout_fraction: float = Field(default=0.20, gt=0, lt=0.5)
+    gate3_rolling_folds: int = Field(default=3, ge=2, le=10)
+    gate3_random_seed: int = 20260813
+    gate3_bootstrap_iterations: int = Field(default=1000, ge=100, le=10000)
+    gate3_feature_min_coverage: float = Field(default=0.70, ge=0, le=1)
+    gate3_calibration_ece_threshold: float = Field(default=0.05, ge=0, le=0.25)
     admin_email: str = "admin@example.com"
     admin_password: str = "REDACTED-CREDENTIAL"
 

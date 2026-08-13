@@ -59,7 +59,42 @@ visible and reduce the score.
 
 ## Evaluation
 
-Training and evaluation follow chronological or walk-forward boundaries. Probability models are evaluated with Brier score, log loss, reliability bins, and calibration curves; score models use home/away run MAE, total MAE, and differential MAE. Market-relative analysis is performed only where real historical prices exist. Missing closing odds remain null; ASP does not manufacture historical or closing lines.
+Gate 3 training is provider-free and uses only persisted, immutable `LIVE`
+evidence. The dataset builder requires one published pregame feature snapshot and
+one append-only final observation per game. It stops before fitting when fewer
+than 200 eligible labeled games exist. The current local sample contains nine
+scheduled games, zero final outcomes, and therefore zero eligible labels: no
+real model was fitted and the promotion decision is **NO PROMOTION -
+INSUFFICIENT HISTORICAL EVIDENCE**.
+
+When a sufficient sample exists, games remain grouped by date and ordered by
+first pitch. The latest 20% of date groups form a single-use locked holdout; the
+earlier period supplies expanding rolling-origin folds. Preprocessing,
+hyperparameters and feature inclusion use only training or temporal out-of-fold
+validation evidence. The stacker is also evaluated with expanding-origin
+cross-fitting over base-model OOF folds before deployable weights are fitted on
+all base OOF rows. Probability calibration uses only that meta-cross-fitted
+validation evidence.
+Identity, Platt, and sufficiently sampled isotonic calibration are selected on
+validation data before the frozen calibrator is applied to the holdout.
+
+Probability models are evaluated with Brier score, log loss, expected
+calibration error, reliability diagnostics, and paired uncertainty where sample
+size permits. Run models use run-error metrics such as MAE. Market-relative
+analysis uses only the exact intersection of model, timestamped market, and
+outcome evidence. Missing closing odds remain null; ASP does not manufacture
+historical or closing lines. Offline chronological evidence and live forward
+performance are reported separately.
+
+Run the offline audit only after migrations are current:
+
+```powershell
+cd C:\Users\james\ai-sports-predictor\server
+..\.venv\Scripts\python.exe -m app.cli train-mlb-models --as-of 2026-08-13T16:00:00Z
+```
+
+See `docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the complete data,
+leakage, artifact, promotion, and public-reporting boundary.
 
 ## Virtual bankroll
 

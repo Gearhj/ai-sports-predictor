@@ -18,6 +18,8 @@ from app.models import (
     LineupEntry,
     LineupObservation,
     MarketComparison,
+    ModelEvaluation,
+    ModelVersion,
     OddsSnapshot,
     OfficialAspPosition,
     ParkFactorVersion,
@@ -37,6 +39,7 @@ from app.models import (
     TeamFeature,
     TeamGameStat,
     TeamRatingObservation,
+    TrainingDatasetManifest,
     WeatherSnapshot,
 )
 
@@ -59,6 +62,7 @@ _APPEND_ONLY_TYPES = (
     GameStateObservation,
     LineupEntry,
     LineupObservation,
+    ModelEvaluation,
     ParkFactorVersion,
     PitchEvent,
     PitchingFeature,
@@ -74,8 +78,44 @@ _APPEND_ONLY_TYPES = (
     TeamFeature,
     TeamGameStat,
     TeamRatingObservation,
+    TrainingDatasetManifest,
     WeatherSnapshot,
 )
+
+
+# Model identity, lineage, fitted-state, and promotion evidence are immutable
+# once a registry row has been inserted. ``metrics`` is intentionally absent:
+# the Phase 1 forward-performance recalculation still updates that legacy field.
+# Governed offline evidence is stored separately in append-only ModelEvaluation
+# rows and is therefore not weakened by that operational compatibility carveout.
+_IMMUTABLE_MODEL_VERSION_FIELDS = frozenset({
+    "name",
+    "version",
+    "sport_id",
+    "feature_version_id",
+    "algorithm",
+    "status",
+    "training_window",
+    "hyperparameters",
+    "artifact_uri",
+    "artifact_checksum",
+    "parameters",
+    "trained_at",
+    "target",
+    "training_manifest_id",
+    "validation_window",
+    "holdout_window",
+    "calibrator_uri",
+    "calibrator_checksum",
+    "ensemble_weights",
+    "code_revision",
+    "identity_checksum",
+    "feature_names",
+    "seed_policy",
+    "target_definition",
+    "promotion_decision",
+    "promotion_reason",
+})
 
 
 def install_immutability_guards() -> None:
@@ -101,6 +141,8 @@ def install_immutability_guards() -> None:
                 raise ImmutableRecordError("Settled official positions cannot be deleted")
             if isinstance(record, PositionSettlement):
                 raise ImmutableRecordError("Position settlement records are append-only")
+            if isinstance(record, ModelVersion):
+                raise ImmutableRecordError("ModelVersion registry records cannot be deleted")
             if isinstance(record, (ForecastComponent, MarketComparison)) and _published_parent(session, record):
                 raise ImmutableRecordError("Published forecast aggregates cannot be deleted")
         for record in session.dirty:
@@ -108,6 +150,18 @@ def install_immutability_guards() -> None:
                 raise ImmutableRecordError("Odds snapshots are append-only")
             if isinstance(record, _APPEND_ONLY_TYPES) and session.is_modified(record, include_collections=False):
                 raise ImmutableRecordError(f"{type(record).__name__} records are append-only")
+            if isinstance(record, ModelVersion) and session.is_modified(record, include_collections=False):
+                state = inspect(record)
+                changed = sorted(
+                    field
+                    for field in _IMMUTABLE_MODEL_VERSION_FIELDS
+                    if state.attrs[field].history.has_changes()
+                )
+                if changed:
+                    raise ImmutableRecordError(
+                        "ModelVersion governance fields are immutable after creation: "
+                        + ", ".join(changed)
+                    )
             if isinstance(record, Forecast) and session.is_modified(record, include_collections=False):
                 state = inspect(record)
                 history = state.attrs.status.history

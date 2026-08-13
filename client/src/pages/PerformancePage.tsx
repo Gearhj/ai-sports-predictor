@@ -4,10 +4,13 @@ import { DataModeBanner, DataStatePanel, formatPct, MetricCard, PageHeader, Pane
 import { demoPerformance } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
+import type { OfflineEvaluation, OfflineEvaluationMetrics, OfflineEvaluationWindow } from '../types/domain'
 
 export function PerformancePage({ demo = false }: { demo?: boolean }) {
   const { data, state, loading, error, refresh } = useApiResource(endpoints.performance, demo ? { demoData: demoPerformance } : {})
-  if (!data || state === 'empty' || state === 'unavailable' || state === 'loading') {
+  const hasOfflineEvaluation = Boolean(data?.offline_evaluation)
+
+  if (!data || state === 'unavailable' || state === 'loading' || (state === 'empty' && !hasOfflineEvaluation)) {
     return (
       <div className="page performance-page">
         <PageHeader eyebrow="PUBLIC MODEL AUDIT" title="Model Performance" description="Metrics appear only after eligible settled live games exist." />
@@ -16,6 +19,7 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
       </div>
     )
   }
+
   const hasEvaluation = data.evaluated_games > 0 && (data.evaluation_available ?? true)
   const hasMarketBenchmark = data.market_benchmark_available ?? (hasEvaluation && data.versus_market_brier != null && data.versus_market_brier !== 0)
   const metric = (value: number | null, digits: number) => hasEvaluation && value != null ? value.toFixed(digits) : 'N/A'
@@ -48,11 +52,24 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
 
   return (
     <div className="page performance-page">
-      <PageHeader eyebrow={demo ? 'ILLUSTRATIVE PERFORMANCE EXAMPLE' : 'PUBLIC MODEL AUDIT'} title="Model Performance" description={demo ? 'Example metrics demonstrate the audit interface; they are not live or historical results.' : 'Scoring every published forecast—not just the winners.'} actions={<span className="model-chip"><Award size={14} /> {data.model_status || 'DEVELOPMENT'} · {data.model_version}</span>} />
+      <PageHeader
+        eyebrow={demo ? 'ILLUSTRATIVE PERFORMANCE EXAMPLE' : 'PUBLIC MODEL AUDIT'}
+        title="Model Performance"
+        description={demo ? 'Example metrics demonstrate the audit interface; they are not live or historical results.' : 'Scoring every published forecast—not just the winners.'}
+        actions={<span className="model-chip"><Award size={14} /> {data.model_status || 'DEVELOPMENT'} · {data.model_version}</span>}
+      />
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
-      <section className="metric-grid metric-grid--four">
-        <MetricCard label="Evaluated games" value={data.evaluated_games.toLocaleString()} detail="Chronological holdout" />
+      <OfflineEvaluationPanel evaluation={data.offline_evaluation} demo={demo} />
+
+      <section className="performance-section-heading" aria-labelledby="forward-performance-heading">
+        <p className="eyebrow">LIVE FORWARD PERFORMANCE</p>
+        <h2 id="forward-performance-heading">Published forecast record</h2>
+        <p>This section scores immutable pregame forecasts after eligible games settle. It is operational evidence, separate from the offline chronological evaluation above.</p>
+      </section>
+
+      <section className="metric-grid metric-grid--four" aria-label="Forward performance summary">
+        <MetricCard label="Evaluated games" value={data.evaluated_games.toLocaleString()} detail="Settled published forecasts" />
         <MetricCard label="Brier score" value={metric(data.brier_score, 3)} detail={hasEvaluation ? 'Lower is better' : 'Awaiting settled sample'} trend={hasEvaluation ? 'positive' : 'neutral'} />
         <MetricCard label="Log loss" value={metric(data.log_loss, 3)} detail={hasEvaluation ? 'Probability penalty' : 'Awaiting settled sample'} />
         <MetricCard label="Winner accuracy" value={hasEvaluation ? formatPct(data.accuracy) : 'N/A'} detail={hasEvaluation ? 'Not the primary metric' : 'Awaiting settled sample'} />
@@ -74,22 +91,153 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
 
       <div className="analysis-grid analysis-grid--wide-left">
         <Panel title="Model registry scorecard" eyebrow="COMPONENT TRANSPARENCY">
-          {hasEvaluation ? <TableScroll><table className="data-table"><thead><tr><th>Model</th><th>Brier</th><th>Log loss</th><th>Run differential MAE</th><th>Status</th></tr></thead><tbody>{data.model_components.map((model) => <tr key={model.model}><td><strong>{model.model}</strong></td><td>{model.brier == null ? 'N/A' : model.brier.toFixed(3)}</td><td>{model.log_loss == null ? 'N/A' : model.log_loss.toFixed(3)}</td><td>{model.run_mae == null ? 'N/A' : model.run_mae.toFixed(2)}</td><td><span className={`model-status model-status--${model.status.toLowerCase()}`}>{model.status}</span></td></tr>)}</tbody></table></TableScroll> : <EmptyEvaluation />}
+          {hasEvaluation ? <TableScroll><table className="data-table"><thead><tr><th>Model</th><th>Brier</th><th>Log loss</th><th>Run differential MAE</th><th>Status</th></tr></thead><tbody>{data.model_components.map((model) => <tr key={model.model}><td><strong>{model.model}</strong></td><td>{formatEvaluationMetric(model.brier)}</td><td>{formatEvaluationMetric(model.log_loss)}</td><td>{formatEvaluationMetric(model.run_mae, 2)}</td><td><span className={`model-status model-status--${model.status.toLowerCase()}`}>{model.status}</span></td></tr>)}</tbody></table></TableScroll> : <EmptyEvaluation />}
         </Panel>
         <Panel title="Confidence audit" eyebrow="DOES CONFIDENCE HOLD UP?">
           <div className="confidence-audit">
-            {hasEvaluation && data.by_confidence.length ? data.by_confidence.map((bucket) => <article key={bucket.bucket}><div><strong>{bucket.bucket}</strong><span>{bucket.forecasts} forecasts</span></div><b>{formatPct(bucket.accuracy)}</b><small>Brier {bucket.brier == null ? 'N/A' : bucket.brier.toFixed(3)}</small></article>) : <EmptyEvaluation compact />}
+            {hasEvaluation && data.by_confidence.length ? data.by_confidence.map((bucket) => <article key={bucket.bucket}><div><strong>{bucket.bucket}</strong><span>{bucket.forecasts} forecasts</span></div><b>{formatPct(bucket.accuracy)}</b><small>Brier {formatEvaluationMetric(bucket.brier)}</small></article>) : <EmptyEvaluation compact />}
           </div>
         </Panel>
       </div>
 
       <Panel title="Evaluation protocol" eyebrow="WHAT THESE NUMBERS MEAN" className="section-panel methodology-inline">
-        <div><strong>Time-ordered evaluation</strong><p>Training, validation, and test windows move forward chronologically. Future observations are never included in pregame features.</p></div>
-        <div><strong>Immutable forecasts</strong><p>Metrics use the published forecast snapshot appropriate to the evaluation policy. Older versions are retained.</p></div>
-        <div><strong>Market benchmark</strong><p>Market comparisons use timestamp-matched, no-vig consensus probabilities only when observed data exist.</p></div>
+        <div><strong>Separate evidence streams</strong><p>Offline holdout results and live forward results are labeled independently. Neither is substituted for the other.</p></div>
+        <div><strong>Immutable forecasts</strong><p>Forward metrics use the published forecast snapshot appropriate to the evaluation policy. Older versions are retained.</p></div>
+        <div><strong>Matched benchmarks</strong><p>Comparisons use the same eligible games and timestamp-matched inputs. Missing market history is reported as unavailable.</p></div>
       </Panel>
     </div>
   )
+}
+
+function OfflineEvaluationPanel({ evaluation, demo }: { evaluation?: OfflineEvaluation | null; demo: boolean }) {
+  const status = evaluation?.status ?? 'NOT_RUN'
+  const available = status === 'AVAILABLE'
+  const baselines = evaluation?.baselines ?? []
+  const statusReason = evaluation?.status_reason || defaultStatusReason(status)
+
+  return (
+    <Panel
+      title="Offline chronological evaluation"
+      eyebrow="GOVERNED MODEL EVIDENCE"
+      className="offline-evaluation-panel"
+      action={<span className={`evaluation-status evaluation-status--${status.toLowerCase()}`}>{formatStatus(status)}</span>}
+    >
+      <div className="offline-evaluation-body">
+        <div className={`evaluation-state evaluation-state--${status.toLowerCase()}`} role="status">
+          <strong>{available ? (demo ? 'Illustrative evaluation artifact' : 'Evaluation artifact available') : formatStatus(status)}</strong>
+          <span>{statusReason}</span>
+        </div>
+
+        {evaluation && (
+          <dl className="evaluation-meta">
+            <div><dt>Model version</dt><dd>{evaluation.model_version || 'N/A'}</dd></div>
+            <div><dt>Manifest version</dt><dd>{evaluation.manifest_version || 'N/A'}</dd></div>
+            <div><dt>Feature version</dt><dd>{evaluation.feature_version || 'N/A'}</dd></div>
+            <div><dt>Evaluation policy</dt><dd>{evaluation.evaluation_policy_version || 'N/A'}</dd></div>
+          </dl>
+        )}
+
+        {available && evaluation && (
+          <>
+            <section className="evaluation-subsection" aria-labelledby="temporal-windows-heading">
+              <div className="evaluation-subsection__heading"><div><span>ROLLING-ORIGIN DESIGN</span><h3 id="temporal-windows-heading">Temporal windows</h3></div><strong>{evaluation.rolling_origin_folds} folds</strong></div>
+              <div className="evaluation-window-grid">
+                <EvaluationWindowCard label="Training" window={evaluation.train_window} />
+                <EvaluationWindowCard label="Validation" window={evaluation.validation_window} />
+                <EvaluationWindowCard label="Locked holdout" window={evaluation.holdout_window} />
+              </div>
+            </section>
+
+            <section className="evaluation-subsection" aria-labelledby="split-results-heading">
+              <div className="evaluation-subsection__heading"><div><span>VALIDATION VS HOLDOUT</span><h3 id="split-results-heading">Evaluation results</h3></div></div>
+              <TableScroll>
+                <table className="data-table evaluation-table">
+                  <thead><tr><th>Split</th><th>Games</th><th>Brier</th><th>Log loss</th><th>ECE</th><th>Run MAE</th></tr></thead>
+                  <tbody>
+                    <EvaluationMetricRow label="Validation" window={evaluation.validation_window} metrics={evaluation.validation_metrics} />
+                    <EvaluationMetricRow label="Locked holdout" window={evaluation.holdout_window} metrics={evaluation.holdout_metrics} />
+                  </tbody>
+                </table>
+              </TableScroll>
+            </section>
+
+            <section className="evaluation-subsection" aria-labelledby="baseline-results-heading">
+              <div className="evaluation-subsection__heading"><div><span>MATCHED HOLDOUT SAMPLE</span><h3 id="baseline-results-heading">Baselines</h3></div></div>
+              <TableScroll>
+                <table className="data-table evaluation-table">
+                  <thead><tr><th>Baseline</th><th>Games</th><th>Brier</th><th>Log loss</th><th>ECE</th><th>Run MAE</th></tr></thead>
+                  <tbody>
+                    {baselines.length ? baselines.map((baseline) => (
+                      <tr key={baseline.name}>
+                        <td><strong>{baseline.name}</strong></td>
+                        <td>{baseline.sample_size.toLocaleString()}</td>
+                        <td>{formatEvaluationMetric(baseline.brier_score)}</td>
+                        <td>{formatEvaluationMetric(baseline.log_loss)}</td>
+                        <td>{formatEvaluationMetric(baseline.expected_calibration_error)}</td>
+                        <td>{formatEvaluationMetric(baseline.run_mae, 2)}</td>
+                      </tr>
+                    )) : <tr><td colSpan={6} className="empty-row">No matched baseline evidence was published.</td></tr>}
+                  </tbody>
+                </table>
+              </TableScroll>
+            </section>
+          </>
+        )}
+
+        {evaluation && <PromotionDecision evaluation={evaluation} />}
+      </div>
+    </Panel>
+  )
+}
+
+function EvaluationWindowCard({ label, window }: { label: string; window: OfflineEvaluationWindow | null }) {
+  return (
+    <article>
+      <span>{label}</span>
+      <strong>{window ? `${window.start_date} to ${window.end_date}` : 'N/A'}</strong>
+      <small>{window ? `${window.games.toLocaleString()} games` : 'Window not published'}</small>
+    </article>
+  )
+}
+
+function EvaluationMetricRow({ label, window, metrics }: { label: string; window: OfflineEvaluationWindow | null; metrics: OfflineEvaluationMetrics | null }) {
+  return (
+    <tr>
+      <td><strong>{label}</strong></td>
+      <td>{window ? window.games.toLocaleString() : 'N/A'}</td>
+      <td>{formatEvaluationMetric(metrics?.brier_score)}</td>
+      <td>{formatEvaluationMetric(metrics?.log_loss)}</td>
+      <td>{formatEvaluationMetric(metrics?.expected_calibration_error)}</td>
+      <td>{formatEvaluationMetric(metrics?.run_mae, 2)}</td>
+    </tr>
+  )
+}
+
+function PromotionDecision({ evaluation }: { evaluation: OfflineEvaluation }) {
+  const promotion = evaluation.promotion
+  const decision = promotion?.decision ?? 'PENDING'
+  return (
+    <section className={`evaluation-promotion evaluation-promotion--${decision.toLowerCase()}`} aria-labelledby="promotion-decision-heading">
+      <div><span>EXPLICIT PROMOTION GATE</span><h3 id="promotion-decision-heading">{formatStatus(decision)}</h3></div>
+      <p>{promotion?.reason || 'No promotion decision has been published.'}</p>
+      <small>Criteria: {promotion?.criteria_version || 'N/A'}</small>
+    </section>
+  )
+}
+
+function defaultStatusReason(status: OfflineEvaluation['status']) {
+  if (status === 'INSUFFICIENT_DATA') return 'The eligible historical sample does not meet the published evaluation policy. Metrics and promotion claims remain blocked.'
+  if (status === 'FAILED') return 'The evaluation did not complete. Partial metrics are not published as evidence.'
+  if (status === 'AVAILABLE') return 'Validation and locked-holdout results were published from a governed evaluation artifact.'
+  return 'No governed offline evaluation artifact has been published. This does not imply zero error or successful validation.'
+}
+
+function formatStatus(status: string) {
+  return status.replaceAll('_', ' ')
+}
+
+function formatEvaluationMetric(value: number | null | undefined, digits = 3) {
+  return value == null ? 'N/A' : value.toFixed(digits)
 }
 
 function EmptyEvaluation({ compact = false }: { compact?: boolean }) {

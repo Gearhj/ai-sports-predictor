@@ -195,6 +195,49 @@ export interface MarketBoardData extends DataProvenance {
   rows: MarketBoardRow[]
 }
 
+export type OfflineEvaluationStatus = 'AVAILABLE' | 'INSUFFICIENT_DATA' | 'NOT_RUN' | 'FAILED'
+
+export interface OfflineEvaluationWindow {
+  start_date: string
+  end_date: string
+  games: number
+}
+
+export interface OfflineEvaluationMetrics {
+  brier_score: number | null
+  log_loss: number | null
+  expected_calibration_error: number | null
+  run_mae: number | null
+}
+
+export interface OfflineEvaluationBaseline extends OfflineEvaluationMetrics {
+  name: string
+  sample_size: number
+}
+
+export interface OfflinePromotionDecision {
+  decision: 'PROMOTED' | 'NOT_PROMOTED' | 'BLOCKED' | 'PENDING'
+  reason: string | null
+  criteria_version?: string | null
+}
+
+export interface OfflineEvaluation {
+  status: OfflineEvaluationStatus
+  status_reason: string | null
+  model_version: string | null
+  manifest_version: string | null
+  feature_version: string | null
+  evaluation_policy_version?: string | null
+  rolling_origin_folds: number
+  train_window: OfflineEvaluationWindow | null
+  validation_window: OfflineEvaluationWindow | null
+  holdout_window: OfflineEvaluationWindow | null
+  validation_metrics: OfflineEvaluationMetrics | null
+  holdout_metrics: OfflineEvaluationMetrics | null
+  baselines: OfflineEvaluationBaseline[]
+  promotion: OfflinePromotionDecision | null
+}
+
 export interface PerformanceData extends DataProvenance {
   model_version: string
   model_status?: string
@@ -216,6 +259,8 @@ export interface PerformanceData extends DataProvenance {
   rolling: Array<{ date: string; asp_brier: number; market_brier: number | null; accuracy: number }>
   model_components: Array<{ model: string; brier: number | null; log_loss: number | null; run_mae: number | null; status: string }>
   by_confidence: Array<{ bucket: string; forecasts: number; accuracy: number | null; brier: number | null }>
+  /** Optional until the Gate 3 backend publishes a governed evaluation artifact. */
+  offline_evaluation?: OfflineEvaluation | null
 }
 
 export interface Position {

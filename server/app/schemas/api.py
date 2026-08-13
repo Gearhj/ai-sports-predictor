@@ -197,6 +197,47 @@ class MarketBoardData(BaseModel):
     rows: list[MarketBoardRow]
 
 
+class OfflineEvaluationWindow(BaseModel):
+    start_date: str
+    end_date: str
+    games: int = Field(ge=0)
+
+
+class OfflineEvaluationMetrics(BaseModel):
+    brier_score: float | None = None
+    log_loss: float | None = None
+    expected_calibration_error: float | None = None
+    run_mae: float | None = None
+
+
+class OfflineEvaluationBaseline(OfflineEvaluationMetrics):
+    name: str
+    sample_size: int = Field(ge=0)
+
+
+class OfflinePromotionDecision(BaseModel):
+    decision: Literal["PROMOTED", "NOT_PROMOTED", "BLOCKED", "PENDING"]
+    reason: str | None = None
+    criteria_version: str | None = None
+
+
+class OfflineEvaluation(BaseModel):
+    status: Literal["AVAILABLE", "INSUFFICIENT_DATA", "NOT_RUN", "FAILED"]
+    status_reason: str | None = None
+    model_version: str | None = None
+    manifest_version: str | None = None
+    feature_version: str | None = None
+    evaluation_policy_version: str | None = None
+    rolling_origin_folds: int = Field(default=0, ge=0)
+    train_window: OfflineEvaluationWindow | None = None
+    validation_window: OfflineEvaluationWindow | None = None
+    holdout_window: OfflineEvaluationWindow | None = None
+    validation_metrics: OfflineEvaluationMetrics | None = None
+    holdout_metrics: OfflineEvaluationMetrics | None = None
+    baselines: list[OfflineEvaluationBaseline] = Field(default_factory=list)
+    promotion: OfflinePromotionDecision | None = None
+
+
 class PerformanceData(BaseModel):
     data_mode: DataMode
     evaluation_available: bool = False
@@ -215,6 +256,7 @@ class PerformanceData(BaseModel):
     rolling: list[dict]
     model_components: list[dict]
     by_confidence: list[dict]
+    offline_evaluation: OfflineEvaluation | None = None
 
 
 class PositionSchema(BaseModel):

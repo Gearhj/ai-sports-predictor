@@ -227,6 +227,29 @@ export const demoPerformance: PerformanceData = {
     { bucket: 'High example', forecasts: 35, accuracy: 62.8, brier: .204 },
     { bucket: 'Very high example', forecasts: 10, accuracy: 68.3, brier: .186 },
   ],
+  offline_evaluation: {
+    status: 'AVAILABLE',
+    status_reason: null,
+    model_version: 'DEVELOPMENT EXAMPLE',
+    manifest_version: 'example-manifest-v1',
+    feature_version: 'example-features-v1',
+    evaluation_policy_version: 'example-policy-v1',
+    rolling_origin_folds: 3,
+    train_window: { start_date: '2022-04-07', end_date: '2023-09-30', games: 3600 },
+    validation_window: { start_date: '2024-03-28', end_date: '2024-09-29', games: 2400 },
+    holdout_window: { start_date: '2025-03-27', end_date: '2025-09-28', games: 2400 },
+    validation_metrics: { brier_score: .220, log_loss: .632, expected_calibration_error: .031, run_mae: 1.22 },
+    holdout_metrics: { brier_score: .224, log_loss: .641, expected_calibration_error: .035, run_mae: 1.26 },
+    baselines: [
+      { name: 'Market consensus example', sample_size: 2100, brier_score: .226, log_loss: .646, expected_calibration_error: .039, run_mae: null },
+      { name: 'Team-strength baseline example', sample_size: 2400, brier_score: .233, log_loss: .658, expected_calibration_error: .047, run_mae: 1.38 },
+    ],
+    promotion: {
+      decision: 'PENDING',
+      reason: 'Illustrative evidence only; demo results can never promote a model.',
+      criteria_version: 'example-promotion-v1',
+    },
+  },
 }
 
 export const demoBankroll: BankrollData = {

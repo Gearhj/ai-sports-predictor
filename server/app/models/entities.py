@@ -68,6 +68,7 @@ class ForecastLifecycle(StrEnum):
 
 class ModelStatus(StrEnum):
     DEVELOPMENT = "development"
+    CANDIDATE = "candidate"
     CHALLENGER = "challenger"
     CHAMPION = "champion"
     RETIRED = "retired"
@@ -647,6 +648,46 @@ class OddsSnapshot(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
 
 
+class TrainingDatasetManifest(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable identity and provenance for one materialized training dataset."""
+
+    __tablename__ = "training_dataset_manifests"
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    version: Mapped[str] = mapped_column(String(80), nullable=False)
+    sport_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sports.id"), index=True)
+    feature_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("feature_versions.id"), index=True, nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    target: Mapped[str] = mapped_column(String(80), nullable=False)
+    target_definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    cutoff_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    split_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    feature_names: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    seasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    event_start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    game_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    excluded_row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    artifact_uri: Mapped[str] = mapped_column(String(500), nullable=False)
+    artifact_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_evidence: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    quality_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    built_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_training_dataset_name_version"),
+        UniqueConstraint("identity_checksum", name="uq_training_dataset_identity_checksum"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_training_dataset_source_mode"),
+        CheckConstraint("event_end_at >= event_start_at", name="ck_training_dataset_event_window"),
+        CheckConstraint("row_count >= 0", name="ck_training_dataset_row_count"),
+        CheckConstraint("game_count >= 0", name="ck_training_dataset_game_count"),
+        CheckConstraint("excluded_row_count >= 0", name="ck_training_dataset_excluded_count"),
+        Index("ix_training_dataset_event_window", "event_start_at", "event_end_at"),
+    )
+
+
 class ModelVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "model_versions"
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -662,7 +703,68 @@ class ModelVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     trained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    __table_args__ = (UniqueConstraint("name", "version", name="uq_model_name_version"),)
+    target: Mapped[str | None] = mapped_column(String(80))
+    training_manifest_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("training_dataset_manifests.id", name="fk_model_versions_training_manifest"),
+        index=True,
+    )
+    validation_window: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    holdout_window: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    calibrator_uri: Mapped[str | None] = mapped_column(String(500))
+    calibrator_checksum: Mapped[str | None] = mapped_column(String(64))
+    ensemble_weights: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    code_revision: Mapped[str | None] = mapped_column(String(120))
+    identity_checksum: Mapped[str | None] = mapped_column(String(64))
+    feature_names: Mapped[list[Any] | None] = mapped_column(JSON)
+    seed_policy: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    target_definition: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    promotion_decision: Mapped[str | None] = mapped_column(String(32))
+    promotion_reason: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_model_name_version"),
+        UniqueConstraint("identity_checksum", name="uq_model_version_identity_checksum"),
+        CheckConstraint(
+            "calibrator_checksum IS NULL OR calibrator_uri IS NOT NULL",
+            name="ck_model_version_calibrator_reference",
+        ),
+    )
+
+
+class ModelEvaluation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable terminal result for a reproducible offline model evaluation."""
+
+    __tablename__ = "model_evaluations"
+    model_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("model_versions.id"), nullable=False)
+    training_manifest_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("training_dataset_manifests.id"), nullable=False)
+    baseline_model_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("model_versions.id"))
+    evaluation_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    validation_window: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    holdout_window: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    baseline_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    slice_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    calibration: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    prediction_artifact_uri: Mapped[str | None] = mapped_column(String(500))
+    prediction_artifact_checksum: Mapped[str | None] = mapped_column(String(64))
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    superiority_claim: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    promotion_recommendation: Mapped[bool | None] = mapped_column(Boolean)
+    notes: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (
+        UniqueConstraint("identity_checksum", name="uq_model_evaluation_identity_checksum"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_model_evaluation_source_mode"),
+        CheckConstraint(
+            "prediction_artifact_checksum IS NULL OR prediction_artifact_uri IS NOT NULL",
+            name="ck_model_evaluation_prediction_reference",
+        ),
+        Index("ix_model_evaluation_model_evaluated", "model_version_id", "evaluated_at"),
+        Index("ix_model_evaluation_manifest_evaluated", "training_manifest_id", "evaluated_at"),
+        Index("ix_model_evaluation_status", "status"),
+    )
 
 
 class FeatureVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
