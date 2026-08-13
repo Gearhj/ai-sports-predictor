@@ -210,6 +210,29 @@ model, calibrator, holdout evaluation, or superiority claim exists. See the
 [Gate 3 training and validation report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md)
 for the exact controls and evidence boundary.
 
+## Provider-safe Gate 3A historical evidence
+
+Gate 3A adds a governed historical warehouse and point-in-time reconstruction
+contract without training or promoting a model. Apply migrations separately,
+then inspect a request plan without constructing an adapter or making a
+provider call:
+
+```powershell
+cd C:\Users\james\ai-sports-predictor\server
+..\.venv\Scripts\python.exe -m alembic upgrade head
+..\.venv\Scripts\python.exe -m app.cli backfill-mlb-history --start-date 2025-04-01 --end-date 2025-04-07 --season 2025 --chunk-size 1 --dry-run --max-requests 14
+..\.venv\Scripts\python.exe -m app.cli report-mlb-history --season 2025
+```
+
+Non-dry acquisition is currently blocked before adapter construction with
+`LEGAL_REVIEW_REQUIRED`. The command is raw-archive-only even after a future
+approval and reports `ARCHIVED_CANONICAL_PENDING`, never canonical success.
+There is no Odds, Statcast, or historical-weather request path in this command.
+The current plan has no historical-market entitlement, so
+`HISTORICAL_MARKET_DATA = UNAVAILABLE_ON_CURRENT_PLAN` and historical CLV stays
+unavailable. See the [Gate 3A plan](docs/GATE_3A_IMPLEMENTATION_PLAN.md) and
+[implementation report](docs/GATE_3A_IMPLEMENTATION_REPORT.md).
+
 ## Run tests and production builds
 
 Preferred full verification (forces provider integrations, polling, and the
@@ -255,7 +278,7 @@ ai-sports-predictor/
 └── docker-compose.yml   PostgreSQL, API, and web application
 ```
 
-Read [the implementation plan](docs/PHASE_1_IMPLEMENTATION_PLAN.md), [methodology](docs/METHODOLOGY.md), [data-source notes](docs/DATA_SOURCES.md), [Gate 3 training report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md), and [roadmap](docs/ROADMAP.md) before changing models or ingestion behavior.
+Read [the implementation plan](docs/PHASE_1_IMPLEMENTATION_PLAN.md), [methodology](docs/METHODOLOGY.md), [data-source notes](docs/DATA_SOURCES.md), [Gate 3 training report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md), [Gate 3A historical report](docs/GATE_3A_IMPLEMENTATION_REPORT.md), and [roadmap](docs/ROADMAP.md) before changing models or ingestion behavior.
 
 ## Configuration reference
 

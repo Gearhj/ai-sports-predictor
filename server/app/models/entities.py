@@ -816,6 +816,491 @@ class GameFeatureSnapshot(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     )
 
 
+class HistoricalSourceVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable authority, eligibility, and timing policy for one source release."""
+
+    __tablename__ = "historical_source_versions"
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    dataset_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    source_classification: Mapped[str] = mapped_column(String(32), nullable=False)
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    quality_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    training_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    evaluation_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    availability_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    governance: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    documentation_uri: Mapped[str | None] = mapped_column(String(500))
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("historical_source_versions.id")
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "source_key", "dataset_version", "source_mode",
+            name="uq_hist_source_key_version_mode",
+        ),
+        UniqueConstraint("identity_checksum", name="uq_hist_source_identity"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_hist_source_mode"),
+        CheckConstraint(
+            "source_classification IN ('OFFICIAL_PRIMARY', 'LICENSED_MARKET', "
+            "'PUBLIC_SECONDARY', 'DERIVED_INTERNAL', 'SYNTHETIC')",
+            name="ck_hist_source_classification",
+        ),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_hist_source_temporal_semantics",
+        ),
+        CheckConstraint(
+            "quality_tier IN ('A', 'B', 'C', 'EXCLUDED')",
+            name="ck_hist_source_quality_tier",
+        ),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to >= effective_from",
+            name="ck_hist_source_effective_window",
+        ),
+        CheckConstraint(
+            "training_eligible = false OR evaluation_eligible = true",
+            name="ck_hist_source_training_requires_eval",
+        ),
+        CheckConstraint(
+            "(training_eligible = false AND evaluation_eligible = false) OR "
+            "(source_mode = 'LIVE' AND source_classification <> 'SYNTHETIC' "
+            "AND quality_tier <> 'EXCLUDED')",
+            name="ck_hist_source_eligibility",
+        ),
+        CheckConstraint(
+            "length(identity_checksum) = 64",
+            name="ck_hist_source_identity_length",
+        ),
+        Index("ix_hist_source_lookup", "source_key", "source_mode", "effective_from"),
+        Index("ix_hist_source_eligibility", "training_eligible", "quality_tier"),
+    )
+
+
+class HistoryBackfillCheckpoint(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only terminal result for one resumable historical request chunk."""
+
+    __tablename__ = "history_backfill_checkpoints"
+    ingestion_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ingestion_runs.id"), nullable=False
+    )
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    parent_checkpoint_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id")
+    )
+    stream_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    season: Mapped[int | None] = mapped_column(Integer)
+    event_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    event_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cursor_before: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    cursor_after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    query_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_accepted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_rejected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duplicate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    raw_references: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    raw_checksums: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    next_resume_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    quality_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_type: Mapped[str | None] = mapped_column(String(80))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "ingestion_run_id", "stream_key", "sequence",
+            name="uq_hist_checkpoint_run_stream_sequence",
+        ),
+        UniqueConstraint("identity_checksum", name="uq_hist_checkpoint_identity"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_hist_checkpoint_mode"),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_hist_checkpoint_temporal_semantics",
+        ),
+        CheckConstraint(
+            "status IN ('SUCCEEDED', 'FAILED', 'SKIPPED', 'BLOCKED')",
+            name="ck_hist_checkpoint_status",
+        ),
+        CheckConstraint("sequence >= 0", name="ck_hist_checkpoint_sequence"),
+        CheckConstraint(
+            "season IS NULL OR season >= 1876",
+            name="ck_hist_checkpoint_season",
+        ),
+        CheckConstraint(
+            "(event_start_at IS NULL AND event_end_at IS NULL) OR "
+            "(event_start_at IS NOT NULL AND event_end_at IS NOT NULL "
+            "AND event_end_at >= event_start_at)",
+            name="ck_hist_checkpoint_event_window",
+        ),
+        CheckConstraint(
+            "completed_at >= requested_at",
+            name="ck_hist_checkpoint_completion",
+        ),
+        CheckConstraint(
+            "attempt_count >= 1 AND retry_count >= 0 AND retry_count < attempt_count",
+            name="ck_hist_checkpoint_attempts",
+        ),
+        CheckConstraint(
+            "records_received >= 0 AND records_accepted >= 0 AND "
+            "records_rejected >= 0 AND duplicate_count >= 0",
+            name="ck_hist_checkpoint_counts",
+        ),
+        CheckConstraint(
+            "records_accepted + records_rejected + duplicate_count <= records_received",
+            name="ck_hist_checkpoint_count_balance",
+        ),
+        CheckConstraint(
+            "length(query_fingerprint) = 64 AND length(identity_checksum) = 64",
+            name="ck_hist_checkpoint_checksum_lengths",
+        ),
+        Index("ix_hist_checkpoint_source_stream", "source_version_id", "stream_key", "sequence"),
+        Index("ix_hist_checkpoint_event_window", "event_start_at", "event_end_at"),
+        Index("ix_hist_checkpoint_status_completed", "status", "completed_at"),
+    )
+
+
+class GameFinalOutcome(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable, revisioned target truth kept separate from pregame evidence."""
+
+    __tablename__ = "game_final_outcomes"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    season_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    home_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    away_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    venue_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("venues.id"))
+    game_state_observation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_state_observations.id")
+    )
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id"), nullable=False
+    )
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    final_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    scheduled_innings: Mapped[int | None] = mapped_column(Integer)
+    innings_played: Mapped[int | None] = mapped_column(Integer)
+    home_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome_status: Mapped[str] = mapped_column(String(16), nullable=False, default="FINAL")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    supersedes_outcome_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_final_outcomes.id")
+    )
+    official: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    label_available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    availability_basis: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "source_version_id", "source_mode", "revision",
+            name="uq_game_final_source_revision",
+        ),
+        UniqueConstraint("identity_checksum", name="uq_game_final_identity"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_game_final_mode"),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_game_final_temporal_semantics",
+        ),
+        CheckConstraint("outcome_status = 'FINAL'", name="ck_game_final_status"),
+        CheckConstraint(
+            "home_team_id <> away_team_id",
+            name="ck_game_final_distinct_sides",
+        ),
+        CheckConstraint(
+            "home_score >= 0 AND away_score >= 0",
+            name="ck_game_final_scores",
+        ),
+        CheckConstraint(
+            "scheduled_innings IS NULL OR scheduled_innings > 0",
+            name="ck_game_final_scheduled_innings",
+        ),
+        CheckConstraint(
+            "innings_played IS NULL OR innings_played > 0",
+            name="ck_game_final_innings_played",
+        ),
+        CheckConstraint("final_at >= scheduled_at", name="ck_game_final_time_order"),
+        CheckConstraint(
+            "retrieved_at >= final_at AND label_available_at >= final_at",
+            name="ck_game_final_availability",
+        ),
+        CheckConstraint("revision >= 1", name="ck_game_final_revision"),
+        CheckConstraint(
+            "supersedes_outcome_id IS NULL OR supersedes_outcome_id <> id",
+            name="ck_game_final_not_self_superseding",
+        ),
+        CheckConstraint(
+            "length(payload_checksum) = 64 AND length(identity_checksum) = 64",
+            name="ck_game_final_checksum_lengths",
+        ),
+        Index("ix_game_final_game_available", "game_id", "label_available_at"),
+        Index("ix_game_final_season_scheduled", "season_id", "scheduled_at"),
+        Index("ix_game_final_checkpoint", "checkpoint_id"),
+    )
+
+
+class TeamGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Governed team-game fact with explicit event and replay eligibility times."""
+
+    __tablename__ = "team_game_history_observations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    final_outcome_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("game_final_outcomes.id"), nullable=False
+    )
+    season_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    opponent_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    is_home: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id"), nullable=False
+    )
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    evidence_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    eligible_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    availability_basis: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_classification: Mapped[str] = mapped_column(String(40), nullable=False)
+    quality_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stat_schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    values: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "team_id", "source_version_id", "source_mode",
+            "source_record_id", "payload_checksum",
+            name="uq_team_game_history_evidence",
+        ),
+        UniqueConstraint("identity_checksum", name="uq_team_game_history_identity"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_team_game_history_mode"),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_team_game_history_temporal",
+        ),
+        CheckConstraint(
+            "evidence_classification IN ('RECONSTRUCTABLE_POINT_IN_TIME', "
+            "'PARTIALLY_RECONSTRUCTABLE', 'FORWARD_ONLY')",
+            name="ck_team_game_history_class",
+        ),
+        CheckConstraint(
+            "quality_tier IN ('A', 'B', 'C', 'EXCLUDED')",
+            name="ck_team_game_history_tier",
+        ),
+        CheckConstraint("team_id <> opponent_team_id", name="ck_team_game_history_teams"),
+        CheckConstraint(
+            "evidence_end_at <= event_at AND eligible_at >= evidence_end_at "
+            "AND retrieved_at >= evidence_end_at",
+            name="ck_team_game_history_times",
+        ),
+        CheckConstraint(
+            "length(payload_checksum) = 64 AND length(identity_checksum) = 64",
+            name="ck_team_game_history_checksums",
+        ),
+        Index("ix_team_game_history_game", "game_id", "event_at"),
+        Index("ix_team_game_history_team_eligible", "team_id", "eligible_at"),
+        Index("ix_team_game_history_checkpoint", "checkpoint_id"),
+    )
+
+
+class PlayerGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Governed player-game participation/stat fact for chronological replay."""
+
+    __tablename__ = "player_game_history_observations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    final_outcome_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("game_final_outcomes.id"), nullable=False
+    )
+    season_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), nullable=False)
+    team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    opponent_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    started: Mapped[bool | None] = mapped_column(Boolean)
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id"), nullable=False
+    )
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    evidence_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    eligible_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    availability_basis: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_classification: Mapped[str] = mapped_column(String(40), nullable=False)
+    quality_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    stat_schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    values: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "player_id", "team_id", "role", "source_version_id",
+            "source_mode", "source_record_id", "payload_checksum",
+            name="uq_player_game_history_evidence",
+        ),
+        UniqueConstraint("identity_checksum", name="uq_player_game_history_identity"),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_player_game_history_mode"),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_player_game_history_temporal",
+        ),
+        CheckConstraint(
+            "evidence_classification IN ('RECONSTRUCTABLE_POINT_IN_TIME', "
+            "'PARTIALLY_RECONSTRUCTABLE', 'FORWARD_ONLY')",
+            name="ck_player_game_history_class",
+        ),
+        CheckConstraint(
+            "quality_tier IN ('A', 'B', 'C', 'EXCLUDED')",
+            name="ck_player_game_history_tier",
+        ),
+        CheckConstraint("team_id <> opponent_team_id", name="ck_player_game_history_teams"),
+        CheckConstraint(
+            "evidence_end_at <= event_at AND eligible_at >= evidence_end_at "
+            "AND retrieved_at >= evidence_end_at",
+            name="ck_player_game_history_times",
+        ),
+        CheckConstraint(
+            "length(payload_checksum) = 64 AND length(identity_checksum) = 64",
+            name="ck_player_game_history_checksums",
+        ),
+        Index("ix_player_game_history_game", "game_id", "event_at"),
+        Index("ix_player_game_history_player_eligible", "player_id", "eligible_at"),
+        Index("ix_player_game_history_team_eligible", "team_id", "eligible_at"),
+        Index("ix_player_game_history_checkpoint", "checkpoint_id"),
+    )
+
+
+class HistoricalFeatureMaterialization(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Governed bridge from reconstructed evidence to an immutable feature snapshot."""
+
+    __tablename__ = "historical_feature_materializations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    game_feature_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("game_feature_snapshots.id"), nullable=False, unique=True
+    )
+    feature_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("feature_versions.id"), nullable=False
+    )
+    game_final_outcome_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_final_outcomes.id")
+    )
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id"), nullable=False
+    )
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cutoff_policy_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    cutoff_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    source_bundle: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    source_bundle_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_manifest: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    evidence_manifest_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    quality_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False)
+    quality_components: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    materializer_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    eligibility_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    eligibility_reasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    training_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("identity_checksum", name="uq_hist_materialization_identity"),
+        UniqueConstraint(
+            "game_id", "cutoff_at", "feature_version_id", "cutoff_policy_version",
+            "source_mode", "materializer_version",
+            name="uq_hist_materialization_semantic",
+        ),
+        CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_hist_materialization_mode"),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_hist_materialization_temporal",
+        ),
+        CheckConstraint(
+            "quality_tier IN ('A', 'B', 'C', 'EXCLUDED')",
+            name="ck_hist_materialization_tier",
+        ),
+        CheckConstraint(
+            "quality_score >= 0 AND quality_score <= 100",
+            name="ck_hist_materialization_quality",
+        ),
+        CheckConstraint(
+            "eligibility_status IN ('ELIGIBLE', 'INELIGIBLE', 'INSUFFICIENT_DATA')",
+            name="ck_hist_materialization_status",
+        ),
+        CheckConstraint(
+            "cutoff_at < scheduled_at AND generated_at >= cutoff_at",
+            name="ck_hist_materialization_times",
+        ),
+        CheckConstraint(
+            "training_eligible = false OR (eligibility_status = 'ELIGIBLE' "
+            "AND source_mode = 'LIVE' AND quality_tier IN ('A', 'B'))",
+            name="ck_hist_materialization_training",
+        ),
+        CheckConstraint(
+            "length(source_bundle_checksum) = 64 "
+            "AND length(evidence_manifest_checksum) = 64 "
+            "AND length(identity_checksum) = 64",
+            name="ck_hist_materialization_checksums",
+        ),
+        Index("ix_hist_materialization_game_cutoff", "game_id", "cutoff_at"),
+        Index("ix_hist_materialization_checkpoint", "checkpoint_id"),
+        Index(
+            "ix_hist_materialization_eligibility",
+            "training_eligible", "quality_tier", "scheduled_at",
+        ),
+    )
+
+
 class Forecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "forecasts"
     game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)

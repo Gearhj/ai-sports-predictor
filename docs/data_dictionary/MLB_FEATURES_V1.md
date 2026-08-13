@@ -42,3 +42,19 @@ Every feature is evaluated at a forecast's `data_as_of` boundary. A value may be
 ## Versioning and promotion
 
 Adding, redefining, imputing, or changing the window of a feature requires a new `FeatureVersion`. Training data, model artifacts, evaluation metrics, and forecasts must reference that exact version. Research-only features stay in notebooks until their definition, historical availability, leakage tests, and missing-value behavior are documented here.
+
+## Gate 3A historical materialization
+
+Historical reconstruction uses a separately versioned feature schema and a
+fixed T−6h cutoff. Every non-null reconstructed feature family must cite an
+immutable canonical team/player history UUID and must match that row's source
+version, checkpoint/final lineage, source record ID, game ID, event and
+eligibility times, evidence classification, quality tier, and payload checksum.
+Unknown or caller-invented references fail closed. Target outcomes are linked
+only as labels and never enter the feature payload or checksum.
+
+Historical training rows preserve missing/provisional fields and add no market,
+closing-line, or CLV values. Default selection is Tier A only. Tier B must be
+requested explicitly, and mixed A/B datasets require a separate explicit flag.
+The current operational training command still builds the prospective LIVE
+population; Gate 3A does not train a model.

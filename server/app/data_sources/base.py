@@ -14,6 +14,12 @@ class SourceError(RuntimeError):
 
 
 SourceMode = Literal["LIVE", "DEMO"]
+HistoricalEvidenceClass = Literal[
+    "RECONSTRUCTABLE_POINT_IN_TIME",
+    "PARTIALLY_RECONSTRUCTABLE",
+    "FORWARD_ONLY",
+]
+ResearchProvenance = Literal["HISTORICAL_RECONSTRUCTION"]
 
 
 class SourceEnvelope(BaseModel):
@@ -64,6 +70,70 @@ class ScheduleGameDTO(BaseModel):
     doubleheader_status: str | None = None
     game_number: int | None = None
     scheduled_innings: int | None = 9
+
+
+class HistoricalFinalDTO(BaseModel):
+    source_game_id: str
+    official_date: date
+    status: str
+    abstract_state: str
+    home_score: int
+    away_score: int
+    innings_played: int | None = None
+    event_completed_at: datetime | None = None
+    source_published_at: datetime | None = None
+    acquired_at: datetime
+    research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
+    evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
+
+
+class HistoricalScheduleGameDTO(BaseModel):
+    game: ScheduleGameDTO
+    season: int
+    official_date: date
+    game_type: str | None = None
+    abstract_state: str | None = None
+    coded_state: str | None = None
+    acquired_at: datetime
+    final: HistoricalFinalDTO | None = None
+    research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
+    evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
+
+
+class HistoricalPlayerGameEvidenceDTO(BaseModel):
+    source_game_id: str
+    source_player_id: str
+    source_team_id: str
+    full_name: str | None = None
+    is_home: bool
+    batting_order: int | None = None
+    appeared_as_pitcher: bool = False
+    actual_starting_pitcher: bool = False
+    position: str | None = None
+    batting: dict[str, Any] | None = None
+    pitching: dict[str, Any] | None = None
+    acquired_at: datetime
+    research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
+    evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
+
+
+class HistoricalTeamGameEvidenceDTO(BaseModel):
+    source_game_id: str
+    source_team_id: str
+    is_home: bool
+    team_stats: dict[str, Any]
+    acquired_at: datetime
+    research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
+    evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
+
+
+class HistoricalBoxscoreDTO(BaseModel):
+    source_game_id: str
+    acquired_at: datetime
+    players: list[HistoricalPlayerGameEvidenceDTO]
+    teams: list[HistoricalTeamGameEvidenceDTO]
+    research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
+    evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
 
 
 class LineupEntryDTO(BaseModel):

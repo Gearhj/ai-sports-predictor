@@ -7,6 +7,10 @@
 | Identity | `source_mapping` | Maps a provider and entity type to its external ID without making it the primary key. |
 | Games | `game`, `game_team` | Scheduled event, participants, status, scores, `event_date`, and `scheduled_at`. |
 | Baseball observations | team/player game stats and feature snapshots | Pregame-eligible performance evidence with `available_as_of`. |
+| Historical governance | `historical_source_version`, `history_backfill_checkpoint` | Immutable source approval/timing policy and terminal archive/canonical checkpoint lineage. `source_mode` and retrospective temporal semantics are separate. |
+| Historical labels | `game_final_outcome` | Append-only, revisioned official target truth. `final_at`, actual `retrieved_at`, and `label_available_at` are distinct. |
+| Historical event facts | `team_game_history_observation`, `player_game_history_observation` | Canonical prior-game evidence with event/end, retrieval, reconstruction eligibility, class, tier, source version, checkpoint, and checksums. |
+| Historical features | `historical_feature_materialization` | One governed T−6h feature snapshot binding exact source/evidence manifests, quality policy, target reference, and training eligibility. |
 | Context | `weather_snapshot`, `game_context` | Append-only observed/forecast context and `observed_at`. |
 | Markets | `sportsbook`, `market`, `market_outcome`, `odds_snapshot` | Extensible market definitions and append-only book observations with `observed_at`. |
 | Modeling | `model_version`, `feature_version` | Immutable algorithm/config/training metadata and artifact location. |

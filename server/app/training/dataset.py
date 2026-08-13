@@ -8,8 +8,8 @@ import math
 import os
 import shutil
 from collections import Counter
-from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 from uuid import UUID, uuid4
@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.historical.materialization import canonical_evidence_manifest_error
 from app.markets.odds import no_vig_probabilities
 from app.models import (
     FeatureVersion,
@@ -24,7 +25,10 @@ from app.models import (
     ForecastStatus,
     Game,
     GameFeatureSnapshot,
+    GameFinalOutcome,
     GameStateObservation,
+    HistoricalFeatureMaterialization,
+    HistoricalSourceVersion,
     Market,
     MarketOutcome,
     MarketType,
@@ -47,6 +51,15 @@ FORBIDDEN_FEATURE_TOKENS = (
     "game_result",
     "winner",
 )
+FORBIDDEN_HISTORICAL_MARKET_TOKENS = (
+    "market",
+    "odds",
+    "sportsbook",
+    "closing",
+    "clv",
+)
+HISTORICAL_TEMPORAL_SEMANTICS = "RETROSPECTIVE_RECONSTRUCTION"
+HISTORICAL_POPULATION = "HISTORICAL_RECONSTRUCTION"
 
 
 def _aware(value: datetime) -> datetime:
@@ -95,6 +108,16 @@ class TrainingRow:
     market_books: int
     closing_home_probability: float | None
     closing_timestamp: str | None
+    temporal_semantics: str | None = None
+    historical_materialization_id: str | None = None
+    historical_materialization_identity_checksum: str | None = None
+    historical_outcome_id: str | None = None
+    historical_outcome_identity_checksum: str | None = None
+    historical_quality_tier: str | None = None
+    historical_quality_score: float | None = None
+    cutoff_policy_version: str | None = None
+    materializer_version: str | None = None
+    label_available_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +142,11 @@ class TrainingDatasetManifestData:
     leakage_checks: dict[str, bool]
     feature_family_coverage: dict[str, float]
     artifact_uri: str | None = None
+    population: str = "PROSPECTIVE_LIVE"
+    temporal_semantics: str | None = None
+    cutoff_policy_version: str | None = None
+    quality_tiers: list[str] = field(default_factory=list)
+    quality_score_summary: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -248,6 +276,216 @@ class GovernedTrainingDatasetBuilder:
         rows.sort(key=lambda row: (row.scheduled_first_pitch, row.game_id))
         reasons = Counter(item["reason"] for item in exclusions)
         manifest = self._manifest(rows, exclusions, reasons, cutoff, selected_schema)
+        return DatasetBuildResult(manifest=manifest, rows=tuple(rows), exclusions=tuple(exclusions))
+
+    def build_historical(
+        self,
+        *,
+        cutoff_policy_version: str,
+        training_cutoff: datetime | None = None,
+        feature_schema_version: str | None = None,
+        quality_tiers: tuple[str, ...] = ("A",),
+        minimum_quality_score: float = 0.0,
+        allow_mixed_tiers: bool = False,
+    ) -> DatasetBuildResult:
+        """Build governed retrospective rows without reading or creating forecasts.
+
+        The path is intentionally separate from :meth:`build`.  It consumes an
+        eligible materialization, the exact immutable feature snapshot named by
+        it, and the exact governed final outcome named by it.  Operational mode
+        remains ``LIVE`` while ``temporal_semantics`` identifies retrospective
+        reconstruction.
+        """
+
+        if not cutoff_policy_version:
+            raise ValueError("cutoff_policy_version is required")
+        requested_tiers = tuple(dict.fromkeys(str(value).upper() for value in quality_tiers))
+        if not requested_tiers:
+            raise ValueError("At least one historical quality tier is required")
+        if any(value not in {"A", "B"} for value in requested_tiers):
+            raise ValueError("Historical training quality_tiers may contain only A or B")
+        if len(requested_tiers) > 1 and not allow_mixed_tiers:
+            raise ValueError("Mixing historical quality tiers requires allow_mixed_tiers=True")
+        if (
+            not math.isfinite(minimum_quality_score)
+            or not 0 <= minimum_quality_score <= 100
+        ):
+            raise ValueError("minimum_quality_score must be finite and within [0, 100]")
+
+        cutoff = _aware(training_cutoff or datetime.now(UTC))
+        materializations = list(self.session.scalars(
+            select(HistoricalFeatureMaterialization).order_by(
+                HistoricalFeatureMaterialization.scheduled_at,
+                HistoricalFeatureMaterialization.game_id,
+                HistoricalFeatureMaterialization.id,
+            )
+        ))
+        rows: list[TrainingRow] = []
+        exclusions: list[dict[str, str]] = []
+
+        for materialization in materializations:
+            excluded = lambda reason: exclusions.append({
+                "game_id": str(materialization.game_id),
+                "reason": reason,
+            })
+            if materialization.cutoff_policy_version != cutoff_policy_version:
+                excluded("historical_cutoff_policy_mismatch")
+                continue
+            if materialization.source_mode != "LIVE":
+                excluded("historical_non_live_source_mode")
+                continue
+            if materialization.temporal_semantics != HISTORICAL_TEMPORAL_SEMANTICS:
+                excluded("historical_temporal_semantics_mismatch")
+                continue
+            if not materialization.training_eligible:
+                excluded("historical_materialization_not_training_eligible")
+                continue
+            if materialization.eligibility_status != "ELIGIBLE":
+                excluded("historical_materialization_ineligible")
+                continue
+            tier = str(materialization.quality_tier).upper()
+            if tier not in requested_tiers:
+                excluded("historical_quality_tier_not_allowed")
+                continue
+            quality_score = float(materialization.quality_score)
+            if (
+                not math.isfinite(quality_score)
+                or not 0 <= quality_score <= 100
+                or quality_score == 0
+                or quality_score < minimum_quality_score
+            ):
+                excluded("historical_quality_score_below_threshold")
+                continue
+
+            game = self.session.get(Game, materialization.game_id)
+            snapshot = self.session.get(
+                GameFeatureSnapshot,
+                materialization.game_feature_snapshot_id,
+            )
+            outcome = (
+                self.session.get(GameFinalOutcome, materialization.game_final_outcome_id)
+                if materialization.game_final_outcome_id is not None
+                else None
+            )
+            if game is None:
+                excluded("historical_game_missing")
+                continue
+            if snapshot is None:
+                excluded("historical_snapshot_missing")
+                continue
+            if outcome is None:
+                excluded("historical_final_outcome_missing")
+                continue
+
+            integrity_reason = self._historical_integrity_reason(
+                materialization,
+                snapshot,
+                outcome,
+                game,
+                training_cutoff=cutoff,
+                minimum_quality_score=minimum_quality_score,
+            )
+            if integrity_reason is not None:
+                excluded(integrity_reason)
+                continue
+            if feature_schema_version and snapshot.feature_schema_version != feature_schema_version:
+                excluded("feature_schema_mismatch")
+                continue
+            if self._contains_forbidden_feature(snapshot.feature_values):
+                excluded("target_leakage_feature_name")
+                continue
+            if self._contains_historical_market_feature(snapshot.feature_values):
+                excluded("historical_market_or_clv_feature_forbidden")
+                continue
+            if snapshot.market_snapshot_ids:
+                excluded("historical_market_evidence_forbidden")
+                continue
+
+            feature_version = self.session.get(FeatureVersion, snapshot.feature_version_id)
+            if feature_version is None:
+                excluded("historical_feature_version_missing")
+                continue
+            home_runs, away_runs = int(outcome.home_score), int(outcome.away_score)
+            rows.append(TrainingRow(
+                game_id=str(game.id),
+                scheduled_first_pitch=_iso(materialization.scheduled_at),
+                data_as_of=_iso(materialization.cutoff_at),
+                lifecycle="HISTORICAL_T_MINUS_6H",
+                feature_snapshot_id=str(snapshot.id),
+                feature_snapshot_checksum=snapshot.checksum,
+                feature_version_id=str(snapshot.feature_version_id),
+                feature_version=f"{feature_version.name}/{feature_version.version}",
+                feature_schema_version=snapshot.feature_schema_version,
+                source_mode="LIVE",
+                source_evidence=list(snapshot.source_evidence or []),
+                home_team_id=str(outcome.home_team_id),
+                away_team_id=str(outcome.away_team_id),
+                features=_historical_model_ready_features(snapshot),
+                missing_features=sorted(str(value) for value in snapshot.missing_features or []),
+                stale_features=sorted(str(value) for value in snapshot.stale_features or []),
+                provisional_features=sorted(
+                    str(value) for value in snapshot.provisional_features or []
+                ),
+                feature_completeness=float(snapshot.feature_completeness),
+                home_win=int(home_runs > away_runs),
+                home_runs=home_runs,
+                away_runs=away_runs,
+                run_differential=home_runs - away_runs,
+                total_runs=home_runs + away_runs,
+                market_home_probability=None,
+                market_timestamp=None,
+                market_books=0,
+                closing_home_probability=None,
+                closing_timestamp=None,
+                temporal_semantics=HISTORICAL_TEMPORAL_SEMANTICS,
+                historical_materialization_id=str(materialization.id),
+                historical_materialization_identity_checksum=materialization.identity_checksum,
+                historical_outcome_id=str(outcome.id),
+                historical_outcome_identity_checksum=outcome.identity_checksum,
+                historical_quality_tier=tier,
+                historical_quality_score=quality_score,
+                cutoff_policy_version=materialization.cutoff_policy_version,
+                materializer_version=materialization.materializer_version,
+                label_available_at=_iso(outcome.label_available_at),
+            ))
+
+        duplicate_game_ids = {
+            game_id for game_id, count in Counter(row.game_id for row in rows).items() if count > 1
+        }
+        if duplicate_game_ids:
+            rows = [row for row in rows if row.game_id not in duplicate_game_ids]
+            exclusions.extend(
+                {"game_id": game_id, "reason": "duplicate_historical_materialization"}
+                for game_id in sorted(duplicate_game_ids)
+            )
+
+        selected_schema = feature_schema_version
+        if selected_schema is None and rows:
+            selected_schema = Counter(row.feature_schema_version for row in rows).most_common(1)[0][0]
+        if selected_schema:
+            retained: list[TrainingRow] = []
+            for row in rows:
+                if row.feature_schema_version == selected_schema:
+                    retained.append(row)
+                else:
+                    exclusions.append({"game_id": row.game_id, "reason": "feature_schema_mismatch"})
+            rows = retained
+        if not allow_mixed_tiers and len({row.historical_quality_tier for row in rows}) > 1:
+            raise ValueError("Historical result contains mixed quality tiers")
+
+        rows.sort(key=lambda row: (row.scheduled_first_pitch, row.game_id))
+        reasons = Counter(item["reason"] for item in exclusions)
+        manifest = self._manifest(
+            rows,
+            exclusions,
+            reasons,
+            cutoff,
+            selected_schema,
+            population=HISTORICAL_POPULATION,
+            temporal_semantics=HISTORICAL_TEMPORAL_SEMANTICS,
+            cutoff_policy_version=cutoff_policy_version,
+            allow_mixed_tiers=allow_mixed_tiers,
+        )
         return DatasetBuildResult(manifest=manifest, rows=tuple(rows), exclusions=tuple(exclusions))
 
     def _final_observation(self, game_id: Any, cutoff: datetime) -> GameStateObservation | None:
@@ -384,9 +622,193 @@ class GovernedTrainingDatasetBuilder:
         )
         return probability, observed_at
 
+    def _historical_integrity_reason(
+        self,
+        materialization: HistoricalFeatureMaterialization,
+        snapshot: GameFeatureSnapshot,
+        outcome: GameFinalOutcome,
+        game: Game,
+        *,
+        training_cutoff: datetime,
+        minimum_quality_score: float,
+    ) -> str | None:
+        """Return a fail-closed reason when the three immutable identities disagree."""
+
+        scheduled_at = _aware(materialization.scheduled_at)
+        cutoff_at = _aware(materialization.cutoff_at)
+        if cutoff_at != scheduled_at - timedelta(hours=6):
+            return "historical_cutoff_not_t_minus_six_hours"
+        if scheduled_at >= training_cutoff:
+            return "historical_game_not_before_training_cutoff"
+        if (
+            materialization.game_id != game.id
+            or snapshot.game_id != game.id
+            or outcome.game_id != game.id
+        ):
+            return "historical_game_identity_mismatch"
+        if game.source_mode != "LIVE" or snapshot.source_mode != "LIVE" or outcome.source_mode != "LIVE":
+            return "historical_mixed_source_mode"
+        if outcome.temporal_semantics != HISTORICAL_TEMPORAL_SEMANTICS:
+            return "historical_outcome_temporal_semantics_mismatch"
+        if materialization.game_feature_snapshot_id != snapshot.id:
+            return "historical_snapshot_reference_mismatch"
+        if materialization.game_final_outcome_id != outcome.id:
+            return "historical_outcome_reference_mismatch"
+        if (
+            snapshot.feature_version_id is None
+            or materialization.feature_version_id != snapshot.feature_version_id
+        ):
+            return "historical_feature_version_identity_mismatch"
+        if _aware(snapshot.data_as_of) != cutoff_at or _aware(snapshot.data_as_of) >= scheduled_at:
+            return "historical_snapshot_cutoff_identity_mismatch"
+        if _aware(snapshot.generated_at) != _aware(materialization.generated_at):
+            return "historical_snapshot_generation_identity_mismatch"
+        if snapshot.frozen_at is None or _aware(snapshot.frozen_at) < _aware(snapshot.data_as_of):
+            return "historical_snapshot_not_frozen"
+        if _aware(outcome.scheduled_at) != scheduled_at:
+            return "historical_schedule_identity_mismatch"
+        if outcome.outcome_status != "FINAL" or not outcome.official:
+            return "historical_outcome_not_official_final"
+        if outcome.home_team_id == outcome.away_team_id:
+            return "historical_outcome_team_identity_invalid"
+        if _aware(outcome.label_available_at) > training_cutoff:
+            return "historical_label_unavailable_at_training_cutoff"
+        if _aware(outcome.final_at) < scheduled_at:
+            return "historical_outcome_time_invalid"
+        if (
+            not math.isfinite(float(snapshot.feature_completeness))
+            or not 0 <= float(snapshot.feature_completeness) <= 1
+        ):
+            return "historical_feature_completeness_invalid"
+        if float(materialization.quality_score) < minimum_quality_score:
+            return "historical_quality_score_below_threshold"
+
+        checksum_values = (
+            snapshot.checksum,
+            materialization.source_bundle_checksum,
+            materialization.evidence_manifest_checksum,
+            materialization.identity_checksum,
+            outcome.payload_checksum,
+            outcome.identity_checksum,
+        )
+        if any(not _is_sha256(value) for value in checksum_values):
+            return "historical_identity_checksum_invalid"
+        if _checksum(materialization.source_bundle) != materialization.source_bundle_checksum.lower():
+            return "historical_source_bundle_checksum_mismatch"
+        if _checksum(materialization.evidence_manifest) != materialization.evidence_manifest_checksum.lower():
+            return "historical_evidence_manifest_checksum_mismatch"
+        if _canonical(snapshot.source_evidence or []) != _canonical(materialization.evidence_manifest):
+            return "historical_snapshot_evidence_identity_mismatch"
+
+        components = materialization.quality_components
+        if not isinstance(components, dict):
+            return "historical_quality_components_invalid"
+        try:
+            component_score = float(components["score"])
+        except (KeyError, TypeError, ValueError):
+            return "historical_quality_components_invalid"
+        if (
+            not math.isfinite(component_score)
+            or not math.isclose(
+                component_score,
+                float(materialization.quality_score),
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+            or str(components.get("tier", "")).upper()
+            != str(materialization.quality_tier).upper()
+        ):
+            return "historical_quality_identity_mismatch"
+
+        bundle_reason, source_version_ids = self._historical_source_bundle_reason(
+            materialization.source_bundle,
+            materialization_tier=str(materialization.quality_tier).upper(),
+        )
+        if bundle_reason is not None:
+            return bundle_reason
+        if not _historical_evidence_within_cutoff(
+            materialization.evidence_manifest,
+            cutoff_at,
+            target_game_id=str(game.id),
+            source_version_ids=source_version_ids,
+        ):
+            return "historical_evidence_after_cutoff_or_mixed"
+        canonical_evidence_error = canonical_evidence_manifest_error(
+            self.session,
+            materialization.evidence_manifest,
+            cutoff=cutoff_at,
+            target_game_id=str(game.id),
+            source_version_ids=source_version_ids,
+            computed_at=_aware(materialization.generated_at),
+        )
+        if canonical_evidence_error is not None:
+            return "historical_canonical_evidence_invalid"
+
+        latest_outcome = self.session.scalar(
+            select(GameFinalOutcome).where(
+                GameFinalOutcome.game_id == game.id,
+                GameFinalOutcome.source_version_id == outcome.source_version_id,
+                GameFinalOutcome.source_mode == "LIVE",
+                GameFinalOutcome.label_available_at <= training_cutoff,
+            ).order_by(GameFinalOutcome.revision.desc(), GameFinalOutcome.id.desc())
+        )
+        if latest_outcome is None or latest_outcome.id != outcome.id:
+            return "historical_outcome_revision_not_current_at_cutoff"
+        return None
+
+    def _historical_source_bundle_reason(
+        self,
+        raw_bundle: Iterable[Any],
+        *,
+        materialization_tier: str,
+    ) -> tuple[str | None, set[str]]:
+        bundle = tuple(raw_bundle or [])
+        if not bundle:
+            return "historical_source_bundle_missing", set()
+        source_version_ids: set[str] = set()
+        tier_rank = {"C": 0, "A": 1, "B": 2, "EXCLUDED": 3}
+        for raw in bundle:
+            direct = raw if isinstance(raw, dict) else {}
+            identifier = direct.get("source_version_id") or direct.get("id") or raw
+            try:
+                source_uuid = identifier if isinstance(identifier, UUID) else UUID(str(identifier))
+            except (TypeError, ValueError):
+                return "historical_source_bundle_reference_invalid", set()
+            source = self.session.get(HistoricalSourceVersion, source_uuid)
+            if source is None:
+                return "historical_source_version_missing", set()
+            source_version_ids.add(str(source.id))
+            if source.source_mode != "LIVE":
+                return "historical_source_bundle_mixed_mode", set()
+            if source.temporal_semantics != HISTORICAL_TEMPORAL_SEMANTICS:
+                return "historical_source_bundle_mixed_population", set()
+            if not source.training_eligible or not source.evaluation_eligible:
+                return "historical_source_bundle_ineligible", set()
+            source_tier = str(source.quality_tier).upper()
+            if source_tier not in {"A", "B"}:
+                return "historical_source_bundle_low_tier", set()
+            if tier_rank[source_tier] > tier_rank[materialization_tier]:
+                return "historical_materialization_tier_overstates_source", set()
+            for name, expected in (
+                ("source_mode", source.source_mode),
+                ("temporal_semantics", source.temporal_semantics),
+                ("quality_tier", source.quality_tier),
+            ):
+                if name in direct and str(direct[name]) != str(expected):
+                    return "historical_source_bundle_metadata_mismatch", set()
+        return None, source_version_ids
+
     @staticmethod
     def _contains_forbidden_feature(features: dict[str, Any]) -> bool:
         return any(token in str(key).lower() for key in features for token in FORBIDDEN_FEATURE_TOKENS)
+
+    @staticmethod
+    def _contains_historical_market_feature(features: dict[str, Any]) -> bool:
+        return any(
+            token in str(key).lower()
+            for key in features
+            for token in FORBIDDEN_HISTORICAL_MARKET_TOKENS
+        )
 
     @staticmethod
     def _excluded(game: Game, reason: str) -> dict[str, str]:
@@ -399,6 +821,11 @@ class GovernedTrainingDatasetBuilder:
         reasons: Counter[str],
         cutoff: datetime,
         selected_schema: str | None,
+        *,
+        population: str = "PROSPECTIVE_LIVE",
+        temporal_semantics: str | None = None,
+        cutoff_policy_version: str | None = None,
+        allow_mixed_tiers: bool = False,
     ) -> TrainingDatasetManifestData:
         row_dicts = [asdict(row) for row in rows]
         rows_checksum = hashlib.sha256(b"\n".join(_canonical(row) for row in row_dicts)).hexdigest()
@@ -408,11 +835,13 @@ class GovernedTrainingDatasetBuilder:
         dates = [datetime.fromisoformat(row.scheduled_first_pitch.replace("Z", "+00:00")).date() for row in rows]
         source_modes = sorted({row.source_mode for row in rows})
         coverage = _feature_family_coverage(rows)
-        leakage_checks = {
+        common_checks = {
             "one_row_per_game": len({row.game_id for row in rows}) == len(rows),
             "pregame_cutoff": all(row.data_as_of < row.scheduled_first_pitch for row in rows),
             "live_source_only": all(row.source_mode == "LIVE" for row in rows),
-            "no_target_named_features": all(not self._contains_forbidden_feature(row.features) for row in rows),
+            "no_target_named_features": all(
+                not self._contains_forbidden_feature(row.features) for row in rows
+            ),
             "final_scores_targets_only": all(
                 row.run_differential == row.home_runs - row.away_runs
                 and row.total_runs == row.home_runs + row.away_runs
@@ -420,16 +849,82 @@ class GovernedTrainingDatasetBuilder:
                 for row in rows
             ),
             "feature_schema_consistent": len({row.feature_schema_version for row in rows}) <= 1,
-            "snapshot_checksum_present": all(len(row.feature_snapshot_checksum) == 64 for row in rows),
-            "source_evidence_cutoff": all(
-                _evidence_within_cutoff(row.source_evidence, _parse_iso(row.data_as_of))
-                for row in rows
-            ),
-            "market_cutoff": all(
-                row.market_timestamp is None or row.market_timestamp <= row.data_as_of
-                for row in rows
+            "snapshot_checksum_present": all(
+                _is_sha256(row.feature_snapshot_checksum) for row in rows
             ),
         }
+        if population == HISTORICAL_POPULATION:
+            leakage_checks = {
+                **common_checks,
+                "source_evidence_cutoff": all(
+                    _historical_evidence_within_cutoff(
+                        row.source_evidence,
+                        _parse_iso(row.data_as_of),
+                        target_game_id=row.game_id,
+                    )
+                    for row in rows
+                ),
+                "no_market_or_clv": all(
+                    row.market_home_probability is None
+                    and row.market_timestamp is None
+                    and row.market_books == 0
+                    and row.closing_home_probability is None
+                    and row.closing_timestamp is None
+                    and not self._contains_historical_market_feature(row.features)
+                    for row in rows
+                ),
+                "historical_population_only": all(
+                    row.temporal_semantics == HISTORICAL_TEMPORAL_SEMANTICS
+                    and row.cutoff_policy_version == cutoff_policy_version
+                    for row in rows
+                ),
+                "historical_identity_present": all(
+                    row.historical_materialization_id is not None
+                    and _is_sha256(row.historical_materialization_identity_checksum)
+                    and row.historical_outcome_id is not None
+                    and _is_sha256(row.historical_outcome_identity_checksum)
+                    for row in rows
+                ),
+                "historical_label_cutoff": all(
+                    row.label_available_at is not None
+                    and _parse_iso(row.label_available_at) <= cutoff
+                    for row in rows
+                ),
+                "historical_tier_consistent": len(
+                    {row.historical_quality_tier for row in rows}
+                ) <= 1 or allow_mixed_tiers,
+            }
+        else:
+            leakage_checks = {
+                **common_checks,
+                "source_evidence_cutoff": all(
+                    _evidence_within_cutoff(row.source_evidence, _parse_iso(row.data_as_of))
+                    for row in rows
+                ),
+                "market_cutoff": all(
+                    row.market_timestamp is None or row.market_timestamp <= row.data_as_of
+                    for row in rows
+                ),
+            }
+        quality_scores = [
+            float(row.historical_quality_score)
+            for row in rows
+            if row.historical_quality_score is not None
+        ]
+        quality_tiers = sorted({
+            str(row.historical_quality_tier)
+            for row in rows
+            if row.historical_quality_tier is not None
+        })
+        quality_summary = (
+            {
+                "minimum": min(quality_scores),
+                "maximum": max(quality_scores),
+                "mean": sum(quality_scores) / len(quality_scores),
+            }
+            if quality_scores
+            else None
+        )
         identity = {
             "rows_checksum": rows_checksum,
             "row_count": len(rows),
@@ -441,6 +936,12 @@ class GovernedTrainingDatasetBuilder:
             "target_definitions": TARGET_DEFINITIONS,
             "training_cutoff": _iso(cutoff),
             "leakage_checks": leakage_checks,
+            "population": population,
+            "temporal_semantics": temporal_semantics,
+            "cutoff_policy_version": cutoff_policy_version,
+            "quality_tiers": quality_tiers,
+            "quality_score_summary": quality_summary,
+            "allow_mixed_tiers": allow_mixed_tiers,
         }
         manifest_checksum = _checksum(identity)
         return TrainingDatasetManifestData(
@@ -463,6 +964,11 @@ class GovernedTrainingDatasetBuilder:
             training_cutoff=_iso(cutoff),
             leakage_checks=leakage_checks,
             feature_family_coverage=coverage,
+            population=population,
+            temporal_semantics=temporal_semantics,
+            cutoff_policy_version=cutoff_policy_version,
+            quality_tiers=quality_tiers,
+            quality_score_summary=quality_summary,
         )
 
 
@@ -581,6 +1087,85 @@ def _evidence_within_cutoff(raw_evidence: Iterable[dict[str, Any]], cutoff: date
     return True
 
 
+def _historical_evidence_within_cutoff(
+    raw_evidence: Iterable[dict[str, Any]],
+    cutoff: datetime,
+    *,
+    target_game_id: str,
+    source_version_ids: set[str] | None = None,
+) -> bool:
+    """Validate self-contained reconstructed evidence without backdated fetch times."""
+
+    boundary = _aware(cutoff)
+    rows = tuple(raw_evidence or [])
+    if not rows:
+        return False
+    identifiers: set[str] = set()
+    allowed_classifications = {
+        "RECONSTRUCTABLE_POINT_IN_TIME",
+        "PARTIALLY_RECONSTRUCTABLE",
+    }
+    for item in rows:
+        if not isinstance(item, dict):
+            return False
+        evidence_id = str(item.get("evidence_id") or item.get("id") or "")
+        if not evidence_id or evidence_id in identifiers:
+            return False
+        identifiers.add(evidence_id)
+        if item.get("source_mode") != "LIVE":
+            return False
+        if item.get("temporal_semantics") != HISTORICAL_TEMPORAL_SEMANTICS:
+            return False
+        classification = str(
+            item.get("evidence_classification") or item.get("classification") or ""
+        ).upper()
+        if classification not in allowed_classifications:
+            return False
+        role = str(item.get("role") or "").upper()
+        if role not in {"FEATURE", "STRUCTURAL"}:
+            return False
+        evidence_game_id = item.get("game_id")
+        if role == "FEATURE" and str(evidence_game_id) == target_game_id:
+            return False
+        source_version_id = str(item.get("source_version_id") or "")
+        if not source_version_id:
+            return False
+        if source_version_ids is not None and source_version_id not in source_version_ids:
+            return False
+        evidence_checksum = item.get("raw_sha256") or item.get("payload_checksum")
+        if not _is_sha256(evidence_checksum):
+            return False
+        event_at = item.get("event_at")
+        eligible_at = item.get("eligible_at")
+        evidence_end_at = item.get("evidence_end_at")
+        if event_at is None or eligible_at is None:
+            return False
+        try:
+            event_time = _parse_iso(str(event_at))
+            eligible_time = _parse_iso(str(eligible_at))
+            evidence_end_time = (
+                _parse_iso(str(evidence_end_at)) if evidence_end_at is not None else event_time
+            )
+        except (TypeError, ValueError):
+            return False
+        if (
+            event_time >= boundary
+            or evidence_end_time >= boundary
+            or eligible_time > boundary
+            or eligible_time < evidence_end_time
+        ):
+            return False
+    return True
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in value)
+    )
+
+
 def _model_ready_features(
     snapshot: GameFeatureSnapshot,
     state: GameStateObservation,
@@ -600,4 +1185,19 @@ def _model_ready_features(
         str(state.home_starter_confirmation or "").upper() == "CONFIRMED"
         and str(state.away_starter_confirmation or "").upper() == "CONFIRMED"
     )
+    return values
+
+
+def _historical_model_ready_features(snapshot: GameFeatureSnapshot) -> dict[str, Any]:
+    """Expose the frozen historical vector without consulting mutable game state."""
+
+    values = dict(snapshot.feature_values)
+    values["feature_completeness"] = float(snapshot.feature_completeness)
+    penalties = len(snapshot.missing_features or []) + len(snapshot.stale_features or [])
+    values["sample_reliability"] = max(
+        0.0,
+        min(1.0, float(snapshot.feature_completeness) - penalties * 0.02),
+    )
+    values.setdefault("lineups_confirmed", 0.0)
+    values.setdefault("starters_confirmed", 0.0)
     return values

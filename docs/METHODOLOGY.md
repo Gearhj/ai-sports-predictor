@@ -86,6 +86,24 @@ outcome evidence. Missing closing odds remain null; ASP does not manufacture
 historical or closing lines. Offline chronological evidence and live forward
 performance are reported separately.
 
+### Historical reconstruction boundary
+
+Gate 3A reconstruction is a separate research population. Its deterministic
+pregame cutoff is six hours before scheduled first pitch. Feature evidence must
+resolve to an immutable canonical team/player history row, occur strictly
+before the cutoff, be eligible by the cutoff, and exclude the target game.
+Fetch time remains the real acquisition time. A reconstructed final label is
+not available to ASP until its actual acquisition time (or a later proven
+publication time), even though the historical final time can order prior-game
+workload and rating updates. Historical rows never require a fabricated
+Forecast, market snapshot, closing line, or CLV field.
+
+Tier A is fully reconstructable historical evidence, Tier B is explicitly
+partial evidence, and prospective ASP capture is the future Tier C gold
+standard. Missing, forward-only, timing-invalid, DEMO, and backtest evidence is
+excluded rather than neutralized into an observed value. A/B populations are
+not mixed unless a later dataset build explicitly permits and reports it.
+
 Run the offline audit only after migrations are current:
 
 ```powershell

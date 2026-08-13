@@ -65,6 +65,53 @@ def _run_training(training_cutoff: datetime | None) -> dict[str, Any]:
     return asdict(result)
 
 
+async def _run_historical_backfill(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the standalone Gate 3A raw-archive path without canonical persistence."""
+
+    from app.historical.backfill import (
+        HistoricalBackfillOptions,
+        build_default_backfill_runner,
+    )
+
+    settings = get_settings()
+    options = HistoricalBackfillOptions(
+        start_date=args.start_date,
+        end_date=args.end_date,
+        season=args.season,
+        resume=args.resume,
+        source=args.source,
+        chunk_size=args.chunk_size,
+        dry_run=args.dry_run,
+        max_requests=args.max_requests,
+        # Optional historical sources are deliberately disabled in this A0
+        # command. There are no CLI toggles that imply they can be enabled.
+        skip_statcast=True,
+        skip_weather=True,
+        # There is intentionally no environment/config override yet. Until a
+        # reviewed governance record is wired to the ORM repository, non-dry
+        # provider acquisition is blocked before adapter construction.
+        terms_status="LEGAL_REVIEW_REQUIRED",
+    )
+    result = await build_default_backfill_runner(settings.raw_data_root).run(options)
+    return asdict(result)
+
+
+def _run_historical_report(season: int | None) -> dict[str, Any]:
+    """Read local Gate 3A state without migrations, jobs, or source adapters."""
+
+    from app.historical.reporting import HistoricalReportPaths, build_mlb_history_report
+
+    settings = get_settings()
+    paths = HistoricalReportPaths(
+        raw_root=settings.raw_data_root,
+        curated_root=settings.curated_data_root,
+        feature_root=settings.feature_data_root,
+        runtime_root=settings.gate3_artifact_root,
+    )
+    with SessionLocal() as session:
+        return build_mlb_history_report(session, paths=paths, season=season)
+
+
 def _parse_datetime(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
@@ -89,6 +136,8 @@ def main() -> None:
             "controlled-live-validation",
             "create-admin",
             "train-mlb-models",
+            "backfill-mlb-history",
+            "report-mlb-history",
         ],
     )
     parser.add_argument("--date", dest="event_date", type=date.fromisoformat, help="Event date (YYYY-MM-DD)")
@@ -98,12 +147,33 @@ def main() -> None:
         type=_parse_datetime,
         help="Inclusive evidence cutoff for training data (ISO-8601; defaults to now)",
     )
+    parser.add_argument("--start-date", type=date.fromisoformat, help="Historical start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=date.fromisoformat, help="Historical end date (YYYY-MM-DD)")
+    parser.add_argument("--season", type=int, help="MLB season for the requested range")
+    parser.add_argument("--resume", action="store_true", help="Skip already-completed semantic chunks")
+    parser.add_argument("--source", choices=["MLB_STATS_API"], default="MLB_STATS_API")
+    parser.add_argument("--chunk-size", type=int, default=1, help="Checkpoint chunk size in days")
+    parser.add_argument("--dry-run", action="store_true", help="Plan only; construct no adapter")
+    parser.add_argument("--max-requests", type=int, default=0, help="Hard cap on physical HTTP attempts")
     args = parser.parse_args()
-    result = (
-        _run_training(args.training_cutoff)
-        if args.command == "train-mlb-models"
-        else asyncio.run(_run(args.command, args.event_date))
-    )
+    if args.command == "backfill-mlb-history":
+        missing = [
+            option
+            for option in ("start_date", "end_date", "season")
+            if getattr(args, option) is None
+        ]
+        if missing:
+            parser.error(
+                "backfill-mlb-history requires "
+                + ", ".join("--" + value.replace("_", "-") for value in missing)
+            )
+        result = asyncio.run(_run_historical_backfill(args))
+    elif args.command == "report-mlb-history":
+        result = _run_historical_report(args.season)
+    elif args.command == "train-mlb-models":
+        result = _run_training(args.training_cutoff)
+    else:
+        result = asyncio.run(_run(args.command, args.event_date))
     print(json.dumps(result, indent=2, default=_json_default))
 
 

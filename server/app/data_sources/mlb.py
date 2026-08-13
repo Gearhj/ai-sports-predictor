@@ -8,6 +8,11 @@ import httpx
 from .base import (
     AdapterResponse,
     BullpenAvailabilityDTO,
+    HistoricalBoxscoreDTO,
+    HistoricalFinalDTO,
+    HistoricalPlayerGameEvidenceDTO,
+    HistoricalScheduleGameDTO,
+    HistoricalTeamGameEvidenceDTO,
     LineupDTO,
     LineupEntryDTO,
     PitcherDTO,
@@ -19,6 +24,7 @@ from .base import (
     TeamStatsDTO,
     VenueDTO,
 )
+from .request_policy import ConservativeRequestExecutor
 
 
 class MLBStatsAPIAdapter:
@@ -27,20 +33,35 @@ class MLBStatsAPIAdapter:
     source = "MLB_STATS_API"
     base_url = "https://statsapi.mlb.com/api/v1"
 
-    def __init__(self, client: httpx.AsyncClient | None = None, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        timeout: float = 15.0,
+        request_executor: ConservativeRequestExecutor | None = None,
+    ) -> None:
         self._client = client
         self.timeout = timeout
+        self.request_executor = request_executor
 
     async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=self.timeout)
         try:
-            response = await client.get(f"{self.base_url}{path}", params=params)
-            response.raise_for_status()
-            payload = response.json()
-            if not isinstance(payload, dict):
-                raise SourceError(self.source, "MLB returned an unexpected payload", retryable=False)
-            return payload
+            async def request_once() -> dict[str, Any]:
+                response = await client.get(f"{self.base_url}{path}", params=params)
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise SourceError(
+                        self.source,
+                        "MLB returned an unexpected payload",
+                        retryable=False,
+                    )
+                return payload
+
+            if self.request_executor is not None:
+                return await self.request_executor.execute(request_once)
+            return await request_once()
         except SourceError:
             raise
         except (httpx.HTTPError, ValueError) as exc:
@@ -48,6 +69,288 @@ class MLBStatsAPIAdapter:
         finally:
             if owns_client:
                 await client.aclose()
+
+    async def get_historical_schedule(self, event_date: date) -> AdapterResponse:
+        """Fetch one regular-season date as explicitly reconstructed evidence."""
+
+        raw = await self._get(
+            "/schedule",
+            {
+                "sportId": 1,
+                "date": event_date.isoformat(),
+                "gameType": "R",
+                "hydrate": "probablePitcher,team,venue,linescore",
+            },
+        )
+        pitcher_ids = {
+            str(pitcher["id"])
+            for date_node in raw.get("dates", [])
+            for item in date_node.get("games", [])
+            for side in (item.get("teams") or {}).values()
+            if (pitcher := side.get("probablePitcher")) and pitcher.get("id") is not None
+        }
+        people_raw: dict[str, Any] = {}
+        pitcher_hands: dict[str, str] = {}
+        enrichment_warning: str | None = None
+        if pitcher_ids:
+            try:
+                people_raw = await self._get(
+                    "/people",
+                    {"personIds": ",".join(sorted(pitcher_ids))},
+                )
+                pitcher_hands = {
+                    str(person["id"]): str((person.get("pitchHand") or {}).get("code", "")).upper()
+                    for person in people_raw.get("people", [])
+                    if person.get("id") is not None and (person.get("pitchHand") or {}).get("code")
+                }
+            except SourceError as exc:
+                # This is optional metadata and does not change schedule/final
+                # identity. The failed physical request remains fully counted.
+                enrichment_warning = str(exc)
+        acquired_at = datetime.now(UTC)
+        rows: list[HistoricalScheduleGameDTO] = []
+        try:
+            for date_node in raw.get("dates", []):
+                official_date = date.fromisoformat(str(date_node.get("date") or event_date.isoformat()))
+                for item in date_node.get("games", []):
+                    game = self._historical_schedule_game(
+                        item,
+                        official_date=official_date,
+                        pitcher_hands=pitcher_hands,
+                    )
+                    final = self._historical_final(item, official_date, acquired_at)
+                    rows.append(HistoricalScheduleGameDTO(
+                        game=game,
+                        season=_to_int(item.get("season")) or official_date.year,
+                        official_date=official_date,
+                        game_type=item.get("gameType"),
+                        abstract_state=(item.get("status") or {}).get("abstractGameState"),
+                        coded_state=(item.get("status") or {}).get("codedGameState"),
+                        acquired_at=acquired_at,
+                        final=final,
+                    ))
+        except (KeyError, TypeError, ValueError) as exc:
+            error = SourceError(
+                self.source,
+                f"Historical schedule schema validation failed: {type(exc).__name__}",
+                retryable=False,
+            )
+            error.raw_payload = {"schedule": raw, "people": people_raw}  # type: ignore[attr-defined]
+            raise error from exc
+        return AdapterResponse(
+            envelope=SourceEnvelope(
+                source=self.source,
+                source_mode="LIVE",
+                fetched_at=acquired_at,
+                data=[row.model_dump(mode="json") for row in rows],
+                metadata={
+                    "event_date": event_date.isoformat(),
+                    "record_count": len(rows),
+                    "research_provenance": "HISTORICAL_RECONSTRUCTION",
+                    "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
+                    "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                    "game_type": "R",
+                    "pitcher_handedness_enrichment_warning": enrichment_warning,
+                },
+            ),
+            raw_payload={"schedule": raw, "people": people_raw},
+        )
+
+    async def get_historical_final(self, source_game_id: str) -> AdapterResponse:
+        """Fetch the final event fact without claiming historical publication time."""
+
+        raw = await self._get(f"/game/{source_game_id}/feed/live", {})
+        acquired_at = datetime.now(UTC)
+        try:
+            game_data = raw["gameData"]
+            live_data = raw["liveData"]
+            status = game_data.get("status") or {}
+            abstract_state = str(status.get("abstractGameState") or "").strip()
+            if abstract_state.lower() != "final":
+                raise ValueError("game status is not final")
+            datetime_node = game_data.get("datetime") or {}
+            official_date = date.fromisoformat(str(datetime_node["officialDate"]))
+            linescore = live_data.get("linescore") or {}
+            teams = linescore.get("teams") or {}
+            home_score = _to_int((teams.get("home") or {}).get("runs"))
+            away_score = _to_int((teams.get("away") or {}).get("runs"))
+            if home_score is None or away_score is None:
+                raise ValueError("final scores are missing")
+            final = HistoricalFinalDTO(
+                source_game_id=source_game_id,
+                official_date=official_date,
+                status=status.get("detailedState") or "Unknown",
+                abstract_state=abstract_state,
+                home_score=home_score,
+                away_score=away_score,
+                innings_played=_to_int(linescore.get("currentInning")),
+                # gameData.datetime.dateTime is scheduled first pitch, not a
+                # trustworthy completion timestamp. Preserve that uncertainty.
+                event_completed_at=None,
+                acquired_at=acquired_at,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            error = SourceError(
+                self.source,
+                f"Historical final schema validation failed: {type(exc).__name__}",
+                retryable=False,
+            )
+            error.raw_payload = raw  # type: ignore[attr-defined]
+            raise error from exc
+        return AdapterResponse(
+            envelope=SourceEnvelope(
+                source=self.source,
+                source_mode="LIVE",
+                fetched_at=acquired_at,
+                data=final.model_dump(mode="json"),
+                metadata={
+                    "game_id": source_game_id,
+                    "research_provenance": "HISTORICAL_RECONSTRUCTION",
+                    "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
+                    "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                },
+            ),
+            raw_payload=raw,
+        )
+
+    async def get_historical_boxscore(self, source_game_id: str) -> AdapterResponse:
+        """Fetch actual player/team participation as retrospective evidence."""
+
+        raw = await self._get(f"/game/{source_game_id}/boxscore", {})
+        acquired_at = datetime.now(UTC)
+        players: list[HistoricalPlayerGameEvidenceDTO] = []
+        teams: list[HistoricalTeamGameEvidenceDTO] = []
+        try:
+            for side in ("away", "home"):
+                is_home = side == "home"
+                team_node = (raw.get("teams") or {})[side]
+                source_team_id = str((team_node.get("team") or {})["id"])
+                pitcher_order = [str(value) for value in team_node.get("pitchers") or []]
+                batting_order = [str(value) for value in team_node.get("battingOrder") or []]
+                teams.append(HistoricalTeamGameEvidenceDTO(
+                    source_game_id=source_game_id,
+                    source_team_id=source_team_id,
+                    is_home=is_home,
+                    team_stats=dict(team_node.get("teamStats") or {}),
+                    acquired_at=acquired_at,
+                ))
+                for key, node in sorted((team_node.get("players") or {}).items()):
+                    person = node.get("person") or {}
+                    player_id = person.get("id")
+                    if player_id is None:
+                        continue
+                    player_key = str(player_id)
+                    stats = node.get("stats") or {}
+                    raw_order = str(node.get("battingOrder") or "")[:3]
+                    players.append(HistoricalPlayerGameEvidenceDTO(
+                        source_game_id=source_game_id,
+                        source_player_id=player_key,
+                        source_team_id=source_team_id,
+                        full_name=person.get("fullName"),
+                        is_home=is_home,
+                        batting_order=(
+                            _to_int(raw_order)
+                            or (batting_order.index(player_key) + 1 if player_key in batting_order else None)
+                        ),
+                        appeared_as_pitcher=player_key in pitcher_order,
+                        # Boxscore order proves actual participation, not when a
+                        # probable-starter announcement became public.
+                        actual_starting_pitcher=bool(pitcher_order and pitcher_order[0] == player_key),
+                        position=(node.get("position") or {}).get("abbreviation"),
+                        batting=dict(stats.get("batting") or {}) or None,
+                        pitching=dict(stats.get("pitching") or {}) or None,
+                        acquired_at=acquired_at,
+                    ))
+            boxscore = HistoricalBoxscoreDTO(
+                source_game_id=source_game_id,
+                acquired_at=acquired_at,
+                players=players,
+                teams=teams,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            error = SourceError(
+                self.source,
+                f"Historical boxscore schema validation failed: {type(exc).__name__}",
+                retryable=False,
+            )
+            error.raw_payload = raw  # type: ignore[attr-defined]
+            raise error from exc
+        return AdapterResponse(
+            envelope=SourceEnvelope(
+                source=self.source,
+                source_mode="LIVE",
+                fetched_at=acquired_at,
+                data=boxscore.model_dump(mode="json"),
+                metadata={
+                    "game_id": source_game_id,
+                    "player_records": len(players),
+                    "team_records": len(teams),
+                    "research_provenance": "HISTORICAL_RECONSTRUCTION",
+                    "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
+                    "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                },
+            ),
+            raw_payload=raw,
+        )
+
+    @classmethod
+    def _historical_schedule_game(
+        cls,
+        item: dict[str, Any],
+        *,
+        official_date: date,
+        pitcher_hands: dict[str, str],
+    ) -> ScheduleGameDTO:
+        teams = item["teams"]
+        venue = item.get("venue") or {"name": "Venue unavailable"}
+        return ScheduleGameDTO(
+            source_game_id=str(item["gamePk"]),
+            scheduled_at=item["gameDate"],
+            event_date=official_date,
+            status=(item.get("status") or {}).get("detailedState", "Unknown"),
+            away_team=cls._team(teams.get("away") or {}),
+            home_team=cls._team(teams.get("home") or {}),
+            away_pitcher=cls._pitcher(teams.get("away") or {}, pitcher_hands),
+            home_pitcher=cls._pitcher(teams.get("home") or {}, pitcher_hands),
+            venue=VenueDTO(
+                source_id=str(venue.get("id", "")) or None,
+                name=venue.get("name") or "Venue unavailable",
+            ),
+            away_score=_to_int((teams.get("away") or {}).get("score")),
+            home_score=_to_int((teams.get("home") or {}).get("score")),
+            final_at=None,
+            doubleheader_status=item.get("doubleHeader"),
+            game_number=_to_int(item.get("gameNumber")),
+            scheduled_innings=_to_int(item.get("scheduledInnings")) or 9,
+        )
+
+    @staticmethod
+    def _historical_final(
+        item: dict[str, Any],
+        official_date: date,
+        acquired_at: datetime,
+    ) -> HistoricalFinalDTO | None:
+        status = item.get("status") or {}
+        abstract = str(status.get("abstractGameState") or "").lower()
+        detailed = str(status.get("detailedState") or "")
+        teams = item.get("teams") or {}
+        home_score = _to_int((teams.get("home") or {}).get("score"))
+        away_score = _to_int((teams.get("away") or {}).get("score"))
+        if abstract != "final" or home_score is None or away_score is None:
+            return None
+        linescore = item.get("linescore") or {}
+        return HistoricalFinalDTO(
+            source_game_id=str(item["gamePk"]),
+            official_date=official_date,
+            status=detailed or "Final",
+            abstract_state=str(status.get("abstractGameState") or "Final"),
+            home_score=home_score,
+            away_score=away_score,
+            innings_played=_to_int(linescore.get("currentInning")),
+            # The schedule response does not prove a completion timestamp.
+            event_completed_at=None,
+            acquired_at=acquired_at,
+        )
 
     async def get_schedule(self, event_date: date) -> AdapterResponse:
         raw = await self._get(

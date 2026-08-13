@@ -226,6 +226,147 @@ The current local database has zero eligible labeled games, so the provider-free
 command must return `INSUFFICIENT_DATA / NO_PROMOTION` without fitting a model.
 See `GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the full boundary.
 
+## Gate 3A historical-source review
+
+This section records the 2026-08-13 pre-backfill review. It is a technical and
+provenance record, not legal advice. No historical provider payload was acquired
+as part of the review. A missing or unclear permission is recorded as
+`LEGAL_REVIEW_REQUIRED`, not treated as approval.
+
+### MLB Stats API historical evidence
+
+- **Desired evidence:** regular-season schedule identity, final outcomes,
+  innings, box scores, player participation, actual starters, and dated
+  transactions. No historical Gate 3A records have yet been acquired.
+- **Interface:** ASP now has bounded historical schedule, final-feed, and
+  box-score adapter methods; an atomic compressed archive; resumable archive
+  checkpoints; and separate canonical persistence/materialization services.
+  The public backfill command remains deliberately raw-archive-only and reports
+  `ARCHIVED_CANONICAL_PENDING`; it is not yet an end-to-end canonical backfill.
+  Dated transaction acquisition is not implemented.
+- **Temporal meaning:** final and completed event facts may be archived as
+  retrospective reconstruction. Fetching a historical record today does not
+  establish that ASP observed it before the historical game, and the current
+  retrieval timestamp must not be backdated. Actual starters and lineups prove
+  participation, not their exact pregame announcement time.
+- **Terms/attribution:** `LEGAL_REVIEW_REQUIRED`. MLB's current Terms of Use
+  include restrictions on automated scripts and disproportionate load across
+  MLB Digital Properties. A responsible owner must determine applicability to
+  the Stats API, local research, derived features, and the proposed request
+  pattern before acquisition. No attribution determination has been made.
+- **Caching/archive:** implemented local, Git-ignored, atomic gzip evidence with
+  separate payload/file checksums, retrieval time, historical event time,
+  endpoint/request fingerprint, checkpoint/run identifiers, and idempotent
+  conflict detection. No Gate 3A historical payload has been acquired. Public
+  redistribution is not authorized by this document.
+- **Commercial/redistribution status:** uncertain; `LEGAL_REVIEW_REQUIRED`.
+- **Replacement:** another officially licensed game/box-score feed can replace
+  this adapter if it preserves canonical MLB game/player/team IDs, revisions,
+  event timestamps, and the same knowledge-time contract.
+- **Reference reviewed:** `https://www.mlb.com/official-information/terms-of-use`
+  on 2026-08-13.
+
+### Baseball Savant / Statcast history
+
+- **Desired evidence:** date-bounded pitch and batted-ball events sufficient to
+  calculate prior-only rolling xwOBA, contact quality, velocity, whiff, pitch
+  mix, strikeout/walk, and platoon features. No Statcast history has been
+  acquired locally.
+- **Interface:** official Statcast Search and CSV field documentation expose
+  `game_date`, `game_pk`, batter/pitcher MLB IDs, pitch/event sequence, expected
+  outcomes, contact, velocity, handedness, and game-type fields. ASP's current
+  adapter implements season-level batting and pitching leaderboards only; those
+  full-season extracts are not point-in-time training evidence for earlier
+  games.
+- **Temporal meaning:** only events from completed prior games may enter a
+  target game's historical pregame aggregate. Same-game events, later games,
+  future seasons, and later-fetched season summaries are forbidden.
+- **Terms/attribution:** public technical documentation exists, but automated
+  archival, retention, derived-data, redistribution, and commercial-use rights
+  have not been confirmed. Because Baseball Savant is an MLB property, the MLB
+  terms concern also applies. Status: `LEGAL_REVIEW_REQUIRED`.
+- **Caching/archive:** if approved, use a one-day controlled trial, concurrency
+  one, bounded pacing/retry, compressed date partitions, raw and normalized
+  checksums, and a circuit breaker. Stop on rejection or schema drift.
+- **Commercial/redistribution status:** uncertain; no raw redistribution.
+- **Replacement:** a licensed pitch-event source with stable MLB IDs and dated
+  event semantics may replace Savant. Revalidate definitions across the
+  PitchFX/Statcast/Hawk-Eye eras.
+- **References reviewed:** `https://baseballsavant.mlb.com/csv-docs` and
+  `https://www.mlb.com/glossary/statcast` on 2026-08-13.
+
+### Open-Meteo historical context
+
+- **Desired evidence:** temperature, humidity, wind, precipitation, and
+  pressure near first pitch. No historical weather has been acquired.
+- **Interface:** ASP currently uses only `https://api.open-meteo.com/v1/forecast`.
+  Open-Meteo documents an `/v1/archive` reanalysis API and separate historical
+  forecast/single-run products. Reanalysis describes reconstructed conditions;
+  it is not proof of the forecast available at a historical cutoff.
+- **Attribution/license:** Open-Meteo states that API data are CC BY 4.0 and
+  requires attribution, a license link, and an indication of changes.
+- **Plan status:** current pricing states that historical, climate, ensemble,
+  and satellite-radiation APIs require the Professional plan or higher; the
+  free API is limited to non-commercial use. ASP has not established such an
+  entitlement. `HISTORICAL_WEATHER = UNAVAILABLE_ON_CURRENT_PLAN`.
+- **Caching/archive:** none acquired. If a permitted plan is later confirmed,
+  archive the exact dataset/model/run, coordinates, issue/valid time, units,
+  attribution, checksum, and retrieval time. Preserve weather as missing in the
+  meantime.
+- **Commercial/redistribution status:** CC BY 4.0 data terms apply, while API
+  service-tier and commercial endpoint terms require review.
+- **Replacement:** a licensed issued-forecast archive or observation/reanalysis
+  source may replace it, but reconstructed conditions and issued forecasts must
+  remain distinct.
+- **References reviewed:** `https://open-meteo.com/en/license`,
+  `https://open-meteo.com/en/terms`,
+  `https://open-meteo.com/en/pricing`, and
+  `https://open-meteo.com/en/docs/historical-weather-api` on 2026-08-13.
+
+### The Odds API historical markets
+
+- **Desired evidence:** timestamp-matched pregame moneyline pairs and defensible
+  closing observations. No historical Odds data or closing series has been
+  acquired; the local archive contains one current controlled acquisition and
+  no `is_closing` rows.
+- **Interface:** ASP implements only current
+  `/v4/sports/baseball_mlb/odds`. Official documentation describes historical
+  snapshot and event endpoints, but those are not implemented locally.
+- **Plan/quota:** official documentation states historical endpoints are
+  available only on paid usage plans. Historical odds cost 10 credits per
+  region per market. The current entitlement has not been proven to include
+  them and the remaining current-data quota is scarce.
+- **Status:** `HISTORICAL_MARKET_DATA = UNAVAILABLE_ON_CURRENT_PLAN` and
+  `HISTORICAL_CLV = UNAVAILABLE`. Gate 3A will make zero historical Odds calls,
+  consume zero credits, and train without a market feature/benchmark.
+- **Caching/archive:** no historical archive is authorized. Prospective current
+  snapshots continue to retain exact observed/available timestamps under their
+  existing quota and terms controls.
+- **Attribution, archival, redistribution, commercial use:** service-tier and
+  contract review are required before any historical storage; no permission is
+  inferred here.
+- **Replacement:** a licensed, timestamped bookmaker feed may replace it while
+  preserving book, market, participant, odds, observed time, availability time,
+  and an explicit closing methodology.
+- **References reviewed:** `https://the-odds-api.com/liveapi/guides/v4/`,
+  `https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html`, and
+  `https://the-odds-api.com/historical-odds-data/` on 2026-08-13.
+
+### Historical raw and derived-data boundary
+
+Approved historical payloads belong under
+`data/raw/historical/<source>/YYYY/MM/` and remain Git-ignored. PostgreSQL owns
+canonical identity, append-only outcome/event summaries, source policy,
+checkpointing, and feature lineage; large event-level analytical material may
+use versioned Parquet under ignored curated/feature roots. Local possession is
+not permission to publish raw data. Retention, access controls, deletion,
+attribution, and redistribution remain source-specific review items.
+
+Historical reconstruction and ASP's prospective archive are never equivalent.
+The latter is the future gold standard because ASP can prove the exact lineup,
+starter, bullpen, weather, market, forecast, and outcome state available at
+each lifecycle checkpoint.
+
 ## Review record required before deployment
 
 For every external source, the deployment owner must record the reviewed terms
