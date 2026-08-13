@@ -1,0 +1,45 @@
+# Python environments, caches, and generated test output
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-relocation/
+.pytest-*/
+pytest-*/
+pytest-cache-files-*/
+.coverage
+htmlcov/
+coverage/
+.test-artifacts/
+.test-tmp/
+test-results/
+test-output/
+tests/
+
+# Local environment and credential material
+.env
+.env.*
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+
+# Local runtime and database artifacts
+.runtime/
+logs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.duckdb
+*.duckdb-*
+*.dump
+*.log

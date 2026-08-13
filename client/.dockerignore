@@ -1,0 +1,36 @@
+# Dependencies and generated build/test output
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.test-artifacts/
+.test-tmp/
+*.tsbuildinfo
+*.log
+
+# Local environment and credential material
+.env
+.env.*
+.npmrc
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+
+# Local runtime and database artifacts
+.runtime/
+logs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.duckdb
+*.duckdb-*
+*.dump

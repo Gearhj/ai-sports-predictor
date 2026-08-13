@@ -1,0 +1,66 @@
+name: ai-sports-predictor
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: asp
+      POSTGRES_USER: asp
+      POSTGRES_PASSWORD: REDACTED-CREDENTIAL
+    ports:
+      - "5433:5432"
+    volumes:
+      - asp_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asp -d asp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./server
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://asp:REDACTED-CREDENTIAL@db:5432/asp
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    command: >-
+      sh -c "python -m alembic upgrade head &&
+      python -m app.cli create-admin &&
+      python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/workspace/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  asp_postgres_data:

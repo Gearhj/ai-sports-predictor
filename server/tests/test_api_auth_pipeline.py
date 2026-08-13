@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from app.jobs import seed_demo_data
+from app.models import UserRole
+from app.services.auth_service import BootstrapConflictError, ensure_admin, register_user
+
+
+@pytest.mark.asyncio
+async def test_demo_vertical_slice_and_typed_endpoints(client, session, settings) -> None:
+    result = await seed_demo_data(session, settings, date(2026, 8, 12))
+    assert result["mode"] == "DEMO"
+    dashboard = client.get("/api/v1/dashboard/today?date=2026-08-12")
+    assert dashboard.status_code == 200
+    payload = dashboard.json()
+    assert payload["data_mode"] == "demo"
+    assert payload["summary"]["games"] == 3
+    assert payload["summary"]["complete_forecasts"] == 3
+    assert all(game["forecast_available"] and game["market_available"] for game in payload["games"])
+    game_id = payload["games"][0]["id"]
+    assert client.get(f"/api/v1/games/{game_id}").status_code == 200
+    markets = client.get("/api/v1/markets/board?date=2026-08-12")
+    assert markets.status_code == 200
+    assert markets.json()["data_mode"] == "demo"
+    assert len(markets.json()["books"]) == 3
+    assert client.get("/api/v1/performance").json()["brier_score"] is None
+    assert client.get("/api/v1/bankroll").status_code == 200
+    assert client.get("/api/v1/health/sources?date=2026-08-12").status_code == 200
+    assert client.get("/api/v1/health").json()["database"] == "reachable"
+
+
+def test_authentication_and_admin_role_authorization(client, session, settings) -> None:
+    admin = ensure_admin(session, settings)
+    login = client.post("/api/v1/auth/login", json={"email": settings.admin_email, "password": settings.admin_password})
+    assert login.status_code == 200
+    assert login.json()["user"]["role"] == "ADMIN"
+    token = login.json()["access_token"]
+    assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    member = client.post("/api/v1/auth/register", json={"email": "member@example.com", "password": "MemberPass123!", "display_name": "Member"})
+    assert member.status_code == 201
+    assert member.json()["user"]["role"] == "MEMBER"
+    denied = client.post("/api/v1/admin/jobs/rebuild-features", headers={"Authorization": f"Bearer {member.json()['access_token']}"})
+    assert denied.status_code == 403
+    allowed = client.post("/api/v1/admin/jobs/rebuild-features", headers={"Authorization": f"Bearer {token}"})
+    assert allowed.status_code == 200
+    assert allowed.json()["status"] == "succeeded"
+
+
+def test_admin_bootstrap_fails_closed_on_existing_member(session, settings) -> None:
+    register_user(session, settings, settings.admin_email, "MemberPass123!", "Not Admin")
+    with pytest.raises(BootstrapConflictError):
+        ensure_admin(session, settings)
