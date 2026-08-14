@@ -240,12 +240,29 @@ outputs; the seven-day v4 artifact is only 375,715 projected bytes. These are
 explicitly `HISTORICAL_RECONSTRUCTED_PREGAME` artifacts, not prospective LIVE
 captures.
 
-The single 2025-06-17 Statcast trial succeeded with 4,375 rows across 15 games,
-but remains raw-only partial evidence: publication/eligibility is unproven and
-it was not canonicalized or admitted to training. No model was trained or
-promoted. The current plan has no historical-market entitlement, so
+The single 2025-06-17 Statcast trial succeeded with 4,375 rows across 15 games
+and was promoted locally into a deterministic Tier B research artifact.
+Publication/eligibility is unproven, so it was not admitted to strict training.
+No model was trained or promoted. The current plan has no historical-market entitlement, so
 `HISTORICAL_MARKET_DATA = UNAVAILABLE_ON_CURRENT_PLAN` and historical CLV stays
-unavailable. See the [Gate 3A plan](docs/GATE_3A_IMPLEMENTATION_PLAN.md),
+unavailable.
+
+Stage A2 adds a provider-free chronological 2025 reconstruction under the
+272-value / 544-output `mlb_historical_pregame_a2_v2` contract. Its strict
+population targets all 2,428 Tier A outcomes; its separate 2,430-row enhanced
+shadow population is Tier B research-only, training-ineligible, and
+evaluation-ineligible.
+Final strict rows, dataset identity, coverage, and audit-only readiness are
+`2,428`, `mlb-gate3-a2-3059f81db1d0e278`, `85.4483%`, and
+`NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT`. The existing
+Statcast day is promoted locally only to a deterministic Tier B research
+artifact because historical publication timing remains unproven. A2 makes
+zero provider calls and performs no model fitting, holdout scoring, or
+promotion. See the
+[A2 feature-materialization report](docs/GATE_3A_A2_2025_FEATURE_MATERIALIZATION_REPORT.md)
+for the final evidence boundary.
+
+See the [Gate 3A plan](docs/GATE_3A_IMPLEMENTATION_PLAN.md),
 [A0 implementation report](docs/GATE_3A_IMPLEMENTATION_REPORT.md), and
 [A1 real-data report](docs/GATE_3A_A1_REAL_MLB_DATA_REPORT.md).
 

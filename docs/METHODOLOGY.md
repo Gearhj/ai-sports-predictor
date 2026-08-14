@@ -66,13 +66,23 @@ per game. It stops before fitting when fewer than 200 eligible labeled games
 exist. The current prospective sample contains nine scheduled games, zero
 final outcomes, and therefore zero eligible labels.
 
-Gate 3A now has corrected 15-row one-day v3 and 90-row seven-day v4
-historical-reconstruction artifacts. The canonical 2025 core contains 2,430
-unique official finals, while the full-season feature/dataset materialization
-has not been run. These rows are not relabeled as prospective capture and were
-not passed to model fitting. The 90-row v4 artifact is below the unchanged
-200-row minimum, so no real model was fitted and the promotion decision remains
-**NO PROMOTION - INSUFFICIENT HISTORICAL EVIDENCE**.
+Gate 3A Stage A1 produced corrected 15-row one-day v3 and 90-row seven-day v4
+historical-reconstruction artifacts and a canonical 2025 core containing 2,430
+unique official finals. Stage A2 then materializes the full 2,428-outcome
+strict Tier A population with one chronological replay; its final admitted row
+count and structural readiness status are `2,428` and
+`NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT`. A separate enhanced shadow population covers
+all 2,430 A+B targets but is classified Tier B research-only and cannot become
+training- or evaluation-eligible. Neither population is relabeled as
+prospective capture.
+
+Stage A2's compatibility review is audit-only: it may count rows, date groups,
+development-period classes, formable rolling folds, and a chronological
+holdout by identity, but it does not dereference holdout outcomes or compute
+holdout metrics. No estimator was fitted, no calibrator was selected, and no
+model was promoted. An audit result of
+`READY_FOR_GATE_3B_MODEL_DEVELOPMENT` would authorize only a later, separately
+governed modeling stage; it is not evidence of predictive performance.
 
 When a sufficient sample exists, games remain grouped by date and ordered by
 first pitch. The latest 20% of date groups form a single-use locked holdout; the
@@ -133,19 +143,52 @@ training was invoked by either artifact rebuild.
 The complete 2025 core has 2,428 Tier A outcomes and two Tier B rain-ended
 outcomes (`777474` and `777188`). All 2,430 use the derived last-event completion
 proxy; none is represented as an authoritative final-publication timestamp.
-The one-day Statcast trial remains raw-only partial evidence, with publication
-time and historical eligibility unproven, and contributes no feature to these
-artifacts.
+The one-day Statcast trial began as raw-only partial evidence and Stage A2
+promoted it locally into a deterministic Tier B research artifact. Publication
+time and historical eligibility remain unproven, so it contributes no strict
+Tier A feature and is training/evaluation-ineligible.
 
-Run the offline audit only after migrations are current:
+### Stage A2 chronological materialization boundary
 
-```powershell
-cd C:\Users\james\ai-sports-predictor\server
-..\.venv\Scripts\python.exe -m app.cli train-mlb-models --as-of 2026-08-13T16:00:00Z
-```
+Stage A2 freezes 272 nullable raw values and 544 ordered
+value/missing-indicator outputs under `mlb_historical_pregame_a2_v2`.
+Targets are ordered by their six-hour pregame cutoff, and a single state cursor
+admits prior team, player, and final facts only after their governed completion
+and eligibility boundary. The target game is excluded by identity. Team
+14-day, 30-day, and season state; Bayesian batting, pitching, and team state;
+Elo; bullpen workload and quality proxies; rest; and supported travel evidence
+are therefore derived without replaying the season separately for each game.
+Unavailable facts remain missing, with a paired indicator in the model-ready
+matrix.
 
-See `docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the complete data,
-leakage, artifact, promotion, and public-reporting boundary.
+Strict Tier A never uses historical actual-starter or actual-lineup identity
+without an independently proven pregame publication time. The enhanced
+2,430-target Tier B shadow population may use those identities as provisional
+context but may not use target-game performance; all of its outputs remain
+research-only. Compact append-only evidence-state attestations bind each row
+to source/family counts, time bounds, canonical-set checksums, source-bundle
+checksums, feature-value checksums, and target-exclusion/temporal-validity
+assertions without serializing every source reference into every dataset row.
+
+The already archived 2025-06-17 Statcast response may be promoted file-to-file
+into a deterministic minimal Tier B research artifact. The archive's 2026
+ingestion time is the earliest defensible availability because historical
+publication timing is unproven. Its events and rolling aggregates are
+training-ineligible and evaluation-ineligible, and contribute zero strict Tier
+A features. The promotion itself makes no provider call.
+
+Final coverage, dataset/checksum identities, performance/storage evidence,
+provider reconciliation, and the decision on whether 2025 is sufficient for a
+later bounded Gate 3B are recorded in
+`docs/GATE_3A_A2_2025_FEATURE_MATERIALIZATION_REPORT.md`. Additional 2023-2024
+seasons could improve prior depth and stability testing, but cannot repair
+unproven starter, lineup, Statcast, market, or weather availability. Stage A2
+does not acquire them.
+
+Stage A2 must not invoke `train-mlb-models`. That command belongs to a later,
+separately authorized modeling stage once the audit-only readiness decision has
+been reviewed. See `docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the
+modeling, leakage, artifact, promotion, and public-reporting boundary.
 
 ## Virtual bankroll
 

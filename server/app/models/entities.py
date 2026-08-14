@@ -1377,7 +1377,7 @@ class HistoricalFeatureMaterialization(UUIDPrimaryKeyMixin, CreatedAtMixin, Base
         UniqueConstraint("identity_checksum", name="uq_hist_materialization_identity"),
         UniqueConstraint(
             "game_id", "cutoff_at", "feature_version_id", "cutoff_policy_version",
-            "source_mode", "materializer_version",
+            "source_mode", "materializer_version", "evidence_manifest_checksum",
             name="uq_hist_materialization_semantic",
         ),
         CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_hist_materialization_mode"),
@@ -1417,6 +1417,117 @@ class HistoricalFeatureMaterialization(UUIDPrimaryKeyMixin, CreatedAtMixin, Base
         Index(
             "ix_hist_materialization_eligibility",
             "training_eligible", "quality_tier", "scheduled_at",
+        ),
+    )
+
+
+class HistoricalEvidenceStateAttestation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Compact, append-only proof of the canonical evidence state at a cutoff."""
+
+    __tablename__ = "historical_evidence_state_attestations"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False)
+    season_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("seasons.id"), nullable=False)
+    feature_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("feature_versions.id"), nullable=False
+    )
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id"), nullable=False
+    )
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    state_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    population: Mapped[str] = mapped_column(String(40), nullable=False)
+    outcome_history_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    team_history_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    player_history_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    statcast_event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    evidence_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    eligible_max_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    family_counts: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    family_checksums: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    source_bundle: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    source_bundle_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonical_set_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    feature_values_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    temporal_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    temporal_semantics: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RETROSPECTIVE_RECONSTRUCTION"
+    )
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id",
+            "cutoff_at",
+            "feature_version_id",
+            "state_version",
+            "population",
+            "source_mode",
+            "canonical_set_checksum",
+            name="uq_hist_evidence_state_semantic",
+        ),
+        UniqueConstraint(
+            "identity_checksum",
+            name="uq_hist_evidence_state_identity",
+        ),
+        CheckConstraint(
+            "outcome_history_count >= 0 AND team_history_count >= 0 "
+            "AND player_history_count >= 0 "
+            "AND statcast_event_count >= 0",
+            name="ck_hist_evidence_state_counts",
+        ),
+        CheckConstraint(
+            "generated_at >= cutoff_at",
+            name="ck_hist_evidence_state_generation",
+        ),
+        CheckConstraint(
+            "((outcome_history_count + team_history_count + player_history_count "
+            "+ statcast_event_count = 0 "
+            "AND evidence_start_at IS NULL AND evidence_end_at IS NULL "
+            "AND eligible_max_at IS NULL) OR "
+            "(outcome_history_count + team_history_count + player_history_count "
+            "+ statcast_event_count > 0 "
+            "AND evidence_start_at IS NOT NULL AND evidence_end_at IS NOT NULL "
+            "AND eligible_max_at IS NOT NULL))",
+            name="ck_hist_evidence_state_bounds_presence",
+        ),
+        CheckConstraint(
+            "evidence_start_at IS NULL OR "
+            "(evidence_end_at >= evidence_start_at AND evidence_end_at < cutoff_at "
+            "AND eligible_max_at >= evidence_end_at "
+            "AND eligible_max_at <= cutoff_at)",
+            name="ck_hist_evidence_state_bounds_order",
+        ),
+        CheckConstraint(
+            "population IN ('TIER_A_STRICT', 'TIER_B_ENHANCED')",
+            name="ck_hist_evidence_state_population",
+        ),
+        CheckConstraint(
+            "source_mode IN ('LIVE', 'DEMO')",
+            name="ck_hist_evidence_state_mode",
+        ),
+        CheckConstraint(
+            "temporal_semantics = 'RETROSPECTIVE_RECONSTRUCTION'",
+            name="ck_hist_evidence_state_temporal",
+        ),
+        CheckConstraint(
+            "length(source_bundle_checksum) = 64 "
+            "AND length(canonical_set_checksum) = 64 "
+            "AND length(feature_values_checksum) = 64 "
+            "AND length(identity_checksum) = 64",
+            name="ck_hist_evidence_state_checksums",
+        ),
+        Index("ix_hist_evidence_state_game_cutoff", "game_id", "cutoff_at"),
+        Index("ix_hist_evidence_state_checkpoint", "checkpoint_id"),
+        Index(
+            "ix_hist_evidence_state_season_population",
+            "season_id",
+            "population",
+            "generated_at",
         ),
     )
 

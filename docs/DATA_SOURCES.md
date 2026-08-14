@@ -326,6 +326,25 @@ is no standing approval for multi-season or Statcast expansion.
 - **References reviewed:** `https://baseballsavant.mlb.com/csv-docs` and
   `https://www.mlb.com/glossary/statcast` on 2026-08-13.
 
+#### Stage A2 provider-free Statcast promotion
+
+Stage A2 revalidates the existing 2025-06-17 gzip wrapper, exact response
+bytes, request/schema fingerprints, mappings, and event identities without
+constructing a provider adapter or making a network request. The deterministic
+promotion artifact is `statcast-a2-d0c7d1b78871d2f7` with
+`4,375` minimal event rows and `1,311` research aggregates. Exact artifact
+checksums and sizes are recorded in
+`GATE_3A_A2_2025_FEATURE_MATERIALIZATION_REPORT.md`.
+
+This is a Tier B research promotion, not proof that Statcast was available at a
+historical T-minus-six-hour cutoff. The archive's 2026 ingestion timestamp is
+the earliest defensible availability under
+`CURRENT_ARCHIVE_INGESTION_NO_HISTORICAL_PUBLICATION_TIME`. Promoted events and
+aggregates remain `PARTIALLY_RECONSTRUCTABLE`, training-ineligible, and
+evaluation-ineligible; they contribute zero strict Tier A feature values.
+Score, win-expectancy, run-expectancy, and future-game fields are excluded.
+A2 expansion beyond the existing day is `NO_STATCAST_EXPANSION`.
+
 ### Open-Meteo historical context
 
 - **Desired evidence:** temperature, humidity, wind, precipitation, and
@@ -397,6 +416,24 @@ Historical reconstruction and ASP's prospective archive are never equivalent.
 The latter is the future gold standard because ASP can prove the exact lineup,
 starter, bullpen, weather, market, forecast, and outcome state available at
 each lifecycle checkpoint.
+
+### Stage A2 2025 feature-materialization boundary
+
+Stage A2 reads the complete A1 core locally and makes `0` provider calls. It targets
+2,428 strict Tier A outcomes and a separate 2,430-target Tier B enhanced shadow
+population. The strict dataset admits `2,428` rows; the enhanced dataset admits
+`2,430` research-only
+rows, all labeled Tier B and training/evaluation-ineligible. Actual historical
+starters and batting orders remain absent from strict features because
+participation does not prove pregame publication.
+
+Feature lineage is persisted as compact, checksum-addressed evidence-state
+attestations. The attestations record source/family counts, evidence and
+eligibility bounds, canonical-set and source-bundle checksums, feature-value
+checksums, and target-exclusion/temporal-validity assertions. Raw payloads,
+promoted event artifacts, feature matrices, and dataset artifacts remain
+Git-ignored. No historical Odds or weather evidence is added, and no 2023-2024
+acquisition occurs.
 
 ## Review record required before deployment
 
