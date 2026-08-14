@@ -59,13 +59,20 @@ visible and reduce the score.
 
 ## Evaluation
 
-Gate 3 training is provider-free and uses only persisted, immutable `LIVE`
-evidence. The dataset builder requires one published pregame feature snapshot and
-one append-only final observation per game. It stops before fitting when fewer
-than 200 eligible labeled games exist. The current local sample contains nine
-scheduled games, zero final outcomes, and therefore zero eligible labels: no
-real model was fitted and the promotion decision is **NO PROMOTION -
-INSUFFICIENT HISTORICAL EVIDENCE**.
+Gate 3 prospective training is provider-free and uses only persisted,
+immutable, prospectively captured `LIVE` evidence. Its dataset builder requires
+one published pregame feature snapshot and one append-only final observation
+per game. It stops before fitting when fewer than 200 eligible labeled games
+exist. The current prospective sample contains nine scheduled games, zero
+final outcomes, and therefore zero eligible labels.
+
+Gate 3A now has corrected 15-row one-day v3 and 90-row seven-day v4
+historical-reconstruction artifacts. The canonical 2025 core contains 2,430
+unique official finals, while the full-season feature/dataset materialization
+has not been run. These rows are not relabeled as prospective capture and were
+not passed to model fitting. The 90-row v4 artifact is below the unchanged
+200-row minimum, so no real model was fitted and the promotion decision remains
+**NO PROMOTION - INSUFFICIENT HISTORICAL EVIDENCE**.
 
 When a sufficient sample exists, games remain grouped by date and ordered by
 first pitch. The latest 20% of date groups form a single-use locked holdout; the
@@ -103,6 +110,32 @@ partial evidence, and prospective ASP capture is the future Tier C gold
 standard. Missing, forward-only, timing-invalid, DEMO, and backtest evidence is
 excluded rather than neutralized into an observed value. A/B populations are
 not mixed unless a later dataset build explicitly permits and reports it.
+
+The A1 MLB feed did not expose an explicit authoritative final-publication time
+for the acquired games. Outcomes therefore use the exact last recorded play's
+`about.endTime` as `DERIVED_LAST_EVENT_COMPLETION_PROXY`, retain its limitation,
+and keep actual acquisition/label availability in 2026. This timestamp orders
+completed prior games; it is never represented as an authoritative publication
+time or backdated ASP availability.
+
+The corrected A1 one-day v3 and seven-day v4 artifacts contain 15 and 90 Tier A
+rows with zero exclusions. They separate 100-point temporal integrity from
+frozen-schema coverage and admission quality: 20 of 47 row inputs are observed,
+while 16 of 43 non-derived coverage inputs yield 37.2093%. Their 47 inputs
+expand to 94 frozen value/missing-indicator outputs. The earlier v1 100-point
+`quality_score` and repeated-reference artifact layout are superseded; v4
+compactly attests 174,649 canonical reference occurrences and stores 90 rows in
+368,281 bytes. Actual starters and lineups are retained as postgame
+participation facts but omitted from Tier A pregame features because their
+historical publication time is not established. No provider call or model
+training was invoked by either artifact rebuild.
+
+The complete 2025 core has 2,428 Tier A outcomes and two Tier B rain-ended
+outcomes (`777474` and `777188`). All 2,430 use the derived last-event completion
+proxy; none is represented as an authoritative final-publication timestamp.
+The one-day Statcast trial remains raw-only partial evidence, with publication
+time and historical eligibility unproven, and contributes no feature to these
+artifacts.
 
 Run the offline audit only after migrations are current:
 

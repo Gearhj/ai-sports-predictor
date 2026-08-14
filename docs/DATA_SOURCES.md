@@ -76,7 +76,9 @@ Provider or API failures never substitute demo fixtures.
   notice and historical acquisition may be expensive or restricted. The
   2026-08-13 controlled-live validation left Statcast disabled and made no
   Statcast request, so the implemented live promotion path has fixture and
-  integration-test evidence but no claim of live coverage from that run.
+  integration-test evidence but no claim of live coverage from that run. The
+  later Gate 3A one-day historical trial is a separate raw-only path and does
+  not change that live-promotion status.
 
 ### The Odds API
 
@@ -222,44 +224,64 @@ at an earlier forecast cutoff. Missing historical fields and closing lines remai
 missing. Dataset manifests retain source mode, source-evidence checksums,
 feature/schema versions, cutoff, exclusions, coverage, and leakage results.
 
-The current local database has zero eligible labeled games, so the provider-free
-command must return `INSUFFICIENT_DATA / NO_PROMOTION` without fitting a model.
-See `GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the full boundary.
+The prospective Gate 3 population still has zero eligible labeled games, so its
+provider-free training command must return `INSUFFICIENT_DATA / NO_PROMOTION`
+without fitting a model. Gate 3A's separately labeled historical-reconstruction
+population has corrected 15-row one-day v3 and 90-row seven-day v4 artifacts
+with 16/43 (37.2093%) feature coverage and independently passing temporal
+checks. The 90-row artifact is below the unchanged 200-row minimum, and neither
+artifact has been passed to model fitting. See
+`GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md`
+and `GATE_3A_A1_REAL_MLB_DATA_REPORT.md` for the two evidence boundaries.
 
 ## Gate 3A historical-source review
 
-This section records the 2026-08-13 pre-backfill review. It is a technical and
-provenance record, not legal advice. No historical provider payload was acquired
-as part of the review. A missing or unclear permission is recorded as
-`LEGAL_REVIEW_REQUIRED`, not treated as approval.
+This section records the 2026-08-13 source review and subsequent bounded A1
+run. It is a technical and provenance record, not legal advice. The project
+owner approved MLB evidence acquisition only for local/private ASP research and
+model development. Public redistribution remains prohibited pending review,
+commercial deployment is not approved, raw-data resale is prohibited, and
+final attribution/licensing review is still required. The completed 2025 MLB
+core and single Statcast trial are the bounded A1 actions recorded here; there
+is no standing approval for multi-season or Statcast expansion.
 
 ### MLB Stats API historical evidence
 
-- **Desired evidence:** regular-season schedule identity, final outcomes,
-  innings, box scores, player participation, actual starters, and dated
-  transactions. No historical Gate 3A records have yet been acquired.
-- **Interface:** ASP now has bounded historical schedule, final-feed, and
-  box-score adapter methods; an atomic compressed archive; resumable archive
-  checkpoints; and separate canonical persistence/materialization services.
-  The public backfill command remains deliberately raw-archive-only and reports
-  `ARCHIVED_CANONICAL_PENDING`; it is not yet an end-to-end canonical backfill.
-  Dated transaction acquisition is not implemented.
-- **Temporal meaning:** final and completed event facts may be archived as
-  retrospective reconstruction. Fetching a historical record today does not
-  establish that ASP observed it before the historical game, and the current
-  retrieval timestamp must not be backdated. Actual starters and lineups prove
-  participation, not their exact pregame announcement time.
-- **Terms/attribution:** `LEGAL_REVIEW_REQUIRED`. MLB's current Terms of Use
-  include restrictions on automated scripts and disproportionate load across
-  MLB Digital Properties. A responsible owner must determine applicability to
-  the Stats API, local research, derived features, and the proposed request
-  pattern before acquisition. No attribution determination has been made.
-- **Caching/archive:** implemented local, Git-ignored, atomic gzip evidence with
-  separate payload/file checksums, retrieval time, historical event time,
-  endpoint/request fingerprint, checkpoint/run identifiers, and idempotent
-  conflict detection. No Gate 3A historical payload has been acquired. Public
-  redistribution is not authorized by this document.
-- **Commercial/redistribution status:** uncertain; `LEGAL_REVIEW_REQUIRED`.
+- **Acquired evidence:** the complete 2025 regular-season core contains 2,430
+  unique official finals dated 2025-03-18 through 2025-09-28, 4,860 team-game
+  rows, and 127,872 player-game rows across 184 canonical SQL checkpoints. All
+  finals have an official game date; there are no revisions, duplicates, or
+  rejected records. Dated transaction acquisition is not implemented.
+- **Interface:** ASP has bounded historical schedule-range and v1.1 final-feed
+  methods, atomic compressed archives, exact request accounting, resumable
+  checkpoints, canonical persistence, strict reconstruction, and immutable
+  dataset materialization. The approved local-research command is end to end;
+  Odds, Statcast, and weather have no dispatch path in that MLB core command.
+  Statcast uses the separate raw-only trial path described below.
+- **Temporal meaning:** final and completed event facts are retrospective
+  reconstruction. All acquired outcomes use the exact last recorded play end
+  time as `DERIVED_LAST_EVENT_COMPLETION_PROXY`; it is not an explicit MLB
+  final-publication time. Fetching a historical record today does not establish
+  that ASP observed it before the historical game, so retrieval and label
+  availability remain in 2026. Actual starters and lineups prove participation,
+  not their exact pregame announcement time.
+- **Terms/attribution:** owner-authorized for `LOCAL_PRIVATE_RESEARCH` only.
+  Technical access restrictions must be respected. Final attribution,
+  licensing, retention, redistribution, and any commercial-use decision remain
+  pending; the authorization is not a legal conclusion.
+- **Caching/archive:** 2,434 referenced Git-ignored atomic gzip files totaling
+  315,853,213 bytes, with separate payload/file checksums, retrieval time,
+  historical event time, endpoint/request fingerprint, checkpoint/run
+  identifiers, and idempotent conflict detection. The closeout raw root has
+  2,512 files totaling 323,342,002 bytes. Physical accounting is larger than
+  canonical references: MLB made 2,460 attempts with 2,459 successes and one
+  legacy-v1 preflight `404`; 14 duplicate successful feeds came from two
+  chunks that failed closed on rain-ended schema handling, and extra discovery
+  and restart schedule calls are retained in the accounting. There were zero
+  retries or rate-limit events. Public redistribution is not authorized by this
+  document.
+- **Commercial/redistribution status:** commercial deployment not approved;
+  public redistribution prohibited pending review; raw-data resale prohibited.
 - **Replacement:** another officially licensed game/box-score feed can replace
   this adapter if it preserves canonical MLB game/player/team IDs, revisions,
   event timestamps, and the same knowledge-time contract.
@@ -270,25 +292,34 @@ as part of the review. A missing or unclear permission is recorded as
 
 - **Desired evidence:** date-bounded pitch and batted-ball events sufficient to
   calculate prior-only rolling xwOBA, contact quality, velocity, whiff, pitch
-  mix, strikeout/walk, and platoon features. No Statcast history has been
-  acquired locally.
+  mix, strikeout/walk, and platoon features. The one-day 2025-06-17 technical
+  trial acquired 4,375 raw rows across 15 games, 304 batters, 133 pitchers, and
+  436 unique players with 119 fields and no detected schema drift.
 - **Interface:** official Statcast Search and CSV field documentation expose
   `game_date`, `game_pk`, batter/pitcher MLB IDs, pitch/event sequence, expected
-  outcomes, contact, velocity, handedness, and game-type fields. ASP's current
-  adapter implements season-level batting and pitching leaderboards only; those
-  full-season extracts are not point-in-time training evidence for earlier
-  games.
+  outcomes, contact, velocity, handedness, and game-type fields. ASP's
+  historical trial path is deliberately single-day and raw-only. It does not
+  promote rows into the existing season-leaderboard observations or canonical
+  historical features.
 - **Temporal meaning:** only events from completed prior games may enter a
   target game's historical pregame aggregate. Same-game events, later games,
-  future seasons, and later-fetched season summaries are forbidden.
-- **Terms/attribution:** public technical documentation exists, but automated
-  archival, retention, derived-data, redistribution, and commercial-use rights
-  have not been confirmed. Because Baseball Savant is an MLB property, the MLB
-  terms concern also applies. Status: `LEGAL_REVIEW_REQUIRED`.
-- **Caching/archive:** if approved, use a one-day controlled trial, concurrency
-  one, bounded pacing/retry, compressed date partitions, raw and normalized
-  checksums, and a circuit breaker. Stop on rejection or schema drift.
-- **Commercial/redistribution status:** uncertain; no raw redistribution.
+  future seasons, and later-fetched season summaries are forbidden. The trial's
+  publication time and historical eligibility are unproven, so its evidence is
+  `PARTIAL / RAW_ONLY`, not a pregame feature.
+- **Terms/attribution:** the project owner authorized this single local/private
+  research trial. Automated archival, retention, derived-data, attribution,
+  redistribution, and commercial-use conclusions remain unconfirmed. Because
+  Baseball Savant is an MLB property, the MLB terms concern also applies. The
+  trial is not a legal determination or approval to expand.
+- **Caching/archive:** the one successful request produced a 2,523,608-byte
+  archive. Payload SHA-256 is
+  `bcaa171d4adfb8666ab3ee85eb0490710103825ecf973f8b07a80e55c53a4251`,
+  CSV SHA-256 is
+  `932d42bec7a1536374648ae6bc99827f31267bdd56f02db1955638e24ae3b055`,
+  and archive SHA-256 is
+  `601af8d47af4dfe66102efd4df38ecd324e8ebf38449ddc8eb0c708337e79f2d`.
+  No canonical or training row was created.
+- **Commercial/redistribution status:** not approved; no raw redistribution.
 - **Replacement:** a licensed pitch-event source with stable MLB IDs and dated
   event semantics may replace Savant. Revalidate definitions across the
   PitchFX/Statcast/Hawk-Eye eras.
@@ -337,8 +368,8 @@ as part of the review. A missing or unclear permission is recorded as
   region per market. The current entitlement has not been proven to include
   them and the remaining current-data quota is scarce.
 - **Status:** `HISTORICAL_MARKET_DATA = UNAVAILABLE_ON_CURRENT_PLAN` and
-  `HISTORICAL_CLV = UNAVAILABLE`. Gate 3A will make zero historical Odds calls,
-  consume zero credits, and train without a market feature/benchmark.
+  `HISTORICAL_CLV = UNAVAILABLE`. Gate 3A made zero historical Odds calls,
+  consumed zero credits, and produced no market feature/benchmark.
 - **Caching/archive:** no historical archive is authorized. Prospective current
   snapshots continue to retain exact observed/available timestamps under their
   existing quota and terms controls.

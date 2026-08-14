@@ -10,7 +10,7 @@ from math import isclose, isfinite
 from typing import Any, Iterable
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.historical.policy import (
@@ -19,8 +19,14 @@ from app.historical.policy import (
     ResearchProvenance,
     tier_for_classification,
 )
-from app.historical.snapshot import EvidenceRole, HistoricalSnapshot, canonical_json
+from app.historical.snapshot import (
+    HISTORICAL_SNAPSHOT_TYPE,
+    EvidenceRole,
+    HistoricalSnapshot,
+    canonical_json,
+)
 from app.historical.temporal import as_utc, deterministic_cutoff
+from app.modeling.schema import GATE3_FEATURE_SCHEMA
 from app.models import (
     FeatureVersion,
     Game,
@@ -37,7 +43,18 @@ from app.models import (
 
 TEMPORAL_SEMANTICS = "RETROSPECTIVE_RECONSTRUCTION"
 SOURCE_MODE = "LIVE"
-DEFAULT_MATERIALIZER_VERSION = "gate3a_historical_materializer_v1"
+DEFAULT_MATERIALIZER_VERSION = "gate3a_historical_materializer_v4"
+ADMISSION_QUALITY_POLICY_VERSION = "gate3a_historical_admission_quality_v3"
+_A1_FROZEN_SCHEMA_BUILDER_VERSIONS = {
+    "gate3a_a1_reconstruction_v3",
+    "gate3a_a1_reconstruction_v4",
+}
+_HISTORICAL_DERIVED_FEATURE_NAMES = {
+    "feature_completeness",
+    "sample_reliability",
+    "lineups_confirmed",
+    "starters_confirmed",
+}
 _FORBIDDEN_TARGET_TOKENS = (
     "final_score",
     "home_score",
@@ -57,6 +74,10 @@ _CANONICAL_EVIDENCE_MODELS = {
     "team_game_history_observations": TeamGameHistoryObservation,
     "player_game_history_observations": PlayerGameHistoryObservation,
 }
+# Keep bind counts below conservative SQLite limits as well as PostgreSQL's;
+# player revision keys use six bound columns per tuple.
+_IDENTITY_BATCH_SIZE = 500
+_REVISION_KEY_BATCH_SIZE = 100
 
 
 class HistoricalMaterializationError(ValueError):
@@ -147,7 +168,7 @@ def persist_historical_snapshot(
         "event_boundary": "STRICTLY_BEFORE_CUTOFF",
         "eligibility_boundary": "AT_OR_BEFORE_CUTOFF",
     }
-    quality_components = historical_snapshot.quality.to_dict()
+    quality_score, quality_components = _admission_quality(historical_snapshot)
     identity_checksum = _materialization_identity(
         historical_snapshot=historical_snapshot,
         semantic_feature_checksum=semantic_feature_checksum,
@@ -157,6 +178,7 @@ def persist_historical_snapshot(
         final_outcome=governed_outcome,
         sources=sources,
         cutoff_policy=cutoff_policy,
+        quality_components=quality_components,
         materializer_version=materializer_version,
         code_revision=code_revision,
     )
@@ -296,7 +318,7 @@ def persist_historical_snapshot(
         evidence_manifest=evidence_manifest,
         evidence_manifest_checksum=evidence_manifest_checksum,
         quality_tier=historical_snapshot.tier.value,
-        quality_score=historical_snapshot.quality.score,
+        quality_score=quality_score,
         quality_components=quality_components,
         materializer_version=materializer_version,
         code_revision=code_revision,
@@ -356,6 +378,7 @@ def _validate_pure_snapshot(
     }
     if snapshot.feature_version_id not in accepted_feature_identities:
         raise HistoricalMaterializationError("Pure snapshot feature version is not the supplied version")
+    _admission_feature_names(snapshot)
     if _sha256_text(snapshot.canonical_payload_json) != snapshot.checksum.lower():
         raise HistoricalMaterializationError("Pure snapshot checksum does not match its payload")
     try:
@@ -370,6 +393,7 @@ def _validate_pure_snapshot(
         "builder_version",
         "feature_schema_version",
         "feature_version_id",
+        "snapshot_type",
         "provenance",
         "tier",
         "quality_policy",
@@ -380,6 +404,7 @@ def _validate_pure_snapshot(
         "provisional_fields",
         "unavailable_families",
         "timing_risk_families",
+        "reconstruction_metadata",
     }
     if not isinstance(payload, dict) or set(payload) != required_payload_keys:
         raise HistoricalMaterializationError("Pure snapshot payload shape is invalid")
@@ -391,6 +416,7 @@ def _validate_pure_snapshot(
         "builder_version": snapshot.builder_version,
         "feature_schema_version": snapshot.feature_schema_version,
         "feature_version_id": snapshot.feature_version_id,
+        "snapshot_type": HISTORICAL_SNAPSHOT_TYPE,
         "provenance": snapshot.provenance.value,
         "tier": snapshot.tier.value,
         "quality": snapshot.quality.to_dict(),
@@ -400,6 +426,7 @@ def _validate_pure_snapshot(
         "provisional_fields": list(snapshot.provisional_fields),
         "unavailable_families": list(snapshot.unavailable_families),
         "timing_risk_families": list(snapshot.timing_risk_families),
+        "reconstruction_metadata": snapshot.reconstruction_metadata,
     }
     for key, expected_value in expected.items():
         if canonical_json(payload.get(key)) != canonical_json(expected_value):
@@ -420,9 +447,15 @@ def _validate_pure_snapshot(
             raise HistoricalMaterializationError("Target outcome cannot enter feature evidence")
         if evidence.role is EvidenceRole.FEATURE and evidence.game_id == snapshot.game_id:
             raise HistoricalMaterializationError("Target-game feature evidence is forbidden")
-        if as_utc(evidence.event_at) >= snapshot.cutoff:
+        if (
+            evidence.role is not EvidenceRole.TARGET_CONTEXT
+            and as_utc(evidence.event_at) >= snapshot.cutoff
+        ):
             raise HistoricalMaterializationError("Future/current evidence entered the snapshot")
-        if as_utc(evidence.eligible_at) > snapshot.cutoff:
+        if (
+            evidence.role is not EvidenceRole.TARGET_CONTEXT
+            and as_utc(evidence.eligible_at) > snapshot.cutoff
+        ):
             raise HistoricalMaterializationError("Evidence was not eligible by the cutoff")
         if evidence.classification is EvidenceClassification.FORWARD_ONLY:
             raise HistoricalMaterializationError("Forward-only evidence cannot be reconstructed")
@@ -577,13 +610,51 @@ def _evidence_manifest(
     *,
     computed_at: datetime,
 ) -> list[dict[str, Any]]:
+    evidence_ids: list[UUID] = []
+    for item in snapshot.evidence:
+        try:
+            evidence_ids.append(UUID(item.evidence_id))
+        except (TypeError, ValueError):
+            # Preserve the existing precise error from the ordered validation
+            # loop below while still batching every resolvable identity.
+            continue
+    canonical_matches = _canonical_matches_by_id(session, evidence_ids)
+    resolved_requests: list[tuple[Any, bool]] = []
+    for item in snapshot.evidence:
+        try:
+            canonical_id = UUID(item.evidence_id)
+        except (TypeError, ValueError):
+            continue
+        matches = canonical_matches.get(canonical_id, ())
+        if len(matches) == 1:
+            resolved_requests.append(
+                (matches[0][1], item.role is EvidenceRole.TARGET_CONTEXT)
+            )
+    canonical_rows = [canonical for canonical, _ in resolved_requests]
+    checkpoints = _load_rows_by_ids(
+        session,
+        HistoryBackfillCheckpoint,
+        {row.checkpoint_id for row in canonical_rows},
+    )
+    outcomes = _load_rows_by_ids(
+        session,
+        GameFinalOutcome,
+        {row.final_outcome_id for row in canonical_rows},
+    )
+    latest_revisions = _latest_eligible_canonical_revisions(
+        session,
+        resolved_requests,
+        boundary=snapshot.cutoff,
+        computation_time=computed_at,
+    )
     rows: list[dict[str, Any]] = []
     for item in snapshot.evidence:
-        if item.role is not EvidenceRole.FEATURE:
+        if item.role not in {EvidenceRole.FEATURE, EvidenceRole.TARGET_CONTEXT}:
             raise HistoricalMaterializationError(
                 "Structural evidence has no supported immutable canonical table; "
                 "target outcomes are never feature evidence"
             )
+        is_target_context = item.role is EvidenceRole.TARGET_CONTEXT
         source = source_by_key.get(item.source)
         if source is None:
             raise HistoricalMaterializationError(f"Unknown evidence source: {item.source}")
@@ -593,11 +664,7 @@ def _evidence_manifest(
             raise HistoricalMaterializationError(
                 "Historical feature evidence must use a canonical history-row UUID"
             ) from exc
-        matches = [
-            (table_name, candidate)
-            for table_name, model in _CANONICAL_EVIDENCE_MODELS.items()
-            if (candidate := session.get(model, canonical_id)) is not None
-        ]
+        matches = canonical_matches.get(canonical_id, ())
         if not matches:
             raise HistoricalMaterializationError(
                 "Historical feature evidence references a nonexistent canonical history row"
@@ -607,30 +674,53 @@ def _evidence_manifest(
                 "Historical feature evidence UUID is ambiguous across canonical history tables"
             )
         canonical_table, canonical = matches[0]
+        if is_target_context and not isinstance(canonical, PlayerGameHistoryObservation):
+            raise HistoricalMaterializationError(
+                "TARGET_CONTEXT must reference canonical player participation"
+            )
         if canonical.source_version_id != source.id:
             raise HistoricalMaterializationError("Canonical evidence source version mismatch")
         if canonical.source_record_id != item.source_record_id:
             raise HistoricalMaterializationError("Canonical evidence source record mismatch")
         if item.game_id is None or str(canonical.game_id) != str(item.game_id):
             raise HistoricalMaterializationError("Canonical evidence game identity mismatch")
-        if str(canonical.game_id) == snapshot.game_id:
+        if not is_target_context and str(canonical.game_id) == snapshot.game_id:
             raise HistoricalMaterializationError("Target-game canonical history cannot enter features")
+        if is_target_context and str(canonical.game_id) != snapshot.game_id:
+            raise HistoricalMaterializationError("TARGET_CONTEXT must reference the target game")
         if _orm_utc(canonical.event_at) != as_utc(item.event_at):
             raise HistoricalMaterializationError("Canonical evidence event timestamp mismatch")
         if _orm_utc(canonical.eligible_at) != as_utc(item.eligible_at):
             raise HistoricalMaterializationError("Canonical evidence eligibility timestamp mismatch")
         if canonical.payload_checksum.lower() != item.raw_sha256.lower():
             raise HistoricalMaterializationError("Canonical evidence payload checksum mismatch")
-        if canonical.evidence_classification != item.classification.value:
+        if (
+            not is_target_context
+            and canonical.evidence_classification != item.classification.value
+        ):
             raise HistoricalMaterializationError("Canonical evidence classification mismatch")
         expected_tier = tier_for_classification(item.classification).value
-        if canonical.quality_tier != expected_tier:
+        if not is_target_context and canonical.quality_tier != expected_tier:
             raise HistoricalMaterializationError("Canonical evidence quality tier mismatch")
+        if is_target_context and (
+            item.classification
+            is not EvidenceClassification.PARTIALLY_RECONSTRUCTABLE
+            or expected_tier != EvidenceTier.B.value
+            or canonical.evidence_classification
+            not in {
+                EvidenceClassification.RECONSTRUCTABLE_POINT_IN_TIME.value,
+                EvidenceClassification.PARTIALLY_RECONSTRUCTABLE.value,
+            }
+            or canonical.quality_tier not in {EvidenceTier.A.value, EvidenceTier.B.value}
+        ):
+            raise HistoricalMaterializationError(
+                "TARGET_CONTEXT reference must be a Tier B projection of A/B participation"
+            )
 
-        checkpoint = session.get(HistoryBackfillCheckpoint, canonical.checkpoint_id)
+        checkpoint = checkpoints.get(canonical.checkpoint_id)
         if checkpoint is None:
             raise HistoricalMaterializationError("Canonical evidence checkpoint is missing")
-        outcome = session.get(GameFinalOutcome, canonical.final_outcome_id)
+        outcome = outcomes.get(canonical.final_outcome_id)
         if outcome is None:
             raise HistoricalMaterializationError("Canonical evidence final-outcome lineage is missing")
         if (
@@ -655,16 +745,36 @@ def _evidence_manifest(
         evidence_end_at = _orm_utc(canonical.evidence_end_at)
         eligible_at = _orm_utc(canonical.eligible_at)
         retrieved_at = _orm_utc(canonical.retrieved_at)
-        if (
+        common_timestamp_error = (
             evidence_end_at > event_at
-            or event_at >= snapshot.cutoff
-            or evidence_end_at >= snapshot.cutoff
-            or eligible_at > snapshot.cutoff
             or eligible_at < evidence_end_at
             or retrieved_at < evidence_end_at
             or retrieved_at > computed_at
+        )
+        if is_target_context:
+            if (
+                common_timestamp_error
+                or event_at < snapshot.cutoff
+                or eligible_at < snapshot.cutoff
+            ):
+                raise HistoricalMaterializationError(
+                    "TARGET_CONTEXT must preserve its post-cutoff hindsight timing"
+                )
+            _validate_canonical_target_context(canonical, item.context)
+        elif (
+            common_timestamp_error
+            or event_at >= snapshot.cutoff
+            or evidence_end_at >= snapshot.cutoff
+            or eligible_at > snapshot.cutoff
         ):
             raise HistoricalMaterializationError("Canonical evidence timestamps are not cutoff-safe")
+        latest_revision = latest_revisions.get(
+            _revision_request_key(canonical, is_target_context)
+        )
+        if latest_revision is None or latest_revision.id != canonical.id:
+            raise HistoricalMaterializationError(
+                "Canonical evidence is not the latest eligible semantic-key revision"
+            )
         if not all(
             _is_sha256(value)
             for value in (
@@ -697,9 +807,18 @@ def _evidence_manifest(
             "eligible_at": _iso(eligible_at),
             "availability_basis": canonical.availability_basis,
             "stat_schema_version": canonical.stat_schema_version,
-            "evidence_classification": canonical.evidence_classification,
-            "quality_tier": canonical.quality_tier,
+            "revision": canonical.revision,
+            "supersedes_observation_id": (
+                str(canonical.supersedes_observation_id)
+                if canonical.supersedes_observation_id is not None
+                else None
+            ),
+            "evidence_classification": item.classification.value,
+            "quality_tier": expected_tier,
+            "canonical_evidence_classification": canonical.evidence_classification,
+            "canonical_quality_tier": canonical.quality_tier,
             "role": item.role.value,
+            "context": _json_value(item.context) if item.context is not None else None,
             "raw_sha256": canonical.payload_checksum.lower(),
             "payload_checksum": canonical.payload_checksum.lower(),
         })
@@ -725,6 +844,47 @@ def _evidence_manifest(
     return result
 
 
+def _validate_canonical_target_context(
+    canonical: PlayerGameHistoryObservation,
+    context: Any,
+) -> None:
+    if (
+        canonical.evidence_classification not in {
+            EvidenceClassification.RECONSTRUCTABLE_POINT_IN_TIME.value,
+            EvidenceClassification.PARTIALLY_RECONSTRUCTABLE.value,
+        }
+        or canonical.quality_tier not in {EvidenceTier.A.value, EvidenceTier.B.value}
+        or not isinstance(context, dict)
+        or str(context.get("player_id") or "") != str(canonical.player_id)
+        or context.get("performance_values_used") is not False
+        or context.get("publication_time_established") is not False
+    ):
+        raise HistoricalMaterializationError("Canonical TARGET_CONTEXT contract is invalid")
+    values = canonical.values if isinstance(canonical.values, dict) else {}
+    kind = context.get("context_type")
+    if kind == "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION":
+        valid = (
+            canonical.role == "PITCHER"
+            and canonical.started is True
+            and values.get("actual_starting_pitcher") is True
+            and values.get("starter_provenance")
+            == "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION"
+        )
+    elif kind == "HISTORICAL_ACTUAL_LINEUP":
+        valid = (
+            canonical.role == "BATTER"
+            and canonical.started is True
+            and values.get("lineup_provenance") == "HISTORICAL_ACTUAL_LINEUP"
+            and values.get("batting_order") == context.get("batting_order")
+        )
+    else:
+        valid = False
+    if not valid:
+        raise HistoricalMaterializationError(
+            "Canonical TARGET_CONTEXT provenance does not match player participation"
+        )
+
+
 def canonical_evidence_manifest_error(
     session: Session,
     raw_evidence: Iterable[dict[str, Any]],
@@ -746,16 +906,103 @@ def canonical_evidence_manifest_error(
     rows = tuple(raw_evidence or ())
     if not rows:
         return "Historical evidence manifest is empty"
-    seen: set[tuple[str, str]] = set()
+    canonical_ids_by_model: dict[Any, set[UUID]] = {
+        model: set() for model in _CANONICAL_EVIDENCE_MODELS.values()
+    }
+    parsed_rows: list[tuple[Any, UUID, bool] | None] = []
     for item in rows:
         if not isinstance(item, dict):
+            parsed_rows.append(None)
+            continue
+        model = _CANONICAL_EVIDENCE_MODELS.get(
+            str(item.get("canonical_table") or "")
+        )
+        try:
+            canonical_id = UUID(str(item.get("canonical_id") or ""))
+        except (TypeError, ValueError):
+            parsed_rows.append(None)
+            continue
+        is_target_context = (
+            str(item.get("role") or "").upper()
+            == EvidenceRole.TARGET_CONTEXT.value
+        )
+        parsed_rows.append((model, canonical_id, is_target_context))
+        if model is not None:
+            canonical_ids_by_model[model].add(canonical_id)
+    canonical_by_model = {
+        model: _load_rows_by_ids(session, model, identifiers)
+        for model, identifiers in canonical_ids_by_model.items()
+    }
+    canonical_requests = [
+        (canonical, is_target_context)
+        for parsed in parsed_rows
+        if parsed is not None
+        for model, canonical_id, is_target_context in (parsed,)
+        if model is not None
+        if (canonical := canonical_by_model[model].get(canonical_id)) is not None
+    ]
+    canonical_rows = [canonical for canonical, _ in canonical_requests]
+    sources = _load_rows_by_ids(
+        session,
+        HistoricalSourceVersion,
+        {row.source_version_id for row in canonical_rows},
+    )
+    checkpoints = _load_rows_by_ids(
+        session,
+        HistoryBackfillCheckpoint,
+        {row.checkpoint_id for row in canonical_rows},
+    )
+    outcomes = _load_rows_by_ids(
+        session,
+        GameFinalOutcome,
+        {row.final_outcome_id for row in canonical_rows},
+    )
+    latest_revisions = _latest_eligible_canonical_revisions(
+        session,
+        canonical_requests,
+        boundary=boundary,
+        computation_time=computation_time,
+    )
+    outcome_keys: set[tuple[Any, Any]] = set()
+    for canonical, _ in canonical_requests:
+        outcome_keys.add((canonical.game_id, canonical.source_version_id))
+    latest_outcomes: dict[tuple[Any, Any], GameFinalOutcome] = {}
+    if outcome_keys:
+        candidates = session.scalars(
+            select(GameFinalOutcome)
+            .where(
+                GameFinalOutcome.game_id.in_({key[0] for key in outcome_keys}),
+                GameFinalOutcome.source_version_id.in_({key[1] for key in outcome_keys}),
+                GameFinalOutcome.source_mode == SOURCE_MODE,
+                GameFinalOutcome.temporal_semantics == TEMPORAL_SEMANTICS,
+                GameFinalOutcome.outcome_status == "FINAL",
+                GameFinalOutcome.official.is_(True),
+                GameFinalOutcome.retrieved_at <= computation_time,
+            )
+            .order_by(
+                GameFinalOutcome.revision.desc(),
+                GameFinalOutcome.retrieved_at.desc(),
+                GameFinalOutcome.id.desc(),
+            )
+        )
+        for candidate in candidates:
+            key = (candidate.game_id, candidate.source_version_id)
+            if key in outcome_keys and key not in latest_outcomes:
+                latest_outcomes[key] = candidate
+    seen: set[tuple[str, str]] = set()
+    for row_index, item in enumerate(rows):
+        if not isinstance(item, dict):
             return "Historical evidence manifest row is invalid"
-        if str(item.get("role") or "").upper() != EvidenceRole.FEATURE.value:
+        role = str(item.get("role") or "").upper()
+        if role not in {EvidenceRole.FEATURE.value, EvidenceRole.TARGET_CONTEXT.value}:
             return "Historical structural evidence is not backed by a supported immutable table"
+        is_target_context = role == EvidenceRole.TARGET_CONTEXT.value
         table_name = str(item.get("canonical_table") or "")
         model = _CANONICAL_EVIDENCE_MODELS.get(table_name)
         if model is None:
             return "Historical evidence canonical table is unsupported"
+        if is_target_context and model is not PlayerGameHistoryObservation:
+            return "Historical TARGET_CONTEXT canonical table is unsupported"
         canonical_id_text = str(item.get("canonical_id") or "")
         try:
             canonical_id = UUID(canonical_id_text)
@@ -767,22 +1014,51 @@ def canonical_evidence_manifest_error(
         seen.add(key)
         if str(item.get("evidence_id") or "") != canonical_id_text:
             return "Historical evidence alias does not equal its canonical UUID"
-        canonical = session.get(model, canonical_id)
+        parsed = parsed_rows[row_index]
+        canonical = (
+            canonical_by_model[model].get(canonical_id)
+            if parsed is not None
+            else None
+        )
         if canonical is None:
             return "Historical evidence canonical row does not exist"
         source_version_id = str(canonical.source_version_id)
         if source_version_id not in source_version_ids:
             return "Historical evidence source is absent from the governed bundle"
-        source = session.get(HistoricalSourceVersion, canonical.source_version_id)
-        checkpoint = session.get(HistoryBackfillCheckpoint, canonical.checkpoint_id)
-        outcome = session.get(GameFinalOutcome, canonical.final_outcome_id)
+        source = sources.get(canonical.source_version_id)
+        checkpoint = checkpoints.get(canonical.checkpoint_id)
+        outcome = outcomes.get(canonical.final_outcome_id)
         if source is None or checkpoint is None or outcome is None:
             return "Historical evidence canonical lineage is incomplete"
-        expected_tier = tier_for_classification(
+        canonical_tier = tier_for_classification(
             EvidenceClassification(canonical.evidence_classification)
         ).value
-        if canonical.quality_tier != expected_tier:
+        if canonical.quality_tier != canonical_tier:
             return "Historical evidence canonical tier contradicts its classification"
+        reference_classification = str(item.get("evidence_classification") or "")
+        try:
+            reference_tier = tier_for_classification(
+                EvidenceClassification(reference_classification)
+            ).value
+        except ValueError:
+            return "Historical evidence reference classification is invalid"
+        if is_target_context:
+            if (
+                reference_classification
+                != EvidenceClassification.PARTIALLY_RECONSTRUCTABLE.value
+                or reference_tier != EvidenceTier.B.value
+                or canonical.evidence_classification
+                not in {
+                    EvidenceClassification.RECONSTRUCTABLE_POINT_IN_TIME.value,
+                    EvidenceClassification.PARTIALLY_RECONSTRUCTABLE.value,
+                }
+            ):
+                return "Historical TARGET_CONTEXT is not a weaker Tier B projection"
+        elif (
+            reference_classification != canonical.evidence_classification
+            or reference_tier != canonical.quality_tier
+        ):
+            return "Historical FEATURE evidence classification differs from canonical history"
         if (
             canonical.source_mode != SOURCE_MODE
             or canonical.temporal_semantics != TEMPORAL_SEMANTICS
@@ -810,21 +1086,46 @@ def canonical_evidence_manifest_error(
             or not outcome.official
         ):
             return "Historical evidence canonical outcome lineage failed"
+        latest_outcome = latest_outcomes.get(
+            (canonical.game_id, canonical.source_version_id)
+        )
+        if latest_outcome is None or latest_outcome.id != outcome.id:
+            return "Historical evidence outcome lineage is not the latest known revision"
         event_at = _orm_utc(canonical.event_at)
         evidence_end_at = _orm_utc(canonical.evidence_end_at)
         eligible_at = _orm_utc(canonical.eligible_at)
         retrieved_at = _orm_utc(canonical.retrieved_at)
-        if (
-            str(canonical.game_id) == target_game_id
-            or evidence_end_at > event_at
-            or event_at >= boundary
-            or evidence_end_at >= boundary
-            or eligible_at > boundary
+        common_timestamp_error = (
+            evidence_end_at > event_at
             or eligible_at < evidence_end_at
             or retrieved_at < evidence_end_at
             or retrieved_at > computation_time
+        )
+        if is_target_context:
+            if (
+                str(canonical.game_id) != target_game_id
+                or common_timestamp_error
+                or event_at < boundary
+                or eligible_at < boundary
+            ):
+                return "Historical TARGET_CONTEXT timing or target identity is invalid"
+            try:
+                _validate_canonical_target_context(canonical, item.get("context"))
+            except HistoricalMaterializationError as exc:
+                return str(exc)
+        elif (
+            str(canonical.game_id) == target_game_id
+            or common_timestamp_error
+            or event_at >= boundary
+            or evidence_end_at >= boundary
+            or eligible_at > boundary
         ):
             return "Historical evidence canonical timestamps are not cutoff-safe"
+        latest_revision = latest_revisions.get(
+            _revision_request_key(canonical, is_target_context)
+        )
+        if latest_revision is None or latest_revision.id != canonical.id:
+            return "Historical evidence is not the latest eligible semantic-key revision"
         expected = {
             "canonical_identity_checksum": canonical.identity_checksum.lower(),
             "source": source.source_key,
@@ -843,13 +1144,37 @@ def canonical_evidence_manifest_error(
             "eligible_at": _iso(eligible_at),
             "availability_basis": canonical.availability_basis,
             "stat_schema_version": canonical.stat_schema_version,
-            "evidence_classification": canonical.evidence_classification,
-            "quality_tier": canonical.quality_tier,
+            "evidence_classification": reference_classification,
+            "quality_tier": reference_tier,
+            "role": role,
             "raw_sha256": canonical.payload_checksum.lower(),
             "payload_checksum": canonical.payload_checksum.lower(),
         }
         if any(str(item.get(name) or "") != str(value) for name, value in expected.items()):
             return "Historical evidence manifest does not match its canonical row"
+        for name, value in (
+            ("canonical_evidence_classification", canonical.evidence_classification),
+            ("canonical_quality_tier", canonical.quality_tier),
+        ):
+            if name in item and str(item.get(name)) != str(value):
+                return "Historical evidence canonical projection metadata is inconsistent"
+        for name, value in (
+            ("revision", canonical.revision),
+            (
+                "supersedes_observation_id",
+                str(canonical.supersedes_observation_id)
+                if canonical.supersedes_observation_id is not None
+                else None,
+            ),
+        ):
+            if name in item and str(item.get(name)) != str(value):
+                return "Historical evidence revision metadata is inconsistent"
+        if is_target_context:
+            canonical_context = item.get("context")
+            if not isinstance(canonical_context, dict):
+                return "Historical TARGET_CONTEXT metadata is missing"
+        elif item.get("context") is not None:
+            return "Historical FEATURE evidence cannot carry target context"
         if not all(
             _is_sha256(value)
             for value in (
@@ -863,6 +1188,194 @@ def canonical_evidence_manifest_error(
     return None
 
 
+def _latest_eligible_canonical_revision(
+    session: Session,
+    canonical: Any,
+    *,
+    boundary: datetime,
+    computation_time: datetime,
+    target_context: bool,
+) -> Any | None:
+    return _latest_eligible_canonical_revisions(
+        session,
+        ((canonical, target_context),),
+        boundary=boundary,
+        computation_time=computation_time,
+    ).get(_revision_request_key(canonical, target_context))
+
+
+def _latest_eligible_canonical_revisions(
+    session: Session,
+    requests: Iterable[tuple[Any, bool]],
+    *,
+    boundary: datetime,
+    computation_time: datetime,
+) -> dict[tuple[Any, Any, bool], Any]:
+    """Resolve correction-aware latest revisions in bounded set queries.
+
+    The former implementation executed one SELECT for every evidence reference.
+    This resolver uses the exact same semantic identity and eligibility ordering,
+    then applies every timestamp predicate in Python to the complete revision set.
+    """
+
+    boundary = as_utc(boundary)
+    computation_time = as_utc(computation_time)
+    requested: dict[Any, dict[tuple[Any, ...], set[bool]]] = {}
+    canonical_requests: list[tuple[Any, bool]] = []
+    for canonical, target_context in requests:
+        model = type(canonical)
+        if model not in _CANONICAL_EVIDENCE_MODELS.values():
+            continue
+        semantic_key = _revision_semantic_key(canonical)
+        requested.setdefault(model, {}).setdefault(semantic_key, set()).add(
+            bool(target_context)
+        )
+        canonical_requests.append((canonical, bool(target_context)))
+
+    latest_by_semantic: dict[tuple[Any, tuple[Any, ...], bool], Any] = {}
+    for model, semantic_requests in requested.items():
+        keys = tuple(semantic_requests)
+        columns = _revision_key_columns(model)
+        for key_chunk in _chunks(keys, _REVISION_KEY_BATCH_SIZE):
+            candidates = session.scalars(
+                select(model).where(
+                    model.source_mode == SOURCE_MODE,
+                    tuple_(*columns).in_(key_chunk),
+                )
+            )
+            for candidate in candidates:
+                semantic_key = _revision_semantic_key(candidate)
+                contexts = semantic_requests.get(semantic_key)
+                if not contexts:
+                    continue
+                for target_context in contexts:
+                    if not _eligible_revision_candidate(
+                        candidate,
+                        boundary=boundary,
+                        computation_time=computation_time,
+                        target_context=target_context,
+                    ):
+                        continue
+                    lookup_key = (model, semantic_key, target_context)
+                    existing = latest_by_semantic.get(lookup_key)
+                    if existing is None or _revision_rank(candidate) > _revision_rank(existing):
+                        latest_by_semantic[lookup_key] = candidate
+
+    return {
+        _revision_request_key(canonical, target_context): candidate
+        for canonical, target_context in canonical_requests
+        if (
+            candidate := latest_by_semantic.get(
+                (type(canonical), _revision_semantic_key(canonical), target_context)
+            )
+        ) is not None
+    }
+
+
+def _revision_semantic_key(canonical: Any) -> tuple[Any, ...]:
+    if isinstance(canonical, PlayerGameHistoryObservation):
+        return (
+            canonical.game_id,
+            canonical.player_id,
+            canonical.team_id,
+            canonical.role,
+            canonical.source_version_id,
+            canonical.source_record_id,
+        )
+    return (
+        canonical.game_id,
+        canonical.team_id,
+        canonical.source_version_id,
+        canonical.source_record_id,
+    )
+
+
+def _revision_key_columns(model: Any) -> tuple[Any, ...]:
+    if model is PlayerGameHistoryObservation:
+        return (
+            model.game_id,
+            model.player_id,
+            model.team_id,
+            model.role,
+            model.source_version_id,
+            model.source_record_id,
+        )
+    return (
+        model.game_id,
+        model.team_id,
+        model.source_version_id,
+        model.source_record_id,
+    )
+
+
+def _revision_request_key(canonical: Any, target_context: bool) -> tuple[Any, Any, bool]:
+    return (type(canonical), canonical.id, bool(target_context))
+
+
+def _revision_rank(candidate: Any) -> tuple[int, datetime, str]:
+    return (
+        int(candidate.revision),
+        _orm_utc(candidate.retrieved_at),
+        str(candidate.id),
+    )
+
+
+def _eligible_revision_candidate(
+    candidate: Any,
+    *,
+    boundary: datetime,
+    computation_time: datetime,
+    target_context: bool,
+) -> bool:
+    boundary = as_utc(boundary)
+    computation_time = as_utc(computation_time)
+    event_at = _orm_utc(candidate.event_at)
+    evidence_end_at = _orm_utc(candidate.evidence_end_at)
+    eligible_at = _orm_utc(candidate.eligible_at)
+    retrieved_at = _orm_utc(candidate.retrieved_at)
+    if retrieved_at > computation_time or eligible_at < evidence_end_at:
+        return False
+    if target_context:
+        return event_at >= boundary and eligible_at >= boundary
+    return (
+        event_at < boundary
+        and evidence_end_at < boundary
+        and eligible_at <= boundary
+    )
+
+
+def _canonical_matches_by_id(
+    session: Session,
+    identifiers: Iterable[UUID],
+) -> dict[UUID, tuple[tuple[str, Any], ...]]:
+    matches: dict[UUID, list[tuple[str, Any]]] = {}
+    ids = tuple(dict.fromkeys(identifiers))
+    for table_name, model in _CANONICAL_EVIDENCE_MODELS.items():
+        for row in _load_rows_by_ids(session, model, ids).values():
+            matches.setdefault(row.id, []).append((table_name, row))
+    return {identifier: tuple(rows) for identifier, rows in matches.items()}
+
+
+def _load_rows_by_ids(
+    session: Session,
+    model: Any,
+    identifiers: Iterable[Any],
+) -> dict[Any, Any]:
+    ids = tuple(dict.fromkeys(identifiers))
+    loaded: dict[Any, Any] = {}
+    for id_chunk in _chunks(ids, _IDENTITY_BATCH_SIZE):
+        loaded.update({
+            row.id: row
+            for row in session.scalars(select(model).where(model.id.in_(id_chunk)))
+        })
+    return loaded
+
+
+def _chunks(values: tuple[Any, ...], size: int) -> Iterable[tuple[Any, ...]]:
+    for offset in range(0, len(values), size):
+        yield values[offset:offset + size]
+
+
 def _materialization_identity(
     *,
     historical_snapshot: HistoricalSnapshot,
@@ -873,6 +1386,7 @@ def _materialization_identity(
     final_outcome: GameFinalOutcome | None,
     sources: tuple[HistoricalSourceVersion, ...],
     cutoff_policy: dict[str, Any],
+    quality_components: dict[str, Any],
     materializer_version: str,
     code_revision: str,
 ) -> str:
@@ -897,7 +1411,7 @@ def _materialization_identity(
             source.identity_checksum for source in sources
         ],
         "cutoff_policy": cutoff_policy,
-        "quality": historical_snapshot.quality.to_dict(),
+        "admission_quality": quality_components,
         "materializer_version": materializer_version,
         "code_revision": code_revision,
     })
@@ -974,6 +1488,7 @@ def _assert_materialization_matches(
     checkpoint: HistoryBackfillCheckpoint = expected_values["checkpoint"]
     final_outcome: GameFinalOutcome | None = expected_values["final_outcome"]
     snapshot: HistoricalSnapshot = expected_values["historical_snapshot"]
+    quality_score, quality_components = _admission_quality(snapshot)
     expected = {
         "game_id": str(game.id),
         "game_feature_snapshot_id": str(feature_snapshot.id),
@@ -989,8 +1504,8 @@ def _assert_materialization_matches(
         "evidence_manifest": expected_values["evidence_manifest"],
         "evidence_manifest_checksum": expected_values["evidence_manifest_checksum"],
         "quality_tier": snapshot.tier.value,
-        "quality_score": snapshot.quality.score,
-        "quality_components": snapshot.quality.to_dict(),
+        "quality_score": quality_score,
+        "quality_components": quality_components,
         "materializer_version": expected_values["materializer_version"],
         "code_revision": expected_values["code_revision"],
         "eligibility_status": "ELIGIBLE" if final_outcome else "INSUFFICIENT_DATA",
@@ -1053,23 +1568,103 @@ def _semantic_feature_checksum(
 
 def _measured_completeness(snapshot: HistoricalSnapshot) -> float:
     feature_values = _feature_values(snapshot)
-    expected = set(feature_values) | set(snapshot.missing_fields)
+    expected = _admission_feature_names(snapshot)
     if not expected:
         return 0.0
     observed = sum(feature_values.get(name) is not None for name in expected)
     return observed / len(expected)
 
 
+def _admission_feature_names(snapshot: HistoricalSnapshot) -> set[str]:
+    """Resolve the coverage denominator without permitting v3 caller drift.
+
+    A1 v1/v2 snapshots retain their immutable legacy scoring semantics.  The
+    v3 builder is the first contract that requires exact coverage of every
+    non-derived Gate 3 input, represented either by a value or an explicit
+    missing marker.
+    """
+
+    feature_names = set(_feature_values(snapshot))
+    missing_names = set(snapshot.missing_fields)
+    declared = feature_names | missing_names
+    if snapshot.builder_version not in _A1_FROZEN_SCHEMA_BUILDER_VERSIONS:
+        return declared
+    if snapshot.feature_schema_version != GATE3_FEATURE_SCHEMA.version:
+        raise HistoricalMaterializationError(
+            "A1 v3+ reconstruction must use the frozen Gate 3 feature schema"
+        )
+    frozen = {
+        spec.name
+        for spec in GATE3_FEATURE_SCHEMA.features
+        if spec.name not in _HISTORICAL_DERIVED_FEATURE_NAMES
+    }
+    overlap = sorted(feature_names & missing_names)
+    if overlap:
+        raise HistoricalMaterializationError(
+            "A1 v3+ feature coverage cannot mark an observed feature as missing; "
+            f"overlap={overlap}"
+        )
+    if declared != frozen:
+        missing = sorted(frozen - declared)
+        unexpected = sorted(declared - frozen)
+        raise HistoricalMaterializationError(
+            "A1 v3+ feature coverage does not exactly match the frozen non-derived "
+            f"schema; missing={missing}, unexpected={unexpected}"
+        )
+    return frozen
+
+
+def _admission_quality(snapshot: HistoricalSnapshot) -> tuple[float, dict[str, Any]]:
+    """Keep temporal integrity and frozen-schema coverage distinct.
+
+    ``HistoricalSnapshot.quality`` evaluates whether the admitted evidence is
+    point-in-time coherent.  It is not feature-vector completeness.  Persisted
+    admission quality is deliberately bounded by both signals so a temporally
+    perfect but sparse reconstruction cannot be reported as 100% overall.
+    """
+
+    feature_values = _feature_values(snapshot)
+    expected = _admission_feature_names(snapshot)
+    observed = sum(feature_values.get(name) is not None for name in expected)
+    expected_count = len(expected)
+    coverage_fraction = observed / expected_count if expected_count else 0.0
+    coverage_score = coverage_fraction * 100.0
+    temporal = snapshot.quality.to_dict()
+    admission_score = min(float(snapshot.quality.score), coverage_score)
+    return admission_score, {
+        "policy_version": ADMISSION_QUALITY_POLICY_VERSION,
+        "score": admission_score,
+        "tier": snapshot.tier.value,
+        "admission_rule": "MIN_TEMPORAL_INTEGRITY_AND_FEATURE_COVERAGE",
+        "temporal_integrity": temporal,
+        "feature_coverage": {
+            "score": coverage_score,
+            "fraction": coverage_fraction,
+            "observed_feature_count": observed,
+            "expected_feature_count": expected_count,
+            "basis": "FROZEN_SCHEMA_NON_DERIVED_FEATURES",
+        },
+    }
+
+
 def _snapshot_metadata(snapshot: HistoricalSnapshot) -> dict[str, Any]:
+    admission_score, quality_components = _admission_quality(snapshot)
     return {
         "historical_reconstruction": {
+            "snapshot_type": HISTORICAL_SNAPSHOT_TYPE,
+            "operational_source_mode": SOURCE_MODE,
+            "operational_source_mode_is_not_snapshot_type": True,
             "pure_snapshot_checksum": snapshot.checksum,
             "snapshot_method": snapshot.method,
             "builder_version": snapshot.builder_version,
             "cutoff_policy_version": snapshot.cutoff_policy_version,
-            "quality": snapshot.quality.to_dict(),
+            "quality_semantics": "TEMPORAL_INTEGRITY_IS_DISTINCT_FROM_FEATURE_COVERAGE",
+            "temporal_integrity": snapshot.quality.to_dict(),
+            "feature_coverage": quality_components["feature_coverage"],
+            "admission_quality_score": admission_score,
             "unavailable_families": list(snapshot.unavailable_families),
             "timing_risk_families": list(snapshot.timing_risk_families),
+            "reconstruction_metadata": snapshot.reconstruction_metadata,
         }
     }
 
@@ -1091,6 +1686,7 @@ def _pure_evidence(item: Any) -> dict[str, Any]:
         "classification": item.classification.value,
         "tier": tier_for_classification(item.classification).value,
         "role": item.role.value,
+        "context": _json_value(item.context) if item.context is not None else None,
     }
 
 

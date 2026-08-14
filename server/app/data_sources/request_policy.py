@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from time import monotonic
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 
@@ -70,12 +70,20 @@ class RequestAccounting:
     provider_rejections: int = 0
     circuit_trips: int = 0
     backoff_seconds: float = 0.0
+    attempts_by_operation: dict[str, int] | None = None
+    successes_by_operation: dict[str, int] | None = None
+    failed_attempts_by_operation: dict[str, int] | None = None
+
+    def __post_init__(self) -> None:
+        self.attempts_by_operation = self.attempts_by_operation or {}
+        self.successes_by_operation = self.successes_by_operation or {}
+        self.failed_attempts_by_operation = self.failed_attempts_by_operation or {}
 
     @property
     def remaining(self) -> int:
         return max(0, self.maximum_requests - self.attempts)
 
-    def as_dict(self) -> dict[str, int | float]:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -132,11 +140,20 @@ class ConservativeRequestExecutor:
         self._clock = clock
         self._last_attempt_at: float | None = None
 
-    async def execute(self, operation: Callable[[], Awaitable[T]]) -> T:
+    async def execute(
+        self,
+        operation: Callable[[], Awaitable[T]],
+        *,
+        operation_name: str = "provider_request",
+    ) -> T:
         last_error: BaseException | None = None
         for attempt_index in range(self.policy.max_attempts):
             self.breaker.before_request()
             self._reserve_attempt()
+            assert self.accounting.attempts_by_operation is not None
+            self.accounting.attempts_by_operation[operation_name] = (
+                self.accounting.attempts_by_operation.get(operation_name, 0) + 1
+            )
             await self._pace()
             self._last_attempt_at = self._clock()
             try:
@@ -146,6 +163,10 @@ class ConservativeRequestExecutor:
                     raise
                 last_error = exc
                 self.accounting.failed_attempts += 1
+                assert self.accounting.failed_attempts_by_operation is not None
+                self.accounting.failed_attempts_by_operation[operation_name] = (
+                    self.accounting.failed_attempts_by_operation.get(operation_name, 0) + 1
+                )
                 retryable, rejection, retry_after, status_code = _failure_policy(exc)
                 if status_code == 429:
                     self.accounting.rate_limits += 1
@@ -169,6 +190,10 @@ class ConservativeRequestExecutor:
                     await self._sleep(delay)
                 continue
             self.accounting.successes += 1
+            assert self.accounting.successes_by_operation is not None
+            self.accounting.successes_by_operation[operation_name] = (
+                self.accounting.successes_by_operation.get(operation_name, 0) + 1
+            )
             self.breaker.record_success()
             return value
         assert last_error is not None

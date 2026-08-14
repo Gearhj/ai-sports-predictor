@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
 
@@ -16,6 +16,27 @@ from app.db.base import Base
 
 def _uuid() -> uuid.UUID:
     return uuid.uuid4()
+
+
+def _insert_parameter(context: Any, name: str) -> Any:
+    """Copy a sibling INSERT parameter for legacy direct ORM constructors."""
+
+    return context.get_current_parameters()[name]
+
+
+def _home_win_default(context: Any) -> bool:
+    values = context.get_current_parameters()
+    return int(values["home_score"]) > int(values["away_score"])
+
+
+def _run_differential_default(context: Any) -> int:
+    values = context.get_current_parameters()
+    return int(values["home_score"]) - int(values["away_score"])
+
+
+def _total_runs_default(context: Any) -> int:
+    values = context.get_current_parameters()
+    return int(values["home_score"]) + int(values["away_score"])
 
 
 class StrEnum(str, enum.Enum):
@@ -998,12 +1019,44 @@ class GameFinalOutcome(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     checkpoint_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("history_backfill_checkpoints.id"), nullable=False
     )
+    # Nullable only for honest migration of A0 rows, whose schema discarded
+    # MLB's officialDate. All A1 canonical writes require the provider value.
+    official_date: Mapped[date | None] = mapped_column(Date)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     final_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completion_time_basis: Mapped[str] = mapped_column(
+        String(48), nullable=False, default="AUTHORITATIVE_FINAL_AT"
+    )
+    completion_time_source_field: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="legacy:event_completed_at"
+    )
+    completion_time_method: Mapped[str] = mapped_column(
+        Text, nullable=False, default="legacy A0 explicit event_completed_at"
+    )
+    completion_time_limitation: Mapped[str] = mapped_column(
+        Text, nullable=False, default="legacy direct ORM row predates A1 metadata"
+    )
+    evidence_classification: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="RECONSTRUCTABLE_POINT_IN_TIME"
+    )
+    quality_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="A")
+    reconstructed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda context: _insert_parameter(context, "retrieved_at"),
+    )
     scheduled_innings: Mapped[int | None] = mapped_column(Integer)
     innings_played: Mapped[int | None] = mapped_column(Integer)
     home_score: Mapped[int] = mapped_column(Integer, nullable=False)
     away_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_win: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=_home_win_default
+    )
+    run_differential: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=_run_differential_default
+    )
+    total_runs: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=_total_runs_default
+    )
     outcome_status: Mapped[str] = mapped_column(String(16), nullable=False, default="FINAL")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     supersedes_outcome_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1034,12 +1087,47 @@ class GameFinalOutcome(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         CheckConstraint("outcome_status = 'FINAL'", name="ck_game_final_status"),
         CheckConstraint(
+            "completion_time_basis IN ('AUTHORITATIVE_FINAL_AT', "
+            "'DERIVED_LAST_EVENT_COMPLETION_PROXY')",
+            name="ck_game_final_completion_basis",
+        ),
+        CheckConstraint(
+            "evidence_classification IN ('RECONSTRUCTABLE_POINT_IN_TIME', "
+            "'PARTIALLY_RECONSTRUCTABLE')",
+            name="ck_game_final_evidence_class",
+        ),
+        CheckConstraint(
+            "quality_tier IN ('A', 'B')",
+            name="ck_game_final_quality_tier",
+        ),
+        CheckConstraint(
+            "(evidence_classification = 'RECONSTRUCTABLE_POINT_IN_TIME' "
+            "AND quality_tier = 'A') OR "
+            "(evidence_classification = 'PARTIALLY_RECONSTRUCTABLE' "
+            "AND quality_tier = 'B')",
+            name="ck_game_final_class_tier",
+        ),
+        CheckConstraint(
             "home_team_id <> away_team_id",
             name="ck_game_final_distinct_sides",
         ),
         CheckConstraint(
             "home_score >= 0 AND away_score >= 0",
             name="ck_game_final_scores",
+        ),
+        CheckConstraint(
+            "home_score <> away_score",
+            name="ck_game_final_no_ties",
+        ),
+        CheckConstraint(
+            "run_differential = home_score - away_score AND "
+            "total_runs = home_score + away_score",
+            name="ck_game_final_derived_scores",
+        ),
+        CheckConstraint(
+            "(home_win = true AND home_score > away_score) OR "
+            "(home_win = false AND home_score < away_score)",
+            name="ck_game_final_home_win",
         ),
         CheckConstraint(
             "scheduled_innings IS NULL OR scheduled_innings > 0",
@@ -1050,6 +1138,10 @@ class GameFinalOutcome(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="ck_game_final_innings_played",
         ),
         CheckConstraint("final_at >= scheduled_at", name="ck_game_final_time_order"),
+        CheckConstraint(
+            "reconstructed_at >= retrieved_at",
+            name="ck_game_final_reconstruction_time",
+        ),
         CheckConstraint(
             "retrieved_at >= final_at AND label_available_at >= final_at",
             name="ck_game_final_availability",
@@ -1065,6 +1157,7 @@ class GameFinalOutcome(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         Index("ix_game_final_game_available", "game_id", "label_available_at"),
         Index("ix_game_final_season_scheduled", "season_id", "scheduled_at"),
+        Index("ix_game_final_official_date", "official_date", "game_id", "revision"),
         Index("ix_game_final_checkpoint", "checkpoint_id"),
     )
 
@@ -1095,6 +1188,10 @@ class TeamGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     evidence_classification: Mapped[str] = mapped_column(String(40), nullable=False)
     quality_tier: Mapped[str] = mapped_column(String(16), nullable=False)
     source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    supersedes_observation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("team_game_history_observations.id")
+    )
     stat_schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
     values: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -1106,8 +1203,8 @@ class TeamGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "game_id", "team_id", "source_version_id", "source_mode",
-            "source_record_id", "payload_checksum",
-            name="uq_team_game_history_evidence",
+            "source_record_id", "revision",
+            name="uq_team_game_history_revision",
         ),
         UniqueConstraint("identity_checksum", name="uq_team_game_history_identity"),
         CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_team_game_history_mode"),
@@ -1125,6 +1222,11 @@ class TeamGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="ck_team_game_history_tier",
         ),
         CheckConstraint("team_id <> opponent_team_id", name="ck_team_game_history_teams"),
+        CheckConstraint("revision >= 1", name="ck_team_game_history_revision"),
+        CheckConstraint(
+            "supersedes_observation_id IS NULL OR supersedes_observation_id <> id",
+            name="ck_team_game_history_not_self_superseding",
+        ),
         CheckConstraint(
             "evidence_end_at <= event_at AND eligible_at >= evidence_end_at "
             "AND retrieved_at >= evidence_end_at",
@@ -1136,6 +1238,10 @@ class TeamGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         Index("ix_team_game_history_game", "game_id", "event_at"),
         Index("ix_team_game_history_team_eligible", "team_id", "eligible_at"),
+        Index(
+            "ix_team_game_history_record_revision",
+            "game_id", "team_id", "source_version_id", "source_record_id", "revision",
+        ),
         Index("ix_team_game_history_checkpoint", "checkpoint_id"),
     )
 
@@ -1168,6 +1274,10 @@ class PlayerGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     evidence_classification: Mapped[str] = mapped_column(String(40), nullable=False)
     quality_tier: Mapped[str] = mapped_column(String(16), nullable=False)
     source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    supersedes_observation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("player_game_history_observations.id")
+    )
     stat_schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
     values: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -1179,8 +1289,8 @@ class PlayerGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "game_id", "player_id", "team_id", "role", "source_version_id",
-            "source_mode", "source_record_id", "payload_checksum",
-            name="uq_player_game_history_evidence",
+            "source_mode", "source_record_id", "revision",
+            name="uq_player_game_history_revision",
         ),
         UniqueConstraint("identity_checksum", name="uq_player_game_history_identity"),
         CheckConstraint("source_mode IN ('LIVE', 'DEMO')", name="ck_player_game_history_mode"),
@@ -1198,6 +1308,11 @@ class PlayerGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="ck_player_game_history_tier",
         ),
         CheckConstraint("team_id <> opponent_team_id", name="ck_player_game_history_teams"),
+        CheckConstraint("revision >= 1", name="ck_player_game_history_revision"),
+        CheckConstraint(
+            "supersedes_observation_id IS NULL OR supersedes_observation_id <> id",
+            name="ck_player_game_history_not_self_superseding",
+        ),
         CheckConstraint(
             "evidence_end_at <= event_at AND eligible_at >= evidence_end_at "
             "AND retrieved_at >= evidence_end_at",
@@ -1210,6 +1325,11 @@ class PlayerGameHistoryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         Index("ix_player_game_history_game", "game_id", "event_at"),
         Index("ix_player_game_history_player_eligible", "player_id", "eligible_at"),
         Index("ix_player_game_history_team_eligible", "team_id", "eligible_at"),
+        Index(
+            "ix_player_game_history_record_revision",
+            "game_id", "player_id", "team_id", "role", "source_version_id",
+            "source_record_id", "revision",
+        ),
         Index("ix_player_game_history_checkpoint", "checkpoint_id"),
     )
 

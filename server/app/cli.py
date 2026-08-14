@@ -66,11 +66,15 @@ def _run_training(training_cutoff: datetime | None) -> dict[str, Any]:
 
 
 async def _run_historical_backfill(args: argparse.Namespace) -> dict[str, Any]:
-    """Run the standalone Gate 3A raw-archive path without canonical persistence."""
+    """Run the governed Gate 3A A1 core archive/canonical path."""
 
     from app.historical.backfill import (
         HistoricalBackfillOptions,
         build_default_backfill_runner,
+    )
+    from app.historical.persistence import (
+        A1_GOVERNANCE_DECISION,
+        HistoricalCanonicalPersistenceService,
     )
 
     settings = get_settings()
@@ -82,17 +86,21 @@ async def _run_historical_backfill(args: argparse.Namespace) -> dict[str, Any]:
         source=args.source,
         chunk_size=args.chunk_size,
         dry_run=args.dry_run,
+        discovery_only=args.discovery_only,
+        expected_final_games=args.expected_final_games,
         max_requests=args.max_requests,
-        # Optional historical sources are deliberately disabled in this A0
-        # command. There are no CLI toggles that imply they can be enabled.
+        # Optional sources remain deliberately disabled for the A1 core pass.
         skip_statcast=True,
         skip_weather=True,
-        # There is intentionally no environment/config override yet. Until a
-        # reviewed governance record is wired to the ORM repository, non-dry
-        # provider acquisition is blocked before adapter construction.
-        terms_status="LEGAL_REVIEW_REQUIRED",
+        terms_status=("APPROVED" if args.approved_local_research else "LEGAL_REVIEW_REQUIRED"),
     )
-    result = await build_default_backfill_runner(settings.raw_data_root).run(options)
+    install_immutability_guards()
+    with SessionLocal() as session:
+        result = await build_default_backfill_runner(
+            settings.raw_data_root,
+            canonical_writer=HistoricalCanonicalPersistenceService(session),
+            governance=A1_GOVERNANCE_DECISION,
+        ).run(options)
     return asdict(result)
 
 
@@ -110,6 +118,118 @@ def _run_historical_report(season: int | None) -> dict[str, Any]:
     )
     with SessionLocal() as session:
         return build_mlb_history_report(session, paths=paths, season=season)
+
+
+def _select_historical_reconstruction_targets(
+    session: Any,
+    *,
+    start_date: date,
+    end_date: date,
+) -> list[Any]:
+    """Select the latest final revision by MLB official schedule date.
+
+    ``scheduled_at`` is UTC and checkpoint windows may span several official
+    dates, so neither is a safe MLB day boundary. A1 persists the provider's
+    explicit ``officialDate`` for this exact bounded selection.
+    """
+    from sqlalchemy import select
+
+    from app.models import GameFinalOutcome
+
+    outcomes = list(session.scalars(
+        select(GameFinalOutcome)
+        .where(
+            GameFinalOutcome.source_mode == "LIVE",
+            GameFinalOutcome.temporal_semantics == "RETROSPECTIVE_RECONSTRUCTION",
+            GameFinalOutcome.outcome_status == "FINAL",
+            GameFinalOutcome.official.is_(True),
+        )
+        .order_by(
+            GameFinalOutcome.game_id,
+            GameFinalOutcome.revision.desc(),
+            GameFinalOutcome.retrieved_at.desc(),
+            GameFinalOutcome.id.desc(),
+        )
+    ))
+    latest_by_game: dict[Any, Any] = {}
+    for outcome in outcomes:
+        latest_by_game.setdefault(outcome.game_id, outcome)
+    return sorted(
+        (
+            outcome
+            for outcome in latest_by_game.values()
+            if outcome.official_date is not None
+            and start_date <= outcome.official_date <= end_date
+        ),
+        key=lambda row: (row.official_date, row.scheduled_at, str(row.game_id)),
+    )
+
+
+def _run_historical_reconstruction(args: argparse.Namespace) -> dict[str, Any]:
+    """Materialize a bounded local historical population without providers/models."""
+
+    from app.historical.reconstruction import (
+        HistoricalReconstructionService,
+        ReconstructionPopulation,
+        build_and_persist_historical_dataset,
+    )
+    from app.models import Game
+
+    settings = get_settings()
+    install_immutability_guards()
+    population = ReconstructionPopulation(args.population)
+    computed_at = datetime.now(UTC)
+    with SessionLocal() as session:
+        outcomes = _select_historical_reconstruction_targets(
+            session,
+            start_date=args.start_date,
+            end_date=args.end_date,
+        )
+        service = HistoricalReconstructionService(session)
+        materializations = []
+        for outcome in outcomes:
+            game = session.get(Game, outcome.game_id)
+            if game is None:
+                raise RuntimeError("Historical outcome references a missing game")
+            materializations.append(service.materialize_game(
+                game,
+                population=population,
+                computed_at=computed_at,
+                code_revision=args.code_revision,
+            ))
+        dataset = build_and_persist_historical_dataset(
+            session,
+            population=population,
+            artifact_root=settings.gate3_artifact_root / "datasets",
+            training_cutoff=computed_at,
+            code_revision=args.code_revision,
+        )
+        session.commit()
+        built = sum(row.reconstruction.status == "BUILT" for row in materializations)
+        persisted = sum(row.persistence is not None for row in materializations)
+        reasons: dict[str, int] = {}
+        for row in materializations:
+            if row.reconstruction.reason:
+                reasons[row.reconstruction.reason] = reasons.get(row.reconstruction.reason, 0) + 1
+        return {
+            "status": dataset.status,
+            "population": population.value,
+            "requested_start_date": args.start_date.isoformat(),
+            "requested_end_date": args.end_date.isoformat(),
+            "computed_at": computed_at.isoformat(),
+            "target_games": len(outcomes),
+            "snapshots_built": built,
+            "materializations_persisted_or_reused": persisted,
+            "insufficient_reasons": reasons,
+            "dataset_rows": dataset.build.manifest.row_count,
+            "dataset_excluded_rows": dataset.build.manifest.excluded_row_count,
+            "dataset_id": dataset.build.manifest.dataset_id,
+            "artifact_uri": dataset.artifact.artifact_uri if dataset.artifact else None,
+            "artifact_checksum": dataset.artifact.checksum if dataset.artifact else None,
+            "database_manifest_id": str(dataset.manifest.id) if dataset.manifest else None,
+            "provider_calls": 0,
+            "model_training_invoked": False,
+        }
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -137,6 +257,7 @@ def main() -> None:
             "create-admin",
             "train-mlb-models",
             "backfill-mlb-history",
+            "build-mlb-history-dataset",
             "report-mlb-history",
         ],
     )
@@ -152,9 +273,34 @@ def main() -> None:
     parser.add_argument("--season", type=int, help="MLB season for the requested range")
     parser.add_argument("--resume", action="store_true", help="Skip already-completed semantic chunks")
     parser.add_argument("--source", choices=["MLB_STATS_API"], default="MLB_STATS_API")
-    parser.add_argument("--chunk-size", type=int, default=1, help="Checkpoint chunk size in days")
+    parser.add_argument("--chunk-size", type=int, default=1, help="Canonical/checkpoint chunk size in days")
     parser.add_argument("--dry-run", action="store_true", help="Plan only; construct no adapter")
+    parser.add_argument(
+        "--discovery-only",
+        action="store_true",
+        help="Make one schedule-range call, archive it, and report the exact final-game count",
+    )
+    parser.add_argument(
+        "--expected-final-games",
+        type=int,
+        help="Exact final-game count authorized for one feed call per game",
+    )
+    parser.add_argument(
+        "--approved-local-research",
+        action="store_true",
+        help="Acknowledge the recorded 2026-08-13 project-owner local-research approval",
+    )
     parser.add_argument("--max-requests", type=int, default=0, help="Hard cap on physical HTTP attempts")
+    parser.add_argument(
+        "--population",
+        choices=["TIER_A_STRICT", "TIER_B_ENHANCED"],
+        default="TIER_A_STRICT",
+        help="Explicit reconstructed historical population",
+    )
+    parser.add_argument(
+        "--code-revision",
+        help="Required immutable code/content revision for historical materialization",
+    )
     args = parser.parse_args()
     if args.command == "backfill-mlb-history":
         missing = [
@@ -170,6 +316,14 @@ def main() -> None:
         result = asyncio.run(_run_historical_backfill(args))
     elif args.command == "report-mlb-history":
         result = _run_historical_report(args.season)
+    elif args.command == "build-mlb-history-dataset":
+        if args.start_date is None or args.end_date is None or not args.code_revision:
+            parser.error(
+                "build-mlb-history-dataset requires --start-date, --end-date, and --code-revision"
+            )
+        if args.end_date < args.start_date:
+            parser.error("--end-date must be on or after --start-date")
+        result = _run_historical_reconstruction(args)
     elif args.command == "train-mlb-models":
         result = _run_training(args.training_cutoff)
     else:

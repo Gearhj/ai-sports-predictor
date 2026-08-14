@@ -202,6 +202,69 @@ def _season_descriptors(session: Session, requested: int | None) -> list[_Season
     ]
 
 
+def _latest_team_history_rows(
+    session: Session,
+    season_ids: tuple[Any, ...],
+) -> tuple[list[TeamGameHistoryObservation], int]:
+    if not season_ids:
+        return [], 0
+    rows = session.scalars(
+        select(TeamGameHistoryObservation).where(
+            TeamGameHistoryObservation.season_id.in_(season_ids),
+            TeamGameHistoryObservation.source_mode == "LIVE",
+        )
+    ).all()
+    latest: dict[tuple[Any, Any, Any, str], TeamGameHistoryObservation] = {}
+    for row in rows:
+        key = (row.game_id, row.team_id, row.source_version_id, row.source_record_id)
+        current = latest.get(key)
+        if current is None or (int(row.revision), str(row.id)) > (
+            int(current.revision),
+            str(current.id),
+        ):
+            latest[key] = row
+    selected = sorted(latest.values(), key=lambda row: (str(row.game_id), str(row.team_id), str(row.id)))
+    return selected, len(rows) - len(selected)
+
+
+def _latest_player_history_rows(
+    session: Session,
+    season_ids: tuple[Any, ...],
+) -> tuple[list[PlayerGameHistoryObservation], int]:
+    if not season_ids:
+        return [], 0
+    rows = session.scalars(
+        select(PlayerGameHistoryObservation).where(
+            PlayerGameHistoryObservation.season_id.in_(season_ids),
+            PlayerGameHistoryObservation.source_mode == "LIVE",
+        )
+    ).all()
+    latest: dict[
+        tuple[Any, Any, Any, str, Any, str],
+        PlayerGameHistoryObservation,
+    ] = {}
+    for row in rows:
+        key = (
+            row.game_id,
+            row.player_id,
+            row.team_id,
+            str(row.role),
+            row.source_version_id,
+            row.source_record_id,
+        )
+        current = latest.get(key)
+        if current is None or (int(row.revision), str(row.id)) > (
+            int(current.revision),
+            str(current.id),
+        ):
+            latest[key] = row
+    selected = sorted(
+        latest.values(),
+        key=lambda row: (str(row.game_id), str(row.team_id), str(row.player_id), str(row.id)),
+    )
+    return selected, len(rows) - len(selected)
+
+
 def _build_season_report(
     session: Session,
     descriptor: _SeasonDescriptor,
@@ -249,75 +312,43 @@ def _build_season_report(
             latest_outcomes[outcome.game_id] = outcome
     final_game_ids = set(latest_outcomes)
 
-    player_groups = (
-        session.execute(
-            select(
-                PlayerGameHistoryObservation.game_id,
-                PlayerGameHistoryObservation.team_id,
-                PlayerGameHistoryObservation.role,
-                PlayerGameHistoryObservation.started,
-                func.count(func.distinct(PlayerGameHistoryObservation.player_id)).label("players"),
-            )
-            .where(
-                PlayerGameHistoryObservation.season_id.in_(season_ids),
-                PlayerGameHistoryObservation.source_mode == "LIVE",
-            )
-            .group_by(
-                PlayerGameHistoryObservation.game_id,
-                PlayerGameHistoryObservation.team_id,
-                PlayerGameHistoryObservation.role,
-                PlayerGameHistoryObservation.started,
-            )
-        ).all()
-        if season_ids
-        else []
-    )
-    player_record_count = _count(
+    player_history_rows, superseded_player_records = _latest_player_history_rows(
         session,
-        PlayerGameHistoryObservation,
-        PlayerGameHistoryObservation.season_id.in_(season_ids),
-        PlayerGameHistoryObservation.source_mode == "LIVE",
-    ) if season_ids else 0
+        season_ids,
+    )
+    player_group_players: dict[tuple[Any, Any, str, bool | None], set[Any]] = defaultdict(set)
+    for row in player_history_rows:
+        player_group_players[
+            (row.game_id, row.team_id, str(row.role), row.started)
+        ].add(row.player_id)
+    player_record_count = len(player_history_rows)
     starter_teams: dict[Any, set[Any]] = defaultdict(set)
     lineup_teams: dict[Any, set[Any]] = defaultdict(set)
     player_teams: dict[Any, set[Any]] = defaultdict(set)
     starter_records = lineup_records = 0
-    for row in player_groups:
-        player_teams[row.game_id].add(row.team_id)
-        role = str(row.role).upper()
-        if role == "PITCHER" and row.started is True:
-            starter_records += int(row.players)
-            starter_teams[row.game_id].add(row.team_id)
-        if role == "BATTER" and row.started is True:
-            lineup_records += int(row.players)
-            if int(row.players) >= 9:
-                lineup_teams[row.game_id].add(row.team_id)
+    for (game_id, team_id, raw_role, started), players in player_group_players.items():
+        player_teams[game_id].add(team_id)
+        role = raw_role.upper()
+        if role == "PITCHER" and started is True:
+            starter_records += len(players)
+            starter_teams[game_id].add(team_id)
+        if role == "BATTER" and started is True:
+            lineup_records += len(players)
+            if len(players) >= 9:
+                lineup_teams[game_id].add(team_id)
     starter_games = {game for game, teams in starter_teams.items() if len(teams) >= 2}
     lineup_games = {game for game, teams in lineup_teams.items() if len(teams) >= 2}
     player_history_games = {game for game, teams in player_teams.items() if len(teams) >= 2}
 
-    team_groups = (
-        session.execute(
-            select(
-                TeamGameHistoryObservation.game_id,
-                func.count(func.distinct(TeamGameHistoryObservation.team_id)).label("teams"),
-            )
-            .where(
-                TeamGameHistoryObservation.season_id.in_(season_ids),
-                TeamGameHistoryObservation.source_mode == "LIVE",
-            )
-            .group_by(TeamGameHistoryObservation.game_id)
-        ).all()
-        if season_ids
-        else []
-    )
-    team_history_games = {row.game_id for row in team_groups if int(row.teams) >= 2}
-    team_record_count = _count(
+    team_history_rows, superseded_team_records = _latest_team_history_rows(
         session,
-        TeamGameHistoryObservation,
-        TeamGameHistoryObservation.season_id.in_(season_ids),
-        TeamGameHistoryObservation.source_mode == "LIVE",
-    ) if season_ids else 0
+        season_ids,
+    )
+    team_groups: dict[Any, set[Any]] = defaultdict(set)
+    for row in team_history_rows:
+        team_groups[row.game_id].add(row.team_id)
+    team_history_games = {game_id for game_id, teams in team_groups.items() if len(teams) >= 2}
+    team_record_count = len(team_history_rows)
 
     bullpen_rows = (
         session.execute(
@@ -508,12 +539,15 @@ def _build_season_report(
         game_ids,
         latest_outcomes,
         latest_materialized,
+        team_history_rows,
+        player_history_rows,
     )
     validation_sample = _validation_sample(
         session,
         descriptor,
         latest_outcomes,
         game_starts,
+        player_history_rows,
         requested=validation_sample_size,
     )
     return (
@@ -531,6 +565,22 @@ def _build_season_report(
                 "official_final_records_including_revisions": len(outcomes),
             },
             "coverage": coverage,
+            "history_revision_accounting": {
+                "basis": (
+                    "Latest LIVE revision per canonical semantic key; superseded revisions "
+                    "are retained physically but excluded from coverage and evidence counts."
+                ),
+                "team_history": {
+                    "latest_records": team_record_count,
+                    "superseded_records": superseded_team_records,
+                    "physical_records": team_record_count + superseded_team_records,
+                },
+                "player_history": {
+                    "latest_records": player_record_count,
+                    "superseded_records": superseded_player_records,
+                    "physical_records": player_record_count + superseded_player_records,
+                },
+            },
             "checkpoint_summary": checkpoint_summary,
             "exclusions": exclusions,
             "validation_sample": validation_sample,
@@ -579,6 +629,7 @@ def _validation_sample(
     descriptor: _SeasonDescriptor,
     outcomes: dict[Any, GameFinalOutcome],
     game_starts: dict[Any, datetime],
+    player_history_rows: list[PlayerGameHistoryObservation],
     *,
     requested: int,
 ) -> dict[str, Any]:
@@ -613,29 +664,11 @@ def _validation_sample(
     for state in state_rows:
         latest_states[state.game_id] = state
 
-    selected_player_rows = session.scalars(
-        select(PlayerGameHistoryObservation).where(
-            PlayerGameHistoryObservation.game_id.in_(selected_ids),
-            PlayerGameHistoryObservation.source_mode == "LIVE",
-        )
-    ).all()
+    selected_player_rows = [row for row in player_history_rows if row.game_id in selected_ids]
     selected_player_ids = {row.player_id for row in selected_player_rows}
-    player_history = (
-        session.scalars(
-            select(PlayerGameHistoryObservation)
-            .where(
-                PlayerGameHistoryObservation.season_id.in_(descriptor.season_ids),
-                PlayerGameHistoryObservation.player_id.in_(selected_player_ids),
-                PlayerGameHistoryObservation.source_mode == "LIVE",
-            )
-            .order_by(
-                PlayerGameHistoryObservation.player_id,
-                PlayerGameHistoryObservation.event_at,
-                PlayerGameHistoryObservation.game_id,
-            )
-        ).all()
-        if descriptor.season_ids and selected_player_ids
-        else []
+    player_history = sorted(
+        (row for row in player_history_rows if row.player_id in selected_player_ids),
+        key=lambda row: (str(row.player_id), _as_utc(row.event_at), str(row.game_id)),
     )
     trade_flags: dict[Any, bool] = defaultdict(bool)
     seen_teams: dict[Any, set[Any]] = defaultdict(set)
@@ -717,6 +750,8 @@ def _exclusions_and_mappings(
     game_ids: set[Any],
     outcomes: dict[Any, GameFinalOutcome],
     materialized: dict[Any, tuple[HistoricalFeatureMaterialization, GameFeatureSnapshot]],
+    team_history_rows: list[TeamGameHistoryObservation],
+    player_history_rows: list[PlayerGameHistoryObservation],
 ) -> dict[str, Any]:
     reason_counts: Counter[str] = Counter()
     tier_counts: Counter[str] = Counter()
@@ -731,18 +766,8 @@ def _exclusions_and_mappings(
             for reason in reasons:
                 reason_counts[_reason_key(reason)] += 1
 
-    excluded_team = _count(
-        session,
-        TeamGameHistoryObservation,
-        TeamGameHistoryObservation.season_id.in_(season_ids),
-        TeamGameHistoryObservation.quality_tier == "EXCLUDED",
-    ) if season_ids else 0
-    excluded_player = _count(
-        session,
-        PlayerGameHistoryObservation,
-        PlayerGameHistoryObservation.season_id.in_(season_ids),
-        PlayerGameHistoryObservation.quality_tier == "EXCLUDED",
-    ) if season_ids else 0
+    excluded_team = sum(row.quality_tier == "EXCLUDED" for row in team_history_rows)
+    excluded_player = sum(row.quality_tier == "EXCLUDED" for row in player_history_rows)
 
     relevant: dict[str, set[Any]] = {
         "game": set(game_ids),
@@ -754,17 +779,8 @@ def _exclusions_and_mappings(
         relevant["team"].update((outcome.home_team_id, outcome.away_team_id))
         if outcome.venue_id is not None:
             relevant["venue"].add(outcome.venue_id)
-    if season_ids:
-        relevant["player"].update(session.scalars(
-            select(PlayerGameHistoryObservation.player_id)
-            .where(PlayerGameHistoryObservation.season_id.in_(season_ids))
-            .distinct()
-        ).all())
-        relevant["team"].update(session.scalars(
-            select(TeamGameHistoryObservation.team_id)
-            .where(TeamGameHistoryObservation.season_id.in_(season_ids))
-            .distinct()
-        ).all())
+    relevant["player"].update(row.player_id for row in player_history_rows)
+    relevant["team"].update(row.team_id for row in team_history_rows)
     mapped_rows = session.execute(
         select(ExternalIdMapping.entity_type, ExternalIdMapping.entity_id)
         .where(ExternalIdMapping.entity_type.in_(tuple(relevant)))

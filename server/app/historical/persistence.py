@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from typing import Any, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.data_sources.base import HistoricalBoxscoreDTO, HistoricalScheduleGameDTO
@@ -32,6 +32,22 @@ from app.ingestion.normalizer import CanonicalNormalizer
 
 
 TEMPORAL_SEMANTICS = "RETROSPECTIVE_RECONSTRUCTION"
+A1_DATASET_VERSION = "historical-core-v1"
+A1_POLICY_VERSION = "gate3a-a1-core-v1"
+A1_GOVERNANCE_DECISION: dict[str, Any] = {
+    "approval_status": "APPROVED",
+    "reviewer": "project owner",
+    "reviewed_at": "2026-08-13",
+    "scope": "LOCAL_PRIVATE_RESEARCH",
+    "purpose": "local ASP research/model development",
+    "population": "HISTORICAL_RECONSTRUCTION",
+    "public_redistribution": "PROHIBITED_PENDING_REVIEW",
+    "commercial_deployment": "NOT_APPROVED",
+    "raw_data_resale": "PROHIBITED",
+    "technical_access_restrictions": "RESPECT_REQUIRED",
+    "attribution_licensing": "FINAL_REVIEW_REQUIRED",
+    "disclaimer": "Owner authorization; not legal advice or a legal determination",
+}
 
 
 class HistoricalPersistenceError(RuntimeError):
@@ -48,6 +64,10 @@ class HistoricalChunkResult:
     team_observations: int
     player_observations: int
     duplicates: int
+    records_received: int
+    records_accepted: int
+    records_rejected: int
+    canonical_duplicate_facts: int
 
 
 class HistoricalCanonicalPersistenceService:
@@ -71,6 +91,10 @@ class HistoricalCanonicalPersistenceService:
         effective_from: datetime | None = None,
         governance: dict[str, Any] | None = None,
     ) -> HistoricalSourceVersion:
+        if dataset_version == A1_DATASET_VERSION and governance != A1_GOVERNANCE_DECISION:
+            raise HistoricalPersistenceError(
+                "A1 governance decision does not match the approved local research scope"
+            )
         approved = _governance_is_approved(governance)
         existing = self.session.scalar(
             select(HistoricalSourceVersion).where(
@@ -92,6 +116,28 @@ class HistoricalCanonicalPersistenceService:
                 )
             return existing
         effective = _aware(effective_from or datetime.now(UTC))
+        availability_policy = {
+            "historical_acquisition_is_not_backdated": True,
+            "completion_time_bases": [
+                "AUTHORITATIVE_FINAL_AT",
+                "DERIVED_LAST_EVENT_COMPLETION_PROXY",
+            ],
+            "completion_evidence_metadata_required": True,
+            "evidence_tier_mapping": {
+                "RECONSTRUCTABLE_POINT_IN_TIME": "A",
+                "PARTIALLY_RECONSTRUCTABLE": "B",
+                "FORWARD_ONLY": "EXCLUDED",
+            },
+            "forbidden_completion_substitutes": [
+                "FIRST_PITCH",
+                "RETRIEVAL_TIME",
+                "END_OF_DAY",
+                "MIDNIGHT",
+                "ESTIMATED_DURATION",
+            ],
+            "target_actual_participation_is_pregame_unknown": True,
+            "population": "HISTORICAL_RECONSTRUCTION",
+        }
         identity = _checksum({
             "source_key": self.source,
             "dataset_version": dataset_version,
@@ -100,6 +146,7 @@ class HistoricalCanonicalPersistenceService:
             "policy_version": policy_version,
             "training_eligible": approved,
             "evaluation_eligible": approved,
+            "availability_policy": availability_policy,
             "governance": governance,
         })
         source_version = HistoricalSourceVersion(
@@ -112,11 +159,7 @@ class HistoricalCanonicalPersistenceService:
             quality_tier="A",
             training_eligible=approved,
             evaluation_eligible=approved,
-            availability_policy={
-                "historical_acquisition_is_not_backdated": True,
-                "authoritative_event_completed_at_required": True,
-                "unknown_completion_action": "REJECT_NO_FINAL_OUTCOME",
-            },
+            availability_policy=availability_policy,
             policy_version=policy_version,
             governance=governance,
             effective_from=effective,
@@ -125,6 +168,47 @@ class HistoricalCanonicalPersistenceService:
         self.session.add(source_version)
         self.session.flush()
         return source_version
+
+    def ensure_a1_source_version(
+        self,
+        *,
+        effective_from: datetime | None = None,
+        governance: dict[str, Any] | None = None,
+    ) -> HistoricalSourceVersion:
+        """Register the separately governed A1 historical research population."""
+
+        decision = governance or A1_GOVERNANCE_DECISION
+        if decision != A1_GOVERNANCE_DECISION:
+            raise HistoricalPersistenceError(
+                "A1 governance decision does not match the approved local research scope"
+            )
+        return self.ensure_source_version(
+            dataset_version=A1_DATASET_VERSION,
+            policy_version=A1_POLICY_VERSION,
+            effective_from=effective_from,
+            governance=decision,
+        )
+
+    def prepare_source_version(self, **kwargs: Any) -> HistoricalSourceVersion:
+        """Persist the immutable source registry before any chunk transaction.
+
+        A failed canonical chunk deliberately rolls back all chunk facts before
+        writing its terminal FAILED checkpoint. Committing the source registry
+        here gives that failure checkpoint a durable, valid FK without allowing
+        any chunk evidence to escape its atomic boundary.
+        """
+
+        if self.session.new or self.session.dirty or self.session.deleted:
+            raise HistoricalPersistenceError(
+                "Source-version preparation requires a clean transaction boundary"
+            )
+        try:
+            source_version = self.ensure_source_version(**kwargs)
+            self.session.commit()
+            return source_version
+        except Exception:
+            self.session.rollback()
+            raise
 
     def persist_chunk(
         self,
@@ -140,6 +224,9 @@ class HistoricalCanonicalPersistenceService:
         raw_references: Sequence[str] = (),
         raw_checksums: Sequence[str] = (),
         code_revision: str = "unknown",
+        attempt_count: int,
+        retry_count: int,
+        request_accounting: dict[str, Any] | None = None,
     ) -> HistoricalChunkResult:
         requested = _aware(requested_at)
         completed = _aware(completed_at)
@@ -150,6 +237,15 @@ class HistoricalCanonicalPersistenceService:
             raise HistoricalPersistenceError("Historical source version provenance is invalid")
         if len(query_fingerprint) != 64:
             raise HistoricalPersistenceError("query_fingerprint must be a SHA-256 hex digest")
+        if attempt_count < 1 or retry_count < 0 or retry_count >= attempt_count:
+            raise HistoricalPersistenceError(
+                "Canonical checkpoint requires exact positive attempts and retries < attempts"
+            )
+        accounting = _validate_request_accounting(
+            request_accounting,
+            attempt_count=attempt_count,
+            retry_count=retry_count,
+        )
         completed_checkpoint = self.session.scalar(
             select(HistoryBackfillCheckpoint).where(
                 HistoryBackfillCheckpoint.source_version_id == source_version.id,
@@ -169,6 +265,12 @@ class HistoricalCanonicalPersistenceService:
                 team_observations=int(summary.get("team_observations", 0)),
                 player_observations=int(summary.get("player_observations", 0)),
                 duplicates=int(completed_checkpoint.duplicate_count),
+                records_received=int(completed_checkpoint.records_received),
+                records_accepted=int(completed_checkpoint.records_accepted),
+                records_rejected=int(completed_checkpoint.records_rejected),
+                canonical_duplicate_facts=int(
+                    summary.get("canonical_duplicate_facts", 0)
+                ),
             )
 
         ingestion_run = IngestionRun(
@@ -207,30 +309,17 @@ class HistoricalCanonicalPersistenceService:
                 status="SUCCEEDED",
                 requested_at=requested,
                 completed_at=completed,
-                attempt_count=1,
-                retry_count=0,
+                attempt_count=attempt_count,
+                retry_count=retry_count,
                 records_received=len(schedule_rows) + len(boxscores),
-                records_accepted=len(schedule_rows) + len(boxscores),
+                records_accepted=0,
                 records_rejected=0,
                 duplicate_count=0,
                 raw_references=list(raw_references),
                 raw_checksums=list(raw_checksums),
                 schema_version="gate3a-history-v1",
                 code_revision=code_revision,
-                quality_summary={
-                    "games": len(schedule_rows),
-                    "final_outcomes": sum(row.final is not None for row in schedule_rows),
-                    "team_observations": sum(len(row.teams) for row in boxscores),
-                    "player_observations": sum(
-                        sum(
-                            2 if (row.batting is not None and row.pitching is not None) else 1
-                            for row in boxscore.players
-                        )
-                        for boxscore in boxscores
-                    ),
-                    "research_provenance": "HISTORICAL_RECONSTRUCTION",
-                    "temporal_semantics": TEMPORAL_SEMANTICS,
-                },
+                quality_summary={"canonical_status": "PENDING_IN_TRANSACTION"},
                 source_mode="LIVE",
                 temporal_semantics=TEMPORAL_SEMANTICS,
                 identity_checksum=_checkpoint_checksum(
@@ -241,6 +330,13 @@ class HistoricalCanonicalPersistenceService:
                     status="SUCCEEDED",
                     completed_at=completed,
                     raw_checksums=raw_checksums,
+                    attempt_count=attempt_count,
+                    retry_count=retry_count,
+                    records_received=len(schedule_rows) + len(boxscores),
+                    records_accepted=0,
+                    records_rejected=0,
+                    duplicate_count=0,
+                    request_accounting=accounting,
                 ),
             )
             self.session.add(anchor)
@@ -256,16 +352,64 @@ class HistoricalCanonicalPersistenceService:
             ingestion_run.status = RunStatus.SUCCEEDED
             ingestion_run.completed_at = completed
             ingestion_run.records_processed = result[0]
+            quality_summary = {
+                "input_schedule_rows": len(schedule_rows),
+                "input_boxscore_rows": len(boxscores),
+                "games": result[2],
+                "final_outcomes": result[3],
+                "team_observations": result[4],
+                "player_observations": result[5],
+                "canonical_facts_committed": sum(result[2:6]),
+                "canonical_duplicate_facts": result[6],
+                "research_provenance": "HISTORICAL_RECONSTRUCTION",
+                "temporal_semantics": TEMPORAL_SEMANTICS,
+                "count_semantics": "ACTUAL_CANONICAL_INSERTS_IN_COMMITTED_TRANSACTION",
+                "request_accounting": accounting,
+            }
+            # The checkpoint must exist before canonical rows because they carry
+            # its FK. Finalize it with the observed counts in this same atomic
+            # transaction; no provisional checkpoint state can commit.
+            self.session.execute(
+                update(HistoryBackfillCheckpoint)
+                .where(HistoryBackfillCheckpoint.id == anchor.id)
+                .values(
+                    records_accepted=result[0],
+                    duplicate_count=result[1],
+                    quality_summary=quality_summary,
+                    identity_checksum=_checkpoint_checksum(
+                        source_version_id=str(source_version.id),
+                        stream_key=stream_key,
+                        sequence=sequence,
+                        query_fingerprint=query_fingerprint,
+                        status="SUCCEEDED",
+                        completed_at=completed,
+                        raw_checksums=raw_checksums,
+                        attempt_count=attempt_count,
+                        retry_count=retry_count,
+                        records_received=len(schedule_rows) + len(boxscores),
+                        records_accepted=result[0],
+                        records_rejected=0,
+                        duplicate_count=result[1],
+                        request_accounting=accounting,
+                    ),
+                )
+                .execution_options(synchronize_session=False)
+            )
+            self.session.expire(anchor)
             self.session.commit()
             return HistoricalChunkResult(
                 checkpoint_id=str(anchor.id),
                 ingestion_run_id=str(ingestion_run.id),
                 status="SUCCEEDED",
-                games=result[1],
-                final_outcomes=result[2],
-                team_observations=result[3],
-                player_observations=result[4],
-                duplicates=result[5],
+                games=result[2],
+                final_outcomes=result[3],
+                team_observations=result[4],
+                player_observations=result[5],
+                duplicates=result[1],
+                records_received=len(schedule_rows) + len(boxscores),
+                records_accepted=result[0],
+                records_rejected=0,
+                canonical_duplicate_facts=result[6],
             )
         except Exception as exc:
             self.session.rollback()
@@ -299,8 +443,8 @@ class HistoricalCanonicalPersistenceService:
                 status="FAILED",
                 requested_at=requested,
                 completed_at=completed,
-                attempt_count=1,
-                retry_count=0,
+                attempt_count=attempt_count,
+                retry_count=retry_count,
                 records_received=len(schedule_rows) + len(boxscores),
                 records_accepted=0,
                 records_rejected=len(schedule_rows) + len(boxscores),
@@ -311,7 +455,10 @@ class HistoricalCanonicalPersistenceService:
                 code_revision=code_revision,
                 error_type=type(exc).__name__,
                 error_message=_safe_error(exc),
-                quality_summary={"canonical_facts_committed": 0},
+                quality_summary={
+                    "canonical_facts_committed": 0,
+                    "request_accounting": accounting,
+                },
                 source_mode="LIVE",
                 temporal_semantics=TEMPORAL_SEMANTICS,
                 identity_checksum=_checkpoint_checksum(
@@ -322,6 +469,13 @@ class HistoricalCanonicalPersistenceService:
                     status="FAILED",
                     completed_at=completed,
                     raw_checksums=raw_checksums,
+                    attempt_count=attempt_count,
+                    retry_count=retry_count,
+                    records_received=len(schedule_rows) + len(boxscores),
+                    records_accepted=0,
+                    records_rejected=len(schedule_rows) + len(boxscores),
+                    duplicate_count=0,
+                    request_accounting=accounting,
                 ),
             )
             self.session.add(failed)
@@ -337,7 +491,7 @@ class HistoricalCanonicalPersistenceService:
         ingestion_run: IngestionRun,
         checkpoint_id: Any,
         acquired_by: datetime,
-    ) -> tuple[int, int, int, int, int, int]:
+    ) -> tuple[int, int, int, int, int, int, int]:
         normalizer = CanonicalNormalizer(self.session)
         schedules: dict[str, HistoricalScheduleGameDTO] = {}
         for row in schedule_rows:
@@ -358,7 +512,8 @@ class HistoricalCanonicalPersistenceService:
                 )
             boxes[boxscore.source_game_id] = boxscore
 
-        accepted = games_count = finals_count = team_count = player_count = duplicates = 0
+        accepted = input_duplicates = 0
+        games_count = finals_count = team_count = player_count = canonical_duplicates = 0
         for source_game_id, row in schedules.items():
             _, league, season, _ = normalizer.ensure_core(row.season)
             if season.name != str(row.season):
@@ -367,7 +522,7 @@ class HistoricalCanonicalPersistenceService:
                 row, league.id, season.id, acquired_by
             )
             games_count += int(not duplicate_game)
-            duplicates += int(duplicate_game)
+            canonical_duplicates += int(duplicate_game)
             outcome, duplicate_outcome = self._final_outcome(
                 row=row,
                 game=game,
@@ -384,10 +539,17 @@ class HistoricalCanonicalPersistenceService:
                     raise HistoricalPersistenceError(
                         f"Boxscore game {source_game_id} has no official final outcome"
                     )
-                accepted += 1
+                if duplicate_game:
+                    input_duplicates += 1
+                else:
+                    accepted += 1
                 continue
             finals_count += int(not duplicate_outcome)
-            duplicates += int(duplicate_outcome)
+            canonical_duplicates += int(duplicate_outcome)
+            if duplicate_game and duplicate_outcome:
+                input_duplicates += 1
+            else:
+                accepted += 1
             boxscore = boxes.get(source_game_id)
             if boxscore is not None:
                 team_added, player_added, duplicate_facts = self._boxscore_facts(
@@ -404,9 +566,20 @@ class HistoricalCanonicalPersistenceService:
                 )
                 team_count += team_added
                 player_count += player_added
-                duplicates += duplicate_facts
-            accepted += 1 + int(boxscore is not None)
-        return accepted, games_count, finals_count, team_count, player_count, duplicates
+                canonical_duplicates += duplicate_facts
+                if team_added + player_added == 0:
+                    input_duplicates += 1
+                else:
+                    accepted += 1
+        return (
+            accepted,
+            input_duplicates,
+            games_count,
+            finals_count,
+            team_count,
+            player_count,
+            canonical_duplicates,
+        )
 
     def _canonical_game(
         self,
@@ -441,6 +614,17 @@ class HistoricalCanonicalPersistenceService:
                     f"Exact game identity {dto.source_game_id} conflicts with "
                     "schedule time or season"
                 )
+            if any(
+                supplied is not None and existing != supplied
+                for supplied, existing in (
+                    (dto.venue.latitude, venue.latitude),
+                    (dto.venue.longitude, venue.longitude),
+                    (dto.venue.timezone, venue.timezone),
+                )
+            ):
+                raise HistoricalPersistenceError(
+                    f"Exact venue identity {dto.venue.source_id} conflicts with provider metadata"
+                )
             if row.final is not None:
                 game.status = GameStatus.FINAL
                 game.home_score = row.final.home_score
@@ -469,6 +653,7 @@ class HistoricalCanonicalPersistenceService:
             dto.venue.name,
             dto.venue.latitude,
             dto.venue.longitude,
+            dto.venue.timezone,
         )
         game = Game(
             league_id=league_id,
@@ -565,6 +750,13 @@ class HistoricalCanonicalPersistenceService:
             retrieved_at,
             source_published_at or retrieved_at,
         )
+        completion = _completion_evidence(row)
+        reconstructed_at = _aware(acquired_by)
+        if reconstructed_at < retrieved_at:
+            raise HistoricalPersistenceError(
+                "Canonical reconstruction completed_at cannot precede evidence acquisition"
+            )
+        quality_tier = _evidence_tier(final.evidence_class, context="Final")
         outcome = GameFinalOutcome(
             game_id=game.id,
             season_id=season_id,
@@ -573,12 +765,23 @@ class HistoricalCanonicalPersistenceService:
             venue_id=venue_id,
             source_version_id=source_version.id,
             checkpoint_id=checkpoint_id,
+            official_date=row.official_date,
             scheduled_at=_aware(row.game.scheduled_at),
             final_at=final_at,
+            completion_time_basis=completion[0],
+            completion_time_source_field=completion[1],
+            completion_time_method=completion[2],
+            completion_time_limitation=completion[3],
+            evidence_classification=final.evidence_class,
+            quality_tier=quality_tier,
+            reconstructed_at=reconstructed_at,
             scheduled_innings=row.game.scheduled_innings,
             innings_played=final.innings_played,
             home_score=final.home_score,
             away_score=final.away_score,
+            home_win=final.home_score > final.away_score,
+            run_differential=final.home_score - final.away_score,
+            total_runs=final.home_score + final.away_score,
             outcome_status="FINAL",
             revision=(previous.revision + 1 if previous else 1),
             supersedes_outcome_id=previous.id if previous else None,
@@ -599,6 +802,7 @@ class HistoricalCanonicalPersistenceService:
                 "game_id": str(game.id),
                 "source_version_id": str(source_version.id),
                 "revision": previous.revision + 1 if previous else 1,
+                "official_date": row.official_date.isoformat(),
                 "payload_checksum": payload_checksum,
             }),
         )
@@ -658,7 +862,7 @@ class HistoricalCanonicalPersistenceService:
                 )
             seen_team_ids.add(evidence.source_team_id)
             checksum = _checksum(evidence.model_dump(mode="json"))
-            existing = self.session.scalar(select(TeamGameHistoryObservation.id).where(
+            existing = self.session.scalar(select(TeamGameHistoryObservation).where(
                 TeamGameHistoryObservation.game_id == game.id,
                 TeamGameHistoryObservation.team_id == team.id,
                 TeamGameHistoryObservation.source_version_id == source_version.id,
@@ -670,6 +874,22 @@ class HistoricalCanonicalPersistenceService:
             if existing is not None:
                 duplicates += 1
                 continue
+            previous = self.session.scalar(
+                select(TeamGameHistoryObservation)
+                .where(
+                    TeamGameHistoryObservation.game_id == game.id,
+                    TeamGameHistoryObservation.team_id == team.id,
+                    TeamGameHistoryObservation.source_version_id == source_version.id,
+                    TeamGameHistoryObservation.source_mode == "LIVE",
+                    TeamGameHistoryObservation.source_record_id
+                    == f"{boxscore.source_game_id}:{evidence.source_team_id}",
+                )
+                .order_by(
+                    TeamGameHistoryObservation.revision.desc(),
+                    TeamGameHistoryObservation.id.desc(),
+                )
+                .limit(1)
+            )
             self.session.add(TeamGameHistoryObservation(
                 game_id=game.id,
                 final_outcome_id=outcome.id,
@@ -683,10 +903,12 @@ class HistoricalCanonicalPersistenceService:
                 evidence_end_at=outcome.final_at,
                 retrieved_at=_aware(evidence.acquired_at),
                 eligible_at=outcome.final_at,
-                availability_basis="RETROSPECTIVE_AUTHORITATIVE_FINAL_COMPLETION",
+                availability_basis=_history_availability_basis(outcome),
                 evidence_classification=evidence.evidence_class,
                 quality_tier=boxscore_tier,
                 source_record_id=f"{boxscore.source_game_id}:{evidence.source_team_id}",
+                revision=(previous.revision + 1 if previous else 1),
+                supersedes_observation_id=previous.id if previous else None,
                 stat_schema_version="mlb-boxscore-team-v1",
                 values=evidence.team_stats,
                 payload_checksum=checksum,
@@ -719,6 +941,31 @@ class HistoricalCanonicalPersistenceService:
                 raise HistoricalPersistenceError(
                     "Player fact home/away identity conflicts with schedule"
                 )
+            if evidence.actual_starting_pitcher and (
+                evidence.starter_provenance
+                != "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION"
+            ):
+                raise HistoricalPersistenceError(
+                    "Actual historical starter requires explicit starter provenance"
+                )
+            if evidence.actual_starting_pitcher and not evidence.appeared_as_pitcher:
+                raise HistoricalPersistenceError(
+                    "Actual historical starter must be a pitcher participant"
+                )
+            if evidence.starter_provenance is not None and not evidence.actual_starting_pitcher:
+                raise HistoricalPersistenceError(
+                    "Starter provenance cannot label a non-starting pitcher"
+                )
+            if evidence.batting_order is not None and (
+                evidence.lineup_provenance != "HISTORICAL_ACTUAL_LINEUP"
+            ):
+                raise HistoricalPersistenceError(
+                    "Historical batting order requires explicit lineup provenance"
+                )
+            if evidence.lineup_provenance is not None and evidence.batting_order is None:
+                raise HistoricalPersistenceError(
+                    "Lineup provenance requires a historical batting order"
+                )
             player_key = (evidence.source_player_id, evidence.source_team_id)
             if player_key in seen_players:
                 raise HistoricalPersistenceError(
@@ -734,7 +981,11 @@ class HistoricalCanonicalPersistenceService:
             roles: list[str] = []
             if evidence.batting is not None or evidence.batting_order is not None:
                 roles.append("BATTER")
-            if evidence.pitching is not None or evidence.appeared_as_pitcher:
+            if (
+                evidence.pitching is not None
+                or evidence.appeared_as_pitcher
+                or evidence.actual_starting_pitcher
+            ):
                 roles.append("PITCHER")
             if not roles:
                 roles.append("PARTICIPANT")
@@ -745,6 +996,13 @@ class HistoricalCanonicalPersistenceService:
                     "pitching": evidence.pitching,
                     "appeared_as_pitcher": evidence.appeared_as_pitcher,
                     "actual_starting_pitcher": evidence.actual_starting_pitcher,
+                    "starter_provenance": evidence.starter_provenance,
+                    "lineup_provenance": evidence.lineup_provenance,
+                    "target_context_timing_risk": (
+                        "PARTIALLY_RECONSTRUCTABLE_IF_USED_FOR_TARGET_GAME_CONTEXT"
+                        if evidence.starter_provenance or evidence.lineup_provenance
+                        else None
+                    ),
                     "position": evidence.position,
                 }
                 checksum = _checksum({**evidence.model_dump(mode="json"), "role": role})
@@ -752,7 +1010,7 @@ class HistoricalCanonicalPersistenceService:
                     f"{boxscore.source_game_id}:{evidence.source_player_id}:"
                     f"{evidence.source_team_id}:{role}"
                 )
-                existing = self.session.scalar(select(PlayerGameHistoryObservation.id).where(
+                existing = self.session.scalar(select(PlayerGameHistoryObservation).where(
                     PlayerGameHistoryObservation.game_id == game.id,
                     PlayerGameHistoryObservation.player_id == player.id,
                     PlayerGameHistoryObservation.team_id == team.id,
@@ -765,6 +1023,23 @@ class HistoricalCanonicalPersistenceService:
                 if existing is not None:
                     duplicates += 1
                     continue
+                previous = self.session.scalar(
+                    select(PlayerGameHistoryObservation)
+                    .where(
+                        PlayerGameHistoryObservation.game_id == game.id,
+                        PlayerGameHistoryObservation.player_id == player.id,
+                        PlayerGameHistoryObservation.team_id == team.id,
+                        PlayerGameHistoryObservation.role == role,
+                        PlayerGameHistoryObservation.source_version_id == source_version.id,
+                        PlayerGameHistoryObservation.source_mode == "LIVE",
+                        PlayerGameHistoryObservation.source_record_id == source_record_id,
+                    )
+                    .order_by(
+                        PlayerGameHistoryObservation.revision.desc(),
+                        PlayerGameHistoryObservation.id.desc(),
+                    )
+                    .limit(1)
+                )
                 self.session.add(PlayerGameHistoryObservation(
                     game_id=game.id,
                     final_outcome_id=outcome.id,
@@ -784,10 +1059,12 @@ class HistoricalCanonicalPersistenceService:
                     evidence_end_at=outcome.final_at,
                     retrieved_at=_aware(evidence.acquired_at),
                     eligible_at=outcome.final_at,
-                    availability_basis="RETROSPECTIVE_AUTHORITATIVE_FINAL_COMPLETION",
+                    availability_basis=_history_availability_basis(outcome),
                     evidence_classification=evidence.evidence_class,
                     quality_tier=boxscore_tier,
                     source_record_id=source_record_id,
+                    revision=(previous.revision + 1 if previous else 1),
+                    supersedes_observation_id=previous.id if previous else None,
                     stat_schema_version="mlb-boxscore-player-v1",
                     values=values,
                     payload_checksum=checksum,
@@ -836,13 +1113,21 @@ class HistoricalCanonicalPersistenceService:
         name: str,
         latitude: float | None,
         longitude: float | None,
+        timezone_name: str | None,
     ) -> Venue:
         if not external_id:
             raise HistoricalPersistenceError("Venue source ID is required")
         existing = self._exact_mapped("venue", external_id, Venue)
         if existing is not None:
             return existing
-        venue = Venue(name=name, latitude=latitude, longitude=longitude, timezone="UTC")
+        venue = Venue(
+            name=name,
+            latitude=latitude,
+            longitude=longitude,
+            # A missing provider timezone remains explicitly unknown. UTC
+            # would falsely assert a local venue fact for historical evidence.
+            timezone=timezone_name,
+        )
         self.session.add(venue)
         self.session.flush()
         self.session.add(ExternalIdMapping(
@@ -941,11 +1226,20 @@ def _validate_schedule_contract(row: HistoricalScheduleGameDTO) -> None:
     if row.final is None:
         return
     final = row.final
+    if final.official_date != row.official_date:
+        raise HistoricalPersistenceError(
+            "Final official_date conflicts with the canonical schedule date"
+        )
     if final.research_provenance != row.research_provenance:
         raise HistoricalPersistenceError("Final research provenance conflicts with schedule")
     if final.evidence_class != row.evidence_class:
         raise HistoricalPersistenceError("Final evidence classification conflicts with schedule")
     _evidence_tier(final.evidence_class, context="Final")
+    _completion_evidence(row)
+    if final.home_score == final.away_score:
+        raise HistoricalPersistenceError("Official MLB final outcome cannot be tied")
+    if final.innings_played is None or final.innings_played <= 0:
+        raise HistoricalPersistenceError("Official MLB final requires innings_played")
     if (
         str(row.abstract_state or "").strip().lower() != "final"
         or str(final.abstract_state or "").strip().lower() != "final"
@@ -956,16 +1250,120 @@ def _validate_schedule_contract(row: HistoricalScheduleGameDTO) -> None:
 def _final_time(row: HistoricalScheduleGameDTO) -> datetime:
     if row.final is None:
         raise HistoricalPersistenceError("Final outcome is missing")
-    if row.final.event_completed_at is None:
-        raise HistoricalPersistenceError(
-            "Final outcome lacks an authoritative event_completed_at; "
-            "acquisition time and end-of-day cannot be substituted"
-        )
+    _completion_evidence(row)
     completed = _aware(row.final.event_completed_at)
     scheduled = _aware(row.game.scheduled_at)
     if completed < scheduled:
         raise HistoricalPersistenceError("Final time cannot precede scheduled first pitch")
     return completed
+
+
+def _completion_evidence(
+    row: HistoricalScheduleGameDTO,
+) -> tuple[str, str, str, str]:
+    final = row.final
+    if final is None:
+        raise HistoricalPersistenceError("Final outcome is missing")
+    if final.event_completed_at is None:
+        raise HistoricalPersistenceError(
+            "Final outcome lacks governed event_completed_at completion evidence; "
+            "first pitch, retrieval, end-of-day, midnight, and estimated duration "
+            "cannot be substituted"
+        )
+    basis = str(final.completion_time_basis or "").strip().upper()
+    if basis not in {
+        "AUTHORITATIVE_FINAL_AT",
+        "DERIVED_LAST_EVENT_COMPLETION_PROXY",
+    }:
+        raise HistoricalPersistenceError("Final completion_time_basis is invalid or missing")
+    source_field = str(final.completion_time_source_field or "").strip()
+    method = str(final.completion_time_method or "").strip()
+    limitation = str(final.completion_time_limitation or "").strip()
+    if not source_field or not method or not limitation:
+        raise HistoricalPersistenceError(
+            "Final completion evidence requires source field, method, and limitation"
+        )
+    forbidden = (
+        "first_pitch",
+        "scheduled_at",
+        "retrieved_at",
+        "fetched_at",
+        "end_of_day",
+        "midnight",
+        "estimated_duration",
+    )
+    normalized_field = source_field.lower().replace(" ", "_").replace("-", "_")
+    if any(value in normalized_field for value in forbidden):
+        raise HistoricalPersistenceError(
+            "Final completion evidence uses a prohibited timestamp substitute"
+        )
+    return basis, source_field, method, limitation
+
+
+def _history_availability_basis(outcome: GameFinalOutcome) -> str:
+    if outcome.completion_time_basis == "AUTHORITATIVE_FINAL_AT":
+        return "RETROSPECTIVE_AUTHORITATIVE_FINAL_COMPLETION"
+    if outcome.completion_time_basis == "DERIVED_LAST_EVENT_COMPLETION_PROXY":
+        return "RETROSPECTIVE_DERIVED_LAST_EVENT_COMPLETION_PROXY"
+    raise HistoricalPersistenceError("Outcome completion basis is not governed")
+
+
+def _validate_request_accounting(
+    accounting: dict[str, Any] | None,
+    *,
+    attempt_count: int,
+    retry_count: int,
+) -> dict[str, Any]:
+    if not isinstance(accounting, dict):
+        raise HistoricalPersistenceError(
+            "Canonical checkpoint requires exact request_accounting"
+        )
+    normalized = json.loads(json.dumps(accounting))
+    declared_attempts = normalized.get("attempts")
+    declared_retries = normalized.get("retries")
+    if declared_attempts != attempt_count or declared_retries != retry_count:
+        raise HistoricalPersistenceError(
+            "Request accounting totals conflict with checkpoint attempt counts"
+        )
+    for key in ("successes", "failed_attempts"):
+        value = normalized.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise HistoricalPersistenceError(
+                f"Request accounting {key} must be a non-negative integer"
+            )
+    if normalized["successes"] + normalized["failed_attempts"] != attempt_count:
+        raise HistoricalPersistenceError(
+            "Request accounting successes plus failed_attempts must equal attempts"
+        )
+    operations = normalized.get("operations")
+    if not isinstance(operations, dict) or not operations:
+        raise HistoricalPersistenceError(
+            "Request accounting requires a non-empty operations map"
+        )
+    operation_attempts = 0
+    for operation, values in operations.items():
+        if not str(operation).strip() or not isinstance(values, dict):
+            raise HistoricalPersistenceError("Request accounting operation is invalid")
+        attempts = values.get("attempts")
+        successes = values.get("successes")
+        failures = values.get("failed_attempts")
+        if not all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in (attempts, successes, failures)
+        ):
+            raise HistoricalPersistenceError(
+                "Request accounting operation counts must be non-negative integers"
+            )
+        if successes + failures != attempts:
+            raise HistoricalPersistenceError(
+                "Request accounting operation counts do not balance"
+            )
+        operation_attempts += attempts
+    if operation_attempts != attempt_count:
+        raise HistoricalPersistenceError(
+            "Request accounting operation attempts do not equal total attempts"
+        )
+    return normalized
 
 
 def _game_status(value: str) -> GameStatus:
@@ -990,6 +1388,13 @@ def _checkpoint_checksum(
     status: str,
     completed_at: datetime,
     raw_checksums: Sequence[str],
+    attempt_count: int,
+    retry_count: int,
+    records_received: int,
+    records_accepted: int,
+    records_rejected: int,
+    duplicate_count: int,
+    request_accounting: dict[str, Any],
 ) -> str:
     return _checksum({
         "source_version_id": source_version_id,
@@ -999,6 +1404,13 @@ def _checkpoint_checksum(
         "status": status,
         "completed_at": _aware(completed_at).isoformat(),
         "raw_checksums": list(raw_checksums),
+        "attempt_count": attempt_count,
+        "retry_count": retry_count,
+        "records_received": records_received,
+        "records_accepted": records_accepted,
+        "records_rejected": records_rejected,
+        "duplicate_count": duplicate_count,
+        "request_accounting": request_accounting,
     })
 
 

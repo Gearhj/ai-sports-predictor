@@ -23,9 +23,13 @@ from app.historical.policy import (
 from app.historical.temporal import CUTOFF_POLICY_VERSION, as_utc, deterministic_cutoff
 
 
+HISTORICAL_SNAPSHOT_TYPE = "HISTORICAL_RECONSTRUCTED_PREGAME"
+
+
 class EvidenceRole(StrEnum):
     STRUCTURAL = "STRUCTURAL"
     FEATURE = "FEATURE"
+    TARGET_CONTEXT = "TARGET_CONTEXT"
     TARGET_OUTCOME = "TARGET_OUTCOME"
 
 
@@ -48,6 +52,7 @@ class HistoricalEvidenceReference:
     eligible_at: datetime
     classification: EvidenceClassification
     role: EvidenceRole = EvidenceRole.FEATURE
+    context: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,8 @@ class HistoricalSnapshot:
     provisional_fields: tuple[str, ...]
     unavailable_families: tuple[str, ...]
     timing_risk_families: tuple[str, ...]
+    snapshot_type: str
+    reconstruction_metadata: dict[str, object]
     canonical_payload_json: str
     checksum: str
     method: str = "historical_snapshot_canonical_sha256_v1"
@@ -94,6 +101,7 @@ def build_historical_snapshot(
     provisional_fields: Iterable[str] = (),
     unavailable_families: Iterable[str] = (),
     timing_risk_families: Iterable[str] = (),
+    reconstruction_metadata: Mapping[str, object] | None = None,
     provenance: ResearchProvenance = ResearchProvenance.HISTORICAL_RECONSTRUCTION,
     cutoff_policy_version: str = CUTOFF_POLICY_VERSION,
 ) -> HistoricalSnapshot:
@@ -143,6 +151,9 @@ def build_historical_snapshot(
     explicit_provisional = _validated_names("provisional_fields", provisional_fields)
     explicit_unavailable = _validated_names("unavailable_families", unavailable_families)
     explicit_timing = _validated_names("timing_risk_families", timing_risk_families)
+    metadata = _canonical_value(dict(reconstruction_metadata or {}))
+    if not isinstance(metadata, dict):  # pragma: no cover - defensive typing guard
+        raise ValueError("reconstruction_metadata must be a mapping")
     missing = tuple(
         sorted(
             set(explicit_missing)
@@ -174,6 +185,7 @@ def build_historical_snapshot(
         "builder_version": builder_version,
         "feature_schema_version": feature_schema_version,
         "feature_version_id": feature_version_id,
+        "snapshot_type": HISTORICAL_SNAPSHOT_TYPE,
         "provenance": provenance.value,
         "tier": quality.tier.value,
         "quality_policy": {
@@ -208,6 +220,7 @@ def build_historical_snapshot(
         "provisional_fields": list(provisional),
         "unavailable_families": list(unavailable),
         "timing_risk_families": list(timing_risk),
+        "reconstruction_metadata": metadata,
     }
     canonical = canonical_json(payload)
     checksum = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -228,6 +241,8 @@ def build_historical_snapshot(
         provisional_fields=provisional,
         unavailable_families=unavailable,
         timing_risk_families=timing_risk,
+        snapshot_type=HISTORICAL_SNAPSHOT_TYPE,
+        reconstruction_metadata=metadata,
         canonical_payload_json=canonical,
         checksum=checksum,
     )
@@ -277,14 +292,19 @@ def _validate_evidence(
             raise ValueError("raw_sha256 must be a 64-character hexadecimal SHA-256")
         event_at = as_utc(item.event_at)
         eligible_at = as_utc(item.eligible_at)
-        if event_at >= cutoff:
-            raise ValueError("Historical evidence must occur strictly before cutoff")
-        if eligible_at > cutoff:
-            raise ValueError("Historical evidence was not eligible by cutoff")
         if eligible_at < event_at:
             raise ValueError("Historical evidence cannot be eligible before it occurred")
         if item.role is EvidenceRole.TARGET_OUTCOME:
             raise ValueError("Target outcomes cannot enter a feature snapshot")
+        if item.role is EvidenceRole.TARGET_CONTEXT:
+            _validate_target_context(item, target_game_id=target_game_id, cutoff=cutoff)
+            continue
+        if event_at >= cutoff:
+            raise ValueError("Historical evidence must occur strictly before cutoff")
+        if eligible_at > cutoff:
+            raise ValueError("Historical evidence was not eligible by cutoff")
+        if item.context is not None:
+            raise ValueError("Only TARGET_CONTEXT evidence may carry context metadata")
         if item.role is EvidenceRole.FEATURE and item.game_id == target_game_id:
             raise ValueError("Target-game events cannot enter feature evidence")
         if (
@@ -344,7 +364,55 @@ def _evidence_dict(item: HistoricalEvidenceReference) -> dict[str, object]:
         "classification": item.classification.value,
         "tier": tier_for_classification(item.classification).value,
         "role": item.role.value,
+        "context": _canonical_value(item.context) if item.context is not None else None,
     }
+
+
+def _validate_target_context(
+    item: HistoricalEvidenceReference,
+    *,
+    target_game_id: str,
+    cutoff: datetime,
+) -> None:
+    """Admit only explicitly provisional hindsight identity context for Tier B.
+
+    A target-context row can identify the actual starter or batting-order member
+    so prior-game evidence for that player can be selected.  The target row's
+    batting/pitching values remain forbidden and its post-cutoff timing is
+    explicit rather than backdated.
+    """
+
+    if item.game_id != target_game_id:
+        raise ValueError("TARGET_CONTEXT evidence must belong to the target game")
+    if item.classification is not EvidenceClassification.PARTIALLY_RECONSTRUCTABLE:
+        raise ValueError("TARGET_CONTEXT evidence must be PARTIALLY_RECONSTRUCTABLE")
+    if as_utc(item.event_at) < cutoff or as_utc(item.eligible_at) < cutoff:
+        raise ValueError("TARGET_CONTEXT must retain its post-cutoff hindsight timing")
+    context = item.context
+    if not isinstance(context, Mapping):
+        raise ValueError("TARGET_CONTEXT requires explicit context metadata")
+    kind = context.get("context_type")
+    expected_keys = {
+        "context_type",
+        "player_id",
+        "performance_values_used",
+        "publication_time_established",
+    }
+    if kind == "HISTORICAL_ACTUAL_LINEUP":
+        expected_keys.add("batting_order")
+        order = context.get("batting_order")
+        if not isinstance(order, int) or isinstance(order, bool) or not 1 <= order <= 9:
+            raise ValueError("Historical actual lineup context requires batting_order 1..9")
+    elif kind != "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION":
+        raise ValueError("Unsupported TARGET_CONTEXT provenance")
+    if set(context) != expected_keys:
+        raise ValueError("TARGET_CONTEXT metadata shape is invalid")
+    if not isinstance(context.get("player_id"), str) or not context["player_id"]:
+        raise ValueError("TARGET_CONTEXT player_id is required")
+    if context.get("performance_values_used") is not False:
+        raise ValueError("TARGET_CONTEXT cannot use target-game performance values")
+    if context.get("publication_time_established") is not False:
+        raise ValueError("Retrospective target context cannot claim cutoff publication")
 
 
 def _canonical_value(value: object) -> object:

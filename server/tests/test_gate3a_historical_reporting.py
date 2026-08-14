@@ -459,6 +459,65 @@ def test_multi_season_report_is_exact_deterministic_and_honest(
             ]
             session.add_all([*team_facts, *player_facts, *bullpen])
             session.flush()
+            if game_index == 0:
+                original_team = team_facts[0]
+                original_player = player_facts[0]
+                session.add_all([
+                    TeamGameHistoryObservation(
+                        game_id=original_team.game_id,
+                        final_outcome_id=original_team.final_outcome_id,
+                        season_id=original_team.season_id,
+                        team_id=original_team.team_id,
+                        opponent_team_id=original_team.opponent_team_id,
+                        is_home=original_team.is_home,
+                        source_version_id=original_team.source_version_id,
+                        checkpoint_id=original_team.checkpoint_id,
+                        event_at=original_team.event_at,
+                        evidence_end_at=original_team.evidence_end_at,
+                        retrieved_at=original_team.retrieved_at,
+                        eligible_at=original_team.eligible_at,
+                        availability_basis=original_team.availability_basis,
+                        evidence_classification=original_team.evidence_classification,
+                        quality_tier=original_team.quality_tier,
+                        source_record_id=original_team.source_record_id,
+                        revision=2,
+                        supersedes_observation_id=original_team.id,
+                        stat_schema_version=original_team.stat_schema_version,
+                        values={"runs": 6},
+                        payload_checksum=_sha(f"team-correction:{year}"),
+                        source_mode="LIVE",
+                        temporal_semantics="RETROSPECTIVE_RECONSTRUCTION",
+                        identity_checksum=_sha(f"team-correction-identity:{year}"),
+                    ),
+                    PlayerGameHistoryObservation(
+                        game_id=original_player.game_id,
+                        final_outcome_id=original_player.final_outcome_id,
+                        season_id=original_player.season_id,
+                        player_id=original_player.player_id,
+                        team_id=original_player.team_id,
+                        opponent_team_id=original_player.opponent_team_id,
+                        role=original_player.role,
+                        started=original_player.started,
+                        source_version_id=original_player.source_version_id,
+                        checkpoint_id=original_player.checkpoint_id,
+                        event_at=original_player.event_at,
+                        evidence_end_at=original_player.evidence_end_at,
+                        retrieved_at=original_player.retrieved_at,
+                        eligible_at=original_player.eligible_at,
+                        availability_basis=original_player.availability_basis,
+                        evidence_classification=original_player.evidence_classification,
+                        quality_tier=original_player.quality_tier,
+                        source_record_id=original_player.source_record_id,
+                        revision=2,
+                        supersedes_observation_id=original_player.id,
+                        stat_schema_version=original_player.stat_schema_version,
+                        values=dict(original_player.values),
+                        payload_checksum=_sha(f"player-correction:{year}"),
+                        source_mode="LIVE",
+                        temporal_semantics="RETROSPECTIVE_RECONSTRUCTION",
+                        identity_checksum=_sha(f"player-correction-identity:{year}"),
+                    ),
+                ])
             cutoff = starts_at - timedelta(hours=6)
             snapshot = GameFeatureSnapshot(
                 game_id=game.id,
@@ -541,6 +600,25 @@ def test_multi_season_report_is_exact_deterministic_and_honest(
         assert coverage["starters"]["coverage"] == 1.0
         assert coverage["team_history"]["coverage"] == 1.0
         assert coverage["player_history"]["coverage"] == 1.0
+        assert coverage["team_history"]["evidence_records"] == 24
+        assert coverage["player_history"]["evidence_records"] == 24
+        assert coverage["starters"]["evidence_records"] == 24
+        assert season_report["history_revision_accounting"] == {
+            "basis": (
+                "Latest LIVE revision per canonical semantic key; superseded revisions "
+                "are retained physically but excluded from coverage and evidence counts."
+            ),
+            "team_history": {
+                "latest_records": 24,
+                "superseded_records": 1,
+                "physical_records": 25,
+            },
+            "player_history": {
+                "latest_records": 24,
+                "superseded_records": 1,
+                "physical_records": 25,
+            },
+        }
         assert coverage["bullpen"]["coverage"] == 1.0
         assert coverage["rest_travel"]["coverage"] == 1.0
         assert coverage["tier_a_b_eligible"]["covered_games"] == 11

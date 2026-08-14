@@ -210,28 +210,44 @@ model, calibrator, holdout evaluation, or superiority claim exists. See the
 [Gate 3 training and validation report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md)
 for the exact controls and evidence boundary.
 
-## Provider-safe Gate 3A historical evidence
+## Governed Gate 3A historical evidence
 
 Gate 3A adds a governed historical warehouse and point-in-time reconstruction
-contract without training or promoting a model. Apply migrations separately,
-then inspect a request plan without constructing an adapter or making a
-provider call:
+contract without training or promoting a model. The project owner approved a
+bounded local/private MLB research run on 2026-08-13; that approval does not
+permit public redistribution, commercial deployment, or raw-data resale.
+Apply migrations separately, then inspect a request plan without constructing
+an adapter or making a provider call:
 
 ```powershell
 cd C:\Users\james\ai-sports-predictor\server
 ..\.venv\Scripts\python.exe -m alembic upgrade head
-..\.venv\Scripts\python.exe -m app.cli backfill-mlb-history --start-date 2025-04-01 --end-date 2025-04-07 --season 2025 --chunk-size 1 --dry-run --max-requests 14
+..\.venv\Scripts\python.exe -m app.cli backfill-mlb-history --start-date 2025-06-17 --end-date 2025-06-17 --season 2025 --chunk-size 1 --expected-final-games 15 --dry-run --max-requests 16
 ..\.venv\Scripts\python.exe -m app.cli report-mlb-history --season 2025
 ```
 
-Non-dry acquisition is currently blocked before adapter construction with
-`LEGAL_REVIEW_REQUIRED`. The command is raw-archive-only even after a future
-approval and reports `ARCHIVED_CANONICAL_PENDING`, never canonical success.
-There is no Odds, Statcast, or historical-weather request path in this command.
-The current plan has no historical-market entitlement, so
+The approved command requires the explicit `--approved-local-research` flag,
+an exact expected-final count, and a physical request cap. It archives and
+canonicalizes MLB schedule/final/box-score evidence only; it has no Odds,
+Statcast, or historical-weather dispatch path.
+
+Stage A1 now contains all 2,430 unique official 2025 regular-season finals,
+4,860 team-game rows, and 127,872 player-game rows. The corrected provider-free
+one-day v3 and seven-day v4 artifacts contain 15 and 90 rows with zero
+exclusions, all temporal checks true, and frozen-schema feature coverage of
+16/43 (37.2093%). They expose 47 inputs through 94 value/missing-indicator
+outputs; the seven-day v4 artifact is only 375,715 projected bytes. These are
+explicitly `HISTORICAL_RECONSTRUCTED_PREGAME` artifacts, not prospective LIVE
+captures.
+
+The single 2025-06-17 Statcast trial succeeded with 4,375 rows across 15 games,
+but remains raw-only partial evidence: publication/eligibility is unproven and
+it was not canonicalized or admitted to training. No model was trained or
+promoted. The current plan has no historical-market entitlement, so
 `HISTORICAL_MARKET_DATA = UNAVAILABLE_ON_CURRENT_PLAN` and historical CLV stays
-unavailable. See the [Gate 3A plan](docs/GATE_3A_IMPLEMENTATION_PLAN.md) and
-[implementation report](docs/GATE_3A_IMPLEMENTATION_REPORT.md).
+unavailable. See the [Gate 3A plan](docs/GATE_3A_IMPLEMENTATION_PLAN.md),
+[A0 implementation report](docs/GATE_3A_IMPLEMENTATION_REPORT.md), and
+[A1 real-data report](docs/GATE_3A_A1_REAL_MLB_DATA_REPORT.md).
 
 ## Run tests and production builds
 

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.historical.materialization import canonical_evidence_manifest_error
 from app.markets.odds import no_vig_probabilities
+from app.modeling.schema import GATE3_FEATURE_SCHEMA
 from app.models import (
     FeatureVersion,
     Forecast,
@@ -60,6 +61,21 @@ FORBIDDEN_HISTORICAL_MARKET_TOKENS = (
 )
 HISTORICAL_TEMPORAL_SEMANTICS = "RETROSPECTIVE_RECONSTRUCTION"
 HISTORICAL_POPULATION = "HISTORICAL_RECONSTRUCTION"
+HISTORICAL_SNAPSHOT_TYPE = "HISTORICAL_RECONSTRUCTED_PREGAME"
+HISTORICAL_ROW_LINEAGE_VERSION = "gate3a_historical_row_lineage_v3"
+LEGACY_HISTORICAL_ROW_LINEAGE_VERSIONS = {"gate3a_historical_row_lineage_v2"}
+HISTORICAL_DERIVED_FEATURE_NAMES = {
+    "feature_completeness",
+    "sample_reliability",
+    "lineups_confirmed",
+    "starters_confirmed",
+}
+DEFAULT_MAX_DATASET_ARTIFACT_BYTES = 128 * 1024 * 1024
+DEFAULT_MIN_FREE_BYTES_AFTER_WRITE = 64 * 1024 * 1024
+
+
+class DatasetArtifactStorageError(RuntimeError):
+    """Raised before writing when a dataset exceeds its storage envelope."""
 
 
 def _aware(value: datetime) -> datetime:
@@ -147,6 +163,10 @@ class TrainingDatasetManifestData:
     cutoff_policy_version: str | None = None
     quality_tiers: list[str] = field(default_factory=list)
     quality_score_summary: dict[str, float] | None = None
+    observed_feature_names: list[str] | None = None
+    frozen_output_names: list[str] | None = None
+    feature_family_coverage_basis: str | None = None
+    artifact_storage_policy: dict[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -287,6 +307,8 @@ class GovernedTrainingDatasetBuilder:
         quality_tiers: tuple[str, ...] = ("A",),
         minimum_quality_score: float = 0.0,
         allow_mixed_tiers: bool = False,
+        historical_feature_version_id: UUID | str | None = None,
+        historical_materializer_version: str | None = None,
     ) -> DatasetBuildResult:
         """Build governed retrospective rows without reading or creating forecasts.
 
@@ -311,10 +333,32 @@ class GovernedTrainingDatasetBuilder:
             or not 0 <= minimum_quality_score <= 100
         ):
             raise ValueError("minimum_quality_score must be finite and within [0, 100]")
+        if (historical_feature_version_id is None) != (
+            historical_materializer_version is None
+        ):
+            raise ValueError(
+                "Historical feature and materializer identities must be selected together"
+            )
 
         cutoff = _aware(training_cutoff or datetime.now(UTC))
+        materialization_query = select(HistoricalFeatureMaterialization)
+        if historical_feature_version_id is not None:
+            try:
+                selected_feature_version_id = (
+                    historical_feature_version_id
+                    if isinstance(historical_feature_version_id, UUID)
+                    else UUID(str(historical_feature_version_id))
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Invalid historical feature-version identifier") from exc
+            materialization_query = materialization_query.where(
+                HistoricalFeatureMaterialization.feature_version_id
+                == selected_feature_version_id,
+                HistoricalFeatureMaterialization.materializer_version
+                == historical_materializer_version,
+            )
         materializations = list(self.session.scalars(
-            select(HistoricalFeatureMaterialization).order_by(
+            materialization_query.order_by(
                 HistoricalFeatureMaterialization.scheduled_at,
                 HistoricalFeatureMaterialization.game_id,
                 HistoricalFeatureMaterialization.id,
@@ -417,7 +461,11 @@ class GovernedTrainingDatasetBuilder:
                 feature_version=f"{feature_version.name}/{feature_version.version}",
                 feature_schema_version=snapshot.feature_schema_version,
                 source_mode="LIVE",
-                source_evidence=list(snapshot.source_evidence or []),
+                source_evidence=_compact_historical_lineage(
+                    materialization,
+                    snapshot,
+                    outcome,
+                ),
                 home_team_id=str(outcome.home_team_id),
                 away_team_id=str(outcome.away_team_id),
                 features=_historical_model_ready_features(snapshot),
@@ -665,6 +713,23 @@ class GovernedTrainingDatasetBuilder:
             return "historical_snapshot_generation_identity_mismatch"
         if snapshot.frozen_at is None or _aware(snapshot.frozen_at) < _aware(snapshot.data_as_of):
             return "historical_snapshot_not_frozen"
+        reconstruction = (
+            (snapshot.bayesian_metadata or {}).get("historical_reconstruction")
+            if isinstance(snapshot.bayesian_metadata, dict)
+            else None
+        )
+        requires_a1_type = snapshot.feature_schema_version == "mlb_pregame_gate3_v1"
+        if requires_a1_type and (
+            not isinstance(reconstruction, dict)
+            or reconstruction.get("snapshot_type") != HISTORICAL_SNAPSHOT_TYPE
+            or reconstruction.get("operational_source_mode_is_not_snapshot_type") is not True
+        ):
+            return "historical_snapshot_type_missing_or_mislabelled"
+        if isinstance(reconstruction, dict) and reconstruction.get("snapshot_type") not in {
+            None,
+            HISTORICAL_SNAPSHOT_TYPE,
+        }:
+            return "historical_snapshot_type_missing_or_mislabelled"
         if _aware(outcome.scheduled_at) != scheduled_at:
             return "historical_schedule_identity_mismatch"
         if outcome.outcome_status != "FINAL" or not outcome.official:
@@ -719,6 +784,107 @@ class GovernedTrainingDatasetBuilder:
             != str(materialization.quality_tier).upper()
         ):
             return "historical_quality_identity_mismatch"
+        temporal_integrity = components.get("temporal_integrity")
+        feature_coverage = components.get("feature_coverage")
+        materializer_version = str(materialization.materializer_version)
+        quality_contract_version = (
+            "v3"
+            if materializer_version.endswith("_v3")
+            else "v2" if materializer_version.endswith("_v2") else None
+        )
+        if quality_contract_version is not None and (
+            components.get("policy_version")
+            != f"gate3a_historical_admission_quality_{quality_contract_version}"
+            or temporal_integrity is None
+            or feature_coverage is None
+        ):
+            return "historical_quality_components_invalid"
+        if temporal_integrity is not None or feature_coverage is not None:
+            if not isinstance(temporal_integrity, dict) or not isinstance(
+                feature_coverage,
+                dict,
+            ):
+                return "historical_quality_components_invalid"
+            feature_names = set(snapshot.feature_values or {})
+            missing_names = set(snapshot.missing_features or [])
+            expected_names = feature_names | missing_names
+            requires_frozen_v3 = (
+                quality_contract_version == "v3"
+                and isinstance(reconstruction, dict)
+                and reconstruction.get("builder_version")
+                == "gate3a_a1_reconstruction_v3"
+            )
+            if requires_frozen_v3:
+                frozen_names = {
+                    spec.name
+                    for spec in GATE3_FEATURE_SCHEMA.features
+                    if spec.name not in HISTORICAL_DERIVED_FEATURE_NAMES
+                }
+                if (
+                    snapshot.feature_schema_version != GATE3_FEATURE_SCHEMA.version
+                    or expected_names != frozen_names
+                    or feature_names & missing_names
+                    or feature_coverage.get("basis")
+                    != "FROZEN_SCHEMA_NON_DERIVED_FEATURES"
+                ):
+                    return "historical_frozen_feature_coverage_contract_mismatch"
+                expected_names = frozen_names
+            observed_count = sum(
+                (snapshot.feature_values or {}).get(name) is not None
+                for name in expected_names
+            )
+            expected_count = len(expected_names)
+            expected_fraction = (
+                observed_count / expected_count if expected_count else 0.0
+            )
+            try:
+                temporal_score = float(temporal_integrity["score"])
+                coverage_score = float(feature_coverage["score"])
+                coverage_fraction = float(feature_coverage["fraction"])
+                component_observed = int(feature_coverage["observed_feature_count"])
+                component_expected = int(feature_coverage["expected_feature_count"])
+            except (KeyError, TypeError, ValueError):
+                return "historical_quality_components_invalid"
+            if (
+                components.get("admission_rule")
+                != "MIN_TEMPORAL_INTEGRITY_AND_FEATURE_COVERAGE"
+                or not math.isclose(
+                    coverage_fraction,
+                    float(snapshot.feature_completeness),
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+                or not math.isclose(
+                    coverage_fraction,
+                    expected_fraction,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+                or not math.isclose(
+                    coverage_score,
+                    expected_fraction * 100.0,
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+                or component_observed != observed_count
+                or component_expected != expected_count
+                or not math.isclose(
+                    component_score,
+                    min(temporal_score, coverage_score),
+                    rel_tol=0.0,
+                    abs_tol=1e-9,
+                )
+            ):
+                return "historical_quality_identity_mismatch"
+            metadata_temporal = (
+                reconstruction.get("temporal_integrity")
+                if isinstance(reconstruction, dict)
+                else None
+            )
+            if metadata_temporal is not None and _canonical(
+                metadata_temporal
+            ) != _canonical(temporal_integrity):
+                return "historical_quality_identity_mismatch"
 
         bundle_reason, source_version_ids = self._historical_source_bundle_reason(
             materialization.source_bundle,
@@ -739,7 +905,7 @@ class GovernedTrainingDatasetBuilder:
             cutoff=cutoff_at,
             target_game_id=str(game.id),
             source_version_ids=source_version_ids,
-            computed_at=_aware(materialization.generated_at),
+            computed_at=training_cutoff,
         )
         if canonical_evidence_error is not None:
             return "historical_canonical_evidence_invalid"
@@ -829,12 +995,26 @@ class GovernedTrainingDatasetBuilder:
     ) -> TrainingDatasetManifestData:
         row_dicts = [asdict(row) for row in rows]
         rows_checksum = hashlib.sha256(b"\n".join(_canonical(row) for row in row_dicts)).hexdigest()
-        feature_names = sorted({key for row in rows for key in row.features})
+        observed_feature_names = sorted({key for row in rows for key in row.features})
+        historical_contract = population == HISTORICAL_POPULATION
+        feature_names = (
+            [item.name for item in GATE3_FEATURE_SCHEMA.features]
+            if historical_contract
+            else observed_feature_names
+        )
+        frozen_output_names = (
+            list(GATE3_FEATURE_SCHEMA.output_names) if historical_contract else None
+        )
         feature_version_ids = sorted({row.feature_version_id for row in rows if row.feature_version_id})
         feature_versions = sorted({row.feature_version for row in rows})
         dates = [datetime.fromisoformat(row.scheduled_first_pitch.replace("Z", "+00:00")).date() for row in rows]
         source_modes = sorted({row.source_mode for row in rows})
-        coverage = _feature_family_coverage(rows)
+        coverage = _feature_family_coverage(rows, frozen_schema=historical_contract)
+        coverage_basis = (
+            "FROZEN_SCHEMA_NON_DERIVED_FEATURES"
+            if historical_contract
+            else "CURATED_PROSPECTIVE_FEATURE_FAMILIES_V1"
+        )
         common_checks = {
             "one_row_per_game": len({row.game_id for row in rows}) == len(rows),
             "pregame_cutoff": all(row.data_as_of < row.scheduled_first_pitch for row in rows),
@@ -857,12 +1037,11 @@ class GovernedTrainingDatasetBuilder:
             leakage_checks = {
                 **common_checks,
                 "source_evidence_cutoff": all(
-                    _historical_evidence_within_cutoff(
-                        row.source_evidence,
-                        _parse_iso(row.data_as_of),
-                        target_game_id=row.game_id,
-                    )
+                    _historical_compact_lineage_valid(row)
                     for row in rows
+                ),
+                "historical_lineage_db_revalidated": all(
+                    _historical_compact_lineage_valid(row) for row in rows
                 ),
                 "no_market_or_clv": all(
                     row.market_home_probability is None
@@ -933,6 +1112,11 @@ class GovernedTrainingDatasetBuilder:
             "feature_schema_version": selected_schema,
             "feature_version_ids": feature_version_ids,
             "feature_names": feature_names,
+            "observed_feature_names": (
+                observed_feature_names if historical_contract else None
+            ),
+            "frozen_output_names": frozen_output_names,
+            "feature_family_coverage_basis": coverage_basis,
             "target_definitions": TARGET_DEFINITIONS,
             "training_cutoff": _iso(cutoff),
             "leakage_checks": leakage_checks,
@@ -969,23 +1153,68 @@ class GovernedTrainingDatasetBuilder:
             cutoff_policy_version=cutoff_policy_version,
             quality_tiers=quality_tiers,
             quality_score_summary=quality_summary,
+            observed_feature_names=(
+                observed_feature_names if historical_contract else None
+            ),
+            frozen_output_names=frozen_output_names,
+            feature_family_coverage_basis=coverage_basis,
         )
 
 
 class TrainingDatasetArtifactStore:
     """Atomic, immutable, root-confined storage for governed dataset artifacts."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        maximum_artifact_bytes: int = DEFAULT_MAX_DATASET_ARTIFACT_BYTES,
+        minimum_free_bytes_after_write: int = DEFAULT_MIN_FREE_BYTES_AFTER_WRITE,
+    ) -> None:
+        if maximum_artifact_bytes <= 0:
+            raise ValueError("maximum_artifact_bytes must be positive")
+        if minimum_free_bytes_after_write < 0:
+            raise ValueError("minimum_free_bytes_after_write cannot be negative")
         self.root = root.resolve()
+        self.maximum_artifact_bytes = int(maximum_artifact_bytes)
+        self.minimum_free_bytes_after_write = int(minimum_free_bytes_after_write)
 
     def save(self, result: DatasetBuildResult) -> TrainingDatasetManifestData:
-        self.root.mkdir(parents=True, exist_ok=True)
         final = self._contained(self.root / result.manifest.dataset_id)
         if final.exists():
             existing = json.loads((final / "manifest.json").read_text(encoding="utf-8"))
             if existing.get("checksum") != result.manifest.checksum:
                 raise FileExistsError(f"Dataset identity collision at {final}")
             return TrainingDatasetManifestData(**existing)
+        rows_bytes = b"\n".join(_canonical(asdict(row)) for row in result.rows)
+        serialized_rows = rows_bytes + (b"\n" if rows_bytes else b"")
+        if hashlib.sha256(rows_bytes).hexdigest() != result.manifest.rows_checksum:
+            raise ValueError("Serialized training rows do not match the governed checksum")
+        exclusions_bytes = _canonical(list(result.exclusions))
+        relative = final.relative_to(self.root.parent.parent).as_posix()
+        projected_bytes = 0
+        while True:
+            manifest = TrainingDatasetManifestData(**{
+                **asdict(result.manifest),
+                "artifact_uri": relative,
+                "artifact_storage_policy": {
+                    "maximum_artifact_bytes": self.maximum_artifact_bytes,
+                    "minimum_free_bytes_after_write": self.minimum_free_bytes_after_write,
+                    "projected_artifact_bytes": projected_bytes,
+                },
+            })
+            manifest_bytes = json.dumps(
+                asdict(manifest),
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            measured = len(serialized_rows) + len(exclusions_bytes) + len(manifest_bytes)
+            if measured == projected_bytes:
+                break
+            projected_bytes = measured
+        self._guard_storage(projected_bytes)
+
+        self.root.mkdir(parents=True, exist_ok=True)
         temporary = self.root / f".dataset-{uuid4().hex}"
         temporary.mkdir(mode=0o777, exist_ok=False)
         try:
@@ -993,20 +1222,11 @@ class TrainingDatasetArtifactStore:
             exclusions_path = temporary / "exclusions.json"
             manifest_path = temporary / "manifest.json"
             with rows_path.open("xb") as handle:
-                for row in result.rows:
-                    handle.write(_canonical(asdict(row)) + b"\n")
+                handle.write(serialized_rows)
                 handle.flush()
                 os.fsync(handle.fileno())
-            rows_checksum = hashlib.sha256(rows_path.read_bytes().rstrip(b"\n")).hexdigest()
-            if rows_checksum != result.manifest.rows_checksum:
-                raise ValueError("Serialized training rows do not match the governed checksum")
-            exclusions_path.write_bytes(_canonical(list(result.exclusions)))
-            relative = final.relative_to(self.root.parent.parent).as_posix()
-            manifest = TrainingDatasetManifestData(**{
-                **asdict(result.manifest),
-                "artifact_uri": relative,
-            })
-            manifest_path.write_text(json.dumps(asdict(manifest), indent=2, sort_keys=True), encoding="utf-8")
+            exclusions_path.write_bytes(exclusions_bytes)
+            manifest_path.write_bytes(manifest_bytes)
             os.replace(temporary, final)
             return manifest
         except Exception:
@@ -1035,9 +1255,38 @@ class TrainingDatasetArtifactStore:
             raise ValueError("Artifact path escapes the governed root")
         return resolved
 
+    def _guard_storage(self, projected_bytes: int) -> None:
+        if projected_bytes > self.maximum_artifact_bytes:
+            raise DatasetArtifactStorageError(
+                "Dataset artifact requires "
+                f"{projected_bytes} bytes, exceeding the configured "
+                f"{self.maximum_artifact_bytes}-byte maximum"
+            )
+        probe = self.root
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        try:
+            free_bytes = shutil.disk_usage(probe).free
+        except OSError as exc:
+            raise DatasetArtifactStorageError(
+                "Unable to verify free storage before dataset artifact write"
+            ) from exc
+        required = projected_bytes + self.minimum_free_bytes_after_write
+        if free_bytes < required:
+            raise DatasetArtifactStorageError(
+                "Dataset artifact requires "
+                f"{projected_bytes} bytes plus a "
+                f"{self.minimum_free_bytes_after_write}-byte free-space reserve; "
+                f"only {free_bytes} bytes are available"
+            )
 
-def _feature_family_coverage(rows: list[TrainingRow]) -> dict[str, float]:
-    families = {
+
+def _feature_family_coverage(
+    rows: list[TrainingRow],
+    *,
+    frozen_schema: bool = False,
+) -> dict[str, float]:
+    families: dict[str, tuple[str, ...]] = {
         "team_strength": ("home_rating", "away_rating", "home_runs_per_game", "away_runs_per_game"),
         "starting_pitcher": ("home_starter_era", "away_starter_era", "home_starter_xera", "away_starter_xera"),
         "lineup": ("home_lineup_xwoba", "away_lineup_xwoba"),
@@ -1049,6 +1298,13 @@ def _feature_family_coverage(rows: list[TrainingRow]) -> dict[str, float]:
         "defense_baserunning": ("defense", "baserunning"),
         "opponent_adjustment": ("opponent_adjustment",),
     }
+    if frozen_schema:
+        grouped: dict[str, list[str]] = {}
+        for spec in GATE3_FEATURE_SCHEMA.features:
+            if spec.name in HISTORICAL_DERIVED_FEATURE_NAMES:
+                continue
+            grouped.setdefault(spec.family, []).append(spec.name)
+        families = {name: tuple(values) for name, values in grouped.items()}
     if not rows:
         return {family: 0.0 for family in families}
     result: dict[str, float] = {}
@@ -1122,7 +1378,7 @@ def _historical_evidence_within_cutoff(
         if classification not in allowed_classifications:
             return False
         role = str(item.get("role") or "").upper()
-        if role not in {"FEATURE", "STRUCTURAL"}:
+        if role not in {"FEATURE", "STRUCTURAL", "TARGET_CONTEXT"}:
             return False
         evidence_game_id = item.get("game_id")
         if role == "FEATURE" and str(evidence_game_id) == target_game_id:
@@ -1148,7 +1404,25 @@ def _historical_evidence_within_cutoff(
             )
         except (TypeError, ValueError):
             return False
-        if (
+        if role == "TARGET_CONTEXT":
+            context = item.get("context")
+            if (
+                str(evidence_game_id) != target_game_id
+                or classification != "PARTIALLY_RECONSTRUCTABLE"
+                or event_time < boundary
+                or evidence_end_time < boundary
+                or eligible_time < boundary
+                or eligible_time < evidence_end_time
+                or not isinstance(context, dict)
+                or context.get("context_type") not in {
+                    "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION",
+                    "HISTORICAL_ACTUAL_LINEUP",
+                }
+                or context.get("performance_values_used") is not False
+                or context.get("publication_time_established") is not False
+            ):
+                return False
+        elif (
             event_time >= boundary
             or evidence_end_time >= boundary
             or eligible_time > boundary
@@ -1156,6 +1430,81 @@ def _historical_evidence_within_cutoff(
         ):
             return False
     return True
+
+
+def _compact_historical_lineage(
+    materialization: HistoricalFeatureMaterialization,
+    snapshot: GameFeatureSnapshot,
+    outcome: GameFinalOutcome,
+) -> list[dict[str, Any]]:
+    """Replace repeated canonical references with a DB-revalidated attestation."""
+
+    return [{
+        "lineage_version": HISTORICAL_ROW_LINEAGE_VERSION,
+        "validation_attestation": "FULL_CANONICAL_DB_REVALIDATED_BEFORE_ROW_BUILD",
+        "target_game_id": str(materialization.game_id),
+        "cutoff_at": _iso(materialization.cutoff_at),
+        "source_mode": materialization.source_mode,
+        "temporal_semantics": materialization.temporal_semantics,
+        "historical_materialization_id": str(materialization.id),
+        "historical_materialization_identity_checksum": materialization.identity_checksum,
+        "feature_snapshot_id": str(snapshot.id),
+        "feature_snapshot_checksum": snapshot.checksum,
+        "historical_outcome_id": str(outcome.id),
+        "historical_outcome_identity_checksum": outcome.identity_checksum,
+        "evidence_manifest_checksum": materialization.evidence_manifest_checksum,
+        "canonical_reference_count": len(materialization.evidence_manifest or []),
+        "source_bundle_checksum": materialization.source_bundle_checksum,
+        "source_version_count": len(materialization.source_bundle or []),
+        "checkpoint_id": str(materialization.checkpoint_id),
+    }]
+
+
+def _historical_compact_lineage_valid(row: TrainingRow) -> bool:
+    lineage = tuple(row.source_evidence or [])
+    if len(lineage) != 1 or not isinstance(lineage[0], dict):
+        return False
+    item = lineage[0]
+    try:
+        canonical_count = int(item["canonical_reference_count"])
+        source_count = int(item["source_version_count"])
+        UUID(str(item["historical_materialization_id"]))
+        UUID(str(item["feature_snapshot_id"]))
+        UUID(str(item["historical_outcome_id"]))
+        UUID(str(item["checkpoint_id"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (
+        item.get("lineage_version")
+        in {HISTORICAL_ROW_LINEAGE_VERSION, *LEGACY_HISTORICAL_ROW_LINEAGE_VERSIONS}
+        and item.get("validation_attestation")
+        == "FULL_CANONICAL_DB_REVALIDATED_BEFORE_ROW_BUILD"
+        and str(item.get("target_game_id")) == row.game_id
+        and str(item.get("cutoff_at")) == row.data_as_of
+        and item.get("source_mode") == "LIVE"
+        and item.get("temporal_semantics") == HISTORICAL_TEMPORAL_SEMANTICS
+        and str(item.get("historical_materialization_id"))
+        == row.historical_materialization_id
+        and str(item.get("historical_materialization_identity_checksum"))
+        == row.historical_materialization_identity_checksum
+        and str(item.get("feature_snapshot_id")) == row.feature_snapshot_id
+        and str(item.get("feature_snapshot_checksum")) == row.feature_snapshot_checksum
+        and str(item.get("historical_outcome_id")) == row.historical_outcome_id
+        and str(item.get("historical_outcome_identity_checksum"))
+        == row.historical_outcome_identity_checksum
+        and all(
+            _is_sha256(item.get(name))
+            for name in (
+                "historical_materialization_identity_checksum",
+                "feature_snapshot_checksum",
+                "historical_outcome_identity_checksum",
+                "evidence_manifest_checksum",
+                "source_bundle_checksum",
+            )
+        )
+        and canonical_count > 0
+        and source_count > 0
+    )
 
 
 def _is_sha256(value: Any) -> bool:
@@ -1193,10 +1542,12 @@ def _historical_model_ready_features(snapshot: GameFeatureSnapshot) -> dict[str,
 
     values = dict(snapshot.feature_values)
     values["feature_completeness"] = float(snapshot.feature_completeness)
-    penalties = len(snapshot.missing_features or []) + len(snapshot.stale_features or [])
+    # Historical v2/v3 has no independent prospective freshness signal.  Reusing
+    # the prospective missing-field penalty double-counted incompleteness and
+    # collapsed every otherwise eligible A1 row to zero reliability.
     values["sample_reliability"] = max(
         0.0,
-        min(1.0, float(snapshot.feature_completeness) - penalties * 0.02),
+        min(1.0, float(snapshot.feature_completeness)),
     )
     values.setdefault("lineups_confirmed", 0.0)
     values.setdefault("starters_confirmed", 0.0)

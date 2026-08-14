@@ -10,6 +10,7 @@ from .base import (
     BullpenAvailabilityDTO,
     HistoricalBoxscoreDTO,
     HistoricalFinalDTO,
+    HistoricalGameEvidenceDTO,
     HistoricalPlayerGameEvidenceDTO,
     HistoricalScheduleGameDTO,
     HistoricalTeamGameEvidenceDTO,
@@ -43,12 +44,19 @@ class MLBStatsAPIAdapter:
         self.timeout = timeout
         self.request_executor = request_executor
 
-    async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def _get(
+        self,
+        path: str,
+        params: dict[str, Any],
+        *,
+        base_url: str | None = None,
+        accounting_operation: str = "mlb_api_request",
+    ) -> dict[str, Any]:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=self.timeout)
         try:
             async def request_once() -> dict[str, Any]:
-                response = await client.get(f"{self.base_url}{path}", params=params)
+                response = await client.get(f"{base_url or self.base_url}{path}", params=params)
                 response.raise_for_status()
                 payload = response.json()
                 if not isinstance(payload, dict):
@@ -60,7 +68,10 @@ class MLBStatsAPIAdapter:
                 return payload
 
             if self.request_executor is not None:
-                return await self.request_executor.execute(request_once)
+                return await self.request_executor.execute(
+                    request_once,
+                    operation_name=accounting_operation,
+                )
             return await request_once()
         except SourceError:
             raise
@@ -73,61 +84,58 @@ class MLBStatsAPIAdapter:
     async def get_historical_schedule(self, event_date: date) -> AdapterResponse:
         """Fetch one regular-season date as explicitly reconstructed evidence."""
 
+        return await self.get_historical_schedule_range(event_date, event_date)
+
+    async def get_historical_schedule_range(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> AdapterResponse:
+        """Fetch a bounded regular-season date range in one physical request."""
+
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+
         raw = await self._get(
             "/schedule",
             {
                 "sportId": 1,
-                "date": event_date.isoformat(),
+                "startDate": start_date.isoformat(),
+                "endDate": end_date.isoformat(),
                 "gameType": "R",
-                "hydrate": "probablePitcher,team,venue,linescore",
+                "hydrate": "team,venue(location),linescore",
             },
+            accounting_operation="historical_schedule",
         )
-        pitcher_ids = {
-            str(pitcher["id"])
-            for date_node in raw.get("dates", [])
-            for item in date_node.get("games", [])
-            for side in (item.get("teams") or {}).values()
-            if (pitcher := side.get("probablePitcher")) and pitcher.get("id") is not None
-        }
-        people_raw: dict[str, Any] = {}
-        pitcher_hands: dict[str, str] = {}
-        enrichment_warning: str | None = None
-        if pitcher_ids:
-            try:
-                people_raw = await self._get(
-                    "/people",
-                    {"personIds": ",".join(sorted(pitcher_ids))},
-                )
-                pitcher_hands = {
-                    str(person["id"]): str((person.get("pitchHand") or {}).get("code", "")).upper()
-                    for person in people_raw.get("people", [])
-                    if person.get("id") is not None and (person.get("pitchHand") or {}).get("code")
-                }
-            except SourceError as exc:
-                # This is optional metadata and does not change schedule/final
-                # identity. The failed physical request remains fully counted.
-                enrichment_warning = str(exc)
         acquired_at = datetime.now(UTC)
         rows: list[HistoricalScheduleGameDTO] = []
         try:
             for date_node in raw.get("dates", []):
-                official_date = date.fromisoformat(str(date_node.get("date") or event_date.isoformat()))
                 for item in date_node.get("games", []):
+                    # Rescheduled games can appear in both their original and
+                    # resumed date buckets. The game's own officialDate is the
+                    # canonical event date; the bucket date is only a fallback.
+                    official_date = date.fromisoformat(
+                        str(item.get("officialDate") or date_node["date"])
+                    )
                     game = self._historical_schedule_game(
                         item,
                         official_date=official_date,
-                        pitcher_hands=pitcher_hands,
+                        pitcher_hands={},
                     )
-                    final = self._historical_final(item, official_date, acquired_at)
                     rows.append(HistoricalScheduleGameDTO(
                         game=game,
                         season=_to_int(item.get("season")) or official_date.year,
+                        source_schedule_date=date.fromisoformat(str(date_node["date"])),
                         official_date=official_date,
                         game_type=item.get("gameType"),
                         abstract_state=(item.get("status") or {}).get("abstractGameState"),
                         coded_state=(item.get("status") or {}).get("codedGameState"),
                         acquired_at=acquired_at,
-                        final=final,
+                        # A schedule response proves final state and score but
+                        # not completion time. The governed runner replaces
+                        # this with evidence from the per-game live feed.
+                        final=None,
                     ))
         except (KeyError, TypeError, ValueError) as exc:
             error = SourceError(
@@ -135,7 +143,7 @@ class MLBStatsAPIAdapter:
                 f"Historical schedule schema validation failed: {type(exc).__name__}",
                 retryable=False,
             )
-            error.raw_payload = {"schedule": raw, "people": people_raw}  # type: ignore[attr-defined]
+            error.raw_payload = raw  # type: ignore[attr-defined]
             raise error from exc
         return AdapterResponse(
             envelope=SourceEnvelope(
@@ -144,133 +152,85 @@ class MLBStatsAPIAdapter:
                 fetched_at=acquired_at,
                 data=[row.model_dump(mode="json") for row in rows],
                 metadata={
-                    "event_date": event_date.isoformat(),
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
                     "record_count": len(rows),
                     "research_provenance": "HISTORICAL_RECONSTRUCTION",
                     "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
                     "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
                     "game_type": "R",
-                    "pitcher_handedness_enrichment_warning": enrichment_warning,
-                },
-            ),
-            raw_payload={"schedule": raw, "people": people_raw},
-        )
-
-    async def get_historical_final(self, source_game_id: str) -> AdapterResponse:
-        """Fetch the final event fact without claiming historical publication time."""
-
-        raw = await self._get(f"/game/{source_game_id}/feed/live", {})
-        acquired_at = datetime.now(UTC)
-        try:
-            game_data = raw["gameData"]
-            live_data = raw["liveData"]
-            status = game_data.get("status") or {}
-            abstract_state = str(status.get("abstractGameState") or "").strip()
-            if abstract_state.lower() != "final":
-                raise ValueError("game status is not final")
-            datetime_node = game_data.get("datetime") or {}
-            official_date = date.fromisoformat(str(datetime_node["officialDate"]))
-            linescore = live_data.get("linescore") or {}
-            teams = linescore.get("teams") or {}
-            home_score = _to_int((teams.get("home") or {}).get("runs"))
-            away_score = _to_int((teams.get("away") or {}).get("runs"))
-            if home_score is None or away_score is None:
-                raise ValueError("final scores are missing")
-            final = HistoricalFinalDTO(
-                source_game_id=source_game_id,
-                official_date=official_date,
-                status=status.get("detailedState") or "Unknown",
-                abstract_state=abstract_state,
-                home_score=home_score,
-                away_score=away_score,
-                innings_played=_to_int(linescore.get("currentInning")),
-                # gameData.datetime.dateTime is scheduled first pitch, not a
-                # trustworthy completion timestamp. Preserve that uncertainty.
-                event_completed_at=None,
-                acquired_at=acquired_at,
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            error = SourceError(
-                self.source,
-                f"Historical final schema validation failed: {type(exc).__name__}",
-                retryable=False,
-            )
-            error.raw_payload = raw  # type: ignore[attr-defined]
-            raise error from exc
-        return AdapterResponse(
-            envelope=SourceEnvelope(
-                source=self.source,
-                source_mode="LIVE",
-                fetched_at=acquired_at,
-                data=final.model_dump(mode="json"),
-                metadata={
-                    "game_id": source_game_id,
-                    "research_provenance": "HISTORICAL_RECONSTRUCTION",
-                    "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
-                    "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                    "completion_evidence_included": False,
                 },
             ),
             raw_payload=raw,
         )
 
-    async def get_historical_boxscore(self, source_game_id: str) -> AdapterResponse:
-        """Fetch actual player/team participation as retrospective evidence."""
+    async def get_historical_final(self, source_game_id: str) -> AdapterResponse:
+        """Fetch a final using the same single-call feed as the A1 runner."""
 
-        raw = await self._get(f"/game/{source_game_id}/boxscore", {})
+        combined = await self.get_historical_game_evidence(source_game_id)
+        evidence = HistoricalGameEvidenceDTO.model_validate(combined.envelope.data)
+        return AdapterResponse(
+            envelope=combined.envelope.model_copy(
+                update={"data": evidence.final.model_dump(mode="json")}
+            ),
+            raw_payload=combined.raw_payload,
+        )
+
+    async def get_historical_boxscore(self, source_game_id: str) -> AdapterResponse:
+        """Fetch actual participation using the same single-call game feed."""
+
+        combined = await self.get_historical_game_evidence(source_game_id)
+        evidence = HistoricalGameEvidenceDTO.model_validate(combined.envelope.data)
+        return AdapterResponse(
+            envelope=combined.envelope.model_copy(
+                update={"data": evidence.boxscore.model_dump(mode="json")}
+            ),
+            raw_payload=combined.raw_payload,
+        )
+
+    async def get_historical_game_evidence(self, source_game_id: str) -> AdapterResponse:
+        """Fetch final, last-play completion proxy, PBP, and boxscore once.
+
+        MLB's live feed is under API v1.1. The response embeds both
+        ``liveData.plays`` and ``liveData.boxscore``; no second boxscore call is
+        needed. When no explicit game-end field exists, the final complete
+        play's end time is retained as an explicitly non-authoritative proxy.
+        """
+
+        raw = await self._get(
+            f"/game/{source_game_id}/feed/live",
+            {},
+            base_url="https://statsapi.mlb.com/api/v1.1",
+            accounting_operation="historical_game_feed",
+        )
         acquired_at = datetime.now(UTC)
-        players: list[HistoricalPlayerGameEvidenceDTO] = []
-        teams: list[HistoricalTeamGameEvidenceDTO] = []
         try:
-            for side in ("away", "home"):
-                is_home = side == "home"
-                team_node = (raw.get("teams") or {})[side]
-                source_team_id = str((team_node.get("team") or {})["id"])
-                pitcher_order = [str(value) for value in team_node.get("pitchers") or []]
-                batting_order = [str(value) for value in team_node.get("battingOrder") or []]
-                teams.append(HistoricalTeamGameEvidenceDTO(
-                    source_game_id=source_game_id,
-                    source_team_id=source_team_id,
-                    is_home=is_home,
-                    team_stats=dict(team_node.get("teamStats") or {}),
-                    acquired_at=acquired_at,
-                ))
-                for key, node in sorted((team_node.get("players") or {}).items()):
-                    person = node.get("person") or {}
-                    player_id = person.get("id")
-                    if player_id is None:
-                        continue
-                    player_key = str(player_id)
-                    stats = node.get("stats") or {}
-                    raw_order = str(node.get("battingOrder") or "")[:3]
-                    players.append(HistoricalPlayerGameEvidenceDTO(
-                        source_game_id=source_game_id,
-                        source_player_id=player_key,
-                        source_team_id=source_team_id,
-                        full_name=person.get("fullName"),
-                        is_home=is_home,
-                        batting_order=(
-                            _to_int(raw_order)
-                            or (batting_order.index(player_key) + 1 if player_key in batting_order else None)
-                        ),
-                        appeared_as_pitcher=player_key in pitcher_order,
-                        # Boxscore order proves actual participation, not when a
-                        # probable-starter announcement became public.
-                        actual_starting_pitcher=bool(pitcher_order and pitcher_order[0] == player_key),
-                        position=(node.get("position") or {}).get("abbreviation"),
-                        batting=dict(stats.get("batting") or {}) or None,
-                        pitching=dict(stats.get("pitching") or {}) or None,
-                        acquired_at=acquired_at,
-                    ))
-            boxscore = HistoricalBoxscoreDTO(
+            payload_game_id = raw.get("gamePk")
+            if payload_game_id is None or str(payload_game_id) != str(source_game_id):
+                raise ValueError("game-feed identity does not match the requested game")
+            final = self._historical_final_from_feed(
+                raw,
                 source_game_id=source_game_id,
                 acquired_at=acquired_at,
-                players=players,
-                teams=teams,
             )
-        except (KeyError, TypeError, ValueError) as exc:
+            boxscore = self._historical_boxscore_from_node(
+                (raw["liveData"] or {})["boxscore"],
+                source_game_id=source_game_id,
+                acquired_at=acquired_at,
+                evidence_class=final.evidence_class,
+            )
+            evidence = HistoricalGameEvidenceDTO(
+                source_game_id=source_game_id,
+                acquired_at=acquired_at,
+                final=final,
+                boxscore=boxscore,
+                evidence_class=final.evidence_class,
+            )
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
             error = SourceError(
                 self.source,
-                f"Historical boxscore schema validation failed: {type(exc).__name__}",
+                f"Historical game-feed schema validation failed: {type(exc).__name__}",
                 retryable=False,
             )
             error.raw_payload = raw  # type: ignore[attr-defined]
@@ -280,14 +240,19 @@ class MLBStatsAPIAdapter:
                 source=self.source,
                 source_mode="LIVE",
                 fetched_at=acquired_at,
-                data=boxscore.model_dump(mode="json"),
+                source_event_time=final.event_completed_at,
+                data=evidence.model_dump(mode="json"),
                 metadata={
                     "game_id": source_game_id,
-                    "player_records": len(players),
-                    "team_records": len(teams),
+                    "player_records": len(boxscore.players),
+                    "team_records": len(boxscore.teams),
                     "research_provenance": "HISTORICAL_RECONSTRUCTION",
                     "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
-                    "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                    "evidence_class": final.evidence_class,
+                    "completion_time_basis": final.completion_time_basis,
+                    "completion_time_source_field": final.completion_time_source_field,
+                    "includes_play_by_play": True,
+                    "includes_boxscore": True,
                 },
             ),
             raw_payload=raw,
@@ -303,6 +268,9 @@ class MLBStatsAPIAdapter:
     ) -> ScheduleGameDTO:
         teams = item["teams"]
         venue = item.get("venue") or {"name": "Venue unavailable"}
+        location = venue.get("location") or {}
+        coordinates = location.get("defaultCoordinates") or {}
+        timezone = venue.get("timeZone") or {}
         return ScheduleGameDTO(
             source_game_id=str(item["gamePk"]),
             scheduled_at=item["gameDate"],
@@ -315,6 +283,9 @@ class MLBStatsAPIAdapter:
             venue=VenueDTO(
                 source_id=str(venue.get("id", "")) or None,
                 name=venue.get("name") or "Venue unavailable",
+                latitude=_to_float(coordinates.get("latitude")),
+                longitude=_to_float(coordinates.get("longitude")),
+                timezone=timezone.get("id") or timezone.get("tz"),
             ),
             away_score=_to_int((teams.get("away") or {}).get("score")),
             home_score=_to_int((teams.get("home") or {}).get("score")),
@@ -322,6 +293,240 @@ class MLBStatsAPIAdapter:
             doubleheader_status=item.get("doubleHeader"),
             game_number=_to_int(item.get("gameNumber")),
             scheduled_innings=_to_int(item.get("scheduledInnings")) or 9,
+            resume_at=_parse_provider_datetime(item.get("resumeDate")),
+            rescheduled_from=_parse_provider_datetime(item.get("rescheduledFrom")),
+            resumed_from_date=(
+                date.fromisoformat(str(item["resumedFromDate"]))
+                if item.get("resumedFromDate") else None
+            ),
+        )
+
+    @staticmethod
+    def _historical_final_from_feed(
+        raw: dict[str, Any],
+        *,
+        source_game_id: str,
+        acquired_at: datetime,
+    ) -> HistoricalFinalDTO:
+        game_data = raw["gameData"]
+        live_data = raw["liveData"]
+        status = game_data.get("status") or {}
+        abstract_state = str(status.get("abstractGameState") or "").strip()
+        if abstract_state.lower() != "final":
+            raise ValueError("game status is not final")
+        datetime_node = game_data.get("datetime") or {}
+        official_date = date.fromisoformat(str(datetime_node["officialDate"]))
+        linescore = live_data.get("linescore") or {}
+        sides = linescore.get("teams") or {}
+        home_score = _to_int((sides.get("home") or {}).get("runs"))
+        away_score = _to_int((sides.get("away") or {}).get("runs"))
+        if home_score is None or away_score is None:
+            raise ValueError("final scores are missing")
+
+        explicit_end = _parse_provider_datetime(datetime_node.get("gameEndTime"))
+        if explicit_end is not None:
+            completed_at = explicit_end
+            basis = "AUTHORITATIVE_FINAL_AT"
+            source_field = "gameData.datetime.gameEndTime"
+            method = "explicit provider game-end timestamp after FINAL-state validation"
+            limitation = "provider-supplied final timestamp; later official scoring corrections may occur"
+            evidence_class = "RECONSTRUCTABLE_POINT_IN_TIME"
+        else:
+            plays = list((live_data.get("plays") or {}).get("allPlays") or [])
+            if not plays:
+                raise ValueError("final feed contains no plays")
+            last_play = plays[-1]
+            about = last_play.get("about") or {}
+            if about.get("isComplete") is True:
+                completed_at = _parse_provider_datetime(about.get("endTime"))
+                if completed_at is None:
+                    raise ValueError("last complete play has no parseable endTime")
+                basis = "DERIVED_LAST_EVENT_COMPLETION_PROXY"
+                source_field = "liveData.plays.allPlays[-1].about.endTime"
+                method = "last complete play in provider array after FINAL-state validation"
+                limitation = (
+                    "proxy for final recorded play completion; not an explicit MLB game-final "
+                    "publication timestamp"
+                )
+                evidence_class = "RECONSTRUCTABLE_POINT_IN_TIME"
+            else:
+                # Games 777474 and 777188 are observed, narrowly bounded MLB
+                # shapes: FINAL / Completed Early*, with a trailing incomplete
+                # game-advisory row explicitly recording a rain delay. MLB's
+                # reason/statusCode fields differ between those two feeds, so
+                # the terminal advisory is the required rain signal. Its
+                # timestamp is not the later decision to call the game; retain
+                # the last *prior* complete play as a downgraded proxy. Every
+                # other trailing-incomplete shape remains fail-closed.
+                result = last_play.get("result") or {}
+                detailed_state = str(status.get("detailedState") or "").strip().casefold()
+                advisory_description = str(result.get("description") or "").strip().casefold()
+                play_events = list(last_play.get("playEvents") or [])
+                final_event_details = (
+                    (play_events[-1].get("details") or {})
+                    if play_events and isinstance(play_events[-1], dict)
+                    else {}
+                )
+                final_event_description = str(
+                    final_event_details.get("description") or ""
+                ).strip().casefold()
+                result_is_game_advisory = (
+                    str(result.get("event") or "").strip().casefold()
+                    == "game advisory"
+                    and str(result.get("eventType") or "").strip().casefold()
+                    == "game_advisory"
+                )
+                final_event_is_rain_advisory = (
+                    str(final_event_details.get("event") or "").strip().casefold()
+                    == "game advisory"
+                    and str(final_event_details.get("eventType") or "")
+                    .strip()
+                    .casefold()
+                    == "game_advisory"
+                    and final_event_description == "status change - delayed: rain"
+                )
+                is_terminal_rain_advisory = (
+                    about.get("isComplete") is False
+                    and detailed_state.startswith("completed early")
+                    and result_is_game_advisory
+                    and (
+                        advisory_description == "status change - delayed: rain"
+                        or final_event_is_rain_advisory
+                    )
+                    and _parse_provider_datetime(about.get("endTime")) is not None
+                )
+                if not is_terminal_rain_advisory:
+                    raise ValueError("last provider play is not complete")
+
+                prior_complete: tuple[int, datetime] | None = None
+                for play_index in range(len(plays) - 2, -1, -1):
+                    prior_about = (plays[play_index] or {}).get("about") or {}
+                    if prior_about.get("isComplete") is not True:
+                        continue
+                    prior_end = _parse_provider_datetime(prior_about.get("endTime"))
+                    if prior_end is not None:
+                        prior_complete = (play_index, prior_end)
+                        break
+                if prior_complete is None:
+                    raise ValueError(
+                        "terminal rain advisory has no prior complete play with parseable endTime"
+                    )
+
+                play_index, completed_at = prior_complete
+                basis = "DERIVED_LAST_EVENT_COMPLETION_PROXY"
+                source_field = (
+                    f"liveData.plays.allPlays[{play_index}].about.endTime"
+                )
+                method = (
+                    "last prior complete play before a terminal rain-delay advisory after "
+                    "FINAL/completed-early validation"
+                )
+                limitation = (
+                    "proxy precedes the terminal rain decision and advisory; it is neither "
+                    "an explicit MLB game-final timestamp nor the time MLB decided to end "
+                    "the game early"
+                )
+                evidence_class = "PARTIALLY_RECONSTRUCTABLE"
+
+        scheduled_at = _parse_provider_datetime(datetime_node.get("dateTime"))
+        if scheduled_at is not None and completed_at < scheduled_at:
+            raise ValueError("completion timestamp precedes scheduled first pitch")
+        return HistoricalFinalDTO(
+            source_game_id=source_game_id,
+            official_date=official_date,
+            status=status.get("detailedState") or "Unknown",
+            abstract_state=abstract_state,
+            home_score=home_score,
+            away_score=away_score,
+            innings_played=_to_int(linescore.get("currentInning")),
+            event_completed_at=completed_at,
+            completion_time_basis=basis,
+            completion_time_source_field=source_field,
+            completion_time_method=method,
+            completion_time_limitation=limitation,
+            # ``metaData.timeStamp`` is the generic live-feed update marker,
+            # not a documented final-publication timestamp.  It is also only
+            # second-precision while play end times can include milliseconds.
+            # Treating it as publication evidence would overstate provenance
+            # and can make it appear to precede the final recorded play.
+            source_published_at=None,
+            acquired_at=acquired_at,
+            evidence_class=evidence_class,
+        )
+
+    @staticmethod
+    def _historical_boxscore_from_node(
+        raw: dict[str, Any],
+        *,
+        source_game_id: str,
+        acquired_at: datetime,
+        evidence_class: str,
+    ) -> HistoricalBoxscoreDTO:
+        players: list[HistoricalPlayerGameEvidenceDTO] = []
+        teams: list[HistoricalTeamGameEvidenceDTO] = []
+        for side in ("away", "home"):
+            is_home = side == "home"
+            team_node = (raw.get("teams") or {})[side]
+            source_team_id = str((team_node.get("team") or {})["id"])
+            pitcher_order = [str(value) for value in team_node.get("pitchers") or []]
+            teams.append(HistoricalTeamGameEvidenceDTO(
+                source_game_id=source_game_id,
+                source_team_id=source_team_id,
+                is_home=is_home,
+                team_stats=dict(team_node.get("teamStats") or {}),
+                acquired_at=acquired_at,
+                evidence_class=evidence_class,
+            ))
+            for _, node in sorted((team_node.get("players") or {}).items()):
+                person = node.get("person") or {}
+                player_id = person.get("id")
+                if player_id is None:
+                    continue
+                player_key = str(player_id)
+                stats = node.get("stats") or {}
+                encoded_order = _to_int(node.get("battingOrder"))
+                # MLB encodes the original starter in a lineup slot as an
+                # exact hundred (100..900); substitutions in that slot use a
+                # non-zero suffix (for example 101). Only the original signal
+                # is strong enough to claim historical starting membership.
+                # A substitute's slot is intentionally not stored in the
+                # ``batting_order`` field because persistence treats that
+                # field as a starting-lineup fact.
+                actual_lineup = (
+                    encoded_order is not None
+                    and 100 <= encoded_order <= 900
+                    and encoded_order % 100 == 0
+                )
+                order = encoded_order // 100 if actual_lineup else None
+                actual_starter = bool(pitcher_order and pitcher_order[0] == player_key)
+                players.append(HistoricalPlayerGameEvidenceDTO(
+                    source_game_id=source_game_id,
+                    source_player_id=player_key,
+                    source_team_id=source_team_id,
+                    full_name=person.get("fullName"),
+                    is_home=is_home,
+                    batting_order=order,
+                    appeared_as_pitcher=player_key in pitcher_order,
+                    actual_starting_pitcher=actual_starter,
+                    starter_provenance=(
+                        "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION"
+                        if actual_starter else None
+                    ),
+                    lineup_provenance=(
+                        "HISTORICAL_ACTUAL_LINEUP" if actual_lineup else None
+                    ),
+                    position=(node.get("position") or {}).get("abbreviation"),
+                    batting=dict(stats.get("batting") or {}) or None,
+                    pitching=dict(stats.get("pitching") or {}) or None,
+                    acquired_at=acquired_at,
+                    evidence_class=evidence_class,
+                ))
+        return HistoricalBoxscoreDTO(
+            source_game_id=source_game_id,
+            acquired_at=acquired_at,
+            players=players,
+            teams=teams,
+            evidence_class=evidence_class,
         )
 
     @staticmethod
@@ -811,6 +1016,25 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_provider_datetime(value: Any) -> datetime | None:
+    if value is None or not str(value).strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _parse_mlb_feed_timestamp(value: Any) -> datetime | None:
+    if value is None or not str(value).strip():
+        return None
+    try:
+        return datetime.strptime(str(value), "%Y%m%d_%H%M%S").replace(tzinfo=UTC)
+    except ValueError:
+        return _parse_provider_datetime(value)
 
 
 def _to_int(value: Any) -> int | None:

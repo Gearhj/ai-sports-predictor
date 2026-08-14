@@ -8,17 +8,30 @@ from sqlalchemy import func, select
 
 from app.audit import ImmutableRecordError
 from app.data_sources.base import (
+    AdapterResponse,
     HistoricalBoxscoreDTO,
     HistoricalFinalDTO,
+    HistoricalGameEvidenceDTO,
     HistoricalPlayerGameEvidenceDTO,
     HistoricalScheduleGameDTO,
     HistoricalTeamGameEvidenceDTO,
     ScheduleGameDTO,
+    SourceEnvelope,
     TeamDTO,
     VenueDTO,
 )
-from app.historical.checkpoints import HistoricalCheckpoint, SqlAlchemyCheckpointRepository
+from app.data_sources.request_policy import (
+    ConservativeRequestExecutor,
+    ConservativeRequestPolicy,
+)
+from app.historical.backfill import HistoricalBackfillOptions, HistoricalBackfillRunner
+from app.historical.checkpoints import (
+    HistoricalCheckpoint,
+    MemoryCheckpointRepository,
+    SqlAlchemyCheckpointRepository,
+)
 from app.historical.persistence import (
+    A1_GOVERNANCE_DECISION,
     HistoricalCanonicalPersistenceService,
     HistoricalPersistenceError,
 )
@@ -26,13 +39,16 @@ from app.models import (
     ExternalIdMapping,
     Game,
     GameFinalOutcome,
+    HistoricalSourceVersion,
     HistoryBackfillCheckpoint,
     IngestionRun,
     Player,
     PlayerGameHistoryObservation,
     RunStatus,
     TeamGameHistoryObservation,
+    Venue,
 )
+from app.ingestion.archive import RawArchive
 
 
 ACQUIRED = datetime(2026, 8, 14, 12, tzinfo=UTC)
@@ -100,6 +116,10 @@ def _schedule(
             away_score=away_score,
             innings_played=9,
             event_completed_at=final_at,
+            completion_time_basis="AUTHORITATIVE_FINAL_AT",
+            completion_time_source_field="gameData.datetime.gameEndTime",
+            completion_time_method="explicit provider final timestamp",
+            completion_time_limitation="provider-defined final timestamp",
             acquired_at=acquired_at,
         ),
     )
@@ -146,6 +166,7 @@ def _boxscore(
                 full_name=f"Player {player_id}",
                 is_home=is_home,
                 batting_order=1,
+                lineup_provenance="HISTORICAL_ACTUAL_LINEUP",
                 appeared_as_pitcher=False,
                 position="CF",
                 batting={"hits": 2},
@@ -165,8 +186,16 @@ def _persist(
     fingerprint="f" * 64,
     sequence=0,
     requested_at=ACQUIRED - timedelta(minutes=1),
-    completed_at=ACQUIRED,
+    completed_at=None,
+    attempt_count=1,
+    retry_count=0,
+    request_accounting=None,
 ):
+    completed_at = completed_at or max(
+        [ACQUIRED]
+        + [row.acquired_at for row in schedules]
+        + [row.acquired_at for row in boxes]
+    )
     return service.persist_chunk(
         schedule_rows=schedules,
         boxscores=boxes,
@@ -179,6 +208,21 @@ def _persist(
         raw_references=["data/raw/historical/test.json.gz"],
         raw_checksums=["a" * 64],
         code_revision="test",
+        attempt_count=attempt_count,
+        retry_count=retry_count,
+        request_accounting=request_accounting or {
+            "attempts": attempt_count,
+            "retries": retry_count,
+            "successes": 1,
+            "failed_attempts": attempt_count - 1,
+            "operations": {
+                "game_feed": {
+                    "attempts": attempt_count,
+                    "successes": 1,
+                    "failed_attempts": attempt_count - 1,
+                }
+            },
+        },
     )
 
 
@@ -186,10 +230,10 @@ def test_canonical_chunk_is_idempotent_and_never_backdates_acquisition(session) 
     service = HistoricalCanonicalPersistenceService(session)
     source = _approved_source(service)
     session.commit()
-    assert source.availability_policy == {
-        "historical_acquisition_is_not_backdated": True,
-        "authoritative_event_completed_at_required": True,
-        "unknown_completion_action": "REJECT_NO_FINAL_OUTCOME",
+    assert source.availability_policy["historical_acquisition_is_not_backdated"] is True
+    assert set(source.availability_policy["completion_time_bases"]) == {
+        "AUTHORITATIVE_FINAL_AT",
+        "DERIVED_LAST_EVENT_COMPLETION_PROXY",
     }
     schedule = _schedule("777")
     boxscore = _boxscore(schedule)
@@ -198,6 +242,11 @@ def test_canonical_chunk_is_idempotent_and_never_backdates_acquisition(session) 
     second = _persist(service, source, [schedule], [boxscore])
 
     assert second == first
+    assert first.records_received == 2
+    assert first.records_accepted == 2
+    assert first.records_rejected == 0
+    assert first.duplicates == 0
+    assert first.canonical_duplicate_facts == 0
     assert session.scalar(select(func.count()).select_from(Game)) == 1
     assert session.scalar(select(func.count()).select_from(GameFinalOutcome)) == 1
     assert session.scalar(select(func.count()).select_from(TeamGameHistoryObservation)) == 2
@@ -210,6 +259,13 @@ def test_canonical_chunk_is_idempotent_and_never_backdates_acquisition(session) 
     assert outcome.label_available_at.replace(tzinfo=UTC) == ACQUIRED
     assert outcome.availability_basis == "ASP_ACQUISITION_TIME"
     assert outcome.temporal_semantics == "RETROSPECTIVE_RECONSTRUCTION"
+    assert outcome.completion_time_basis == "AUTHORITATIVE_FINAL_AT"
+    assert outcome.completion_time_source_field == "gameData.datetime.gameEndTime"
+    assert outcome.evidence_classification == "RECONSTRUCTABLE_POINT_IN_TIME"
+    assert outcome.quality_tier == "A"
+    assert outcome.home_win is True
+    assert outcome.run_differential == 2
+    assert outcome.total_runs == 6
     assert session.scalar(
         select(GameFinalOutcome.id).where(
             GameFinalOutcome.label_available_at < ACQUIRED
@@ -246,6 +302,24 @@ def test_final_correction_appends_revision_and_supersedes(session) -> None:
     outcomes = list(session.scalars(select(GameFinalOutcome).order_by(GameFinalOutcome.revision)))
     assert [(row.revision, row.home_score) for row in outcomes] == [(1, 4), (2, 5)]
     assert outcomes[1].supersedes_outcome_id == outcomes[0].id
+    team_facts = list(session.scalars(
+        select(TeamGameHistoryObservation).order_by(
+            TeamGameHistoryObservation.team_id,
+            TeamGameHistoryObservation.revision,
+        )
+    ))
+    assert sorted(row.revision for row in team_facts) == [1, 1, 2, 2]
+    assert all(
+        row.supersedes_observation_id is None for row in team_facts if row.revision == 1
+    )
+    assert all(
+        row.supersedes_observation_id is not None for row in team_facts if row.revision == 2
+    )
+    player_facts = list(session.scalars(
+        select(PlayerGameHistoryObservation).order_by(PlayerGameHistoryObservation.revision)
+    ))
+    assert [row.revision for row in player_facts] == [1, 2]
+    assert player_facts[1].supersedes_observation_id == player_facts[0].id
     game = session.scalar(select(Game))
     assert game is not None and game.home_score == 5
 
@@ -253,6 +327,208 @@ def test_final_correction_appends_revision_and_supersedes(session) -> None:
     with pytest.raises(ImmutableRecordError, match="GameFinalOutcome records are append-only"):
         session.commit()
     session.rollback()
+
+
+def test_derived_last_event_completion_is_honest_tier_a_history(session) -> None:
+    service = HistoricalCanonicalPersistenceService(session)
+    source = _approved_source(service)
+    session.commit()
+    schedule = _schedule("derived-completion")
+    schedule = schedule.model_copy(update={
+        "game": schedule.game.model_copy(update={
+            "venue": schedule.game.venue.model_copy(update={
+                "latitude": 40.8296,
+                "longitude": -73.9262,
+                "timezone": "America/New_York",
+            })
+        }),
+        "final": schedule.final.model_copy(update={
+            "completion_time_basis": "DERIVED_LAST_EVENT_COMPLETION_PROXY",
+            "completion_time_source_field": "liveData.plays.allPlays[-1].about.endTime",
+            "completion_time_method": (
+                "last complete play in provider array after final-state validation"
+            ),
+            "completion_time_limitation": (
+                "proxy for final recorded play completion; not an explicit MLB "
+                "game-final publication timestamp"
+            ),
+        }),
+    })
+
+    _persist(
+        service,
+        source,
+        [schedule],
+        [_boxscore(schedule)],
+        attempt_count=2,
+        retry_count=1,
+        request_accounting={
+            "attempts": 2,
+            "retries": 1,
+            "successes": 1,
+            "failed_attempts": 1,
+            "operations": {
+                "game_feed": {
+                    "attempts": 2,
+                    "successes": 1,
+                    "failed_attempts": 1,
+                }
+            },
+        },
+    )
+
+    outcome = session.scalar(select(GameFinalOutcome))
+    assert outcome is not None
+    assert outcome.completion_time_basis == "DERIVED_LAST_EVENT_COMPLETION_PROXY"
+    assert outcome.quality_tier == "A"
+    assert outcome.evidence_classification == "RECONSTRUCTABLE_POINT_IN_TIME"
+    assert outcome.completion_time_source_field.endswith("about.endTime")
+    assert "not an explicit" in outcome.completion_time_limitation
+    assert {
+        row.availability_basis
+        for row in session.scalars(select(TeamGameHistoryObservation))
+    } == {"RETROSPECTIVE_DERIVED_LAST_EVENT_COMPLETION_PROXY"}
+    player_fact = session.scalar(select(PlayerGameHistoryObservation))
+    assert player_fact is not None
+    assert player_fact.quality_tier == "A"
+    assert player_fact.values["lineup_provenance"] == "HISTORICAL_ACTUAL_LINEUP"
+    assert (
+        player_fact.values["target_context_timing_risk"]
+        == "PARTIALLY_RECONSTRUCTABLE_IF_USED_FOR_TARGET_GAME_CONTEXT"
+    )
+    venue = session.scalar(select(Venue))
+    assert venue is not None and venue.timezone == "America/New_York"
+    checkpoint = session.scalar(select(HistoryBackfillCheckpoint))
+    assert checkpoint is not None
+    assert (checkpoint.attempt_count, checkpoint.retry_count) == (2, 1)
+    assert checkpoint.quality_summary["request_accounting"]["operations"] == {
+        "game_feed": {"attempts": 2, "successes": 1, "failed_attempts": 1}
+    }
+
+
+def test_completion_evidence_rejects_prohibited_timestamp_substitute(session) -> None:
+    service = HistoricalCanonicalPersistenceService(session)
+    source = _approved_source(service)
+    session.commit()
+    schedule = _schedule("bad-completion-field")
+    schedule = schedule.model_copy(update={
+        "final": schedule.final.model_copy(update={
+            "completion_time_source_field": "retrieved_at",
+        })
+    })
+
+    with pytest.raises(HistoricalPersistenceError, match="prohibited timestamp substitute"):
+        _persist(service, source, [schedule], [])
+    assert session.scalar(select(func.count()).select_from(GameFinalOutcome)) == 0
+
+
+def test_actual_starter_requires_and_persists_historical_provenance(session) -> None:
+    service = HistoricalCanonicalPersistenceService(session)
+    source = _approved_source(service)
+    session.commit()
+    schedule = _schedule("starter-provenance")
+    boxscore = _boxscore(schedule)
+    pitcher = boxscore.players[0].model_copy(update={
+        "batting_order": None,
+        "lineup_provenance": None,
+        "batting": None,
+        "appeared_as_pitcher": True,
+        "actual_starting_pitcher": True,
+        "starter_provenance": "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION",
+        "position": "P",
+        "pitching": {"inningsPitched": "6.0", "numberOfPitches": 91},
+    })
+    boxscore = boxscore.model_copy(update={"players": [pitcher]})
+
+    _persist(service, source, [schedule], [boxscore])
+
+    fact = session.scalar(select(PlayerGameHistoryObservation))
+    assert fact is not None and fact.role == "PITCHER" and fact.started is True
+    assert (
+        fact.values["starter_provenance"]
+        == "ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION"
+    )
+    assert fact.quality_tier == "A"
+    assert (
+        fact.values["target_context_timing_risk"]
+        == "PARTIALLY_RECONSTRUCTABLE_IF_USED_FOR_TARGET_GAME_CONTEXT"
+    )
+
+    invalid_schedule = _schedule(
+        "starter-missing-provenance",
+        official_date=date(2025, 4, 2),
+        acquired_at=ACQUIRED + timedelta(minutes=1),
+    )
+    invalid_box = _boxscore(invalid_schedule)
+    invalid_pitcher = invalid_box.players[0].model_copy(update={
+        "batting_order": None,
+        "lineup_provenance": None,
+        "batting": None,
+        "appeared_as_pitcher": True,
+        "actual_starting_pitcher": True,
+        "starter_provenance": None,
+        "pitching": {"inningsPitched": "5.0"},
+    })
+    invalid_box = invalid_box.model_copy(update={"players": [invalid_pitcher]})
+    with pytest.raises(HistoricalPersistenceError, match="starter provenance"):
+        _persist(
+            service,
+            source,
+            [invalid_schedule],
+            [invalid_box],
+            fingerprint="e" * 64,
+            sequence=1,
+        )
+
+
+def test_a1_source_version_requires_exact_owner_governance(session) -> None:
+    service = HistoricalCanonicalPersistenceService(session)
+    source = service.ensure_a1_source_version(effective_from=ACQUIRED)
+    assert source.training_eligible is True
+    assert source.evaluation_eligible is True
+    assert source.quality_tier == "A"
+    assert source.governance == A1_GOVERNANCE_DECISION
+    assert source.governance["commercial_deployment"] == "NOT_APPROVED"
+    assert source.governance["public_redistribution"] == "PROHIBITED_PENDING_REVIEW"
+
+    with pytest.raises(HistoricalPersistenceError, match="approved local research scope"):
+        service.ensure_source_version(
+            dataset_version="historical-core-v1",
+            policy_version="gate3a-a1-core-v1",
+            effective_from=ACQUIRED,
+            governance={**A1_GOVERNANCE_DECISION, "commercial_deployment": "APPROVED"},
+        )
+
+
+def test_request_accounting_must_exactly_balance(session) -> None:
+    service = HistoricalCanonicalPersistenceService(session)
+    source = _approved_source(service)
+    session.commit()
+    schedule = _schedule("bad-accounting")
+
+    with pytest.raises(HistoricalPersistenceError, match="conflict"):
+        _persist(
+            service,
+            source,
+            [schedule],
+            [],
+            attempt_count=2,
+            retry_count=1,
+            request_accounting={
+                "attempts": 1,
+                "retries": 1,
+                "successes": 1,
+                "failed_attempts": 0,
+                "operations": {
+                    "game_feed": {
+                        "attempts": 1,
+                        "successes": 1,
+                        "failed_attempts": 0,
+                    }
+                },
+            },
+        )
+    assert session.scalar(select(func.count()).select_from(HistoryBackfillCheckpoint)) == 0
 
 
 def test_label_availability_uses_later_proven_publication_time(session) -> None:
@@ -355,9 +631,112 @@ def test_failed_chunk_commits_only_failed_run_and_checkpoint(session) -> None:
     checkpoint = session.scalar(select(HistoryBackfillCheckpoint))
     assert checkpoint is not None and checkpoint.status == "FAILED"
     assert checkpoint.records_accepted == 0
-    assert checkpoint.quality_summary == {"canonical_facts_committed": 0}
+    assert checkpoint.quality_summary["canonical_facts_committed"] == 0
+    assert checkpoint.quality_summary["request_accounting"]["attempts"] == 1
     run = session.scalar(select(IngestionRun))
     assert run is not None and run.status == RunStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_backfill_failure_keeps_prepared_source_and_valid_failed_checkpoint_fk(
+    session,
+    artifact_root,
+) -> None:
+    schedule = _schedule("runner-failure")
+    schedule_without_final = schedule.model_copy(update={"final": None})
+    invalid_boxscore = _boxscore(schedule).model_copy(update={
+        "teams": [_boxscore(schedule).teams[0]],
+    })
+    evidence = HistoricalGameEvidenceDTO(
+        source_game_id=schedule.game.source_game_id,
+        acquired_at=ACQUIRED,
+        final=schedule.final,
+        boxscore=invalid_boxscore,
+    )
+
+    class Adapter:
+        source = "MLB_STATS_API"
+
+        def __init__(self, executor: ConservativeRequestExecutor) -> None:
+            self.executor = executor
+
+        async def get_historical_schedule_range(self, start_date, end_date):
+            async def response():
+                return AdapterResponse(
+                    envelope=SourceEnvelope(
+                        source=self.source,
+                        source_mode="LIVE",
+                        fetched_at=ACQUIRED,
+                        data=[schedule_without_final.model_dump(mode="json")],
+                        metadata={
+                            "research_provenance": "HISTORICAL_RECONSTRUCTION",
+                            "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
+                            "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                        },
+                    ),
+                    raw_payload={"dates": [{"games": [{"gamePk": "runner-failure"}]}]},
+                )
+            return await self.executor.execute(
+                response, operation_name="historical_schedule"
+            )
+
+        async def get_historical_game_evidence(self, source_game_id):
+            async def response():
+                return AdapterResponse(
+                    envelope=SourceEnvelope(
+                        source=self.source,
+                        source_mode="LIVE",
+                        fetched_at=ACQUIRED,
+                        source_event_time=schedule.final.event_completed_at,
+                        data=evidence.model_dump(mode="json"),
+                        metadata={
+                            "research_provenance": "HISTORICAL_RECONSTRUCTION",
+                            "temporal_semantics": "RETROSPECTIVE_RECONSTRUCTION",
+                            "evidence_class": "RECONSTRUCTABLE_POINT_IN_TIME",
+                        },
+                    ),
+                    raw_payload={"gamePk": "runner-failure", "liveData": {}},
+                )
+            return await self.executor.execute(
+                response, operation_name="historical_game_feed"
+            )
+
+    service = HistoricalCanonicalPersistenceService(session)
+    runner = HistoricalBackfillRunner(
+        archive=RawArchive(artifact_root / "raw"),
+        checkpoints=MemoryCheckpointRepository(),
+        adapter_factory=Adapter,
+        canonical_writer=service,
+        governance=A1_GOVERNANCE_DECISION,
+        request_policy=ConservativeRequestPolicy(
+            max_attempts=1,
+            minimum_interval_seconds=0,
+        ),
+        free_space=lambda path: 200_000_000_000,
+        now=lambda: ACQUIRED,
+    )
+
+    result = await runner.run(HistoricalBackfillOptions(
+        start_date=date(2025, 4, 1),
+        end_date=date(2025, 4, 1),
+        season=2025,
+        expected_final_games=1,
+        max_requests=2,
+        terms_status="APPROVED",
+    ))
+
+    assert result.status == "BLOCKED", result.reason
+    assert "HistoricalPersistenceError" in result.reason
+    source = session.scalar(select(HistoricalSourceVersion))
+    checkpoint = session.scalar(select(HistoryBackfillCheckpoint))
+    assert source is not None and checkpoint is not None
+    assert checkpoint.status == "FAILED"
+    assert checkpoint.source_version_id == source.id
+    assert (checkpoint.attempt_count, checkpoint.retry_count) == (2, 0)
+    assert checkpoint.quality_summary["canonical_facts_committed"] == 0
+    assert session.get(HistoricalSourceVersion, checkpoint.source_version_id) is not None
+    assert session.scalar(select(func.count()).select_from(Game)) == 0
+    assert session.scalar(select(func.count()).select_from(GameFinalOutcome)) == 0
 
 
 def test_unknown_final_completion_is_rejected_without_inventing_time(session) -> None:
@@ -369,7 +748,7 @@ def test_unknown_final_completion_is_rejected_without_inventing_time(session) ->
         "final": schedule.final.model_copy(update={"event_completed_at": None})
     })
 
-    with pytest.raises(HistoricalPersistenceError, match="authoritative event_completed_at"):
+    with pytest.raises(HistoricalPersistenceError, match="completion evidence"):
         _persist(service, source, [schedule], [_boxscore(schedule)])
 
     assert session.scalar(select(func.count()).select_from(Game)) == 0
@@ -545,3 +924,4 @@ def test_sqlalchemy_checkpoint_repository_failed_then_success_and_resume_noop(se
     with pytest.raises(ImmutableRecordError, match="append-only"):
         session.commit()
     session.rollback()
+    SourceEnvelope,

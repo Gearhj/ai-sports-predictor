@@ -20,6 +20,12 @@ HistoricalEvidenceClass = Literal[
     "FORWARD_ONLY",
 ]
 ResearchProvenance = Literal["HISTORICAL_RECONSTRUCTION"]
+HistoricalCompletionTimeBasis = Literal[
+    "AUTHORITATIVE_FINAL_AT",
+    "DERIVED_LAST_EVENT_COMPLETION_PROXY",
+]
+HistoricalStarterProvenance = Literal["ACTUAL_STARTER_HISTORICAL_RECONSTRUCTION"]
+HistoricalLineupProvenance = Literal["HISTORICAL_ACTUAL_LINEUP"]
 
 
 class SourceEnvelope(BaseModel):
@@ -51,6 +57,7 @@ class VenueDTO(BaseModel):
     name: str
     latitude: float | None = None
     longitude: float | None = None
+    timezone: str | None = None
 
 
 class ScheduleGameDTO(BaseModel):
@@ -70,6 +77,9 @@ class ScheduleGameDTO(BaseModel):
     doubleheader_status: str | None = None
     game_number: int | None = None
     scheduled_innings: int | None = 9
+    resume_at: datetime | None = None
+    rescheduled_from: datetime | None = None
+    resumed_from_date: date | None = None
 
 
 class HistoricalFinalDTO(BaseModel):
@@ -81,6 +91,10 @@ class HistoricalFinalDTO(BaseModel):
     away_score: int
     innings_played: int | None = None
     event_completed_at: datetime | None = None
+    completion_time_basis: HistoricalCompletionTimeBasis | None = None
+    completion_time_source_field: str | None = None
+    completion_time_method: str | None = None
+    completion_time_limitation: str | None = None
     source_published_at: datetime | None = None
     acquired_at: datetime
     research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
@@ -90,6 +104,7 @@ class HistoricalFinalDTO(BaseModel):
 class HistoricalScheduleGameDTO(BaseModel):
     game: ScheduleGameDTO
     season: int
+    source_schedule_date: date | None = None
     official_date: date
     game_type: str | None = None
     abstract_state: str | None = None
@@ -109,6 +124,8 @@ class HistoricalPlayerGameEvidenceDTO(BaseModel):
     batting_order: int | None = None
     appeared_as_pitcher: bool = False
     actual_starting_pitcher: bool = False
+    starter_provenance: HistoricalStarterProvenance | None = None
+    lineup_provenance: HistoricalLineupProvenance | None = None
     position: str | None = None
     batting: dict[str, Any] | None = None
     pitching: dict[str, Any] | None = None
@@ -132,6 +149,17 @@ class HistoricalBoxscoreDTO(BaseModel):
     acquired_at: datetime
     players: list[HistoricalPlayerGameEvidenceDTO]
     teams: list[HistoricalTeamGameEvidenceDTO]
+    research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
+    evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
+
+
+class HistoricalGameEvidenceDTO(BaseModel):
+    """Final, play-completion, and boxscore facts from one immutable game feed."""
+
+    source_game_id: str
+    acquired_at: datetime
+    final: HistoricalFinalDTO
+    boxscore: HistoricalBoxscoreDTO
     research_provenance: ResearchProvenance = "HISTORICAL_RECONSTRUCTION"
     evidence_class: HistoricalEvidenceClass = "RECONSTRUCTABLE_POINT_IN_TIME"
 

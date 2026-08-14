@@ -188,8 +188,12 @@ def test_governed_dataset_uses_only_pregame_snapshot_and_append_only_final(sessi
     assert row.data_as_of < row.scheduled_first_pitch
     assert "home_score" not in row.features
     assert row.features["feature_completeness"] == pytest.approx(0.55)
+    assert row.features["sample_reliability"] == pytest.approx(0.51)
     assert row.features["lineups_confirmed"] == 0.0
     assert row.features["starters_confirmed"] == 0.0
+    assert row.source_evidence[0]["family"] == "game_state"
+    assert "available_as_of" in row.source_evidence[0]
+    assert row.temporal_semantics is None
 
 
 def test_dataset_before_final_availability_is_empty_and_immutable_round_trip(session, artifact_root) -> None:

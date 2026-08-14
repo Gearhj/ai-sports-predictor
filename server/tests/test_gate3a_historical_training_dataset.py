@@ -63,6 +63,7 @@ def _historical_fixture(
     scheduled_at = datetime(2025, 9, 1, 23, tzinfo=UTC)
     cutoff_at = scheduled_at - timedelta(hours=6)
     training_cutoff = scheduled_at + timedelta(hours=4)
+    acquired_at = training_cutoff - timedelta(minutes=15)
     generated_at = training_cutoff + timedelta(days=1)
     game = Game(
         league_id=league.id,
@@ -100,8 +101,8 @@ def _historical_fixture(
         source="fixture",
         job_name="historical-fixture",
         status=RunStatus.SUCCEEDED,
-        started_at=generated_at - timedelta(minutes=1),
-        completed_at=generated_at,
+        started_at=acquired_at - timedelta(minutes=1),
+        completed_at=acquired_at,
         records_processed=1,
     )
     session.add_all([source, run])
@@ -116,8 +117,8 @@ def _historical_fixture(
         event_end_at=scheduled_at,
         query_fingerprint="2" * 64,
         status="SUCCEEDED",
-        requested_at=generated_at - timedelta(minutes=1),
-        completed_at=generated_at,
+        requested_at=acquired_at - timedelta(minutes=1),
+        completed_at=acquired_at,
         attempt_count=1,
         retry_count=0,
         records_received=1,
@@ -158,7 +159,7 @@ def _historical_fixture(
         revision=1,
         official=True,
         source_record_id="final-game",
-        retrieved_at=generated_at,
+        retrieved_at=acquired_at,
         label_available_at=label_available_at,
         availability_basis="fixture",
         payload_checksum="4" * 64,
@@ -203,7 +204,7 @@ def _historical_fixture(
         revision=1,
         official=True,
         source_record_id="prior-final-game",
-        retrieved_at=generated_at,
+        retrieved_at=acquired_at,
         label_available_at=evidence_at,
         availability_basis="fixture",
         payload_checksum="6" * 64,
@@ -224,7 +225,7 @@ def _historical_fixture(
         checkpoint_id=checkpoint.id,
         event_at=evidence_at,
         evidence_end_at=evidence_at,
-        retrieved_at=generated_at,
+        retrieved_at=acquired_at,
         eligible_at=evidence_at + (timedelta(0) if late_evidence else timedelta(minutes=5)),
         availability_basis="fixture",
         evidence_classification="RECONSTRUCTABLE_POINT_IN_TIME",
@@ -267,7 +268,7 @@ def _historical_fixture(
         "final_outcome_id": str(prior_outcome.id),
         "event_at": evidence_at.isoformat().replace("+00:00", "Z"),
         "evidence_end_at": evidence_at.isoformat().replace("+00:00", "Z"),
-        "retrieved_at": generated_at.isoformat().replace("+00:00", "Z"),
+        "retrieved_at": acquired_at.isoformat().replace("+00:00", "Z"),
         "eligible_at": (
             evidence_at + (timedelta(0) if late_evidence else timedelta(minutes=5))
         ).isoformat().replace("+00:00", "Z"),
