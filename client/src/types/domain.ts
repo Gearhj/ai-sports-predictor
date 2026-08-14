@@ -103,6 +103,7 @@ export interface ForecastGame {
 
 export interface DashboardData extends DataProvenance {
   date: string
+  model_status: string
   summary: {
     games: number
     complete_forecasts: number
@@ -227,6 +228,9 @@ export interface OfflineEvaluation {
   model_version: string | null
   manifest_version: string | null
   feature_version: string | null
+  dataset_checksum?: string | null
+  feature_set_checksum?: string | null
+  research_decision?: 'RESEARCH_CANDIDATE' | 'RESEARCH_CHALLENGER' | 'REJECTED_GEN1' | null
   evaluation_policy_version?: string | null
   rolling_origin_folds: number
   train_window: OfflineEvaluationWindow | null
@@ -236,6 +240,170 @@ export interface OfflineEvaluation {
   holdout_metrics: OfflineEvaluationMetrics | null
   baselines: OfflineEvaluationBaseline[]
   promotion: OfflinePromotionDecision | null
+}
+
+export interface HistoricalCoverageItem {
+  key: string
+  label: string
+  coverage: number | null
+  required: number
+  passed: boolean
+}
+
+export interface HistoricalReadinessSummary {
+  status: 'READY_FOR_GATE_3B_MODEL_DEVELOPMENT' | 'NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT' | 'UNAVAILABLE'
+  policy_version: string | null
+  row_count: number
+  distinct_game_count: number
+  distinct_event_dates: number
+  development_date_groups: number
+  holdout_date_groups: number
+  holdout_rows: number
+  rolling_origin_folds: number
+  failed_checks: string[]
+  model_training_invoked: boolean | null
+  model_fitting_invoked: boolean | null
+  holdout_metrics_inspected: boolean | null
+  holdout_outcomes_inspected: boolean | null
+}
+
+export interface HistoricalPopulationSummary {
+  population: 'TIER_A_STRICT' | 'TIER_B_ENHANCED'
+  role: 'PRIMARY_STRICT' | 'RESEARCH_ONLY_SHADOW'
+  source_mode: 'LIVE'
+  quality_tiers: Array<'A' | 'B'>
+  row_count: number
+  game_count: number
+  excluded_row_count: number
+  event_start_date: string
+  event_end_date: string
+  schema_version: string
+  schema_hash: string | null
+  feature_version: string | null
+  raw_value_count: number | null
+  ordered_output_count: number
+  mean_quality_score: number | null
+  manifest_version: string
+  manifest_identity_checksum: string
+  rows_checksum: string
+  built_at: string
+  integrity_status: 'PASS' | 'FAILED'
+  integrity_issues: string[]
+  required_family_coverage: HistoricalCoverageItem[]
+  raw_family_coverage: HistoricalCoverageItem[]
+  readiness: HistoricalReadinessSummary
+}
+
+export interface HistoricalCanonicalSummary {
+  availability: 'AVAILABLE' | 'INTEGRITY_WARNING' | 'UNAVAILABLE'
+  integrity_status: 'PASS' | 'FAILED' | 'UNAVAILABLE'
+  official_games: number | null
+  team_game_rows: number | null
+  player_game_rows: number | null
+  strict_feature_coverage: number | null
+  leakage_status: 'PASS' | 'FAILED' | 'UNAVAILABLE'
+  statcast_status: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE'
+  historical_market_status: 'UNAVAILABLE'
+  source_keys: string[]
+  integrity_issues: string[]
+}
+
+export interface HistoricalResearchData {
+  data_mode: 'live' | 'empty'
+  availability: 'AVAILABLE' | 'PARTIAL' | 'INTEGRITY_WARNING' | 'UNAVAILABLE'
+  temporal_scope: 'HISTORICAL'
+  temporal_semantics: 'RETROSPECTIVE_RECONSTRUCTION'
+  stage: 'GATE_3A_A2'
+  season: number
+  cutoff_policy_version: string | null
+  built_at: string | null
+  verdict: string
+  historical_market_status: 'UNAVAILABLE'
+  model_training_invoked: boolean | null
+  model_fitting_invoked: boolean | null
+  holdout_metrics_inspected: boolean | null
+  promotion_invoked: boolean | null
+  strict_population: HistoricalPopulationSummary | null
+  enhanced_population: HistoricalPopulationSummary | null
+  canonical_summary: HistoricalCanonicalSummary
+  limitations: string[]
+}
+
+export interface HistoricalTeamPrior {
+  team_id: string
+  abbreviation: string
+  name: string
+  elo_rating: number | null
+  runs_per_game: number | null
+  runs_allowed_per_game: number | null
+  offense_true_talent: number | null
+  run_prevention_true_talent: number | null
+  reliability: number | null
+}
+
+export interface HistoricalRunStrengthSnapshot {
+  home_offense: number | null
+  home_run_prevention: number | null
+  away_offense: number | null
+  away_run_prevention: number | null
+  expected_home_win_probability: number | null
+}
+
+export interface HistoricalGameExplorerRow {
+  game_id: string
+  event_date: string
+  scheduled_at: string
+  matchup: string
+  cutoff_at: string
+  cutoff_policy_version: string
+  quality_tier: 'A' | 'B'
+  source_mode: 'LIVE'
+  source_keys: string[]
+  feature_completeness: number
+  admission_quality_score: number
+  present_feature_count: number
+  total_feature_count: number
+  starter_state: 'CONFIRMED' | 'PARTIAL' | 'MISSING'
+  lineup_state: 'CONFIRMED' | 'PARTIAL' | 'MISSING'
+  home_team_prior: HistoricalTeamPrior
+  away_team_prior: HistoricalTeamPrior
+  run_strength: HistoricalRunStrengthSnapshot
+  market_available: boolean | null
+  market_status: 'UNAVAILABLE'
+  target_excluded: true
+}
+
+export interface HistoricalGameExplorerPage extends DataProvenance {
+  data_mode: 'live' | 'empty'
+  availability: 'AVAILABLE' | 'INTEGRITY_WARNING' | 'UNAVAILABLE'
+  status_reason: string
+  season: number
+  page: number
+  page_size: number
+  total_pages: number
+  total_rows: number
+  team: string | null
+  month: number | null
+  tier: 'A' | 'B'
+  source: string | null
+  rows: HistoricalGameExplorerRow[]
+}
+
+export interface HistoricalDatasetPerformanceSummary {
+  availability: 'AVAILABLE' | 'INTEGRITY_WARNING' | 'UNAVAILABLE'
+  stage: 'GATE_3A_A2'
+  season: number
+  population: 'TIER_A_STRICT'
+  row_count: number
+  distinct_event_dates: number
+  holdout_rows: number
+  rolling_origin_folds: number
+  readiness_status: string
+  failed_checks: string[]
+  status_reason: string
+  model_training_invoked: boolean | null
+  model_fitting_invoked: boolean | null
+  holdout_metrics_inspected: boolean | null
 }
 
 export interface PerformanceData extends DataProvenance {
@@ -261,6 +429,8 @@ export interface PerformanceData extends DataProvenance {
   by_confidence: Array<{ bucket: string; forecasts: number; accuracy: number | null; brier: number | null }>
   /** Optional until the Gate 3 backend publishes a governed evaluation artifact. */
   offline_evaluation?: OfflineEvaluation | null
+  /** Historical reconstruction readiness is evidence about a dataset, not model performance. */
+  historical_dataset?: HistoricalDatasetPerformanceSummary | null
 }
 
 export interface Position {
@@ -317,6 +487,23 @@ export interface JobRun {
   records: number
 }
 
+export interface HistoricalWarehouseHealth {
+  availability: 'AVAILABLE' | 'PARTIAL' | 'INTEGRITY_WARNING' | 'UNAVAILABLE'
+  season: number
+  temporal_semantics: 'RETROSPECTIVE_RECONSTRUCTION'
+  strict_rows: number
+  enhanced_rows: number
+  readiness_status: string
+  mean_strict_feature_coverage: number | null
+  integrity_status: 'PASS' | 'FAILED' | 'UNAVAILABLE'
+  leakage_status: 'PASS' | 'FAILED' | 'UNAVAILABLE'
+  statcast_status: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE'
+  historical_market_status: 'UNAVAILABLE'
+  failed_checks: string[]
+  built_at: string | null
+  detail: string
+}
+
 export interface HealthData extends DataProvenance {
   overall_score: number
   model_version: string
@@ -330,6 +517,7 @@ export interface HealthData extends DataProvenance {
   provider_evidence_status?: 'none' | 'demo' | 'live' | 'mixed'
   sources: SourceHealth[]
   recent_jobs: JobRun[]
+  historical_warehouse?: HistoricalWarehouseHealth | null
 }
 
 export interface AuthUser {

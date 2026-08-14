@@ -316,7 +316,7 @@ class ForecastService:
             } for driver in ensemble.drivers],
             simulation_summary=_simulation_json(ensemble.simulation),
             feature_snapshot_reference=f"sha256:{snapshot.checksum}",
-            market_snapshot_reference=",".join(str(row.id) for row in odds)[:500] or None,
+            market_snapshot_reference=_market_snapshot_reference(odds),
             source_mode=state.source_mode,
             published_at=computed_at if published else None,
         )
@@ -509,6 +509,13 @@ class ForecastService:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _market_snapshot_reference(odds: list[OddsSnapshot]) -> str | None:
+    """Bind a forecast to the complete deterministic set of market observations it used."""
+
+    snapshot_ids = sorted({str(row.id) for row in odds})
+    return ",".join(snapshot_ids) or None
 
 
 def _simulation_json(result: Any) -> dict[str, Any]:

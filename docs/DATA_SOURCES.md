@@ -114,7 +114,12 @@ Provider or API failures never substitute demo fixtures.
   succeeded and the provider reported a **quota cost of 3 credits**
   (`requests_last=3`, `requests_used=3`, 497 remaining). This is one network
   request charged three credits, not three requests, and it does not establish
-  the cost of a future request.
+  the cost of a future request. Gate 3B's separately authorized 2026-08-14
+  current-day validation then made exactly one additional HTTP request with no
+  retry. It returned 14 provider events and 756 normalized observations; the
+  headers again reported `requests_last=3`, with cumulative `requests_used=6`
+  and 494 remaining. Historical modeling and the later forecast-lineage
+  remediation made no Odds request.
 
 ### Open-Meteo
 
@@ -224,9 +229,9 @@ at an earlier forecast cutoff. Missing historical fields and closing lines remai
 missing. Dataset manifests retain source mode, source-evidence checksums,
 feature/schema versions, cutoff, exclusions, coverage, and leakage results.
 
-The prospective Gate 3 population still has zero eligible labeled games, so its
-provider-free training command must return `INSUFFICIENT_DATA / NO_PROMOTION`
-without fitting a model. Gate 3A's separately labeled historical-reconstruction
+The frozen 2026-08-13 prospective Gate 3 population had zero eligible labeled
+games, so its provider-free training command returned
+`INSUFFICIENT_DATA / NO_PROMOTION` without fitting a model. Gate 3A's separately labeled historical-reconstruction
 population has corrected 15-row one-day v3 and 90-row seven-day v4 artifacts
 with 16/43 (37.2093%) feature coverage and independently passing temporal
 checks. The 90-row artifact is below the unchanged 200-row minimum, and neither
@@ -434,6 +439,54 @@ checksums, and target-exclusion/temporal-validity assertions. Raw payloads,
 promoted event artifacts, feature matrices, and dataset artifacts remain
 Git-ignored. No historical Odds or weather evidence is added, and no 2023-2024
 acquisition occurs.
+
+### Gate 3B Gen-1 provider-free research use
+
+Gate 3B historical model development made no new acquisition. Its separately
+authorized `MLB_GEN1_RESEARCH_POLICY_V1` admitted only strict dataset
+`mlb-gate3-a2-3059f81db1d0e278`, manifest identity
+`3059f81db1d0e2783d0357cf765fbc027958a1d0786c8da83611bae82dca1748`,
+and rows SHA-256
+`bc627c16f85ac3372cb2cb3fb1c9dab6767291704dac790fb5ffe07b8af406bb`.
+The admitted population was 2,428 Tier A 2025 games across 184 dates. Tier B
+rain-ended outcomes, the enhanced starter/lineup shadow, the one-day Statcast
+artifact, weather, markets, CLV, and DEMO evidence remained excluded.
+
+Provider-free development used 1,923 games and 16 grouped expanding-origin
+folds. The exact 505-game, 37-date holdout was opened only after the frozen
+candidate claimed it and revalidated the source artifact. The terminal result
+was `RESEARCH_CHALLENGER / RESEARCH_ONLY_NO_PROMOTION`. Historical modeling and
+evaluation made zero MLB, Weather, Odds, or Statcast calls and consumed no Odds
+credits. This research use does not alter the source licensing, retention,
+redistribution, temporal-availability, or stricter promotion limitations above.
+
+### Gate 3B controlled current-day evidence
+
+The bounded 2026-08-14 live job
+`0fe5cf93-2905-4e0f-9f02-a793506e6347` is separate from historical research.
+It admitted 14 LIVE schedule games and no DEMO games; persisted 28 team-stat,
+729 roster, 0 bullpen, and 1 lineup MLB records; and persisted 13 Open-Meteo
+snapshots. Tropicana Field had no maintained coordinates, so its weather
+evidence remained unavailable rather than inferred. The job made the single
+current Odds request documented above, persisted 756 normalized Odds rows,
+validated 14 feature snapshots, published 12 forecasts, and skipped two games
+whose probable pitchers were missing. Statcast and official positions remained
+disabled.
+
+The run's `GameRefreshState.last_refresh` was not populated, and its MLB rows
+have null `ingestion_run_id`. The job record, quota ledger, canonical counts,
+and snapshot timestamps therefore carry the available operational audit trail;
+the missing fields must not be reconstructed after the fact.
+
+The initial 12 version-1 forecast rows retained only a 500-character prefix of
+their market-snapshot reference. They remain immutable and superseded. Migration
+`20260814_0009` expands that column to `TEXT`; provider-free job
+`a195ef10-94ca-42cc-b91d-b37e9530a20e` then published 12 version-2 forecasts,
+each resolving the complete deterministic set of 54 current Odds snapshot IDs.
+It made no provider call and left the terminal Odds ledger at 494 remaining.
+Downgrade to `VARCHAR(500)` is conditional on all stored values fitting that
+bound; the database should reject, not silently truncate, the current complete
+references.
 
 ## Review record required before deployment
 

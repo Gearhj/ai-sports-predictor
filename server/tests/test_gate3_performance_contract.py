@@ -79,9 +79,12 @@ def test_performance_contract_reports_not_run_without_governed_evidence(client) 
         "status": "NOT_RUN",
         "status_reason": "No governed offline evaluation or training-dataset manifest has been published.",
         "model_version": None,
-        "manifest_version": None,
-        "feature_version": None,
-        "evaluation_policy_version": "gate3-promotion-v1",
+            "manifest_version": None,
+            "feature_version": None,
+            "dataset_checksum": None,
+            "feature_set_checksum": None,
+            "research_decision": None,
+            "evaluation_policy_version": "gate3-promotion-v1",
         "rolling_origin_folds": 0,
         "train_window": None,
         "validation_window": None,
@@ -396,3 +399,182 @@ def test_completed_evaluation_fails_closed_without_complete_consistent_evidence(
     assert offline["promotion"]["decision"] == (
         "PENDING" if expected_status == "NOT_RUN" else "BLOCKED"
     )
+
+
+def _gen1_evidence_graph(
+    session,
+    *,
+    population: str = "TIER_A_STRICT",
+    broken_lineage: str | None = None,
+) -> tuple[ModelVersion, ModelEvaluation]:
+    source_feature = FeatureVersion(
+        name="mlb_historical_pregame_a2",
+        version="a2-tier-a-strict-v6",
+        schema_hash="1" * 64,
+    )
+    session.add(source_feature)
+    session.flush()
+    manifest = _manifest(
+        source_feature.id,
+        version=f"gen1-{population.lower()}",
+        rows=2428,
+    )
+    manifest.name = (
+        "mlb_historical_a2_tier_a_strict"
+        if population == "TIER_A_STRICT"
+        else "mlb_historical_a2_tier_b_enhanced"
+    )
+    manifest.schema_version = "mlb_historical_pregame_a2_v2"
+    manifest.seasons = [2025]
+    manifest.cutoff_policy = {
+        "policy_version": "mlb_t_minus_6h_v1",
+        "hours_before_first_pitch": 6,
+        "population": population,
+    }
+    manifest.quality_summary = {
+        "stage": "GATE_3A_A2",
+        "population": population,
+        "quality_tiers": ["A" if population == "TIER_A_STRICT" else "B"],
+        "schema_hash": source_feature.schema_hash,
+        "leakage_checks": {
+            "pregame_cutoff": True,
+            "no_market_or_clv": True,
+            "historical_tier_consistent": True,
+        },
+    }
+    session.add(manifest)
+    session.flush()
+
+    source_lineage = {
+        "research_policy_version": "MLB_GEN1_RESEARCH_POLICY_V1",
+        "source_feature_version_id": str(source_feature.id),
+        "source_feature_schema_version": manifest.schema_version,
+        "source_feature_schema_hash": source_feature.schema_hash,
+    }
+    derived_schema_version = "mlb_historical_pregame_gen1_selected_v1"
+    definition = {
+        **source_lineage,
+        "derived_feature_schema_version": derived_schema_version,
+        "derived_feature_schema_hash": "2" * 64,
+    }
+    if broken_lineage == "definition":
+        definition.pop("source_feature_version_id")
+    derived_feature = FeatureVersion(
+        name="mlb_historical_pregame_gen1_tier_a",
+        # Registry labels and schema versions are deliberately distinct. Public
+        # integrity checks must bind the model to the definition's schema
+        # identity, not reinterpret this registry label as the schema version.
+        version="gen1-v1-registry-label",
+        schema_hash="2" * 64,
+        definition=definition,
+    )
+    session.add(derived_feature)
+    session.flush()
+
+    model = _model(manifest, derived_feature)
+    model.name = "mlb_gen1_research"
+    model.version = f"gen1-{population.lower()}"
+    model.algorithm = "gen1_research_only"
+    model.parameters = {
+        **source_lineage,
+        "derived_feature_schema_version": derived_schema_version,
+        "derived_feature_schema_hash": derived_feature.schema_hash,
+    }
+    if broken_lineage == "parameters":
+        model.parameters["source_feature_schema_hash"] = "3" * 64
+    session.add(model)
+    session.flush()
+
+    evaluation = ModelEvaluation(
+        model_version_id=model.id,
+        training_manifest_id=manifest.id,
+        evaluation_type="GEN1_RESEARCH_FINAL_HOLDOUT",
+        status="COMPLETED",
+        validation_window=model.validation_window,
+        holdout_window=model.holdout_window,
+        metrics={
+            "rolling_origin_folds": 5,
+            "research_decision": "RESEARCH_CHALLENGER",
+            "validation": {"brier_score": 0.23, "log_loss": 0.66},
+            "holdout": {"brier_score": 0.24, "log_loss": 0.68},
+        },
+        baseline_metrics={
+            "home_prior": {"sample_size": 505, "brier_score": 0.25},
+        },
+        slice_metrics={
+            "evaluation_policy_version": "MLB_GEN1_RESEARCH_POLICY_V1",
+        },
+        calibration={"kind": "platt"},
+        prediction_artifact_uri=".runtime/gate3/gen1/evaluation/predictions.jsonl",
+        prediction_artifact_checksum="4" * 64,
+        evaluated_at=datetime(2026, 8, 14, 18, tzinfo=UTC),
+        source_mode="LIVE",
+        code_revision="test-revision",
+        identity_checksum="5" * 64,
+        superiority_claim=False,
+        promotion_recommendation=False,
+        notes="Gen-1 research evaluation completed without production promotion.",
+    )
+    session.add(evaluation)
+    session.commit()
+    return model, evaluation
+
+
+def test_gen1_evaluation_accepts_strict_a2_with_derived_feature_lineage(
+    client,
+    session,
+) -> None:
+    operational = ModelVersion(
+        name="asp_mlb_ensemble",
+        version="2.0.0-operational",
+        algorithm="operational_untrained_ensemble",
+        status=ModelStatus.DEVELOPMENT,
+    )
+    session.add(operational)
+    session.flush()
+    model, _ = _gen1_evidence_graph(session)
+
+    body = client.get("/api/v1/performance").json()
+    offline = body["offline_evaluation"]
+    assert offline["status"] == "AVAILABLE"
+    assert offline["model_version"] == f"{model.name} v{model.version}"
+    assert offline["evaluation_policy_version"] == "MLB_GEN1_RESEARCH_POLICY_V1"
+    assert offline["dataset_checksum"] == session.get(
+        TrainingDatasetManifest,
+        model.training_manifest_id,
+    ).identity_checksum
+    assert offline["feature_set_checksum"] == "2" * 64
+    assert offline["research_decision"] == "RESEARCH_CHALLENGER"
+    assert "without production promotion" in offline["status_reason"]
+    assert offline["holdout_metrics"]["brier_score"] == 0.24
+    assert body["model_version"] == (
+        f"{operational.name} v{operational.version} · awaiting settled sample"
+    )
+
+
+@pytest.mark.parametrize(
+    ("population", "broken_lineage"),
+    [
+        ("TIER_B_ENHANCED", None),
+        ("TIER_A_STRICT", "definition"),
+        ("TIER_A_STRICT", "parameters"),
+    ],
+)
+def test_gen1_evaluation_fails_closed_for_non_strict_or_broken_lineage(
+    client,
+    session,
+    population: str,
+    broken_lineage: str | None,
+) -> None:
+    _gen1_evidence_graph(
+        session,
+        population=population,
+        broken_lineage=broken_lineage,
+    )
+
+    offline = client.get("/api/v1/performance").json()["offline_evaluation"]
+    assert offline["status"] == "FAILED"
+    assert "failed evidence-integrity checks" in offline["status_reason"]
+    assert offline["validation_metrics"] is None
+    assert offline["holdout_metrics"] is None
+    assert offline["promotion"]["decision"] == "BLOCKED"

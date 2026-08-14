@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, RefreshCw } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { ForecastCard } from '../components/ForecastCard'
 import { DataModeBanner, DataStatePanel, formatCurrency, formatSignedPct, MetricCard, PageHeader } from '../components/ui'
 import { demoDashboard } from '../data/demo'
@@ -33,7 +34,14 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
       <div className="page today-page">
         <PageHeader eyebrow="MLB · DAILY RESEARCH DESK" title="Today’s MLB Forecasts" description="Live schedule and provenance-aware forecasts." />
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-        <DataStatePanel state={state} emptyTitle="No live games or forecasts yet" emptyDetail="The API is connected. Run the live schedule and forecast pipeline to populate this desk." />
+        <DataStatePanel
+          state={state}
+          emptyTitle="No current MLB slate is available"
+          emptyDetail="The API is connected, but no current games or published forecasts are available. Historical research remains a separate evidence stream."
+          unavailableTitle="Current forecasts are unavailable"
+          unavailableDetail="The live API could not be reached. No historical row or illustrative result has been substituted."
+          action={<Link className="secondary-button" to="/research/history">View governed 2025 history</Link>}
+        />
       </div>
     )
   }
@@ -50,10 +58,13 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
         title="Today’s MLB Forecasts"
         description={formatDate(data.date)}
         actions={(
-          <div className="date-control" aria-label="Date navigation">
-            <button type="button" aria-label="Previous date" disabled><ChevronLeft size={16} /></button>
-            <span><CalendarDays size={15} /> Today</span>
-            <button type="button" aria-label="Next date" disabled><ChevronRight size={16} /></button>
+          <div className="today-header-actions">
+            <span className="model-chip">MODEL STATUS - {data.model_status}</span>
+            <div className="date-control" aria-label="Date navigation">
+              <button type="button" aria-label="Previous date" disabled><ChevronLeft size={16} /></button>
+              <span><CalendarDays size={15} /> Today</span>
+              <button type="button" aria-label="Next date" disabled><ChevronRight size={16} /></button>
+            </div>
           </div>
         )}
       />

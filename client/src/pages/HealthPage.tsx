@@ -5,6 +5,8 @@ import { demoHealth } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { useAuth } from '../hooks/useAuth'
 import { endpoints } from '../services/api'
+import { formatTimestamp } from '../services/format'
+import type { HistoricalWarehouseHealth } from '../types/domain'
 
 const adminJobs = [
   ['refresh-schedule', 'Refresh today’s schedule'],
@@ -62,6 +64,10 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
       <PageHeader eyebrow={demo ? 'ILLUSTRATIVE OPERATIONS EXAMPLE' : 'OPERATIONS · ADMIN'} title="Data Health" description={demo ? 'Static source cards demonstrate the operations interface. No controls can run.' : 'Source freshness, pipeline status, and controlled manual operations.'} actions={<span className="admin-chip"><ServerCog size={14} /> {demo ? 'DEMO · CONTROLS DISABLED' : user?.role === 'ADMIN' ? 'ADMIN SESSION' : 'READ-ONLY'}</span>} />
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
+      <div className="section-heading">
+        <div><p className="eyebrow">CURRENT LIVE DATA</p><h2>Current Live Data</h2></div>
+      </div>
+
       <section className="metric-grid metric-grid--three health-provenance" aria-label="System evidence status">
         <MetricCard label="Database" value={(data.database_status || 'unknown').toUpperCase()} detail="Application persistence" />
         <MetricCard label="Sports data" value={(data.sports_data_status || 'unknown').toUpperCase()} detail="Persisted sports records" />
@@ -77,6 +83,8 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
           <MetricCard label="Critical sources" value={`${data.sources.filter((source) => source.status === 'ready').length}/${data.sources.length}`} detail="Reporting ready" />
         </div>
       </section>
+
+      <HistoricalWarehousePanel warehouse={data.historical_warehouse} />
 
       <div className="source-grid-cards">
         {data.sources.map((source) => (
@@ -106,4 +114,38 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
       </Panel>
     </div>
   )
+}
+
+function HistoricalWarehousePanel({ warehouse }: { warehouse?: HistoricalWarehouseHealth | null }) {
+  const status = warehouse?.availability ?? 'UNAVAILABLE'
+  return (
+    <Panel
+      title="Historical Research Warehouse"
+      eyebrow="RETROSPECTIVE DATASET HEALTH"
+      className="section-panel historical-health-panel"
+      action={<span className={`evaluation-status evaluation-status--${status === 'AVAILABLE' ? 'available' : 'not_run'}`}>{status.replaceAll('_', ' ')}</span>}
+    >
+      <div className="historical-health-boundary"><ShieldBoundaryIcon /><div><strong>Excluded from live health score</strong><span>Historical reconstruction health does not change the current provider freshness score above.</span></div></div>
+      {warehouse ? (
+        <>
+          <div className="metric-grid metric-grid--four historical-health-metrics">
+            <MetricCard label="Strict rows" value={warehouse.strict_rows.toLocaleString()} detail="Tier A primary population" />
+            <MetricCard label="Enhanced rows" value={warehouse.enhanced_rows.toLocaleString()} detail="Tier B research-only shadow" />
+            <MetricCard label="Mean strict coverage" value={warehouse.mean_strict_feature_coverage == null ? 'N/A' : `${(warehouse.mean_strict_feature_coverage * 100).toFixed(2)}%`} detail="Frozen A2 feature denominator" />
+            <MetricCard label="Historical integrity" value={warehouse.integrity_status} detail={`Leakage checks: ${warehouse.leakage_status}`} />
+            <MetricCard label="Historical Statcast" value={warehouse.statcast_status} detail="Separate from current source freshness" />
+            <MetricCard label="Historical market" value={warehouse.historical_market_status} detail="No closing-line evidence imputed" />
+            <MetricCard label="Dataset readiness" value={warehouse.readiness_status.replaceAll('_', ' ')} detail="Not model performance" />
+            <MetricCard label="Warehouse built" value={warehouse.built_at ? formatTimestamp(warehouse.built_at) : 'Not recorded'} detail={`${warehouse.season} retrospective reconstruction`} />
+          </div>
+          <p className="historical-health-detail">{warehouse.detail}</p>
+          {warehouse.failed_checks.length > 0 && <p className="historical-health-failures"><strong>Open checks:</strong> {warehouse.failed_checks.map((check) => check.replaceAll('_', ' ')).join(', ')}</p>}
+        </>
+      ) : <p className="muted">No governed historical warehouse summary is available. No readiness claim is inferred.</p>}
+    </Panel>
+  )
+}
+
+function ShieldBoundaryIcon() {
+  return <Database size={18} aria-hidden="true" />
 }

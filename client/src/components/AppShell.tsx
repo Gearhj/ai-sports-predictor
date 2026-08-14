@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity,
+  Archive,
   BarChart3,
   BookOpenText,
   ChevronDown,
@@ -22,6 +23,7 @@ import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
 
 const primaryNav = [
   { to: '/', label: "Today's forecasts", icon: LayoutDashboard, end: true },
+  { to: '/research/history', label: 'Historical research', icon: Archive, demoScoped: false },
   { to: '/markets', label: 'Market board', icon: BarChart3 },
   { to: '/performance', label: 'Model performance', icon: Activity },
   { to: '/experiment', label: '$1,000 experiment', icon: FlaskConical },
@@ -72,8 +74,8 @@ export function AppShell() {
 
         <nav className="side-nav" aria-label="Primary navigation">
           <span className="side-nav__label">Research desk</span>
-          {primaryNav.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={scopedPath(to)} end={end} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
+          {primaryNav.map(({ to, label, icon: Icon, end, demoScoped = true }) => (
+            <NavLink key={to} to={demoScoped ? scopedPath(to) : to} end={end} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
               <Icon size={17} /><span>{label}</span>
             </NavLink>
           ))}

@@ -5,6 +5,8 @@ import type {
   DashboardData,
   GameAnalysisData,
   HealthData,
+  HistoricalGameExplorerPage,
+  HistoricalResearchData,
   MarketBoardData,
   PerformanceData,
   PublicConfig,
@@ -79,6 +81,28 @@ export const endpoints = {
   game: (id: string, signal?: AbortSignal) => apiRequest<GameAnalysisData>(`/games/${encodeURIComponent(id)}`, {}, signal),
   markets: (signal?: AbortSignal) => apiRequest<MarketBoardData>('/markets/board', {}, signal),
   performance: (signal?: AbortSignal) => apiRequest<PerformanceData>('/performance', {}, signal),
+  history: (signal?: AbortSignal) => apiRequest<HistoricalResearchData>('/research/history', {}, signal),
+  historyGames: (
+    filters: {
+      page: number
+      pageSize: number
+      team?: string
+      month?: number
+      tier: 'A' | 'B'
+      source?: string
+    },
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({
+      page: String(filters.page),
+      page_size: String(filters.pageSize),
+      tier: filters.tier,
+    })
+    if (filters.team) query.set('team', filters.team)
+    if (filters.month) query.set('month', String(filters.month))
+    if (filters.source) query.set('source', filters.source)
+    return apiRequest<HistoricalGameExplorerPage>(`/research/history/games?${query.toString()}`, {}, signal)
+  },
   bankroll: (signal?: AbortSignal) => apiRequest<BankrollData>('/bankroll', {}, signal),
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),
   publicConfig: (signal?: AbortSignal) => apiRequest<PublicConfig>('/public/config', {}, signal),

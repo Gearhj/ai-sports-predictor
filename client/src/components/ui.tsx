@@ -206,6 +206,6 @@ export const formatSignedCurrency = (value: number, digits = 2) => `${value > 0 
 export const formatSignedPct = (value: number | null | undefined, digits = 1) => value == null ? '—' : `${value > 0 ? '+' : ''}${formatPct(value, digits)}`
 export const formatNumber = (value: number | null | undefined, digits = 1) => value == null ? '—' : value.toFixed(digits)
 
-export function TableScroll({ children }: { children: ReactNode }) {
-  return <div className="table-scroll">{children}</div>
+export function TableScroll({ children, ariaLabel }: { children: ReactNode; ariaLabel?: string }) {
+  return <div className="table-scroll" role={ariaLabel ? 'region' : undefined} aria-label={ariaLabel} tabIndex={ariaLabel ? 0 : undefined}>{children}</div>
 }

@@ -78,6 +78,50 @@ describe('PerformancePage offline chronological evaluation', () => {
     expect(screen.queryByRole('heading', { name: 'Evaluation results' })).not.toBeInTheDocument()
   })
 
+  it('shows historical dataset readiness separately from model evaluation', async () => {
+    const payload = livePerformance({
+      status: 'NOT_RUN',
+      status_reason: 'No model evaluation was run.',
+      model_version: null,
+      manifest_version: null,
+      feature_version: null,
+      rolling_origin_folds: 0,
+      train_window: null,
+      validation_window: null,
+      holdout_window: null,
+      validation_metrics: null,
+      holdout_metrics: null,
+      baselines: [],
+      promotion: { decision: 'BLOCKED', reason: 'Dataset readiness checks failed.' },
+    })
+    payload.historical_dataset = {
+      availability: 'AVAILABLE',
+      stage: 'GATE_3A_A2',
+      season: 2025,
+      population: 'TIER_A_STRICT',
+      row_count: 2428,
+      distinct_event_dates: 184,
+      holdout_rows: 505,
+      rolling_origin_folds: 16,
+      readiness_status: 'NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT',
+      failed_checks: ['required_feature_family_coverage'],
+      status_reason: 'The strict historical dataset is not ready. No model evaluation was run.',
+      model_training_invoked: false,
+      model_fitting_invoked: false,
+      holdout_metrics_inspected: false,
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(payload)))
+
+    render(<PerformancePage />)
+
+    expect(await screen.findByRole('heading', { name: 'Historical dataset readiness' })).toBeInTheDocument()
+    expect(screen.getByText('DATASET EVIDENCE - NOT MODEL PERFORMANCE')).toBeInTheDocument()
+    expect(screen.getByText('2,428')).toBeInTheDocument()
+    expect(screen.getByText(/A2 dataset-readiness panel publishes no model metrics/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Offline chronological evaluation' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'BLOCKED' })).toBeInTheDocument()
+  })
+
   it('renders provenance, temporal splits, metrics, baselines, and the promotion decision', async () => {
     const evaluation = demoPerformance.offline_evaluation
     if (!evaluation) throw new Error('Demo evaluation fixture is required')
@@ -87,6 +131,10 @@ describe('PerformancePage offline chronological evaluation', () => {
 
     expect(await screen.findByText('example-manifest-v1')).toBeInTheDocument()
     expect(screen.getByText('example-features-v1')).toBeInTheDocument()
+    expect(screen.getByLabelText(`Dataset checksum: ${'a'.repeat(64)}`)).toHaveTextContent('aaaaaaaaaaaa...aaaaaaaa')
+    expect(screen.getByLabelText(`Feature-set checksum: ${'b'.repeat(64)}`)).toHaveTextContent('bbbbbbbbbbbb...bbbbbbbb')
+    expect(screen.getAllByText('RESEARCH CHALLENGER').length).toBeGreaterThan(0)
+    expect(screen.getByText(/separate from production promotion/i)).toBeInTheDocument()
     expect(screen.getByText('3 folds')).toBeInTheDocument()
     expect(screen.getByText('2022-04-07 to 2023-09-30')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Evaluation results' })).toBeInTheDocument()

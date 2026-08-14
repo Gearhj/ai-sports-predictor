@@ -63,8 +63,10 @@ Gate 3 prospective training is provider-free and uses only persisted,
 immutable, prospectively captured `LIVE` evidence. Its dataset builder requires
 one published pregame feature snapshot and one append-only final observation
 per game. It stops before fitting when fewer than 200 eligible labeled games
-exist. The current prospective sample contains nine scheduled games, zero
-final outcomes, and therefore zero eligible labels.
+exist. At the frozen 2026-08-13 Gate 3 audit cutoff, the prospective sample
+contained nine scheduled games, zero final outcomes, and therefore zero eligible
+labels. That scoped prospective audit remains distinct from Gate 3B's separately
+governed retrospective research model below.
 
 Gate 3A Stage A1 produced corrected 15-row one-day v3 and 90-row seven-day v4
 historical-reconstruction artifacts and a canonical 2025 core containing 2,430
@@ -76,13 +78,18 @@ all 2,430 A+B targets but is classified Tier B research-only and cannot become
 training- or evaluation-eligible. Neither population is relabeled as
 prospective capture.
 
-Stage A2's compatibility review is audit-only: it may count rows, date groups,
+Stage A2's compatibility review was audit-only: it counted rows, date groups,
 development-period classes, formable rolling folds, and a chronological
-holdout by identity, but it does not dereference holdout outcomes or compute
-holdout metrics. No estimator was fitted, no calibrator was selected, and no
-model was promoted. An audit result of
-`READY_FOR_GATE_3B_MODEL_DEVELOPMENT` would authorize only a later, separately
-governed modeling stage; it is not evidence of predictive performance.
+holdout by identity without dereferencing holdout outcomes or computing
+holdout metrics. No estimator was fitted during A2. Its stricter promotion-gate
+readiness result remains unchanged.
+
+Gate 3B later used the separately authorized
+`MLB_GEN1_RESEARCH_POLICY_V1`, which permits research on the supported strict
+Tier A families without claiming that the missing production-promotion
+families exist. That distinct authorization admitted only the exact frozen A2
+artifact; it did not relabel the evidence as prospective or make the A2
+promotion gate ready.
 
 When a sufficient sample exists, games remain grouped by date and ordered by
 first pitch. The latest 20% of date groups form a single-use locked holdout; the
@@ -189,6 +196,90 @@ Stage A2 must not invoke `train-mlb-models`. That command belongs to a later,
 separately authorized modeling stage once the audit-only readiness decision has
 been reviewed. See `docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md` for the
 modeling, leakage, artifact, promotion, and public-reporting boundary.
+
+### Gate 3B Gen-1 research model
+
+Gate 3B freezes 230 supported strict A2 values and their paired missingness
+indicators into 460 ordered model inputs. It excludes lifecycle and target
+context, Tier B starter/lineup evidence, Statcast, park/weather,
+defense/baserunning, opponent adjustment, markets, CLV, and DEMO data. A2
+`talent` is analyzed with `team`, `recent` as `recent_form`, and `schedule` as
+`rest_travel` while retaining original source-family lineage.
+
+Of 184 grouped event dates, 147 dates and 1,923 games supply 16 expanding
+rolling-origin development folds. The newest 37 dates and 505 games form one
+locked holdout. Development alone chooses recent-form treatment, model and
+hyperparameters, missingness strategy, calibration, and ensemble retention,
+then freezes a deterministic decision rule. Phase 2 globally claims the exact
+source-dataset/holdout identity, reloads and checksum-verifies the source, and
+opens the labels once; a new candidate cannot reuse that evidence.
+
+The completed run selected no 14/30-day recent-form variant, a run-strength
+model, and Platt calibration. Its holdout Brier score was
+0.24189382768082518, log loss was 0.6766197598504301, ECE was
+0.08282638285346813, accuracy was 0.5584158415841585, and ROC-AUC was
+0.5848393099315609. Point estimates improved versus the home prior, Elo, and
+regularized logistic comparators, but the frozen calibration, OOD, run-model,
+and bootstrap checks did not all clear. The predeclared result is therefore
+`RESEARCH_CHALLENGER / RESEARCH_ONLY_NO_PROMOTION`, never `CHAMPION`.
+Only the historical-home-prior paired Brier and log-loss improvements had
+strictly positive 95% date-block bootstrap lower bounds. Intervals against Elo,
+logistic, empirical-Bayesian team, XGBoost, raw run strength, Poisson, and NB2
+crossed zero. Gate 3B therefore makes no comparator-wide superiority claim.
+
+The first frozen candidate
+`438d9fa23fef15fa434418cb320f59fd9a4ae88e567f2629401510bdca827795`
+was invalidated before Phase 2 because its selected run-strength explanations
+were unavailable. It created no holdout claim or evaluation. Replacement
+candidate `0c207742c1b1d60661c6b92efcd5a4b8776bc12799cb83ef8827e87bb994dceb`
+supplied independently reconciled selected-model drivers, and terminal artifact
+`a03a7ae520e0b0bb16cb4de1987d78e1b97eb99cab9e6318b03226ae81d4bdd1`
+records the only holdout evaluation.
+
+Selected-model explanations use independently verified additive run-strength
+log-odds terms, explicit clipping and calibration adjustments, and paired
+missingness/neutral-fill disclosure. All 505 frozen driver records reconciled
+with maximum numerical error `1.17e-15`. This explains model mechanics and
+statistical association, not causation. Full identities, uncertainty, model
+comparisons, and limitations are recorded in
+`docs/GATE_3B_GEN1_MODEL_AND_LIVE_ACTIVATION_REPORT.md`.
+
+### Historical research product boundary
+
+Historical Research is a separate user-facing evidence surface, not a backfill
+of Today. It summarizes the exact latest strict and enhanced manifests and
+offers a paginated, filtered explorer over canonical pregame snapshots. It
+keeps Tier A and Tier B populations separate and withholds rows when current
+manifest lineage, target exclusion, or temporal attestations fail. Superseded
+immutable materializations do not contaminate the current-manifest integrity
+decision. The explorer never exposes labels or silently substitutes missing
+starter, lineup, weather, Statcast, or market evidence.
+
+### Controlled live activation and publication lineage
+
+The one 2026-08-14 controlled run is operational evidence, not additional model
+training. It loaded 14 LIVE games, 13 weather snapshots, and 756 current Odds
+snapshots from exactly one Odds HTTP request; generated 14 feature snapshots;
+and published 12 forecasts. Two games were skipped because probable pitchers
+were unavailable. Schedulers, Odds polling, Statcast, and official positions
+remained disabled. The Gen-1 research challenger did not replace the live
+operational forecast model.
+
+Forecast publication remains append-only. The first 12 version-1 forecasts
+exposed a 500-character market-reference truncation and remain immutable audit
+evidence. Migration `20260814_0009` uses unbounded text, and a provider-free
+regeneration created 12 version-2 forecasts that each reference all 54 Odds
+snapshot rows used for their market context. Public reads choose the latest
+version. Downgrade is valid only if every stored reference fits 500 characters;
+complete version-2 lineage must never be silently truncated to make a rollback
+succeed.
+
+Live operational reporting is still incomplete: no
+`GameRefreshState.last_refresh` was written and the MLB rows have null
+`ingestion_run_id`. These gaps must remain visible in Data Health and be fixed
+prospectively. They do not authorize inferred timestamps or retroactive lineage.
+Performance continues to expose the offline status as `RESEARCH_CHALLENGER` /
+`NOT_PROMOTED`, separately from live forward outcomes.
 
 ## Virtual bankroll
 

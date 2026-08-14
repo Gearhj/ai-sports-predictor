@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -17,6 +18,8 @@ from app.schemas.api import (
     DashboardData,
     GameAnalysisData,
     HealthData,
+    HistoricalGameExplorerPage,
+    HistoricalResearchData,
     JobTriggerResponse,
     LoginRequest,
     MarketBoardData,
@@ -32,6 +35,7 @@ from app.services.auth_service import (
     register_user,
 )
 from app.services.read_service import ReadService
+from app.services.historical_research_read_service import HistoricalResearchReadService
 
 
 router = APIRouter()
@@ -39,6 +43,18 @@ router = APIRouter()
 
 def _today(value: date | None, settings: AppSettings) -> date:
     return value or local_today(settings.display_timezone)
+
+
+def _current_public_date(value: date | None, settings: AppSettings) -> date:
+    """Keep the public Today surface bound to the actual local calendar day."""
+
+    current = local_today(settings.display_timezone)
+    if value is not None and value != current:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The Today endpoint serves the current local date only.",
+        )
+    return current
 
 
 @router.get("/public/config", response_model=PublicConfigData, tags=["system"])
@@ -75,7 +91,9 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
 
 @router.get("/dashboard/today", response_model=DashboardData, tags=["forecasts"])
 def dashboard_today(session: DatabaseSession, settings: AppSettings, event_date: date | None = Query(None, alias="date")) -> DashboardData:
-    return ReadService(session, settings).dashboard(_today(event_date, settings))
+    return ReadService(session, settings).dashboard(
+        _current_public_date(event_date, settings)
+    )
 
 
 @router.get("/games/{game_id}", response_model=GameAnalysisData, tags=["forecasts"])
@@ -94,6 +112,39 @@ def market_board(session: DatabaseSession, settings: AppSettings, event_date: da
 @router.get("/performance", response_model=PerformanceData, tags=["transparency"])
 def performance(session: DatabaseSession, settings: AppSettings) -> PerformanceData:
     return ReadService(session, settings).performance()
+
+
+@router.get(
+    "/research/history",
+    response_model=HistoricalResearchData,
+    tags=["transparency"],
+)
+def historical_research(session: DatabaseSession) -> HistoricalResearchData:
+    return HistoricalResearchReadService(session).history()
+
+
+@router.get(
+    "/research/history/games",
+    response_model=HistoricalGameExplorerPage,
+    tags=["transparency"],
+)
+def historical_game_explorer(
+    session: DatabaseSession,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    team: str | None = Query(None, min_length=1, max_length=80),
+    month: int | None = Query(None, ge=1, le=12),
+    tier: Literal["A", "B"] = Query("A"),
+    source: str | None = Query(None, min_length=1, max_length=80),
+) -> HistoricalGameExplorerPage:
+    return HistoricalResearchReadService(session).game_explorer(
+        page=page,
+        page_size=page_size,
+        team=team,
+        month=month,
+        tier=tier,
+        source=source,
+    )
 
 
 @router.get("/bankroll", response_model=BankrollData, tags=["transparency"])

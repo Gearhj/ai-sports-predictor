@@ -14,7 +14,7 @@ EVENT_DATE = date(2026, 8, 12)
 
 
 def test_empty_database_public_read_contract(client) -> None:
-    dashboard = client.get(f"/api/v1/dashboard/today?date={EVENT_DATE}").json()
+    dashboard = client.get("/api/v1/dashboard/today").json()
     assert dashboard["data_mode"] == "empty"
     assert dashboard["games"] == []
     assert dashboard["summary"] == {
@@ -91,7 +91,7 @@ def test_public_model_and_bankroll_policy_contract(client, session) -> None:
     }
 
     performance = client.get("/api/v1/performance").json()
-    dashboard = client.get(f"/api/v1/dashboard/today?date={EVENT_DATE}").json()
+    dashboard = client.get("/api/v1/dashboard/today").json()
     health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}").json()
     assert performance["model_status"] == "DEVELOPMENT"
     assert dashboard["model_status"] == "DEVELOPMENT"
@@ -104,7 +104,7 @@ def test_public_model_and_bankroll_policy_contract(client, session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_deliberately_seeded_demo_reports_demo_provenance(client, session, settings) -> None:
+async def test_deliberately_seeded_demo_stays_off_the_public_today_surface(client, session, settings) -> None:
     started_at = datetime.now(UTC)
     result = await seed_demo_data(session, settings, EVENT_DATE)
     completed_at = datetime.now(UTC)
@@ -129,13 +129,13 @@ async def test_deliberately_seeded_demo_reports_demo_provenance(client, session,
     )
     assert all(snapshot.source_mode == "DEMO" for snapshot in snapshots if snapshot is not None)
 
-    dashboard = client.get(f"/api/v1/dashboard/today?date={EVENT_DATE}").json()
+    dashboard = client.get("/api/v1/dashboard/today").json()
     markets = client.get(f"/api/v1/markets/board?date={EVENT_DATE}").json()
     health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}").json()
     config = client.get("/api/v1/public/config").json()
 
-    assert dashboard["data_mode"] == "demo"
-    assert dashboard["games"]
+    assert dashboard["data_mode"] == "empty"
+    assert dashboard["games"] == []
     assert markets["data_mode"] == "demo"
     assert markets["rows"]
     assert health["data_mode"] == "demo"

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
+from app.data_sources.base import ScheduleGameDTO, TeamDTO, VenueDTO
+from app.ingestion import CanonicalNormalizer
 from app.jobs.orchestrator import JobOrchestrator
 from app.models import (
     FeatureVersion,
@@ -17,6 +19,7 @@ from app.models import (
     LineupObservation,
     ModelVersion,
 )
+from app.services.forecast_service import ForecastService
 from app.services.read_service import ReadService
 
 
@@ -117,3 +120,63 @@ async def test_game_card_exposes_persisted_lifecycle_lineups_and_readiness(sessi
     assert card.readiness_detail[0].key == "lineups"
     assert card.readiness_detail[0].critical is True
     assert card.readiness_detail[0].detail == "Home confirmed; away projected"
+
+
+def test_game_card_exposes_failed_publication_snapshot_readiness_without_refresh_state(
+    session,
+    settings,
+) -> None:
+    first_pitch = datetime(2026, 8, 13, 23, 5, tzinfo=UTC)
+    cutoff = first_pitch - timedelta(hours=6)
+    game = CanonicalNormalizer(session).ingest_schedule(
+        [
+            ScheduleGameDTO(
+                source_game_id="gate2-readiness-fallback-live",
+                scheduled_at=first_pitch,
+                event_date=first_pitch.date(),
+                status="scheduled",
+                away_team=TeamDTO(
+                    source_id="gate2-readiness-away",
+                    name="Readiness Away",
+                    abbreviation="RDA",
+                ),
+                home_team=TeamDTO(
+                    source_id="gate2-readiness-home",
+                    name="Readiness Home",
+                    abbreviation="RDH",
+                ),
+                venue=VenueDTO(
+                    source_id="gate2-readiness-park",
+                    name="Readiness Park",
+                ),
+                source_mode="LIVE",
+            )
+        ],
+        "GATE2_READINESS_TEST",
+        available_as_of=cutoff,
+    )[0]
+    session.commit()
+
+    draft = ForecastService(session, settings).generate_for_game(
+        game,
+        data_as_of=cutoff,
+        force_draft=True,
+    )
+    session.commit()
+
+    assert draft.status == ForecastStatus.DRAFT
+    assert session.scalar(
+        select(GameRefreshState.id).where(GameRefreshState.game_id == game.id).limit(1)
+    ) is None
+
+    card = ReadService(session, settings).game_card(game)
+    details = {component.key: component for component in card.readiness_detail}
+
+    assert card.forecast_available is False
+    assert card.data_as_of == cutoff
+    assert card.data_readiness == draft.readiness_score
+    assert details["probable_pitchers"].status == "missing"
+    assert details["probable_pitchers"].critical is True
+    assert details["probable_pitchers"].score == 0
+    assert details["feature_completeness"].detail.startswith("0% measured coverage")
+    assert card.last_refresh_at is None

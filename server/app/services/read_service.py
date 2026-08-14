@@ -11,6 +11,13 @@ from sqlalchemy.orm import Session
 from app.bankroll.service import SettlementResult, SettledPosition, bankroll_metrics, settle_profit
 from app.core.config import Settings
 from app.core.time import local_day_bounds
+from app.features.lifecycle import LifecycleStage, classify_lifecycle
+from app.features.readiness import (
+    GATE2_WEIGHTS,
+    ReadinessResult,
+    ReadinessStatus,
+    calculate_readiness,
+)
 from app.forecasting.evaluation import brier_score, calibration_bins, log_loss, mean_absolute_error
 from app.markets.odds import (
     american_to_decimal,
@@ -77,6 +84,8 @@ from app.schemas.api import (
     SourceHealth,
     TeamSummary,
 )
+from app.services.historical_research_read_service import HistoricalResearchReadService
+from app.services.game_state_service import GameStateService, GameStateUnavailableError
 
 
 TEAM_COLORS = {
@@ -86,6 +95,9 @@ TEAM_COLORS = {
 }
 
 OFFLINE_EVALUATION_POLICY_VERSION = "gate3-promotion-v1"
+GEN1_RESEARCH_POLICY_VERSION = "MLB_GEN1_RESEARCH_POLICY_V1"
+STRICT_A2_MANIFEST_NAME = "mlb_historical_a2_tier_a_strict"
+ENHANCED_A2_MANIFEST_NAME = "mlb_historical_a2_tier_b_enhanced"
 
 
 def _simulation_over_probability(simulation: dict[str, Any], total: float | None) -> float:
@@ -142,7 +154,10 @@ class ReadService:
         self.settings = settings
 
     def dashboard(self, event_date: date) -> DashboardData:
-        games = self._games_for_date(event_date)
+        # The public Today surface is a hard current-LIVE boundary. Demo rows
+        # remain available only through the explicitly illustrative client
+        # route and historical rows remain on the research surface.
+        games = self._live_games_for_date(event_date)
         cards = [self.game_card(game) for game in games]
         forecasts = [self._latest_forecast(game.id) for game in games]
         complete = sum(forecast is not None and forecast.status == ForecastStatus.PUBLISHED for forecast in forecasts)
@@ -153,7 +168,7 @@ class ReadService:
             default=None,
         )
         return DashboardData(
-            data_mode=self._data_mode(event_date),
+            data_mode="live" if games else "empty",
             date=event_date,
             model_status=self._model_status(),
             component_weights=self._component_weights(),
@@ -179,6 +194,13 @@ class ReadService:
             else refresh_state.last_feature_snapshot_id if refresh_state else None
         )
         feature_snapshot = self.session.get(GameFeatureSnapshot, feature_snapshot_id) if feature_snapshot_id else None
+        if feature_snapshot is None:
+            feature_snapshot = self._latest_feature_snapshot(game.id, game.source_mode)
+        snapshot_readiness = (
+            self._snapshot_readiness(game, feature_snapshot)
+            if forecast is None and feature_snapshot is not None
+            else None
+        )
         lineage_cutoff = (
             _aware(feature_snapshot.data_as_of)
             if feature_snapshot
@@ -284,7 +306,11 @@ class ReadService:
             edge_side=edge_side,
             opportunity=opportunity,
             confidence=forecast.confidence if forecast else None,
-            data_readiness=forecast.readiness_score if forecast else None,
+            data_readiness=(
+                forecast.readiness_score
+                if forecast
+                else snapshot_readiness.score if snapshot_readiness else None
+            ),
             data_as_of=(
                 _aware(feature_snapshot.data_as_of)
                 if feature_snapshot
@@ -312,7 +338,11 @@ class ReadService:
             final_snapshot_frozen=refresh_state.final_snapshot_frozen if refresh_state else None,
             away_lineup=away_lineup,
             home_lineup=home_lineup,
-            readiness_detail=self._readiness_detail(forecast),
+            readiness_detail=(
+                self._readiness_detail(forecast)
+                if forecast
+                else self._snapshot_readiness_detail(snapshot_readiness)
+            ),
             books_reporting=market["book_count"],
             last_update=_aware(last_update),
         )
@@ -583,6 +613,9 @@ class ReadService:
         )
 
     def performance(self) -> PerformanceData:
+        historical_dataset = HistoricalResearchReadService(
+            self.session
+        ).performance_summary()
         all_rows = list(self.session.execute(
             select(Forecast, Game)
             .join(Game, Game.id == Forecast.game_id)
@@ -611,7 +644,7 @@ class ReadService:
                 seen_games.add(game.id)
         forecasts = [row[0] for row in rows]
         games = [row[1] for row in rows]
-        model = self.session.scalar(select(ModelVersion).order_by(ModelVersion.created_at.desc()).limit(1))
+        model = self._forward_model(forecasts)
         offline_evaluation = self._offline_evaluation()
         if not rows:
             return PerformanceData(
@@ -626,6 +659,7 @@ class ReadService:
                 model_components=[],
                 by_confidence=[],
                 offline_evaluation=offline_evaluation,
+                historical_dataset=historical_dataset,
             )
         probabilities = [forecast.home_win_probability for forecast in forecasts]
         outcomes = [int((game.home_score or 0) > (game.away_score or 0)) for game in games]
@@ -773,6 +807,7 @@ class ReadService:
             rolling=rolling, model_components=model_components,
             by_confidence=by_confidence,
             offline_evaluation=offline_evaluation,
+            historical_dataset=historical_dataset,
         )
 
     def _offline_evaluation(self) -> OfflineEvaluation:
@@ -800,7 +835,12 @@ class ReadService:
                 status = "INSUFFICIENT_DATA"
                 status_reason = evaluation.notes or "The governed evaluation sample did not meet the published policy."
             elif raw_status == "COMPLETED":
-                integrity_errors = self._offline_evidence_integrity_errors(evaluation, model, manifest)
+                integrity_errors = self._offline_evidence_integrity_errors(
+                    evaluation,
+                    model,
+                    manifest,
+                    policy_version,
+                )
                 if integrity_errors:
                     status = "FAILED"
                     status_reason = (
@@ -810,7 +850,10 @@ class ReadService:
                     )
                 else:
                     status = "AVAILABLE"
-                    status_reason = None
+                    status_reason = evaluation.notes or (
+                        "A governed offline evaluation completed. These research "
+                        "results do not imply operational promotion."
+                    )
             else:
                 status = "NOT_RUN"
                 status_reason = (
@@ -837,6 +880,13 @@ class ReadService:
                 model_version=self._offline_model_version(model),
                 manifest_version=manifest.version if manifest else None,
                 feature_version=feature_version,
+                dataset_checksum=manifest.identity_checksum if manifest else None,
+                feature_set_checksum=self._offline_feature_set_checksum(model, manifest),
+                research_decision=(
+                    self._offline_research_decision(evaluation)
+                    if status == "AVAILABLE"
+                    else None
+                ),
                 evaluation_policy_version=policy_version,
                 rolling_origin_folds=self._offline_fold_count(evaluation, manifest),
                 train_window=self._offline_window(model.training_window if model else None),
@@ -856,7 +906,7 @@ class ReadService:
                 ),
             )
 
-        manifest = self.session.scalar(
+        manifests = list(self.session.scalars(
             select(TrainingDatasetManifest)
             .where(TrainingDatasetManifest.source_mode == "LIVE")
             .order_by(
@@ -864,7 +914,15 @@ class ReadService:
                 TrainingDatasetManifest.created_at.desc(),
                 TrainingDatasetManifest.id.desc(),
             )
-            .limit(1)
+            .limit(50)
+        ))
+        manifest = next(
+            (
+                item
+                for item in manifests
+                if not self._research_only_historical_manifest(item)
+            ),
+            None,
         )
         if manifest is None:
             return OfflineEvaluation(
@@ -873,6 +931,9 @@ class ReadService:
                 model_version=None,
                 manifest_version=None,
                 feature_version=None,
+                dataset_checksum=None,
+                feature_set_checksum=None,
+                research_decision=None,
                 evaluation_policy_version=OFFLINE_EVALUATION_POLICY_VERSION,
                 rolling_origin_folds=0,
                 promotion=OfflinePromotionDecision(
@@ -895,6 +956,17 @@ class ReadService:
                 "The governed training manifest records an insufficient temporal or outcome sample."
             )
             status = "INSUFFICIENT_DATA"
+            promotion = OfflinePromotionDecision(
+                decision="BLOCKED",
+                reason=reason,
+                criteria_version=policy_version,
+            )
+        elif sufficiency_status == "NOT_READY":
+            reason = sufficiency_reason or (
+                "The governed historical dataset did not pass its audit-only "
+                "readiness contract."
+            )
+            status = "NOT_RUN"
             promotion = OfflinePromotionDecision(
                 decision="BLOCKED",
                 reason=reason,
@@ -925,6 +997,9 @@ class ReadService:
             model_version=self._offline_model_version(model),
             manifest_version=manifest.version,
             feature_version=self._offline_feature_version(manifest),
+            dataset_checksum=manifest.identity_checksum,
+            feature_set_checksum=self._offline_feature_set_checksum(model, manifest),
+            research_decision=None,
             evaluation_policy_version=policy_version,
             rolling_origin_folds=0,
             promotion=promotion,
@@ -935,6 +1010,43 @@ class ReadService:
             return None
         feature = self.session.get(FeatureVersion, manifest.feature_version_id)
         return f"{feature.name}/{feature.version}" if feature else manifest.schema_version
+
+    def _offline_feature_set_checksum(
+        self,
+        model: ModelVersion | None,
+        manifest: TrainingDatasetManifest | None,
+    ) -> str | None:
+        """Return the schema identity actually consumed by the evaluated model."""
+
+        feature_id = (
+            model.feature_version_id
+            if model is not None and model.feature_version_id is not None
+            else manifest.feature_version_id if manifest is not None else None
+        )
+        feature = self.session.get(FeatureVersion, feature_id) if feature_id else None
+        return feature.schema_hash if feature is not None else None
+
+    @staticmethod
+    def _offline_research_decision(
+        evaluation: ModelEvaluation,
+    ) -> str | None:
+        allowed = {
+            "RESEARCH_CANDIDATE",
+            "RESEARCH_CHALLENGER",
+            "REJECTED_GEN1",
+        }
+        for payload in (evaluation.metrics, evaluation.slice_metrics):
+            if isinstance(payload, dict):
+                value = payload.get("research_decision")
+                if isinstance(value, str) and value in allowed:
+                    return value
+        if "GEN1" not in str(evaluation.evaluation_type or "").upper():
+            return None
+        if evaluation.promotion_recommendation is True:
+            return "RESEARCH_CANDIDATE"
+        if evaluation.promotion_recommendation is False:
+            return "REJECTED_GEN1"
+        return None
 
     @staticmethod
     def _offline_model_version(model: ModelVersion | None) -> str | None:
@@ -947,6 +1059,27 @@ class ReadService:
         """Read the canonical, immutable training preflight result when present."""
 
         quality = manifest.quality_summary if isinstance(manifest.quality_summary, dict) else {}
+        readiness = quality.get("readiness")
+        if isinstance(readiness, dict):
+            readiness_status = str(readiness.get("status") or "").upper()
+            if readiness_status == "READY_FOR_GATE_3B_MODEL_DEVELOPMENT":
+                return "SUFFICIENT", None
+            if readiness_status == "NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT":
+                checks = readiness.get("checks")
+                failed = sorted(
+                    str(name)
+                    for name, result in checks.items()
+                    if not isinstance(result, dict) or result.get("passed") is not True
+                ) if isinstance(checks, dict) else []
+                suffix = f" Failed checks: {', '.join(failed)}." if failed else ""
+                return (
+                    "NOT_READY",
+                    "The audit-only historical dataset readiness status is "
+                    "NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT."
+                    + suffix
+                    + " No model evaluation was run as part of the immutable A2 "
+                    "materialization/readiness audit.",
+                )
         sufficiency = quality.get("training_sufficiency")
         if not isinstance(sufficiency, dict):
             return None, None
@@ -961,12 +1094,22 @@ class ReadService:
         # sufficient, but it also must not invent an insufficient-data result.
         return None, None
 
-    @classmethod
+    @staticmethod
+    def _research_only_historical_manifest(
+        manifest: TrainingDatasetManifest,
+    ) -> bool:
+        quality = manifest.quality_summary if isinstance(manifest.quality_summary, dict) else {}
+        return (
+            quality.get("stage") == "GATE_3A_A2"
+            and quality.get("population") == "TIER_B_ENHANCED"
+        )
+
     def _offline_evidence_integrity_errors(
-        cls,
+        self,
         evaluation: ModelEvaluation,
         model: ModelVersion | None,
         manifest: TrainingDatasetManifest | None,
+        policy_version: str,
     ) -> list[str]:
         """Return public-safe reasons a completed evaluation cannot be published."""
 
@@ -980,7 +1123,20 @@ class ReadService:
 
         if model.training_manifest_id != manifest.id:
             errors.append("model and evaluation training-manifest lineage do not match")
-        if model.feature_version_id is None or model.feature_version_id != manifest.feature_version_id:
+        is_gen1 = self._is_gen1_research_evaluation(
+            evaluation,
+            model,
+            policy_version,
+        )
+        if is_gen1:
+            errors.extend(
+                self._gen1_research_lineage_errors(
+                    model,
+                    manifest,
+                    policy_version,
+                )
+            )
+        elif model.feature_version_id is None or model.feature_version_id != manifest.feature_version_id:
             errors.append("model and manifest feature-version lineage do not match")
         if manifest.source_mode != "LIVE":
             errors.append("the referenced training manifest is not LIVE evidence")
@@ -992,6 +1148,11 @@ class ReadService:
             errors.append("model and evaluation holdout windows do not match")
 
         quality = manifest.quality_summary if isinstance(manifest.quality_summary, dict) else {}
+        if (
+            manifest.name == ENHANCED_A2_MANIFEST_NAME
+            or quality.get("population") == "TIER_B_ENHANCED"
+        ):
+            errors.append("research-only Tier B evidence cannot publish model evaluation metrics")
         leakage_checks = quality.get("leakage_checks")
         if (
             not isinstance(leakage_checks, dict)
@@ -1011,7 +1172,7 @@ class ReadService:
             ),
         )
         for label, uri, checksum in required_references:
-            if not cls._offline_complete_artifact_reference(uri, checksum):
+            if not self._offline_complete_artifact_reference(uri, checksum):
                 errors.append(f"{label} URI/checksum reference is incomplete or invalid")
 
         required_identities = (
@@ -1020,8 +1181,103 @@ class ReadService:
             ("evaluation", evaluation.identity_checksum),
         )
         for label, checksum in required_identities:
-            if not cls._offline_sha256(checksum):
+            if not self._offline_sha256(checksum):
                 errors.append(f"{label} identity checksum is missing or invalid")
+        return errors
+
+    @staticmethod
+    def _is_gen1_research_evaluation(
+        evaluation: ModelEvaluation,
+        model: ModelVersion,
+        policy_version: str,
+    ) -> bool:
+        parameters = model.parameters if isinstance(model.parameters, dict) else {}
+        return (
+            policy_version == GEN1_RESEARCH_POLICY_VERSION
+            or parameters.get("research_policy_version")
+            == GEN1_RESEARCH_POLICY_VERSION
+            or "GEN1" in str(evaluation.evaluation_type or "").upper()
+        )
+
+    def _gen1_research_lineage_errors(
+        self,
+        model: ModelVersion,
+        manifest: TrainingDatasetManifest,
+        policy_version: str,
+    ) -> list[str]:
+        """Validate the strict A2 source and the separately derived Gen-1 schema."""
+
+        errors: list[str] = []
+        quality = manifest.quality_summary if isinstance(manifest.quality_summary, dict) else {}
+        if policy_version != GEN1_RESEARCH_POLICY_VERSION:
+            errors.append("Gen-1 evaluation policy identity is missing or inconsistent")
+        if manifest.name != STRICT_A2_MANIFEST_NAME:
+            errors.append("Gen-1 evaluation is not bound to the strict A2 manifest")
+        if quality.get("stage") != "GATE_3A_A2":
+            errors.append("Gen-1 source manifest is not a Gate 3A A2 dataset")
+        if quality.get("population") != "TIER_A_STRICT":
+            errors.append("Gen-1 source population is not Tier A strict")
+        if quality.get("quality_tiers") != ["A"]:
+            errors.append("Gen-1 source manifest contains a non-Tier-A population")
+        if manifest.seasons != [2025]:
+            errors.append("Gen-1 source manifest is not the governed 2025 season")
+        cutoff_policy = manifest.cutoff_policy if isinstance(manifest.cutoff_policy, dict) else {}
+        if cutoff_policy.get("policy_version") != "mlb_t_minus_6h_v1":
+            errors.append("Gen-1 source cutoff policy is missing or inconsistent")
+
+        source_feature = self.session.get(FeatureVersion, manifest.feature_version_id)
+        derived_feature = (
+            self.session.get(FeatureVersion, model.feature_version_id)
+            if model.feature_version_id is not None
+            else None
+        )
+        if source_feature is None:
+            errors.append("Gen-1 source feature version does not resolve")
+            return errors
+        if quality.get("schema_hash") != source_feature.schema_hash:
+            errors.append("Gen-1 source feature schema hash disagrees with the manifest")
+        if derived_feature is None:
+            errors.append("Gen-1 derived feature version does not resolve")
+            return errors
+        if derived_feature.id == source_feature.id:
+            errors.append("Gen-1 model is not bound to a separately derived feature schema")
+
+        expected_source = {
+            "research_policy_version": GEN1_RESEARCH_POLICY_VERSION,
+            "source_feature_version_id": str(source_feature.id),
+            "source_feature_schema_version": manifest.schema_version,
+            "source_feature_schema_hash": source_feature.schema_hash,
+        }
+        definition = (
+            derived_feature.definition
+            if isinstance(derived_feature.definition, dict)
+            else {}
+        )
+        for key, expected in expected_source.items():
+            if definition.get(key) != expected:
+                errors.append(f"Gen-1 derived feature definition has invalid {key}")
+
+        derived_schema_version = definition.get("derived_feature_schema_version")
+        if not isinstance(derived_schema_version, str) or not derived_schema_version:
+            errors.append(
+                "Gen-1 derived feature definition has invalid "
+                "derived_feature_schema_version"
+            )
+        if definition.get("derived_feature_schema_hash") != derived_feature.schema_hash:
+            errors.append(
+                "Gen-1 derived feature definition has invalid "
+                "derived_feature_schema_hash"
+            )
+
+        expected_parameters = {
+            **expected_source,
+            "derived_feature_schema_version": derived_schema_version,
+            "derived_feature_schema_hash": derived_feature.schema_hash,
+        }
+        parameters = model.parameters if isinstance(model.parameters, dict) else {}
+        for key, expected in expected_parameters.items():
+            if parameters.get(key) != expected:
+                errors.append(f"Gen-1 model parameters have invalid {key}")
         return errors
 
     @classmethod
@@ -1265,7 +1521,7 @@ class ReadService:
             sports_data_status=sports_data_status,
             provider_evidence_status=self._provider_evidence_status(),
             overall_score=score,
-            model_version=self._model_label(),
+            model_version=self._model_label(latest_forecast),
             model_status=self._model_status(),
             component_weights=self._component_weights(),
             latest_forecast=latest_forecast.generated_at.isoformat() if latest_forecast else "No forecast generated",
@@ -1278,6 +1534,9 @@ class ReadService:
                 started_at=job.started_at.isoformat() if job.started_at else "Not started",
                 duration=_duration(job.started_at, job.completed_at), records=int((job.result or {}).get("records", 0)),
             ) for job in jobs],
+            historical_warehouse=HistoricalResearchReadService(
+                self.session
+            ).health_summary(),
         )
 
     def _empty_game_analysis(self, game: Game, card: ForecastGame) -> GameAnalysisData:
@@ -1302,10 +1561,26 @@ class ReadService:
             return live
         return games if self.settings.demo_mode else []
 
+    def _live_games_for_date(self, event_date: date) -> list[Game]:
+        start, end = local_day_bounds(event_date, self.settings.display_timezone)
+        return list(self.session.scalars(
+            select(Game)
+            .where(
+                Game.starts_at >= start,
+                Game.starts_at < end,
+                Game.source_mode == "LIVE",
+            )
+            .order_by(Game.starts_at)
+        ))
+
     def _latest_forecast(self, game_id: Any) -> Forecast | None:
+        game = self.session.get(Game, game_id)
+        if game is None:
+            return None
         return self.session.scalar(select(Forecast).where(
             Forecast.game_id == game_id,
             Forecast.status == ForecastStatus.PUBLISHED,
+            Forecast.source_mode == game.source_mode,
         ).order_by(Forecast.version.desc()).limit(1))
 
     def _latest_refresh_state(self, game_id: Any, source_mode: str) -> GameRefreshState | None:
@@ -1318,6 +1593,213 @@ class ReadService:
             .order_by(GameRefreshState.available_as_of.desc(), GameRefreshState.evaluated_at.desc())
             .limit(1)
         )
+
+    def _latest_feature_snapshot(
+        self,
+        game_id: Any,
+        source_mode: str,
+    ) -> GameFeatureSnapshot | None:
+        return self.session.scalar(
+            select(GameFeatureSnapshot)
+            .where(
+                GameFeatureSnapshot.game_id == game_id,
+                GameFeatureSnapshot.source_mode == source_mode,
+            )
+            .order_by(
+                GameFeatureSnapshot.data_as_of.desc(),
+                GameFeatureSnapshot.generated_at.desc(),
+                GameFeatureSnapshot.created_at.desc(),
+                GameFeatureSnapshot.id.desc(),
+            )
+            .limit(1)
+        )
+
+    def _snapshot_readiness(
+        self,
+        game: Game,
+        snapshot: GameFeatureSnapshot,
+    ) -> ReadinessResult | None:
+        """Reconstruct failed-publication readiness from persisted PIT evidence."""
+
+        cutoff = _aware(snapshot.data_as_of)
+        try:
+            state = GameStateService(self.session).get_game_state(game.id, cutoff)
+        except (GameStateUnavailableError, LookupError):
+            return None
+
+        odds = list(state.odds)
+        books = len({row.sportsbook_id for row in odds})
+        home_team_values = state.home.team_feature.values if state.home.team_feature else {}
+        away_team_values = state.away.team_feature.values if state.away.team_feature else {}
+        core_features = all(
+            values.get(key) is not None
+            for values in (home_team_values, away_team_values)
+            for key in ("runs_per_game", "ops", "era")
+        )
+        team_stats_fresh = all(
+            feature is not None
+            and cutoff - _aware(feature.available_as_of) <= timedelta(hours=36)
+            for feature in (state.home.team_feature, state.away.team_feature)
+        )
+        statcast_rows = (*state.home.statcast, *state.away.statcast)
+        statcast_present = bool(state.home.statcast and state.away.statcast)
+        bayesian_metadata = snapshot.bayesian_metadata or {}
+        statcast_coverage = (
+            float((bayesian_metadata.get("home_statcast") or {}).get("player_coverage") or 0),
+            float((bayesian_metadata.get("away_statcast") or {}).get("player_coverage") or 0),
+        )
+        statcast_usable = statcast_present and min(statcast_coverage) >= 0.70
+        statcast_fresh = statcast_present and all(
+            cutoff - _aware(row.available_as_of) <= timedelta(hours=72)
+            for row in statcast_rows
+        )
+        odds_age = max(
+            (cutoff - _aware(row.available_as_of) for row in odds),
+            default=None,
+        )
+        weather_age = cutoff - _aware(state.weather.available_as_of) if state.weather else None
+        starters = (state.home.starter, state.away.starter)
+        starter_ids = tuple(
+            (row.confirmed_pitcher_id or row.probable_pitcher_id) if row else None
+            for row in starters
+        )
+        starters_confirmed = all(
+            row is not None
+            and row.confirmation_state == "CONFIRMED"
+            and row.confirmed_pitcher_id is not None
+            for row in starters
+        )
+        lineups = (state.home.lineup, state.away.lineup)
+        lineups_confirmed = all(
+            row is not None and row.lineup_status == "CONFIRMED" and row.is_complete
+            for row in lineups
+        )
+        lineups_present = all(row is not None for row in lineups)
+        roster_present = bool(state.home.roster and state.away.roster)
+        bullpen_coverage = (
+            float((bayesian_metadata.get("home_bullpen") or {}).get("coverage") or 0),
+            float((bayesian_metadata.get("away_bullpen") or {}).get("coverage") or 0),
+        )
+        bullpen_present = bool(state.home.bullpen and state.away.bullpen)
+        bullpen_usable = (
+            bullpen_present
+            and min(bullpen_coverage) >= 0.70
+            and snapshot.feature_values.get("home_bullpen_availability") is not None
+            and snapshot.feature_values.get("away_bullpen_availability") is not None
+        )
+        schedule_age = cutoff - _aware(state.game_observation.available_as_of)
+        statuses = {
+            "schedule": ReadinessStatus.READY if schedule_age <= timedelta(hours=1) else ReadinessStatus.STALE,
+            "probable_pitchers": ReadinessStatus.READY if all(starter_ids) else ReadinessStatus.MISSING,
+            "pitcher_confirmation": (
+                ReadinessStatus.READY if starters_confirmed
+                else ReadinessStatus.STALE if all(starter_ids)
+                else ReadinessStatus.MISSING
+            ),
+            "lineups": (
+                ReadinessStatus.READY if lineups_confirmed
+                else ReadinessStatus.STALE if lineups_present
+                else ReadinessStatus.MISSING
+            ),
+            "roster": (
+                ReadinessStatus.READY if roster_present
+                else ReadinessStatus.STALE if state.home.roster or state.away.roster
+                else ReadinessStatus.MISSING
+            ),
+            "team_stats": (
+                ReadinessStatus.READY if core_features and team_stats_fresh
+                else ReadinessStatus.STALE if core_features
+                else ReadinessStatus.MISSING
+            ),
+            "statcast": (
+                ReadinessStatus.READY if statcast_usable and statcast_fresh
+                else ReadinessStatus.STALE if statcast_usable
+                else ReadinessStatus.MISSING
+            ),
+            "bullpen": ReadinessStatus.READY if bullpen_usable else ReadinessStatus.MISSING,
+            "odds": (
+                ReadinessStatus.READY if odds_age is not None and odds_age <= timedelta(minutes=30)
+                else ReadinessStatus.STALE if odds
+                else ReadinessStatus.MISSING
+            ),
+            "sportsbook_count": (
+                ReadinessStatus.READY if books >= 3
+                else ReadinessStatus.STALE if books
+                else ReadinessStatus.MISSING
+            ),
+            "weather": (
+                ReadinessStatus.READY if weather_age is not None and weather_age <= timedelta(hours=3)
+                else ReadinessStatus.STALE if state.weather
+                else ReadinessStatus.MISSING
+            ),
+            "feature_completeness": (
+                ReadinessStatus.READY if snapshot.feature_completeness >= 0.60
+                else ReadinessStatus.STALE if snapshot.feature_completeness > 0
+                else ReadinessStatus.MISSING
+            ),
+        }
+        details = {
+            "schedule": (
+                "Point-in-time schedule evidence age: "
+                f"{int(schedule_age.total_seconds() // 60)} minutes"
+            ),
+            "pitcher_confirmation": (
+                "Both starters confirmed"
+                if starters_confirmed else "Club confirmation not observed for both starters"
+            ),
+            "lineups": (
+                "Both complete lineups confirmed"
+                if lineups_confirmed else "Lineup evidence is projected, partial, or missing"
+            ),
+            "roster": f"{len(state.home.roster)} home and {len(state.away.roster)} away observations",
+            "sportsbook_count": f"{books} books reporting",
+            "statcast": (
+                "Canonical Statcast lineup/player coverage: "
+                f"home {statcast_coverage[0]:.0%}, away {statcast_coverage[1]:.0%}"
+                if statcast_present else "Optional Statcast evidence unavailable"
+            ),
+            "bullpen": (
+                "Usable reliever workload coverage: "
+                f"home {bullpen_coverage[0]:.0%}, away {bullpen_coverage[1]:.0%}"
+                if bullpen_present else "Bullpen workload evidence unavailable"
+            ),
+            "feature_completeness": (
+                f"{snapshot.feature_completeness:.0%} measured coverage; "
+                f"{len(snapshot.missing_features)} missing, {len(snapshot.stale_features)} stale, "
+                f"{len(snapshot.provisional_features)} provisional"
+            ),
+        }
+        stage = classify_lifecycle(state.scheduled_at, cutoff)
+        critical = {"schedule", "probable_pitchers", "team_stats", "feature_completeness"}
+        if stage in {LifecycleStage.T_MINUS_10M, LifecycleStage.FINAL}:
+            critical.update({"pitcher_confirmation", "lineups", "weather"})
+        return calculate_readiness(
+            statuses,
+            details,
+            weights=GATE2_WEIGHTS,
+            critical=frozenset(critical),
+            minimum_publish_score=self.settings.forecast_min_readiness,
+            block_stale_critical=stage in {LifecycleStage.T_MINUS_10M, LifecycleStage.FINAL},
+        )
+
+    def _snapshot_readiness_detail(
+        self,
+        readiness: ReadinessResult | None,
+    ) -> list[dict[str, Any]]:
+        if readiness is None:
+            return []
+        return [
+            {
+                "key": component.key,
+                "label": component.label,
+                "status": component.status.value,
+                "score": component.score,
+                "weight": component.weight,
+                "detail": component.detail,
+                "critical": component.critical,
+            }
+            for component in readiness.components
+        ]
 
     def _lineup_summary(
         self,
@@ -1619,8 +2101,50 @@ class ReadService:
         value = (run.source_metadata or {}).get("requests_remaining") if run else None
         return int(value) if value is not None else None
 
-    def _model_label(self) -> str:
-        model = self.session.scalar(select(ModelVersion).order_by(ModelVersion.created_at.desc()).limit(1))
+    def _forward_model(self, forecasts: list[Forecast]) -> ModelVersion | None:
+        if forecasts:
+            latest = max(
+                forecasts,
+                key=lambda item: (
+                    _aware(item.published_at or item.generated_at),
+                    item.version,
+                    str(item.id),
+                ),
+            )
+            return self.session.get(ModelVersion, latest.model_version_id)
+
+        # An offline research model is not operational merely because it was
+        # registered most recently. Prefer the model actually used by the
+        # latest published LIVE forecast; otherwise use the latest legacy
+        # operational/untrained registry row.
+        latest_model_id = self.session.scalar(
+            select(Forecast.model_version_id)
+            .where(
+                Forecast.source_mode == "LIVE",
+                Forecast.status == ForecastStatus.PUBLISHED,
+            )
+            .order_by(
+                Forecast.published_at.desc().nulls_last(),
+                Forecast.generated_at.desc(),
+                Forecast.version.desc(),
+            )
+            .limit(1)
+        )
+        if latest_model_id is not None:
+            return self.session.get(ModelVersion, latest_model_id)
+        return self.session.scalar(
+            select(ModelVersion)
+            .where(ModelVersion.training_manifest_id.is_(None))
+            .order_by(ModelVersion.created_at.desc(), ModelVersion.id.desc())
+            .limit(1)
+        )
+
+    def _model_label(self, forecast: Forecast | None = None) -> str:
+        model = (
+            self.session.get(ModelVersion, forecast.model_version_id)
+            if forecast is not None
+            else self._forward_model([])
+        )
         return f"{model.name} v{model.version}" if model else "No model registered"
 
     def _model_status(self) -> str:

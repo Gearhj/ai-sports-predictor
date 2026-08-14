@@ -6,6 +6,7 @@ import { PublicPolicyProvider } from './hooks/usePublicPolicy'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
+const HistoricalResearchPage = lazy(() => import('./pages/HistoricalResearchPage').then((module) => ({ default: module.HistoricalResearchPage })))
 const GameAnalysisPage = lazy(() => import('./pages/GameAnalysisPage').then((module) => ({ default: module.GameAnalysisPage })))
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
 const PerformancePage = lazy(() => import('./pages/PerformancePage').then((module) => ({ default: module.PerformancePage })))
@@ -23,6 +24,7 @@ export default function App() {
             <Routes>
             <Route element={<AppShell />}>
               <Route index element={<TodayPage />} />
+              <Route path="research/history" element={<HistoricalResearchPage />} />
               <Route path="games/:gameId" element={<GameAnalysisPage />} />
               <Route path="markets" element={<MarketBoardPage />} />
               <Route path="performance" element={<PerformancePage />} />

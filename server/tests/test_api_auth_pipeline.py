@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 
 from app.jobs import seed_demo_data
-from app.models import UserRole
+from app.models import Game, UserRole
 from app.services.auth_service import BootstrapConflictError, ensure_admin, register_user
 
 
@@ -13,14 +14,16 @@ from app.services.auth_service import BootstrapConflictError, ensure_admin, regi
 async def test_demo_vertical_slice_and_typed_endpoints(client, session, settings) -> None:
     result = await seed_demo_data(session, settings, date(2026, 8, 12))
     assert result["mode"] == "DEMO"
-    dashboard = client.get("/api/v1/dashboard/today?date=2026-08-12")
+    dashboard = client.get("/api/v1/dashboard/today")
     assert dashboard.status_code == 200
     payload = dashboard.json()
-    assert payload["data_mode"] == "demo"
-    assert payload["summary"]["games"] == 3
-    assert payload["summary"]["complete_forecasts"] == 3
-    assert all(game["forecast_available"] and game["market_available"] for game in payload["games"])
-    game_id = payload["games"][0]["id"]
+    assert payload["data_mode"] == "empty"
+    assert payload["summary"]["games"] == 0
+    assert payload["summary"]["complete_forecasts"] == 0
+    assert payload["games"] == []
+    demo_game = session.scalar(select(Game).order_by(Game.starts_at).limit(1))
+    assert demo_game is not None
+    game_id = str(demo_game.id)
     assert client.get(f"/api/v1/games/{game_id}").status_code == 200
     markets = client.get("/api/v1/markets/board?date=2026-08-12")
     assert markets.status_code == 200

@@ -13,6 +13,8 @@ from app.models import (
     GameFeatureSnapshot,
     GameStatus,
     MarketComparison,
+    ModelStatus,
+    ModelVersion,
 )
 from app.services.read_service import ReadService
 
@@ -117,6 +119,24 @@ async def test_settled_performance_populates_auditable_metrics(session, settings
         game.away_score = 3 + index % 2
     session.commit()
 
+    operational_forecast = session.scalar(
+        select(Forecast)
+        .where(Forecast.source_mode == "LIVE")
+        .order_by(Forecast.generated_at.desc())
+        .limit(1)
+    )
+    assert operational_forecast is not None
+    operational_model = session.get(ModelVersion, operational_forecast.model_version_id)
+    assert operational_model is not None
+    session.add(ModelVersion(
+        name="mlb_gen1_offline_research",
+        version="1.0.0-test",
+        feature_version_id=operational_forecast.feature_version_id,
+        algorithm="offline_research_only",
+        status=ModelStatus.CANDIDATE,
+    ))
+    session.commit()
+
     performance = ReadService(session, settings).performance()
 
     assert performance.evaluation_available is True
@@ -130,6 +150,11 @@ async def test_settled_performance_populates_auditable_metrics(session, settings
     assert performance.rolling
     assert performance.by_confidence
     assert len(performance.model_components) > 1
+    assert performance.model_version == (
+        f"{operational_model.name} v{operational_model.version}"
+    )
+    health = ReadService(session, settings).health(date(2026, 8, 12))
+    assert health.model_version == f"{operational_model.name} v{operational_model.version}"
 
 
 @pytest.mark.asyncio

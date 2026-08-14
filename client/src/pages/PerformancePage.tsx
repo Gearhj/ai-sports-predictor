@@ -4,13 +4,14 @@ import { DataModeBanner, DataStatePanel, formatPct, MetricCard, PageHeader, Pane
 import { demoPerformance } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
-import type { OfflineEvaluation, OfflineEvaluationMetrics, OfflineEvaluationWindow } from '../types/domain'
+import type { HistoricalDatasetPerformanceSummary, OfflineEvaluation, OfflineEvaluationMetrics, OfflineEvaluationWindow } from '../types/domain'
 
 export function PerformancePage({ demo = false }: { demo?: boolean }) {
   const { data, state, loading, error, refresh } = useApiResource(endpoints.performance, demo ? { demoData: demoPerformance } : {})
   const hasOfflineEvaluation = Boolean(data?.offline_evaluation)
+  const hasHistoricalDataset = Boolean(data?.historical_dataset)
 
-  if (!data || state === 'unavailable' || state === 'loading' || (state === 'empty' && !hasOfflineEvaluation)) {
+  if (!data || state === 'unavailable' || state === 'loading' || (state === 'empty' && !hasOfflineEvaluation && !hasHistoricalDataset)) {
     return (
       <div className="page performance-page">
         <PageHeader eyebrow="PUBLIC MODEL AUDIT" title="Model Performance" description="Metrics appear only after eligible settled live games exist." />
@@ -59,6 +60,8 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
         actions={<span className="model-chip"><Award size={14} /> {data.model_status || 'DEVELOPMENT'} · {data.model_version}</span>}
       />
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+
+      <HistoricalDatasetPanel dataset={data.historical_dataset} demo={demo} />
 
       <OfflineEvaluationPanel evaluation={data.offline_evaluation} demo={demo} />
 
@@ -109,6 +112,42 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
   )
 }
 
+function HistoricalDatasetPanel({ dataset, demo }: { dataset?: HistoricalDatasetPerformanceSummary | null; demo: boolean }) {
+  const available = Boolean(dataset && dataset.availability !== 'UNAVAILABLE')
+  return (
+    <Panel
+      title="Historical dataset readiness"
+      eyebrow="DATASET EVIDENCE - NOT MODEL PERFORMANCE"
+      className="historical-performance-panel"
+      action={<span className={`evaluation-status evaluation-status--${available ? 'insufficient_data' : 'not_run'}`}>{dataset ? formatStatus(dataset.readiness_status) : 'UNAVAILABLE'}</span>}
+    >
+      {!dataset ? (
+        <div className="evaluation-state evaluation-state--not_run" role="status">
+          <strong>No governed historical dataset summary</strong>
+          <span>This absence is not interpreted as a successful evaluation or zero error.</span>
+        </div>
+      ) : (
+        <div className="historical-performance-body">
+          <p>{demo ? 'Illustrative dataset-readiness metadata; it is not historical evidence.' : dataset.status_reason}</p>
+          <dl className="evaluation-meta">
+            <div><dt>Population</dt><dd>Tier A strict</dd></div>
+            <div><dt>Season</dt><dd>{dataset.season}</dd></div>
+            <div><dt>Rows</dt><dd>{dataset.row_count.toLocaleString()}</dd></div>
+            <div><dt>Event dates</dt><dd>{dataset.distinct_event_dates}</dd></div>
+            <div><dt>Held-out rows</dt><dd>{dataset.holdout_rows.toLocaleString()}</dd></div>
+            <div><dt>Possible folds</dt><dd>{dataset.rolling_origin_folds}</dd></div>
+          </dl>
+          <div className="historical-performance-guardrail">
+            <strong>The A2 dataset-readiness panel publishes no model metrics.</strong>
+            <span>At A2 materialization: training invoked: {formatBooleanFact(dataset.model_training_invoked)}; fitting invoked: {formatBooleanFact(dataset.model_fitting_invoked)}; holdout metrics inspected: {formatBooleanFact(dataset.holdout_metrics_inspected)}.</span>
+          </div>
+          {dataset.failed_checks.length > 0 && <p className="historical-performance-failures"><strong>Failed checks:</strong> {dataset.failed_checks.map(formatStatus).join(', ')}</p>}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
 function OfflineEvaluationPanel({ evaluation, demo }: { evaluation?: OfflineEvaluation | null; demo: boolean }) {
   const status = evaluation?.status ?? 'NOT_RUN'
   const available = status === 'AVAILABLE'
@@ -133,8 +172,18 @@ function OfflineEvaluationPanel({ evaluation, demo }: { evaluation?: OfflineEval
             <div><dt>Model version</dt><dd>{evaluation.model_version || 'N/A'}</dd></div>
             <div><dt>Manifest version</dt><dd>{evaluation.manifest_version || 'N/A'}</dd></div>
             <div><dt>Feature version</dt><dd>{evaluation.feature_version || 'N/A'}</dd></div>
+            <div><dt>Dataset checksum</dt><dd>{evaluation.dataset_checksum ? <Checksum value={evaluation.dataset_checksum} label="Dataset checksum" /> : 'N/A'}</dd></div>
+            <div><dt>Feature-set checksum</dt><dd>{evaluation.feature_set_checksum ? <Checksum value={evaluation.feature_set_checksum} label="Feature-set checksum" /> : 'N/A'}</dd></div>
+            <div><dt>Gen-1 research decision</dt><dd>{evaluation.research_decision ? formatStatus(evaluation.research_decision) : 'N/A'}</dd></div>
             <div><dt>Evaluation policy</dt><dd>{evaluation.evaluation_policy_version || 'N/A'}</dd></div>
           </dl>
+        )}
+
+        {evaluation?.research_decision && (
+          <section className="evaluation-research-decision" aria-labelledby="research-decision-heading">
+            <div><span>GEN-1 RESEARCH STATUS - SEPARATE FROM PRODUCTION PROMOTION</span><h3 id="research-decision-heading">{formatStatus(evaluation.research_decision)}</h3></div>
+            <p>This classification governs research comparison only. It does not publish a production champion or authorize live use.</p>
+          </section>
         )}
 
         {available && evaluation && (
@@ -238,6 +287,15 @@ function formatStatus(status: string) {
 
 function formatEvaluationMetric(value: number | null | undefined, digits = 3) {
   return value == null ? 'N/A' : value.toFixed(digits)
+}
+
+function formatBooleanFact(value: boolean | null) {
+  return value == null ? 'not persisted' : value ? 'yes' : 'no'
+}
+
+function Checksum({ value, label }: { value: string; label: string }) {
+  const compact = value.length > 24 ? `${value.slice(0, 12)}...${value.slice(-8)}` : value
+  return <code className="evaluation-checksum" title={value} aria-label={`${label}: ${value}`}>{compact}</code>
 }
 
 function EmptyEvaluation({ compact = false }: { compact?: boolean }) {

@@ -1557,7 +1557,7 @@ class Forecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     readiness_components: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     model_drivers: Mapped[list[Any] | None] = mapped_column(JSON)
     feature_snapshot_reference: Mapped[str | None] = mapped_column(String(500))
-    market_snapshot_reference: Mapped[str | None] = mapped_column(String(500))
+    market_snapshot_reference: Mapped[str | None] = mapped_column(Text)
     source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
     simulation_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

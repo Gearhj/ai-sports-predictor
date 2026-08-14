@@ -36,6 +36,7 @@ describe('route-level data provenance and availability', () => {
 
     expect(await screen.findByText('LIVE DATA')).toBeInTheDocument()
     expect(screen.getByText('71 / 100')).toBeInTheDocument()
+    expect(screen.getByText('MODEL STATUS - DEVELOPMENT')).toBeInTheDocument()
     expect(screen.queryByText(/DEMO DATA/i)).not.toBeInTheDocument()
   })
 
@@ -56,6 +57,23 @@ describe('route-level data provenance and availability', () => {
     expect(screen.queryByText('ILLUSTRATIVE DEMO — NOT LIVE RESULTS')).not.toBeInTheDocument()
     expect(screen.queryByText(/Mets/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument()
+    expect(screen.getByText(/No historical row or illustrative result has been substituted/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View governed 2025 history' })).toHaveAttribute('href', '/research/history')
+  })
+
+  it('keeps an empty Today desk current-only and links to separate history', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      ...demoDashboard,
+      data_mode: 'empty',
+      summary: { ...demoDashboard.summary, games: 0, complete_forecasts: 0, qualifying_edges: 0 },
+      games: [],
+    })))
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'No current MLB slate is available' })).toBeInTheDocument()
+    expect(screen.getByText(/Historical research remains a separate evidence stream/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View governed 2025 history' })).toHaveAttribute('href', '/research/history')
+    expect(screen.queryByText(/Mets/i)).not.toBeInTheDocument()
   })
 
   it('renders unavailable performance metrics as N/A instead of perfect zeros', async () => {
@@ -114,6 +132,22 @@ describe('route-level data provenance and availability', () => {
       games_discovered: 0,
       missing_games: null,
       recent_jobs: [],
+      historical_warehouse: {
+        availability: 'AVAILABLE',
+        season: 2025,
+        temporal_semantics: 'RETROSPECTIVE_RECONSTRUCTION',
+        strict_rows: 2428,
+        enhanced_rows: 2430,
+        readiness_status: 'NOT_READY_FOR_GATE_3B_MODEL_DEVELOPMENT',
+        mean_strict_feature_coverage: 0.854483,
+        integrity_status: 'PASS',
+        leakage_status: 'PASS',
+        statcast_status: 'UNAVAILABLE',
+        historical_market_status: 'UNAVAILABLE',
+        failed_checks: ['required_feature_family_coverage'],
+        built_at: '2026-08-14T12:00:00Z',
+        detail: 'Persisted retrospective evidence does not affect the live health score.',
+      },
     })))
     render(<App />)
 
@@ -123,5 +157,13 @@ describe('route-level data provenance and availability', () => {
     expect(screen.getByText('NONE')).toBeInTheDocument()
     expect(screen.getByText('No pipeline jobs recorded.')).toBeInTheDocument()
     expect(screen.getByText('Unmatched-game count unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Current Live Data' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Historical Research Warehouse' })).toBeInTheDocument()
+    expect(screen.getByText('Excluded from live health score')).toBeInTheDocument()
+    expect(screen.getByText('2,428')).toBeInTheDocument()
+    expect(screen.getByText('2,430')).toBeInTheDocument()
+    expect(screen.getByText('85.45%')).toBeInTheDocument()
+    expect(screen.getAllByText('PASS').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('UNAVAILABLE').length).toBeGreaterThanOrEqual(2)
   })
 })

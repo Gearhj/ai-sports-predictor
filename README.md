@@ -203,10 +203,12 @@ The training command does not auto-upgrade the database, create an administrator
 or start any job/adapters. It writes an immutable diagnostic dataset manifest
 under the Git-ignored `.runtime/gate3/` root even when the sample is empty.
 
-The current local sample has nine scheduled `LIVE` games, zero final outcomes,
-18 feature snapshots, 18 published lifecycle forecasts, and zero eligible
-labeled rows. The honest result is `INSUFFICIENT_DATA / NO_PROMOTION`: no real
-model, calibrator, holdout evaluation, or superiority claim exists. See the
+At the frozen 2026-08-13 cutoff, the prospective Gate 3 audit contained nine
+scheduled `LIVE` games, zero final outcomes, 18 feature snapshots, 18 published
+lifecycle forecasts, and zero eligible labeled rows. Its scoped result remains
+`INSUFFICIENT_DATA / NO_PROMOTION`: no prospective model, calibrator, holdout
+evaluation, or superiority claim was produced. This is separate from Gate 3B's
+retrospective research challenger and 2026-08-14 operational validation. See the
 [Gate 3 training and validation report](docs/GATE_3_MLB_MODEL_TRAINING_VALIDATION_REPORT.md)
 for the exact controls and evidence boundary.
 
@@ -243,7 +245,7 @@ captures.
 The single 2025-06-17 Statcast trial succeeded with 4,375 rows across 15 games
 and was promoted locally into a deterministic Tier B research artifact.
 Publication/eligibility is unproven, so it was not admitted to strict training.
-No model was trained or promoted. The current plan has no historical-market entitlement, so
+No model was trained or promoted during that A1 Statcast trial. The current plan has no historical-market entitlement, so
 `HISTORICAL_MARKET_DATA = UNAVAILABLE_ON_CURRENT_PLAN` and historical CLV stays
 unavailable.
 
@@ -261,6 +263,34 @@ zero provider calls and performs no model fitting, holdout scoring, or
 promotion. See the
 [A2 feature-materialization report](docs/GATE_3A_A2_2025_FEATURE_MATERIALIZATION_REPORT.md)
 for the final evidence boundary.
+
+Gate 3B subsequently used a separately authorized
+`MLB_GEN1_RESEARCH_POLICY_V1`; it did not weaken that stricter promotion gate.
+The policy admitted only the exact 2,428-row strict A2 artifact, used 1,923
+development games across 16 chronological folds, and opened its 505-game
+locked holdout once. The frozen run-strength model with Platt calibration was
+classified `RESEARCH_CHALLENGER` and `RESEARCH_ONLY_NO_PROMOTION`. Training and
+evaluation made zero provider calls, used no Tier B Statcast or historical
+market data, and did not activate official positions. See the
+[Gate 3B Gen-1 report](docs/GATE_3B_GEN1_MODEL_AND_LIVE_ACTIVATION_REPORT.md)
+for exact model, artifact, holdout, and registry evidence.
+
+The governed historical research desk at `/research/history` keeps 2,428
+strict Tier A rows separate from the 2,430-row enhanced Tier B shadow and from
+today's live forecasts. Its paginated explorer filters canonical pregame
+snapshots by team, month, tier, and source and fails closed on current-manifest
+lineage; it does not expose labels or manufacture historical market fields.
+
+The one controlled 2026-08-14 live run persisted 14 LIVE games, 13 weather
+snapshots, 756 current Odds snapshots from exactly one HTTP request, 14 feature
+snapshots, and 12 forecasts; two games remained forecast-unavailable because
+probable pitchers were missing. Odds quota moved from 497 to 494 remaining.
+Migration `20260814_0009` and a provider-free regeneration then superseded the
+12 truncated version-1 market references with 12 immutable version-2 forecasts,
+each resolving all 54 market snapshot IDs. Continuous schedulers, Odds polling,
+Statcast, and official positions remain disabled. Today, Data Health,
+Performance, and Historical Research continue to present live operations,
+offline research, and historical evidence as separate states.
 
 See the [Gate 3A plan](docs/GATE_3A_IMPLEMENTATION_PLAN.md),
 [A0 implementation report](docs/GATE_3A_IMPLEMENTATION_REPORT.md), and

@@ -122,6 +122,8 @@ def audit_historical_dataset_readiness(
     classes = tuple(sorted({int(row.home_win) for row in development_rows}))
     game_count = len({row.game_id for row in ordered})
     training_cutoff = _parse_timestamp(manifest.training_cutoff, "manifest training_cutoff")
+    manifest_feature_names = tuple(manifest.feature_names)
+    manifest_feature_name_set = frozenset(manifest_feature_names)
 
     checks = {
         "manifest_row_count": _check(
@@ -232,17 +234,19 @@ def audit_historical_dataset_readiness(
         "schema_resolves": _check(
             bool(manifest.feature_schema_version)
             and bool(manifest.feature_version_id)
-            and bool(manifest.feature_names)
+            and bool(manifest_feature_names)
+            and len(manifest_feature_name_set) == len(manifest_feature_names)
             and all(
                 row.feature_schema_version == manifest.feature_schema_version
                 and row.feature_version_id == manifest.feature_version_id
-                and list(row.features) == manifest.feature_names
+                and len(row.features) == len(manifest_feature_names)
+                and frozenset(row.features) == manifest_feature_name_set
                 for row in ordered
             ),
             {
                 "schema": manifest.feature_schema_version,
                 "feature_version_id": manifest.feature_version_id,
-                "feature_count": len(manifest.feature_names),
+                "feature_count": len(manifest_feature_names),
             },
             {"single_exact_contract": True},
         ),

@@ -74,6 +74,7 @@ const demoDate = 'Illustrative date · August 12, 2026'
 export const demoDashboard: DashboardData = {
   data_mode: 'demo',
   date: demoDate,
+  model_status: 'DEVELOPMENT',
   summary: {
     games: 1,
     complete_forecasts: 1,
@@ -233,6 +234,9 @@ export const demoPerformance: PerformanceData = {
     model_version: 'DEVELOPMENT EXAMPLE',
     manifest_version: 'example-manifest-v1',
     feature_version: 'example-features-v1',
+    dataset_checksum: 'a'.repeat(64),
+    feature_set_checksum: 'b'.repeat(64),
+    research_decision: 'RESEARCH_CHALLENGER',
     evaluation_policy_version: 'example-policy-v1',
     rolling_origin_folds: 3,
     train_window: { start_date: '2022-04-07', end_date: '2023-09-30', games: 3600 },

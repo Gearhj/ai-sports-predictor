@@ -130,6 +130,38 @@ def test_readiness_audit_rejects_mixed_feature_identity() -> None:
     assert result.checks["schema_resolves"]["passed"] is False
 
 
+def test_readiness_schema_accepts_canonical_json_key_order() -> None:
+    rows = [
+        replace(
+            _row(index),
+            features=dict(
+                sorted(
+                    {
+                        "home_rating": 1500.0 + index,
+                        "away_rating": 1490.0 - index,
+                    }.items()
+                )
+            ),
+        )
+        for index in range(1200)
+    ]
+    manifest = replace(
+        _manifest(rows),
+        feature_names=["home_rating", "away_rating"],
+    )
+    assert list(rows[0].features) == ["away_rating", "home_rating"]
+
+    result = audit_historical_dataset_readiness(manifest, rows)
+    assert result.status == READY_STATUS
+    assert result.checks["schema_resolves"]["passed"] is True
+
+    missing = list(rows)
+    missing[0] = replace(missing[0], features={"home_rating": 1500.0})
+    blocked = audit_historical_dataset_readiness(manifest, missing)
+    assert blocked.status == NOT_READY_STATUS
+    assert blocked.checks["schema_resolves"]["passed"] is False
+
+
 def test_readiness_never_inspects_holdout_labels_and_rejects_row_leakage() -> None:
     rows = [_row(index) for index in range(1200)]
     baseline = audit_historical_dataset_readiness(_manifest(rows), rows)

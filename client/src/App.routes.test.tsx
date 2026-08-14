@@ -7,6 +7,7 @@ vi.mock('echarts-for-react', () => ({
 }))
 
 const routes = [
+  { path: '/research/history', heading: /Historical MLB Research Warehouse/i, level: 1 },
   { path: '/', heading: /Today’s MLB Forecasts/i, level: 1 },
   { path: '/games/demo-nym-atl', heading: /Live game analysis unavailable/i, level: 2 },
   { path: '/markets', heading: /Market Board/i, level: 1 },
