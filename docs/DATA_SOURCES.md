@@ -460,6 +460,28 @@ evaluation made zero MLB, Weather, Odds, or Statcast calls and consumed no Odds
 credits. This research use does not alter the source licensing, retention,
 redistribution, temporal-availability, or stricter promotion limitations above.
 
+### Gate 3C player/event source boundary
+
+Gate 3C made zero provider requests. Baseball Savant's CSV documentation links
+to the current MLB.com Terms of Use, and the review did not establish
+defensible authorization for automated multi-season acquisition. Owner approval
+is represented separately from provider permission and existing-evidence
+derived use; empty authorization records mean denied, not implicitly allowed.
+Acquisition Stages A-G therefore remain `BLOCKED_SOURCE_AUTHORIZATION`.
+
+Provider-free processing of the already retained 2025-06-17 evidence
+canonicalized and aligned all 15 games: 1,140 PAs and 4,375 count events (4,354
+physical pitches plus 21 automatic count events). The exact canonical-game and
+alignment manifest SHA-256 values are
+`a3fecfeecc930dec7c2d47f42ca800b90bf0b84fb8c6b19e6aef16b60771660c`
+and
+`961f64dd5754f7002e59728c779184c8636a67e737b82e4d45a569f6dfda07af`.
+This is a parser/alignment proof only: no Parquet partition was published, the
+evidence remains Tier B with unproven historical availability, and it is not
+eligible for strict training or evaluation. Full source, storage, and remaining
+coverage limitations are in
+`docs/GATE_3C_GEN2_PLAYER_LEVEL_MODEL_REPORT.md`.
+
 ### Gate 3B controlled current-day evidence
 
 The bounded 2026-08-14 live job

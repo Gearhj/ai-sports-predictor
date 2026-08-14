@@ -34,6 +34,7 @@ from app.models import (
     AuditEvent,
     ExternalIdMapping,
     Forecast,
+    ForecastTrack,
     Game,
     GameStatus,
     GameTeam,
@@ -583,8 +584,12 @@ class JobOrchestrator:
         }
 
     async def recalculate_performance(self, event_date: date) -> dict[str, Any]:
-        evaluation = ReadService(self.session, self.settings).performance()
-        model = self.session.scalar(select(ModelVersion).order_by(ModelVersion.created_at.desc()).limit(1))
+        reader = ReadService(self.session, self.settings)
+        evaluation = reader.performance()
+        # Only the model bound to a current-development forecast may receive
+        # operational forward metrics. A newer research registry row is not a
+        # public model by recency alone.
+        model = reader._forward_model([])
         metrics = {
             "evaluated_games": evaluation.evaluated_games,
             "brier_score": evaluation.brier_score,
@@ -851,7 +856,8 @@ async def seed_demo_data(session: Session, settings: Settings, event_date: date 
     steps["odds"] = await orchestrator.refresh_odds(event_date, demo_only=True)
     existing = session.scalar(select(Forecast.id).join(Game, Game.id == Forecast.game_id).where(
         Game.starts_at >= local_day_bounds(event_date, settings.display_timezone)[0],
-        Game.starts_at < local_day_bounds(event_date, settings.display_timezone)[1]
+        Game.starts_at < local_day_bounds(event_date, settings.display_timezone)[1],
+        Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
     ).limit(1))
     steps["forecasts"] = (
         {"records": 0, "status": "already seeded"}

@@ -37,6 +37,9 @@ data/curated/**
 !data/curated/.gitkeep
 data/features/**
 !data/features/.gitkeep
+*.parquet
+*.arrow
+*.feather
 *.db
 *.db-*
 *.sqlite

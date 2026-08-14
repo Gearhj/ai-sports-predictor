@@ -15,6 +15,7 @@ from app.models import (
     Forecast,
     ForecastLifecycle,
     ForecastStatus,
+    ForecastTrack,
     Game,
     GameFeatureSnapshot,
     GameRefreshState,
@@ -128,6 +129,7 @@ class GameRefreshStateService:
                 Forecast.game_id == game.id,
                 Forecast.available_as_of <= instant,
                 Forecast.source_mode == game.source_mode,
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
             )
             .order_by(Forecast.version.desc())
             .limit(1)
@@ -186,6 +188,7 @@ class GameRefreshStateService:
                 Forecast.available_as_of < starts_at,
                 Forecast.available_as_of <= instant,
                 Forecast.source_mode == "LIVE",
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
             )
             .order_by(Forecast.version.desc())
             .limit(1)

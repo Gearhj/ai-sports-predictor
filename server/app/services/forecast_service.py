@@ -20,6 +20,7 @@ from app.models import (
     ForecastLifecycle,
     ForecastMovementEvidence,
     ForecastStatus,
+    ForecastTrack,
     Game,
     GameTeam,
     Market,
@@ -258,7 +259,13 @@ class ForecastService:
             simulation_seed=self.settings.simulation_seed,
         ).predict(game_features_from_snapshot(snapshot), data_readiness=readiness.score)
         next_version = (
-            self.session.scalar(select(func.max(Forecast.version)).where(Forecast.game_id == game.id)) or 0
+            self.session.scalar(
+                select(func.max(Forecast.version)).where(
+                    Forecast.game_id == game.id,
+                    Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+                )
+            )
+            or 0
         ) + 1
         published = (
             readiness.ready_to_publish
@@ -270,6 +277,7 @@ class ForecastService:
             model_version_id=model_version.id,
             feature_version_id=feature_version.id,
             feature_snapshot_id=snapshot.id,
+            forecast_track=ForecastTrack.CURRENT_DEVELOPMENT,
             version=next_version,
             generated_at=computed_at,
             available_as_of=computed_at,
@@ -405,6 +413,7 @@ class ForecastService:
             select(Forecast)
             .where(
                 Forecast.game_id == forecast.game_id,
+                Forecast.forecast_track == forecast.forecast_track,
                 Forecast.id != forecast.id,
                 Forecast.version < forecast.version,
                 Forecast.feature_snapshot_id.is_not(None),

@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.models import (
     Forecast,
     ForecastStatus,
+    ForecastTrack,
     Game,
     Market,
     MarketOutcome,
@@ -41,6 +42,8 @@ def publish_official_positions(session: Session, settings: Settings, games: list
         forecast = session.scalar(select(Forecast).where(
             Forecast.game_id == game.id,
             Forecast.status == ForecastStatus.PUBLISHED,
+            Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+            Forecast.source_mode == game.source_mode,
         ).order_by(Forecast.version.desc()).limit(1))
         if not forecast:
             continue
@@ -128,7 +131,12 @@ def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]
 
 
 def _current_bankroll(session: Session) -> float:
-    positions = list(session.scalars(select(OfficialAspPosition).order_by(OfficialAspPosition.placed_at)))
+    positions = list(session.scalars(
+        select(OfficialAspPosition)
+        .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)
+        .where(Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT)
+        .order_by(OfficialAspPosition.placed_at)
+    ))
     settled = [
         SettledPosition(float(position.stake), position.decimal_odds, SettlementResult(position.result.value))
         for position in positions

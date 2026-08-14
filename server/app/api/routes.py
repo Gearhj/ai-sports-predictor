@@ -10,7 +10,14 @@ from sqlalchemy import func, select
 from app.api.dependencies import AdminUser, AppSettings, CurrentUser, DatabaseSession
 from app.core.time import local_today
 from app.jobs import AVAILABLE_JOBS, JobOrchestrator
-from app.models import Forecast, Game, JobRun, OddsSnapshot, OfficialAspPosition
+from app.models import (
+    Forecast,
+    ForecastTrack,
+    Game,
+    JobRun,
+    OddsSnapshot,
+    OfficialAspPosition,
+)
 from app.schemas.api import (
     AuthResponse,
     AuthUser,
@@ -68,8 +75,19 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
     normalized = {key: (value / total if total > 0 else 0.0) for key, value in weights.items()}
     sports_records = sum(
         int(session.scalar(select(func.count()).select_from(model)) or 0)
-        for model in (Game, Forecast, OddsSnapshot, OfficialAspPosition)
+        for model in (Game, OddsSnapshot)
     )
+    sports_records += int(session.scalar(
+        select(func.count()).select_from(Forecast).where(
+            Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT
+        )
+    ) or 0)
+    sports_records += int(session.scalar(
+        select(func.count())
+        .select_from(OfficialAspPosition)
+        .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)
+        .where(Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT)
+    ) or 0)
     if not sports_records:
         data_mode = "empty"
     else:

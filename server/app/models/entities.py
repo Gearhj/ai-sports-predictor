@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum as SAEnum, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
 
@@ -85,6 +85,13 @@ class ForecastLifecycle(StrEnum):
     EARLY = "early"
     PREGAME = "pregame"
     FINAL = "final"
+
+
+class ForecastTrack(StrEnum):
+    """Mutually exclusive operational and research forecast namespaces."""
+
+    CURRENT_DEVELOPMENT = "CURRENT_DEVELOPMENT"
+    GEN2_RESEARCH_CHALLENGER = "GEN2_RESEARCH_CHALLENGER"
 
 
 class ModelStatus(StrEnum):
@@ -1532,12 +1539,849 @@ class HistoricalEvidenceStateAttestation(UUIDPrimaryKeyMixin, CreatedAtMixin, Ba
     )
 
 
+class SourceOwnerApproval(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable project-owner decision for one historical source and use scope."""
+
+    __tablename__ = "source_owner_approvals"
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    approval_scope: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="LOCAL_PRIVATE_RESEARCH",
+        server_default="LOCAL_PRIVATE_RESEARCH",
+    )
+    decision: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="DENIED", server_default="DENIED"
+    )
+    approved: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    decided_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    authorization_reference: Mapped[str | None] = mapped_column(String(500))
+    conditions: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("identity_checksum", name="uq_source_owner_approval_identity"),
+        CheckConstraint(
+            "approval_scope = 'LOCAL_PRIVATE_RESEARCH'",
+            name="ck_source_owner_approval_scope",
+        ),
+        CheckConstraint(
+            "decision IN ('APPROVED', 'DENIED')",
+            name="ck_source_owner_approval_decision",
+        ),
+        CheckConstraint(
+            "(approved = true AND decision = 'APPROVED') OR "
+            "(approved = false AND decision = 'DENIED')",
+            name="ck_source_owner_approval_consistency",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > decided_at",
+            name="ck_source_owner_approval_expiry",
+        ),
+        CheckConstraint(
+            "length(identity_checksum) = 64",
+            name="ck_source_owner_approval_identity_length",
+        ),
+        Index("ix_source_owner_approval_source_decided", "source_key", "decided_at"),
+    )
+
+
+class ProviderAccessAuthorization(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable, default-denied decision governing new provider access."""
+
+    __tablename__ = "provider_access_authorizations"
+    owner_approval_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_owner_approvals.id"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    access_method: Mapped[str] = mapped_column(String(80), nullable=False)
+    decision: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="DENIED", server_default="DENIED"
+    )
+    authorized: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    decided_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    terms_reference: Mapped[str | None] = mapped_column(String(500))
+    terms_checksum: Mapped[str | None] = mapped_column(String(64))
+    decision_basis: Mapped[str] = mapped_column(Text, nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "identity_checksum", name="uq_provider_access_authorization_identity"
+        ),
+        CheckConstraint(
+            "decision IN ('AUTHORIZED', 'DENIED', 'UNRESOLVED')",
+            name="ck_provider_access_authorization_decision",
+        ),
+        CheckConstraint(
+            "(authorized = true AND decision = 'AUTHORIZED') OR "
+            "(authorized = false AND decision IN ('DENIED', 'UNRESOLVED'))",
+            name="ck_provider_access_authorization_consistency",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > decided_at",
+            name="ck_provider_access_authorization_expiry",
+        ),
+        CheckConstraint(
+            "terms_checksum IS NULL OR length(terms_checksum) = 64",
+            name="ck_provider_access_authorization_terms_checksum",
+        ),
+        CheckConstraint(
+            "length(identity_checksum) = 64",
+            name="ck_provider_access_authorization_identity_length",
+        ),
+        Index(
+            "ix_provider_access_authorization_source_decided",
+            "source_key",
+            "decided_at",
+        ),
+        Index(
+            "ix_provider_access_authorization_owner",
+            "owner_approval_id",
+        ),
+    )
+
+
+class ExistingEvidenceDerivedUseDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable decision for local derivation from evidence already on disk."""
+
+    __tablename__ = "existing_evidence_derived_use_decisions"
+    owner_approval_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_owner_approvals.id"), nullable=False
+    )
+    source_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("historical_source_versions.id")
+    )
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_manifest_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    use_scope: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="LOCAL_PRIVATE_RESEARCH",
+        server_default="LOCAL_PRIVATE_RESEARCH",
+    )
+    decision: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="DENIED", server_default="DENIED"
+    )
+    allowed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    decided_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_basis: Mapped[str] = mapped_column(Text, nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "identity_checksum", name="uq_existing_evidence_use_identity"
+        ),
+        CheckConstraint(
+            "use_scope = 'LOCAL_PRIVATE_RESEARCH'",
+            name="ck_existing_evidence_use_scope",
+        ),
+        CheckConstraint(
+            "decision IN ('ALLOWED', 'DENIED', 'UNRESOLVED')",
+            name="ck_existing_evidence_use_decision",
+        ),
+        CheckConstraint(
+            "(allowed = true AND decision = 'ALLOWED') OR "
+            "(allowed = false AND decision IN ('DENIED', 'UNRESOLVED'))",
+            name="ck_existing_evidence_use_consistency",
+        ),
+        CheckConstraint(
+            "expires_at IS NULL OR expires_at > decided_at",
+            name="ck_existing_evidence_use_expiry",
+        ),
+        CheckConstraint(
+            "length(evidence_manifest_checksum) = 64 "
+            "AND length(identity_checksum) = 64",
+            name="ck_existing_evidence_use_checksum_lengths",
+        ),
+        Index("ix_existing_evidence_use_source_decided", "source_key", "decided_at"),
+        Index("ix_existing_evidence_use_source_version", "source_version_id"),
+    )
+
+
+class HistoricalAcquisitionStage(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only state record for one bounded, resumable acquisition stage."""
+
+    __tablename__ = "historical_acquisition_stages"
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    owner_approval_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_owner_approvals.id"), nullable=False
+    )
+    provider_authorization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("provider_access_authorizations.id")
+    )
+    supersedes_stage_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("historical_acquisition_stages.id")
+    )
+    stage_key: Mapped[str] = mapped_column(String(40), nullable=False)
+    stage_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    target_family: Mapped[str] = mapped_column(String(40), nullable=False)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int | None] = mapped_column(Integer)
+    event_start_date: Mapped[date | None] = mapped_column(Date)
+    event_end_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checkpoint_identity: Mapped[str | None] = mapped_column(String(64))
+    next_resume_point: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    physical_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rate_limit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_received: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    bytes_received: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    elapsed_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "source_version_id",
+            "stage_key",
+            "stage_revision",
+            name="uq_historical_acquisition_stage_revision",
+        ),
+        UniqueConstraint(
+            "identity_checksum", name="uq_historical_acquisition_stage_identity"
+        ),
+        CheckConstraint("stage_revision >= 1", name="ck_historical_acquisition_stage_revision"),
+        CheckConstraint("season >= 1876", name="ck_historical_acquisition_stage_season"),
+        CheckConstraint(
+            "month IS NULL OR (month >= 1 AND month <= 12)",
+            name="ck_historical_acquisition_stage_month",
+        ),
+        CheckConstraint(
+            "(event_start_date IS NULL AND event_end_date IS NULL) OR "
+            "(event_start_date IS NOT NULL AND event_end_date IS NOT NULL "
+            "AND event_end_date >= event_start_date)",
+            name="ck_historical_acquisition_stage_window",
+        ),
+        CheckConstraint(
+            "target_family IN ('MLB_CORE', 'STATCAST')",
+            name="ck_historical_acquisition_stage_family",
+        ),
+        CheckConstraint(
+            "status IN ('PLANNED', 'BLOCKED', 'AUTHORIZED', 'RUNNING', "
+            "'SUCCEEDED', 'FAILED', 'SKIPPED')",
+            name="ck_historical_acquisition_stage_status",
+        ),
+        CheckConstraint(
+            "started_at IS NULL OR started_at <= recorded_at",
+            name="ck_historical_acquisition_stage_start",
+        ),
+        CheckConstraint(
+            "completed_at IS NULL OR (started_at IS NOT NULL "
+            "AND completed_at >= started_at AND completed_at <= recorded_at)",
+            name="ck_historical_acquisition_stage_completion",
+        ),
+        CheckConstraint(
+            "physical_attempt_count >= 0 AND success_count >= 0 "
+            "AND failure_count >= 0 AND retry_count >= 0 AND rate_limit_count >= 0 "
+            "AND success_count + failure_count + rate_limit_count <= physical_attempt_count",
+            name="ck_historical_acquisition_stage_attempt_counts",
+        ),
+        CheckConstraint(
+            "records_received >= 0 AND bytes_received >= 0 AND elapsed_ms >= 0",
+            name="ck_historical_acquisition_stage_volume",
+        ),
+        CheckConstraint(
+            "checkpoint_identity IS NULL OR length(checkpoint_identity) = 64",
+            name="ck_historical_acquisition_stage_checkpoint",
+        ),
+        CheckConstraint(
+            "length(identity_checksum) = 64",
+            name="ck_historical_acquisition_stage_identity_length",
+        ),
+        Index("ix_historical_acquisition_stage_status", "stage_key", "status"),
+        Index("ix_historical_acquisition_stage_source", "source_version_id", "recorded_at"),
+    )
+
+
+class HistoricalRequestAttempt(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Secret-free append-only accounting for one physical acquisition attempt."""
+
+    __tablename__ = "historical_request_attempts"
+    acquisition_stage_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_acquisition_stages.id"), nullable=False
+    )
+    checkpoint_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id")
+    )
+    provider_ledger_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("provider_request_ledger.id")
+    )
+    endpoint_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    attempt_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    http_status_code: Mapped[int | None] = mapped_column(Integer)
+    records_received: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    bytes_received: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    elapsed_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    retry_after_seconds: Mapped[int | None] = mapped_column(Integer)
+    error_type: Mapped[str | None] = mapped_column(String(120))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "acquisition_stage_id",
+            "attempt_sequence",
+            name="uq_historical_request_attempt_sequence",
+        ),
+        UniqueConstraint(
+            "identity_checksum", name="uq_historical_request_attempt_identity"
+        ),
+        CheckConstraint("attempt_sequence >= 1", name="ck_historical_request_attempt_sequence"),
+        CheckConstraint(
+            "status IN ('SUCCEEDED', 'FAILED', 'RATE_LIMITED')",
+            name="ck_historical_request_attempt_status",
+        ),
+        CheckConstraint(
+            "completed_at >= requested_at",
+            name="ck_historical_request_attempt_completion",
+        ),
+        CheckConstraint(
+            "http_status_code IS NULL OR (http_status_code >= 100 AND http_status_code <= 599)",
+            name="ck_historical_request_attempt_http_status",
+        ),
+        CheckConstraint(
+            "records_received >= 0 AND bytes_received >= 0 AND elapsed_ms >= 0 "
+            "AND (retry_after_seconds IS NULL OR retry_after_seconds >= 0)",
+            name="ck_historical_request_attempt_volume",
+        ),
+        CheckConstraint(
+            "length(request_fingerprint) = 64 AND length(identity_checksum) = 64",
+            name="ck_historical_request_attempt_checksum_lengths",
+        ),
+        Index("ix_historical_request_attempt_stage", "acquisition_stage_id", "attempt_sequence"),
+        Index("ix_historical_request_attempt_status", "status", "requested_at"),
+    )
+
+
+class HistoricalEventPartition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only metadata for one governed pitch or plate-appearance Parquet file."""
+
+    __tablename__ = "historical_event_partitions"
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("history_backfill_checkpoints.id"), nullable=False
+    )
+    event_family: Mapped[str] = mapped_column(String(32), nullable=False)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    logical_uri: Mapped[str] = mapped_column(String(1000), nullable=False)
+    row_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    game_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    plate_appearance_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    player_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_event_date: Mapped[date | None] = mapped_column(Date)
+    max_event_date: Mapped[date | None] = mapped_column(Date)
+    min_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    max_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    storage_format: Mapped[str] = mapped_column(String(16), nullable=False, default="PARQUET")
+    compression: Mapped[str] = mapped_column(String(16), nullable=False, default="ZSTD")
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    schema_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    raw_contributor_manifest: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    raw_contributor_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    evidence_tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    timing_classification: Mapped[str] = mapped_column(String(80), nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("logical_uri", name="uq_historical_event_partition_uri"),
+        UniqueConstraint(
+            "identity_checksum", name="uq_historical_event_partition_identity"
+        ),
+        CheckConstraint(
+            "event_family IN ('pitch', 'plate_appearance')",
+            name="ck_historical_event_partition_family",
+        ),
+        CheckConstraint("season >= 1876", name="ck_historical_event_partition_season"),
+        CheckConstraint(
+            "month >= 1 AND month <= 12",
+            name="ck_historical_event_partition_month",
+        ),
+        CheckConstraint(
+            "logical_uri LIKE 'historical-events/%' "
+            "AND logical_uri NOT LIKE '/%' "
+            "AND logical_uri NOT LIKE '%..%' "
+            "AND replace(logical_uri, '\\', '') = logical_uri "
+            "AND logical_uri LIKE '%.parquet'",
+            name="ck_historical_event_partition_logical_uri",
+        ),
+        CheckConstraint(
+            "row_count > 0 AND game_count > 0 "
+            "AND plate_appearance_count > 0 AND player_count > 0",
+            name="ck_historical_event_partition_counts",
+        ),
+        CheckConstraint(
+            "(min_event_date IS NULL AND max_event_date IS NULL) OR "
+            "(min_event_date IS NOT NULL AND max_event_date IS NOT NULL "
+            "AND max_event_date >= min_event_date)",
+            name="ck_historical_event_partition_date_bounds",
+        ),
+        CheckConstraint(
+            "(min_event_at IS NULL AND max_event_at IS NULL) OR "
+            "(min_event_at IS NOT NULL AND max_event_at IS NOT NULL "
+            "AND max_event_at >= min_event_at)",
+            name="ck_historical_event_partition_time_bounds",
+        ),
+        CheckConstraint(
+            "storage_format = 'PARQUET' AND compression = 'ZSTD'",
+            name="ck_historical_event_partition_storage",
+        ),
+        CheckConstraint(
+            "file_size_bytes > 0",
+            name="ck_historical_event_partition_file_size",
+        ),
+        CheckConstraint(
+            "evidence_tier IN ('A', 'B', 'C', 'EXCLUDED')",
+            name="ck_historical_event_partition_tier",
+        ),
+        CheckConstraint(
+            "length(schema_hash) = 64 AND length(file_sha256) = 64 "
+            "AND length(raw_contributor_checksum) = 64 "
+            "AND length(identity_checksum) = 64",
+            name="ck_historical_event_partition_checksums",
+        ),
+        Index(
+            "ix_historical_event_partition_source",
+            "source_version_id",
+            "event_family",
+            "season",
+            "month",
+        ),
+        Index("ix_historical_event_partition_checkpoint", "checkpoint_id"),
+        Index("ix_historical_event_partition_events", "min_event_at", "max_event_at"),
+    )
+
+
+class ProspectiveEvaluationPlan(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only identity for one frozen Gen-2 prospective evaluation window."""
+
+    __tablename__ = "prospective_evaluation_plans"
+    plan_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    policy_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    research_policy_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    evaluation_starts_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    target_season: Mapped[int] = mapped_column(Integer, nullable=False)
+    lifecycle: Mapped[str] = mapped_column(String(40), nullable=False)
+    forecast_lifecycle: Mapped[str] = mapped_column(String(20), nullable=False)
+    forecast_track: Mapped[str] = mapped_column(String(40), nullable=False)
+    forecast_family: Mapped[str] = mapped_column(String(40), nullable=False)
+    registration_status: Mapped[str] = mapped_column(String(60), nullable=False)
+    interim_completed_games: Mapped[int] = mapped_column(Integer, nullable=False)
+    final_completed_games: Mapped[int] = mapped_column(Integer, nullable=False)
+    metrics: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    baselines: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    policy_manifest: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    code_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_bundle_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    schema_bundle_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    component_identities: Mapped[list[dict[str, str]]] = mapped_column(
+        JSON, nullable=False
+    )
+    plan_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("plan_id", name="uq_prospective_plan_id"),
+        UniqueConstraint(
+            "plan_identity_checksum", name="uq_prospective_plan_identity"
+        ),
+        UniqueConstraint(
+            "id",
+            "plan_identity_checksum",
+            name="uq_prospective_plan_row_identity",
+        ),
+        CheckConstraint(
+            "schema_version = 'mlb_gen2_prospective_evaluation_plan_v1' "
+            "AND policy_version = 'mlb_gen2_prospective_policy_v1' "
+            "AND research_policy_version = 'MLB_GEN2_RESEARCH_POLICY_V1'",
+            name="ck_prospective_plan_versions",
+        ),
+        CheckConstraint(
+            "target_season = 2026",
+            name="ck_prospective_plan_season",
+        ),
+        CheckConstraint(
+            "lifecycle = 'FINAL_T_MINUS_10' AND forecast_lifecycle = 'T-10'",
+            name="ck_prospective_plan_lifecycle",
+        ),
+        CheckConstraint(
+            "forecast_track = 'GEN2_RESEARCH_CHALLENGER' "
+            "AND forecast_family = 'ASP_INDEPENDENT' "
+            "AND registration_status = 'GEN2_PROSPECTIVE_RESEARCH_CHALLENGER'",
+            name="ck_prospective_plan_research_track",
+        ),
+        CheckConstraint(
+            "interim_completed_games = 300 AND final_completed_games = 500",
+            name="ck_prospective_plan_thresholds",
+        ),
+        CheckConstraint(
+            "evaluation_starts_at >= created_at",
+            name="ck_prospective_plan_window",
+        ),
+        CheckConstraint(
+            "length(policy_identity_checksum) = 64 "
+            "AND length(code_checksum) = 64 "
+            "AND length(schema_bundle_checksum) = 64 "
+            "AND length(plan_identity_checksum) = 64",
+            name="ck_prospective_plan_checksums",
+        ),
+        Index("ix_prospective_plan_window", "target_season", "evaluation_starts_at"),
+        Index(
+            "ix_prospective_plan_registration",
+            "forecast_track",
+            "registration_status",
+        ),
+    )
+
+
+class ProspectiveEvaluationClaim(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only, globally single-use claim for one plan/checkpoint key."""
+
+    __tablename__ = "prospective_evaluation_claims"
+    evaluation_plan_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), nullable=False
+    )
+    plan_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(60), nullable=False)
+    checkpoint: Mapped[str] = mapped_column(String(60), nullable=False)
+    minimum_completed_games: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligible_game_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    eligible_set_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    code_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_bundle_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    schema_bundle_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    global_claim_identity_checksum: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    claim_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "plan_identity_checksum",
+            "checkpoint",
+            name="uq_prospective_claim_plan_checkpoint",
+        ),
+        UniqueConstraint(
+            "global_claim_identity_checksum",
+            name="uq_prospective_claim_global_identity",
+        ),
+        UniqueConstraint(
+            "claim_identity_checksum", name="uq_prospective_claim_identity"
+        ),
+        UniqueConstraint(
+            "id",
+            "evaluation_plan_id",
+            "plan_identity_checksum",
+            "checkpoint",
+            name="uq_prospective_claim_row_plan_checkpoint",
+        ),
+        UniqueConstraint(
+            "id",
+            "plan_identity_checksum",
+            "global_claim_identity_checksum",
+            "claim_identity_checksum",
+            name="uq_prospective_claim_row_identities",
+        ),
+        CheckConstraint(
+            "schema_version = 'mlb_gen2_prospective_evaluation_claim_v1' "
+            "AND status = 'PROSPECTIVE_LABEL_ACCESS_AUTHORIZED'",
+            name="ck_prospective_claim_version_status",
+        ),
+        CheckConstraint(
+            "checkpoint IN ('INTERIM_300_COMPLETED_ELIGIBLE_GAMES', "
+            "'FINAL_500_COMPLETED_ELIGIBLE_GAMES')",
+            name="ck_prospective_claim_checkpoint",
+        ),
+        CheckConstraint(
+            "(checkpoint = 'INTERIM_300_COMPLETED_ELIGIBLE_GAMES' "
+            "AND minimum_completed_games = 300 AND eligible_game_count >= 300) OR "
+            "(checkpoint = 'FINAL_500_COMPLETED_ELIGIBLE_GAMES' "
+            "AND minimum_completed_games = 500 AND eligible_game_count >= 500)",
+            name="ck_prospective_claim_threshold",
+        ),
+        CheckConstraint(
+            "length(eligible_set_checksum) = 64 "
+            "AND length(plan_identity_checksum) = 64 "
+            "AND length(code_checksum) = 64 "
+            "AND length(schema_bundle_checksum) = 64 "
+            "AND length(global_claim_identity_checksum) = 64 "
+            "AND length(claim_identity_checksum) = 64",
+            name="ck_prospective_claim_checksums",
+        ),
+        ForeignKeyConstraint(
+            ["evaluation_plan_id", "plan_identity_checksum"],
+            [
+                "prospective_evaluation_plans.id",
+                "prospective_evaluation_plans.plan_identity_checksum",
+            ],
+            name="fk_prospective_claim_plan_identity",
+        ),
+        Index(
+            "ix_prospective_claim_plan_time", "evaluation_plan_id", "claimed_at"
+        ),
+        Index("ix_prospective_claim_checkpoint", "checkpoint", "claimed_at"),
+    )
+
+
+class ProspectiveEvaluationGameAssignment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Global occurrence-to-plan assignment preventing cross-window evidence reuse."""
+
+    __tablename__ = "prospective_evaluation_game_assignments"
+    evaluation_plan_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    plan_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    game_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    occurrence_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    assignment_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id",
+            "occurrence_id",
+            name="uq_prospective_assignment_global_occurrence",
+        ),
+        UniqueConstraint(
+            "assignment_identity_checksum",
+            name="uq_prospective_assignment_identity",
+        ),
+        UniqueConstraint(
+            "id",
+            "evaluation_plan_id",
+            "plan_identity_checksum",
+            "game_id",
+            "occurrence_id",
+            name="uq_prospective_assignment_row_identity",
+        ),
+        CheckConstraint(
+            "length(plan_identity_checksum) = 64 "
+            "AND length(assignment_identity_checksum) = 64",
+            name="ck_prospective_assignment_checksums",
+        ),
+        ForeignKeyConstraint(
+            ["evaluation_plan_id", "plan_identity_checksum"],
+            [
+                "prospective_evaluation_plans.id",
+                "prospective_evaluation_plans.plan_identity_checksum",
+            ],
+            name="fk_prospective_assignment_plan_identity",
+        ),
+        Index("ix_prospective_assignment_plan", "evaluation_plan_id", "assigned_at"),
+    )
+
+
+class ProspectiveEvaluationClaimBinding(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Normalized immutable forecast/target binding for one claimed game."""
+
+    __tablename__ = "prospective_evaluation_claim_bindings"
+    evaluation_claim_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    evaluation_plan_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    plan_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    checkpoint: Mapped[str] = mapped_column(String(60), nullable=False)
+    game_assignment_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    binding_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    game_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    occurrence_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    forecast_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    forecast_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    forecast_evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    eligibility_policy_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    eligibility_proof_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_revision_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    target_revision_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_revision_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    target_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    binding_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "evaluation_claim_id",
+            "game_assignment_id",
+            name="uq_prospective_binding_claim_game",
+        ),
+        UniqueConstraint(
+            "evaluation_claim_id",
+            "binding_ordinal",
+            name="uq_prospective_binding_claim_ordinal",
+        ),
+        UniqueConstraint(
+            "evaluation_claim_id",
+            "forecast_id",
+            name="uq_prospective_binding_claim_forecast",
+        ),
+        UniqueConstraint(
+            "evaluation_claim_id",
+            "binding_identity_checksum",
+            name="uq_prospective_binding_claim_identity",
+        ),
+        CheckConstraint(
+            "checkpoint IN ('INTERIM_300_COMPLETED_ELIGIBLE_GAMES', "
+            "'FINAL_500_COMPLETED_ELIGIBLE_GAMES')",
+            name="ck_prospective_binding_checkpoint",
+        ),
+        CheckConstraint(
+            "binding_ordinal >= 1 AND target_revision_sequence >= 0",
+            name="ck_prospective_binding_sequences",
+        ),
+        CheckConstraint(
+            "target_status = 'OFFICIAL_FINAL' "
+            "AND schema_version = 'mlb_gen2_prospective_evaluation_claim_binding_v1'",
+            name="ck_prospective_binding_target_schema",
+        ),
+        CheckConstraint(
+            "length(plan_identity_checksum) = 64 "
+            "AND length(forecast_identity_checksum) = 64 "
+            "AND length(eligibility_policy_checksum) = 64 "
+            "AND length(eligibility_proof_checksum) = 64 "
+            "AND length(target_revision_checksum) = 64 "
+            "AND length(binding_identity_checksum) = 64",
+            name="ck_prospective_binding_checksums",
+        ),
+        ForeignKeyConstraint(
+            [
+                "evaluation_claim_id",
+                "evaluation_plan_id",
+                "plan_identity_checksum",
+                "checkpoint",
+            ],
+            [
+                "prospective_evaluation_claims.id",
+                "prospective_evaluation_claims.evaluation_plan_id",
+                "prospective_evaluation_claims.plan_identity_checksum",
+                "prospective_evaluation_claims.checkpoint",
+            ],
+            name="fk_prospective_binding_claim_identity",
+        ),
+        ForeignKeyConstraint(
+            [
+                "game_assignment_id",
+                "evaluation_plan_id",
+                "plan_identity_checksum",
+                "game_id",
+                "occurrence_id",
+            ],
+            [
+                "prospective_evaluation_game_assignments.id",
+                "prospective_evaluation_game_assignments.evaluation_plan_id",
+                "prospective_evaluation_game_assignments.plan_identity_checksum",
+                "prospective_evaluation_game_assignments.game_id",
+                "prospective_evaluation_game_assignments.occurrence_id",
+            ],
+            name="fk_prospective_binding_assignment_identity",
+        ),
+        Index("ix_prospective_binding_claim", "evaluation_claim_id", "binding_ordinal"),
+        Index("ix_prospective_binding_game", "game_id", "occurrence_id"),
+    )
+
+
+class ProspectiveEvaluationLabelAccess(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only reservation consumed before a claim's labels are loaded."""
+
+    __tablename__ = "prospective_evaluation_label_accesses"
+    evaluation_claim_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    plan_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    global_claim_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    consumed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    code_revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    code_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_bundle_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    schema_bundle_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(60), nullable=False)
+    access_identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "evaluation_claim_id", name="uq_prospective_label_access_claim"
+        ),
+        UniqueConstraint(
+            "global_claim_identity_checksum",
+            name="uq_prospective_label_access_global_claim",
+        ),
+        UniqueConstraint(
+            "claim_identity_checksum", name="uq_prospective_label_access_claim_identity"
+        ),
+        UniqueConstraint(
+            "access_identity_checksum", name="uq_prospective_label_access_identity"
+        ),
+        CheckConstraint(
+            "schema_version = 'mlb_gen2_prospective_label_access_v1' "
+            "AND status = 'PROSPECTIVE_LABEL_ACCESS_CONSUMED'",
+            name="ck_prospective_label_access_version_status",
+        ),
+        CheckConstraint(
+            "length(plan_identity_checksum) = 64 "
+            "AND length(global_claim_identity_checksum) = 64 "
+            "AND length(claim_identity_checksum) = 64 "
+            "AND length(code_checksum) = 64 "
+            "AND length(schema_bundle_checksum) = 64 "
+            "AND length(access_identity_checksum) = 64",
+            name="ck_prospective_label_access_checksums",
+        ),
+        ForeignKeyConstraint(
+            [
+                "evaluation_claim_id",
+                "plan_identity_checksum",
+                "global_claim_identity_checksum",
+                "claim_identity_checksum",
+            ],
+            [
+                "prospective_evaluation_claims.id",
+                "prospective_evaluation_claims.plan_identity_checksum",
+                "prospective_evaluation_claims.global_claim_identity_checksum",
+                "prospective_evaluation_claims.claim_identity_checksum",
+            ],
+            name="fk_prospective_label_access_claim_identity",
+        ),
+        Index("ix_prospective_label_access_time", "consumed_at"),
+    )
+
+
+# Compatibility aliases keep policy terminology explicit without mapping duplicate tables.
+HistoricalSourceOwnerApproval = SourceOwnerApproval
+HistoricalProviderAccessAuthorization = ProviderAccessAuthorization
+ExistingEvidenceUseDecision = ExistingEvidenceDerivedUseDecision
+DerivedEvidenceUseDecision = ExistingEvidenceDerivedUseDecision
+
+
 class Forecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "forecasts"
     game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
     model_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("model_versions.id"), nullable=False)
     feature_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("feature_versions.id"), nullable=False)
     feature_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("game_feature_snapshots.id"), index=True)
+    forecast_track: Mapped[ForecastTrack] = mapped_column(
+        enum_type(ForecastTrack),
+        nullable=False,
+        default=ForecastTrack.CURRENT_DEVELOPMENT,
+        server_default=ForecastTrack.CURRENT_DEVELOPMENT.value,
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     available_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -1561,7 +2405,21 @@ class Forecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
     simulation_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    __table_args__ = (UniqueConstraint("game_id", "version", name="uq_forecast_game_version"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id",
+            "forecast_track",
+            "version",
+            name="uq_forecast_game_track_version",
+        ),
+        Index(
+            "ix_forecast_game_track_status_version",
+            "game_id",
+            "forecast_track",
+            "status",
+            "version",
+        ),
+    )
 
 
 class ForecastComponent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

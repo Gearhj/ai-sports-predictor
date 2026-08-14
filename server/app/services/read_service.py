@@ -31,6 +31,7 @@ from app.models import (
     Forecast,
     ForecastComponent,
     ForecastStatus,
+    ForecastTrack,
     Game,
     GameFeatureSnapshot,
     GameRefreshState,
@@ -388,6 +389,8 @@ class ReadService:
         history = list(self.session.scalars(select(Forecast).where(
             Forecast.game_id == game.id,
             Forecast.status == ForecastStatus.PUBLISHED,
+            Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+            Forecast.source_mode == game.source_mode,
         ).order_by(Forecast.generated_at)))
         simulation = forecast.simulation_summary or {}
         home_dist = simulation.get("home_runs_distribution") or {}
@@ -622,6 +625,7 @@ class ReadService:
             .join(GameFeatureSnapshot, GameFeatureSnapshot.id == Forecast.feature_snapshot_id)
             .where(
                 Forecast.status == ForecastStatus.PUBLISHED,
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
                 Forecast.generated_at < Game.starts_at,
                 Forecast.published_at.is_not(None),
                 Forecast.published_at < Game.starts_at,
@@ -1425,9 +1429,14 @@ class ReadService:
     def bankroll(self) -> BankrollData:
         rows = list(self.session.execute(
             select(OfficialAspPosition, MarketOutcome, Market, Game)
+            .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)
             .join(MarketOutcome, MarketOutcome.id == OfficialAspPosition.market_outcome_id)
             .join(Market, Market.id == MarketOutcome.market_id)
             .join(Game, Game.id == Market.game_id)
+            .where(
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+                Forecast.source_mode == Game.source_mode,
+            )
             .order_by(OfficialAspPosition.placed_at)
         ))
         settled = [SettledPosition(float(position.stake), position.decimal_odds, SettlementResult(position.result.value)) for position, _, _, _ in rows if position.result.value in {"win", "loss", "push", "void"}]
@@ -1479,14 +1488,27 @@ class ReadService:
         game_ids = [game.id for game in games]
         latest_forecast = self.session.scalar(
             select(Forecast)
-            .where(Forecast.game_id.in_(game_ids))
+            .join(Game, Game.id == Forecast.game_id)
+            .where(
+                Forecast.game_id.in_(game_ids),
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+                Forecast.source_mode == Game.source_mode,
+            )
             .order_by(Forecast.generated_at.desc())
             .limit(1)
         ) if game_ids else None
         feature_count = self.session.scalar(select(func.count()).select_from(TeamFeature)) or 0
         odds_count = self.session.scalar(select(func.count()).select_from(OddsSnapshot).join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id).join(Market, Market.id == MarketOutcome.market_id).where(Market.game_id.in_(game_ids))) if game_ids else 0
         weather_count = self.session.scalar(select(func.count()).select_from(WeatherSnapshot).where(WeatherSnapshot.game_id.in_(game_ids))) if game_ids else 0
-        forecast_count = self.session.scalar(select(func.count()).select_from(Forecast).where(Forecast.game_id.in_(game_ids))) if game_ids else 0
+        forecast_count = self.session.scalar(
+            select(func.count()).select_from(Forecast).join(
+                Game, Game.id == Forecast.game_id
+            ).where(
+                Forecast.game_id.in_(game_ids),
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+                Forecast.source_mode == Game.source_mode,
+            )
+        ) if game_ids else 0
         statcast_run = self.session.scalar(select(IngestionRun).where(
             IngestionRun.source == "BASEBALL_SAVANT_STATCAST",
             IngestionRun.job_name == "refresh-statcast",
@@ -1581,6 +1603,7 @@ class ReadService:
             Forecast.game_id == game_id,
             Forecast.status == ForecastStatus.PUBLISHED,
             Forecast.source_mode == game.source_mode,
+            Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
         ).order_by(Forecast.version.desc()).limit(1))
 
     def _latest_refresh_state(self, game_id: Any, source_mode: str) -> GameRefreshState | None:
@@ -2122,6 +2145,7 @@ class ReadService:
             .where(
                 Forecast.source_mode == "LIVE",
                 Forecast.status == ForecastStatus.PUBLISHED,
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
             )
             .order_by(
                 Forecast.published_at.desc().nulls_last(),
@@ -2134,7 +2158,10 @@ class ReadService:
             return self.session.get(ModelVersion, latest_model_id)
         return self.session.scalar(
             select(ModelVersion)
-            .where(ModelVersion.training_manifest_id.is_(None))
+            .where(
+                ModelVersion.training_manifest_id.is_(None),
+                ModelVersion.name == "asp_mlb_ensemble",
+            )
             .order_by(ModelVersion.created_at.desc(), ModelVersion.id.desc())
             .limit(1)
         )
@@ -2191,7 +2218,9 @@ class ReadService:
         if not game:
             return "empty"
         forecast_mode = self.session.scalar(select(Forecast.source_mode).where(
-            Forecast.game_id == game_id, Forecast.status == ForecastStatus.PUBLISHED
+            Forecast.game_id == game_id,
+            Forecast.status == ForecastStatus.PUBLISHED,
+            Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
         ).order_by(Forecast.version.desc()).limit(1))
         current_market_modes = {row[2].source_mode for row in self._latest_market_snapshots(game_id)}
         if game.source_mode == "DEMO":

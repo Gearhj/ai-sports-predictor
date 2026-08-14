@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.bankroll.service import SettlementResult, settle_profit
 from app.models import (
+    Forecast,
+    ForecastTrack,
     Game,
     GameStatus,
     GameTeam,
@@ -23,11 +25,14 @@ from app.models import (
 def settle_completed_positions(session: Session) -> list[PositionSettlement]:
     rows = list(session.execute(
         select(OfficialAspPosition, MarketOutcome, Market, Game)
+        .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)
         .join(MarketOutcome, MarketOutcome.id == OfficialAspPosition.market_outcome_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(Game, Game.id == Market.game_id)
         .where(
             OfficialAspPosition.status == PositionStatus.OPEN,
+            Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+            Forecast.source_mode == Game.source_mode,
             Game.status == GameStatus.FINAL,
             Game.home_score.is_not(None),
             Game.away_score.is_not(None),

@@ -24,6 +24,7 @@ from app.models import (
     FeatureVersion,
     Forecast,
     ForecastStatus,
+    ForecastTrack,
     Game,
     GameFeatureSnapshot,
     GameFinalOutcome,
@@ -568,6 +569,7 @@ class GovernedTrainingDatasetBuilder:
             .where(
                 Forecast.game_id == game_id,
                 Forecast.status == ForecastStatus.PUBLISHED,
+                Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
                 Forecast.source_mode == "LIVE",
                 Forecast.published_at.is_not(None),
                 Forecast.published_at < _aware(scheduled_at),

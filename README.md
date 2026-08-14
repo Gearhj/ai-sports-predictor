@@ -275,6 +275,19 @@ market data, and did not activate official positions. See the
 [Gate 3B Gen-1 report](docs/GATE_3B_GEN1_MODEL_AND_LIVE_ACTIVATION_REPORT.md)
 for exact model, artifact, holdout, and registry evidence.
 
+Gate 3C adds the provider-free foundation for a separate player/event research
+track: checksum-addressed pitch/PA partitions, a strict PA taxonomy,
+chronological player-state and usage primitives, base/out simulation,
+prospective claim contracts, and database-enforced forecast-track separation.
+The retained 2025-06-17 evidence now canonicalizes and aligns all 15 games
+(1,140 PAs and 4,375 count events), but remains Tier B research evidence. No
+2023-2024 acquisition, Gen-2 model fitting, historical/prospective evaluation,
+live Gen-2 forecast, or promotion occurred. Source authorization remains
+fail-closed, so the honest status is `PROVIDER_FREE_FOUNDATION_COMPLETE /
+BLOCKED_SOURCE_AUTHORIZATION`. See the
+[Gate 3C plan](docs/GATE_3C_GEN2_IMPLEMENTATION_PLAN.md) and
+[Gate 3C report](docs/GATE_3C_GEN2_PLAYER_LEVEL_MODEL_REPORT.md).
+
 The governed historical research desk at `/research/history` keeps 2,428
 strict Tier A rows separate from the 2,430-row enhanced Tier B shadow and from
 today's live forecasts. Its paginated explorer filters canonical pregame

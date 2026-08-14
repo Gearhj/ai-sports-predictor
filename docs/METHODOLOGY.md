@@ -244,6 +244,26 @@ statistical association, not causation. Full identities, uncertainty, model
 comparisons, and limitations are recorded in
 `docs/GATE_3B_GEN1_MODEL_AND_LIVE_ACTIVATION_REPORT.md`.
 
+### Gate 3C Gen-2 player/event research foundation
+
+Gate 3C defines a new research path rather than adding player fields to the
+Generation 1 game-row model. Its provider-free contracts cover chronological
+hierarchical player posteriors, dynamic-state candidates, partially pooled
+platoon effects, participant and pitching-usage distributions, an eight-class
+PA outcome model, 24 base/out states, and a discrete-event game simulator.
+Strict pregame evidence remains separate from
+`HISTORICAL_ACTUAL_LINEUP_TIMING_RISK`, and every model/evaluation path remains
+downstream of temporal/source/tier checks.
+
+The retained one-day fixture proves canonicalization and cross-source alignment
+for 15 games, but it is not a multi-season training population. No event model,
+player state, transition posterior, residual model, calibration, ensemble, OOD
+replacement, or Gen-2 forecast was fit or evaluated. Automated acquisition is
+blocked by source authorization, so Gate 3C ends at
+`PROVIDER_FREE_FOUNDATION_COMPLETE / BLOCKED_SOURCE_AUTHORIZATION` and makes no
+performance or promotion claim. The exact method inventory and evidence matrix
+are in `docs/GATE_3C_GEN2_PLAYER_LEVEL_MODEL_REPORT.md`.
+
 ### Historical research product boundary
 
 Historical Research is a separate user-facing evidence surface, not a backfill

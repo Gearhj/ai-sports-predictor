@@ -17,7 +17,10 @@ from app.models import (
     GameRefreshState,
     GameStateObservation,
     HistoricalEvidenceStateAttestation,
+    HistoricalAcquisitionStage,
+    HistoricalEventPartition,
     HistoricalFeatureMaterialization,
+    HistoricalRequestAttempt,
     HistoricalSourceVersion,
     HistoryBackfillCheckpoint,
     LineupEntry,
@@ -36,10 +39,17 @@ from app.models import (
     PlayerTeamHistory,
     PositionSettlement,
     PositionStatus,
+    ProspectiveEvaluationClaim,
+    ProspectiveEvaluationClaimBinding,
+    ProspectiveEvaluationGameAssignment,
+    ProspectiveEvaluationLabelAccess,
+    ProspectiveEvaluationPlan,
     ProviderRequestLedger,
+    ProviderAccessAuthorization,
     Roster,
     RosterAvailabilityObservation,
     SourceFreshnessPolicy,
+    SourceOwnerApproval,
     StarterObservation,
     StatcastPlayerObservation,
     TeamFeature,
@@ -48,6 +58,7 @@ from app.models import (
     TeamRatingObservation,
     TrainingDatasetManifest,
     WeatherSnapshot,
+    ExistingEvidenceDerivedUseDecision,
 )
 
 
@@ -69,7 +80,10 @@ _APPEND_ONLY_TYPES = (
     GameRefreshState,
     GameStateObservation,
     HistoricalEvidenceStateAttestation,
+    HistoricalAcquisitionStage,
+    HistoricalEventPartition,
     HistoricalFeatureMaterialization,
+    HistoricalRequestAttempt,
     HistoricalSourceVersion,
     HistoryBackfillCheckpoint,
     LineupEntry,
@@ -82,10 +96,17 @@ _APPEND_ONLY_TYPES = (
     PlayerGameStat,
     PlayerTalentEstimate,
     PlayerTeamHistory,
+    ProspectiveEvaluationClaim,
+    ProspectiveEvaluationClaimBinding,
+    ProspectiveEvaluationGameAssignment,
+    ProspectiveEvaluationLabelAccess,
+    ProspectiveEvaluationPlan,
+    ProviderAccessAuthorization,
     ProviderRequestLedger,
     Roster,
     RosterAvailabilityObservation,
     SourceFreshnessPolicy,
+    SourceOwnerApproval,
     StarterObservation,
     StatcastPlayerObservation,
     TeamFeature,
@@ -94,6 +115,7 @@ _APPEND_ONLY_TYPES = (
     TeamRatingObservation,
     TrainingDatasetManifest,
     WeatherSnapshot,
+    ExistingEvidenceDerivedUseDecision,
 )
 
 
@@ -130,6 +152,9 @@ _IMMUTABLE_MODEL_VERSION_FIELDS = frozenset({
     "promotion_decision",
     "promotion_reason",
 })
+
+
+_IMMUTABLE_FORECAST_FIELDS = frozenset({"forecast_track"})
 
 
 def install_immutability_guards() -> None:
@@ -178,6 +203,15 @@ def install_immutability_guards() -> None:
                     )
             if isinstance(record, Forecast) and session.is_modified(record, include_collections=False):
                 state = inspect(record)
+                changed = sorted(
+                    field
+                    for field in _IMMUTABLE_FORECAST_FIELDS
+                    if state.attrs[field].history.has_changes()
+                )
+                if changed:
+                    raise ImmutableRecordError(
+                        "Forecast track is immutable after creation; create a new track-scoped version"
+                    )
                 history = state.attrs.status.history
                 was_published = (not history.has_changes() and record.status == ForecastStatus.PUBLISHED) or (
                     ForecastStatus.PUBLISHED in history.deleted
