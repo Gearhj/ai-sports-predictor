@@ -18,6 +18,7 @@ from app.models.entities import (
     IngestionRun, JobRun, LeaderboardEntry,
     LeaderboardPeriod, LeaderboardSnapshot, League, Market, MarketComparison,
     MarketOutcome, MarketType, ModelEvaluation, ModelStatus, ModelVersion,
+    OpenDataDownloadManifest, OpenDataIdentityMapping,
     OddsSnapshot, OddsStatus,
     OfficialAspPosition, ParkFactorVersion, PitchEvent, Pitcher, PitchingFeature,
     Player, PlayerGameHistoryObservation, PlayerTalentEstimate, ProviderRequestLedger,

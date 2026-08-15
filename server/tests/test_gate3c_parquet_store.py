@@ -99,9 +99,12 @@ def _rows() -> list[dict[str, object]]:
     ]
 
 
-def _write(store: HistoricalEventParquetStore):
+def _write(
+    store: HistoricalEventParquetStore,
+    rows: pl.DataFrame | list[dict[str, object]] | None = None,
+):
     return store.write_partition(
-        _rows(),
+        _rows() if rows is None else rows,
         source_key="baseball-savant-statcast",
         source_version_id="1" * 32,
         checkpoint_id="2" * 32,
@@ -167,6 +170,79 @@ def test_atomic_content_addressed_zstd_partition_is_reused_idempotently(
         free_space=lambda _: 500 * 1024**3,
     )
     assert _write(tight_reuse).reused is True
+
+
+def test_iterable_full_inference_handles_pilot_shaped_late_nonnull_field(
+    artifact_root: Path,
+) -> None:
+    store = HistoricalEventParquetStore(
+        artifact_root / "late-nonnull-events",
+        minimum_free_bytes_after_write=0,
+        free_space=lambda _: 1_000_000_000,
+    )
+    rows = [
+        {
+            "game_id": "retrosheet:game:2024-pilot-1",
+            "plate_appearance_id": f"retrosheet:pa:2024-pilot-1:{index + 1}",
+            "play_id": f"retrosheet:play:2024-pilot-1:{index + 1}",
+            "play_number": index + 1,
+            "official_date": "2024-06-10",
+            "inning": 10 if index == 128 else (index // 18) + 1,
+            "top_bottom": "top" if index % 2 == 0 else "bottom",
+            "batter_id": f"retrosheet:player:batter-{index % 9}",
+            "pitcher_id": f"retrosheet:player:pitcher-{index % 4}",
+            "automatic_runner_placement_before": index == 128,
+            "automatic_runner_placement_mode": (
+                "DIRECT_FIRST_PLAY_OF_EXTRA_HALF" if index == 128 else None
+            ),
+            "automatic_runner_base": 2 if index == 128 else None,
+            "timing_risk_label": "RETROSPECTIVE_EVENT_TIMING_RISK",
+        }
+        for index in range(129)
+    ]
+
+    artifact = store.write_partition(
+        rows,
+        source_key="retrosheet-csv-downloads",
+        source_version_id="4" * 32,
+        checkpoint_id="5" * 32,
+        event_family="play_transition",
+        season=2024,
+        month=6,
+        schema_version="gate3c-fd1-play-transition-v1",
+        raw_contributor_manifest=RAW_MANIFEST,
+        code_revision="gate3c-storage-late-nonnull-test",
+        evidence_tier="A",
+        timing_classification="RETROSPECTIVE_EVENT_TIMING_RISK",
+        authorization_grant=_grant("retrosheet-csv-downloads", RAW_MANIFEST),
+    )
+
+    persisted = pl.read_parquet(store.validate(artifact))
+    assert artifact.row_count == 129
+    assert persisted.schema["automatic_runner_placement_mode"] == pl.String
+    assert persisted.get_column("automatic_runner_placement_mode").null_count() == 128
+    assert persisted.item(128, "automatic_runner_placement_mode") == (
+        "DIRECT_FIRST_PLAY_OF_EXTRA_HALF"
+    )
+
+
+def test_full_inference_preserves_all_nonnull_partition_encoding(
+    artifact_root: Path,
+) -> None:
+    store = HistoricalEventParquetStore(
+        artifact_root / "all-nonnull-events",
+        minimum_free_bytes_after_write=0,
+        free_space=lambda _: 1_000_000_000,
+    )
+
+    dataframe_reference = _write(store, pl.DataFrame(_rows()))
+    iterable_result = _write(store, _rows())
+
+    assert iterable_result.reused is True
+    assert iterable_result.file_sha256 == dataframe_reference.file_sha256
+    assert iterable_result.schema_hash == dataframe_reference.schema_hash
+    assert iterable_result.identity_checksum == dataframe_reference.identity_checksum
+    assert iterable_result.logical_uri == dataframe_reference.logical_uri
 
 
 def test_existing_content_address_collision_fails_closed(artifact_root: Path) -> None:

@@ -15,6 +15,12 @@ from app.gen2.mlb_pbp import (
     MlbCountEvent,
     canonicalize_mlb_play_by_play,
 )
+from app.gen2.open_data_acquisition import (
+    DEFAULT_SOURCE_POLICIES,
+    DownloadRequest,
+    OpenDataAcquirer,
+    OpenDataSourcePolicy,
+)
 from app.gen2.statcast_alignment import (
     AlignedPitchEvent,
     StatcastAlignmentResult,
@@ -27,7 +33,11 @@ __all__ = [
     "BaseOutScoreState",
     "CanonicalMlbGame",
     "CanonicalPlateAppearance",
+    "DEFAULT_SOURCE_POLICIES",
+    "DownloadRequest",
     "MlbCountEvent",
+    "OpenDataAcquirer",
+    "OpenDataSourcePolicy",
     "PA_OUTCOME_TAXONOMY_IDENTITY",
     "PA_OUTCOME_TAXONOMY_VERSION",
     "PITCH_EVENT_SCHEMA_VERSION",

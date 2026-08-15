@@ -1870,7 +1870,7 @@ class HistoricalRequestAttempt(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
 
 class HistoricalEventPartition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """Append-only metadata for one governed pitch or plate-appearance Parquet file."""
+    """Append-only metadata for one governed Gen-2 analytical Parquet file."""
 
     __tablename__ = "historical_event_partitions"
     source_version_id: Mapped[uuid.UUID] = mapped_column(
@@ -1909,7 +1909,10 @@ class HistoricalEventPartition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             "identity_checksum", name="uq_historical_event_partition_identity"
         ),
         CheckConstraint(
-            "event_family IN ('pitch', 'plate_appearance')",
+            "event_family IN ('pitch', 'plate_appearance', 'play_transition', "
+            "'pitch_sequence', 'player_game_batting', 'player_game_pitching', "
+            "'player_game_fielding', 'starter_usage', 'bullpen_usage', "
+            "'weather', 'player_prior')",
             name="ck_historical_event_partition_family",
         ),
         CheckConstraint("season >= 1876", name="ck_historical_event_partition_season"),
@@ -1926,8 +1929,16 @@ class HistoricalEventPartition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="ck_historical_event_partition_logical_uri",
         ),
         CheckConstraint(
-            "row_count > 0 AND game_count > 0 "
-            "AND plate_appearance_count > 0 AND player_count > 0",
+            "row_count > 0 AND game_count >= 0 "
+            "AND plate_appearance_count >= 0 AND player_count >= 0 "
+            "AND (event_family NOT IN ('pitch', 'plate_appearance', "
+            "'play_transition', 'pitch_sequence') OR "
+            "(game_count > 0 AND plate_appearance_count > 0 AND player_count > 0)) "
+            "AND (event_family NOT IN ('player_game_batting', "
+            "'player_game_pitching', 'player_game_fielding', 'starter_usage', "
+            "'bullpen_usage') OR (game_count > 0 AND player_count > 0)) "
+            "AND (event_family <> 'weather' OR game_count > 0) "
+            "AND (event_family <> 'player_prior' OR player_count > 0)",
             name="ck_historical_event_partition_counts",
         ),
         CheckConstraint(
@@ -1969,6 +1980,147 @@ class HistoricalEventPartition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         Index("ix_historical_event_partition_checkpoint", "checkpoint_id"),
         Index("ix_historical_event_partition_events", "min_event_at", "max_event_at"),
+    )
+
+
+class OpenDataDownloadManifest(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only physical-download evidence for one official open-data object."""
+
+    __tablename__ = "open_data_download_manifests"
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_release: Mapped[str] = mapped_column(String(120), nullable=False)
+    upstream_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    official_download_uri: Mapped[str] = mapped_column(String(1000), nullable=False)
+    downloaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    http_status: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_length: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(160), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    archive_sha256: Mapped[str | None] = mapped_column(String(64))
+    license_identity: Mapped[str] = mapped_column(String(160), nullable=False)
+    attribution_identity: Mapped[str] = mapped_column(String(64), nullable=False)
+    physical_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    raw_logical_uri: Mapped[str] = mapped_column(String(1000), nullable=False)
+    semantic_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "source_version_id",
+            "object_key",
+            "upstream_revision",
+            name="uq_open_data_download_object_revision",
+        ),
+        UniqueConstraint(
+            "identity_checksum", name="uq_open_data_download_identity"
+        ),
+        CheckConstraint(
+            "upstream_revision >= 1 AND content_length > 0 "
+            "AND physical_attempt_count >= 1 AND retry_count >= 0 "
+            "AND retry_count < physical_attempt_count",
+            name="ck_open_data_download_counts",
+        ),
+        CheckConstraint(
+            "http_status >= 200 AND http_status <= 299",
+            name="ck_open_data_download_http_status",
+        ),
+        CheckConstraint(
+            "official_download_uri LIKE 'https://%' "
+            "AND raw_logical_uri NOT LIKE '/%' "
+            "AND raw_logical_uri NOT LIKE '%..%' "
+            "AND replace(raw_logical_uri, '\\', '') = raw_logical_uri",
+            name="ck_open_data_download_uris",
+        ),
+        CheckConstraint(
+            "length(payload_sha256) = 64 "
+            "AND (archive_sha256 IS NULL OR length(archive_sha256) = 64) "
+            "AND length(attribution_identity) = 64 "
+            "AND length(semantic_fingerprint) = 64 "
+            "AND length(identity_checksum) = 64",
+            name="ck_open_data_download_checksums",
+        ),
+        Index("ix_open_data_download_source", "source_key", "source_release"),
+        Index("ix_open_data_download_time", "downloaded_at"),
+    )
+
+
+class OpenDataIdentityMapping(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only, row-bound crosswalk evidence from an open-data release."""
+
+    __tablename__ = "open_data_identity_mappings"
+    source_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("historical_source_versions.id"), nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_namespace: Mapped[str] = mapped_column(String(80), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    canonical_namespace: Mapped[str] = mapped_column(String(80), nullable=False)
+    canonical_id: Mapped[str | None] = mapped_column(String(255))
+    source_row_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_row_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[str] = mapped_column(String(24), nullable=False)
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_through: Mapped[date | None] = mapped_column(Date)
+    evidence_logical_uri: Mapped[str] = mapped_column(String(1000), nullable=False)
+    identity_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "identity_checksum", name="uq_open_data_identity_mapping_identity"
+        ),
+        UniqueConstraint(
+            "source_version_id",
+            "entity_type",
+            "source_namespace",
+            "external_id",
+            "source_row_number",
+            name="uq_open_data_identity_mapping_natural",
+        ),
+        CheckConstraint(
+            "entity_type IN ('person', 'team', 'franchise', 'park', 'game', 'umpire')",
+            name="ck_open_data_identity_mapping_entity",
+        ),
+        CheckConstraint(
+            "confidence IN ('EXACT', 'HIGH', 'UNRESOLVED', 'CONFLICT')",
+            name="ck_open_data_identity_mapping_confidence",
+        ),
+        CheckConstraint(
+            "source_row_number >= 1",
+            name="ck_open_data_identity_mapping_row",
+        ),
+        CheckConstraint(
+            "(confidence IN ('EXACT', 'HIGH') AND canonical_id IS NOT NULL) "
+            "OR (confidence IN ('UNRESOLVED', 'CONFLICT'))",
+            name="ck_open_data_identity_mapping_resolution",
+        ),
+        CheckConstraint(
+            "valid_through IS NULL OR valid_from IS NULL OR valid_through >= valid_from",
+            name="ck_open_data_identity_mapping_window",
+        ),
+        CheckConstraint(
+            "evidence_logical_uri NOT LIKE '/%' "
+            "AND evidence_logical_uri NOT LIKE '%..%' "
+            "AND replace(evidence_logical_uri, '\\', '') = evidence_logical_uri",
+            name="ck_open_data_identity_mapping_uri",
+        ),
+        CheckConstraint(
+            "length(source_row_checksum) = 64 AND length(identity_checksum) = 64",
+            name="ck_open_data_identity_mapping_checksums",
+        ),
+        Index(
+            "ix_open_data_identity_external",
+            "source_namespace",
+            "external_id",
+        ),
+        Index(
+            "ix_open_data_identity_canonical",
+            "canonical_namespace",
+            "canonical_id",
+        ),
     )
 
 

@@ -13,9 +13,7 @@ from alembic.config import Config
 
 from app.audit import install_immutability_guards
 from app.core.config import get_settings
-from app.db.session import SessionLocal
-from app.jobs import JobOrchestrator, seed_demo_data
-from app.services.auth_service import ensure_admin
+from app.db.session import SessionLocal, get_engine
 
 
 def _json_default(value: Any) -> Any:
@@ -25,6 +23,11 @@ def _json_default(value: Any) -> Any:
 
 
 async def _run(command: str, event_date: date | None) -> dict[str, Any]:
+    # Keep provider-capable operational modules outside the import graph of the
+    # dedicated provider-free FD1 recovery command.
+    from app.jobs import JobOrchestrator, seed_demo_data
+    from app.services.auth_service import ensure_admin
+
     settings = get_settings()
     _upgrade_database(settings.database_url)
     install_immutability_guards()
@@ -245,6 +248,43 @@ def _upgrade_database(database_url: str) -> None:
     command.upgrade(config, "head")
 
 
+def _run_fd1_recovery(args: argparse.Namespace) -> dict[str, Any]:
+    """Finalize only the frozen interrupted FD1 Parquet corpus."""
+
+    from uuid import UUID
+
+    from app.gen2.fd1_recovery import (
+        FD1RecoveryOptions,
+        finalize_fd1_from_existing_parquet,
+    )
+
+    settings = get_settings()
+    recovery_engine = get_engine(settings.database_url)
+    try:
+        options = FD1RecoveryOptions(
+            manifest_path=args.manifest,
+            store_root=(
+                args.store_root
+                if args.store_root is not None
+                else settings.curated_data_root / "gen2-fd1"
+            ),
+            resume=args.resume,
+            validate_only=args.validate_only,
+            sample_rehearsal=args.sample_rehearsal,
+            max_runtime_minutes=args.max_runtime_minutes,
+            heartbeat_seconds=args.heartbeat_seconds,
+            identity_batch_size=args.identity_batch_size,
+            run_id=UUID(args.run_id) if args.run_id else None,
+            active_identity_report=args.active_identity_report,
+        )
+        return finalize_fd1_from_existing_parquet(
+            recovery_engine,
+            options=options,
+        ).as_dict()
+    finally:
+        recovery_engine.dispose()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Sports Predictor backend operations")
     parser.add_argument(
@@ -259,6 +299,7 @@ def main() -> None:
             "backfill-mlb-history",
             "build-mlb-history-dataset",
             "report-mlb-history",
+            "finalize-fd1-from-existing-parquet",
         ],
     )
     parser.add_argument("--date", dest="event_date", type=date.fromisoformat, help="Event date (YYYY-MM-DD)")
@@ -272,6 +313,50 @@ def main() -> None:
     parser.add_argument("--end-date", type=date.fromisoformat, help="Historical end date (YYYY-MM-DD)")
     parser.add_argument("--season", type=int, help="MLB season for the requested range")
     parser.add_argument("--resume", action="store_true", help="Skip already-completed semantic chunks")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="Content-addressed FD1 recovery manifest",
+    )
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate the frozen warehouse without final-table promotion",
+    )
+    parser.add_argument(
+        "--sample-rehearsal",
+        action="store_true",
+        help="Run the bounded COPY/promotion rehearsal and roll it back",
+    )
+    parser.add_argument(
+        "--max-runtime-minutes",
+        type=int,
+        default=120,
+        help="Hard recovery stop, capped at 120 minutes",
+    )
+    parser.add_argument(
+        "--heartbeat-seconds",
+        type=int,
+        default=30,
+        help="Visible recovery heartbeat interval, capped at 30 seconds",
+    )
+    parser.add_argument(
+        "--identity-batch-size",
+        type=int,
+        default=100_000,
+        help="Bounded PostgreSQL COPY transaction size",
+    )
+    parser.add_argument("--run-id", help="Expected content-derived recovery UUID")
+    parser.add_argument(
+        "--active-identity-report",
+        type=Path,
+        help="Checksummed active-era identity coverage evidence",
+    )
+    parser.add_argument(
+        "--store-root",
+        type=Path,
+        help="Governed existing FD1 Parquet root",
+    )
     parser.add_argument("--source", choices=["MLB_STATS_API"], default="MLB_STATS_API")
     parser.add_argument("--chunk-size", type=int, default=1, help="Canonical/checkpoint chunk size in days")
     parser.add_argument("--dry-run", action="store_true", help="Plan only; construct no adapter")
@@ -302,7 +387,31 @@ def main() -> None:
         help="Required immutable code/content revision for historical materialization",
     )
     args = parser.parse_args()
-    if args.command == "backfill-mlb-history":
+    if args.command == "finalize-fd1-from-existing-parquet":
+        if args.manifest is None:
+            parser.error(
+                "finalize-fd1-from-existing-parquet requires --manifest"
+            )
+        try:
+            result = _run_fd1_recovery(args)
+        except Exception as exc:
+            from app.gen2.fd1_recovery_progress import FD1RecoveryStop
+
+            if not isinstance(exc, FD1RecoveryStop):
+                raise
+            print(
+                json.dumps(
+                    {
+                        "status": "STOPPED",
+                        "reason": exc.reason,
+                        "resume_token": exc.resume_token,
+                        "exit_code": exc.exit_code,
+                    },
+                    indent=2,
+                )
+            )
+            raise SystemExit(exc.exit_code) from exc
+    elif args.command == "backfill-mlb-history":
         missing = [
             option
             for option in ("start_date", "end_date", "season")

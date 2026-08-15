@@ -1,0 +1,7 @@
+# FD1 content revisions hash raw Python bytes; keep them stable across platforms.
+/.gitattributes text eol=lf
+/server/**/*.py text eol=lf
+
+# These two finalized evidence files contain intentional end-of-line spaces.
+/server/app/gen2/fd1_recovery.py whitespace=-blank-at-eol
+/docs/GATE_3C_FD1_INTERRUPTED_EXECUTION_REPORT.md text eol=lf whitespace=-blank-at-eol

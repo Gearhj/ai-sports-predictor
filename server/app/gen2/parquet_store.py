@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -24,7 +25,46 @@ GIB = 1024**3
 DEFAULT_MINIMUM_FREE_BYTES_AFTER_WRITE = 100 * GIB
 DEFAULT_MAXIMUM_PARTITION_BYTES = 100 * GIB
 DEFAULT_MAXIMUM_STORE_BYTES = 100 * GIB
-EVENT_FAMILIES = frozenset({"pitch", "plate_appearance"})
+EVENT_FAMILIES = frozenset(
+    {
+        # Gate 3C retained-event families.
+        "pitch",
+        "plate_appearance",
+        # Gate 3C-FD1 open-data analytical families.
+        "play_transition",
+        "pitch_sequence",
+        "player_game_batting",
+        "player_game_pitching",
+        "player_game_fielding",
+        "starter_usage",
+        "bullpen_usage",
+        "weather",
+        "player_prior",
+    }
+)
+# Every count is always re-derived from the Parquet rows.  A family may have a
+# legitimate zero only for dimensions that are not part of its semantic grain.
+_FAMILY_REQUIRED_COUNTS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "pitch": frozenset({"game_count", "plate_appearance_count", "player_count"}),
+        "plate_appearance": frozenset(
+            {"game_count", "plate_appearance_count", "player_count"}
+        ),
+        "play_transition": frozenset(
+            {"game_count", "plate_appearance_count", "player_count"}
+        ),
+        "pitch_sequence": frozenset(
+            {"game_count", "plate_appearance_count", "player_count"}
+        ),
+        "player_game_batting": frozenset({"game_count", "player_count"}),
+        "player_game_pitching": frozenset({"game_count", "player_count"}),
+        "player_game_fielding": frozenset({"game_count", "player_count"}),
+        "starter_usage": frozenset({"game_count", "player_count"}),
+        "bullpen_usage": frozenset({"game_count", "player_count"}),
+        "weather": frozenset({"game_count"}),
+        "player_prior": frozenset({"player_count"}),
+    }
+)
 EVIDENCE_TIERS = frozenset({"A", "B", "C", "EXCLUDED"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SAFE_SEGMENT = re.compile(r"[a-z0-9][a-z0-9._-]{0,119}")
@@ -182,7 +222,7 @@ class HistoricalEventParquetStore:
         source_version = _uuid(source_version_id, "source_version_id")
         checkpoint = _uuid(checkpoint_id, "checkpoint_id")
         if event_family not in EVENT_FAMILIES:
-            raise ValueError("event_family must be pitch or plate_appearance")
+            raise ValueError("event_family is outside the frozen Gen-2 family registry")
         if season < 1876:
             raise ValueError("season is outside governed MLB history")
         if month < 1 or month > 12:
@@ -227,7 +267,11 @@ class HistoricalEventParquetStore:
                 "Parquet authorization grant does not match the exact source manifest"
             )
 
-        frame = rows.clone() if isinstance(rows, pl.DataFrame) else pl.DataFrame(list(rows))
+        frame = (
+            rows.clone()
+            if isinstance(rows, pl.DataFrame)
+            else pl.from_dicts(list(rows), infer_schema_length=None)
+        )
         if frame.height == 0:
             raise ValueError("A historical event partition must contain at least one row")
         if not frame.columns:
@@ -235,16 +279,24 @@ class HistoricalEventParquetStore:
         schema_document = _schema_document(frame)
         schema_hash = _canonical_checksum(schema_document)
         inferred = _inferred_metadata(frame)
-        resolved_game_count = _resolve_positive_count(
-            "game_count", game_count, inferred["game_count"]
+        required_counts = _FAMILY_REQUIRED_COUNTS[event_family]
+        resolved_game_count = _resolve_exact_count(
+            "game_count",
+            game_count,
+            inferred["game_count"],
+            required="game_count" in required_counts,
         )
-        resolved_pa_count = _resolve_positive_count(
+        resolved_pa_count = _resolve_exact_count(
             "plate_appearance_count",
             plate_appearance_count,
             inferred["plate_appearance_count"],
+            required="plate_appearance_count" in required_counts,
         )
-        resolved_player_count = _resolve_positive_count(
-            "player_count", player_count, inferred["player_count"]
+        resolved_player_count = _resolve_exact_count(
+            "player_count",
+            player_count,
+            inferred["player_count"],
+            required="player_count" in required_counts,
         )
         bounds = _resolve_bounds(
             inferred,
@@ -664,15 +716,26 @@ def _validate_partition_month(bounds: Mapping[str, str | None], *, season: int, 
                 raise ValueError("Event timestamp lies outside the declared season/month partition")
 
 
-def _resolve_positive_count(name: str, supplied: int | None, inferred: int) -> int:
-    if inferred <= 0:
+def _resolve_exact_count(
+    name: str,
+    supplied: int | None,
+    inferred: int,
+    *,
+    required: bool,
+) -> int:
+    if isinstance(supplied, bool):
+        raise ValueError(f"{name} must be an integer")
+    if inferred < 0:
+        raise HistoricalParquetIntegrityError(f"{name} cannot be negative")
+    if required and inferred <= 0:
         raise HistoricalParquetIntegrityError(
             f"{name} cannot be derived from the governed partition schema"
         )
     value = inferred if supplied is None else int(supplied)
-    if value <= 0:
-        raise ValueError(f"{name} must be positive and derivable or explicitly supplied")
-    if inferred > 0 and supplied is not None and value != inferred:
+    if value < 0 or (required and value <= 0):
+        qualifier = "positive" if required else "nonnegative"
+        raise ValueError(f"{name} must be {qualifier}")
+    if supplied is not None and value != inferred:
         raise HistoricalParquetIntegrityError(f"Supplied {name} does not match partition rows")
     return value
 
