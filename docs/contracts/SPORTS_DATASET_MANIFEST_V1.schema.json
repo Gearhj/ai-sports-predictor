@@ -1,0 +1,1278 @@
+{
+  "$defs": {
+    "ArtifactIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "byte_count": {
+          "exclusiveMinimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "logical_uri": {
+          "title": "Logical Uri",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "logical_uri",
+        "sha256",
+        "byte_count"
+      ],
+      "title": "ArtifactIdentity",
+      "type": "object"
+    },
+    "Coverage": {
+      "additionalProperties": false,
+      "properties": {
+        "covered": {
+          "minimum": 0,
+          "title": "Covered",
+          "type": "integer"
+        },
+        "eligible": {
+          "minimum": 0,
+          "title": "Eligible",
+          "type": "integer"
+        },
+        "ratio": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Ratio",
+          "type": "number"
+        }
+      },
+      "required": [
+        "covered",
+        "eligible",
+        "ratio"
+      ],
+      "title": "Coverage",
+      "type": "object"
+    },
+    "DataFamily": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "exclusiveMinimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "date_range": {
+          "$ref": "#/$defs/DateRange"
+        },
+        "family_id": {
+          "title": "Family Id",
+          "type": "string"
+        },
+        "file_count": {
+          "exclusiveMinimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "known_limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Known Limitations",
+          "type": "array"
+        },
+        "population_eligibility": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Population Eligibility",
+          "type": "array"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "rights_control_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rights Control Ids",
+          "type": "array"
+        },
+        "row_count": {
+          "exclusiveMinimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "schema_id": {
+          "title": "Schema Id",
+          "type": "string"
+        },
+        "source_key": {
+          "title": "Source Key",
+          "type": "string"
+        },
+        "source_version_id": {
+          "title": "Source Version Id",
+          "type": "string"
+        },
+        "target_feature_role": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Feature Role",
+          "type": "array"
+        },
+        "temporal_classification": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Temporal Classification",
+          "type": "array"
+        }
+      },
+      "required": [
+        "family_id",
+        "schema_id",
+        "purpose",
+        "target_feature_role",
+        "temporal_classification",
+        "population_eligibility",
+        "file_count",
+        "row_count",
+        "byte_count",
+        "date_range",
+        "source_key",
+        "source_version_id",
+        "rights_control_ids",
+        "known_limitations"
+      ],
+      "title": "DataFamily",
+      "type": "object"
+    },
+    "DataQualityEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "eight_class_taxonomy_complete": {
+          "title": "Eight Class Taxonomy Complete",
+          "type": "boolean"
+        },
+        "identity_coverage_passed": {
+          "title": "Identity Coverage Passed",
+          "type": "boolean"
+        },
+        "quarantine_downstream_impact": {
+          "minimum": 0,
+          "title": "Quarantine Downstream Impact",
+          "type": "integer"
+        },
+        "schema_validation_passed": {
+          "title": "Schema Validation Passed",
+          "type": "boolean"
+        },
+        "score_run_runner_conservation_passed": {
+          "title": "Score Run Runner Conservation Passed",
+          "type": "boolean"
+        },
+        "temporal_leaks": {
+          "minimum": 0,
+          "title": "Temporal Leaks",
+          "type": "integer"
+        },
+        "tier_leaks": {
+          "minimum": 0,
+          "title": "Tier Leaks",
+          "type": "integer"
+        },
+        "transition_conservation_passed": {
+          "title": "Transition Conservation Passed",
+          "type": "boolean"
+        },
+        "unique_partitions": {
+          "title": "Unique Partitions",
+          "type": "boolean"
+        },
+        "unsafe_terminal_events": {
+          "minimum": 0,
+          "title": "Unsafe Terminal Events",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "eight_class_taxonomy_complete",
+        "unsafe_terminal_events",
+        "transition_conservation_passed",
+        "score_run_runner_conservation_passed",
+        "identity_coverage_passed",
+        "tier_leaks",
+        "temporal_leaks",
+        "unique_partitions",
+        "schema_validation_passed",
+        "quarantine_downstream_impact"
+      ],
+      "title": "DataQualityEvidence",
+      "type": "object"
+    },
+    "DateRange": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum": {
+          "title": "Maximum",
+          "type": "string"
+        },
+        "minimum": {
+          "title": "Minimum",
+          "type": "string"
+        }
+      },
+      "required": [
+        "minimum",
+        "maximum"
+      ],
+      "title": "DateRange",
+      "type": "object"
+    },
+    "Fold": {
+      "additionalProperties": false,
+      "properties": {
+        "fold_id": {
+          "title": "Fold Id",
+          "type": "string"
+        },
+        "training_end": {
+          "title": "Training End",
+          "type": "string"
+        },
+        "training_rows": {
+          "exclusiveMinimum": 0,
+          "title": "Training Rows",
+          "type": "integer"
+        },
+        "training_seasons": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Training Seasons",
+          "type": "array"
+        },
+        "validation_end": {
+          "title": "Validation End",
+          "type": "string"
+        },
+        "validation_rows": {
+          "exclusiveMinimum": 0,
+          "title": "Validation Rows",
+          "type": "integer"
+        },
+        "validation_season": {
+          "title": "Validation Season",
+          "type": "integer"
+        },
+        "validation_start": {
+          "title": "Validation Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fold_id",
+        "training_seasons",
+        "validation_season",
+        "training_end",
+        "validation_start",
+        "validation_end",
+        "training_rows",
+        "validation_rows"
+      ],
+      "title": "Fold",
+      "type": "object"
+    },
+    "IdentityCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "all_2021_2025": {
+          "$ref": "#/$defs/IdentitySlice"
+        },
+        "ambiguous_quarantine_rows": {
+          "minimum": 0,
+          "title": "Ambiguous Quarantine Rows",
+          "type": "integer"
+        },
+        "canonical_identity_mapping_count": {
+          "exclusiveMinimum": 0,
+          "title": "Canonical Identity Mapping Count",
+          "type": "integer"
+        },
+        "derivation_checksum": {
+          "title": "Derivation Checksum",
+          "type": "string"
+        },
+        "downstream_impacted_rows": {
+          "minimum": 0,
+          "title": "Downstream Impacted Rows",
+          "type": "integer"
+        },
+        "identity_source_versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Identity Source Versions",
+          "type": "array"
+        },
+        "primary_2023_2025": {
+          "$ref": "#/$defs/IdentitySlice"
+        },
+        "quarantine_rows": {
+          "minimum": 0,
+          "title": "Quarantine Rows",
+          "type": "integer"
+        },
+        "unresolved_quarantine_rows": {
+          "minimum": 0,
+          "title": "Unresolved Quarantine Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "all_2021_2025",
+        "primary_2023_2025",
+        "quarantine_rows",
+        "unresolved_quarantine_rows",
+        "ambiguous_quarantine_rows",
+        "downstream_impacted_rows",
+        "canonical_identity_mapping_count",
+        "identity_source_versions",
+        "derivation_checksum"
+      ],
+      "title": "IdentityCoverage",
+      "type": "object"
+    },
+    "IdentitySlice": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguous_references": {
+          "minimum": 0,
+          "title": "Ambiguous References",
+          "type": "integer"
+        },
+        "exact_reference_rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Exact Reference Rate",
+          "type": "number"
+        },
+        "exact_unique_rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Exact Unique Rate",
+          "type": "number"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "reference_count": {
+          "exclusiveMinimum": 0,
+          "title": "Reference Count",
+          "type": "integer"
+        },
+        "seasons": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Seasons",
+          "type": "array"
+        },
+        "unique_players": {
+          "exclusiveMinimum": 0,
+          "title": "Unique Players",
+          "type": "integer"
+        },
+        "unresolved_references": {
+          "minimum": 0,
+          "title": "Unresolved References",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "label",
+        "seasons",
+        "unique_players",
+        "reference_count",
+        "exact_reference_rate",
+        "exact_unique_rate",
+        "unresolved_references",
+        "ambiguous_references"
+      ],
+      "title": "IdentitySlice",
+      "type": "object"
+    },
+    "Limitation": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "limitation_id": {
+          "title": "Limitation Id",
+          "type": "string"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "limitation_id",
+        "description",
+        "scope"
+      ],
+      "title": "Limitation",
+      "type": "object"
+    },
+    "PackageArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "exclusiveMinimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "logical_uri": {
+          "title": "Logical Uri",
+          "type": "string"
+        },
+        "semantic_digest_member": {
+          "title": "Semantic Digest Member",
+          "type": "boolean"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "logical_uri",
+        "sha256",
+        "byte_count",
+        "semantic_digest_member"
+      ],
+      "title": "PackageArtifact",
+      "type": "object"
+    },
+    "Partition": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "exclusiveMinimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "checkpoint_lineage_id": {
+          "title": "Checkpoint Lineage Id",
+          "type": "string"
+        },
+        "family": {
+          "title": "Family",
+          "type": "string"
+        },
+        "file_sha256": {
+          "title": "File Sha256",
+          "type": "string"
+        },
+        "governance_checksum": {
+          "title": "Governance Checksum",
+          "type": "string"
+        },
+        "maximum_date": {
+          "title": "Maximum Date",
+          "type": "string"
+        },
+        "minimum_date": {
+          "title": "Minimum Date",
+          "type": "string"
+        },
+        "month": {
+          "maximum": 12,
+          "minimum": 1,
+          "title": "Month",
+          "type": "integer"
+        },
+        "original_source_logical_identity": {
+          "title": "Original Source Logical Identity",
+          "type": "string"
+        },
+        "package_relative_uri": {
+          "title": "Package Relative Uri",
+          "type": "string"
+        },
+        "partition_id": {
+          "title": "Partition Id",
+          "type": "string"
+        },
+        "physical_schema": {
+          "items": {
+            "$ref": "#/$defs/PhysicalField"
+          },
+          "title": "Physical Schema",
+          "type": "array"
+        },
+        "physical_schema_fingerprint": {
+          "title": "Physical Schema Fingerprint",
+          "type": "string"
+        },
+        "row_count": {
+          "exclusiveMinimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "schema_id": {
+          "title": "Schema Id",
+          "type": "string"
+        },
+        "season": {
+          "maximum": 2025,
+          "minimum": 2021,
+          "title": "Season",
+          "type": "integer"
+        },
+        "source_key": {
+          "title": "Source Key",
+          "type": "string"
+        },
+        "source_rights_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Rights Ids",
+          "type": "array"
+        },
+        "source_version_id": {
+          "title": "Source Version Id",
+          "type": "string"
+        },
+        "target_eligibility": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Eligibility",
+          "type": "array"
+        },
+        "temporal_classification": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Temporal Classification",
+          "type": "array"
+        }
+      },
+      "required": [
+        "partition_id",
+        "family",
+        "season",
+        "month",
+        "package_relative_uri",
+        "original_source_logical_identity",
+        "row_count",
+        "byte_count",
+        "minimum_date",
+        "maximum_date",
+        "file_sha256",
+        "schema_id",
+        "physical_schema_fingerprint",
+        "physical_schema",
+        "source_key",
+        "source_version_id",
+        "checkpoint_lineage_id",
+        "governance_checksum",
+        "temporal_classification",
+        "target_eligibility",
+        "source_rights_ids"
+      ],
+      "title": "Partition",
+      "type": "object"
+    },
+    "PhysicalField": {
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "title": "Dtype",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "dtype"
+      ],
+      "title": "PhysicalField",
+      "type": "object"
+    },
+    "PopulationDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_uses": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Uses",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "evaluation_precedence": {
+          "minimum": 1,
+          "title": "Evaluation Precedence",
+          "type": "integer"
+        },
+        "expected_row_count": {
+          "exclusiveMinimum": 0,
+          "title": "Expected Row Count",
+          "type": "integer"
+        },
+        "population_id": {
+          "enum": [
+            "strict_deployable",
+            "enhanced_research",
+            "prior_only"
+          ],
+          "title": "Population Id",
+          "type": "string"
+        },
+        "predicate_contract_version": {
+          "title": "Predicate Contract Version",
+          "type": "string"
+        },
+        "prohibited_uses": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Uses",
+          "type": "array"
+        },
+        "readiness_operator_revision": {
+          "title": "Readiness Operator Revision",
+          "type": "string"
+        },
+        "row_selection": {
+          "$ref": "#/$defs/Predicate"
+        },
+        "season_scope": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Season Scope",
+          "type": "array"
+        },
+        "temporal_meaning": {
+          "title": "Temporal Meaning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "population_id",
+        "description",
+        "expected_row_count",
+        "allowed_uses",
+        "prohibited_uses",
+        "season_scope",
+        "temporal_meaning",
+        "predicate_contract_version",
+        "readiness_operator_revision",
+        "evaluation_precedence",
+        "row_selection"
+      ],
+      "title": "PopulationDefinition",
+      "type": "object"
+    },
+    "Predicate": {
+      "additionalProperties": false,
+      "properties": {
+        "arg": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "args": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Predicate"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Args"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "op": {
+          "enum": [
+            "and",
+            "or",
+            "not",
+            "eq",
+            "in"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "Predicate",
+      "type": "object"
+    },
+    "SeasonCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "bullpen_appearances": {
+          "exclusiveMinimum": 0,
+          "title": "Bullpen Appearances",
+          "type": "integer"
+        },
+        "complete_lineup_coverage": {
+          "$ref": "#/$defs/Coverage"
+        },
+        "date_range": {
+          "$ref": "#/$defs/DateRange"
+        },
+        "games": {
+          "exclusiveMinimum": 0,
+          "title": "Games",
+          "type": "integer"
+        },
+        "plate_appearances": {
+          "exclusiveMinimum": 0,
+          "title": "Plate Appearances",
+          "type": "integer"
+        },
+        "role": {
+          "enum": [
+            "PRIOR_ONLY_HISTORY",
+            "PRIMARY_GEN2_MODELING"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "season": {
+          "maximum": 2025,
+          "minimum": 2021,
+          "title": "Season",
+          "type": "integer"
+        },
+        "starter_targets": {
+          "exclusiveMinimum": 0,
+          "title": "Starter Targets",
+          "type": "integer"
+        },
+        "transitions": {
+          "exclusiveMinimum": 0,
+          "title": "Transitions",
+          "type": "integer"
+        },
+        "weather_coverage": {
+          "$ref": "#/$defs/Coverage"
+        }
+      },
+      "required": [
+        "season",
+        "role",
+        "games",
+        "plate_appearances",
+        "transitions",
+        "starter_targets",
+        "bullpen_appearances",
+        "weather_coverage",
+        "complete_lineup_coverage",
+        "date_range"
+      ],
+      "title": "SeasonCoverage",
+      "type": "object"
+    },
+    "SourceLineage": {
+      "additionalProperties": false,
+      "properties": {
+        "active_identity_evidence": {
+          "$ref": "#/$defs/ArtifactIdentity"
+        },
+        "database_migration": {
+          "title": "Database Migration",
+          "type": "string"
+        },
+        "finalized_evidence": {
+          "$ref": "#/$defs/ArtifactIdentity"
+        },
+        "finalized_fd1_recovery_run_id": {
+          "title": "Finalized Fd1 Recovery Run Id",
+          "type": "string"
+        },
+        "finalizer_revision": {
+          "title": "Finalizer Revision",
+          "type": "string"
+        },
+        "generation_revision": {
+          "title": "Generation Revision",
+          "type": "string"
+        },
+        "publishing_code_revision": {
+          "title": "Publishing Code Revision",
+          "type": "string"
+        },
+        "quarantine_impact_evidence": {
+          "$ref": "#/$defs/ArtifactIdentity"
+        },
+        "readiness_evidence": {
+          "$ref": "#/$defs/ArtifactIdentity"
+        },
+        "readiness_inventory_binding_note": {
+          "title": "Readiness Inventory Binding Note",
+          "type": "string"
+        },
+        "source_releases": {
+          "items": {
+            "$ref": "#/$defs/SourceRelease"
+          },
+          "title": "Source Releases",
+          "type": "array"
+        },
+        "source_semantic_manifest_checksum": {
+          "title": "Source Semantic Manifest Checksum",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finalized_fd1_recovery_run_id",
+        "source_semantic_manifest_checksum",
+        "finalized_evidence",
+        "readiness_evidence",
+        "active_identity_evidence",
+        "quarantine_impact_evidence",
+        "generation_revision",
+        "finalizer_revision",
+        "publishing_code_revision",
+        "database_migration",
+        "source_releases",
+        "readiness_inventory_binding_note"
+      ],
+      "title": "SourceLineage",
+      "type": "object"
+    },
+    "SourceRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_version": {
+          "title": "Dataset Version",
+          "type": "string"
+        },
+        "identity_checksum": {
+          "title": "Identity Checksum",
+          "type": "string"
+        },
+        "source_key": {
+          "title": "Source Key",
+          "type": "string"
+        },
+        "source_version_id": {
+          "title": "Source Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_key",
+        "source_version_id",
+        "dataset_version",
+        "identity_checksum"
+      ],
+      "title": "SourceRelease",
+      "type": "object"
+    },
+    "TargetDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "family_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Family Ids",
+          "type": "array"
+        },
+        "limitations": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "ordered_classes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ordered Classes"
+        },
+        "role": {
+          "enum": [
+            "TARGET",
+            "FEATURE",
+            "TARGET_AND_FEATURE",
+            "CONTEXT"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "target_id": {
+          "title": "Target Id",
+          "type": "string"
+        },
+        "taxonomy_identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taxonomy Identity"
+        },
+        "taxonomy_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taxonomy Version"
+        }
+      },
+      "required": [
+        "target_id",
+        "family_ids",
+        "role",
+        "description"
+      ],
+      "title": "TargetDefinition",
+      "type": "object"
+    },
+    "TemporalContract": {
+      "additionalProperties": false,
+      "properties": {
+        "doubleheader_handling": {
+          "title": "Doubleheader Handling",
+          "type": "string"
+        },
+        "fold_compatibility": {
+          "title": "Fold Compatibility",
+          "type": "string"
+        },
+        "folds": {
+          "items": {
+            "$ref": "#/$defs/Fold"
+          },
+          "title": "Folds",
+          "type": "array"
+        },
+        "no_current_game_evidence": {
+          "title": "No Current Game Evidence",
+          "type": "boolean"
+        },
+        "no_current_season_future_evidence": {
+          "title": "No Current Season Future Evidence",
+          "type": "boolean"
+        },
+        "player_prior_rule": {
+          "title": "Player Prior Rule",
+          "type": "string"
+        },
+        "same_date_game_ordering": {
+          "title": "Same Date Game Ordering",
+          "type": "string"
+        },
+        "season_roles": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Season Roles",
+          "type": "object"
+        },
+        "strict_timing_risk_separation": {
+          "title": "Strict Timing Risk Separation",
+          "type": "string"
+        },
+        "suspended_game_handling": {
+          "title": "Suspended Game Handling",
+          "type": "string"
+        },
+        "untouched_final_holdout_claimed": {
+          "title": "Untouched Final Holdout Claimed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "season_roles",
+        "player_prior_rule",
+        "no_current_game_evidence",
+        "no_current_season_future_evidence",
+        "strict_timing_risk_separation",
+        "same_date_game_ordering",
+        "suspended_game_handling",
+        "doubleheader_handling",
+        "fold_compatibility",
+        "folds",
+        "untouched_final_holdout_claimed"
+      ],
+      "title": "TemporalContract",
+      "type": "object"
+    }
+  },
+  "$id": "https://ai-sports-predictor.local/contracts/SPORTS_DATASET_MANIFEST_V1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "canonicalization_version": {
+      "const": "SPORTS_CANONICAL_JSON_V1",
+      "title": "Canonicalization Version",
+      "type": "string"
+    },
+    "contract_name": {
+      "const": "SPORTS_DATASET_MANIFEST",
+      "title": "Contract Name",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": "SPORTS_DATASET_MANIFEST_V1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "data_families": {
+      "items": {
+        "$ref": "#/$defs/DataFamily"
+      },
+      "title": "Data Families",
+      "type": "array"
+    },
+    "data_quality_evidence": {
+      "$ref": "#/$defs/DataQualityEvidence"
+    },
+    "dataset_id": {
+      "const": "asp.mlb.open-data.fd1",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version_id": {
+      "title": "Dataset Version Id",
+      "type": "string"
+    },
+    "development_purpose": {
+      "title": "Development Purpose",
+      "type": "string"
+    },
+    "evidence_cutoff": {
+      "title": "Evidence Cutoff",
+      "type": "string"
+    },
+    "identity_coverage": {
+      "$ref": "#/$defs/IdentityCoverage"
+    },
+    "known_limitations": {
+      "items": {
+        "$ref": "#/$defs/Limitation"
+      },
+      "title": "Known Limitations",
+      "type": "array"
+    },
+    "league": {
+      "const": "MLB",
+      "title": "League",
+      "type": "string"
+    },
+    "manifest_id": {
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "package_artifacts": {
+      "items": {
+        "$ref": "#/$defs/PackageArtifact"
+      },
+      "title": "Package Artifacts",
+      "type": "array"
+    },
+    "package_id": {
+      "title": "Package Id",
+      "type": "string"
+    },
+    "partitions": {
+      "items": {
+        "$ref": "#/$defs/Partition"
+      },
+      "title": "Partitions",
+      "type": "array"
+    },
+    "populations": {
+      "items": {
+        "$ref": "#/$defs/PopulationDefinition"
+      },
+      "title": "Populations",
+      "type": "array"
+    },
+    "published_at": {
+      "format": "date-time",
+      "title": "Published At",
+      "type": "string"
+    },
+    "publisher": {
+      "title": "Publisher",
+      "type": "string"
+    },
+    "seasons": {
+      "items": {
+        "$ref": "#/$defs/SeasonCoverage"
+      },
+      "title": "Seasons",
+      "type": "array"
+    },
+    "source_lineage": {
+      "$ref": "#/$defs/SourceLineage"
+    },
+    "source_rights_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Rights Ids",
+      "type": "array"
+    },
+    "sport": {
+      "const": "Baseball",
+      "title": "Sport",
+      "type": "string"
+    },
+    "supported_consumer_range": {
+      "title": "Supported Consumer Range",
+      "type": "string"
+    },
+    "target_definitions": {
+      "items": {
+        "$ref": "#/$defs/TargetDefinition"
+      },
+      "title": "Target Definitions",
+      "type": "array"
+    },
+    "temporal_contract": {
+      "$ref": "#/$defs/TemporalContract"
+    },
+    "totals": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Totals",
+      "type": "object"
+    }
+  },
+  "required": [
+    "contract_name",
+    "contract_version",
+    "canonicalization_version",
+    "supported_consumer_range",
+    "manifest_id",
+    "manifest_sha256",
+    "dataset_id",
+    "dataset_version_id",
+    "package_id",
+    "publisher",
+    "published_at",
+    "sport",
+    "league",
+    "development_purpose",
+    "evidence_cutoff",
+    "source_lineage",
+    "seasons",
+    "populations",
+    "data_families",
+    "partitions",
+    "identity_coverage",
+    "target_definitions",
+    "temporal_contract",
+    "data_quality_evidence",
+    "known_limitations",
+    "source_rights_ids",
+    "package_artifacts",
+    "totals"
+  ],
+  "title": "SPORTS_DATASET_MANIFEST_V1",
+  "type": "object"
+}
