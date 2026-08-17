@@ -1,0 +1,942 @@
+{
+  "$defs": {
+    "ArtifactIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "byte_count": {
+          "exclusiveMinimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "logical_uri": {
+          "title": "Logical Uri",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "logical_uri",
+        "sha256",
+        "byte_count"
+      ],
+      "title": "ArtifactIdentity",
+      "type": "object"
+    },
+    "BridgeFile": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "exclusiveMinimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "logical_uri": {
+          "title": "Logical Uri",
+          "type": "string"
+        },
+        "media_type": {
+          "enum": [
+            "application/json",
+            "text/markdown",
+            "application/vnd.apache.parquet"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "physical_schema_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Physical Schema Fingerprint"
+        },
+        "row_authority_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Authority Sha256"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "semantic_digest_member": {
+          "const": true,
+          "title": "Semantic Digest Member",
+          "type": "boolean"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "logical_uri",
+        "media_type",
+        "sha256",
+        "byte_count",
+        "semantic_digest_member"
+      ],
+      "title": "BridgeFile",
+      "type": "object"
+    },
+    "BridgeTotals": {
+      "additionalProperties": false,
+      "properties": {
+        "active_player_rows": {
+          "exclusiveMinimum": 0,
+          "title": "Active Player Rows",
+          "type": "integer"
+        },
+        "alias_authority_sha256": {
+          "title": "Alias Authority Sha256",
+          "type": "string"
+        },
+        "alias_rows": {
+          "exclusiveMinimum": 0,
+          "title": "Alias Rows",
+          "type": "integer"
+        },
+        "dimension_authority_sha256": {
+          "title": "Dimension Authority Sha256",
+          "type": "string"
+        },
+        "final_package_file_count": {
+          "const": 7,
+          "title": "Final Package File Count",
+          "type": "integer"
+        },
+        "join_contract_count": {
+          "exclusiveMinimum": 0,
+          "title": "Join Contract Count",
+          "type": "integer"
+        },
+        "join_validation_count": {
+          "exclusiveMinimum": 0,
+          "title": "Join Validation Count",
+          "type": "integer"
+        },
+        "namespace_count": {
+          "exclusiveMinimum": 0,
+          "title": "Namespace Count",
+          "type": "integer"
+        },
+        "semantic_file_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Semantic File Bytes",
+          "type": "integer"
+        },
+        "semantic_file_count": {
+          "const": 4,
+          "title": "Semantic File Count",
+          "type": "integer"
+        },
+        "y_minus_1_eligibility_records": {
+          "const": 6,
+          "title": "Y Minus 1 Eligibility Records",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "alias_rows",
+        "active_player_rows",
+        "namespace_count",
+        "join_contract_count",
+        "join_validation_count",
+        "y_minus_1_eligibility_records",
+        "semantic_file_count",
+        "semantic_file_bytes",
+        "final_package_file_count",
+        "alias_authority_sha256",
+        "dimension_authority_sha256"
+      ],
+      "title": "BridgeTotals",
+      "type": "object"
+    },
+    "CoverageEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "active_player_references_2021_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Active Player References 2021 2025",
+          "type": "integer"
+        },
+        "active_unique_players_2021_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Active Unique Players 2021 2025",
+          "type": "integer"
+        },
+        "ambiguous_quarantine_rows": {
+          "minimum": 0,
+          "title": "Ambiguous Quarantine Rows",
+          "type": "integer"
+        },
+        "canonical_identity_mapping_count": {
+          "exclusiveMinimum": 0,
+          "title": "Canonical Identity Mapping Count",
+          "type": "integer"
+        },
+        "downstream_impacted_rows": {
+          "const": 0,
+          "title": "Downstream Impacted Rows",
+          "type": "integer"
+        },
+        "exact_reference_rate_2021_2025": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Exact Reference Rate 2021 2025",
+          "type": "number"
+        },
+        "exact_reference_rate_2023_2025": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Exact Reference Rate 2023 2025",
+          "type": "number"
+        },
+        "exact_unique_player_rate_2021_2025": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Exact Unique Player Rate 2021 2025",
+          "type": "number"
+        },
+        "exact_unique_player_rate_2023_2025": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Exact Unique Player Rate 2023 2025",
+          "type": "number"
+        },
+        "portable_parent_player_references_2021_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Portable Parent Player References 2021 2025",
+          "type": "integer"
+        },
+        "portable_parent_player_references_2023_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Portable Parent Player References 2023 2025",
+          "type": "integer"
+        },
+        "portable_parent_unique_players_2021_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Portable Parent Unique Players 2021 2025",
+          "type": "integer"
+        },
+        "portable_parent_unique_players_2023_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Portable Parent Unique Players 2023 2025",
+          "type": "integer"
+        },
+        "primary_player_references_2023_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Primary Player References 2023 2025",
+          "type": "integer"
+        },
+        "primary_unique_players_2023_2025": {
+          "exclusiveMinimum": 0,
+          "title": "Primary Unique Players 2023 2025",
+          "type": "integer"
+        },
+        "unrepresented_governed_players_2021_2025": {
+          "minimum": 0,
+          "title": "Unrepresented Governed Players 2021 2025",
+          "type": "integer"
+        },
+        "unrepresented_governed_players_2023_2025": {
+          "minimum": 0,
+          "title": "Unrepresented Governed Players 2023 2025",
+          "type": "integer"
+        },
+        "unresolved_quarantine_rows": {
+          "minimum": 0,
+          "title": "Unresolved Quarantine Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "canonical_identity_mapping_count",
+        "active_unique_players_2021_2025",
+        "primary_unique_players_2023_2025",
+        "portable_parent_unique_players_2021_2025",
+        "portable_parent_unique_players_2023_2025",
+        "unrepresented_governed_players_2021_2025",
+        "unrepresented_governed_players_2023_2025",
+        "active_player_references_2021_2025",
+        "primary_player_references_2023_2025",
+        "portable_parent_player_references_2021_2025",
+        "portable_parent_player_references_2023_2025",
+        "exact_unique_player_rate_2021_2025",
+        "exact_reference_rate_2021_2025",
+        "exact_unique_player_rate_2023_2025",
+        "exact_reference_rate_2023_2025",
+        "unresolved_quarantine_rows",
+        "ambiguous_quarantine_rows",
+        "downstream_impacted_rows"
+      ],
+      "title": "CoverageEvidence",
+      "type": "object"
+    },
+    "IdentityNamespace": {
+      "additionalProperties": false,
+      "properties": {
+        "alias_rows": {
+          "exclusiveMinimum": 0,
+          "title": "Alias Rows",
+          "type": "integer"
+        },
+        "canonical_players": {
+          "exclusiveMinimum": 0,
+          "title": "Canonical Players",
+          "type": "integer"
+        },
+        "namespace": {
+          "enum": [
+            "RETROSHEET",
+            "LAHMAN",
+            "CHADWICK",
+            "MLBAM",
+            "BASEBALL_REFERENCE"
+          ],
+          "title": "Namespace",
+          "type": "string"
+        },
+        "source_keys": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Keys",
+          "type": "array"
+        },
+        "source_version_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Version Ids",
+          "type": "array"
+        },
+        "unique_source_ids": {
+          "exclusiveMinimum": 0,
+          "title": "Unique Source Ids",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "namespace",
+        "source_keys",
+        "source_version_ids",
+        "alias_rows",
+        "unique_source_ids",
+        "canonical_players"
+      ],
+      "title": "IdentityNamespace",
+      "type": "object"
+    },
+    "JoinContract": {
+      "additionalProperties": false,
+      "properties": {
+        "duplicate_policy": {
+          "title": "Duplicate Policy",
+          "type": "string"
+        },
+        "join_contract_id": {
+          "title": "Join Contract Id",
+          "type": "string"
+        },
+        "join_type": {
+          "title": "Join Type",
+          "type": "string"
+        },
+        "namespace": {
+          "enum": [
+            "RETROSHEET",
+            "LAHMAN",
+            "CHADWICK",
+            "MLBAM",
+            "BASEBALL_REFERENCE"
+          ],
+          "title": "Namespace",
+          "type": "string"
+        },
+        "null_policy": {
+          "title": "Null Policy",
+          "type": "string"
+        },
+        "physical_field_name": {
+          "title": "Physical Field Name",
+          "type": "string"
+        },
+        "source_family": {
+          "title": "Source Family",
+          "type": "string"
+        },
+        "target_canonical_field": {
+          "title": "Target Canonical Field",
+          "type": "string"
+        },
+        "unresolved_policy": {
+          "title": "Unresolved Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "join_contract_id",
+        "source_family",
+        "physical_field_name",
+        "namespace",
+        "target_canonical_field",
+        "join_type",
+        "null_policy",
+        "duplicate_policy",
+        "unresolved_policy"
+      ],
+      "title": "JoinContract",
+      "type": "object"
+    },
+    "JoinValidation": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguous_reference_count": {
+          "const": 0,
+          "title": "Ambiguous Reference Count",
+          "type": "integer"
+        },
+        "join_contract_id": {
+          "title": "Join Contract Id",
+          "type": "string"
+        },
+        "mapping_rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mapping Rate",
+          "type": "number"
+        },
+        "multiply_mapped_reference_count": {
+          "const": 0,
+          "title": "Multiply Mapped Reference Count",
+          "type": "integer"
+        },
+        "reference_count": {
+          "exclusiveMinimum": 0,
+          "title": "Reference Count",
+          "type": "integer"
+        },
+        "resolved_reference_count": {
+          "minimum": 0,
+          "title": "Resolved Reference Count",
+          "type": "integer"
+        },
+        "seasons": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Seasons",
+          "type": "array"
+        },
+        "unique_canonical_players": {
+          "exclusiveMinimum": 0,
+          "title": "Unique Canonical Players",
+          "type": "integer"
+        },
+        "unique_source_ids": {
+          "exclusiveMinimum": 0,
+          "title": "Unique Source Ids",
+          "type": "integer"
+        },
+        "unresolved_reference_count": {
+          "const": 0,
+          "title": "Unresolved Reference Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "join_contract_id",
+        "seasons",
+        "reference_count",
+        "resolved_reference_count",
+        "unresolved_reference_count",
+        "ambiguous_reference_count",
+        "multiply_mapped_reference_count",
+        "unique_source_ids",
+        "unique_canonical_players",
+        "mapping_rate"
+      ],
+      "title": "JoinValidation",
+      "type": "object"
+    },
+    "Limitation": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "limitation_id": {
+          "title": "Limitation Id",
+          "type": "string"
+        },
+        "scope": {
+          "const": "IDENTITY_BRIDGE",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "limitation_id",
+        "description",
+        "scope"
+      ],
+      "title": "Limitation",
+      "type": "object"
+    },
+    "ParentDatasetBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "parent_dataset_id": {
+          "const": "asp.mlb.open-data.fd1",
+          "title": "Parent Dataset Id",
+          "type": "string"
+        },
+        "parent_dataset_manifest_id": {
+          "title": "Parent Dataset Manifest Id",
+          "type": "string"
+        },
+        "parent_dataset_manifest_sha256": {
+          "title": "Parent Dataset Manifest Sha256",
+          "type": "string"
+        },
+        "parent_dataset_version_id": {
+          "title": "Parent Dataset Version Id",
+          "type": "string"
+        },
+        "parent_package_id": {
+          "title": "Parent Package Id",
+          "type": "string"
+        },
+        "parent_partition_authority_sha256": {
+          "title": "Parent Partition Authority Sha256",
+          "type": "string"
+        },
+        "plate_appearance_class_order": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Plate Appearance Class Order",
+          "type": "array"
+        }
+      },
+      "required": [
+        "parent_dataset_id",
+        "parent_dataset_version_id",
+        "parent_dataset_manifest_id",
+        "parent_dataset_manifest_sha256",
+        "parent_partition_authority_sha256",
+        "parent_package_id",
+        "plate_appearance_class_order"
+      ],
+      "title": "ParentDatasetBinding",
+      "type": "object"
+    },
+    "SourceLineage": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_identity_mapping_count": {
+          "exclusiveMinimum": 0,
+          "title": "Canonical Identity Mapping Count",
+          "type": "integer"
+        },
+        "database_transaction_mode": {
+          "const": "READ_ONLY",
+          "title": "Database Transaction Mode",
+          "type": "string"
+        },
+        "database_writes": {
+          "const": 0,
+          "title": "Database Writes",
+          "type": "integer"
+        },
+        "evidence_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactIdentity"
+          },
+          "minItems": 2,
+          "title": "Evidence Artifacts",
+          "type": "array"
+        },
+        "external_network_calls": {
+          "const": 0,
+          "title": "External Network Calls",
+          "type": "integer"
+        },
+        "extraction_revision": {
+          "title": "Extraction Revision",
+          "type": "string"
+        },
+        "provider_network_calls": {
+          "const": 0,
+          "title": "Provider Network Calls",
+          "type": "integer"
+        },
+        "publishing_code_revision": {
+          "title": "Publishing Code Revision",
+          "type": "string"
+        },
+        "source_releases": {
+          "items": {
+            "$ref": "#/$defs/SourceRelease"
+          },
+          "minItems": 1,
+          "title": "Source Releases",
+          "type": "array"
+        }
+      },
+      "required": [
+        "canonical_identity_mapping_count",
+        "evidence_artifacts",
+        "source_releases",
+        "extraction_revision",
+        "publishing_code_revision",
+        "database_transaction_mode",
+        "database_writes",
+        "provider_network_calls",
+        "external_network_calls"
+      ],
+      "title": "SourceLineage",
+      "type": "object"
+    },
+    "SourceRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "identity_checksum": {
+          "title": "Identity Checksum",
+          "type": "string"
+        },
+        "source_key": {
+          "title": "Source Key",
+          "type": "string"
+        },
+        "source_version_id": {
+          "title": "Source Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_key",
+        "source_version_id",
+        "identity_checksum"
+      ],
+      "title": "SourceRelease",
+      "type": "object"
+    },
+    "SourceRights": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_purposes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Purposes",
+          "type": "array"
+        },
+        "identity_data_resale_authorized": {
+          "const": false,
+          "title": "Identity Data Resale Authorized",
+          "type": "boolean"
+        },
+        "legal_conclusion": {
+          "const": "NO_NEW_LEGAL_CONCLUSIONS",
+          "title": "Legal Conclusion",
+          "type": "string"
+        },
+        "prohibited_purposes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Purposes",
+          "type": "array"
+        },
+        "public_raw_bridge_download_authorized": {
+          "const": false,
+          "title": "Public Raw Bridge Download Authorized",
+          "type": "boolean"
+        },
+        "public_raw_redistribution_authorized": {
+          "const": false,
+          "title": "Public Raw Redistribution Authorized",
+          "type": "boolean"
+        },
+        "rights_control_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Rights Control Ids",
+          "type": "array"
+        },
+        "unrestricted_commercial_redistribution_authorized": {
+          "const": false,
+          "title": "Unrestricted Commercial Redistribution Authorized",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "rights_control_ids",
+        "allowed_purposes",
+        "prohibited_purposes",
+        "legal_conclusion",
+        "public_raw_bridge_download_authorized",
+        "public_raw_redistribution_authorized",
+        "identity_data_resale_authorized",
+        "unrestricted_commercial_redistribution_authorized"
+      ],
+      "title": "SourceRights",
+      "type": "object"
+    },
+    "YMinus1PriorEligibility": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguous_identity_rows": {
+          "const": 0,
+          "title": "Ambiguous Identity Rows",
+          "type": "integer"
+        },
+        "eligible_prior_rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Eligible Prior Rate",
+          "type": "number"
+        },
+        "legitimate_missing_prior_rows": {
+          "minimum": 0,
+          "title": "Legitimate Missing Prior Rows",
+          "type": "integer"
+        },
+        "maximum_eligible_prior_season": {
+          "title": "Maximum Eligible Prior Season",
+          "type": "integer"
+        },
+        "multiply_mapped_identity_rows": {
+          "const": 0,
+          "title": "Multiply Mapped Identity Rows",
+          "type": "integer"
+        },
+        "reference_rows": {
+          "exclusiveMinimum": 0,
+          "title": "Reference Rows",
+          "type": "integer"
+        },
+        "role": {
+          "enum": [
+            "BATTER",
+            "PITCHER"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "rows_with_eligible_prior": {
+          "minimum": 0,
+          "title": "Rows With Eligible Prior",
+          "type": "integer"
+        },
+        "target_season": {
+          "enum": [
+            2023,
+            2024,
+            2025
+          ],
+          "title": "Target Season",
+          "type": "integer"
+        },
+        "unresolved_identity_rows": {
+          "const": 0,
+          "title": "Unresolved Identity Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target_season",
+        "role",
+        "reference_rows",
+        "rows_with_eligible_prior",
+        "legitimate_missing_prior_rows",
+        "maximum_eligible_prior_season",
+        "eligible_prior_rate",
+        "unresolved_identity_rows",
+        "ambiguous_identity_rows",
+        "multiply_mapped_identity_rows"
+      ],
+      "title": "YMinus1PriorEligibility",
+      "type": "object"
+    }
+  },
+  "$id": "https://ai-sports-predictor.local/contracts/SPORTS_IDENTITY_BRIDGE_V1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bridge_files": {
+      "items": {
+        "$ref": "#/$defs/BridgeFile"
+      },
+      "title": "Bridge Files",
+      "type": "array"
+    },
+    "bridge_manifest_id": {
+      "title": "Bridge Manifest Id",
+      "type": "string"
+    },
+    "bridge_manifest_sha256": {
+      "title": "Bridge Manifest Sha256",
+      "type": "string"
+    },
+    "bridge_package_id": {
+      "title": "Bridge Package Id",
+      "type": "string"
+    },
+    "canonicalization_version": {
+      "const": "SPORTS_CANONICAL_JSON_V1",
+      "title": "Canonicalization Version",
+      "type": "string"
+    },
+    "contract_name": {
+      "const": "SPORTS_IDENTITY_BRIDGE",
+      "title": "Contract Name",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": "SPORTS_IDENTITY_BRIDGE_V1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "coverage_evidence": {
+      "$ref": "#/$defs/CoverageEvidence"
+    },
+    "evidence_cutoff": {
+      "title": "Evidence Cutoff",
+      "type": "string"
+    },
+    "identity_namespaces": {
+      "items": {
+        "$ref": "#/$defs/IdentityNamespace"
+      },
+      "minItems": 1,
+      "title": "Identity Namespaces",
+      "type": "array"
+    },
+    "join_contracts": {
+      "items": {
+        "$ref": "#/$defs/JoinContract"
+      },
+      "minItems": 1,
+      "title": "Join Contracts",
+      "type": "array"
+    },
+    "join_validation": {
+      "items": {
+        "$ref": "#/$defs/JoinValidation"
+      },
+      "minItems": 1,
+      "title": "Join Validation",
+      "type": "array"
+    },
+    "league": {
+      "const": "MLB",
+      "title": "League",
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "$ref": "#/$defs/Limitation"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "parent_binding": {
+      "$ref": "#/$defs/ParentDatasetBinding"
+    },
+    "publication_timestamp": {
+      "format": "date-time",
+      "title": "Publication Timestamp",
+      "type": "string"
+    },
+    "publisher": {
+      "const": "AI Sports Predictor",
+      "title": "Publisher",
+      "type": "string"
+    },
+    "source_lineage": {
+      "$ref": "#/$defs/SourceLineage"
+    },
+    "source_rights": {
+      "$ref": "#/$defs/SourceRights"
+    },
+    "sport": {
+      "const": "Baseball",
+      "title": "Sport",
+      "type": "string"
+    },
+    "totals": {
+      "$ref": "#/$defs/BridgeTotals"
+    },
+    "y_minus_1_prior_eligibility": {
+      "items": {
+        "$ref": "#/$defs/YMinus1PriorEligibility"
+      },
+      "title": "Y Minus 1 Prior Eligibility",
+      "type": "array"
+    }
+  },
+  "required": [
+    "contract_name",
+    "contract_version",
+    "canonicalization_version",
+    "bridge_manifest_id",
+    "bridge_manifest_sha256",
+    "bridge_package_id",
+    "publisher",
+    "publication_timestamp",
+    "sport",
+    "league",
+    "parent_binding",
+    "evidence_cutoff",
+    "source_lineage",
+    "identity_namespaces",
+    "bridge_files",
+    "coverage_evidence",
+    "join_contracts",
+    "join_validation",
+    "y_minus_1_prior_eligibility",
+    "source_rights",
+    "limitations",
+    "totals"
+  ],
+  "title": "SPORTS_IDENTITY_BRIDGE_V1",
+  "type": "object"
+}
