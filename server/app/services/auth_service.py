@@ -89,11 +89,25 @@ def ensure_admin(session: Session, settings: Settings) -> User:
     return user
 
 
+def revoke_user_tokens(session: Session, user: User) -> None:
+    """Invalidate every outstanding access token for ``user``.
+
+    Increments the session-generation counter so all previously issued tokens
+    (whose ``ver`` claim binds the prior value) are rejected before ``exp``.
+    Call after logout and any security-sensitive change (password reset, role
+    change, account disable) once those flows exist.
+    """
+
+    user.token_version = int(user.token_version) + 1
+    session.add(user)
+    session.commit()
+
+
 def _auth_response(user: User, settings: Settings) -> AuthResponse:
     token = create_access_token(
         str(user.id),
         settings.secret_key,
         settings.access_token_minutes,
-        claims={"role": user.role.value},
+        claims={"role": user.role.value, "ver": int(user.token_version)},
     )
     return AuthResponse(access_token=token, user=public_user(user))

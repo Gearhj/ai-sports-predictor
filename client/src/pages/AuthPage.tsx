@@ -61,7 +61,7 @@ export function AuthPage() {
           <form onSubmit={submit} className="auth-form">
             {mode === 'register' && <label><span>Display name</span><input type="text" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" minLength={2} required placeholder="Your name" /></label>}
             <label><span>Email address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required placeholder="you@example.com" /></label>
-            <label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required placeholder="At least 8 characters" /></label>
+            <label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? 8 : 12} required placeholder={mode === 'login' ? 'At least 8 characters' : 'At least 12 characters'} /></label>
             {message && <div className="form-error" role="alert">{message}</div>}
             <button className="primary-button auth-submit" type="submit" disabled={submitting}>{submitting ? 'Please wait…' : mode === 'login' ? 'Sign in securely' : 'Create account'}</button>
           </form>

@@ -117,5 +117,6 @@ export const endpoints = {
       method: 'POST',
       body: JSON.stringify({ email, password, display_name }),
     }),
+  logout: () => apiRequest<{ status: string }>('/auth/logout', { method: 'POST' }),
   runJob: (job: string) => apiRequest<{ id?: string; job_id?: string; status: string }>(`/admin/jobs/${encodeURIComponent(job)}`, { method: 'POST' }),
 }

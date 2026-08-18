@@ -38,6 +38,11 @@ def get_current_user(
     user = session.get(User, user_id)
     if not user or user.status != UserStatus.ACTIVE:
         raise credentials_error
+    # Session-generation binding: a token minted before a logout or other
+    # security-sensitive revocation carries a stale ``ver`` and is rejected
+    # even though its signature and expiry are still otherwise valid.
+    if payload.get("ver") != user.token_version:
+        raise credentials_error
     return user
 
 

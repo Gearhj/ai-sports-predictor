@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     access_token_minutes: int = Field(default=60, ge=5, le=1440)
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Abuse controls. In-process only (non-distributed); a multi-instance public
+    # deployment must move these counters to a shared store behind a trusted
+    # proxy. See app/core/rate_limit.py and the deep security audit, section 11.
+    rate_limit_enabled: bool = True
+    auth_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
+    admin_rate_limit_per_minute: int = Field(default=60, ge=1, le=5000)
+    rate_limit_trust_forwarded_for: bool = False
+
     the_odds_api_key: str = ""
     odds_polling_enabled: bool = False
     odds_poll_interval_minutes: int = Field(default=60, ge=5)
@@ -93,6 +101,13 @@ class Settings(BaseSettings):
                 raise ValueError("DEMO_MODE must be false in production")
             if self.admin_password == "REDACTED-CREDENTIAL" or len(self.admin_password) < 12:
                 raise ValueError("Production ADMIN_PASSWORD must be a unique value of at least 12 characters")
+            # CORS must fail closed in production: no wildcard (especially with
+            # credentials enabled) and no plaintext-HTTP external origins.
+            for origin in self.cors_origin_list:
+                if "*" in origin:
+                    raise ValueError("Production CORS_ORIGINS must not contain a wildcard origin")
+                if not origin.startswith("https://"):
+                    raise ValueError("Production CORS_ORIGINS entries must be explicit https:// origins")
         return self
 
     @property

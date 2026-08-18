@@ -80,9 +80,11 @@ export function AppShell() {
             </NavLink>
           ))}
           <span className="side-nav__label side-nav__label--spaced">Platform</span>
-          <NavLink to={scopedPath('/admin')} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
-            <DatabaseZap size={17} /><span>Data health</span>
-          </NavLink>
+          {(demoMode || user?.role === 'ADMIN') && (
+            <NavLink to={scopedPath('/admin')} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
+              <DatabaseZap size={17} /><span>Data health</span>
+            </NavLink>
+          )}
           {futureNav.map(({ label, icon: Icon }) => (
             <span key={label} className="side-nav__item side-nav__item--disabled" aria-disabled="true">
               <Icon size={17} /><span>{label}</span><small>Future</small>

@@ -13,7 +13,7 @@ from app.models import Forecast, Game, GameFeatureSnapshot, IngestionRun, JobRun
 EVENT_DATE = date(2026, 8, 12)
 
 
-def test_empty_database_public_read_contract(client) -> None:
+def test_empty_database_public_read_contract(client, admin_headers) -> None:
     dashboard = client.get("/api/v1/dashboard/today").json()
     assert dashboard["data_mode"] == "empty"
     assert dashboard["games"] == []
@@ -55,7 +55,7 @@ def test_empty_database_public_read_contract(client) -> None:
     assert bankroll["record"] == "0–0–0"
     assert bankroll["positions"] == []
 
-    health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}").json()
+    health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}", headers=admin_headers).json()
     assert health["data_mode"] == "empty"
     assert health["database_status"] == "ready"
     assert health["sports_data_status"] == "empty"
@@ -68,7 +68,7 @@ def test_empty_database_public_read_contract(client) -> None:
     assert "no sports records" in database["detail"].lower()
 
 
-def test_public_model_and_bankroll_policy_contract(client, session) -> None:
+def test_public_model_and_bankroll_policy_contract(client, session, admin_headers) -> None:
     # Internal enum state is not governed promotion evidence and must not leak
     # into the public contract.
     session.add(ModelVersion(
@@ -92,7 +92,7 @@ def test_public_model_and_bankroll_policy_contract(client, session) -> None:
 
     performance = client.get("/api/v1/performance").json()
     dashboard = client.get("/api/v1/dashboard/today").json()
-    health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}").json()
+    health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}", headers=admin_headers).json()
     assert performance["model_status"] == "DEVELOPMENT"
     assert dashboard["model_status"] == "DEVELOPMENT"
     assert health["model_status"] == "DEVELOPMENT"
@@ -104,7 +104,7 @@ def test_public_model_and_bankroll_policy_contract(client, session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_deliberately_seeded_demo_stays_off_the_public_today_surface(client, session, settings) -> None:
+async def test_deliberately_seeded_demo_stays_off_the_public_today_surface(client, session, settings, admin_headers) -> None:
     started_at = datetime.now(UTC)
     result = await seed_demo_data(session, settings, EVENT_DATE)
     completed_at = datetime.now(UTC)
@@ -131,7 +131,7 @@ async def test_deliberately_seeded_demo_stays_off_the_public_today_surface(clien
 
     dashboard = client.get("/api/v1/dashboard/today").json()
     markets = client.get(f"/api/v1/markets/board?date={EVENT_DATE}").json()
-    health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}").json()
+    health = client.get(f"/api/v1/health/sources?date={EVENT_DATE}", headers=admin_headers).json()
     config = client.get("/api/v1/public/config").json()
 
     assert dashboard["data_mode"] == "empty"

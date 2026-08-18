@@ -74,6 +74,16 @@ def session() -> Session:
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Isolate the process-global rate-limiter between tests."""
+    from app.core.rate_limit import get_rate_limiter
+
+    get_rate_limiter().reset()
+    yield
+    get_rate_limiter().reset()
+
+
 @pytest.fixture
 def client(session: Session, settings: Settings):
     def override_db():
@@ -84,3 +94,17 @@ def client(session: Session, settings: Settings):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def admin_headers(client, session: Session, settings: Settings) -> dict[str, str]:
+    """Authenticate as the bootstrap administrator for admin-only routes."""
+    from app.services.auth_service import ensure_admin
+
+    ensure_admin(session, settings)
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": settings.admin_email, "password": settings.admin_password},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}

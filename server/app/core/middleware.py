@@ -6,6 +6,13 @@ from starlette.responses import Response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, *, hsts: bool = False) -> None:
+        super().__init__(app)
+        # HSTS is only meaningful over HTTPS and must never be emitted for
+        # plaintext local development. It is enabled only when the deployment
+        # boundary guarantees TLS (production).
+        self.hsts = hsts
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -16,4 +23,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # content and receive the strictest policy.
         if request.url.path.startswith("/api/"):
             response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        if self.hsts:
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return response

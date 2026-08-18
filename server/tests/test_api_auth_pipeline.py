@@ -11,7 +11,7 @@ from app.services.auth_service import BootstrapConflictError, ensure_admin, regi
 
 
 @pytest.mark.asyncio
-async def test_demo_vertical_slice_and_typed_endpoints(client, session, settings) -> None:
+async def test_demo_vertical_slice_and_typed_endpoints(client, session, settings, admin_headers) -> None:
     result = await seed_demo_data(session, settings, date(2026, 8, 12))
     assert result["mode"] == "DEMO"
     dashboard = client.get("/api/v1/dashboard/today")
@@ -31,8 +31,11 @@ async def test_demo_vertical_slice_and_typed_endpoints(client, session, settings
     assert len(markets.json()["books"]) == 3
     assert client.get("/api/v1/performance").json()["brier_score"] is None
     assert client.get("/api/v1/bankroll").status_code == 200
-    assert client.get("/api/v1/health/sources?date=2026-08-12").status_code == 200
-    assert client.get("/api/v1/health").json()["database"] == "reachable"
+    assert client.get("/api/v1/health/sources?date=2026-08-12", headers=admin_headers).status_code == 200
+    assert client.get("/api/v1/health", headers=admin_headers).json()["database"] == "reachable"
+    # Operational telemetry is admin-only: unauthenticated callers are rejected.
+    assert client.get("/api/v1/health/sources?date=2026-08-12").status_code == 401
+    assert client.get("/api/v1/health").status_code == 401
 
 
 def test_authentication_and_admin_role_authorization(client, session, settings) -> None:

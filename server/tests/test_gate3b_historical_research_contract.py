@@ -568,8 +568,9 @@ def test_history_integrity_failure_blocks_readiness_claims(client, session) -> N
 def test_performance_and_health_keep_historical_evidence_separate(
     client,
     session,
+    admin_headers,
 ) -> None:
-    health_before = client.get("/api/v1/health/sources?date=2026-08-14").json()
+    health_before = client.get("/api/v1/health/sources?date=2026-08-14", headers=admin_headers).json()
     _seed_history(session)
 
     performance = client.get("/api/v1/performance").json()
@@ -584,7 +585,7 @@ def test_performance_and_health_keep_historical_evidence_separate(
     assert performance["offline_evaluation"]["validation_metrics"] is None
     assert performance["offline_evaluation"]["holdout_metrics"] is None
 
-    health_after = client.get("/api/v1/health/sources?date=2026-08-14").json()
+    health_after = client.get("/api/v1/health/sources?date=2026-08-14", headers=admin_headers).json()
     assert health_after["overall_score"] == health_before["overall_score"]
     assert health_after["sports_data_status"] == health_before["sports_data_status"]
     assert health_after["provider_evidence_status"] == health_before["provider_evidence_status"]

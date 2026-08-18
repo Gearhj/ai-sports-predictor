@@ -535,10 +535,18 @@ class AuthUser(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
+    # Login keeps the historical lower bound so accounts created under the
+    # earlier 8-character minimum can still authenticate. New/reset passwords
+    # are governed by the stricter RegisterRequest policy below.
     password: str = Field(min_length=8, max_length=128)
 
 
 class RegisterRequest(LoginRequest):
+    # Length is the primary control (no mandatory composition rules).
+    # BREACHED_PASSWORD_CHECK_REQUIRED_BEFORE_PUBLIC_PRODUCTION — add an
+    # offline / k-anonymity breached-password check before public launch
+    # (no external network call is introduced here).
+    password: str = Field(min_length=12, max_length=128)
     display_name: str = Field(min_length=2, max_length=100)
 
     @field_validator("display_name")

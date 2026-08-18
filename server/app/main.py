@@ -30,15 +30,25 @@ async def lifespan(application: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
+def create_app(settings=None) -> FastAPI:
+    settings = settings or get_settings()
+    is_production = settings.app_env == "production"
+    # Interactive API documentation and the machine-readable schema are
+    # developer conveniences that leak the full surface; disable them in
+    # production (fail closed) and keep them for local/dev work.
+    docs_kwargs = (
+        {"docs_url": None, "redoc_url": None, "openapi_url": None}
+        if is_production
+        else {}
+    )
     application = FastAPI(
         title=settings.app_name,
         version="0.1.0",
         description="Quantitative MLB forecasting and transparent virtual-bankroll research API.",
         lifespan=lifespan,
+        **docs_kwargs,
     )
-    application.add_middleware(SecurityHeadersMiddleware)
+    application.add_middleware(SecurityHeadersMiddleware, hsts=is_production)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,

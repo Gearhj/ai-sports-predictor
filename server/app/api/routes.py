@@ -4,10 +4,11 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.dependencies import AdminUser, AppSettings, CurrentUser, DatabaseSession
+from app.core.rate_limit import rate_limit
 from app.core.time import local_today
 from app.jobs import AVAILABLE_JOBS, JobOrchestrator
 from app.models import (
@@ -40,6 +41,7 @@ from app.services.auth_service import (
     authenticate_user,
     public_user,
     register_user,
+    revoke_user_tokens,
 )
 from app.services.read_service import ReadService
 from app.services.historical_research_read_service import HistoricalResearchReadService
@@ -171,18 +173,34 @@ def bankroll(session: DatabaseSession, settings: AppSettings) -> BankrollData:
 
 
 @router.get("/health/sources", response_model=HealthData, tags=["operations"])
-def source_health(session: DatabaseSession, settings: AppSettings, event_date: date | None = Query(None, alias="date")) -> HealthData:
+def source_health(
+    session: DatabaseSession,
+    settings: AppSettings,
+    user: AdminUser,
+    event_date: date | None = Query(None, alias="date"),
+) -> HealthData:
+    # Operational telemetry (provider quota remaining, source freshness, recent
+    # job history) is administrator-only. Public liveness is served by the
+    # unauthenticated ``/healthz`` and ``/system/ping`` endpoints instead.
     return ReadService(session, settings).health(_today(event_date, settings))
 
 
-@router.get("/health", tags=["system"])
-def application_health(session: DatabaseSession) -> dict:
+@router.get("/health", tags=["operations"])
+def application_health(session: DatabaseSession, user: AdminUser) -> dict:
+    # Database-reachability detail is operational; gate it behind admin and use
+    # ``/healthz`` for public liveness probes.
     from sqlalchemy import text
     session.execute(text("SELECT 1"))
     return {"status": "ok", "database": "reachable", "timestamp": datetime.now(UTC)}
 
 
-@router.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED, tags=["authentication"])
+@router.post(
+    "/auth/register",
+    response_model=AuthResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["authentication"],
+    dependencies=[Depends(rate_limit("auth:register", category="auth"))],
+)
 def register(body: RegisterRequest, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
     try:
         return register_user(session, settings, body.email, body.password, body.display_name)
@@ -190,7 +208,12 @@ def register(body: RegisterRequest, session: DatabaseSession, settings: AppSetti
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.post("/auth/login", response_model=AuthResponse, tags=["authentication"])
+@router.post(
+    "/auth/login",
+    response_model=AuthResponse,
+    tags=["authentication"],
+    dependencies=[Depends(rate_limit("auth:login", category="auth"))],
+)
 def login(body: LoginRequest, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
     try:
         return authenticate_user(session, settings, body.email, body.password)
@@ -201,6 +224,16 @@ def login(body: LoginRequest, session: DatabaseSession, settings: AppSettings) -
 @router.get("/auth/me", response_model=AuthUser, tags=["authentication"])
 def me(user: CurrentUser) -> AuthUser:
     return public_user(user)
+
+
+@router.post("/auth/logout", tags=["authentication"])
+def logout(user: CurrentUser, session: DatabaseSession) -> dict:
+    # Server-side revocation: bumps the user's session generation so every
+    # outstanding access token (including the one presented here) is rejected
+    # on its next use. Idempotent from the client's perspective — it always
+    # ends with no valid session.
+    revoke_user_tokens(session, user)
+    return {"status": "logged_out"}
 
 
 @router.get("/admin/jobs", tags=["administration"])
@@ -216,7 +249,12 @@ def admin_jobs(session: DatabaseSession, user: AdminUser) -> dict:
     }
 
 
-@router.post("/admin/jobs/{job_name}", response_model=JobTriggerResponse, tags=["administration"])
+@router.post(
+    "/admin/jobs/{job_name}",
+    response_model=JobTriggerResponse,
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:jobs", category="admin"))],
+)
 async def trigger_job(job_name: str, session: DatabaseSession, settings: AppSettings, user: AdminUser) -> JobTriggerResponse:
     try:
         run = await JobOrchestrator(session, settings).run(job_name, requested_by_user_id=user.id)

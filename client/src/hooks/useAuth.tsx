@@ -48,6 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    // Best-effort server-side revocation (bumps token_version). Local cleanup
+    // proceeds regardless so an already-expired/revoked token never strands the
+    // user in a signed-in UI state.
+    void endpoints.logout().catch(() => undefined)
     clearToken()
     setUser(null)
   }, [])

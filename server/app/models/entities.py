@@ -162,6 +162,10 @@ class User(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[UserRole] = mapped_column(enum_type(UserRole), nullable=False, default=UserRole.MEMBER)
     status: Mapped[UserStatus] = mapped_column(enum_type(UserStatus), nullable=False, default=UserStatus.ACTIVE)
+    # Monotonic session-generation counter. Every issued access token binds the
+    # value current at issue time; incrementing it revokes all prior tokens
+    # before their natural expiry (logout, password/security-sensitive change).
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

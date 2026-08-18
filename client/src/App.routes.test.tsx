@@ -14,7 +14,7 @@ const routes = [
   { path: '/performance', heading: /Model Performance/i, level: 1 },
   { path: '/experiment', heading: /Can AI Beat the Sportsbooks\?/i, level: 1 },
   { path: '/methodology', heading: /^Methodology$/i, level: 1 },
-  { path: '/admin', heading: /Data Health/i, level: 1 },
+  { path: '/admin', heading: /Administrator access required/i, level: 1 },
   { path: '/account', heading: /Research that shows its work/i, level: 1 },
 ] as const
 

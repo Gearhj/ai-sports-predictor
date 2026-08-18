@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import jwt
 from pwdlib import PasswordHash
@@ -38,6 +39,9 @@ def create_access_token(
         "iat": now,
         "exp": now + timedelta(minutes=expires_minutes),
         "type": "access",
+        # Unpredictable per-token identifier: unique for logging/audit and a
+        # future per-token denylist without reusing the guessable subject/iat.
+        "jti": uuid4().hex,
     }
     payload.update(claims or {})
     return jwt.encode(payload, secret_key, algorithm=ALGORITHM)

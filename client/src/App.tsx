@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
+import { RequireAdmin } from './components/RequireAdmin'
 import { AuthProvider } from './hooks/useAuth'
 import { PublicPolicyProvider } from './hooks/usePublicPolicy'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
@@ -30,7 +31,7 @@ export default function App() {
               <Route path="performance" element={<PerformancePage />} />
               <Route path="experiment" element={<BankrollPage />} />
               <Route path="methodology" element={<MethodologyPage />} />
-              <Route path="admin" element={<HealthPage />} />
+              <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
               <Route path="account" element={<AuthPage />} />
               <Route path="login" element={<AuthPage />} />
               {DEMO_ROUTES_ENABLED && <Route path="demo" element={<TodayPage demo />} />}
