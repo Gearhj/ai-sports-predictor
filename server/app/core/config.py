@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     availability_poll_fast_minutes: int = Field(default=2, ge=1)
     pregame_fast_window_hours: int = Field(default=4, ge=1, le=24)
     odds_pregame_refresh_minutes: int = Field(default=5, ge=1)
+    # Scheduled odds refreshes only spend quota when a monitored game is within
+    # this many hours of first pitch, concentrating the daily budget on the
+    # pregame window instead of exhausting it overnight. Event-triggered and
+    # pipeline refreshes are not gated by this window.
+    odds_pregame_window_hours: int = Field(default=4, ge=1, le=24)
     shadow_quote_burst_offsets_seconds: str = "15,60,300"
 
     # SportsDataIO availability adapter — the single injury/availability provider

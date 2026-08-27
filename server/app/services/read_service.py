@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from math import isfinite
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.bankroll.service import (
@@ -191,7 +191,9 @@ class ReadService:
         games = self._live_games_for_date(event_date)
         cards = [self.game_card(game) for game in games]
         forecasts = [self._latest_forecast(game.id) for game in games]
-        complete = sum(forecast is not None and forecast.status == ForecastStatus.PUBLISHED for forecast in forecasts)
+        # A game counts as forecast-complete when it has a valid current version —
+        # the morning publication or a later intraday rescore that superseded it.
+        complete = sum(forecast is not None for forecast in forecasts)
         readiness = [card.data_readiness for card in cards if card.data_readiness is not None]
         bankroll = self.bankroll()
         last_refresh = max(
@@ -1033,12 +1035,16 @@ class ReadService:
         market = self._market_context(game.id, home.id, away.id, cutoff=lineage_cutoff)
         model_version = self.session.get(ModelVersion, forecast.model_version_id)
         components = list(self.session.scalars(select(ForecastComponent).where(ForecastComponent.forecast_id == forecast.id)))
+        # History shows every immutable version — the morning publication plus any
+        # intraday rescores — each rendered with the input state known at its OWN
+        # cutoff. Newer versions never overwrite older ones.
         history = list(self.session.scalars(select(Forecast).where(
             Forecast.game_id == game.id,
-            Forecast.status == ForecastStatus.PUBLISHED,
             Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
             Forecast.source_mode == game.source_mode,
+            self._valid_current_versions(game.id),
         ).order_by(Forecast.generated_at)))
+        rescore_reasons = self._rescore_reasons(game.id)
         simulation = forecast.simulation_summary or {}
         home_dist = simulation.get("home_runs_distribution") or {}
         away_dist = simulation.get("away_runs_distribution") or {}
@@ -1188,6 +1194,13 @@ class ReadService:
                     if self._forecast_market_probability(item.id, home.id) is not None
                     else None
                 ),
+                # Point-in-time facets of THIS version (its own cutoff): the lineup
+                # state it was built on, its expected score, and — for an intraday
+                # rescore — the availability change that triggered it.
+                "lineup_status": self._version_lineup_state(item),
+                "expected_home_runs": item.expected_home_runs,
+                "expected_away_runs": item.expected_away_runs,
+                "rescore_reason": rescore_reasons.get(item.id),
             } for item in history],
             data_audit=data_audit,
             simulation={
@@ -2242,16 +2255,76 @@ class ReadService:
             .order_by(Game.starts_at)
         ))
 
+    def _valid_current_versions(self, game_id: Any):
+        """Filter for versions eligible to be the displayed 'current' forecast.
+
+        A version is eligible when it is either a published forecast or the
+        recorded `after` forecast of a governed intraday rescore (a real
+        lineup/starter change). This lets a legitimate intraday rescore supersede
+        the morning forecast for display while every version keeps its own
+        point-in-time cutoff — an unready one-off DRAFT never qualifies."""
+
+        rescore_versions = select(ShadowRescore.after_forecast_id).where(
+            ShadowRescore.game_id == game_id
+        )
+        return or_(
+            Forecast.status == ForecastStatus.PUBLISHED,
+            Forecast.id.in_(rescore_versions),
+        )
+
     def _latest_forecast(self, game_id: Any) -> Forecast | None:
         game = self.session.get(Game, game_id)
         if game is None:
             return None
+        # The displayed forecast is the NEWEST valid version on the operational
+        # track: the morning publication, or a later intraday rescore triggered by
+        # a confirmed lineup / starter change. The rescore carries its own cutoff,
+        # so surfacing it never grafts today's lineup onto an older forecast.
         return self.session.scalar(select(Forecast).where(
             Forecast.game_id == game_id,
-            Forecast.status == ForecastStatus.PUBLISHED,
             Forecast.source_mode == game.source_mode,
             Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
+            self._valid_current_versions(game_id),
         ).order_by(Forecast.version.desc()).limit(1))
+
+    def _rescore_reasons(self, game_id: Any) -> dict[Any, str]:
+        """Map each rescored forecast version to the availability change that
+        produced it (e.g. 'LINEUP_CONFIRMED'), for the history 'reason' column."""
+
+        rows = self.session.execute(
+            select(
+                ShadowRescore.after_forecast_id,
+                AvailabilityEvent.description,
+                AvailabilityEvent.event_type,
+            )
+            .join(AvailabilityEvent, AvailabilityEvent.id == ShadowRescore.availability_event_id)
+            .where(ShadowRescore.game_id == game_id)
+        ).all()
+        return {row[0]: (row[1] or row[2]) for row in rows}
+
+    def _version_lineup_state(self, forecast: Forecast) -> str:
+        """Lineup state of the exact snapshot THIS version was built on — a
+        point-in-time fact of the version, never today's newest lineup."""
+
+        snapshot = (
+            self.session.get(GameFeatureSnapshot, forecast.feature_snapshot_id)
+            if forecast.feature_snapshot_id else None
+        )
+        if snapshot is None:
+            return "MISSING"
+        observations = [
+            self.session.get(LineupObservation, obs_id)
+            for obs_id in (snapshot.home_lineup_observation_id, snapshot.away_lineup_observation_id)
+            if obs_id
+        ]
+        if len(observations) == 2 and all(
+            obs is not None and obs.lineup_status == "CONFIRMED" and obs.is_complete
+            for obs in observations
+        ):
+            return "CONFIRMED"
+        if any(obs is not None for obs in observations):
+            return "PARTIAL"
+        return "MISSING"
 
     def _latest_refresh_state(self, game_id: Any, source_mode: str) -> GameRefreshState | None:
         return self.session.scalar(

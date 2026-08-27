@@ -245,7 +245,16 @@ export interface GameAnalysisData extends DataProvenance {
   statcast_metrics: ComparisonMetric[]
   model_components: Array<{ model: string; home_probability: number; expected_margin: number; weight: number | null }>
   drivers: Array<{ label: string; impact: number; detail: string }>
-  forecast_history: Array<{ time: string; version: string; home_probability: number; market_probability: number | null }>
+  forecast_history: Array<{
+    time: string
+    version: string
+    home_probability: number
+    market_probability: number | null
+    lineup_status?: string
+    expected_home_runs?: number | null
+    expected_away_runs?: number | null
+    rescore_reason?: string | null
+  }>
   data_audit: Array<{ source: string; status: ReadinessState; updated: string; detail: string }>
   simulation: {
     iterations: number

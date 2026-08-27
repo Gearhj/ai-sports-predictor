@@ -24,6 +24,18 @@ async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
             logger.error("scheduled_job_failed", job=job_name, error=str(exc))
 
 
+async def execute_pregame_odds_refresh(settings: Settings) -> None:
+    """Scheduled odds cadence gate: refresh only when a monitored game is near
+    first pitch, so the daily quota is spent in the pregame window rather than
+    overnight. Event-triggered and pipeline refreshes bypass this gate."""
+
+    with SessionLocal() as session:
+        if not JobOrchestrator(session, settings).odds_pregame_window_open(datetime.now(UTC)):
+            logger.info("odds_refresh_skipped", reason="outside_pregame_window")
+            return
+    await execute_scheduled_job("refresh-odds", settings)
+
+
 def select_event_relative_refresh_states(settings: Settings) -> None:
     """Persist due lifecycle selections without calling a provider or job."""
 
@@ -97,11 +109,11 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         )
         if settings.the_odds_api_key:
             scheduler.add_job(
-                execute_scheduled_job,
+                execute_pregame_odds_refresh,
                 "interval",
                 minutes=settings.odds_pregame_refresh_minutes,
                 id="asp-live-odds-refresh",
-                kwargs={"job_name": "refresh-odds", "settings": settings},
+                kwargs={"settings": settings},
                 **common,
             )
     return scheduler

@@ -540,6 +540,27 @@ class JobOrchestrator:
             "warnings": warnings,
         }
 
+    def odds_pregame_window_open(self, now: datetime) -> bool:
+        """True when a monitored LIVE game is within the pregame odds window.
+
+        Lets the scheduled cadence concentrate its daily budget on the hours
+        before first pitch instead of spending it overnight. Started games and
+        games beyond the window do not keep the window open."""
+
+        window = timedelta(hours=self.settings.odds_pregame_window_hours)
+        upcoming = self.session.scalars(
+            select(Game).where(
+                Game.source_mode == "LIVE",
+                Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE)),
+                Game.starts_at > now,
+            )
+        )
+        for game in upcoming:
+            starts = game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)
+            if starts - now <= window:
+                return True
+        return False
+
     async def refresh_odds(
         self,
         event_date: date,

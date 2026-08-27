@@ -235,7 +235,7 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         <Panel title="Version ledger" eyebrow="PUBLISHED SNAPSHOTS">
           <div className="version-list">
             {data.forecast_history.map((version, index) => (
-              <div key={version.version}><CheckCircle2 size={15} /><span><strong>{version.version}</strong><small>{formatCompactTimestamp(version.time)}</small></span><b>{formatPct(version.home_probability)}</b>{index === data.forecast_history.length - 1 && <em>Current</em>}</div>
+              <div key={version.version}><CheckCircle2 size={15} /><span><strong>{version.version}</strong><small>{formatCompactTimestamp(version.time)}{version.lineup_status ? ` · Lineup ${version.lineup_status}` : ''}{version.rescore_reason ? ` · ${version.rescore_reason}` : ''}</small></span><b>{formatPct(version.home_probability)}</b>{index === data.forecast_history.length - 1 && <em>Current</em>}</div>
             ))}
           </div>
         </Panel>
