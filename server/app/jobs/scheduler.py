@@ -83,4 +83,25 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"settings": settings},
             **common,
         )
+    if settings.live_shadow_enabled:
+        # Armed live shadow operation. The poll job runs at the fast base cadence
+        # and internally enforces the per-game fast/slow window, so it never polls
+        # a started game and never exceeds the intended cadence.
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=settings.availability_poll_fast_minutes,
+            id="asp-availability-poll",
+            kwargs={"job_name": "poll-availability-events", "settings": settings},
+            **common,
+        )
+        if settings.the_odds_api_key:
+            scheduler.add_job(
+                execute_scheduled_job,
+                "interval",
+                minutes=settings.odds_pregame_refresh_minutes,
+                id="asp-live-odds-refresh",
+                kwargs={"job_name": "refresh-odds", "settings": settings},
+                **common,
+            )
     return scheduler

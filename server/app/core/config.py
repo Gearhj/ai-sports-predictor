@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     opportunity_standard_threshold: float = Field(default=0.04, ge=0, le=1)
     opportunity_strong_threshold: float = Field(default=0.07, ge=0, le=1)
 
+    # Live prospective shadow operation (armed provider polling; off by default so
+    # the process never makes an unattended provider call until explicitly armed).
+    live_shadow_enabled: bool = False
+    availability_poll_slow_minutes: int = Field(default=10, ge=1)
+    availability_poll_fast_minutes: int = Field(default=2, ge=1)
+    pregame_fast_window_hours: int = Field(default=4, ge=1, le=24)
+    odds_pregame_refresh_minutes: int = Field(default=5, ge=1)
+    shadow_quote_burst_offsets_seconds: str = "15,60,300"
+
     # Model Studio forecast-exchange shadow board (research-shadow, never executable).
     shadow_board_enabled: bool = True
     shadow_bundle_import_dir: str = ""
@@ -128,6 +137,18 @@ class Settings(BaseSettings):
     @property
     def odds_market_list(self) -> list[str]:
         return [market.strip() for market in self.odds_markets.split(",") if market.strip()]
+
+    @property
+    def quote_burst_offset_list(self) -> list[int]:
+        offsets: list[int] = []
+        for token in self.shadow_quote_burst_offsets_seconds.split(","):
+            token = token.strip()
+            if token:
+                try:
+                    offsets.append(int(token))
+                except ValueError:
+                    continue
+        return offsets
 
 
 @lru_cache

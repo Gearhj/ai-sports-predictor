@@ -203,6 +203,18 @@ def shadow_rescores(
     return ProspectiveShadowService(session, settings).rescores(day)
 
 
+@router.get(
+    "/admin/live-shadow/status",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:live-shadow", category="admin"))],
+)
+def live_shadow_status(session: DatabaseSession, settings: AppSettings, user: AdminUser) -> dict:
+    # Admin-only operational status. Reads persisted state only; no provider call.
+    from app.services.live_shadow_service import LiveShadowOperator
+
+    return LiveShadowOperator(session, settings).status()
+
+
 @router.post(
     "/admin/availability-events",
     tags=["administration"],

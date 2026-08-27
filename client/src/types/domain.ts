@@ -635,3 +635,28 @@ export interface ProspectiveRescoreBoard {
   executable: false
   rescores: ProspectiveRescore[]
 }
+
+export interface LiveShadowStatus {
+  operational_state: string
+  availability_polling_enabled: boolean
+  odds_provider_enabled: boolean
+  odds_credentials_present: boolean
+  required_odds_config_variable: string | null
+  executable: false
+  quota: { quota_remaining: number | null; quota_floor: number; daily_request_budget: number; requests_today: number }
+  cadence: {
+    availability_slow_minutes: number
+    availability_fast_minutes: number
+    pregame_fast_window_hours: number
+    odds_pregame_refresh_minutes: number
+    quote_burst_offsets_seconds: number[]
+  }
+  last_successful_schedule_refresh: string | null
+  last_successful_event_poll: string | null
+  last_successful_odds_refresh: string | null
+  last_event_received: string | null
+  last_event_source: string | null
+  last_rescore_duration_seconds: number | null
+  active_games_monitored: number
+  circuit_state: { last_provider_failure: string | null; last_failed_job: string | null }
+}

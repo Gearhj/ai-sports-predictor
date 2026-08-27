@@ -68,6 +68,7 @@ AVAILABLE_JOBS = {
     "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
     "evaluate-shadow-betting-board": "Evaluate Research-Shadow Betting Board",
     "settle-shadow-decisions": "Settle Research-Shadow Decisions",
+    "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
 }
 
 ALIASES = {
@@ -161,8 +162,56 @@ class JobOrchestrator:
             "import-model-studio-forecast-bundle": self.import_forecast_bundle,
             "evaluate-shadow-betting-board": self.evaluate_shadow_board,
             "settle-shadow-decisions": self.settle_shadow_decisions,
+            "poll-availability-events": self.poll_availability_events,
         }
         return await handlers[name](event_date)
+
+    async def poll_availability_events(self, event_date: date) -> dict[str, Any]:
+        """Automatic MLB availability poll: detect real probable-pitcher/lineup changes.
+
+        Bounded by per-game cadence (fast inside the pregame window, slow outside;
+        never polls a started game). Uses the free MLB Stats API for schedule and
+        lineup state; it makes no Odds API request and fabricates no event.
+        """
+        from app.services.live_shadow_service import GameAvailabilitySnapshot, LiveShadowOperator
+
+        operator = LiveShadowOperator(self.session, self.settings)
+        now = datetime.now(UTC)
+        due = operator.due_game_ids(now)
+        if not due:
+            return {"records": 0, "polled_games": 0, "events_emitted": 0, "note": "no games due for polling"}
+
+        due_games = {game.id: game for game in operator.monitored_games(now) if game.id in due}
+        adapter = MLBStatsAPIAdapter()
+        response = await adapter.get_schedule(event_date)
+        fetched_at = response.envelope.fetched_at
+        by_source = {str(item.get("source_game_id")): item for item in response.envelope.data}
+        payload_id = f"mlb-schedule:{fetched_at.isoformat()}"
+        fast_window = timedelta(hours=self.settings.pregame_fast_window_hours)
+
+        snapshots: list[Any] = []
+        for game in due_games.values():
+            item = by_source.get(str(game.source_game_id))
+            if item is None:
+                continue
+            home = (item.get("home_pitcher") or {}).get("source_id")
+            away = (item.get("away_pitcher") or {}).get("source_id")
+            probable = f"{home or '-'}|{away or '-'}"
+            home_lineup = None
+            starts = game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)
+            if starts - now <= fast_window:
+                try:
+                    lineups = (await adapter.get_game_lineups(str(game.source_game_id))).envelope.data
+                    home_lineup = next((row.get("status") for row in lineups), None)
+                except SourceError:
+                    home_lineup = None
+            snapshots.append(GameAvailabilitySnapshot(
+                game_id=game.id, probable_pitcher_id=probable,
+                home_lineup_status=home_lineup, away_lineup_status=home_lineup,
+                source_payload_id=payload_id, published_at=fetched_at,
+            ))
+        result = operator.poll(snapshots, now=now)
+        return {"records": result["events_emitted"], **result}
 
     async def import_forecast_bundle(self, event_date: date) -> dict[str, Any]:
         """Import the configured immutable forecast bundle. Idempotent; no provider call."""

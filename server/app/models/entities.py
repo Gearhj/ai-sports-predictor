@@ -3082,3 +3082,40 @@ class ShadowRescore(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         UniqueConstraint("availability_event_id", "game_id", name="uq_shadow_rescore_event_game"),
     )
+
+
+class ShadowQuoteCapture(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only later-slot quote capture for a rescore's timeline.
+
+    Keeps the ShadowRescore row fully immutable while the 15s/60s/5m/closing
+    quotes are appended as real, separately-timestamped observations. A null
+    quote records that no governed price existed at that slot (never fabricated).
+    """
+
+    __tablename__ = "shadow_quote_captures"
+    rescore_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_rescores.id"), index=True, nullable=False)
+    slot: Mapped[str] = mapped_column(String(20), nullable=False)
+    quote: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("rescore_id", "slot", name="uq_shadow_quote_capture_slot"),
+    )
+
+
+class LiveShadowPollState(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Mutable per-game polling bookkeeping for the armed live shadow operator.
+
+    Operational state only (cadence + last-observed availability values used for
+    change detection). It is deliberately not evidence and is therefore mutable;
+    the immutable evidence lives in availability_events / shadow_rescores.
+    """
+
+    __tablename__ = "live_shadow_poll_state"
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), unique=True, index=True, nullable=False)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    poll_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_probable_pitcher: Mapped[str | None] = mapped_column(String(120))
+    last_home_lineup_status: Mapped[str | None] = mapped_column(String(24))
+    last_away_lineup_status: Mapped[str | None] = mapped_column(String(24))
+    last_source_payload_id: Mapped[str | None] = mapped_column(String(120))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

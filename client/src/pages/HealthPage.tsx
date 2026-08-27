@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Activity, Database, Gauge, KeyRound, Play, RefreshCw, ServerCog, TriangleAlert } from 'lucide-react'
 import { DataModeBanner, DataStatePanel, MetricCard, PageHeader, Panel, StatusPill, TableScroll } from '../components/ui'
+import { LiveShadowStatusCard } from '../components/LiveShadowStatusCard'
 import { demoHealth } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { useAuth } from '../hooks/useAuth'
@@ -54,6 +55,7 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
       <div className="page health-page">
         <PageHeader eyebrow="OPERATIONS · ADMIN" title="Data Health" description="Database and provider evidence are reported separately." actions={<span className="admin-chip"><ServerCog size={14} /> READ-ONLY</span>} />
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+        {!demo && <LiveShadowStatusCard />}
         <DataStatePanel state={state} emptyTitle="Database connected; no live sports evidence" emptyDetail="Provider, schedule, forecast, and job evidence will appear only after the live pipeline persists records." />
       </div>
     )
@@ -63,6 +65,7 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
     <div className="page health-page">
       <PageHeader eyebrow={demo ? 'ILLUSTRATIVE OPERATIONS EXAMPLE' : 'OPERATIONS · ADMIN'} title="Data Health" description={demo ? 'Static source cards demonstrate the operations interface. No controls can run.' : 'Source freshness, pipeline status, and controlled manual operations.'} actions={<span className="admin-chip"><ServerCog size={14} /> {demo ? 'DEMO · CONTROLS DISABLED' : user?.role === 'ADMIN' ? 'ADMIN SESSION' : 'READ-ONLY'}</span>} />
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+      {!demo && <LiveShadowStatusCard />}
 
       <div className="section-heading">
         <div><p className="eyebrow">CURRENT LIVE DATA</p><h2>Current Live Data</h2></div>

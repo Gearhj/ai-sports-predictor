@@ -43,6 +43,7 @@ from app.models import (
     MarketOutcome,
     MarketType,
     OddsSnapshot,
+    ShadowQuoteCapture,
     ShadowRescore,
 )
 from app.prospective.contracts import (
@@ -70,9 +71,12 @@ class PipelineForecastRescorer:
     def rescore(self, game: Game) -> Forecast:
         from app.services.forecast_service import ForecastService
 
-        # Point-in-time pregame cutoff: 90 minutes before first pitch keeps the
-        # rescore inside the open pregame window the pipeline enforces.
-        data_as_of = _aware(game.starts_at) - timedelta(minutes=90)
+        # Point-in-time pregame cutoff. It must be before first pitch and not in
+        # the future, so clamp to the earlier of "just before now" and "just
+        # before first pitch" — valid for both current/future and replayed games.
+        starts = _aware(game.starts_at)
+        now = datetime.now(UTC)
+        data_as_of = min(now - timedelta(seconds=1), starts - timedelta(minutes=1))
         return ForecastService(self.session, self.settings).generate_for_game(
             game, data_as_of=data_as_of, force_draft=True,
         )
@@ -109,13 +113,14 @@ class ProspectiveShadowService:
         self,
         event_input: AvailabilityEventInput,
         *,
+        source: str = MANUAL_ADMIN_SOURCE,
         rescorer: ForecastRescorer | None = None,
         odds_refresher: Callable[[Game], None] | None = None,
         now: datetime | None = None,
     ) -> dict:
         now = now or datetime.now(UTC)
         rescorer = rescorer or PipelineForecastRescorer(self.session, self.settings)
-        event = self._persist_event(event_input, received_at=now)
+        event = self._persist_event(event_input, source=source, received_at=now)
         games = self._affected_games(event)
         if not games:
             raise RescoreError("Availability event does not resolve to a current game")
@@ -210,7 +215,11 @@ class ProspectiveShadowService:
         }
 
     def capture_quote(self, rescore_id, slot: str, *, now: datetime | None = None) -> dict:
-        """Append a later timeline quote (t_plus_15s/60s/5m/closing) from real odds."""
+        """Append a later timeline quote (t_plus_15s/60s/5m/closing) from real odds.
+
+        Captures are append-only rows in shadow_quote_captures so the immutable
+        ShadowRescore is never mutated. A missing governed quote records null.
+        """
 
         valid = {"t_plus_15s", "t_plus_60s", "t_plus_5m", "closing"}
         if slot not in valid:
@@ -218,13 +227,20 @@ class ProspectiveShadowService:
         rescore = self.session.get(ShadowRescore, rescore_id)
         if rescore is None:
             raise RescoreError("Rescore not found")
+        existing = self.session.scalar(
+            select(ShadowQuoteCapture).where(
+                ShadowQuoteCapture.rescore_id == rescore.id, ShadowQuoteCapture.slot == slot)
+        )
+        if existing is not None:
+            return {"rescore_id": str(rescore.id), "slot": slot,
+                    "captured": existing.quote is not None, "idempotent": True}
         game = self.session.get(Game, rescore.game_id)
         quote = self._two_sided_moneyline(game, closing=slot == "closing")
-        timeline = dict(rescore.quote_timeline)
-        timeline[slot] = quote.as_json() if quote else None
-        # A JSON reassignment is required for SQLAlchemy to detect the change;
-        # the row's identity/decision fields remain immutable.
-        rescore.quote_timeline = timeline
+        self.session.add(ShadowQuoteCapture(
+            rescore_id=rescore.id, slot=slot,
+            quote=quote.as_json() if quote else None,
+            captured_at=now or datetime.now(UTC),
+        ))
         self.session.commit()
         return {"rescore_id": str(rescore.id), "slot": slot, "captured": quote is not None}
 
@@ -238,15 +254,25 @@ class ProspectiveShadowService:
             )
         )
         events = {e.id: e for e in self.session.scalars(select(AvailabilityEvent))}
+        captures: dict = {}
+        if rows:
+            for cap in self.session.scalars(
+                select(ShadowQuoteCapture).where(
+                    ShadowQuoteCapture.rescore_id.in_([r.id for r in rows]))
+            ):
+                captures.setdefault(cap.rescore_id, {})[cap.slot] = cap.quote
         return {
             "slate_date": slate_date.isoformat(),
             "status": "RESEARCH_SHADOW",
             "executable": False,
-            "rescores": [self._rescore_view(row, events.get(row.availability_event_id)) for row in rows],
+            "rescores": [
+                self._rescore_view(row, events.get(row.availability_event_id), captures.get(row.id, {}))
+                for row in rows
+            ],
         }
 
     @staticmethod
-    def _rescore_view(row: ShadowRescore, event: AvailabilityEvent | None) -> dict:
+    def _rescore_view(row: ShadowRescore, event: AvailabilityEvent | None, captures: dict | None = None) -> dict:
         return {
             "id": str(row.id),
             "game_id": str(row.game_id),
@@ -281,15 +307,18 @@ class ProspectiveShadowService:
                 "pre_event_quote_at": _iso(row.pre_event_quote_at),
                 "post_event_quote_at": _iso(row.post_event_quote_at),
             },
-            "quote_timeline": row.quote_timeline,
+            "quote_timeline": {**(row.quote_timeline or {}), **(captures or {})},
+            "speed_metrics": compute_speed_metrics(row, event),
         }
 
     # -- persistence + resolution ---------------------------------------
-    def _persist_event(self, event_input: AvailabilityEventInput, *, received_at: datetime) -> AvailabilityEvent:
+    def _persist_event(
+        self, event_input: AvailabilityEventInput, *, source: str, received_at: datetime
+    ) -> AvailabilityEvent:
         key = self._event_key(event_input)
         existing = self.session.scalar(
             select(AvailabilityEvent).where(
-                AvailabilityEvent.source == MANUAL_ADMIN_SOURCE,
+                AvailabilityEvent.source == source,
                 AvailabilityEvent.source_event_key == key,
             )
         )
@@ -298,7 +327,7 @@ class ProspectiveShadowService:
         # Validate against the closed contract before persisting.
         contract = AvailabilityEventV1(
             event_type=event_input.event_type,
-            source=MANUAL_ADMIN_SOURCE,
+            source=source,
             source_event_key=key,
             game_id=event_input.game_id,
             source_game_id=event_input.source_game_id,
@@ -474,6 +503,56 @@ class ProspectiveShadowService:
                 "recommendation": priced.recommendation.value, "virtual_stake": round(stake, 2),
             }
         return result
+
+
+def compute_speed_metrics(rescore: "ShadowRescore", event: "AvailabilityEvent | None") -> dict:
+    """Per-event latency and market-response evidence.
+
+    Provider-detection latency is reported only for automatically detected
+    (MLB_STATS_API) events; a MANUAL_ADMIN event is explicitly excluded so no
+    speed edge is ever claimed from operator entry or a seeded quote.
+    """
+    from app.forecast_exchange.pricing import implied_probability
+    from app.prospective.contracts import MLB_STATS_API_SOURCE
+
+    provider = event is not None and event.source == MLB_STATS_API_SOURCE
+    detection = _delta_seconds(event.published_at if event else None, rescore.aisp_received_at)
+    processing = _delta_seconds(rescore.aisp_received_at, rescore.rescore_completed_at)
+    forecast_change = (
+        None if rescore.before_home_win_probability is None
+        else round(rescore.after_home_win_probability - rescore.before_home_win_probability, 6)
+    )
+    quote_change = None
+    favorable_survived = None
+    if rescore.pre_quote and rescore.post_quote:
+        quote_change = rescore.post_quote.get("home_american", 0) - rescore.pre_quote.get("home_american", 0)
+        favorable_survived = rescore.pre_quote.get("home_american") == rescore.post_quote.get("home_american")
+    timeline = rescore.quote_timeline or {}
+    closing = timeline.get("closing")
+    clv = None
+    if closing and rescore.pre_quote:
+        try:
+            clv = round(implied_probability(int(closing["home_american"])) - implied_probability(int(rescore.pre_quote["home_american"])), 6)
+        except (KeyError, TypeError, ValueError):
+            clv = None
+    return {
+        "is_provider_event": provider,
+        "provider_detection_latency_seconds": detection if provider else None,
+        "aisp_processing_latency_seconds": processing,
+        "forecast_probability_change": forecast_change,
+        "quote_change_home_american": quote_change,
+        "book_moved": rescore.book_moved,
+        "favorable_quote_survived": favorable_survived,
+        "closing_quote_available": closing is not None,
+        "closing_line_value": clv,
+        "note": None if provider else "MANUAL_ADMIN event — excluded from provider-latency evidence",
+    }
+
+
+def _delta_seconds(start: datetime | None, end: datetime | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return round((_aware(end) - _aware(start)).total_seconds(), 3)
 
 
 def _aware(value: datetime) -> datetime:
