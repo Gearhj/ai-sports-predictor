@@ -11,7 +11,13 @@ import type { ForecastGame, GameOpportunity, OpportunitySelection, Recommendatio
 
 type SortKey = 'opportunity' | 'time' | 'edge' | 'ev' | 'readiness'
 
-const STATE_RANK: Record<RecommendationState, number> = { QUALIFIED_BET: 4, PROVISIONAL_EDGE: 3, WATCH: 2, NO_BET: 1 }
+const STATE_RANK: Record<RecommendationState, number> = { QUALIFIED_BET: 5, PROVISIONAL_EDGE: 4, EXTREME_DISAGREEMENT: 3, WATCH: 2, NO_BET: 1 }
+
+function injuryFeedLabel(status: string | undefined): string {
+  if (!status || status === 'INJURY_FEED_NOT_CONFIGURED') return 'Not configured'
+  if (status === 'INJURY_FEED_LIVE') return 'Live'
+  return status
+}
 
 // Multi-sport contract. The board supports these sports; only those with
 // governed events are ever shown, and no synthetic events are created.
@@ -156,11 +162,13 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
       <section className="opportunity-summary" aria-label="Daily opportunity summary">
         <div className="opportunity-summary__stat opportunity-summary__stat--qualified"><span>Qualified bets</span><strong>{summary?.qualified ?? 0}</strong></div>
         <div className="opportunity-summary__stat opportunity-summary__stat--provisional"><span>Provisional</span><strong>{summary?.provisional ?? 0}</strong></div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--review"><span>Review required</span><strong>{summary?.review_required ?? 0}</strong></div>
         <div className="opportunity-summary__stat opportunity-summary__stat--watch"><span>Watchlist</span><strong>{summary?.watch ?? 0}</strong></div>
         <div className="opportunity-summary__stat opportunity-summary__stat--pass"><span>Passes</span><strong>{summary?.no_bet ?? data.summary.games}</strong></div>
         <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Top opportunity</span><strong>{summary?.top_opportunity ?? 'No qualified edge today'}</strong></div>
         <div className="opportunity-summary__stat"><span>Best expected value</span><strong>{summary?.best_expected_value != null ? `${summary.best_expected_value > 0 ? '+' : ''}${summary.best_expected_value.toFixed(1)}%` : '—'}</strong></div>
         <div className="opportunity-summary__stat"><span>Virtual daily exposure</span><strong>{formatCurrency(summary?.virtual_daily_exposure ?? 0)}</strong></div>
+        <div className="opportunity-summary__stat"><span>Injury feed</span><strong>{injuryFeedLabel(summary?.injury_feed_status)}</strong></div>
         <div className="opportunity-summary__stat"><span>Data health</span><strong>{dataHealth}</strong></div>
         <div className="opportunity-summary__stat"><span>Last quote</span><strong>{lastQuote ? formatTimestamp(lastQuote) : 'Not recorded'}</strong></div>
       </section>

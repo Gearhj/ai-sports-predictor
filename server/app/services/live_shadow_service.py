@@ -31,6 +31,7 @@ from app.models import (
     ShadowRescore,
 )
 from app.prospective.contracts import MLB_STATS_API_SOURCE, AvailabilityEventInput
+from app.prospective.sportsdataio import SportsDataIOAvailabilityAdapter
 from app.prospective.event_sources import MLBDerivedAvailabilityEventSource
 from app.services.prospective_shadow_service import ProspectiveShadowService
 
@@ -206,6 +207,7 @@ class LiveShadowOperator:
             "odds_provider_enabled": odds_creds,
             "odds_credentials_present": odds_creds,
             "required_odds_config_variable": None if odds_creds else ODDS_CONFIG_VARIABLE,
+            "injury_feed_status": SportsDataIOAvailabilityAdapter(self.settings).status(),
             "executable": False,
             "quota": {
                 "quota_remaining": ledger.quota_remaining if ledger else None,

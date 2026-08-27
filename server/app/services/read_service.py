@@ -36,9 +36,12 @@ from app.markets.odds import (
     probability_to_american,
 )
 from app.models import (
+    AvailabilityEvent,
     FeatureVersion,
     Forecast,
     ForecastComponent,
+    RosterAvailabilityObservation,
+    ShadowRescore,
     ForecastStatus,
     ForecastTrack,
     Game,
@@ -97,6 +100,7 @@ from app.schemas.api import (
 from app.services.historical_research_read_service import HistoricalResearchReadService
 from app.services.game_state_service import GameStateService, GameStateUnavailableError
 from app.services.opportunity_service import (
+    EXTREME_DISAGREEMENT,
     PROVISIONAL_EDGE,
     BookQuote,
     Candidate,
@@ -106,7 +110,9 @@ from app.services.opportunity_service import (
     build_market_candidate,
     compute_opportunity_score,
 )
+from app.prospective.sportsdataio import SportsDataIOAvailabilityAdapter
 from app.schemas.api import (
+    AvailabilityContext,
     GameOpportunity,
     OpportunitySelection,
     OpportunitySummary,
@@ -192,7 +198,7 @@ class ReadService:
             (card.last_refresh_at for card in cards if card.last_refresh_at is not None),
             default=None,
         )
-        opportunities, opportunity_summary = self._daily_opportunities(games, forecasts)
+        opportunities, opportunity_summary = self._daily_opportunities(games, cards, forecasts)
         return DashboardData(
             data_mode="live" if games else "empty",
             date=event_date,
@@ -216,13 +222,15 @@ class ReadService:
     def _daily_opportunities(
         self,
         games: list[Game],
+        cards: list[ForecastGame],
         forecasts: list[Forecast | None],
     ) -> tuple[list[GameOpportunity], OpportunitySummary]:
         """Price the current slate into a governed best-opportunity board.
 
         Reuses the shadow-pricing policy and the virtual-bankroll math verbatim;
-        the read layer only adapts persisted rows into plain pricing inputs. This
-        is a database-only read — it never triggers a provider call.
+        the read layer only adapts persisted rows into plain pricing inputs. It
+        joins the latest availability events and immutable rescore evidence for
+        display. This is a database-only read — it never triggers a provider call.
         """
 
         now = datetime.now(UTC)
@@ -239,32 +247,47 @@ class ReadService:
             watch_edge=self.settings.opportunity_watch_threshold,
         )
         ready_floor = self.settings.opportunity_qualified_readiness
+        extreme_threshold = self.settings.opportunity_extreme_disagreement_threshold
+        injury_feed_status = SportsDataIOAvailabilityAdapter(self.settings).status()
 
         candidates_by_game: dict[str, list[Candidate]] = {}
         meta_by_game: dict[str, dict[str, Any]] = {}
+        availability_by_game: dict[str, AvailabilityContext] = {}
         qualified: list[tuple[str, Candidate]] = []
-        for game, forecast in zip(games, forecasts):
+        for game, card, forecast in zip(games, cards, forecasts):
             game_id = str(game.id)
             sport = self._game_sport(game)
+            availability, rescored = self._availability_context(game, card, injury_feed_status)
+            availability_by_game[game_id] = availability
             if forecast is None:
                 candidates_by_game[game_id] = []
                 meta_by_game[game_id] = {"sport": sport, "readiness": None, "uncertainty_pct": None, "uncertainty_raw": None, "disagreement": None}
                 continue
             home_side, home, away_side, away = self._sides(game.id)
             readiness_ok = (forecast.readiness_score or 0.0) >= ready_floor
-            critical_ok = not self._has_critical_missing(forecast)
-            cards = [
+            # A QUALIFIED bet requires no critical readiness gap AND a confirmed
+            # lineup AND a confirmed starter; anything projected keeps it provisional.
+            lineup_confirmed, starter_confirmed = self._input_confirmation(card)
+            inputs_confirmed = (not self._has_critical_missing(forecast)) and lineup_confirmed and starter_confirmed
+            priced = [
                 candidate
                 for market in self._market_inputs(game, forecast, home, away)
                 if (
                     candidate := build_market_candidate(
-                        market, readiness_ok=readiness_ok, critical_inputs_ok=critical_ok,
-                        config=config, now=now,
+                        market, readiness_ok=readiness_ok, critical_inputs_ok=inputs_confirmed,
+                        config=config, now=now, extreme_threshold=extreme_threshold,
                     )
                 )
                 is not None
             ]
-            candidates_by_game[game_id] = cards
+            # Extreme model–market gaps are REVIEW REQUIRED: only a genuinely
+            # qualified price (confirmed inputs + fresh quote) that has also been
+            # rescored after the latest event may keep the QUALIFIED label.
+            for candidate in priced:
+                if candidate.extreme and candidate.recommendation in {"QUALIFIED_BET", PROVISIONAL_EDGE}:
+                    if not (candidate.recommendation == "QUALIFIED_BET" and rescored):
+                        candidate.recommendation = EXTREME_DISAGREEMENT
+            candidates_by_game[game_id] = priced
             meta_by_game[game_id] = {
                 "sport": sport,
                 "readiness": forecast.readiness_score,
@@ -274,7 +297,7 @@ class ReadService:
             }
             qualified.extend(
                 (game_id, candidate)
-                for candidate in cards
+                for candidate in priced
                 if candidate.recommendation == "QUALIFIED_BET"
             )
 
@@ -288,9 +311,9 @@ class ReadService:
 
         # Score every candidate now that exposure is settled, then rank by the
         # single governed Opportunity Score (tier band, then blended quality).
-        for game_id, cards in candidates_by_game.items():
+        for game_id, priced in candidates_by_game.items():
             meta = meta_by_game[game_id]
-            for candidate in cards:
+            for candidate in priced:
                 candidate.opportunity_score = compute_opportunity_score(
                     recommendation=candidate.recommendation,
                     uncertainty_adjusted_ev=candidate.uncertainty_adjusted_ev,
@@ -300,16 +323,16 @@ class ReadService:
                     model_disagreement=meta["disagreement"],
                     has_virtual_position=candidate.virtual_stake > 0,
                 )
-            cards.sort(
+            priced.sort(
                 key=lambda item: (item.opportunity_score, item.uncertainty_adjusted_ev if item.uncertainty_adjusted_ev is not None else float("-inf")),
                 reverse=True,
             )
 
         ranked_games = sorted(
             [
-                (game_id, cards[0])
-                for game_id, cards in candidates_by_game.items()
-                if cards and cards[0].recommendation != "NO_BET"
+                (game_id, priced[0])
+                for game_id, priced in candidates_by_game.items()
+                if priced and priced[0].recommendation != "NO_BET"
             ],
             key=lambda item: item[1].opportunity_score,
             reverse=True,
@@ -317,16 +340,16 @@ class ReadService:
         top = ranked_games[0][1] if ranked_games else None
 
         opportunities: list[GameOpportunity] = []
-        counts = {"QUALIFIED_BET": 0, "PROVISIONAL_EDGE": 0, "WATCH": 0, "NO_BET": 0}
+        counts = {"QUALIFIED_BET": 0, "PROVISIONAL_EDGE": 0, "EXTREME_DISAGREEMENT": 0, "WATCH": 0, "NO_BET": 0}
         best_ev: float | None = None
         sports_available: list[str] = []
         for game, forecast in zip(games, forecasts):
             game_id = str(game.id)
-            cards = candidates_by_game.get(game_id, [])
+            priced = candidates_by_game.get(game_id, [])
             meta = meta_by_game[game_id]
             if meta["sport"] not in sports_available:
                 sports_available.append(meta["sport"])
-            best = cards[0] if cards else None
+            best = priced[0] if priced else None
             state = best.recommendation if best else "NO_BET"
             counts[state] = counts.get(state, 0) + 1
             reason = self._recommendation_reason(forecast, best, ready_floor)
@@ -338,18 +361,21 @@ class ReadService:
                 sport=meta["sport"],
                 recommendation_state=state,
                 recommendation_reason=reason,
+                review_required=state == EXTREME_DISAGREEMENT,
                 opportunity_score=best.opportunity_score if best else 0.0,
-                markets_available=sorted({candidate.market_label for candidate in cards}),
+                markets_available=sorted({candidate.market_label for candidate in priced}),
                 readiness=meta["readiness"],
                 uncertainty=meta["uncertainty_pct"],
                 model_disagreement=meta["disagreement"],
+                availability=availability_by_game[game_id],
                 best=best_view,
-                alternates=[self._opportunity_view(candidate) for candidate in cards[1:]],
+                alternates=[self._opportunity_view(candidate) for candidate in priced[1:]],
             ))
 
         summary = OpportunitySummary(
             qualified=counts["QUALIFIED_BET"],
             provisional=counts["PROVISIONAL_EDGE"],
+            review_required=counts["EXTREME_DISAGREEMENT"],
             watch=counts["WATCH"],
             no_bet=counts["NO_BET"],
             best_expected_value=best_ev,
@@ -361,8 +387,99 @@ class ReadService:
                 for candidate in candidates
             }),
             sports_available=sports_available,
+            injury_feed_status=injury_feed_status,
         )
         return opportunities, summary
+
+    @staticmethod
+    def _input_confirmation(card: ForecastGame) -> tuple[bool, bool]:
+        away_lineup = card.away_lineup.status if card.away_lineup else "MISSING"
+        home_lineup = card.home_lineup.status if card.home_lineup else "MISSING"
+        lineup_confirmed = away_lineup == "CONFIRMED" and home_lineup == "CONFIRMED"
+        starter_confirmed = bool(card.away_pitcher.confirmed and card.home_pitcher.confirmed)
+        return lineup_confirmed, starter_confirmed
+
+    def _availability_context(
+        self,
+        game: Game,
+        card: ForecastGame,
+        injury_feed_status: str,
+    ) -> tuple[AvailabilityContext, bool]:
+        """Join the latest availability events + immutable rescore for the board."""
+
+        events = list(self.session.scalars(
+            select(AvailabilityEvent)
+            .where(AvailabilityEvent.game_id == game.id)
+            .order_by(AvailabilityEvent.received_at.desc())
+        ))
+        last = events[0] if events else None
+        away_lineup = card.away_lineup.status if card.away_lineup else "MISSING"
+        home_lineup = card.home_lineup.status if card.home_lineup else "MISSING"
+        if any(event.event_type in {"LINEUP_CHANGED", "LATE_SCRATCH"} for event in events):
+            lineup_status = "CHANGED"
+        elif away_lineup == "CONFIRMED" and home_lineup == "CONFIRMED":
+            lineup_status = "CONFIRMED"
+        elif "MISSING" in (away_lineup, home_lineup):
+            lineup_status = "MISSING"
+        else:
+            lineup_status = "PROJECTED"
+
+        starter_status = self._starter_status(card)
+
+        out_types = {"CONFIRMED_OUT", "INJURED_LIST_PLACED", "LATE_SCRATCH", "DAY_TO_DAY"}
+        latest_by_player: dict[str, str] = {}
+        for event in events:  # already newest-first
+            key = event.player_source_id or event.player_name
+            if key and key not in latest_by_player:
+                latest_by_player[key] = event.event_type
+        unavailable = sum(1 for event_type in latest_by_player.values() if event_type in out_types)
+
+        rescore = self.session.scalar(
+            select(ShadowRescore)
+            .where(ShadowRescore.game_id == game.id)
+            .order_by(ShadowRescore.rescore_completed_at.desc())
+            .limit(1)
+        )
+        forecast_before = forecast_after = edge_before = edge_after = None
+        book_moved: bool | None = None
+        if rescore is not None:
+            forecast_after = round(float(rescore.after_home_win_probability) * 100, 1)
+            if rescore.before_home_win_probability is not None:
+                forecast_before = round(float(rescore.before_home_win_probability) * 100, 1)
+            book_moved = bool(rescore.book_moved)
+            pre = rescore.pre_quote or {}
+            post = rescore.post_quote or {}
+            if rescore.before_home_win_probability is not None and pre.get("no_vig_home") is not None:
+                edge_before = round((float(rescore.before_home_win_probability) - float(pre["no_vig_home"])) * 100, 1)
+            if post.get("no_vig_home") is not None:
+                edge_after = round((float(rescore.after_home_win_probability) - float(post["no_vig_home"])) * 100, 1)
+
+        context = AvailabilityContext(
+            lineup_status=lineup_status,
+            starting_pitcher_status=starter_status,
+            injury_feed_status=injury_feed_status,
+            unavailable_players=unavailable,
+            last_availability_update=_aware(last.received_at) if last else None,
+            last_availability_event=last.event_type if last else None,
+            rescored=rescore is not None,
+            forecast_before=forecast_before,
+            forecast_after=forecast_after,
+            edge_before=edge_before,
+            edge_after=edge_after,
+            book_moved=book_moved,
+        )
+        return context, rescore is not None
+
+    @staticmethod
+    def _starter_status(card: ForecastGame) -> str:
+        away, home = card.away_pitcher, card.home_pitcher
+        if away.confirmed and home.confirmed:
+            return "CONFIRMED"
+        named = all(
+            pitcher.name and "unavailable" not in pitcher.name.lower()
+            for pitcher in (away, home)
+        )
+        return "PROBABLE" if named else "MISSING"
 
     def _market_inputs(
         self,
@@ -537,6 +654,13 @@ class ReadService:
             return (
                 f"Uncertainty-adjusted edge {edge * 100:+.1f} pts clears the qualified bar "
                 f"with positive expected value, complete critical inputs, and a fresh quote."
+            )
+        if best.recommendation == EXTREME_DISAGREEMENT:
+            gap = best.raw_edge * 100 if best.raw_edge is not None else 0.0
+            return (
+                f"Model–market gap {gap:+.1f} pts exceeds the review threshold — "
+                f"EXTREME DISAGREEMENT. It requires a complete, fresh quote, confirmed "
+                f"critical inputs, and a successful rescore before it can be qualified."
             )
         if best.recommendation == PROVISIONAL_EDGE:
             readiness = forecast.readiness_score or 0.0

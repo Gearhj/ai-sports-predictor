@@ -39,13 +39,17 @@ MAX_QUOTE_STALENESS_MINUTES = 240
 
 # An opportunity whose price clears the qualified bar on merit but whose critical
 # configured inputs (readiness, lineups, starters) are incomplete is a governed
-# PROVISIONAL_EDGE — never a QUALIFIED_BET. This label lives only in the public
-# opportunity layer; the shadow-pricing policy enum is untouched.
+# PROVISIONAL_EDGE — never a QUALIFIED_BET. A very large model–market gap is a
+# governed EXTREME_DISAGREEMENT — REVIEW REQUIRED that can never be QUALIFIED
+# without confirmed inputs, a fresh quote, and a successful rescore. Both labels
+# live only in the public opportunity layer; the shadow-pricing enum is untouched.
 PROVISIONAL_EDGE = "PROVISIONAL_EDGE"
+EXTREME_DISAGREEMENT = "EXTREME_DISAGREEMENT"
 
 _REC_RANK = {
-    Recommendation.QUALIFIED_BET.value: 4,
-    PROVISIONAL_EDGE: 3,
+    Recommendation.QUALIFIED_BET.value: 5,
+    PROVISIONAL_EDGE: 4,
+    EXTREME_DISAGREEMENT: 3,
     Recommendation.WATCH.value: 2,
     Recommendation.NO_BET.value: 1,
 }
@@ -54,9 +58,12 @@ _REC_RANK = {
 # differentiates within it. Ranking by this single score therefore respects the
 # recommendation tier first, then blends the value/reliability signals — never
 # raw edge alone. Bands are gapped so a tier is never outranked by a lower one.
+# EXTREME_DISAGREEMENT sits below actionable tiers: a flagged review item is not
+# a top pick, but its real signal ranks above a plain WATCH.
 _TIER_BASE = {
     Recommendation.QUALIFIED_BET.value: 75.0,
     PROVISIONAL_EDGE: 52.0,
+    EXTREME_DISAGREEMENT: 44.0,
     Recommendation.WATCH.value: 28.0,
     Recommendation.NO_BET.value: 6.0,
 }
@@ -116,6 +123,7 @@ class Candidate:
     quote_age_seconds: int | None
     is_stale: bool
     is_ready: bool
+    extreme: bool = False
     virtual_stake: float = 0.0
     potential_profit: float = 0.0
     total_return: float = 0.0
@@ -158,6 +166,7 @@ def price_side(
     critical_inputs_ok: bool,
     config: ShadowPricingConfig,
     now: datetime,
+    extreme_threshold: float = 1.0,
     max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
 ) -> Candidate | None:
     """Price one selection against its best real two-sided quote.
@@ -193,12 +202,18 @@ def price_side(
 
     stale = _is_stale(best.observed_at, now, max_staleness_minutes)
     fully_ready = readiness_ok and critical_inputs_ok
-    if stale:
-        recommendation = Recommendation.NO_BET.value
-    elif priced.recommendation == Recommendation.QUALIFIED_BET:
-        recommendation = Recommendation.QUALIFIED_BET.value if fully_ready else PROVISIONAL_EDGE
+    # A merit-qualified price is QUALIFIED only when every critical input is
+    # confirmed AND the quote is fresh; otherwise it is a PROVISIONAL_EDGE. A
+    # stale/unconfirmed input never becomes NO_BET when the edge is real.
+    if priced.recommendation == Recommendation.QUALIFIED_BET:
+        recommendation = (
+            Recommendation.QUALIFIED_BET.value
+            if (fully_ready and not stale)
+            else PROVISIONAL_EDGE
+        )
     else:
         recommendation = priced.recommendation.value
+    extreme = priced.no_vig_edge >= extreme_threshold
     uae_ev = expected_value(conservative, priced.best_decimal_odds)
     fair_odds = (
         probability_to_american(side.model_probability)
@@ -226,7 +241,8 @@ def price_side(
         observed_at=observed,
         quote_age_seconds=max(0, int((now - observed).total_seconds())),
         is_stale=stale,
-        is_ready=fully_ready,
+        is_ready=fully_ready and not stale,
+        extreme=extreme,
     )
 
 
@@ -237,6 +253,7 @@ def build_market_candidate(
     critical_inputs_ok: bool,
     config: ShadowPricingConfig,
     now: datetime,
+    extreme_threshold: float = 1.0,
     max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
 ) -> Candidate | None:
     """Return the single better side of a market (the exact recommended bet)."""
@@ -253,6 +270,7 @@ def build_market_candidate(
                 critical_inputs_ok=critical_inputs_ok,
                 config=config,
                 now=now,
+                extreme_threshold=extreme_threshold,
                 max_staleness_minutes=max_staleness_minutes,
             )
         )
@@ -357,6 +375,7 @@ def allocate_stakes(
 __all__ = [
     "MAX_QUOTE_STALENESS_MINUTES",
     "PROVISIONAL_EDGE",
+    "EXTREME_DISAGREEMENT",
     "BookQuote",
     "SideInput",
     "MarketInput",

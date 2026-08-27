@@ -101,7 +101,22 @@ export interface ForecastGame {
   last_update: string
 }
 
-export type RecommendationState = 'QUALIFIED_BET' | 'PROVISIONAL_EDGE' | 'WATCH' | 'NO_BET'
+export type RecommendationState = 'QUALIFIED_BET' | 'PROVISIONAL_EDGE' | 'EXTREME_DISAGREEMENT' | 'WATCH' | 'NO_BET'
+
+export interface AvailabilityContext {
+  lineup_status: 'PROJECTED' | 'CONFIRMED' | 'CHANGED' | 'MISSING'
+  starting_pitcher_status: 'CONFIRMED' | 'PROBABLE' | 'MISSING'
+  injury_feed_status: string
+  unavailable_players: number
+  last_availability_update: string | null
+  last_availability_event: string | null
+  rescored: boolean
+  forecast_before: number | null
+  forecast_after: number | null
+  edge_before: number | null
+  edge_after: number | null
+  book_moved: boolean | null
+}
 
 export interface OpportunitySelection {
   recommendation: RecommendationState
@@ -133,11 +148,13 @@ export interface GameOpportunity {
   sport: string
   recommendation_state: RecommendationState
   recommendation_reason: string
+  review_required: boolean
   opportunity_score: number
   markets_available: string[]
   readiness: number | null
   uncertainty: number | null
   model_disagreement: number | null
+  availability: AvailabilityContext
   best: OpportunitySelection | null
   alternates: OpportunitySelection[]
 }
@@ -145,6 +162,7 @@ export interface GameOpportunity {
 export interface OpportunitySummary {
   qualified: number
   provisional: number
+  review_required: number
   watch: number
   no_bet: number
   best_expected_value: number | null
@@ -152,6 +170,7 @@ export interface OpportunitySummary {
   top_opportunity: string | null
   markets_available: string[]
   sports_available: string[]
+  injury_feed_status: string
 }
 
 export interface DashboardData extends DataProvenance {
@@ -697,6 +716,7 @@ export interface LiveShadowStatus {
   odds_provider_enabled: boolean
   odds_credentials_present: boolean
   required_odds_config_variable: string | null
+  injury_feed_status?: string
   executable: false
   quota: { quota_remaining: number | null; quota_floor: number; daily_request_budget: number; requests_today: number }
   cadence: {

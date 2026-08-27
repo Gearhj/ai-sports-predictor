@@ -2,14 +2,21 @@ import type { MouseEvent } from 'react'
 import { AlertTriangle, ArrowUpRight, ChevronRight, Clock3, MapPin, ScrollText } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { GameOpportunity, ForecastGame, OpportunitySelection, RecommendationState } from '../types/domain'
-import { formatTime } from '../services/format'
+import { formatTime, formatTimestamp } from '../services/format'
 import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamBadge } from './ui'
 
 const STATE_LABEL: Record<RecommendationState, string> = {
   QUALIFIED_BET: 'QUALIFIED BET',
   PROVISIONAL_EDGE: 'PROVISIONAL EDGE',
+  EXTREME_DISAGREEMENT: 'REVIEW REQUIRED',
   WATCH: 'WATCH',
   NO_BET: 'NO BET',
+}
+
+function injuryFeedLabel(status: string | undefined): string {
+  if (!status || status === 'INJURY_FEED_NOT_CONFIGURED') return 'Not configured'
+  if (status === 'INJURY_FEED_LIVE') return 'Live'
+  return status
 }
 
 function signedPts(value: number | null | undefined): string {
@@ -20,6 +27,11 @@ function signedPts(value: number | null | undefined): string {
 function signedPct(value: number | null | undefined): string {
   if (value == null) return '—'
   return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`
+}
+
+function pct0(value: number | null | undefined): string {
+  if (value == null) return '—'
+  return `${value.toFixed(0)}%`
 }
 
 function freshness(seconds: number | null | undefined): string {
@@ -112,6 +124,10 @@ export function OpportunityCard({
         </div>
       </div>
 
+      {state === 'EXTREME_DISAGREEMENT' && (
+        <p className="opportunity-review-banner"><AlertTriangle size={14} /> EXTREME DISAGREEMENT — REVIEW REQUIRED</p>
+      )}
+
       {showBet ? (
         <div className="opportunity-bet">
           <div className="opportunity-bet__headline">
@@ -152,12 +168,33 @@ export function OpportunityCard({
             <span>No virtual position</span>
             <small>{state === 'NO_BET'
               ? reason
-              : state === 'PROVISIONAL_EDGE'
-                ? 'Critical inputs incomplete — provisional edge, no virtual position.'
-                : 'Exposure caps or a zero Kelly stake leave no virtual position.'}</small>
+              : state === 'EXTREME_DISAGREEMENT'
+                ? 'Flagged for review — confirmed inputs, a fresh quote, and a rescore are required to qualify.'
+                : state === 'PROVISIONAL_EDGE'
+                  ? 'Critical inputs incomplete — provisional edge, no virtual position.'
+                  : 'Exposure caps or a zero Kelly stake leave no virtual position.'}</small>
           </div>
         )}
       </div>
+
+      {opportunity?.availability && (
+        <div className="opportunity-availability">
+          <span>Lineup <b>{opportunity.availability.lineup_status}</b></span>
+          <span>Starter <b>{opportunity.availability.starting_pitcher_status}</b></span>
+          <span>Injury feed <b>{injuryFeedLabel(opportunity.availability.injury_feed_status)}</b></span>
+          <span>Unavailable <b>{opportunity.availability.unavailable_players}</b></span>
+          <span>Availability {opportunity.availability.last_availability_update ? formatTimestamp(opportunity.availability.last_availability_update) : 'none yet'}</span>
+        </div>
+      )}
+
+      {opportunity?.availability?.rescored && (
+        <div className="opportunity-beforeafter">
+          <span className="opportunity-beforeafter__tag">Rescored</span>
+          <span>Home win {pct0(opportunity.availability.forecast_before)} → <b>{pct0(opportunity.availability.forecast_after)}</b></span>
+          <span>Edge {signedPts(opportunity.availability.edge_before)} → <b>{signedPts(opportunity.availability.edge_after)}</b></span>
+          <span>Book moved <b>{opportunity.availability.book_moved == null ? '—' : opportunity.availability.book_moved ? 'yes' : 'no'}</b></span>
+        </div>
+      )}
 
       <div className="opportunity-card__signals">
         {bet != null && <span className="opportunity-card__score">Score {(bet.opportunity_score ?? opportunity?.opportunity_score ?? 0).toFixed(0)}</span>}

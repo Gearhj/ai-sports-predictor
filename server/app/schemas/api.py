@@ -119,7 +119,9 @@ class DashboardSummary(BaseModel):
     season_return: float
 
 
-RecommendationState = Literal["QUALIFIED_BET", "PROVISIONAL_EDGE", "WATCH", "NO_BET"]
+RecommendationState = Literal[
+    "QUALIFIED_BET", "PROVISIONAL_EDGE", "EXTREME_DISAGREEMENT", "WATCH", "NO_BET"
+]
 
 
 class OpportunitySelection(BaseModel):
@@ -151,16 +153,35 @@ class OpportunitySelection(BaseModel):
     opportunity_score: float = 0.0
 
 
+class AvailabilityContext(BaseModel):
+    """Per-game live availability + before/after-rescore context for the board."""
+
+    lineup_status: Literal["PROJECTED", "CONFIRMED", "CHANGED", "MISSING"] = "MISSING"
+    starting_pitcher_status: Literal["CONFIRMED", "PROBABLE", "MISSING"] = "MISSING"
+    injury_feed_status: str = "INJURY_FEED_NOT_CONFIGURED"
+    unavailable_players: int = 0
+    last_availability_update: datetime | None = None
+    last_availability_event: str | None = None
+    rescored: bool = False
+    forecast_before: float | None = None
+    forecast_after: float | None = None
+    edge_before: float | None = None
+    edge_after: float | None = None
+    book_moved: bool | None = None
+
+
 class GameOpportunity(BaseModel):
     game_id: str
     sport: str = "MLB"
     recommendation_state: RecommendationState
     recommendation_reason: str
+    review_required: bool = False
     opportunity_score: float = 0.0
     markets_available: list[str] = Field(default_factory=list)
     readiness: float | None = None
     uncertainty: float | None = None
     model_disagreement: float | None = None
+    availability: AvailabilityContext = Field(default_factory=AvailabilityContext)
     best: OpportunitySelection | None = None
     alternates: list[OpportunitySelection] = Field(default_factory=list)
 
@@ -168,6 +189,7 @@ class GameOpportunity(BaseModel):
 class OpportunitySummary(BaseModel):
     qualified: int = 0
     provisional: int = 0
+    review_required: int = 0
     watch: int = 0
     no_bet: int = 0
     best_expected_value: float | None = None
@@ -175,6 +197,7 @@ class OpportunitySummary(BaseModel):
     top_opportunity: str | None = None
     markets_available: list[str] = Field(default_factory=list)
     sports_available: list[str] = Field(default_factory=list)
+    injury_feed_status: str = "INJURY_FEED_NOT_CONFIGURED"
 
 
 class DashboardData(BaseModel):

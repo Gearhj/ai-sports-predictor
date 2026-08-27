@@ -43,11 +43,11 @@ def _side(selection: str, model_p: float, quotes, *, line=None, haircut: float =
                      conservative_probability=conservative, quotes=tuple(quotes))
 
 
-def _candidate(selection: str, model_p: float, quotes, *, is_ready=True, critical_ok=True, market="Moneyline", line=None):
+def _candidate(selection: str, model_p: float, quotes, *, is_ready=True, critical_ok=True, market="Moneyline", line=None, extreme_threshold=1.0):
     market_input = MarketInput(market_label=market, period="Full game",
                                sides=(_side(selection, model_p, quotes, line=line),))
     return build_market_candidate(market_input, readiness_ok=is_ready, critical_inputs_ok=critical_ok,
-                                  config=CONFIG, now=NOW)
+                                  config=CONFIG, now=NOW, extreme_threshold=extreme_threshold)
 
 
 # --------------------------------------------------------------------------
@@ -100,6 +100,14 @@ def test_incomplete_critical_inputs_yield_provisional():
     assert candidate.uncertainty_adjusted_edge is not None  # the edge is still shown
 
 
+def test_extreme_disagreement_flag_set_above_threshold():
+    # A very large model–market gap flags the candidate for review.
+    extreme = _candidate("SF ML", 0.85, [_quote("BookA", -110, -110)], extreme_threshold=0.15)
+    modest = _candidate("SF ML", 0.55, [_quote("BookA", -110, -110)], extreme_threshold=0.15)
+    assert extreme.extreme is True
+    assert modest.extreme is False
+
+
 def test_provisional_edge_is_not_staked():
     provisional = _candidate("SF ML", 0.75, [_quote("BookA", 120, -140)], is_ready=False)
     assert provisional.recommendation == PROVISIONAL_EDGE
@@ -114,11 +122,13 @@ def test_missing_quote_is_not_priced():
     assert build_market_candidate(market, readiness_ok=True, critical_inputs_ok=True, config=CONFIG, now=NOW) is None
 
 
-def test_stale_quote_is_forced_to_no_bet():
+def test_stale_quote_cannot_qualify_but_keeps_its_edge():
+    # A stale quote can never be QUALIFIED; a real edge is surfaced as PROVISIONAL.
     candidate = _candidate("SF ML", 0.60, [_quote("BookA", 110, -130, minutes_old=600)])
     assert candidate is not None
     assert candidate.is_stale is True
-    assert candidate.recommendation == "NO_BET"
+    assert candidate.is_ready is False
+    assert candidate.recommendation == PROVISIONAL_EDGE
     assert candidate.uncertainty_adjusted_edge is not None  # edge still shown for context
 
 
@@ -167,8 +177,10 @@ def test_opportunity_score_respects_tier_bands():
     # Tier ordering holds even when a lower tier has stronger raw inputs.
     qualified = _score("QUALIFIED_BET", ev=0.02, readiness=60)
     provisional = _score(PROVISIONAL_EDGE, ev=0.5, readiness=100)
+    extreme = _score("EXTREME_DISAGREEMENT", ev=0.5, readiness=100)
     watch = _score("WATCH", ev=0.5, readiness=100)
-    assert qualified > provisional > watch
+    # Extreme (review required) sits below actionable tiers but above a plain watch.
+    assert qualified > provisional > extreme > watch
 
 
 def test_opportunity_score_rewards_readiness_and_freshness():

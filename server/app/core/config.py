@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # readiness clears this bar (above the publish floor). Below it a positive
     # edge is surfaced as WATCH, never as an actionable bet.
     opportunity_qualified_readiness: float = Field(default=70.0, ge=0, le=100)
+    # A model–market disagreement (no-vig edge, as a probability) at/above this
+    # bar is flagged EXTREME_DISAGREEMENT — REVIEW REQUIRED, never QUALIFIED,
+    # until confirmed inputs, a fresh two-sided quote, and a successful rescore.
+    opportunity_extreme_disagreement_threshold: float = Field(default=0.15, ge=0, le=1)
 
     # Live prospective shadow operation (armed provider polling; off by default so
     # the process never makes an unattended provider call until explicitly armed).
@@ -79,6 +83,15 @@ class Settings(BaseSettings):
     pregame_fast_window_hours: int = Field(default=4, ge=1, le=24)
     odds_pregame_refresh_minutes: int = Field(default=5, ge=1)
     shadow_quote_burst_offsets_seconds: str = "15,60,300"
+
+    # SportsDataIO availability adapter — the single injury/availability provider
+    # for this phase. Disabled unless explicitly configured; the API key is read
+    # from the environment (SPORTSDATAIO_API_KEY) and never committed or exposed.
+    # With no credentials the feed reports INJURY_FEED_NOT_CONFIGURED and the
+    # MANUAL_ADMIN availability path remains the only source — nothing is fabricated.
+    sportsdataio_enabled: bool = False
+    sportsdataio_api_key: str = ""
+    sportsdataio_base_url: str = "https://api.sportsdata.io/v3/mlb"
 
     # Model Studio forecast-exchange shadow board (research-shadow, never executable).
     shadow_board_enabled: bool = True

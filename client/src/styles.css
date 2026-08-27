@@ -1070,3 +1070,17 @@ h1, h2, h3, p { margin-top: 0; }
 
 .opportunity-rank-marker { display: inline-flex; align-items: center; padding: 3px 8px; color: white; background: var(--navy-900); border-radius: 5px; font: 800 11px "IBM Plex Mono", monospace; letter-spacing: .05em; }
 .opportunity-card__score { color: var(--navy-700); font-weight: 700; }
+
+/* Extreme-disagreement review flag */
+.opportunity-summary__stat--review { border-left-color: var(--red); }
+.opportunity-summary__stat--review strong { color: var(--red); }
+.rec-badge--extreme_disagreement { color: #93313a; background: var(--red-soft); border: 1px solid #eab7bd; }
+.opportunity-card--extreme_disagreement.opportunity-card--featured { border-top-color: var(--red); }
+.opportunity-review-banner { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; padding: 8px 11px; color: #93313a; background: var(--red-soft); border: 1px solid #eab7bd; border-radius: 6px; font: 800 12px "IBM Plex Mono", monospace; letter-spacing: .04em; }
+
+/* Live availability + before/after-rescore strips */
+.opportunity-availability { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 9px 0 0; color: var(--muted); font-size: 11.5px; }
+.opportunity-availability b { color: var(--ink); font-weight: 700; }
+.opportunity-beforeafter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 9px; padding: 8px 11px; background: var(--blue-soft); border: 1px solid #c3ddef; border-radius: 6px; color: #2a4a63; font-size: 11.5px; }
+.opportunity-beforeafter b { color: var(--navy-800); font-weight: 700; }
+.opportunity-beforeafter__tag { padding: 2px 8px; color: white; background: var(--blue); border-radius: 4px; font: 800 11px "IBM Plex Mono", monospace; letter-spacing: .05em; }
