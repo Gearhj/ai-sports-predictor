@@ -182,6 +182,18 @@ class JobOrchestrator:
             return {"records": 0, "polled_games": 0, "events_emitted": 0, "note": "no games due for polling"}
 
         due_games = {game.id: game for game in operator.monitored_games(now) if game.id in due}
+        # Resolve each game's MLB source id from the identity mapping — Game has no
+        # source-id column, so without this the poll cannot match schedule/lineups.
+        game_source_ids = {
+            mapping.entity_id: mapping.external_id
+            for mapping in self.session.scalars(
+                select(ExternalIdMapping).where(
+                    ExternalIdMapping.entity_type == "game",
+                    ExternalIdMapping.source == "MLB_STATS_API",
+                    ExternalIdMapping.entity_id.in_(list(due_games.keys())),
+                )
+            )
+        }
         adapter = MLBStatsAPIAdapter()
         response = await adapter.get_schedule(event_date)
         fetched_at = response.envelope.fetched_at
@@ -190,8 +202,12 @@ class JobOrchestrator:
         fast_window = timedelta(hours=self.settings.pregame_fast_window_hours)
 
         snapshots: list[Any] = []
+        lineups_persisted = 0
         for game in due_games.values():
-            item = by_source.get(str(game.source_game_id))
+            source_id = game_source_ids.get(game.id)
+            if source_id is None:
+                continue
+            item = by_source.get(str(source_id))
             if item is None:
                 continue
             home = (item.get("home_pitcher") or {}).get("source_id")
@@ -201,8 +217,13 @@ class JobOrchestrator:
             starts = game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)
             if starts - now <= fast_window:
                 try:
-                    lineups = (await adapter.get_game_lineups(str(game.source_game_id))).envelope.data
-                    home_lineup = next((row.get("status") for row in lineups), None)
+                    rows = (await adapter.get_game_lineups(str(source_id))).envelope.data
+                    # Persist the full lineup payload (not just a status) so the
+                    # board reflects the confirmed lineup once MLB publishes it.
+                    lineups_persisted += self.normalizer.ingest_lineups(
+                        [LineupDTO.model_validate(row) for row in rows], "MLB_STATS_API",
+                    )
+                    home_lineup = next((row.get("status") for row in rows), None)
                 except SourceError:
                     home_lineup = None
             snapshots.append(GameAvailabilitySnapshot(
@@ -210,7 +231,10 @@ class JobOrchestrator:
                 home_lineup_status=home_lineup, away_lineup_status=home_lineup,
                 source_payload_id=payload_id, published_at=fetched_at,
             ))
+        if lineups_persisted:
+            self.session.commit()
         result = operator.poll(snapshots, now=now)
+        result["lineups_persisted"] = lineups_persisted
         injuries = await self._poll_sportsdataio_injuries(event_date, now)
         return {"records": result["events_emitted"] + injuries.get("events_created", 0), **result, "sportsdataio": injuries}
 
@@ -542,10 +566,15 @@ class JobOrchestrator:
                     request_shape={
                         "regions": self.settings.odds_regions,
                         "markets": sorted(self.settings.odds_market_list),
-                        # The upstream endpoint is not date-filtered. Key the
-                        # exactly-once reservation to its real request shape and
-                        # UTC budget day, not the caller's normalization date.
-                        "request_day_utc": datetime.now(UTC).date().isoformat(),
+                        # The upstream endpoint is not date-filtered. The exactly-
+                        # once reservation deduplicates concurrent/retried calls
+                        # within one refresh window; the number of windows per day
+                        # is governed by odds_daily_request_budget (default 1, so
+                        # this stays one-per-day unless a deployer raises it).
+                        "request_window": int(
+                            datetime.now(UTC).timestamp()
+                            // (max(1, self.settings.odds_pregame_refresh_minutes) * 60)
+                        ),
                     },
                 )
                 self.session.commit()

@@ -785,7 +785,12 @@ class MLBStatsAPIAdapter:
                 node = players.get(f"ID{player_id}") or {}
                 person = node.get("person") or {}
                 position = node.get("position") or {}
-                order = _to_int((node.get("battingOrder") or "")[:3]) or index
+                # MLB encodes the lineup slot as battingOrder "100"/"200"/.../"900"
+                # (slot x100; a substitution adds the units, e.g. "301"). The slot
+                # is the hundreds place — divide by 100 — otherwise every starter
+                # clamps to slot 9 and only one entry survives dedup.
+                parsed = _to_int((node.get("battingOrder") or "")[:3])
+                order = (parsed // 100) if parsed else index
                 entries.append(LineupEntryDTO(
                     source_player_id=player_id,
                     full_name=person.get("fullName") or f"MLB player {player_id}",

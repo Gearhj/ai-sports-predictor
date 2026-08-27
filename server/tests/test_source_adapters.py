@@ -41,6 +41,35 @@ async def test_mlb_schedule_normalization_keeps_probable_unconfirmed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mlb_lineup_batting_order_maps_to_nine_slots() -> None:
+    # MLB encodes the batting slot as battingOrder "100".."900" (slot x100).
+    # The parser must map these to slots 1..9 — otherwise every starter clamps to
+    # slot 9, dedup keeps one entry, and the lineup is wrongly marked incomplete.
+    ids = list(range(101, 110))
+    players = {
+        f"ID{pid}": {
+            "person": {"fullName": f"Batter {k}", "batSide": {"code": "R"}},
+            "position": {"abbreviation": "OF"},
+            "battingOrder": f"{k}00",
+        }
+        for k, pid in enumerate(ids, start=1)
+    }
+    boxscore = {"teams": {
+        "away": {"team": {"id": 147}, "players": players, "battingOrder": ids},
+        "home": {"team": {"id": 111}, "players": {}, "battingOrder": []},
+    }}
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=boxscore))
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await MLBStatsAPIAdapter(client=client).get_game_lineups("777")
+
+    lineups = result.envelope.data
+    assert len(lineups) == 1  # only the away side has a batting order
+    entries = lineups[0]["entries"]
+    assert sorted(entry["batting_order"] for entry in entries) == list(range(1, 10))
+    assert lineups[0]["status"] == "CONFIRMED"
+
+
+@pytest.mark.asyncio
 async def test_odds_missing_key_fails_without_network() -> None:
     with pytest.raises(SourceError) as caught:
         await TheOddsAPIAdapter("").get_market_snapshot()
