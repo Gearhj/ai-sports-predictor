@@ -17,6 +17,10 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   value: ResizeObserverMock,
 })
 
+// jsdom does not implement window.scrollTo; the ScrollToTop route helper calls
+// it on every navigation. Provide a no-op so tests stay quiet.
+Object.defineProperty(window, 'scrollTo', { writable: true, value: () => {} })
+
 // ECharts uses a 2D canvas only to measure labels even when the production
 // renderer is SVG. jsdom has no layout/canvas implementation, so provide the
 // smallest deterministic surface needed by route tests.

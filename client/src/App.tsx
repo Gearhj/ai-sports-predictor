@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { RequireAdmin } from './components/RequireAdmin'
 import { AuthProvider } from './hooks/useAuth'
@@ -17,11 +17,24 @@ const HealthPage = lazy(() => import('./pages/HealthPage').then((module) => ({ d
 const ShadowBoardPage = lazy(() => import('./pages/ShadowBoardPage').then((module) => ({ default: module.ShadowBoardPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 
+function ScrollToTop() {
+  // Start each navigated page at the top so opening a game from a scrolled
+  // Today list never lands mid-page and looks blank.
+  const { pathname } = useLocation()
+  useEffect(() => {
+    if (typeof window.scrollTo === 'function') {
+      try { window.scrollTo(0, 0) } catch { /* jsdom / restricted contexts */ }
+    }
+  }, [pathname])
+  return null
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <PublicPolicyProvider>
+          <ScrollToTop />
           <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
             <Routes>
             <Route element={<AppShell />}>

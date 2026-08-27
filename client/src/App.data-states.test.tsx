@@ -123,7 +123,9 @@ describe('route-level data provenance and availability', () => {
 
   it('retains database and provider evidence when sports data is empty', async () => {
     window.history.pushState({}, '', '/admin')
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+    // The Data Health route is admin-gated (RequireAdmin); authenticate first.
+    window.sessionStorage.setItem('asp_access_token', 'admin-token')
+    const healthPayload = {
       ...demoHealth,
       data_mode: 'empty',
       database_status: 'ready',
@@ -148,7 +150,14 @@ describe('route-level data provenance and availability', () => {
         built_at: '2026-08-14T12:00:00Z',
         detail: 'Persisted retrospective evidence does not affect the live health score.',
       },
-    })))
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input)
+      if (url.includes('/auth/me')) {
+        return jsonResponse({ id: 'admin', email: 'admin@example.com', display_name: 'Admin', role: 'ADMIN' })
+      }
+      return jsonResponse(healthPayload)
+    }))
     render(<App />)
 
     expect(await screen.findByText('LIVE DATA · NO PERSISTED RESULTS')).toBeInTheDocument()

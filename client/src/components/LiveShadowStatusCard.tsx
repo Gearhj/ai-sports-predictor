@@ -20,7 +20,9 @@ export function LiveShadowStatusCard() {
     return () => controller.abort()
   }, [])
 
-  if (!status) return null
+  // Render nothing for a non-admin, offline, or unexpectedly-shaped response,
+  // rather than white-screening the admin page.
+  if (!status || typeof status.operational_state !== 'string') return null
 
   return (
     <Panel

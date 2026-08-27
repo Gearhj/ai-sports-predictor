@@ -1,5 +1,6 @@
+import type { MouseEvent } from 'react'
 import { ChevronRight, Clock3, CloudSun, Database, MapPin, ShieldCheck } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { ForecastGame } from '../types/domain'
 import { formatTime, formatTimestamp } from '../services/format'
 import { formatMoneyline, formatNumber, formatPct, ScoreBar, TeamBadge } from './ui'
@@ -49,6 +50,18 @@ function TeamRow({
 }
 
 export function ForecastCard({ game, demo = false }: { game: ForecastGame; demo?: boolean }) {
+  const navigate = useNavigate()
+  const analysisHref = `${demo ? '/demo' : ''}/games/${game.id}`
+  const openAnalysis = (event: MouseEvent<HTMLElement>) => {
+    // The footer "Open full analysis" link is the primary, keyboard-accessible
+    // affordance. This makes the whole card a mouse convenience: a plain click
+    // anywhere on the card opens the same game, but real links/buttons and
+    // modifier/middle clicks (new tab) keep their native behavior.
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if ((event.target as HTMLElement).closest('a, button, select, input')) return
+    navigate(analysisHref)
+  }
   const hasForecast = game.forecast_available ?? !game.status.toUpperCase().includes('FORECAST UNAVAILABLE')
   const hasMarket = game.market_available ?? game.books_reporting > 0
   const hasMarketEdge = hasForecast && hasMarket && game.edge_side !== 'none' && game.model_edge != null
@@ -57,7 +70,7 @@ export function ForecastCard({ game, demo = false }: { game: ForecastGame; demo?
   const best = game.edge_side === 'home' ? game.best_home_moneyline : game.best_away_moneyline
 
   return (
-    <article className="forecast-card">
+    <article className="forecast-card forecast-card--interactive" onClick={openAnalysis}>
       <header className="forecast-card__header">
         <div className="forecast-card__timing">
           <span><Clock3 size={13} /> {formatTime(game.start_time)}</span>
@@ -94,7 +107,7 @@ export function ForecastCard({ game, demo = false }: { game: ForecastGame; demo?
       <footer className="forecast-card__footer">
         <span><Database size={13} /> Data as of {game.data_as_of ? formatTimestamp(game.data_as_of) : 'not recorded'}</span>
         <span>Last refresh {game.last_refresh_at ? formatTimestamp(game.last_refresh_at) : 'not recorded'} · next {game.next_scheduled_refresh_at ? formatTimestamp(game.next_scheduled_refresh_at) : 'not scheduled'}</span>
-        <Link to={`${demo ? '/demo' : ''}/games/${game.id}`}>Open full analysis <ChevronRight size={15} /></Link>
+        <Link to={analysisHref} className="forecast-card__cta">Open full analysis <ChevronRight size={15} /></Link>
       </footer>
     </article>
   )
