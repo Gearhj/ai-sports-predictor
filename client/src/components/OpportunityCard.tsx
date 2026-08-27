@@ -7,6 +7,7 @@ import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamBadge } f
 
 const STATE_LABEL: Record<RecommendationState, string> = {
   QUALIFIED_BET: 'QUALIFIED BET',
+  PROVISIONAL_EDGE: 'PROVISIONAL EDGE',
   WATCH: 'WATCH',
   NO_BET: 'NO BET',
 }
@@ -43,6 +44,7 @@ export function OpportunityCard({
   opportunity,
   selection,
   rank,
+  rankBadge,
   variant = 'compact',
   demo = false,
 }: {
@@ -50,6 +52,7 @@ export function OpportunityCard({
   opportunity: GameOpportunity | undefined
   selection?: OpportunitySelection | null
   rank?: number
+  rankBadge?: number
   variant?: 'featured' | 'compact'
   demo?: boolean
 }) {
@@ -81,6 +84,7 @@ export function OpportunityCard({
       <header className="opportunity-card__top">
         <div className="opportunity-card__meta">
           {variant === 'featured' && rank != null && <span className="opportunity-rank">#{rank}</span>}
+          {rankBadge != null && <span className="opportunity-rank-marker">#{rankBadge} OPPORTUNITY</span>}
           <span className="opportunity-card__time"><Clock3 size={13} /> {formatTime(game.start_time)}</span>
           <span className="opportunity-card__venue"><MapPin size={13} /> {game.venue.split(' · ')[0]}</span>
         </div>
@@ -146,12 +150,17 @@ export function OpportunityCard({
         ) : (
           <div className="opportunity-payout__none">
             <span>No virtual position</span>
-            <small>{state === 'NO_BET' ? reason : 'Exposure caps or a zero Kelly stake leave no virtual position.'}</small>
+            <small>{state === 'NO_BET'
+              ? reason
+              : state === 'PROVISIONAL_EDGE'
+                ? 'Critical inputs incomplete — provisional edge, no virtual position.'
+                : 'Exposure caps or a zero Kelly stake leave no virtual position.'}</small>
           </div>
         )}
       </div>
 
       <div className="opportunity-card__signals">
+        {bet != null && <span className="opportunity-card__score">Score {(bet.opportunity_score ?? opportunity?.opportunity_score ?? 0).toFixed(0)}</span>}
         <span>Readiness {opportunity?.readiness != null ? `${Math.round(opportunity.readiness)}/100` : '—'}</span>
         <span>Uncertainty {opportunity?.uncertainty != null ? `${opportunity.uncertainty.toFixed(1)}%` : '—'}</span>
         <span>Disagreement {opportunity?.model_disagreement != null ? `${opportunity.model_disagreement.toFixed(1)} pts` : '—'}</span>

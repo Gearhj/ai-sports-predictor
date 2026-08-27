@@ -119,7 +119,7 @@ class DashboardSummary(BaseModel):
     season_return: float
 
 
-RecommendationState = Literal["QUALIFIED_BET", "WATCH", "NO_BET"]
+RecommendationState = Literal["QUALIFIED_BET", "PROVISIONAL_EDGE", "WATCH", "NO_BET"]
 
 
 class OpportunitySelection(BaseModel):
@@ -148,12 +148,15 @@ class OpportunitySelection(BaseModel):
     virtual_stake: float = 0.0
     potential_profit: float = 0.0
     total_return: float = 0.0
+    opportunity_score: float = 0.0
 
 
 class GameOpportunity(BaseModel):
     game_id: str
+    sport: str = "MLB"
     recommendation_state: RecommendationState
     recommendation_reason: str
+    opportunity_score: float = 0.0
     markets_available: list[str] = Field(default_factory=list)
     readiness: float | None = None
     uncertainty: float | None = None
@@ -164,12 +167,14 @@ class GameOpportunity(BaseModel):
 
 class OpportunitySummary(BaseModel):
     qualified: int = 0
+    provisional: int = 0
     watch: int = 0
     no_bet: int = 0
     best_expected_value: float | None = None
     virtual_daily_exposure: float = 0.0
     top_opportunity: str | None = None
     markets_available: list[str] = Field(default_factory=list)
+    sports_available: list[str] = Field(default_factory=list)
 
 
 class DashboardData(BaseModel):

@@ -37,10 +37,28 @@ from app.markets.odds import probability_to_american
 # only actionable while fresh. This mirrors the shadow board's staleness policy.
 MAX_QUOTE_STALENESS_MINUTES = 240
 
+# An opportunity whose price clears the qualified bar on merit but whose critical
+# configured inputs (readiness, lineups, starters) are incomplete is a governed
+# PROVISIONAL_EDGE — never a QUALIFIED_BET. This label lives only in the public
+# opportunity layer; the shadow-pricing policy enum is untouched.
+PROVISIONAL_EDGE = "PROVISIONAL_EDGE"
+
 _REC_RANK = {
-    Recommendation.QUALIFIED_BET.value: 3,
+    Recommendation.QUALIFIED_BET.value: 4,
+    PROVISIONAL_EDGE: 3,
     Recommendation.WATCH.value: 2,
     Recommendation.NO_BET.value: 1,
+}
+
+# Tiered Opportunity Score: the governed tier sets the band, quality (0..1)
+# differentiates within it. Ranking by this single score therefore respects the
+# recommendation tier first, then blends the value/reliability signals — never
+# raw edge alone. Bands are gapped so a tier is never outranked by a lower one.
+_TIER_BASE = {
+    Recommendation.QUALIFIED_BET.value: 75.0,
+    PROVISIONAL_EDGE: 52.0,
+    Recommendation.WATCH.value: 28.0,
+    Recommendation.NO_BET.value: 6.0,
 }
 
 
@@ -101,6 +119,7 @@ class Candidate:
     virtual_stake: float = 0.0
     potential_profit: float = 0.0
     total_return: float = 0.0
+    opportunity_score: float = 0.0
 
 
 def _aware(value: datetime) -> datetime:
@@ -135,7 +154,8 @@ def price_side(
     *,
     market_label: str,
     period: str,
-    is_ready: bool,
+    readiness_ok: bool,
+    critical_inputs_ok: bool,
     config: ShadowPricingConfig,
     now: datetime,
     max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
@@ -144,6 +164,11 @@ def price_side(
 
     Returns ``None`` when no model probability or no complete quote exists — the
     honest "no governed price" case, which the caller renders as missing.
+
+    The governed edge/EV bar is evaluated on merit (``is_ready=True``); a merit
+    pass is then labelled QUALIFIED_BET only when both the readiness policy and
+    the critical configured inputs pass. When the price is attractive but those
+    inputs are incomplete it is a PROVISIONAL_EDGE, never a qualified bet.
     """
 
     if side.model_probability is None or not side.quotes:
@@ -162,12 +187,18 @@ def price_side(
         side_american=best.side_american,
         opposite_american=best.opposite_american,
         best_american=best.side_american,
-        is_ready=is_ready,
+        is_ready=True,
         config=config,
     )
 
     stale = _is_stale(best.observed_at, now, max_staleness_minutes)
-    recommendation = Recommendation.NO_BET.value if stale else priced.recommendation.value
+    fully_ready = readiness_ok and critical_inputs_ok
+    if stale:
+        recommendation = Recommendation.NO_BET.value
+    elif priced.recommendation == Recommendation.QUALIFIED_BET:
+        recommendation = Recommendation.QUALIFIED_BET.value if fully_ready else PROVISIONAL_EDGE
+    else:
+        recommendation = priced.recommendation.value
     uae_ev = expected_value(conservative, priced.best_decimal_odds)
     fair_odds = (
         probability_to_american(side.model_probability)
@@ -195,14 +226,15 @@ def price_side(
         observed_at=observed,
         quote_age_seconds=max(0, int((now - observed).total_seconds())),
         is_stale=stale,
-        is_ready=is_ready,
+        is_ready=fully_ready,
     )
 
 
 def build_market_candidate(
     market: MarketInput,
     *,
-    is_ready: bool,
+    readiness_ok: bool,
+    critical_inputs_ok: bool,
     config: ShadowPricingConfig,
     now: datetime,
     max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
@@ -217,7 +249,8 @@ def build_market_candidate(
                 side,
                 market_label=market.market_label,
                 period=market.period,
-                is_ready=is_ready,
+                readiness_ok=readiness_ok,
+                critical_inputs_ok=critical_inputs_ok,
                 config=config,
                 now=now,
                 max_staleness_minutes=max_staleness_minutes,
@@ -228,6 +261,46 @@ def build_market_candidate(
     if not priced:
         return None
     return max(priced, key=_sort_key)
+
+
+def compute_opportunity_score(
+    *,
+    recommendation: str,
+    uncertainty_adjusted_ev: float | None,
+    readiness: float | None,
+    quote_age_seconds: int | None,
+    forecast_uncertainty: float | None,
+    model_disagreement: float | None,
+    has_virtual_position: bool,
+    max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
+) -> float:
+    """One governed cross-sport score: tier band + blended quality (0..1).
+
+    Blends the existing signals — uncertainty-adjusted EV, readiness, quote
+    freshness, forecast uncertainty, model disagreement, and whether exposure
+    controls left a virtual position — so ranking never rests on raw edge alone.
+    """
+
+    def clamp(value: float) -> float:
+        return max(0.0, min(1.0, value))
+
+    ev_norm = clamp((uncertainty_adjusted_ev or 0.0) / 0.5)          # +50% EV → 1.0
+    readiness_f = clamp((readiness or 0.0) / 100.0)
+    max_age = max_staleness_minutes * 60
+    age = quote_age_seconds if quote_age_seconds is not None else max_age
+    fresh_f = clamp(1.0 - age / max_age) if max_age else 0.0
+    uncertainty_f = clamp(1.0 - (forecast_uncertainty or 0.0) * 4.0)  # dispersion 0..0.25 → 1..0
+    disagreement_f = clamp(1.0 - (model_disagreement or 0.0) / 40.0)  # 0..40 pts → 1..0
+    exposure_f = 1.0 if has_virtual_position else 0.6
+    quality = clamp(
+        0.40 * ev_norm
+        + 0.18 * readiness_f
+        + 0.12 * fresh_f
+        + 0.16 * uncertainty_f
+        + 0.08 * disagreement_f
+        + 0.06 * exposure_f
+    )
+    return round(_TIER_BASE.get(recommendation, 6.0) + 15.0 * quality, 1)
 
 
 def rank_candidates(candidates: list[Candidate]) -> list[Candidate]:
@@ -283,12 +356,14 @@ def allocate_stakes(
 
 __all__ = [
     "MAX_QUOTE_STALENESS_MINUTES",
+    "PROVISIONAL_EDGE",
     "BookQuote",
     "SideInput",
     "MarketInput",
     "Candidate",
     "price_side",
     "build_market_candidate",
+    "compute_opportunity_score",
     "rank_candidates",
     "allocate_stakes",
 ]

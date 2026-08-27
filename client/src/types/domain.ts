@@ -101,7 +101,7 @@ export interface ForecastGame {
   last_update: string
 }
 
-export type RecommendationState = 'QUALIFIED_BET' | 'WATCH' | 'NO_BET'
+export type RecommendationState = 'QUALIFIED_BET' | 'PROVISIONAL_EDGE' | 'WATCH' | 'NO_BET'
 
 export interface OpportunitySelection {
   recommendation: RecommendationState
@@ -125,12 +125,15 @@ export interface OpportunitySelection {
   virtual_stake: number
   potential_profit: number
   total_return: number
+  opportunity_score: number
 }
 
 export interface GameOpportunity {
   game_id: string
+  sport: string
   recommendation_state: RecommendationState
   recommendation_reason: string
+  opportunity_score: number
   markets_available: string[]
   readiness: number | null
   uncertainty: number | null
@@ -141,12 +144,14 @@ export interface GameOpportunity {
 
 export interface OpportunitySummary {
   qualified: number
+  provisional: number
   watch: number
   no_bet: number
   best_expected_value: number | null
   virtual_daily_exposure: number
   top_opportunity: string | null
   markets_available: string[]
+  sports_available: string[]
 }
 
 export interface DashboardData extends DataProvenance {

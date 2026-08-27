@@ -1055,3 +1055,18 @@ h1, h2, h3, p { margin-top: 0; }
   .opportunity-summary__stat--wide { grid-column: span 1; }
   .opportunity-analytics { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Multi-sport filter + provisional + rank markers */
+.sport-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.sport-filter button { padding: 8px 16px; color: #3a516a; background: white; border: 1px solid var(--line-strong); border-radius: 7px; font: 700 12px "IBM Plex Mono", monospace; letter-spacing: .04em; }
+.sport-filter button:hover { border-color: var(--navy-700); color: var(--ink); }
+.sport-filter button.is-active { color: white; background: var(--navy-800); border-color: var(--navy-800); }
+
+.opportunity-summary__stat--provisional { border-left-color: var(--blue); }
+.opportunity-summary__stat--provisional strong { color: var(--blue); }
+
+.rec-badge--provisional_edge { color: #1f5578; background: var(--blue-soft); border: 1px solid #b6d4e8; }
+.opportunity-card--provisional_edge.opportunity-card--featured { border-top-color: var(--blue); }
+
+.opportunity-rank-marker { display: inline-flex; align-items: center; padding: 3px 8px; color: white; background: var(--navy-900); border-radius: 5px; font: 800 11px "IBM Plex Mono", monospace; letter-spacing: .05em; }
+.opportunity-card__score { color: var(--navy-700); font-weight: 700; }

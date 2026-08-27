@@ -97,13 +97,14 @@ from app.schemas.api import (
 from app.services.historical_research_read_service import HistoricalResearchReadService
 from app.services.game_state_service import GameStateService, GameStateUnavailableError
 from app.services.opportunity_service import (
+    PROVISIONAL_EDGE,
     BookQuote,
     Candidate,
     MarketInput,
     SideInput,
     allocate_stakes,
     build_market_candidate,
-    rank_candidates,
+    compute_opportunity_score,
 )
 from app.schemas.api import (
     GameOpportunity,
@@ -240,29 +241,40 @@ class ReadService:
         ready_floor = self.settings.opportunity_qualified_readiness
 
         candidates_by_game: dict[str, list[Candidate]] = {}
+        meta_by_game: dict[str, dict[str, Any]] = {}
         qualified: list[tuple[str, Candidate]] = []
         for game, forecast in zip(games, forecasts):
             game_id = str(game.id)
+            sport = self._game_sport(game)
             if forecast is None:
                 candidates_by_game[game_id] = []
+                meta_by_game[game_id] = {"sport": sport, "readiness": None, "uncertainty_pct": None, "uncertainty_raw": None, "disagreement": None}
                 continue
             home_side, home, away_side, away = self._sides(game.id)
-            is_ready = (forecast.readiness_score or 0.0) >= ready_floor
+            readiness_ok = (forecast.readiness_score or 0.0) >= ready_floor
+            critical_ok = not self._has_critical_missing(forecast)
             cards = [
                 candidate
                 for market in self._market_inputs(game, forecast, home, away)
                 if (
                     candidate := build_market_candidate(
-                        market, is_ready=is_ready, config=config, now=now
+                        market, readiness_ok=readiness_ok, critical_inputs_ok=critical_ok,
+                        config=config, now=now,
                     )
                 )
                 is not None
             ]
-            ranked = rank_candidates(cards)
-            candidates_by_game[game_id] = ranked
+            candidates_by_game[game_id] = cards
+            meta_by_game[game_id] = {
+                "sport": sport,
+                "readiness": forecast.readiness_score,
+                "uncertainty_pct": round(forecast.uncertainty * 100, 2) if forecast.uncertainty is not None else None,
+                "uncertainty_raw": forecast.uncertainty,
+                "disagreement": self._component_disagreement(forecast),
+            }
             qualified.extend(
                 (game_id, candidate)
-                for candidate in ranked
+                for candidate in cards
                 if candidate.recommendation == "QUALIFIED_BET"
             )
 
@@ -274,61 +286,81 @@ class ReadService:
             daily_cap=daily_cap,
         )
 
+        # Score every candidate now that exposure is settled, then rank by the
+        # single governed Opportunity Score (tier band, then blended quality).
+        for game_id, cards in candidates_by_game.items():
+            meta = meta_by_game[game_id]
+            for candidate in cards:
+                candidate.opportunity_score = compute_opportunity_score(
+                    recommendation=candidate.recommendation,
+                    uncertainty_adjusted_ev=candidate.uncertainty_adjusted_ev,
+                    readiness=meta["readiness"],
+                    quote_age_seconds=candidate.quote_age_seconds,
+                    forecast_uncertainty=meta["uncertainty_raw"],
+                    model_disagreement=meta["disagreement"],
+                    has_virtual_position=candidate.virtual_stake > 0,
+                )
+            cards.sort(
+                key=lambda item: (item.opportunity_score, item.uncertainty_adjusted_ev if item.uncertainty_adjusted_ev is not None else float("-inf")),
+                reverse=True,
+            )
+
+        ranked_games = sorted(
+            [
+                (game_id, cards[0])
+                for game_id, cards in candidates_by_game.items()
+                if cards and cards[0].recommendation != "NO_BET"
+            ],
+            key=lambda item: item[1].opportunity_score,
+            reverse=True,
+        )
+        top = ranked_games[0][1] if ranked_games else None
+
         opportunities: list[GameOpportunity] = []
-        counts = {"QUALIFIED_BET": 0, "WATCH": 0, "NO_BET": 0}
+        counts = {"QUALIFIED_BET": 0, "PROVISIONAL_EDGE": 0, "WATCH": 0, "NO_BET": 0}
         best_ev: float | None = None
-        top: tuple[tuple[int, float], str] | None = None
+        sports_available: list[str] = []
         for game, forecast in zip(games, forecasts):
             game_id = str(game.id)
-            ranked = candidates_by_game.get(game_id, [])
-            readiness = forecast.readiness_score if forecast else None
-            uncertainty = (
-                round(forecast.uncertainty * 100, 2)
-                if forecast and forecast.uncertainty is not None
-                else None
-            )
-            disagreement = self._component_disagreement(forecast) if forecast else None
-            best = ranked[0] if ranked else None
+            cards = candidates_by_game.get(game_id, [])
+            meta = meta_by_game[game_id]
+            if meta["sport"] not in sports_available:
+                sports_available.append(meta["sport"])
+            best = cards[0] if cards else None
             state = best.recommendation if best else "NO_BET"
-            counts[state] += 1
+            counts[state] = counts.get(state, 0) + 1
             reason = self._recommendation_reason(forecast, best, ready_floor)
-            markets_available = sorted({candidate.market_label for candidate in ranked})
             best_view = self._opportunity_view(best) if best else None
-            if best_view is not None and best_view.expected_value is not None and best.recommendation != "NO_BET":
+            if best is not None and best.recommendation != "NO_BET" and best_view.expected_value is not None:
                 best_ev = best_view.expected_value if best_ev is None else max(best_ev, best_view.expected_value)
-            if best is not None and best.recommendation != "NO_BET":
-                rank = (
-                    {"QUALIFIED_BET": 3, "WATCH": 2, "NO_BET": 1}[best.recommendation],
-                    best.uncertainty_adjusted_ev if best.uncertainty_adjusted_ev is not None else float("-inf"),
-                )
-                label = self._top_opportunity_label(game, best)
-                if top is None or rank > top[0]:
-                    top = (rank, label)
             opportunities.append(GameOpportunity(
                 game_id=game_id,
+                sport=meta["sport"],
                 recommendation_state=state,
                 recommendation_reason=reason,
-                markets_available=markets_available,
-                readiness=readiness,
-                uncertainty=uncertainty,
-                model_disagreement=disagreement,
+                opportunity_score=best.opportunity_score if best else 0.0,
+                markets_available=sorted({candidate.market_label for candidate in cards}),
+                readiness=meta["readiness"],
+                uncertainty=meta["uncertainty_pct"],
+                model_disagreement=meta["disagreement"],
                 best=best_view,
-                alternates=[self._opportunity_view(c) for c in ranked[1:]],
+                alternates=[self._opportunity_view(candidate) for candidate in cards[1:]],
             ))
 
         summary = OpportunitySummary(
             qualified=counts["QUALIFIED_BET"],
+            provisional=counts["PROVISIONAL_EDGE"],
             watch=counts["WATCH"],
             no_bet=counts["NO_BET"],
             best_expected_value=best_ev,
             virtual_daily_exposure=daily_exposure,
-            top_opportunity=top[1] if top else None,
+            top_opportunity=self._top_opportunity_label(top) if top else None,
             markets_available=sorted({
-                market
+                candidate.market_label
                 for candidates in candidates_by_game.values()
                 for candidate in candidates
-                for market in [candidate.market_label]
             }),
+            sports_available=sports_available,
         )
         return opportunities, summary
 
@@ -468,6 +500,29 @@ class ReadService:
         return round((max(probabilities) - min(probabilities)) * 100, 2)
 
     @staticmethod
+    def _has_critical_missing(forecast: Forecast) -> bool:
+        """True when a component the readiness policy marks critical is absent/stale.
+
+        Uses the persisted governed readiness components — no new threshold. A
+        critical input gap (e.g. an unposted lineup or unconfirmed starter at a
+        stage where it is required) blocks QUALIFIED and yields PROVISIONAL_EDGE.
+        """
+
+        for key, raw in (forecast.readiness_components or {}).items():
+            if key.startswith("_") or not isinstance(raw, dict):
+                continue
+            if raw.get("critical") and str(raw.get("status", "")).lower() in {"missing", "stale"}:
+                return True
+        return False
+
+    @staticmethod
+    def _game_sport(game: Game) -> str:
+        """Sport label for the board. The live pipeline governs MLB only; other
+        sports appear here honestly once they have governed events."""
+
+        return "MLB"
+
+    @staticmethod
     def _recommendation_reason(
         forecast: Forecast | None,
         best: Candidate | None,
@@ -481,26 +536,27 @@ class ReadService:
         if best.recommendation == "QUALIFIED_BET":
             return (
                 f"Uncertainty-adjusted edge {edge * 100:+.1f} pts clears the qualified bar "
-                f"with positive expected value on a fresh, complete two-sided quote."
+                f"with positive expected value, complete critical inputs, and a fresh quote."
+            )
+        if best.recommendation == PROVISIONAL_EDGE:
+            readiness = forecast.readiness_score or 0.0
+            return (
+                f"Edge {edge * 100:+.1f} pts clears the value bar, but critical configured "
+                f"inputs are incomplete (readiness {readiness:.0f} < {ready_floor:.0f} or a "
+                f"required lineup/starter is unconfirmed) — provisional, not a qualified bet."
             )
         if best.recommendation == "WATCH":
             raw = best.raw_edge * 100 if best.raw_edge is not None else 0.0
             return (
                 f"Model–market disagreement {raw:+.1f} pts, but it does not clear the "
-                f"qualified bar (uncertainty-adjusted edge, expected value, or readiness)."
+                f"qualified value bar (uncertainty-adjusted edge or expected value)."
             )
         if best.is_stale:
             return "The latest governed quote is stale; no qualified position is taken."
-        if not best.is_ready:
-            readiness = forecast.readiness_score or 0.0
-            return (
-                f"Data readiness {readiness:.0f} is below the qualified threshold "
-                f"({ready_floor:.0f}); monitoring only."
-            )
         return "No positive-expected-value edge versus the no-vig market; no position."
 
     @staticmethod
-    def _top_opportunity_label(game: Game, best: Candidate) -> str:
+    def _top_opportunity_label(best: Candidate) -> str:
         price = f"{best.american_odds:+d}" if best.american_odds is not None else "—"
         book = f" · {best.book}" if best.book else ""
         return f"{best.selection} {price}{book}"
@@ -532,6 +588,7 @@ class ReadService:
             virtual_stake=candidate.virtual_stake,
             potential_profit=candidate.potential_profit,
             total_return=candidate.total_return,
+            opportunity_score=candidate.opportunity_score,
         )
 
     def game_card(self, game: Game) -> ForecastGame:

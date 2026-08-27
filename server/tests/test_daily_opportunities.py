@@ -16,11 +16,13 @@ from app.bankroll.service import StakePolicy, StakingStrategy
 from app.forecast_exchange.pricing import ShadowPricingConfig
 from app.models import MarketType
 from app.services.opportunity_service import (
+    PROVISIONAL_EDGE,
     BookQuote,
     MarketInput,
     SideInput,
     allocate_stakes,
     build_market_candidate,
+    compute_opportunity_score,
     rank_candidates,
 )
 from app.services.read_service import ReadService
@@ -41,10 +43,11 @@ def _side(selection: str, model_p: float, quotes, *, line=None, haircut: float =
                      conservative_probability=conservative, quotes=tuple(quotes))
 
 
-def _candidate(selection: str, model_p: float, quotes, *, is_ready=True, market="Moneyline", line=None):
+def _candidate(selection: str, model_p: float, quotes, *, is_ready=True, critical_ok=True, market="Moneyline", line=None):
     market_input = MarketInput(market_label=market, period="Full game",
                                sides=(_side(selection, model_p, quotes, line=line),))
-    return build_market_candidate(market_input, is_ready=is_ready, config=CONFIG, now=NOW)
+    return build_market_candidate(market_input, readiness_ok=is_ready, critical_inputs_ok=critical_ok,
+                                  config=CONFIG, now=NOW)
 
 
 # --------------------------------------------------------------------------
@@ -81,17 +84,34 @@ def test_no_bet_when_model_trails_market():
     assert candidate.recommendation == "NO_BET"
 
 
-def test_readiness_gate_demotes_qualified_to_watch():
+def test_readiness_gate_demotes_qualified_to_provisional():
     ready = _candidate("SF ML", 0.60, [_quote("BookA", 110, -130)], is_ready=True)
     not_ready = _candidate("SF ML", 0.60, [_quote("BookA", 110, -130)], is_ready=False)
     assert ready.recommendation == "QUALIFIED_BET"
-    # Same edge, but a forecast below the readiness bar cannot be QUALIFIED.
-    assert not_ready.recommendation == "WATCH"
+    # Same attractive price, but readiness below the bar → PROVISIONAL, not qualified.
+    assert not_ready.recommendation == PROVISIONAL_EDGE
+
+
+def test_incomplete_critical_inputs_yield_provisional():
+    # Readiness clears the bar but a critical input (lineup/starter) is missing.
+    candidate = _candidate("SF ML", 0.60, [_quote("BookA", 110, -130)], is_ready=True, critical_ok=False)
+    assert candidate.recommendation == PROVISIONAL_EDGE
+    assert candidate.is_ready is False
+    assert candidate.uncertainty_adjusted_edge is not None  # the edge is still shown
+
+
+def test_provisional_edge_is_not_staked():
+    provisional = _candidate("SF ML", 0.75, [_quote("BookA", 120, -140)], is_ready=False)
+    assert provisional.recommendation == PROVISIONAL_EDGE
+    # Only genuinely QUALIFIED bets receive a virtual position.
+    allocate_stakes([("g1", provisional)] if provisional.recommendation == "QUALIFIED_BET" else [],
+                    bankroll=1000.0, policy=_policy(), same_game_cap=20.0, daily_cap=100.0)
+    assert provisional.virtual_stake == 0.0
 
 
 def test_missing_quote_is_not_priced():
     market = MarketInput("Moneyline", "Full game", (_side("SF ML", 0.6, []),))
-    assert build_market_candidate(market, is_ready=True, config=CONFIG, now=NOW) is None
+    assert build_market_candidate(market, readiness_ok=True, critical_inputs_ok=True, config=CONFIG, now=NOW) is None
 
 
 def test_stale_quote_is_forced_to_no_bet():
@@ -107,7 +127,7 @@ def test_build_market_candidate_picks_the_better_side():
         _side("SF ML", 0.60, [_quote("BookA", 110, -130)]),
         _side("LAD ML", 0.40, [_quote("BookA", -130, 110)]),
     ))
-    candidate = build_market_candidate(market, is_ready=True, config=CONFIG, now=NOW)
+    candidate = build_market_candidate(market, readiness_ok=True, critical_inputs_ok=True, config=CONFIG, now=NOW)
     assert candidate.selection == "SF ML"
 
 
@@ -129,6 +149,38 @@ def test_rank_breaks_ties_by_uncertainty_adjusted_ev():
     ordered = rank_candidates([modest, strong])
     assert ordered[0].selection == "A"
     assert ordered[0].uncertainty_adjusted_ev >= ordered[1].uncertainty_adjusted_ev
+
+
+# --------------------------------------------------------------------------
+# opportunity score
+# --------------------------------------------------------------------------
+
+def _score(rec, *, ev=0.10, readiness=80.0, age=300, unc=0.03, disagree=5.0, staked=True):
+    return compute_opportunity_score(
+        recommendation=rec, uncertainty_adjusted_ev=ev, readiness=readiness,
+        quote_age_seconds=age, forecast_uncertainty=unc, model_disagreement=disagree,
+        has_virtual_position=staked,
+    )
+
+
+def test_opportunity_score_respects_tier_bands():
+    # Tier ordering holds even when a lower tier has stronger raw inputs.
+    qualified = _score("QUALIFIED_BET", ev=0.02, readiness=60)
+    provisional = _score(PROVISIONAL_EDGE, ev=0.5, readiness=100)
+    watch = _score("WATCH", ev=0.5, readiness=100)
+    assert qualified > provisional > watch
+
+
+def test_opportunity_score_rewards_readiness_and_freshness():
+    strong = _score("QUALIFIED_BET", readiness=95, age=60, unc=0.01)
+    weak = _score("QUALIFIED_BET", readiness=70, age=13000, unc=0.10)
+    assert strong > weak
+
+
+def test_opportunity_score_penalizes_capped_out_exposure():
+    staked = _score("QUALIFIED_BET", staked=True)
+    capped = _score("QUALIFIED_BET", staked=False)
+    assert staked > capped
 
 
 # --------------------------------------------------------------------------

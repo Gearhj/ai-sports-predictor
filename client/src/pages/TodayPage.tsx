@@ -11,21 +11,34 @@ import type { ForecastGame, GameOpportunity, OpportunitySelection, Recommendatio
 
 type SortKey = 'opportunity' | 'time' | 'edge' | 'ev' | 'readiness'
 
-const STATE_RANK: Record<RecommendationState, number> = { QUALIFIED_BET: 3, WATCH: 2, NO_BET: 1 }
+const STATE_RANK: Record<RecommendationState, number> = { QUALIFIED_BET: 4, PROVISIONAL_EDGE: 3, WATCH: 2, NO_BET: 1 }
 
-// Filter tabs. Market tabs map to the server's market labels and hide when no
-// governed quote exists for them on the current slate.
-const MARKET_TABS: Array<{ key: string; label: string; market: string }> = [
-  { key: 'moneyline', label: 'Moneyline', market: 'Moneyline' },
-  { key: 'runline', label: 'Run Line', market: 'Run line' },
-  { key: 'totals', label: 'Totals', market: 'Total' },
-  { key: 'firstfive', label: 'First Five', market: 'First five' },
-]
+// Multi-sport contract. The board supports these sports; only those with
+// governed events are ever shown, and no synthetic events are created.
+const SPORT_ORDER = ['MLB', 'NFL', 'NBA', 'NHL', 'MMA']
+const SPORT_LABEL: Record<string, string> = { MLB: 'MLB', NFL: 'NFL', NBA: 'NBA', NHL: 'NHL', MMA: 'MMA' }
+
+// Sport-correct market labels for the filter tabs. The server already emits the
+// sport-correct market family (e.g. MLB "Run line"); this maps it to a tab label
+// and stays correct when NFL/NBA (Spread), NHL (Puck line), or MMA appear.
+const MARKET_TAB_LABEL: Record<string, string> = {
+  Moneyline: 'Moneyline',
+  'Run line': 'Run Line',
+  Spread: 'Spread',
+  'Puck line': 'Puck Line',
+  Total: 'Totals',
+  Method: 'Method',
+  Round: 'Round',
+}
 
 interface Row {
   game: ForecastGame
   opportunity: GameOpportunity | undefined
 }
+
+const sportOf = (row: Row) => row.opportunity?.sport ?? 'MLB'
+const scoreOf = (row: Row) => row.opportunity?.opportunity_score ?? 0
+const stateOf = (row: Row): RecommendationState => row.opportunity?.recommendation_state ?? 'NO_BET'
 
 function selectionForMarket(opportunity: GameOpportunity | undefined, market: string): OpportunitySelection | null {
   if (!opportunity) return null
@@ -33,18 +46,14 @@ function selectionForMarket(opportunity: GameOpportunity | undefined, market: st
   return opportunity.alternates.find((item) => item.market_type === market) ?? null
 }
 
-function stateRank(row: Row): number {
-  return STATE_RANK[row.opportunity?.recommendation_state ?? 'NO_BET']
-}
-
-// A finite sentinel keeps the sort comparator well-defined (subtracting two
-// -Infinity sentinels would yield NaN and leave ordering undefined).
+// A finite sentinel keeps the sort comparator well-defined.
 const num = (value: number | null | undefined) => (value == null ? -1e15 : value)
 
 export function TodayPage({ demo = false }: { demo?: boolean }) {
   const { data, state, loading, error, refresh } = useApiResource(endpoints.dashboard, demo ? { demoData: demoDashboard } : {})
   const [sort, setSort] = useState<SortKey>('opportunity')
-  const [tab, setTab] = useState<string>('best')
+  const [tab, setTab] = useState<string>('all')
+  const [sportFilter, setSportFilter] = useState<string>('ALL')
 
   const rows = useMemo<Row[]>(() => {
     if (!data) return []
@@ -52,34 +61,17 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
     return data.games.map((game) => ({ game, opportunity: byId.get(game.id) }))
   }, [data])
 
-  const sorted = useMemo(() => {
-    const items = [...rows]
-    items.sort((a, b) => {
-      if (sort === 'time') return timeSortValue(a.game.start_time) - timeSortValue(b.game.start_time)
-      if (sort === 'edge') return num(b.opportunity?.best?.uncertainty_adjusted_edge) - num(a.opportunity?.best?.uncertainty_adjusted_edge)
-      if (sort === 'ev') return num(b.opportunity?.best?.expected_value) - num(a.opportunity?.best?.expected_value)
-      if (sort === 'readiness') return num(b.opportunity?.readiness) - num(a.opportunity?.readiness)
-      // Best opportunities: qualified → watch → no-bet, then adjusted EV, then readiness, then freshest quote.
-      return (
-        stateRank(b) - stateRank(a) ||
-        num(b.opportunity?.best?.expected_value) - num(a.opportunity?.best?.expected_value) ||
-        num(b.opportunity?.readiness) - num(a.opportunity?.readiness) ||
-        num(a.opportunity?.best?.quote_age_seconds) - num(b.opportunity?.best?.quote_age_seconds)
-      )
-    })
-    return items
-  }, [rows, sort])
-
-  const availableMarkets = useMemo(() => {
-    const set = new Set<string>()
-    for (const row of rows) for (const market of row.opportunity?.markets_available ?? []) set.add(market)
-    return set
-  }, [rows])
+  const sportsAvailable = useMemo(() => {
+    const fromSummary = data?.opportunity_summary?.sports_available
+    if (fromSummary && fromSummary.length) return fromSummary
+    const set = new Set(rows.map(sportOf))
+    return SPORT_ORDER.filter((sport) => set.has(sport))
+  }, [data, rows])
 
   if (!data || state === 'empty' || state === 'unavailable' || state === 'loading') {
     return (
       <div className="page today-page">
-        <PageHeader eyebrow="MLB · DAILY OPPORTUNITY BOARD" title="Today’s MLB Forecasts" description="Governed model-vs-market opportunities for research and simulation." />
+        <PageHeader eyebrow="DAILY OPPORTUNITY BOARD" title="Today’s MLB Forecasts" description="Governed model-vs-market opportunities for research and simulation." />
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
         <DataStatePanel
           state={state}
@@ -101,29 +93,50 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
     .sort()
     .at(-1) ?? data.summary.last_refresh
 
-  // Build the visible set for the active tab.
-  let visible = sorted
-  let marketFocus: string | null = null
-  if (tab === 'nobet') {
-    visible = sorted.filter((row) => (row.opportunity?.recommendation_state ?? 'NO_BET') === 'NO_BET')
-  } else if (tab !== 'best' && tab !== 'all') {
-    const market = MARKET_TABS.find((item) => item.key === tab)?.market
-    if (market) {
-      marketFocus = market
-      visible = sorted.filter((row) => selectionForMarket(row.opportunity, market) != null)
-    }
+  // Sport filter: default to ALL SPORTS once more than one sport has data;
+  // while only MLB is active, the single sport is shown and selected honestly.
+  const showAllSports = sportsAvailable.length > 1
+  const activeSport = showAllSports ? sportFilter : (sportsAvailable[0] ?? 'MLB')
+  const sportRows = activeSport === 'ALL' ? rows : rows.filter((row) => sportOf(row) === activeSport)
+
+  const sortRows = (items: Row[]) => {
+    const copy = [...items]
+    copy.sort((a, b) => {
+      if (sort === 'time') return timeSortValue(a.game.start_time) - timeSortValue(b.game.start_time)
+      if (sort === 'edge') return num(b.opportunity?.best?.uncertainty_adjusted_edge) - num(a.opportunity?.best?.uncertainty_adjusted_edge)
+      if (sort === 'ev') return num(b.opportunity?.best?.expected_value) - num(a.opportunity?.best?.expected_value)
+      if (sort === 'readiness') return num(b.opportunity?.readiness) - num(a.opportunity?.readiness)
+      return scoreOf(b) - scoreOf(a) || STATE_RANK[stateOf(b)] - STATE_RANK[stateOf(a)] || timeSortValue(a.game.start_time) - timeSortValue(b.game.start_time)
+    })
+    return copy
   }
 
-  const featured = tab === 'best'
-    ? visible.filter((row) => (row.opportunity?.recommendation_state ?? 'NO_BET') !== 'NO_BET').slice(0, 3)
-    : []
-  const featuredIds = new Set(featured.map((row) => row.game.id))
-  const remaining = visible.filter((row) => !featuredIds.has(row.game.id))
+  // Today's Best Opportunities: the top three by the single server Opportunity
+  // Score (across the active sport filter). These games also carry rank markers
+  // in the complete slate below.
+  const topOpportunities = sportRows
+    .filter((row) => stateOf(row) !== 'NO_BET')
+    .sort((a, b) => scoreOf(b) - scoreOf(a))
+    .slice(0, 3)
+  const rankByGame = new Map(topOpportunities.map((row, index) => [row.game.id, index + 1]))
+
+  const availableMarkets = marketsFor(sportRows)
+
+  // Complete slate view: apply the market/no-bet lens, then group by sport.
+  let slateRows = sportRows
+  let marketFocus: string | null = null
+  if (tab === 'nobet') {
+    slateRows = sportRows.filter((row) => stateOf(row) === 'NO_BET')
+  } else if (tab !== 'all') {
+    marketFocus = tab
+    slateRows = sportRows.filter((row) => selectionForMarket(row.opportunity, tab) != null)
+  }
+  const groups = groupBySport(sortRows(slateRows))
 
   return (
     <div className="page today-page">
       <PageHeader
-        eyebrow="MLB · DAILY OPPORTUNITY BOARD"
+        eyebrow="DAILY OPPORTUNITY BOARD"
         title="Today’s MLB Forecasts"
         description={formatDate(data.date)}
         actions={(
@@ -141,38 +154,42 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
       <section className="opportunity-summary" aria-label="Daily opportunity summary">
-        <div className="opportunity-summary__stat opportunity-summary__stat--qualified">
-          <span>Qualified bets</span><strong>{summary?.qualified ?? 0}</strong>
-        </div>
-        <div className="opportunity-summary__stat opportunity-summary__stat--watch">
-          <span>Watchlist</span><strong>{summary?.watch ?? 0}</strong>
-        </div>
-        <div className="opportunity-summary__stat opportunity-summary__stat--pass">
-          <span>Passes</span><strong>{summary?.no_bet ?? data.summary.games}</strong>
-        </div>
-        <div className="opportunity-summary__stat opportunity-summary__stat--wide">
-          <span>Top opportunity</span><strong>{summary?.top_opportunity ?? 'No qualified edge today'}</strong>
-        </div>
-        <div className="opportunity-summary__stat">
-          <span>Best expected value</span><strong>{summary?.best_expected_value != null ? `${summary.best_expected_value > 0 ? '+' : ''}${summary.best_expected_value.toFixed(1)}%` : '—'}</strong>
-        </div>
-        <div className="opportunity-summary__stat">
-          <span>Virtual daily exposure</span><strong>{formatCurrency(summary?.virtual_daily_exposure ?? 0)}</strong>
-        </div>
-        <div className="opportunity-summary__stat">
-          <span>Data health</span><strong>{dataHealth}</strong>
-        </div>
-        <div className="opportunity-summary__stat">
-          <span>Last quote</span><strong>{lastQuote ? formatTimestamp(lastQuote) : 'Not recorded'}</strong>
-        </div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--qualified"><span>Qualified bets</span><strong>{summary?.qualified ?? 0}</strong></div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--provisional"><span>Provisional</span><strong>{summary?.provisional ?? 0}</strong></div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--watch"><span>Watchlist</span><strong>{summary?.watch ?? 0}</strong></div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--pass"><span>Passes</span><strong>{summary?.no_bet ?? data.summary.games}</strong></div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Top opportunity</span><strong>{summary?.top_opportunity ?? 'No qualified edge today'}</strong></div>
+        <div className="opportunity-summary__stat"><span>Best expected value</span><strong>{summary?.best_expected_value != null ? `${summary.best_expected_value > 0 ? '+' : ''}${summary.best_expected_value.toFixed(1)}%` : '—'}</strong></div>
+        <div className="opportunity-summary__stat"><span>Virtual daily exposure</span><strong>{formatCurrency(summary?.virtual_daily_exposure ?? 0)}</strong></div>
+        <div className="opportunity-summary__stat"><span>Data health</span><strong>{dataHealth}</strong></div>
+        <div className="opportunity-summary__stat"><span>Last quote</span><strong>{lastQuote ? formatTimestamp(lastQuote) : 'Not recorded'}</strong></div>
       </section>
+
+      <div className="sport-filter" role="tablist" aria-label="Sport filter">
+        {showAllSports && (
+          <button type="button" role="tab" aria-selected={activeSport === 'ALL'} className={activeSport === 'ALL' ? 'is-active' : ''} onClick={() => setSportFilter('ALL')}>All Sports</button>
+        )}
+        {SPORT_ORDER.filter((sport) => sportsAvailable.includes(sport)).map((sport) => (
+          <button key={sport} type="button" role="tab" aria-selected={activeSport === sport} className={activeSport === sport ? 'is-active' : ''} onClick={() => setSportFilter(sport)}>{SPORT_LABEL[sport] ?? sport}</button>
+        ))}
+      </div>
+
+      {topOpportunities.length > 0 && (
+        <section aria-label="Today's best opportunities">
+          <div className="section-heading"><div><span className="eyebrow">TODAY’S BEST OPPORTUNITIES</span><h2>Top {topOpportunities.length} by Opportunity Score</h2></div></div>
+          <div className="opportunity-featured">
+            {topOpportunities.map((row, index) => (
+              <OpportunityCard key={row.game.id} game={row.game} opportunity={row.opportunity} rank={index + 1} variant="featured" demo={demo} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="opportunity-toolbar">
         <div className="opportunity-tabs" role="tablist" aria-label="Opportunity filters">
-          <button type="button" role="tab" aria-selected={tab === 'best'} className={tab === 'best' ? 'is-active' : ''} onClick={() => setTab('best')}>Best Opportunities</button>
           <button type="button" role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'is-active' : ''} onClick={() => setTab('all')}>All Games</button>
-          {MARKET_TABS.filter((item) => availableMarkets.has(item.market)).map((item) => (
-            <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} className={tab === item.key ? 'is-active' : ''} onClick={() => setTab(item.key)}>{item.label}</button>
+          {availableMarkets.map((market) => (
+            <button key={market} type="button" role="tab" aria-selected={tab === market} className={tab === market ? 'is-active' : ''} onClick={() => setTab(market)}>{MARKET_TAB_LABEL[market] ?? market}</button>
           ))}
           <button type="button" role="tab" aria-selected={tab === 'nobet'} className={tab === 'nobet' ? 'is-active' : ''} onClick={() => setTab('nobet')}>No Bet</button>
         </div>
@@ -192,40 +209,51 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
         </button>
       </div>
 
-      {featured.length > 0 && (
-        <section aria-label="Featured opportunities">
-          <div className="section-heading"><div><span className="eyebrow">FEATURED</span><h2>Top {featured.length} opportunit{featured.length === 1 ? 'y' : 'ies'}</h2></div></div>
-          <div className="opportunity-featured">
-            {featured.map((row, index) => (
-              <OpportunityCard key={row.game.id} game={row.game} opportunity={row.opportunity} rank={index + 1} variant="featured" demo={demo} />
-            ))}
-          </div>
-        </section>
+      {groups.length === 0 ? (
+        <p className="opportunity-empty">No games match this filter.</p>
+      ) : (
+        groups.map(({ sport, items }) => (
+          <section key={sport} aria-label={`Complete ${SPORT_LABEL[sport] ?? sport} slate`}>
+            <div className="section-heading">
+              <div><span className="eyebrow">COMPLETE {(SPORT_LABEL[sport] ?? sport).toUpperCase()} SLATE</span><h2>{items.length} {items.length === 1 ? 'game' : 'games'}</h2></div>
+            </div>
+            <div className="opportunity-grid">
+              {items.map((row) => (
+                <OpportunityCard
+                  key={row.game.id}
+                  game={row.game}
+                  opportunity={row.opportunity}
+                  selection={marketFocus ? selectionForMarket(row.opportunity, marketFocus) : undefined}
+                  rankBadge={rankByGame.get(row.game.id)}
+                  variant="compact"
+                  demo={demo}
+                />
+              ))}
+            </div>
+          </section>
+        ))
       )}
 
-      <section aria-label="Slate">
-        <div className="section-heading">
-          <div><span className="eyebrow">{marketFocus ? marketFocus.toUpperCase() : tab === 'nobet' ? 'PASSES' : 'SLATE'}</span><h2>{remaining.length} {remaining.length === 1 ? 'game' : 'games'}</h2></div>
-        </div>
-        {remaining.length === 0 ? (
-          <p className="opportunity-empty">No games match this filter.</p>
-        ) : (
-          <div className="opportunity-grid">
-            {remaining.map((row) => (
-              <OpportunityCard
-                key={row.game.id}
-                game={row.game}
-                opportunity={row.opportunity}
-                selection={marketFocus ? selectionForMarket(row.opportunity, marketFocus) : undefined}
-                variant="compact"
-                demo={demo}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <p className="page-footnote">ASP opportunities are probabilistic model-vs-market comparisons for research, education, and entertainment. “Edge” is the gap between the model probability and the no-vig market probability; virtual stakes follow a quarter-Kelly policy under strict exposure caps and are never real-money wagers or a guarantee of profit.</p>
+      <p className="page-footnote">ASP opportunities are probabilistic model-vs-market comparisons for research, education, and entertainment. “Edge” is the gap between the model probability and the no-vig market probability; the Opportunity Score blends edge, readiness, quote freshness, uncertainty, and disagreement. Virtual stakes follow a quarter-Kelly policy under strict exposure caps and are never real-money wagers or a guarantee of profit.</p>
     </div>
   )
+}
+
+function marketsFor(rows: Row[]): string[] {
+  const set = new Set<string>()
+  for (const row of rows) for (const market of row.opportunity?.markets_available ?? []) set.add(market)
+  // Present market tabs in a stable, sport-correct order.
+  const order = ['Moneyline', 'Run line', 'Spread', 'Puck line', 'Total', 'Method', 'Round']
+  return order.filter((market) => set.has(market)).concat([...set].filter((market) => !order.includes(market)))
+}
+
+function groupBySport(rows: Row[]): Array<{ sport: string; items: Row[] }> {
+  const map = new Map<string, Row[]>()
+  for (const row of rows) {
+    const sport = sportOf(row)
+    if (!map.has(sport)) map.set(sport, [])
+    map.get(sport)!.push(row)
+  }
+  const ordered = SPORT_ORDER.filter((sport) => map.has(sport)).concat([...map.keys()].filter((sport) => !SPORT_ORDER.includes(sport)))
+  return ordered.map((sport) => ({ sport, items: map.get(sport)! }))
 }
