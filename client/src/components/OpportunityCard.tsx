@@ -13,15 +13,6 @@ const STATE_LABEL: Record<RecommendationState, string> = {
   NO_BET: 'NO BET',
 }
 
-function injuryFeedLabel(status: string | undefined): string {
-  switch (status) {
-    case 'INJURY_FEED_ACTIVE': return 'Active'
-    case 'INJURY_FEED_TRIAL': return 'TRIAL — NOT USED FOR PICKS'
-    case 'INJURY_FEED_ERROR': return 'Error'
-    default: return 'Not configured'
-  }
-}
-
 function lineupLabel(status: string): string {
   if (status === 'DETAILS_MISSING') return 'DETAILS MISSING'
   return status
@@ -189,14 +180,13 @@ export function OpportunityCard({
         <div className="opportunity-availability">
           <span>Lineup <b>{lineupLabel(opportunity.availability.lineup_status)}</b></span>
           <span>Starter <b>{opportunity.availability.starting_pitcher_status}</b></span>
-          <span className={opportunity.availability.injury_feed_authoritative ? undefined : 'opportunity-availability__flag'}>Injury feed <b>{injuryFeedLabel(opportunity.availability.injury_feed_status)}</b></span>
-          <span>Unavailable <b>{opportunity.availability.unavailable_players ?? '—'}</b></span>
-          <span>Availability {opportunity.availability.last_availability_update ? formatTimestamp(opportunity.availability.last_availability_update) : 'none yet'}</span>
+          {(opportunity.availability.unavailable_players ?? 0) > 0 && (
+            <span className="opportunity-availability__flag">Unavailable <b>{opportunity.availability.unavailable_players}</b></span>
+          )}
+          {opportunity.availability.last_availability_update && (
+            <span>Availability {formatTimestamp(opportunity.availability.last_availability_update)}</span>
+          )}
         </div>
-      )}
-
-      {opportunity?.availability && !opportunity.availability.production_injury_coverage && (
-        <p className="opportunity-availability__note">Production injury coverage unavailable — trial data is not used for picks.</p>
       )}
 
       {opportunity?.qualification_reasons && opportunity.qualification_reasons.length > 0 && state !== 'QUALIFIED_BET' && (

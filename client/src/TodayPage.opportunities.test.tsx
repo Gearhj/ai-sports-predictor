@@ -60,7 +60,7 @@ const opportunities: GameOpportunity[] = [
   {
     game_id: g1.id, sport: 'MLB', recommendation_state: 'PROVISIONAL_EDGE', review_required: false,
     recommendation_reason: 'Edge clears the value bar, but a required starter is unconfirmed — provisional.',
-    qualification_reasons: ['Starting pitcher probable', 'Production injury feed unavailable'], opportunity_score: 60,
+    qualification_reasons: ['Starting pitcher probable', 'Lineup not confirmed'], opportunity_score: 60,
     markets_available: ['Run line'], readiness: 66, uncertainty: 3.1, model_disagreement: 2.2,
     availability: avail({ lineup_status: 'PROJECTED', starting_pitcher_status: 'PROBABLE' }),
     best: sel({ recommendation: 'PROVISIONAL_EDGE', market_type: 'Run line', selection: 'PROV-RL-15', line: 1.5, american_odds: -150, opportunity_score: 60, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
@@ -78,7 +78,7 @@ const opportunities: GameOpportunity[] = [
   {
     game_id: g4.id, sport: 'MLB', recommendation_state: 'EXTREME_DISAGREEMENT', review_required: true,
     recommendation_reason: 'Model–market gap +34.2 pts exceeds the review threshold — EXTREME DISAGREEMENT.',
-    qualification_reasons: ['Extreme model-market disagreement', 'Production injury feed unavailable'], opportunity_score: 55,
+    qualification_reasons: ['Extreme model-market disagreement'], opportunity_score: 55,
     markets_available: ['Total'], readiness: 74, uncertainty: 2.8, model_disagreement: 6.6,
     availability: avail({ lineup_status: 'DETAILS_MISSING', unavailable_players: 1 }),
     best: sel({ recommendation: 'EXTREME_DISAGREEMENT', market_type: 'Total', selection: 'EXTREME-OVER-65', line: 6.5, american_odds: -103, raw_edge: 34.2, uncertainty_adjusted_edge: 34, expected_value: 67.8, opportunity_score: 55, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
@@ -198,13 +198,14 @@ describe('Complete slate + multi-sport board', () => {
     expect(within(summary).getByText('Review required').nextSibling).toHaveTextContent('1')
     expect(within(summary).getByText('Watchlist').nextSibling).toHaveTextContent('1')
     expect(within(summary).getByText('Passes').nextSibling).toHaveTextContent('1')
-    expect(within(summary).getByText('Injury feed').nextSibling).toHaveTextContent('Not configured')
     expect(within(summary).getByText(/QUAL-ML \+120/)).toBeInTheDocument()
   })
 
-  it('renders the SportsDataIO injury-feed status (trial) in the summary', async () => {
+  it('does not surface the deferred paid injury feed on the public product', async () => {
+    // Even a TRIAL feed status must not leak to the public cards/summary.
     const trialPayload = {
       ...dashboardPayload,
+      opportunities: opportunities.map((o) => ({ ...o, availability: { ...o.availability, injury_feed_status: 'INJURY_FEED_TRIAL' } })),
       opportunity_summary: { ...dashboardPayload.opportunity_summary, injury_feed_status: 'INJURY_FEED_TRIAL' },
     }
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -213,28 +214,33 @@ describe('Complete slate + multi-sport board', () => {
       return { ok: false, status: 404, json: async () => ({ detail: 'not found' }) } as Response
     }))
     render(<App />)
-    const summary = await screen.findByRole('region', { name: /Daily opportunity summary/i })
-    expect(within(summary).getByText('Injury feed').nextSibling).toHaveTextContent('TRIAL — not used for picks')
+    await screen.findByRole('heading', { name: /Today’s MLB Forecasts/i })
+    // No "Injury feed" field, no trial label, no paid-provider deficiency note.
+    expect(screen.queryByText('Injury feed')).not.toBeInTheDocument()
+    expect(screen.queryByText(/not used for picks/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Production injury coverage unavailable/i)).not.toBeInTheDocument()
   })
 
-  it('marks a non-authoritative injury feed and never claims 0 unavailable', async () => {
+  it('never claims 0 unavailable and shows no paid-injury caveat on a card', async () => {
     stub()
     render(<App />)
     const slate = await completeSlate()
     const card = within(slate).getByText(g1.away_team.name).closest('article') as HTMLElement
-    // Unavailable shows "—" (unknown), never a false "0"; the caveat is stated.
-    expect(within(card).getByText(/^Unavailable/)).toHaveTextContent('Unavailable —')
-    expect(within(card).getByText(/Production injury coverage unavailable/i)).toBeInTheDocument()
+    // Lineup/starter (real governed evidence) remain; injury-feed/unavailable do not.
+    expect(within(card).getByText(/^Starter/)).toBeInTheDocument()
+    expect(within(card).getAllByText(/^Lineup/).length).toBeGreaterThan(0)
+    expect(within(card).queryByText(/^Unavailable/)).not.toBeInTheDocument()
+    expect(within(card).queryByText(/Injury feed/)).not.toBeInTheDocument()
   })
 
-  it('explains blockers for every non-qualified opportunity', async () => {
+  it('explains blockers with real governed reasons only (no paid-feed reason)', async () => {
     stub()
     render(<App />)
     const slate = await completeSlate()
     const card = within(slate).getByText(g1.away_team.name).closest('article') as HTMLElement
     expect(within(card).getByText('Why not qualified')).toBeInTheDocument()
     expect(within(card).getByText('Starting pitcher probable')).toBeInTheDocument()
-    expect(within(card).getByText('Production injury feed unavailable')).toBeInTheDocument()
+    expect(within(card).queryByText(/injury feed/i)).not.toBeInTheDocument()
   })
 
   it('surfaces odds-refresh diagnostics including a disabled scheduler', async () => {
@@ -278,10 +284,11 @@ describe('Complete slate + multi-sport board', () => {
     render(<App />)
     const slate = await completeSlate()
     const card = within(slate).getByText(g0.away_team.name).closest('article') as HTMLElement
-    // Availability strip (lineup / starter / injury feed).
+    // Availability strip keeps real governed evidence (lineup / starter); the
+    // deferred paid injury feed is not shown.
     expect(within(card).getByText(/^Lineup/)).toBeInTheDocument()
     expect(within(card).getByText(/^Starter/)).toBeInTheDocument()
-    expect(within(card).getByText(/Injury feed/)).toBeInTheDocument()
+    expect(within(card).queryByText(/Injury feed/)).not.toBeInTheDocument()
     // Before/after strip from the persisted rescore evidence.
     expect(within(card).getByText('Rescored')).toBeInTheDocument()
     expect(within(card).getByText(/Home win/)).toBeInTheDocument()

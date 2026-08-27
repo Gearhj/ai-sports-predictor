@@ -726,6 +726,21 @@ export interface LiveShadowStatus {
   odds_credentials_present: boolean
   required_odds_config_variable: string | null
   injury_feed_status?: string
+  injury_feed?: {
+    state: string
+    enabled: boolean
+    key_present: boolean
+    configured: boolean
+    authenticated: boolean
+    last_poll: string | null
+    records_received: number | null
+    trial_data: boolean
+    changes_detected: number | null
+    availability_events_created: number | null
+    games_rescored: number | null
+    matched_players: number | null
+    last_error: string | null
+  }
   executable: false
   quota: { quota_remaining: number | null; quota_floor: number; daily_request_budget: number; requests_today: number }
   cadence: {

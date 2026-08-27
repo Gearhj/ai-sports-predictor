@@ -13,15 +13,6 @@ type SortKey = 'opportunity' | 'time' | 'edge' | 'ev' | 'readiness'
 
 const STATE_RANK: Record<RecommendationState, number> = { QUALIFIED_BET: 5, PROVISIONAL_EDGE: 4, EXTREME_DISAGREEMENT: 3, WATCH: 2, NO_BET: 1 }
 
-function injuryFeedLabel(status: string | undefined): string {
-  switch (status) {
-    case 'INJURY_FEED_ACTIVE': return 'Active'
-    case 'INJURY_FEED_TRIAL': return 'TRIAL — not used for picks'
-    case 'INJURY_FEED_ERROR': return 'Error'
-    default: return 'Not configured'
-  }
-}
-
 function ageLabel(seconds: number | null | undefined): string {
   if (seconds == null) return '—'
   if (seconds < 5400) return `${Math.round(seconds / 60)} min`
@@ -177,7 +168,6 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
         <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Top opportunity</span><strong>{summary?.top_opportunity ?? 'No qualified edge today'}</strong></div>
         <div className="opportunity-summary__stat"><span>Best expected value</span><strong>{summary?.best_expected_value != null ? `${summary.best_expected_value > 0 ? '+' : ''}${summary.best_expected_value.toFixed(1)}%` : '—'}</strong></div>
         <div className="opportunity-summary__stat"><span>Virtual daily exposure</span><strong>{formatCurrency(summary?.virtual_daily_exposure ?? 0)}</strong></div>
-        <div className="opportunity-summary__stat opportunity-summary__stat--injury"><span>Injury feed</span><strong>{injuryFeedLabel(summary?.injury_feed_status)}</strong></div>
         <div className="opportunity-summary__stat"><span>Data health</span><strong>{dataHealth}</strong></div>
         <div className="opportunity-summary__stat"><span>Last quote</span><strong>{lastQuote ? formatTimestamp(lastQuote) : 'Not recorded'}</strong></div>
       </section>

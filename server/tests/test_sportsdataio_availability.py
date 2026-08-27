@@ -46,9 +46,15 @@ def test_not_configured_without_key(settings):
 
 
 def test_configured_with_key_is_active(settings):
-    adapter = SportsDataIOAvailabilityAdapter(settings.model_copy(update={"sportsdataio_api_key": "k" * 20}))
-    assert adapter.is_configured() is True
-    assert adapter.status() == STATUS_ACTIVE
+    # The feed is deferred (disabled) by default; it activates only when enabled.
+    key_only = SportsDataIOAvailabilityAdapter(settings.model_copy(update={"sportsdataio_api_key": "k" * 20}))
+    assert key_only.is_configured() is False
+    assert key_only.status() == STATUS_NOT_CONFIGURED
+    enabled = SportsDataIOAvailabilityAdapter(
+        settings.model_copy(update={"sportsdataio_api_key": "k" * 20, "sportsdataio_enabled": True})
+    )
+    assert enabled.is_configured() is True
+    assert enabled.status() == STATUS_ACTIVE
 
 
 def test_key_never_appears_in_serialized_output(settings):

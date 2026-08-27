@@ -4,6 +4,19 @@ import { MetricCard, Panel } from './ui'
 import { endpoints } from '../services/api'
 import type { LiveShadowStatus } from '../types/domain'
 
+// Admin-only summary of the deferred SportsDataIO injury feed (state / last
+// poll / records / error). The feed is not shown on the public product.
+function injuryFeedSummary(status: LiveShadowStatus): string {
+  const feed = status.injury_feed
+  if (!feed) return (status.injury_feed_status ?? 'NOT_CONFIGURED').replace('INJURY_FEED_', '')
+  const parts = [feed.state]
+  if (feed.last_poll) parts.push(`last poll ${feed.last_poll}`)
+  if (feed.records_received != null) parts.push(`${feed.records_received} records`)
+  if (feed.trial_data) parts.push('trial data')
+  if (feed.last_error) parts.push(`error: ${feed.last_error}`)
+  return parts.join(' · ')
+}
+
 /**
  * Admin-only operational status for the armed live prospective shadow pilot.
  * Renders on the admin Data Health page. Reads persisted status only — the
@@ -59,6 +72,7 @@ export function LiveShadowStatusCard() {
         <div><ShieldAlert size={16} /><p><strong>Last schedule refresh</strong><span>{status.last_successful_schedule_refresh ?? 'none yet'}</span></p></div>
         <div><ShieldAlert size={16} /><p><strong>Last odds refresh</strong><span>{status.last_successful_odds_refresh ?? 'none yet'}</span></p></div>
         <div><ShieldAlert size={16} /><p><strong>Last event received</strong><span>{status.last_event_received ? `${status.last_event_received} · ${status.last_event_source}` : 'none yet'}</span></p></div>
+        <div><ShieldAlert size={16} /><p><strong>Injury feed (SportsDataIO)</strong><span>{injuryFeedSummary(status)}</span></p></div>
       </div>
       <p className="muted" style={{ marginTop: '0.5rem' }}>Research shadow — no executable action.</p>
     </Panel>

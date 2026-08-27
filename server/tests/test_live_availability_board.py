@@ -70,7 +70,7 @@ async def test_board_reports_injury_feed_not_configured(session, settings):
 
 
 @pytest.mark.asyncio
-async def test_unconfigured_feed_is_nonauthoritative_and_reasons_explain(session, settings):
+async def test_deferred_feed_is_not_a_qualification_blocker(session, settings):
     game = await _seed_game(session, settings)
     read = ReadService(session, settings)
     card = read.game_card(game)
@@ -78,14 +78,15 @@ async def test_unconfigured_feed_is_nonauthoritative_and_reasons_explain(session
     opportunities, summary = read._daily_opportunities([game], [card], [forecast])
     opportunity = opportunities[0]
     availability = opportunity.availability
-    # A non-authoritative feed must never claim "0 unavailable" (false-healthy).
+    # The deferred paid feed is not authoritative and never claims "0 unavailable".
     assert availability.injury_feed_authoritative is False
-    assert availability.production_injury_coverage is False
     assert availability.unavailable_players is None
     assert summary.injury_feed_authoritative is False
-    # Every non-qualified opportunity explains its blockers.
+    # Absence of the paid injury feed is NOT a qualification blocker; the game is
+    # non-qualified only for real governed reasons.
     assert opportunity.recommendation_state != "QUALIFIED_BET"
-    assert "Production injury feed unavailable" in opportunity.qualification_reasons
+    assert "Production injury feed unavailable" not in opportunity.qualification_reasons
+    assert all("injury feed" not in reason.lower() for reason in opportunity.qualification_reasons)
 
 
 @pytest.mark.asyncio
@@ -106,10 +107,15 @@ async def test_manual_event_rescore_surfaces_on_board(session, settings):
     card = read.game_card(game)
     forecast = read._latest_forecast(game.id)
     opportunities, _ = read._daily_opportunities([game], [card], [forecast])
-    availability = next(o.availability for o in opportunities if o.game_id == str(game.id))
+    opportunity = next(o for o in opportunities if o.game_id == str(game.id))
+    availability = opportunity.availability
     assert availability.rescored is True
     assert availability.forecast_after is not None
     assert availability.last_availability_event == "LATE_SCRATCH"
     assert availability.last_availability_update is not None
     # A late scratch is reflected in the lineup-status display.
     assert availability.lineup_status == "CHANGED"
+    # A genuine unresolved availability event from an available source still
+    # blocks qualification (and is not qualified).
+    assert opportunity.recommendation_state != "QUALIFIED_BET"
+    assert "Unresolved availability event" in opportunity.qualification_reasons

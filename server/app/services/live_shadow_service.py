@@ -245,11 +245,14 @@ class LiveShadowOperator:
         return _iso(run.completed_at) if run and run.completed_at else None
 
     def _injury_feed_health(self) -> dict:
-        """Non-secret SportsDataIO Data Health from the latest persisted poll."""
+        """Non-secret SportsDataIO Data Health from the latest persisted poll.
 
-        configured = bool(
-            self.settings.sportsdataio_enabled and self.settings.sportsdataio_api_key.strip()
-        )
+        Retained for admin visibility while the paid feed is deferred from the
+        public product. Never exposes the key."""
+
+        enabled = self.settings.sportsdataio_enabled
+        key_present = bool(self.settings.sportsdataio_api_key.strip())
+        configured = enabled and key_present
         run = self.session.scalar(
             select(IngestionRun)
             .where(IngestionRun.source == "SPORTSDATAIO")
@@ -257,9 +260,25 @@ class LiveShadowOperator:
             .limit(1)
         )
         meta = (run.source_metadata or {}) if run else {}
+        succeeded = bool(run and run.status == RunStatus.SUCCEEDED)
+        if not key_present:
+            state = "NOT_CONFIGURED"
+        elif not enabled:
+            state = "DISABLED"
+        elif run is not None and run.status == RunStatus.FAILED:
+            state = "ERROR"
+        elif meta.get("trial"):
+            state = "TRIAL"
+        elif succeeded:
+            state = "PRODUCTION"
+        else:
+            state = "CONFIGURED"
         return {
+            "state": state,
+            "enabled": enabled,
+            "key_present": key_present,
             "configured": configured,
-            "authenticated": bool(run and run.status == RunStatus.SUCCEEDED),
+            "authenticated": succeeded,
             "last_poll": _iso(run.completed_at) if run and run.completed_at else None,
             "records_received": run.records_processed if run else None,
             "trial_data": bool(meta.get("trial")),

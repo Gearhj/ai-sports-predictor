@@ -442,13 +442,13 @@ class ReadService:
         elif not gate.get("lineup_confirmed"):
             reasons.append("Lineup not confirmed")
         if gate.get("unresolved_scratch"):
-            reasons.append("Unresolved late scratch")
+            reasons.append("Unresolved availability event")
         if best.recommendation == EXTREME_DISAGREEMENT:
             reasons.append("Extreme model-market disagreement")
         if self._has_critical_missing(forecast):
             reasons.append("Critical inputs incomplete")
-        if not gate.get("production_injury_coverage"):
-            reasons.append("Production injury feed unavailable")
+        # Absence of the deferred paid injury feed is never a blocker for ordinary
+        # game markets — qualification rests on available governed evidence only.
         return list(dict.fromkeys(reasons))[:6]
 
     def _odds_freshness(

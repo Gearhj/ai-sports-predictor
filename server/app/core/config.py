@@ -87,11 +87,13 @@ class Settings(BaseSettings):
     # SportsDataIO availability adapter — the single injury/availability provider
     # for this phase. Disabled unless explicitly configured; the API key is read
     # from the environment (SPORTSDATAIO_API_KEY) and never committed or exposed.
-    # With no credentials the feed reports INJURY_FEED_NOT_CONFIGURED and the
-    # MANUAL_ADMIN availability path remains the only source — nothing is fabricated.
-    # Enabled by default so a key present in the environment activates the feed;
-    # set SPORTSDATAIO_ENABLED=false to keep it dormant even when a key exists.
-    sportsdataio_enabled: bool = True
+    # Deferred for public use: the adapter and configuration are retained, but the
+    # feed is disabled by default (the paid data is trial/scrambled and therefore
+    # non-authoritative for local operation). Set SPORTSDATAIO_ENABLED=true to
+    # activate it in an environment with a production key. Disabled or absent →
+    # INJURY_FEED_NOT_CONFIGURED, the feed never polls, and the MANUAL_ADMIN /
+    # free-source availability paths remain the only authority — nothing fabricated.
+    sportsdataio_enabled: bool = False
     sportsdataio_api_key: str = ""
     sportsdataio_base_url: str = "https://api.sportsdata.io/v3/mlb"
 
