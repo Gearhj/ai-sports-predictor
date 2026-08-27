@@ -211,7 +211,107 @@ class JobOrchestrator:
                 source_payload_id=payload_id, published_at=fetched_at,
             ))
         result = operator.poll(snapshots, now=now)
-        return {"records": result["events_emitted"], **result}
+        injuries = await self._poll_sportsdataio_injuries(event_date, now)
+        return {"records": result["events_emitted"] + injuries.get("events_created", 0), **result, "sportsdataio": injuries}
+
+    async def _poll_sportsdataio_injuries(self, event_date: date, now: datetime) -> dict[str, Any]:
+        """Fetch the SportsDataIO injuries feed, detect trial/scrambled data, run
+        stateful change detection against the prior snapshot, and route material
+        changes into the existing rescore pipeline. One API call per poll; the key
+        is never logged; a provider failure fabricates nothing.
+        """
+        from app.prospective.contracts import SPORTSDATAIO_SOURCE
+        from app.prospective.sportsdataio import (
+            INJURED_PLAYERS_PATH,
+            SportsDataIOAvailabilityAdapter,
+            plan_injury_poll,
+        )
+        from app.services.prospective_shadow_service import ProspectiveShadowService, RescoreError
+
+        adapter = SportsDataIOAvailabilityAdapter(self.settings)
+        if not adapter.is_configured():
+            return {"configured": False, "records": 0, "events_created": 0}
+
+        started = datetime.now(UTC)
+        http_status, rows = await adapter.fetch_injuries()
+        run = IngestionRun(
+            source="SPORTSDATAIO", job_name="poll-availability-events",
+            status=RunStatus.RUNNING, started_at=started,
+        )
+        self.session.add(run)
+        self.session.flush()
+        if http_status != 200:
+            run.status = RunStatus.FAILED
+            run.completed_at = datetime.now(UTC)
+            run.error_message = f"SportsDataIO InjuredPlayers HTTP {http_status}"
+            run.source_metadata = {"endpoint": INJURED_PLAYERS_PATH, "http_status": http_status, "error": True}
+            self.session.commit()
+            return {"configured": True, "http_status": http_status, "error": True, "records": 0, "events_created": 0}
+
+        prev_run = self.session.scalar(
+            select(IngestionRun).where(
+                IngestionRun.source == "SPORTSDATAIO", IngestionRun.status == RunStatus.SUCCEEDED,
+            ).order_by(IngestionRun.completed_at.desc()).limit(1)
+        )
+        prev_snapshot = (prev_run.source_metadata or {}).get("snapshot") if prev_run else None
+        plan = plan_injury_poll(rows, prev_snapshot, published_at=now)
+
+        events_created = matched = games_rescored = 0
+        for event in plan.candidate_events:
+            game_id = self._resolve_injury_game(event, event_date)
+            if game_id is None:
+                continue  # no safe identity match (e.g. trial data) → never forced
+            matched += 1
+            event.game_id = str(game_id)
+            try:
+                outcome = ProspectiveShadowService(self.session, self.settings).process_event(
+                    event, source=SPORTSDATAIO_SOURCE, now=now,
+                )
+            except RescoreError:
+                continue
+            events_created += 1
+            games_rescored += outcome.get("games_rescored", 0)
+
+        run.status = RunStatus.SUCCEEDED
+        run.completed_at = datetime.now(UTC)
+        run.records_processed = plan.records
+        run.source_metadata = {
+            "endpoint": INJURED_PLAYERS_PATH, "http_status": 200, "trial": plan.trial,
+            "changes": len(plan.candidate_events), "events_created": events_created,
+            "matched": matched, "games_rescored": games_rescored, "snapshot": plan.snapshot,
+        }
+        self.session.commit()
+        return {
+            "configured": True, "trial": plan.trial, "records": plan.records,
+            "changes": len(plan.candidate_events), "events_created": events_created,
+            "matched": matched, "games_rescored": games_rescored,
+        }
+
+    def _resolve_injury_game(self, event, event_date: date):
+        """Resolve an injury event to a live game today via the affected team.
+
+        Returns None when identity cannot be safely established — e.g. trial data
+        blanks the team, so no game is ever forced.
+        """
+        team_abbrev = (event.team_source_id or "").strip()
+        if not team_abbrev:
+            return None
+        team = self.session.scalar(
+            select(Team).where(func.upper(Team.abbreviation) == team_abbrev.upper())
+        )
+        if team is None:
+            return None
+        start, end = local_day_bounds(event_date, self.settings.display_timezone)
+        game = self.session.scalar(
+            select(Game)
+            .join(GameTeam, GameTeam.game_id == Game.id)
+            .where(
+                GameTeam.team_id == team.id, Game.source_mode == "LIVE",
+                Game.starts_at >= start, Game.starts_at < end,
+            )
+            .limit(1)
+        )
+        return game.id if game else None
 
     async def import_forecast_bundle(self, event_date: date) -> dict[str, Any]:
         """Import the configured immutable forecast bundle. Idempotent; no provider call."""

@@ -14,9 +14,12 @@ type SortKey = 'opportunity' | 'time' | 'edge' | 'ev' | 'readiness'
 const STATE_RANK: Record<RecommendationState, number> = { QUALIFIED_BET: 5, PROVISIONAL_EDGE: 4, EXTREME_DISAGREEMENT: 3, WATCH: 2, NO_BET: 1 }
 
 function injuryFeedLabel(status: string | undefined): string {
-  if (!status || status === 'INJURY_FEED_NOT_CONFIGURED') return 'Not configured'
-  if (status === 'INJURY_FEED_LIVE') return 'Live'
-  return status
+  switch (status) {
+    case 'INJURY_FEED_ACTIVE': return 'Active'
+    case 'INJURY_FEED_TRIAL': return 'Trial'
+    case 'INJURY_FEED_ERROR': return 'Error'
+    default: return 'Not configured'
+  }
 }
 
 // Multi-sport contract. The board supports these sports; only those with

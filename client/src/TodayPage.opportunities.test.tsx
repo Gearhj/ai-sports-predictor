@@ -197,6 +197,21 @@ describe('Complete slate + multi-sport board', () => {
     expect(within(summary).getByText(/QUAL-ML \+120/)).toBeInTheDocument()
   })
 
+  it('renders the SportsDataIO injury-feed status (trial) in the summary', async () => {
+    const trialPayload = {
+      ...dashboardPayload,
+      opportunity_summary: { ...dashboardPayload.opportunity_summary, injury_feed_status: 'INJURY_FEED_TRIAL' },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input)
+      if (url.includes('/dashboard/today')) return { ok: true, status: 200, json: async () => trialPayload } as Response
+      return { ok: false, status: 404, json: async () => ({ detail: 'not found' }) } as Response
+    }))
+    render(<App />)
+    const summary = await screen.findByRole('region', { name: /Daily opportunity summary/i })
+    expect(within(summary).getByText('Injury feed').nextSibling).toHaveTextContent('Trial')
+  })
+
   it('flags an extreme model–market gap as REVIEW REQUIRED with no virtual position', async () => {
     stub()
     render(<App />)

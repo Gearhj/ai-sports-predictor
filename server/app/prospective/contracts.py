@@ -16,6 +16,7 @@ class AvailabilityEventType(StrEnum):
     INJURED_LIST_PLACED = "INJURED_LIST_PLACED"
     ACTIVATED = "ACTIVATED"
     DAY_TO_DAY = "DAY_TO_DAY"
+    INJURY_STATUS_CHANGED = "INJURY_STATUS_CHANGED"
     CONFIRMED_OUT = "CONFIRMED_OUT"
     LATE_SCRATCH = "LATE_SCRATCH"
     PROBABLE_PITCHER_CHANGED = "PROBABLE_PITCHER_CHANGED"
@@ -33,6 +34,9 @@ MANUAL_ADMIN_SOURCE = "MANUAL_ADMIN"
 # The single configured real external provider for derivable availability
 # signals (probable-pitcher / lineup state). Free, public, no credentials.
 MLB_STATS_API_SOURCE = "MLB_STATS_API"
+# The configured injury/availability provider (SportsDataIO MLB). Key-gated;
+# events carry this provenance when derived from its InjuredPlayers feed.
+SPORTSDATAIO_SOURCE = "SPORTSDATAIO"
 
 
 class AvailabilityEventV1(BaseModel):

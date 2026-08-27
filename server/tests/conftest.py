@@ -42,6 +42,7 @@ def settings(artifact_root: Path) -> Settings:
         database_url="sqlite://",
         demo_mode=True,
         the_odds_api_key="",
+        sportsdataio_api_key="",
         odds_polling_enabled=False,
         open_meteo_enabled=False,
         statcast_enabled=False,

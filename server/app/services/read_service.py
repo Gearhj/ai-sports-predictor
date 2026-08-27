@@ -248,7 +248,7 @@ class ReadService:
         )
         ready_floor = self.settings.opportunity_qualified_readiness
         extreme_threshold = self.settings.opportunity_extreme_disagreement_threshold
-        injury_feed_status = SportsDataIOAvailabilityAdapter(self.settings).status()
+        injury_feed_status = SportsDataIOAvailabilityAdapter(self.settings).status(self.session)
 
         candidates_by_game: dict[str, list[Candidate]] = {}
         meta_by_game: dict[str, dict[str, Any]] = {}

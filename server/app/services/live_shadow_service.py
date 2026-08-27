@@ -24,6 +24,7 @@ from app.models import (
     AvailabilityEvent,
     Game,
     GameStatus,
+    IngestionRun,
     JobRun,
     LiveShadowPollState,
     ProviderRequestLedger,
@@ -207,7 +208,8 @@ class LiveShadowOperator:
             "odds_provider_enabled": odds_creds,
             "odds_credentials_present": odds_creds,
             "required_odds_config_variable": None if odds_creds else ODDS_CONFIG_VARIABLE,
-            "injury_feed_status": SportsDataIOAvailabilityAdapter(self.settings).status(),
+            "injury_feed_status": SportsDataIOAvailabilityAdapter(self.settings).status(self.session),
+            "injury_feed": self._injury_feed_health(),
             "executable": False,
             "quota": {
                 "quota_remaining": ledger.quota_remaining if ledger else None,
@@ -241,6 +243,32 @@ class LiveShadowOperator:
             .order_by(JobRun.completed_at.desc()).limit(1)
         )
         return _iso(run.completed_at) if run and run.completed_at else None
+
+    def _injury_feed_health(self) -> dict:
+        """Non-secret SportsDataIO Data Health from the latest persisted poll."""
+
+        configured = bool(
+            self.settings.sportsdataio_enabled and self.settings.sportsdataio_api_key.strip()
+        )
+        run = self.session.scalar(
+            select(IngestionRun)
+            .where(IngestionRun.source == "SPORTSDATAIO")
+            .order_by(IngestionRun.completed_at.desc().nulls_last(), IngestionRun.created_at.desc())
+            .limit(1)
+        )
+        meta = (run.source_metadata or {}) if run else {}
+        return {
+            "configured": configured,
+            "authenticated": bool(run and run.status == RunStatus.SUCCEEDED),
+            "last_poll": _iso(run.completed_at) if run and run.completed_at else None,
+            "records_received": run.records_processed if run else None,
+            "trial_data": bool(meta.get("trial")),
+            "changes_detected": meta.get("changes"),
+            "availability_events_created": meta.get("events_created"),
+            "games_rescored": meta.get("games_rescored"),
+            "matched_players": meta.get("matched"),
+            "last_error": run.error_message if run else None,
+        }
 
 
 def _aware(value: datetime) -> datetime:
