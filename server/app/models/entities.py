@@ -94,6 +94,17 @@ class ForecastTrack(StrEnum):
     GEN2_RESEARCH_CHALLENGER = "GEN2_RESEARCH_CHALLENGER"
 
 
+class ExperimentDecisionPhase(StrEnum):
+    """The three game-day snapshots the $1,000 shadow experiment may freeze.
+
+    FINAL_PREGAME is the only phase that may create the primary virtual position.
+    """
+
+    MORNING = "MORNING"
+    LINEUP_CONFIRMED = "LINEUP_CONFIRMED"
+    FINAL_PREGAME = "FINAL_PREGAME"
+
+
 class ModelStatus(StrEnum):
     DEVELOPMENT = "development"
     CANDIDATE = "candidate"
@@ -3119,3 +3130,93 @@ class LiveShadowPollState(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     last_away_lineup_status: Mapped[str | None] = mapped_column(String(24))
     last_source_payload_id: Mapped[str | None] = mapped_column(String(120))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class ShadowExperiment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable start authority for the forward $1,000 virtual-bankroll experiment.
+
+    Virtual research only; never executable. A policy change creates a NEW version
+    rather than rewriting an existing experiment, so the original start date,
+    bankroll and policy are preserved.
+    """
+
+    __tablename__ = "shadow_experiments"
+    version: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    starting_bankroll: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    decision_policy: Mapped[str] = mapped_column(String(80), nullable=False)
+    controlling_engine: Mapped[str] = mapped_column(String(40), nullable=False)
+    supported_markets: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    kelly_fraction: Mapped[float] = mapped_column(Float, nullable=False)
+    unit_percentage: Mapped[float] = mapped_column(Float, nullable=False)
+    max_position_percentage: Mapped[float] = mapped_column(Float, nullable=False)
+    max_same_game_percentage: Mapped[float] = mapped_column(Float, nullable=False)
+    max_daily_percentage: Mapped[float] = mapped_column(Float, nullable=False)
+    code_commit: Mapped[str | None] = mapped_column(String(64))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One frozen game-day decision snapshot bound to the exact recommendation price.
+
+    Distinct rows are preserved per phase (MORNING / LINEUP_CONFIRMED /
+    FINAL_PREGAME). Only a FINAL_PREGAME QUALIFIED_BET row is marked
+    ``is_primary`` and may move the bankroll. A row without a governed quote is a
+    real NO_BET at zero stake — never fabricated.
+    """
+
+    __tablename__ = "shadow_experiment_decisions"
+    experiment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_experiments.id"), index=True, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
+    slate_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    phase: Mapped[ExperimentDecisionPhase] = mapped_column(enum_type(ExperimentDecisionPhase), nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), nullable=False, default="BASEBALL_MLB")
+    market: Mapped[str] = mapped_column(String(40), nullable=False)
+    period: Mapped[str] = mapped_column(String(40), nullable=False, default="Full game")
+    selection: Mapped[str] = mapped_column(String(80), nullable=False)
+    line: Mapped[float | None] = mapped_column(Float)
+    sportsbook: Mapped[str | None] = mapped_column(String(80))
+    american_odds: Mapped[int | None] = mapped_column(Integer)
+    decimal_odds: Mapped[float | None] = mapped_column(Float)
+    market_outcome_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("market_outcomes.id"))
+    odds_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("odds_snapshots.id"))
+    quote_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"))
+    forecast_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_version: Mapped[str | None] = mapped_column(String(40))
+    recommended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    model_probability: Mapped[float | None] = mapped_column(Float)
+    no_vig_probability: Mapped[float | None] = mapped_column(Float)
+    edge: Mapped[float | None] = mapped_column(Float)
+    expected_value: Mapped[float | None] = mapped_column(Float)
+    readiness: Mapped[float | None] = mapped_column(Float)
+    uncertainty: Mapped[float | None] = mapped_column(Float)
+    recommendation: Mapped[str] = mapped_column(String(24), nullable=False)
+    virtual_stake: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    __table_args__ = (
+        UniqueConstraint("experiment_id", "game_id", "market", "phase", name="uq_experiment_decision_phase"),
+        Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
+    )
+
+
+class ShadowExperimentSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable, idempotent settlement of one primary experiment decision.
+
+    Records the governed result, virtual P/L, the bankroll before and after, and
+    closing-line value. One settlement per decision (a rerun never double-settles).
+    """
+
+    __tablename__ = "shadow_experiment_settlements"
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_experiment_decisions.id"), unique=True, nullable=False)
+    result: Mapped[str] = mapped_column(String(8), nullable=False)
+    profit_loss: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    bankroll_before: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    bankroll_after: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    closing_american: Mapped[int | None] = mapped_column(Integer)
+    closing_decimal: Mapped[float | None] = mapped_column(Float)
+    closing_line_value: Mapped[float | None] = mapped_column(Float)
+    beat_close: Mapped[bool | None] = mapped_column(Boolean)
+    settled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

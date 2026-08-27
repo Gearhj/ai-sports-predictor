@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     shadow_max_position_percentage: float = Field(default=0.01, gt=0, le=0.1)
     shadow_max_same_game_percentage: float = Field(default=0.02, gt=0, le=0.25)
     shadow_max_daily_percentage: float = Field(default=0.05, gt=0, le=0.5)
+    # Code/commit identity stamped onto the immutable experiment-start record.
+    build_commit: str = ""
 
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False

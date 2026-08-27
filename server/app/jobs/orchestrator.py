@@ -69,6 +69,8 @@ AVAILABLE_JOBS = {
     "evaluate-shadow-betting-board": "Evaluate Research-Shadow Betting Board",
     "settle-shadow-decisions": "Settle Research-Shadow Decisions",
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
+    "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
+    "settle-shadow-experiment": "Settle $1,000 Shadow Experiment Positions",
 }
 
 ALIASES = {
@@ -163,6 +165,8 @@ class JobOrchestrator:
             "evaluate-shadow-betting-board": self.evaluate_shadow_board,
             "settle-shadow-decisions": self.settle_shadow_decisions,
             "poll-availability-events": self.poll_availability_events,
+            "freeze-shadow-experiment": self.freeze_shadow_experiment,
+            "settle-shadow-experiment": self.settle_shadow_experiment,
         }
         return await handlers[name](event_date)
 
@@ -361,6 +365,35 @@ class JobOrchestrator:
         from app.services.shadow_board_service import ShadowBoardService
 
         result = ShadowBoardService(self.session, self.settings).settle_decisions(event_date, [])
+        return {"records": int(result.get("settled", 0)), **result}
+
+    async def freeze_shadow_experiment(self, event_date: date) -> dict[str, Any]:
+        """Freeze the $1,000 shadow experiment's game-day decision snapshots.
+
+        Idempotently ensures the immutable experiment exists, then captures the
+        MORNING / LINEUP_CONFIRMED / FINAL_PREGAME snapshots as they become
+        available. Only a FINAL_PREGAME QUALIFIED_BET may create a virtual
+        position. Reads persisted forecasts + odds only; never a provider call.
+        """
+        from app.models import ExperimentDecisionPhase
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        service = ShadowExperimentService(self.session, self.settings)
+        service.ensure_started(start_date=event_date, code_commit=self.settings.build_commit or None)
+        self.session.commit()
+        phases: dict[str, Any] = {}
+        primary = 0
+        for phase in ExperimentDecisionPhase:
+            result = service.freeze(event_date, phase=phase)
+            phases[phase.value] = result
+            primary += int(result.get("primary", 0))
+        return {"records": primary, "phases": phases}
+
+    async def settle_shadow_experiment(self, event_date: date) -> dict[str, Any]:
+        """Settle the $1,000 shadow experiment's primary positions from real finals."""
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        result = ShadowExperimentService(self.session, self.settings).settle(event_date)
         return {"records": int(result.get("settled", 0)), **result}
 
     async def refresh_schedule(self, event_date: date, *, demo_only: bool = False) -> dict[str, Any]:
@@ -862,13 +895,20 @@ class JobOrchestrator:
         steps["forecasts"] = await self.generate_forecasts(event_date)
         if self.settings.official_positions_enabled:
             steps["positions"] = await self.publish_positions(event_date)
+        # Ensure the immutable $1,000 experiment exists and capture the day's
+        # earliest decision snapshots (virtual only; no provider call).
+        steps["shadow_experiment"] = await self.freeze_shadow_experiment(event_date)
         return {"records": sum(int(value.get("records", 0)) for value in steps.values()), "steps": steps}
 
     async def finalize_games(self, event_date: date) -> dict[str, Any]:
         """Quota-free final-state refresh and settlement pipeline."""
         steps: dict[str, Any] = {}
         steps["schedule"] = await self.refresh_schedule(event_date)
+        # Capture lineup/final-pregame snapshots as they become due, then settle
+        # both the official positions and the experiment from real finals.
+        steps["shadow_experiment_freeze"] = await self.freeze_shadow_experiment(event_date)
         steps["settlement"] = await self.settle_games(event_date)
+        steps["shadow_experiment_settle"] = await self.settle_shadow_experiment(event_date)
         steps["performance"] = await self.recalculate_performance(event_date)
         return {"records": sum(int(value.get("records", 0)) for value in steps.values()), "steps": steps}
 

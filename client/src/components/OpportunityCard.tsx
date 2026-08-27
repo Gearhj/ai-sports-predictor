@@ -18,6 +18,12 @@ function lineupLabel(status: string): string {
   return status
 }
 
+const EXPERIMENT_LABEL: Record<string, string> = {
+  PROVISIONAL: '$1K EXPERIMENT · PROVISIONAL',
+  FROZEN: '$1K EXPERIMENT · FROZEN',
+  SETTLED: '$1K EXPERIMENT · SETTLED',
+}
+
 function signedPts(value: number | null | undefined): string {
   if (value == null) return '—'
   return `${value > 0 ? '+' : ''}${value.toFixed(1)} pts`
@@ -100,6 +106,12 @@ export function OpportunityCard({
           <span className="opportunity-card__venue"><MapPin size={13} /> {game.venue.split(' · ')[0]}</span>
         </div>
         <span className={`rec-badge rec-badge--${state.toLowerCase()}`}>{STATE_LABEL[state]}</span>
+        {opportunity?.experiment_status && opportunity.experiment_status !== 'NOT_IN_EXPERIMENT' && (
+          <span className={`rec-badge rec-badge--experiment rec-badge--experiment-${opportunity.experiment_status.toLowerCase()}`}>
+            {EXPERIMENT_LABEL[opportunity.experiment_status]}
+            {opportunity.experiment_stake ? ` · ${formatCurrency(opportunity.experiment_stake)}` : ''}
+          </span>
+        )}
       </header>
 
       <div className="opportunity-card__matchup">

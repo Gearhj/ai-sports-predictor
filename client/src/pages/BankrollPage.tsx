@@ -50,11 +50,20 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
       <section className="experiment-hero">
         <div><span>Current virtual bankroll</span><strong>{formatCurrency(data.current_bankroll)}</strong><small>Opened at {formatCurrency(data.starting_bankroll, 0)}</small></div>
         <div className="experiment-hero__return"><TrendingUp size={21} /><span><strong>{formatSignedCurrency(data.total_return)}</strong><small>Total simulated return</small></span></div>
-        <p>No deposits. No withdrawals. No deleted losses. Every official ASP position remains in the public ledger.</p>
+        <p>No deposits. No withdrawals. No deleted losses. Every position remains in the public ledger.</p>
+        {data.experiment_start && (
+          <div className="experiment-hero__meta">
+            <strong>{data.virtual_label ?? 'VIRTUAL RESEARCH EXPERIMENT — NO REAL WAGERS'}</strong>
+            <small>
+              Started {data.experiment_start} · Engine {data.controlling_engine ?? 'AISP_BASELINE'} · {data.settled_positions ?? 0} settled / {data.open_positions ?? 0} open · {data.no_bet_days ?? 0} NO-BET days
+              {data.betting?.beat_close_percentage != null ? ` · Beat close ${data.betting.beat_close_percentage}%` : ''}
+            </small>
+          </div>
+        )}
       </section>
 
       <section className="metric-grid metric-grid--five">
-        <MetricCard label="ROI on stake" value={formatSignedPct(data.roi)} detail="Settled positions" trend={data.roi > 0 ? 'positive' : data.roi < 0 ? 'negative' : 'neutral'} />
+        <MetricCard label="ROI on stake" value={data.betting && !data.betting.has_settled ? '—' : formatSignedPct(data.roi)} detail={data.betting && !data.betting.has_settled ? 'Awaiting settled positions' : 'Settled positions'} trend={data.roi > 0 ? 'positive' : data.roi < 0 ? 'negative' : 'neutral'} />
         <MetricCard label="Peak bankroll" value={formatCurrency(data.peak_bankroll)} detail="Season high-water mark" />
         <MetricCard label="Max drawdown" value={formatPct(data.max_drawdown)} detail="Peak-to-trough" trend="negative" />
         <MetricCard label="Official record" value={data.record} detail="Win–loss–push" />

@@ -358,6 +358,7 @@ class ReadService:
         )
         top = ranked_games[0][1] if ranked_games else None
 
+        experiment_by_game = self._experiment_status_map([game.id for game in games])
         opportunities: list[GameOpportunity] = []
         counts = {"QUALIFIED_BET": 0, "PROVISIONAL_EDGE": 0, "EXTREME_DISAGREEMENT": 0, "WATCH": 0, "NO_BET": 0}
         best_ev: float | None = None
@@ -375,6 +376,10 @@ class ReadService:
             best_view = self._opportunity_view(best) if best else None
             if best is not None and best.recommendation != "NO_BET" and best_view.expected_value is not None:
                 best_ev = best_view.expected_value if best_ev is None else max(best_ev, best_view.expected_value)
+            exp_status, exp_stake = experiment_by_game.get(game_id, (None, None))
+            if exp_status is None:
+                # Qualified but not yet frozen into a FINAL_PREGAME position.
+                exp_status = "PROVISIONAL" if state == "QUALIFIED_BET" else "NOT_IN_EXPERIMENT"
             opportunities.append(GameOpportunity(
                 game_id=game_id,
                 sport=meta["sport"],
@@ -392,6 +397,8 @@ class ReadService:
                 availability=availability_by_game[game_id],
                 best=best_view,
                 alternates=[self._opportunity_view(candidate) for candidate in priced[1:]],
+                experiment_status=exp_status,
+                experiment_stake=exp_stake,
             ))
 
         odds_last_refresh, odds_age, odds_quota, scheduler_running = self._odds_freshness(candidates_by_game, now)
@@ -1324,6 +1331,7 @@ class ReadService:
                 by_confidence=[],
                 offline_evaluation=offline_evaluation,
                 historical_dataset=historical_dataset,
+                betting=self._experiment_betting(),
             )
         probabilities = [forecast.home_win_probability for forecast in forecasts]
         outcomes = [int((game.home_score or 0) > (game.away_score or 0)) for game in games]
@@ -1472,7 +1480,42 @@ class ReadService:
             by_confidence=by_confidence,
             offline_evaluation=offline_evaluation,
             historical_dataset=historical_dataset,
+            betting=self._experiment_betting(),
         )
+
+    def _experiment_status_map(self, game_ids: list[Any]) -> dict[str, tuple[str, float | None]]:
+        """Per-game experiment membership for the board: FROZEN / SETTLED / (none).
+
+        PROVISIONAL is derived by the caller from the live recommendation state."""
+        from app.models import ShadowExperiment, ShadowExperimentDecision, ShadowExperimentSettlement
+
+        experiment = self.session.scalar(
+            select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
+            .order_by(ShadowExperiment.version.desc()).limit(1)
+        )
+        if experiment is None or not game_ids:
+            return {}
+        settled_ids = set(self.session.scalars(select(ShadowExperimentSettlement.decision_id)))
+        result: dict[str, tuple[str, float | None]] = {}
+        for decision in self.session.scalars(select(ShadowExperimentDecision).where(
+            ShadowExperimentDecision.experiment_id == experiment.id,
+            ShadowExperimentDecision.game_id.in_(game_ids),
+            ShadowExperimentDecision.is_primary.is_(True),
+        )):
+            status = "SETTLED" if decision.id in settled_ids else "FROZEN"
+            result[str(decision.game_id)] = (status, float(decision.virtual_stake))
+        return result
+
+    def _experiment_betting(self) -> Any:
+        """The forward experiment's betting performance for the scorecard (or None)."""
+        from app.schemas.api import BettingPerformance
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        service = ShadowExperimentService(self.session, self.settings)
+        experiment = service.active_experiment()
+        if experiment is None:
+            return None
+        return BettingPerformance(**service.ledger_view(experiment)["betting"])
 
     def _offline_evaluation(self) -> OfflineEvaluation:
         evaluation = self.session.scalar(
@@ -2087,6 +2130,46 @@ class ReadService:
         )
 
     def bankroll(self) -> BankrollData:
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        service = ShadowExperimentService(self.session, self.settings)
+        experiment = service.active_experiment()
+        if experiment is not None:
+            return self._experiment_bankroll(service, experiment)
+        return self._official_bankroll()
+
+    def _experiment_bankroll(self, service: Any, experiment: Any) -> BankrollData:
+        from app.schemas.api import BettingPerformance
+
+        ledger = service.ledger_view(experiment)
+        betting = BettingPerformance(**ledger["betting"])
+        positions = [PositionSchema(**row) for row in ledger["positions"]]
+        return BankrollData(
+            data_mode="live",
+            experiment_status="ACTIVE",
+            starting_bankroll=ledger["starting"], current_bankroll=ledger["current"],
+            peak_bankroll=ledger["peak"], total_return=ledger["net"], roi=ledger["roi"],
+            max_drawdown=-ledger["max_drawdown"] / ledger["starting"] * 100 if ledger["starting"] else 0.0,
+            record=ledger["record"], positions_count=len(positions),
+            policy=experiment.decision_policy,
+            policy_detail=(
+                "Quarter-Kelly sizing capped at 1% per position, 2% same-game, 5% daily gross of the "
+                "current virtual bankroll. Virtual research only — no real-money wagering."
+            ),
+            policy_max_stake_percentage=experiment.max_position_percentage * 100,
+            policy_kelly_fraction=experiment.kelly_fraction,
+            policy_edge_threshold_percentage=self.settings.shadow_qualified_edge * 100,
+            equity_curve=ledger["equity"], monthly=ledger["monthly"],
+            positions=list(reversed(positions)),
+            experiment_start=experiment.start_date.isoformat(),
+            controlling_engine=experiment.controlling_engine,
+            code_commit=experiment.code_commit,
+            supported_markets=list(experiment.supported_markets or []),
+            open_positions=ledger["open_positions"], settled_positions=ledger["settled_positions"],
+            no_bet_days=ledger["no_bet_days"], betting=betting,
+        )
+
+    def _official_bankroll(self) -> BankrollData:
         rows = list(self.session.execute(
             select(OfficialAspPosition, MarketOutcome, Market, Game)
             .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)

@@ -188,6 +188,9 @@ class GameOpportunity(BaseModel):
     availability: AvailabilityContext = Field(default_factory=AvailabilityContext)
     best: OpportunitySelection | None = None
     alternates: list[OpportunitySelection] = Field(default_factory=list)
+    # $1,000 experiment membership: NOT_IN_EXPERIMENT | PROVISIONAL | FROZEN | SETTLED
+    experiment_status: Literal["NOT_IN_EXPERIMENT", "PROVISIONAL", "FROZEN", "SETTLED"] = "NOT_IN_EXPERIMENT"
+    experiment_stake: float | None = None
 
 
 class OpportunitySummary(BaseModel):
@@ -525,6 +528,7 @@ class PerformanceData(BaseModel):
     by_confidence: list[dict]
     offline_evaluation: OfflineEvaluation | None = None
     historical_dataset: HistoricalDatasetPerformanceSummary | None = None
+    betting: "BettingPerformance | None" = None
 
 
 class PositionSchema(BaseModel):
@@ -539,6 +543,39 @@ class PositionSchema(BaseModel):
     profit_loss: float
     closing_price: int | None
     clv: float | None
+
+
+class BettingBreakdownRow(BaseModel):
+    key: str
+    positions: int
+    settled: int
+    record: str
+    profit_loss: float
+    staked: float
+    roi: float | None
+
+
+class BettingPerformance(BaseModel):
+    starting_bankroll: float
+    current_bankroll: float
+    net_profit_loss: float
+    total_risked: float
+    roi: float | None
+    yield_pct: float | None
+    positions: int
+    settled: int
+    open: int
+    wins: int
+    losses: int
+    pushes: int
+    voids: int
+    record: str
+    max_drawdown: float
+    longest_losing_streak: int
+    closing_line_value: float | None
+    beat_close_percentage: float | None
+    has_settled: bool
+    breakdowns: dict[str, list[BettingBreakdownRow]]
 
 
 class BankrollData(BaseModel):
@@ -560,6 +597,16 @@ class BankrollData(BaseModel):
     equity_curve: list[dict]
     monthly: list[dict]
     positions: list[PositionSchema]
+    # Forward $1,000 experiment metadata (null on the legacy official-position view).
+    experiment_start: str | None = None
+    controlling_engine: str | None = None
+    code_commit: str | None = None
+    supported_markets: list[str] = []
+    virtual_label: str = "VIRTUAL RESEARCH EXPERIMENT — NO REAL WAGERS"
+    open_positions: int = 0
+    settled_positions: int = 0
+    no_bet_days: int = 0
+    betting: BettingPerformance | None = None
 
 
 class SourceHealth(BaseModel):

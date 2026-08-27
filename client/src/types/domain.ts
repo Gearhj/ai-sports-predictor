@@ -161,6 +161,41 @@ export interface GameOpportunity {
   availability: AvailabilityContext
   best: OpportunitySelection | null
   alternates: OpportunitySelection[]
+  experiment_status?: 'NOT_IN_EXPERIMENT' | 'PROVISIONAL' | 'FROZEN' | 'SETTLED'
+  experiment_stake?: number | null
+}
+
+export interface BettingBreakdownRow {
+  key: string
+  positions: number
+  settled: number
+  record: string
+  profit_loss: number
+  staked: number
+  roi: number | null
+}
+
+export interface BettingPerformance {
+  starting_bankroll: number
+  current_bankroll: number
+  net_profit_loss: number
+  total_risked: number
+  roi: number | null
+  yield_pct: number | null
+  positions: number
+  settled: number
+  open: number
+  wins: number
+  losses: number
+  pushes: number
+  voids: number
+  record: string
+  max_drawdown: number
+  longest_losing_streak: number
+  closing_line_value: number | null
+  beat_close_percentage: number | null
+  has_settled: boolean
+  breakdowns: Record<string, BettingBreakdownRow[]>
 }
 
 export interface OpportunitySummary {
@@ -520,6 +555,7 @@ export interface PerformanceData extends DataProvenance {
   model_components: Array<{ model: string; brier: number | null; log_loss: number | null; run_mae: number | null; status: string }>
   by_confidence: Array<{ bucket: string; forecasts: number; accuracy: number | null; brier: number | null }>
   /** Optional until the Gate 3 backend publishes a governed evaluation artifact. */
+  betting?: BettingPerformance | null
   offline_evaluation?: OfflineEvaluation | null
   /** Historical reconstruction readiness is evidence about a dataset, not model performance. */
   historical_dataset?: HistoricalDatasetPerformanceSummary | null
@@ -557,6 +593,15 @@ export interface BankrollData extends DataProvenance {
   equity_curve: Array<{ date: string; bankroll: number; benchmark: number }>
   monthly: Array<{ month: string; positions: number; record: string; profit_loss: number; roi: number }>
   positions: Position[]
+  experiment_start?: string | null
+  controlling_engine?: string | null
+  code_commit?: string | null
+  supported_markets?: string[]
+  virtual_label?: string
+  open_positions?: number
+  settled_positions?: number
+  no_bet_days?: number
+  betting?: BettingPerformance | null
 }
 
 export interface SourceHealth {
