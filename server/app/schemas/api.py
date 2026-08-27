@@ -156,10 +156,13 @@ class OpportunitySelection(BaseModel):
 class AvailabilityContext(BaseModel):
     """Per-game live availability + before/after-rescore context for the board."""
 
-    lineup_status: Literal["PROJECTED", "CONFIRMED", "CHANGED", "MISSING"] = "MISSING"
+    lineup_status: Literal["PROJECTED", "CONFIRMED", "CHANGED", "MISSING", "DETAILS_MISSING"] = "MISSING"
+    lineup_complete: bool = False
     starting_pitcher_status: Literal["CONFIRMED", "PROBABLE", "MISSING"] = "MISSING"
     injury_feed_status: str = "INJURY_FEED_NOT_CONFIGURED"
-    unavailable_players: int = 0
+    injury_feed_authoritative: bool = False
+    production_injury_coverage: bool = False
+    unavailable_players: int | None = None
     last_availability_update: datetime | None = None
     last_availability_event: str | None = None
     rescored: bool = False
@@ -175,6 +178,7 @@ class GameOpportunity(BaseModel):
     sport: str = "MLB"
     recommendation_state: RecommendationState
     recommendation_reason: str
+    qualification_reasons: list[str] = Field(default_factory=list)
     review_required: bool = False
     opportunity_score: float = 0.0
     markets_available: list[str] = Field(default_factory=list)
@@ -198,6 +202,11 @@ class OpportunitySummary(BaseModel):
     markets_available: list[str] = Field(default_factory=list)
     sports_available: list[str] = Field(default_factory=list)
     injury_feed_status: str = "INJURY_FEED_NOT_CONFIGURED"
+    injury_feed_authoritative: bool = False
+    odds_last_refresh: datetime | None = None
+    odds_quote_age_seconds: int | None = None
+    odds_quota_remaining: int | None = None
+    odds_scheduler_running: bool = False
 
 
 class DashboardData(BaseModel):

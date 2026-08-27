@@ -104,10 +104,13 @@ export interface ForecastGame {
 export type RecommendationState = 'QUALIFIED_BET' | 'PROVISIONAL_EDGE' | 'EXTREME_DISAGREEMENT' | 'WATCH' | 'NO_BET'
 
 export interface AvailabilityContext {
-  lineup_status: 'PROJECTED' | 'CONFIRMED' | 'CHANGED' | 'MISSING'
+  lineup_status: 'PROJECTED' | 'CONFIRMED' | 'CHANGED' | 'MISSING' | 'DETAILS_MISSING'
+  lineup_complete: boolean
   starting_pitcher_status: 'CONFIRMED' | 'PROBABLE' | 'MISSING'
   injury_feed_status: string
-  unavailable_players: number
+  injury_feed_authoritative: boolean
+  production_injury_coverage: boolean
+  unavailable_players: number | null
   last_availability_update: string | null
   last_availability_event: string | null
   rescored: boolean
@@ -148,6 +151,7 @@ export interface GameOpportunity {
   sport: string
   recommendation_state: RecommendationState
   recommendation_reason: string
+  qualification_reasons: string[]
   review_required: boolean
   opportunity_score: number
   markets_available: string[]
@@ -171,6 +175,11 @@ export interface OpportunitySummary {
   markets_available: string[]
   sports_available: string[]
   injury_feed_status: string
+  injury_feed_authoritative: boolean
+  odds_last_refresh: string | null
+  odds_quote_age_seconds: number | null
+  odds_quota_remaining: number | null
+  odds_scheduler_running: boolean
 }
 
 export interface DashboardData extends DataProvenance {

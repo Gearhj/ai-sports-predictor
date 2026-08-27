@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Database, RefreshCw, WifiOff } from 'lucide-react'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
 import type { ReadinessState, ResourceState, Trend } from '../types/domain'
@@ -196,6 +196,38 @@ export function TeamBadge({ abbreviation, color, size = 'md' }: { abbreviation: 
     <span className={`team-badge team-badge--${size}`} style={{ '--team-color': color } as React.CSSProperties} aria-hidden="true">
       {abbreviation}
     </span>
+  )
+}
+
+// Canonical MLB team-logo resolution. Logos are served from a cacheable CDN and
+// keyed by the team's abbreviation identity; the abbreviation badge is the
+// alt text and the fallback when a logo cannot be resolved or loaded.
+const ESPN_TEAM_SLUG: Record<string, string> = {
+  ARI: 'ari', AZ: 'ari', ATL: 'atl', BAL: 'bal', BOS: 'bos', CHC: 'chc', CHW: 'chw', CWS: 'chw',
+  CIN: 'cin', CLE: 'cle', COL: 'col', DET: 'det', HOU: 'hou', KC: 'kc', KCR: 'kc', LAA: 'laa',
+  LAD: 'lad', MIA: 'mia', MIL: 'mil', MIN: 'min', NYM: 'nym', NYY: 'nyy', OAK: 'oak', ATH: 'oak',
+  PHI: 'phi', PIT: 'pit', SD: 'sd', SDP: 'sd', SEA: 'sea', SF: 'sf', SFG: 'sf', STL: 'stl',
+  TB: 'tb', TBR: 'tb', TEX: 'tex', TOR: 'tor', WSH: 'wsh', WSN: 'wsh', WAS: 'wsh',
+}
+
+export function teamLogoUrl(abbreviation: string): string | null {
+  const slug = ESPN_TEAM_SLUG[abbreviation.toUpperCase()]
+  return slug ? `https://a.espncdn.com/i/teamlogos/mlb/500/${slug}.png` : null
+}
+
+export function TeamLogo({ abbreviation, color, size = 'md' }: { abbreviation: string; color: string; size?: 'sm' | 'md' | 'lg' }) {
+  const [failed, setFailed] = useState(false)
+  const url = teamLogoUrl(abbreviation)
+  if (!url || failed) return <TeamBadge abbreviation={abbreviation} color={color} size={size} />
+  return (
+    <img
+      className={`team-logo team-logo--${size}`}
+      src={url}
+      alt={abbreviation}
+      title={abbreviation}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
   )
 }
 

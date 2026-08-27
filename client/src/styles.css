@@ -1084,3 +1084,18 @@ h1, h2, h3, p { margin-top: 0; }
 .opportunity-beforeafter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 9px; padding: 8px 11px; background: var(--blue-soft); border: 1px solid #c3ddef; border-radius: 6px; color: #2a4a63; font-size: 11.5px; }
 .opportunity-beforeafter b { color: var(--navy-800); font-weight: 700; }
 .opportunity-beforeafter__tag { padding: 2px 8px; color: white; background: var(--blue); border-radius: 4px; font: 800 11px "IBM Plex Mono", monospace; letter-spacing: .05em; }
+
+/* Team logos (with abbreviation-badge fallback) */
+.team-logo { flex: 0 0 auto; object-fit: contain; background: transparent; }
+.team-logo--sm { width: 31px; height: 31px; }
+.team-logo--md { width: 45px; height: 45px; }
+.team-logo--lg { width: 64px; height: 64px; }
+
+/* Injury-feed non-authoritative + qualification blockers */
+.opportunity-summary__stat--injury strong { font-size: 13px; line-height: 1.25; }
+.opportunity-availability__flag b { color: var(--amber); }
+.opportunity-availability__note { margin: 6px 0 0; color: #7a5a15; font-size: 11px; }
+.opportunity-diagnostics { margin: -6px 0 16px; color: var(--muted); font-size: 11.5px; }
+.opportunity-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-top: 10px; }
+.opportunity-blockers__label { color: var(--muted); font: 700 11px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+.opportunity-blockers__chip { padding: 2px 8px; color: #5c4a2a; background: var(--amber-soft); border: 1px solid #e6d29a; border-radius: 999px; font-size: 11px; }

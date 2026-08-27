@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowUpRight, ChevronRight, Clock3, MapPin, ScrollText }
 import { Link, useNavigate } from 'react-router-dom'
 import type { GameOpportunity, ForecastGame, OpportunitySelection, RecommendationState } from '../types/domain'
 import { formatTime, formatTimestamp } from '../services/format'
-import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamBadge } from './ui'
+import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamLogo } from './ui'
 
 const STATE_LABEL: Record<RecommendationState, string> = {
   QUALIFIED_BET: 'QUALIFIED BET',
@@ -16,10 +16,15 @@ const STATE_LABEL: Record<RecommendationState, string> = {
 function injuryFeedLabel(status: string | undefined): string {
   switch (status) {
     case 'INJURY_FEED_ACTIVE': return 'Active'
-    case 'INJURY_FEED_TRIAL': return 'Trial'
+    case 'INJURY_FEED_TRIAL': return 'TRIAL — NOT USED FOR PICKS'
     case 'INJURY_FEED_ERROR': return 'Error'
     default: return 'Not configured'
   }
+}
+
+function lineupLabel(status: string): string {
+  if (status === 'DETAILS_MISSING') return 'DETAILS MISSING'
+  return status
 }
 
 function signedPts(value: number | null | undefined): string {
@@ -108,7 +113,7 @@ export function OpportunityCard({
 
       <div className="opportunity-card__matchup">
         <div className="opportunity-team">
-          <TeamBadge abbreviation={game.away_team.abbreviation} color={game.away_team.color} size="sm" />
+          <TeamLogo abbreviation={game.away_team.abbreviation} color={game.away_team.color} size="sm" />
           <div>
             <strong>{game.away_team.name}</strong>
             <small>{game.away_team.record} · {formatPct(game.away_win_probability)} win</small>
@@ -123,7 +128,7 @@ export function OpportunityCard({
             <strong>{game.home_team.name}</strong>
             <small>{game.home_team.record} · {formatPct(game.home_win_probability)} win</small>
           </div>
-          <TeamBadge abbreviation={game.home_team.abbreviation} color={game.home_team.color} size="sm" />
+          <TeamLogo abbreviation={game.home_team.abbreviation} color={game.home_team.color} size="sm" />
         </div>
       </div>
 
@@ -182,11 +187,24 @@ export function OpportunityCard({
 
       {opportunity?.availability && (
         <div className="opportunity-availability">
-          <span>Lineup <b>{opportunity.availability.lineup_status}</b></span>
+          <span>Lineup <b>{lineupLabel(opportunity.availability.lineup_status)}</b></span>
           <span>Starter <b>{opportunity.availability.starting_pitcher_status}</b></span>
-          <span>Injury feed <b>{injuryFeedLabel(opportunity.availability.injury_feed_status)}</b></span>
-          <span>Unavailable <b>{opportunity.availability.unavailable_players}</b></span>
+          <span className={opportunity.availability.injury_feed_authoritative ? undefined : 'opportunity-availability__flag'}>Injury feed <b>{injuryFeedLabel(opportunity.availability.injury_feed_status)}</b></span>
+          <span>Unavailable <b>{opportunity.availability.unavailable_players ?? '—'}</b></span>
           <span>Availability {opportunity.availability.last_availability_update ? formatTimestamp(opportunity.availability.last_availability_update) : 'none yet'}</span>
+        </div>
+      )}
+
+      {opportunity?.availability && !opportunity.availability.production_injury_coverage && (
+        <p className="opportunity-availability__note">Production injury coverage unavailable — trial data is not used for picks.</p>
+      )}
+
+      {opportunity?.qualification_reasons && opportunity.qualification_reasons.length > 0 && state !== 'QUALIFIED_BET' && (
+        <div className="opportunity-blockers">
+          <span className="opportunity-blockers__label">Why not qualified</span>
+          {opportunity.qualification_reasons.map((item) => (
+            <span key={item} className="opportunity-blockers__chip">{item}</span>
+          ))}
         </div>
       )}
 

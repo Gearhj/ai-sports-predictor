@@ -14,7 +14,7 @@ import {
   ScoreBar,
   StatusPill,
   TableScroll,
-  TeamBadge,
+  TeamLogo,
 } from '../components/ui'
 import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
@@ -287,7 +287,7 @@ function TeamHero({
     : `${team.city} ${team.name}`
   return (
     <div className={`team-hero ${reverse ? 'team-hero--reverse' : ''}`}>
-      <TeamBadge abbreviation={team.abbreviation} color={team.color} size="lg" />
+      <TeamLogo abbreviation={team.abbreviation} color={team.color} size="lg" />
       <div><span>{side} · {team.record}</span><h2><strong>{displayName}</strong></h2><small>{pitcher.name}{pitcher.hand ? ` · ${pitcher.hand}` : ''} {pitcher.confirmed ? <><ShieldCheck size={12} /> confirmed</> : '· probable'}</small></div>
     </div>
   )

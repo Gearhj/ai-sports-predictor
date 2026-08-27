@@ -253,28 +253,45 @@ class ReadService:
         candidates_by_game: dict[str, list[Candidate]] = {}
         meta_by_game: dict[str, dict[str, Any]] = {}
         availability_by_game: dict[str, AvailabilityContext] = {}
+        gate_by_game: dict[str, dict[str, Any]] = {}
         qualified: list[tuple[str, Candidate]] = []
         for game, card, forecast in zip(games, cards, forecasts):
             game_id = str(game.id)
             sport = self._game_sport(game)
-            availability, rescored = self._availability_context(game, card, injury_feed_status)
+            availability, rescored, unresolved_scratch = self._availability_context(game, card, injury_feed_status)
             availability_by_game[game_id] = availability
+            confirmation = self._input_confirmation(card)
+            readiness_ok = forecast is not None and (forecast.readiness_score or 0.0) >= ready_floor
+            gate_by_game[game_id] = {
+                **confirmation,
+                "unresolved_scratch": unresolved_scratch,
+                "readiness_ok": readiness_ok,
+                "production_injury_coverage": availability.production_injury_coverage,
+            }
             if forecast is None:
                 candidates_by_game[game_id] = []
                 meta_by_game[game_id] = {"sport": sport, "readiness": None, "uncertainty_pct": None, "uncertainty_raw": None, "disagreement": None}
                 continue
             home_side, home, away_side, away = self._sides(game.id)
-            readiness_ok = (forecast.readiness_score or 0.0) >= ready_floor
-            # A QUALIFIED bet requires no critical readiness gap AND a confirmed
-            # lineup AND a confirmed starter; anything projected keeps it provisional.
-            lineup_confirmed, starter_confirmed = self._input_confirmation(card)
-            inputs_confirmed = (not self._has_critical_missing(forecast)) and lineup_confirmed and starter_confirmed
+            # Market-specific critical inputs. For full-game markets QUALIFICATION
+            # needs a confirmed starter, adequate lineup evidence, no critical
+            # readiness gap, and no unresolved late scratch. A confirmed lineup is
+            # not required for full-game (it is for props/team totals). Absence of
+            # a production injury feed is a caveat, not a hard block for ordinary
+            # markets — it is surfaced as a qualification reason instead.
+            base_ok = not self._has_critical_missing(forecast)
+            full_game_ok = (
+                base_ok
+                and confirmation["starter_confirmed"]
+                and confirmation["lineup_adequate"]
+                and not unresolved_scratch
+            )
             priced = [
                 candidate
                 for market in self._market_inputs(game, forecast, home, away)
                 if (
                     candidate := build_market_candidate(
-                        market, readiness_ok=readiness_ok, critical_inputs_ok=inputs_confirmed,
+                        market, readiness_ok=readiness_ok, critical_inputs_ok=full_game_ok,
                         config=config, now=now, extreme_threshold=extreme_threshold,
                     )
                 )
@@ -361,6 +378,9 @@ class ReadService:
                 sport=meta["sport"],
                 recommendation_state=state,
                 recommendation_reason=reason,
+                qualification_reasons=self._qualification_reasons(
+                    forecast, best, gate_by_game[game_id], ready_floor,
+                ),
                 review_required=state == EXTREME_DISAGREEMENT,
                 opportunity_score=best.opportunity_score if best else 0.0,
                 markets_available=sorted({candidate.market_label for candidate in priced}),
@@ -372,6 +392,7 @@ class ReadService:
                 alternates=[self._opportunity_view(candidate) for candidate in priced[1:]],
             ))
 
+        odds_last_refresh, odds_age, odds_quota, scheduler_running = self._odds_freshness(candidates_by_game, now)
         summary = OpportunitySummary(
             qualified=counts["QUALIFIED_BET"],
             provisional=counts["PROVISIONAL_EDGE"],
@@ -388,24 +409,108 @@ class ReadService:
             }),
             sports_available=sports_available,
             injury_feed_status=injury_feed_status,
+            injury_feed_authoritative=injury_feed_status == "INJURY_FEED_ACTIVE",
+            odds_last_refresh=odds_last_refresh,
+            odds_quote_age_seconds=odds_age,
+            odds_quota_remaining=odds_quota,
+            odds_scheduler_running=scheduler_running,
         )
         return opportunities, summary
 
+    def _qualification_reasons(
+        self,
+        forecast: Forecast | None,
+        best: Candidate | None,
+        gate: dict[str, Any],
+        ready_floor: float,
+    ) -> list[str]:
+        """The short list of blockers explaining why a game is not qualified."""
+
+        if forecast is None:
+            return ["Forecast unavailable"]
+        if best is None:
+            return ["No complete two-sided governed quote"]
+        reasons: list[str] = []
+        if best.is_stale:
+            reasons.append("Latest quote is stale")
+        if not gate.get("readiness_ok"):
+            reasons.append(f"Readiness below {ready_floor:.0f}")
+        if not gate.get("starter_confirmed"):
+            reasons.append("Starting pitcher probable")
+        if not gate.get("lineup_adequate"):
+            reasons.append("Lineup missing")
+        elif not gate.get("lineup_confirmed"):
+            reasons.append("Lineup not confirmed")
+        if gate.get("unresolved_scratch"):
+            reasons.append("Unresolved late scratch")
+        if best.recommendation == EXTREME_DISAGREEMENT:
+            reasons.append("Extreme model-market disagreement")
+        if self._has_critical_missing(forecast):
+            reasons.append("Critical inputs incomplete")
+        if not gate.get("production_injury_coverage"):
+            reasons.append("Production injury feed unavailable")
+        return list(dict.fromkeys(reasons))[:6]
+
+    def _odds_freshness(
+        self,
+        candidates_by_game: dict[str, list[Candidate]],
+        now: datetime,
+    ) -> tuple[datetime | None, int | None, int | None, bool]:
+        """Odds refresh diagnostics — never a fabricated timestamp."""
+
+        observed = [
+            candidate.observed_at
+            for candidates in candidates_by_game.values()
+            for candidate in candidates
+            if candidate.observed_at is not None
+        ]
+        freshest = max(observed) if observed else None
+        last_run = self.session.scalar(
+            select(IngestionRun)
+            .where(IngestionRun.source == "THE_ODDS_API", IngestionRun.status == RunStatus.SUCCEEDED)
+            .order_by(IngestionRun.completed_at.desc().nulls_last())
+            .limit(1)
+        )
+        last_refresh = _aware(last_run.completed_at) if last_run and last_run.completed_at else freshest
+        age = int((now - _aware(freshest)).total_seconds()) if freshest else None
+        # "Running" means the scheduler that drives refresh-odds is actually armed.
+        scheduler_running = bool(
+            self.settings.scheduler_enabled
+            and (
+                self.settings.odds_polling_enabled
+                or (self.settings.live_shadow_enabled and self.settings.the_odds_api_key)
+            )
+        )
+        return last_refresh, age, self._odds_quota(), scheduler_running
+
     @staticmethod
-    def _input_confirmation(card: ForecastGame) -> tuple[bool, bool]:
-        away_lineup = card.away_lineup.status if card.away_lineup else "MISSING"
-        home_lineup = card.home_lineup.status if card.home_lineup else "MISSING"
-        lineup_confirmed = away_lineup == "CONFIRMED" and home_lineup == "CONFIRMED"
+    def _input_confirmation(card: ForecastGame) -> dict[str, bool]:
+        away, home = card.away_lineup, card.home_lineup
+        away_status = away.status if away else "MISSING"
+        home_status = home.status if home else "MISSING"
+        away_complete = bool(away and away.status == "CONFIRMED" and away.complete)
+        home_complete = bool(home and home.status == "CONFIRMED" and home.complete)
+        # A lineup is CONFIRMED only with the full persisted payload (complete
+        # batting order); a status-only/manual confirmation is not enough.
+        lineup_confirmed = away_complete and home_complete
+        lineup_adequate = "MISSING" not in (away_status, home_status)
         starter_confirmed = bool(card.away_pitcher.confirmed and card.home_pitcher.confirmed)
-        return lineup_confirmed, starter_confirmed
+        return {
+            "lineup_confirmed": lineup_confirmed,
+            "lineup_adequate": lineup_adequate,
+            "lineup_complete": away_complete and home_complete,
+            "starter_confirmed": starter_confirmed,
+        }
 
     def _availability_context(
         self,
         game: Game,
         card: ForecastGame,
         injury_feed_status: str,
-    ) -> tuple[AvailabilityContext, bool]:
-        """Join the latest availability events + immutable rescore for the board."""
+    ) -> tuple[AvailabilityContext, bool, bool]:
+        """Join the latest availability events + immutable rescore for the board.
+
+        Returns (context, rescored, unresolved_scratch)."""
 
         events = list(self.session.scalars(
             select(AvailabilityEvent)
@@ -413,12 +518,16 @@ class ReadService:
             .order_by(AvailabilityEvent.received_at.desc())
         ))
         last = events[0] if events else None
+        confirmation = self._input_confirmation(card)
         away_lineup = card.away_lineup.status if card.away_lineup else "MISSING"
         home_lineup = card.home_lineup.status if card.home_lineup else "MISSING"
-        if any(event.event_type in {"LINEUP_CHANGED", "LATE_SCRATCH"} for event in events):
+        unresolved_scratch = any(event.event_type == "LATE_SCRATCH" for event in events)
+        if unresolved_scratch or any(event.event_type == "LINEUP_CHANGED" for event in events):
             lineup_status = "CHANGED"
         elif away_lineup == "CONFIRMED" and home_lineup == "CONFIRMED":
-            lineup_status = "CONFIRMED"
+            # A confirmed status without the full persisted lineup payload is not
+            # a real confirmation — surface the details as missing.
+            lineup_status = "CONFIRMED" if confirmation["lineup_complete"] else "DETAILS_MISSING"
         elif "MISSING" in (away_lineup, home_lineup):
             lineup_status = "MISSING"
         else:
@@ -426,13 +535,18 @@ class ReadService:
 
         starter_status = self._starter_status(card)
 
+        # A trial/unconfigured/errored feed is never authoritative: it must not
+        # be shown as "0 unavailable" (a false healthy claim). Manual/production
+        # out-events still count; otherwise the count is unknown (—).
+        authoritative = injury_feed_status == "INJURY_FEED_ACTIVE"
         out_types = {"CONFIRMED_OUT", "INJURED_LIST_PLACED", "LATE_SCRATCH", "DAY_TO_DAY"}
         latest_by_player: dict[str, str] = {}
         for event in events:  # already newest-first
             key = event.player_source_id or event.player_name
             if key and key not in latest_by_player:
                 latest_by_player[key] = event.event_type
-        unavailable = sum(1 for event_type in latest_by_player.values() if event_type in out_types)
+        out_count = sum(1 for event_type in latest_by_player.values() if event_type in out_types)
+        unavailable = out_count if (authoritative or out_count > 0) else None
 
         rescore = self.session.scalar(
             select(ShadowRescore)
@@ -456,8 +570,11 @@ class ReadService:
 
         context = AvailabilityContext(
             lineup_status=lineup_status,
+            lineup_complete=confirmation["lineup_complete"],
             starting_pitcher_status=starter_status,
             injury_feed_status=injury_feed_status,
+            injury_feed_authoritative=authoritative,
+            production_injury_coverage=authoritative,
             unavailable_players=unavailable,
             last_availability_update=_aware(last.received_at) if last else None,
             last_availability_event=last.event_type if last else None,
@@ -468,7 +585,7 @@ class ReadService:
             edge_after=edge_after,
             book_moved=book_moved,
         )
-        return context, rescore is not None
+        return context, rescore is not None, unresolved_scratch
 
     @staticmethod
     def _starter_status(card: ForecastGame) -> str:

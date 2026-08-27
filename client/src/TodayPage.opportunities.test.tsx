@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { demoDashboard, getDemoGame } from './data/demo'
 import type { AvailabilityContext, GameOpportunity, OpportunitySelection } from './types/domain'
+import { TeamLogo, teamLogoUrl } from './components/ui'
 
 vi.setConfig({ testTimeout: 20000 })
 
@@ -39,9 +40,9 @@ function sel(overrides: Partial<OpportunitySelection>): OpportunitySelection {
 
 function avail(overrides: Partial<AvailabilityContext> = {}): AvailabilityContext {
   return {
-    lineup_status: 'PROJECTED', starting_pitcher_status: 'PROBABLE',
-    injury_feed_status: 'INJURY_FEED_NOT_CONFIGURED', unavailable_players: 0,
-    last_availability_update: null, last_availability_event: null, rescored: false,
+    lineup_status: 'PROJECTED', lineup_complete: false, starting_pitcher_status: 'PROBABLE',
+    injury_feed_status: 'INJURY_FEED_NOT_CONFIGURED', injury_feed_authoritative: false, production_injury_coverage: false,
+    unavailable_players: null, last_availability_update: null, last_availability_event: null, rescored: false,
     forecast_before: null, forecast_after: null, edge_before: null, edge_after: null, book_moved: null,
     ...overrides,
   }
@@ -50,15 +51,16 @@ function avail(overrides: Partial<AvailabilityContext> = {}): AvailabilityContex
 const opportunities: GameOpportunity[] = [
   {
     game_id: g0.id, sport: 'MLB', recommendation_state: 'QUALIFIED_BET', review_required: false,
-    recommendation_reason: 'Uncertainty-adjusted edge clears the qualified bar.', opportunity_score: 84,
+    recommendation_reason: 'Uncertainty-adjusted edge clears the qualified bar.', qualification_reasons: [], opportunity_score: 84,
     markets_available: ['Moneyline', 'Total'], readiness: 78, uncertainty: 2.4, model_disagreement: 5.1,
-    availability: avail({ lineup_status: 'CONFIRMED', starting_pitcher_status: 'CONFIRMED', last_availability_update: '2026-08-27T14:50:00Z', last_availability_event: 'LINEUP_CONFIRMED', rescored: true, forecast_before: 52, forecast_after: 55, edge_before: 2.4, edge_after: 4.0, book_moved: true }),
+    availability: avail({ lineup_status: 'CONFIRMED', lineup_complete: true, starting_pitcher_status: 'CONFIRMED', injury_feed_authoritative: true, production_injury_coverage: true, unavailable_players: 0, last_availability_update: '2026-08-27T14:50:00Z', last_availability_event: 'LINEUP_CONFIRMED', rescored: true, forecast_before: 52, forecast_after: 55, edge_before: 2.4, edge_after: 4.0, book_moved: true }),
     best: sel({ market_type: 'Moneyline', selection: 'QUAL-ML', american_odds: 120, expected_value: 22.5, opportunity_score: 84, virtual_stake: 10, potential_profit: 12, total_return: 22 }),
     alternates: [sel({ recommendation: 'WATCH', market_type: 'Total', selection: 'ALT-OVER-85', line: 8.5, american_odds: -110, opportunity_score: 30, virtual_stake: 0, potential_profit: 0, total_return: 0 })],
   },
   {
     game_id: g1.id, sport: 'MLB', recommendation_state: 'PROVISIONAL_EDGE', review_required: false,
-    recommendation_reason: 'Edge clears the value bar, but a required lineup is unconfirmed — provisional.', opportunity_score: 60,
+    recommendation_reason: 'Edge clears the value bar, but a required starter is unconfirmed — provisional.',
+    qualification_reasons: ['Starting pitcher probable', 'Production injury feed unavailable'], opportunity_score: 60,
     markets_available: ['Run line'], readiness: 66, uncertainty: 3.1, model_disagreement: 2.2,
     availability: avail({ lineup_status: 'PROJECTED', starting_pitcher_status: 'PROBABLE' }),
     best: sel({ recommendation: 'PROVISIONAL_EDGE', market_type: 'Run line', selection: 'PROV-RL-15', line: 1.5, american_odds: -150, opportunity_score: 60, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
@@ -66,7 +68,8 @@ const opportunities: GameOpportunity[] = [
   },
   {
     game_id: g2.id, sport: 'MLB', recommendation_state: 'WATCH', review_required: false,
-    recommendation_reason: 'Model–market disagreement does not clear the qualified bar.', opportunity_score: 40,
+    recommendation_reason: 'Model–market disagreement does not clear the qualified bar.',
+    qualification_reasons: ['Latest quote is stale'], opportunity_score: 40,
     markets_available: ['Total'], readiness: 64, uncertainty: 3.4, model_disagreement: 6.0,
     availability: avail(),
     best: sel({ recommendation: 'WATCH', market_type: 'Total', selection: 'WATCH-UNDER-9', line: 9, american_odds: -105, opportunity_score: 40, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
@@ -74,15 +77,16 @@ const opportunities: GameOpportunity[] = [
   },
   {
     game_id: g4.id, sport: 'MLB', recommendation_state: 'EXTREME_DISAGREEMENT', review_required: true,
-    recommendation_reason: 'Model–market gap +34.2 pts exceeds the review threshold — EXTREME DISAGREEMENT.', opportunity_score: 55,
+    recommendation_reason: 'Model–market gap +34.2 pts exceeds the review threshold — EXTREME DISAGREEMENT.',
+    qualification_reasons: ['Extreme model-market disagreement', 'Production injury feed unavailable'], opportunity_score: 55,
     markets_available: ['Total'], readiness: 74, uncertainty: 2.8, model_disagreement: 6.6,
-    availability: avail({ lineup_status: 'PROJECTED', unavailable_players: 1 }),
+    availability: avail({ lineup_status: 'DETAILS_MISSING', unavailable_players: 1 }),
     best: sel({ recommendation: 'EXTREME_DISAGREEMENT', market_type: 'Total', selection: 'EXTREME-OVER-65', line: 6.5, american_odds: -103, raw_edge: 34.2, uncertainty_adjusted_edge: 34, expected_value: 67.8, opportunity_score: 55, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
     alternates: [],
   },
   {
     game_id: g3.id, sport: 'MLB', recommendation_state: 'NO_BET', review_required: false,
-    recommendation_reason: 'No positive-expected-value edge; no position.', opportunity_score: 0,
+    recommendation_reason: 'No positive-expected-value edge; no position.', qualification_reasons: ['No complete two-sided governed quote'], opportunity_score: 0,
     markets_available: [], readiness: 60, uncertainty: 4.0, model_disagreement: null,
     availability: avail(),
     best: null, alternates: [],
@@ -99,7 +103,8 @@ const dashboardPayload = {
     best_expected_value: 67.8, virtual_daily_exposure: 10,
     top_opportunity: 'QUAL-ML +120 · BookX',
     markets_available: ['Moneyline', 'Run line', 'Total'], sports_available: ['MLB'],
-    injury_feed_status: 'INJURY_FEED_NOT_CONFIGURED',
+    injury_feed_status: 'INJURY_FEED_NOT_CONFIGURED', injury_feed_authoritative: false,
+    odds_last_refresh: '2026-08-27T14:57:00Z', odds_quote_age_seconds: 18000, odds_quota_remaining: 488, odds_scheduler_running: false,
   },
 }
 
@@ -209,7 +214,52 @@ describe('Complete slate + multi-sport board', () => {
     }))
     render(<App />)
     const summary = await screen.findByRole('region', { name: /Daily opportunity summary/i })
-    expect(within(summary).getByText('Injury feed').nextSibling).toHaveTextContent('Trial')
+    expect(within(summary).getByText('Injury feed').nextSibling).toHaveTextContent('TRIAL — not used for picks')
+  })
+
+  it('marks a non-authoritative injury feed and never claims 0 unavailable', async () => {
+    stub()
+    render(<App />)
+    const slate = await completeSlate()
+    const card = within(slate).getByText(g1.away_team.name).closest('article') as HTMLElement
+    // Unavailable shows "—" (unknown), never a false "0"; the caveat is stated.
+    expect(within(card).getByText(/^Unavailable/)).toHaveTextContent('Unavailable —')
+    expect(within(card).getByText(/Production injury coverage unavailable/i)).toBeInTheDocument()
+  })
+
+  it('explains blockers for every non-qualified opportunity', async () => {
+    stub()
+    render(<App />)
+    const slate = await completeSlate()
+    const card = within(slate).getByText(g1.away_team.name).closest('article') as HTMLElement
+    expect(within(card).getByText('Why not qualified')).toBeInTheDocument()
+    expect(within(card).getByText('Starting pitcher probable')).toBeInTheDocument()
+    expect(within(card).getByText('Production injury feed unavailable')).toBeInTheDocument()
+  })
+
+  it('surfaces odds-refresh diagnostics including a disabled scheduler', async () => {
+    stub()
+    render(<App />)
+    await screen.findByRole('heading', { name: /Today’s MLB Forecasts/i })
+    expect(screen.getByText(/scheduler OFF — automatic odds refresh disabled/i)).toBeInTheDocument()
+    expect(screen.getByText(/provider quota 488/i)).toBeInTheDocument()
+  })
+
+  it('resolves team logos from canonical identity and falls back to the abbreviation', () => {
+    expect(teamLogoUrl('LAD')).toMatch(/espncdn\.com.*\/lad\.png$/)
+    expect(teamLogoUrl('nyy')).toMatch(/\/nyy\.png$/)   // case-insensitive
+    expect(teamLogoUrl('ZZZ')).toBeNull()               // unknown team → no logo
+
+    const mapped = render(<TeamLogo abbreviation="LAD" color="#005A9C" />)
+    const img = mapped.container.querySelector('img')
+    expect(img).not.toBeNull()
+    expect(img!.getAttribute('alt')).toBe('LAD')        // abbreviation is the alt text
+    cleanup()
+
+    // Unmapped team → abbreviation badge fallback, no broken image.
+    const fallback = render(<TeamLogo abbreviation="ZZZ" color="#000000" />)
+    expect(fallback.container.querySelector('img')).toBeNull()
+    expect(fallback.getByText('ZZZ')).toBeInTheDocument()
   })
 
   it('flags an extreme model–market gap as REVIEW REQUIRED with no virtual position', async () => {
