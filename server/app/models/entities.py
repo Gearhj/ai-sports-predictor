@@ -3014,3 +3014,71 @@ class ShadowDecisionSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     virtual_profit_loss: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     settlement_note: Mapped[str | None] = mapped_column(String(200))
     settled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# Prospective live shadow pilot: immutable availability events + rescores
+# ---------------------------------------------------------------------------
+
+
+class AvailabilityEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable availability-change evidence (AISP_AVAILABILITY_EVENT_V1)."""
+
+    __tablename__ = "availability_events"
+    schema_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_event_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), nullable=False, default="BASEBALL")
+    league: Mapped[str] = mapped_column(String(16), nullable=False, default="MLB")
+    game_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("games.id"), index=True)
+    source_game_id: Mapped[str | None] = mapped_column(String(120))
+    team_source_id: Mapped[str | None] = mapped_column(String(120))
+    player_source_id: Mapped[str | None] = mapped_column(String(120))
+    player_name: Mapped[str | None] = mapped_column(String(160))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    __table_args__ = (
+        UniqueConstraint("source", "source_event_key", name="uq_availability_event_source_key"),
+    )
+
+
+class ShadowRescore(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable before/after evidence of one availability-triggered rescore.
+
+    Virtual and non-executable. Quotes are snapshots of persisted sportsbook
+    observations; no market price is fabricated.
+    """
+
+    __tablename__ = "shadow_rescores"
+    availability_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("availability_events.id"), index=True, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
+    slate_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    engine: Mapped[str] = mapped_column(String(32), nullable=False, default="AISP_BASELINE")
+    market: Mapped[str] = mapped_column(String(40), nullable=False, default="FULL_GAME_MONEYLINE")
+    before_forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"))
+    after_forecast_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("forecasts.id"), nullable=False)
+    before_home_win_probability: Mapped[float | None] = mapped_column(Float)
+    after_home_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    before_readiness: Mapped[float | None] = mapped_column(Float)
+    after_readiness: Mapped[float] = mapped_column(Float, nullable=False)
+    before_uncertainty: Mapped[float | None] = mapped_column(Float)
+    after_uncertainty: Mapped[float | None] = mapped_column(Float)
+    pre_quote: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    post_quote: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    book_moved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    decisions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    recommendation: Mapped[str] = mapped_column(String(16), nullable=False)
+    virtual_stake: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    source_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    aisp_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    rescore_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    rescore_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    pre_event_quote_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    post_event_quote_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    quote_timeline: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    __table_args__ = (
+        UniqueConstraint("availability_event_id", "game_id", name="uq_shadow_rescore_event_game"),
+    )

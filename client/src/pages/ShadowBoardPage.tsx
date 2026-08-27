@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FlaskConical, Lock, ShieldAlert } from 'lucide-react'
+import { Activity, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
 import { MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { endpoints } from '../services/api'
-import type { ShadowBoardData, ShadowDecisionView, ShadowEngineView, ShadowRecommendation } from '../types/domain'
+import type {
+  ProspectiveRescore,
+  ShadowBoardData,
+  ShadowDecisionView,
+  ShadowEngineView,
+  ShadowRecommendation,
+} from '../types/domain'
 
 const RECOMMENDATION_CLASS: Record<ShadowRecommendation, string> = {
   NO_BET: 'job-status job-status--failed',
@@ -23,6 +29,7 @@ function todayIso(): string {
 export function ShadowBoardPage() {
   const [slateDate, setSlateDate] = useState<string>(todayIso())
   const [data, setData] = useState<ShadowBoardData | null>(null)
+  const [rescores, setRescores] = useState<ProspectiveRescore[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,12 +37,15 @@ export function ShadowBoardPage() {
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    endpoints.shadowBoard(slateDate, controller.signal)
-      .then((result) => { if (!controller.signal.aborted) setData(result) })
-      .catch((reason: unknown) => {
+    Promise.all([
+      endpoints.shadowBoard(slateDate, controller.signal).catch(() => null),
+      endpoints.rescoreBoard(slateDate, controller.signal).catch(() => null),
+    ])
+      .then(([board, rescoreBoard]) => {
         if (controller.signal.aborted) return
-        setData(null)
-        setError(reason instanceof Error ? reason.message : 'Shadow board unavailable')
+        setData(board)
+        setRescores(rescoreBoard?.rescores ?? [])
+        if (!board) setError('Shadow board unavailable')
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -68,13 +78,26 @@ export function ShadowBoardPage() {
         </label>
       </div>
 
+      {rescores.length > 0 && (
+        <Panel
+          title="Live availability rescores"
+          eyebrow="EVENT-TRIGGERED"
+          className="section-panel"
+          action={<span className="info-label"><Activity size={13} /> {rescores.length} rescored</span>}
+        >
+          <div className="rescore-list">
+            {rescores.map((rescore) => <RescoreCard key={rescore.id} rescore={rescore} />)}
+          </div>
+        </Panel>
+      )}
+
       {loading && <Panel title="Loading" eyebrow="SHADOW BOARD"><p className="muted">Loading the research-shadow slate…</p></Panel>}
       {!loading && error && (
         <Panel title="Shadow board unavailable" eyebrow="SHADOW BOARD">
           <p className="muted">{error}</p>
         </Panel>
       )}
-      {!loading && !error && games.length === 0 && (
+      {!loading && !error && games.length === 0 && rescores.length === 0 && (
         <Panel title="No imported shadow forecasts for this slate" eyebrow="SHADOW BOARD">
           <p className="muted">
             An administrator imports immutable Model Studio bundles and evaluates the board.
@@ -99,6 +122,50 @@ export function ShadowBoardPage() {
         </Panel>
       ))}
     </div>
+  )
+}
+
+function RescoreCard({ rescore }: { rescore: ProspectiveRescore }) {
+  const change = rescore.availability_change
+  const before = rescore.forecast_before
+  const after = rescore.forecast_after
+  const homeBeforeEdge = rescore.decisions.before?.HOME?.edge ?? null
+  const homeAfterEdge = rescore.decisions.after?.HOME?.edge ?? null
+  return (
+    <article className="rescore-card">
+      <header className="section-heading">
+        <div>
+          <p className="eyebrow">{change.event_type ?? 'AVAILABILITY CHANGE'} · {change.source ?? 'UNKNOWN'}</p>
+          <h3>{change.player_name || change.description || 'Availability change'}</h3>
+        </div>
+        <span className={rescore.book_moved ? 'job-status job-status--running' : 'job-status job-status--failed'}>
+          {rescore.book_moved ? <><TrendingUp size={12} /> BOOK MOVED</> : 'BOOK STEADY'}
+        </span>
+      </header>
+      <section className="metric-grid metric-grid--four">
+        <MetricCard label="Home win before" value={pct(before.home_win_probability)} detail={`Readiness ${before.readiness ?? '—'}`} />
+        <MetricCard label="Home win after" value={pct(after.home_win_probability)} detail={`Readiness ${after.readiness ?? '—'}`} />
+        <MetricCard label="Edge before" value={edge(homeBeforeEdge)} detail="No-vig, home" />
+        <MetricCard label="Edge after" value={edge(homeAfterEdge)} detail={`Uncertainty ${after.uncertainty == null ? '—' : after.uncertainty.toFixed(3)}`} />
+      </section>
+      <div className="rescore-quotes">
+        <div>
+          <p className="eyebrow">QUOTE BEFORE</p>
+          <p>{rescore.quote_before ? `${rescore.quote_before.home_american} / ${rescore.quote_before.away_american}` : 'No governed quote'}</p>
+        </div>
+        <div>
+          <p className="eyebrow">QUOTE AFTER</p>
+          <p>{rescore.quote_after ? `${rescore.quote_after.home_american} / ${rescore.quote_after.away_american}` : 'No governed quote'}</p>
+        </div>
+        <div>
+          <p className="eyebrow">RECOMMENDATION</p>
+          <p><span className={RECOMMENDATION_CLASS[rescore.recommendation]}>{rescore.recommendation.replaceAll('_', ' ')}</span> · virtual {money(rescore.virtual_stake)}</p>
+        </div>
+      </div>
+      <p className="muted rescore-timing">
+        Received {rescore.timing.aisp_received_at ?? '—'} · rescored {rescore.timing.rescore_completed_at ?? '—'}
+      </p>
+    </article>
   )
 }
 

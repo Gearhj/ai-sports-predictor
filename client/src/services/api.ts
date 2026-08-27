@@ -9,6 +9,7 @@ import type {
   HistoricalResearchData,
   MarketBoardData,
   PerformanceData,
+  ProspectiveRescoreBoard,
   PublicConfig,
   ShadowBoardData,
 } from '../types/domain'
@@ -107,6 +108,8 @@ export const endpoints = {
   bankroll: (signal?: AbortSignal) => apiRequest<BankrollData>('/bankroll', {}, signal),
   shadowBoard: (slateDate: string, signal?: AbortSignal) =>
     apiRequest<ShadowBoardData>(`/shadow-board?date=${encodeURIComponent(slateDate)}`, {}, signal),
+  rescoreBoard: (slateDate: string, signal?: AbortSignal) =>
+    apiRequest<ProspectiveRescoreBoard>(`/shadow-board/rescores?date=${encodeURIComponent(slateDate)}`, {}, signal),
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),
   publicConfig: (signal?: AbortSignal) => apiRequest<PublicConfig>('/public/config', {}, signal),
   me: (signal?: AbortSignal) => apiRequest<AuthUser>('/auth/me', {}, signal),

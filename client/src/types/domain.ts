@@ -584,3 +584,54 @@ export interface ShadowBoardData {
   executable: false
   games: ShadowGameView[]
 }
+
+export interface RescoreQuote {
+  book_home: string
+  book_away: string
+  home_american: number
+  away_american: number
+  no_vig_home: number
+  no_vig_away: number
+  observed_at: string
+}
+
+export interface RescoreSideDecision {
+  selection: string
+  model_probability: number | null
+  has_quote: boolean
+  american_odds?: number
+  no_vig_probability: number | null
+  edge: number | null
+  expected_value: number | null
+  recommendation: ShadowRecommendation
+  virtual_stake: number
+}
+
+export interface ProspectiveRescore {
+  id: string
+  game_id: string
+  engine: string
+  availability_change: {
+    event_type: string | null
+    source: string | null
+    player_name: string | null
+    description: string | null
+  }
+  forecast_before: { home_win_probability: number | null; readiness: number | null; uncertainty: number | null }
+  forecast_after: { home_win_probability: number | null; readiness: number | null; uncertainty: number | null }
+  quote_before: RescoreQuote | null
+  quote_after: RescoreQuote | null
+  book_moved: boolean
+  decisions: { before: Record<string, RescoreSideDecision> | null; after: Record<string, RescoreSideDecision> | null }
+  recommendation: ShadowRecommendation
+  virtual_stake: number
+  timing: Record<string, string | null>
+  quote_timeline: Record<string, unknown>
+}
+
+export interface ProspectiveRescoreBoard {
+  slate_date: string
+  status: 'RESEARCH_SHADOW'
+  executable: false
+  rescores: ProspectiveRescore[]
+}

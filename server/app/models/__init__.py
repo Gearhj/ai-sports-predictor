@@ -1,7 +1,7 @@
 """Public ORM model exports."""
 
 from app.models.entities import (
-    AnalystRating, AnalystTier, AuditEvent, Batter, BattingFeature,
+    AnalystRating, AnalystTier, AuditEvent, AvailabilityEvent, Batter, BattingFeature,
     BullpenAvailabilityObservation, BullpenFeature,
     CommunityPost, CommunityPostStatus, CommunityReaction, DataQualityCheck,
     Entitlement, EntitlementKind, ExternalIdMapping, FeatureVersion, Forecast,
@@ -29,6 +29,7 @@ from app.models.entities import (
     ProspectiveEvaluationPlan,
     RosterAvailabilityObservation, RunStatus, Season, SourceFreshnessPolicy, Sport,
     ShadowBoardDecision, ShadowDecisionSettlement, ShadowForecast, ShadowForecastBundle,
+    ShadowRescore,
     Sportsbook, StarterObservation, StatcastPlayerObservation, Team, TeamFeature,
     TeamGameHistoryObservation, TeamGameStat, TeamRatingObservation,
     TrainingDatasetManifest, User, UserRole, UserStatus,

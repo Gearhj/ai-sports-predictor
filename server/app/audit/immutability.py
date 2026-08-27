@@ -4,6 +4,7 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AvailabilityEvent,
     BattingFeature,
     BullpenAvailabilityObservation,
     BullpenFeature,
@@ -54,6 +55,7 @@ from app.models import (
     ShadowDecisionSettlement,
     ShadowForecast,
     ShadowForecastBundle,
+    ShadowRescore,
     SourceFreshnessPolicy,
     SourceOwnerApproval,
     StarterObservation,
@@ -113,10 +115,12 @@ _APPEND_ONLY_TYPES = (
     ProviderRequestLedger,
     Roster,
     RosterAvailabilityObservation,
+    AvailabilityEvent,
     ShadowBoardDecision,
     ShadowDecisionSettlement,
     ShadowForecast,
     ShadowForecastBundle,
+    ShadowRescore,
     SourceFreshnessPolicy,
     SourceOwnerApproval,
     StarterObservation,

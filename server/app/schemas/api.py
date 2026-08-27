@@ -622,5 +622,12 @@ class ShadowBoardData(BaseModel):
     games: list[ShadowGameView]
 
 
+class ProspectiveRescoreBoard(BaseModel):
+    slate_date: date
+    status: Literal["RESEARCH_SHADOW"]
+    executable: Literal[False]
+    rescores: list[dict]
+
+
 class ErrorResponse(BaseModel):
     detail: str

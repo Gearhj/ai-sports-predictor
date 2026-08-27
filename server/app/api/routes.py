@@ -32,10 +32,12 @@ from app.schemas.api import (
     LoginRequest,
     MarketBoardData,
     PerformanceData,
+    ProspectiveRescoreBoard,
     PublicConfigData,
     RegisterRequest,
     ShadowBoardData,
 )
+from app.prospective.contracts import AvailabilityEventInput
 from app.services.auth_service import (
     AuthenticationError,
     DuplicateEmailError,
@@ -185,6 +187,41 @@ def shadow_board(
 
     day = event_date or local_today(settings.display_timezone)
     return ShadowBoardService(session, settings).board(day)
+
+
+@router.get("/shadow-board/rescores", response_model=ProspectiveRescoreBoard, tags=["transparency"])
+def shadow_rescores(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+) -> ProspectiveRescoreBoard:
+    # Read-only prospective rescore evidence. Reads persisted rows only; it never
+    # calls a provider and exposes no executable authority.
+    from app.services.prospective_shadow_service import ProspectiveShadowService
+
+    day = event_date or local_today(settings.display_timezone)
+    return ProspectiveShadowService(session, settings).rescores(day)
+
+
+@router.post(
+    "/admin/availability-events",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:availability", category="admin"))],
+)
+def submit_availability_event(
+    body: AvailabilityEventInput,
+    session: DatabaseSession,
+    settings: AppSettings,
+    user: AdminUser,
+) -> dict:
+    # Manual admin availability-event adapter (MANUAL_ADMIN provenance). Persists
+    # the immutable event and runs the full rescore path for the affected game.
+    from app.services.prospective_shadow_service import ProspectiveShadowService, RescoreError
+
+    try:
+        return ProspectiveShadowService(session, settings).process_event(body)
+    except RescoreError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/health/sources", response_model=HealthData, tags=["operations"])
