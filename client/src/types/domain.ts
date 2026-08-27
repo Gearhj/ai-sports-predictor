@@ -101,6 +101,54 @@ export interface ForecastGame {
   last_update: string
 }
 
+export type RecommendationState = 'QUALIFIED_BET' | 'WATCH' | 'NO_BET'
+
+export interface OpportunitySelection {
+  recommendation: RecommendationState
+  market_type: string
+  period: string
+  selection: string
+  line: number | null
+  sportsbook: string | null
+  american_odds: number | null
+  decimal_odds: number | null
+  model_probability: number | null
+  no_vig_probability: number | null
+  consensus_probability: number | null
+  fair_odds: number | null
+  raw_edge: number | null
+  uncertainty_adjusted_edge: number | null
+  expected_value: number | null
+  quote_observed_at: string | null
+  quote_age_seconds: number | null
+  is_stale: boolean
+  virtual_stake: number
+  potential_profit: number
+  total_return: number
+}
+
+export interface GameOpportunity {
+  game_id: string
+  recommendation_state: RecommendationState
+  recommendation_reason: string
+  markets_available: string[]
+  readiness: number | null
+  uncertainty: number | null
+  model_disagreement: number | null
+  best: OpportunitySelection | null
+  alternates: OpportunitySelection[]
+}
+
+export interface OpportunitySummary {
+  qualified: number
+  watch: number
+  no_bet: number
+  best_expected_value: number | null
+  virtual_daily_exposure: number
+  top_opportunity: string | null
+  markets_available: string[]
+}
+
 export interface DashboardData extends DataProvenance {
   date: string
   model_status: string
@@ -114,6 +162,8 @@ export interface DashboardData extends DataProvenance {
     season_return: number
   }
   games: ForecastGame[]
+  opportunities?: GameOpportunity[]
+  opportunity_summary?: OpportunitySummary | null
 }
 
 export interface MetricPoint {

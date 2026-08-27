@@ -119,6 +119,59 @@ class DashboardSummary(BaseModel):
     season_return: float
 
 
+RecommendationState = Literal["QUALIFIED_BET", "WATCH", "NO_BET"]
+
+
+class OpportunitySelection(BaseModel):
+    """One governed, priced selection. Probabilities/edges are percentage points;
+    stake, profit, and return are virtual dollars. Every value is derived from a
+    real two-sided quote by the existing shadow-pricing policy."""
+
+    recommendation: RecommendationState
+    market_type: str
+    period: str
+    selection: str
+    line: float | None = None
+    sportsbook: str | None = None
+    american_odds: int | None = None
+    decimal_odds: float | None = None
+    model_probability: float | None = None
+    no_vig_probability: float | None = None
+    consensus_probability: float | None = None
+    fair_odds: int | None = None
+    raw_edge: float | None = None
+    uncertainty_adjusted_edge: float | None = None
+    expected_value: float | None = None
+    quote_observed_at: datetime | None = None
+    quote_age_seconds: int | None = None
+    is_stale: bool = False
+    virtual_stake: float = 0.0
+    potential_profit: float = 0.0
+    total_return: float = 0.0
+
+
+class GameOpportunity(BaseModel):
+    game_id: str
+    recommendation_state: RecommendationState
+    recommendation_reason: str
+    markets_available: list[str] = Field(default_factory=list)
+    readiness: float | None = None
+    uncertainty: float | None = None
+    model_disagreement: float | None = None
+    best: OpportunitySelection | None = None
+    alternates: list[OpportunitySelection] = Field(default_factory=list)
+
+
+class OpportunitySummary(BaseModel):
+    qualified: int = 0
+    watch: int = 0
+    no_bet: int = 0
+    best_expected_value: float | None = None
+    virtual_daily_exposure: float = 0.0
+    top_opportunity: str | None = None
+    markets_available: list[str] = Field(default_factory=list)
+
+
 class DashboardData(BaseModel):
     data_mode: DataMode
     date: date
@@ -126,6 +179,8 @@ class DashboardData(BaseModel):
     component_weights: ComponentWeights
     summary: DashboardSummary
     games: list[ForecastGame]
+    opportunities: list[GameOpportunity] = Field(default_factory=list)
+    opportunity_summary: OpportunitySummary | None = None
 
 
 class ComparisonMetric(BaseModel):

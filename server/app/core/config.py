@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     opportunity_watch_threshold: float = Field(default=0.02, ge=0, le=1)
     opportunity_standard_threshold: float = Field(default=0.04, ge=0, le=1)
     opportunity_strong_threshold: float = Field(default=0.07, ge=0, le=1)
+    # A daily-board selection may only be labeled QUALIFIED when the forecast's
+    # readiness clears this bar (above the publish floor). Below it a positive
+    # edge is surfaced as WATCH, never as an actionable bet.
+    opportunity_qualified_readiness: float = Field(default=70.0, ge=0, le=100)
 
     # Live prospective shadow operation (armed provider polling; off by default so
     # the process never makes an unattended provider call until explicitly armed).

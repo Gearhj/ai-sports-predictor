@@ -8,8 +8,17 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.bankroll.service import SettlementResult, SettledPosition, bankroll_metrics, settle_profit
+from app.bankroll.service import (
+    SettlementResult,
+    SettledPosition,
+    StakePolicy,
+    StakingStrategy,
+    bankroll_metrics,
+    calculate_stake,
+    settle_profit,
+)
 from app.core.config import Settings
+from app.forecast_exchange.pricing import ShadowPricingConfig
 from app.core.time import local_day_bounds
 from app.features.lifecycle import LifecycleStage, classify_lifecycle
 from app.features.readiness import (
@@ -87,6 +96,20 @@ from app.schemas.api import (
 )
 from app.services.historical_research_read_service import HistoricalResearchReadService
 from app.services.game_state_service import GameStateService, GameStateUnavailableError
+from app.services.opportunity_service import (
+    BookQuote,
+    Candidate,
+    MarketInput,
+    SideInput,
+    allocate_stakes,
+    build_market_candidate,
+    rank_candidates,
+)
+from app.schemas.api import (
+    GameOpportunity,
+    OpportunitySelection,
+    OpportunitySummary,
+)
 
 
 TEAM_COLORS = {
@@ -168,6 +191,7 @@ class ReadService:
             (card.last_refresh_at for card in cards if card.last_refresh_at is not None),
             default=None,
         )
+        opportunities, opportunity_summary = self._daily_opportunities(games, forecasts)
         return DashboardData(
             data_mode="live" if games else "empty",
             date=event_date,
@@ -183,6 +207,331 @@ class ReadService:
                 season_return=bankroll.roi,
             ),
             games=cards,
+            opportunities=opportunities,
+            opportunity_summary=opportunity_summary,
+        )
+
+    # -- daily opportunity board -----------------------------------------
+    def _daily_opportunities(
+        self,
+        games: list[Game],
+        forecasts: list[Forecast | None],
+    ) -> tuple[list[GameOpportunity], OpportunitySummary]:
+        """Price the current slate into a governed best-opportunity board.
+
+        Reuses the shadow-pricing policy and the virtual-bankroll math verbatim;
+        the read layer only adapts persisted rows into plain pricing inputs. This
+        is a database-only read — it never triggers a provider call.
+        """
+
+        now = datetime.now(UTC)
+        bankroll = float(self.settings.shadow_virtual_bankroll)
+        policy = StakePolicy(
+            strategy=StakingStrategy.FRACTIONAL_KELLY,
+            kelly_fraction=self.settings.shadow_kelly_fraction,
+            maximum_stake_percentage=self.settings.shadow_max_position_percentage,
+        )
+        same_game_cap = bankroll * self.settings.shadow_max_same_game_percentage
+        daily_cap = bankroll * self.settings.shadow_max_daily_percentage
+        config = ShadowPricingConfig(
+            qualified_edge=self.settings.shadow_qualified_edge,
+            watch_edge=self.settings.opportunity_watch_threshold,
+        )
+        ready_floor = self.settings.opportunity_qualified_readiness
+
+        candidates_by_game: dict[str, list[Candidate]] = {}
+        qualified: list[tuple[str, Candidate]] = []
+        for game, forecast in zip(games, forecasts):
+            game_id = str(game.id)
+            if forecast is None:
+                candidates_by_game[game_id] = []
+                continue
+            home_side, home, away_side, away = self._sides(game.id)
+            is_ready = (forecast.readiness_score or 0.0) >= ready_floor
+            cards = [
+                candidate
+                for market in self._market_inputs(game, forecast, home, away)
+                if (
+                    candidate := build_market_candidate(
+                        market, is_ready=is_ready, config=config, now=now
+                    )
+                )
+                is not None
+            ]
+            ranked = rank_candidates(cards)
+            candidates_by_game[game_id] = ranked
+            qualified.extend(
+                (game_id, candidate)
+                for candidate in ranked
+                if candidate.recommendation == "QUALIFIED_BET"
+            )
+
+        daily_exposure = allocate_stakes(
+            qualified,
+            bankroll=bankroll,
+            policy=policy,
+            same_game_cap=same_game_cap,
+            daily_cap=daily_cap,
+        )
+
+        opportunities: list[GameOpportunity] = []
+        counts = {"QUALIFIED_BET": 0, "WATCH": 0, "NO_BET": 0}
+        best_ev: float | None = None
+        top: tuple[tuple[int, float], str] | None = None
+        for game, forecast in zip(games, forecasts):
+            game_id = str(game.id)
+            ranked = candidates_by_game.get(game_id, [])
+            readiness = forecast.readiness_score if forecast else None
+            uncertainty = (
+                round(forecast.uncertainty * 100, 2)
+                if forecast and forecast.uncertainty is not None
+                else None
+            )
+            disagreement = self._component_disagreement(forecast) if forecast else None
+            best = ranked[0] if ranked else None
+            state = best.recommendation if best else "NO_BET"
+            counts[state] += 1
+            reason = self._recommendation_reason(forecast, best, ready_floor)
+            markets_available = sorted({candidate.market_label for candidate in ranked})
+            best_view = self._opportunity_view(best) if best else None
+            if best_view is not None and best_view.expected_value is not None and best.recommendation != "NO_BET":
+                best_ev = best_view.expected_value if best_ev is None else max(best_ev, best_view.expected_value)
+            if best is not None and best.recommendation != "NO_BET":
+                rank = (
+                    {"QUALIFIED_BET": 3, "WATCH": 2, "NO_BET": 1}[best.recommendation],
+                    best.uncertainty_adjusted_ev if best.uncertainty_adjusted_ev is not None else float("-inf"),
+                )
+                label = self._top_opportunity_label(game, best)
+                if top is None or rank > top[0]:
+                    top = (rank, label)
+            opportunities.append(GameOpportunity(
+                game_id=game_id,
+                recommendation_state=state,
+                recommendation_reason=reason,
+                markets_available=markets_available,
+                readiness=readiness,
+                uncertainty=uncertainty,
+                model_disagreement=disagreement,
+                best=best_view,
+                alternates=[self._opportunity_view(c) for c in ranked[1:]],
+            ))
+
+        summary = OpportunitySummary(
+            qualified=counts["QUALIFIED_BET"],
+            watch=counts["WATCH"],
+            no_bet=counts["NO_BET"],
+            best_expected_value=best_ev,
+            virtual_daily_exposure=daily_exposure,
+            top_opportunity=top[1] if top else None,
+            markets_available=sorted({
+                market
+                for candidates in candidates_by_game.values()
+                for candidate in candidates
+                for market in [candidate.market_label]
+            }),
+        )
+        return opportunities, summary
+
+    def _market_inputs(
+        self,
+        game: Game,
+        forecast: Forecast,
+        home: Team,
+        away: Team,
+    ) -> list[MarketInput]:
+        """Adapt the latest persisted two-sided quotes into pricing inputs."""
+
+        rows = self._latest_market_snapshots(game.id)
+        simulation = forecast.simulation_summary or {}
+        uncertainty = forecast.uncertainty or 0.0
+        markets: dict[Any, dict[str, Any]] = {}
+        for market, outcome, snapshot, book in rows:
+            if market.market_type not in {MarketType.MONEYLINE, MarketType.TOTAL, MarketType.SPREAD}:
+                continue
+            entry = markets.setdefault(market.id, {"type": market.market_type, "books": defaultdict(dict)})
+            entry["books"][book.id][outcome.id] = (outcome, snapshot, book)
+
+        inputs: list[MarketInput] = []
+        for entry in markets.values():
+            market_type = entry["type"]
+            sides: dict[str, dict[str, Any]] = {}
+            for outcomes in entry["books"].values():
+                # A governed price requires a complete two-sided quote at the book.
+                if len(outcomes) != 2:
+                    continue
+                (outcome_a, snapshot_a, book_a), (outcome_b, snapshot_b, book_b) = list(outcomes.values())
+                for (outcome, snapshot, book), opp_snapshot in (
+                    ((outcome_a, snapshot_a, book_a), snapshot_b),
+                    ((outcome_b, snapshot_b, book_b), snapshot_a),
+                ):
+                    if snapshot.american_odds is None or opp_snapshot.american_odds is None:
+                        continue
+                    role = self._resolve_side(
+                        market_type,
+                        outcome,
+                        snapshot,
+                        forecast.home_win_probability,
+                        forecast.away_win_probability,
+                        simulation,
+                        home,
+                        away,
+                    )
+                    if role is None:
+                        continue
+                    key, selection, line, model_p = role
+                    accum = sides.setdefault(
+                        key, {"selection": selection, "line": line, "model_p": model_p, "quotes": []}
+                    )
+                    accum["quotes"].append(BookQuote(
+                        book=book.name,
+                        side_american=int(snapshot.american_odds),
+                        opposite_american=int(opp_snapshot.american_odds),
+                        observed_at=_aware(snapshot.observed_at),
+                    ))
+            side_inputs = [
+                SideInput(
+                    selection=data["selection"],
+                    line=data["line"],
+                    model_probability=data["model_p"],
+                    conservative_probability=(
+                        min(max(data["model_p"] - uncertainty, 0.0), 1.0)
+                        if data["model_p"] is not None else None
+                    ),
+                    quotes=tuple(data["quotes"]),
+                )
+                for data in sides.values()
+                if data["quotes"]
+            ]
+            if side_inputs:
+                inputs.append(MarketInput(
+                    market_label=_market_label(market_type),
+                    period="Full game",
+                    sides=tuple(side_inputs),
+                ))
+        return inputs
+
+    @staticmethod
+    def _resolve_side(
+        market_type: MarketType,
+        outcome: MarketOutcome,
+        snapshot: OddsSnapshot,
+        home_win_probability: float | None,
+        away_win_probability: float | None,
+        simulation: dict[str, Any],
+        home: Team,
+        away: Team,
+    ) -> tuple[str, str, float | None, float | None] | None:
+        """Return (side_key, label, line, model_probability) for one outcome."""
+
+        if market_type == MarketType.MONEYLINE:
+            if outcome.participant_team_id == home.id:
+                return "HOME", f"{home.abbreviation} ML", None, home_win_probability
+            if outcome.participant_team_id == away.id:
+                return "AWAY", f"{away.abbreviation} ML", None, away_win_probability
+            return None
+        if market_type == MarketType.SPREAD:
+            point = snapshot.point
+            if point is None:
+                return None
+            key = f"{point:+g}"
+            if outcome.participant_team_id == home.id:
+                probability = (simulation.get("home_cover_probabilities") or {}).get(key)
+                return "HOME", f"{home.abbreviation} {key}", point, probability
+            if outcome.participant_team_id == away.id:
+                probability = (simulation.get("away_cover_probabilities") or {}).get(key)
+                return "AWAY", f"{away.abbreviation} {key}", point, probability
+            return None
+        if market_type == MarketType.TOTAL:
+            point = snapshot.point
+            if point is None:
+                return None
+            label = (outcome.label or "").lower()
+            if label not in {"over", "under"}:
+                return None
+            over = _simulation_over_probability(simulation, point)
+            probability = over if label == "over" else max(0.0, 1.0 - over)
+            return label.upper(), f"{'Over' if label == 'over' else 'Under'} {point:g}", point, probability
+        return None
+
+    def _component_disagreement(self, forecast: Forecast) -> float | None:
+        """Spread (percentage points) of ensemble component home-win probabilities."""
+
+        probabilities = [
+            float(component.output["home_win_probability"])
+            for component in self.session.scalars(
+                select(ForecastComponent).where(ForecastComponent.forecast_id == forecast.id)
+            )
+            if isinstance(component.output, dict) and component.output.get("home_win_probability") is not None
+        ]
+        if len(probabilities) < 2:
+            return None
+        return round((max(probabilities) - min(probabilities)) * 100, 2)
+
+    @staticmethod
+    def _recommendation_reason(
+        forecast: Forecast | None,
+        best: Candidate | None,
+        ready_floor: float,
+    ) -> str:
+        if forecast is None:
+            return "Forecast unavailable — required pregame inputs are incomplete."
+        if best is None:
+            return "No complete two-sided governed quote is available for any market."
+        edge = best.uncertainty_adjusted_edge
+        if best.recommendation == "QUALIFIED_BET":
+            return (
+                f"Uncertainty-adjusted edge {edge * 100:+.1f} pts clears the qualified bar "
+                f"with positive expected value on a fresh, complete two-sided quote."
+            )
+        if best.recommendation == "WATCH":
+            raw = best.raw_edge * 100 if best.raw_edge is not None else 0.0
+            return (
+                f"Model–market disagreement {raw:+.1f} pts, but it does not clear the "
+                f"qualified bar (uncertainty-adjusted edge, expected value, or readiness)."
+            )
+        if best.is_stale:
+            return "The latest governed quote is stale; no qualified position is taken."
+        if not best.is_ready:
+            readiness = forecast.readiness_score or 0.0
+            return (
+                f"Data readiness {readiness:.0f} is below the qualified threshold "
+                f"({ready_floor:.0f}); monitoring only."
+            )
+        return "No positive-expected-value edge versus the no-vig market; no position."
+
+    @staticmethod
+    def _top_opportunity_label(game: Game, best: Candidate) -> str:
+        price = f"{best.american_odds:+d}" if best.american_odds is not None else "—"
+        book = f" · {best.book}" if best.book else ""
+        return f"{best.selection} {price}{book}"
+
+    @staticmethod
+    def _opportunity_view(candidate: Candidate) -> OpportunitySelection:
+        def pct(value: float | None) -> float | None:
+            return round(value * 100, 2) if value is not None else None
+
+        return OpportunitySelection(
+            recommendation=candidate.recommendation,
+            market_type=candidate.market_label,
+            period=candidate.period,
+            selection=candidate.selection,
+            line=candidate.line,
+            sportsbook=candidate.book,
+            american_odds=candidate.american_odds,
+            decimal_odds=round(candidate.decimal_odds, 4) if candidate.decimal_odds is not None else None,
+            model_probability=pct(candidate.model_probability),
+            no_vig_probability=pct(candidate.no_vig_probability),
+            consensus_probability=pct(candidate.consensus_probability),
+            fair_odds=candidate.fair_odds,
+            raw_edge=pct(candidate.raw_edge),
+            uncertainty_adjusted_edge=pct(candidate.uncertainty_adjusted_edge),
+            expected_value=pct(candidate.expected_value),
+            quote_observed_at=candidate.observed_at,
+            quote_age_seconds=candidate.quote_age_seconds,
+            is_stale=candidate.is_stale,
+            virtual_stake=candidate.virtual_stake,
+            potential_profit=candidate.potential_profit,
+            total_return=candidate.total_return,
         )
 
     def game_card(self, game: Game) -> ForecastGame:
