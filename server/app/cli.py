@@ -52,6 +52,17 @@ async def _run(command: str, event_date: date | None) -> dict[str, Any]:
     return result
 
 
+def _run_shadow_import(bundle_dir: Path) -> dict[str, Any]:
+    """Import one immutable Model Studio forecast bundle (idempotent, no provider)."""
+    from app.services.shadow_board_service import ShadowBoardService
+
+    settings = get_settings()
+    _upgrade_database(settings.database_url)
+    install_immutability_guards()
+    with SessionLocal() as session:
+        return ShadowBoardService(session, settings).import_bundle(bundle_dir)
+
+
 def _run_training(training_cutoff: datetime | None) -> dict[str, Any]:
     """Run provider-free model development against an already-migrated database.
 
@@ -300,7 +311,13 @@ def main() -> None:
             "build-mlb-history-dataset",
             "report-mlb-history",
             "finalize-fd1-from-existing-parquet",
+            "import-model-studio-forecast-bundle",
         ],
+    )
+    parser.add_argument(
+        "--bundle-dir",
+        type=Path,
+        help="Directory holding bundle.json + consumer-import-fixture.json to import",
     )
     parser.add_argument("--date", dest="event_date", type=date.fromisoformat, help="Event date (YYYY-MM-DD)")
     parser.add_argument(
@@ -435,6 +452,10 @@ def main() -> None:
         result = _run_historical_reconstruction(args)
     elif args.command == "train-mlb-models":
         result = _run_training(args.training_cutoff)
+    elif args.command == "import-model-studio-forecast-bundle":
+        if args.bundle_dir is None:
+            parser.error("import-model-studio-forecast-bundle requires --bundle-dir")
+        result = _run_shadow_import(args.bundle_dir)
     else:
         result = asyncio.run(_run(args.command, args.event_date))
     print(json.dumps(result, indent=2, default=_json_default))

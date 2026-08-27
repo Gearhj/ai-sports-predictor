@@ -65,6 +65,9 @@ AVAILABLE_JOBS = {
     "daily-pipeline": "Daily Pipeline",
     "finalize-games": "Refresh Finals, Settle Positions, Recalculate Performance",
     "controlled-live-validation": "Controlled Gate 2 Live Validation",
+    "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
+    "evaluate-shadow-betting-board": "Evaluate Research-Shadow Betting Board",
+    "settle-shadow-decisions": "Settle Research-Shadow Decisions",
 }
 
 ALIASES = {
@@ -155,8 +158,37 @@ class JobOrchestrator:
             "daily-pipeline": self.daily_pipeline,
             "finalize-games": self.finalize_games,
             "controlled-live-validation": self.controlled_live_validation,
+            "import-model-studio-forecast-bundle": self.import_forecast_bundle,
+            "evaluate-shadow-betting-board": self.evaluate_shadow_board,
+            "settle-shadow-decisions": self.settle_shadow_decisions,
         }
         return await handlers[name](event_date)
+
+    async def import_forecast_bundle(self, event_date: date) -> dict[str, Any]:
+        """Import the configured immutable forecast bundle. Idempotent; no provider call."""
+        from pathlib import Path
+
+        from app.services.shadow_board_service import ShadowBoardService
+
+        directory = self.settings.shadow_bundle_import_dir.strip()
+        if not directory:
+            return {"records": 0, "note": "SHADOW_BUNDLE_IMPORT_DIR is not configured"}
+        result = ShadowBoardService(self.session, self.settings).import_bundle(Path(directory))
+        return {"records": int(result.get("forecasts", 0)), **result}
+
+    async def evaluate_shadow_board(self, event_date: date) -> dict[str, Any]:
+        """Evaluate the research-shadow board for the slate. Reads persisted odds only."""
+        from app.services.shadow_board_service import ShadowBoardService
+
+        result = ShadowBoardService(self.session, self.settings).evaluate_board(event_date)
+        return {"records": int(result.get("decisions", 0)), **result}
+
+    async def settle_shadow_decisions(self, event_date: date) -> dict[str, Any]:
+        """Settle research-shadow decisions from governed final outcomes (virtual only)."""
+        from app.services.shadow_board_service import ShadowBoardService
+
+        result = ShadowBoardService(self.session, self.settings).settle_decisions(event_date, [])
+        return {"records": int(result.get("settled", 0)), **result}
 
     async def refresh_schedule(self, event_date: date, *, demo_only: bool = False) -> dict[str, Any]:
         raw: dict[str, Any] | list[Any]

@@ -10,6 +10,7 @@ import type {
   MarketBoardData,
   PerformanceData,
   PublicConfig,
+  ShadowBoardData,
 } from '../types/domain'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
@@ -104,6 +105,8 @@ export const endpoints = {
     return apiRequest<HistoricalGameExplorerPage>(`/research/history/games?${query.toString()}`, {}, signal)
   },
   bankroll: (signal?: AbortSignal) => apiRequest<BankrollData>('/bankroll', {}, signal),
+  shadowBoard: (slateDate: string, signal?: AbortSignal) =>
+    apiRequest<ShadowBoardData>(`/shadow-board?date=${encodeURIComponent(slateDate)}`, {}, signal),
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),
   publicConfig: (signal?: AbortSignal) => apiRequest<PublicConfig>('/public/config', {}, signal),
   me: (signal?: AbortSignal) => apiRequest<AuthUser>('/auth/me', {}, signal),

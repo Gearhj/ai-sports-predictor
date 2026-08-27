@@ -532,3 +532,55 @@ export interface AuthResponse {
   token_type: string
   user: AuthUser
 }
+
+export type ShadowRecommendation = 'NO_BET' | 'WATCH' | 'QUALIFIED_BET'
+
+export interface ShadowDecisionView {
+  market: string
+  selection: string
+  model_probability: number | null
+  has_quote: boolean
+  book: string | null
+  line: number | null
+  american_odds: number | null
+  best_american_odds: number | null
+  no_vig_probability: number | null
+  raw_edge: number | null
+  no_vig_edge: number | null
+  expected_value: number | null
+  uncertainty_adjusted_edge: number | null
+  recommendation: ShadowRecommendation
+  virtual_stake: number
+}
+
+export interface ShadowEngineView {
+  engine_id: string
+  forecast_id: string
+  status: string
+  is_ready: boolean
+  readiness_score: number
+  readiness_threshold: number
+  home_win_probability: number
+  away_win_probability: number
+  expected_home_score: number
+  expected_away_score: number
+  first_five_home_win_probability: number
+  first_five_away_win_probability: number
+  decisions: ShadowDecisionView[]
+}
+
+export interface ShadowGameView {
+  event_id: string
+  event_date: string
+  home_team_id: string
+  away_team_id: string
+  engines: ShadowEngineView[]
+  model_disagreement: number | null
+}
+
+export interface ShadowBoardData {
+  slate_date: string
+  status: 'RESEARCH_SHADOW'
+  executable: false
+  games: ShadowGameView[]
+}

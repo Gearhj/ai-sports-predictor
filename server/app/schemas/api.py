@@ -572,5 +572,55 @@ class JobTriggerResponse(BaseModel):
     result: dict | None = None
 
 
+class ShadowDecisionView(BaseModel):
+    market: str
+    selection: str
+    model_probability: float | None
+    has_quote: bool
+    book: str | None
+    line: float | None
+    american_odds: int | None
+    best_american_odds: int | None
+    no_vig_probability: float | None
+    raw_edge: float | None
+    no_vig_edge: float | None
+    expected_value: float | None
+    uncertainty_adjusted_edge: float | None
+    recommendation: Literal["NO_BET", "WATCH", "QUALIFIED_BET"]
+    virtual_stake: float
+
+
+class ShadowEngineView(BaseModel):
+    engine_id: str
+    forecast_id: str
+    status: str
+    is_ready: bool
+    readiness_score: float
+    readiness_threshold: float
+    home_win_probability: float
+    away_win_probability: float
+    expected_home_score: float
+    expected_away_score: float
+    first_five_home_win_probability: float
+    first_five_away_win_probability: float
+    decisions: list[ShadowDecisionView]
+
+
+class ShadowGameView(BaseModel):
+    event_id: str
+    event_date: date
+    home_team_id: str
+    away_team_id: str
+    engines: list[ShadowEngineView]
+    model_disagreement: float | None = None
+
+
+class ShadowBoardData(BaseModel):
+    slate_date: date
+    status: Literal["RESEARCH_SHADOW"]
+    executable: Literal[False]
+    games: list[ShadowGameView]
+
+
 class ErrorResponse(BaseModel):
     detail: str

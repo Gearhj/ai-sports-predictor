@@ -25,6 +25,7 @@ const primaryNav = [
   { to: '/', label: "Today's forecasts", icon: LayoutDashboard, end: true },
   { to: '/research/history', label: 'Historical research', icon: Archive, demoScoped: false },
   { to: '/markets', label: 'Market board', icon: BarChart3 },
+  { to: '/shadow-board', label: 'Shadow board', icon: FlaskConical },
   { to: '/performance', label: 'Model performance', icon: Activity },
   { to: '/experiment', label: '$1,000 experiment', icon: FlaskConical },
   { to: '/methodology', label: 'Methodology', icon: BookOpenText },

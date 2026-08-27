@@ -14,6 +14,7 @@ const PerformancePage = lazy(() => import('./pages/PerformancePage').then((modul
 const BankrollPage = lazy(() => import('./pages/BankrollPage').then((module) => ({ default: module.BankrollPage })))
 const MethodologyPage = lazy(() => import('./pages/MethodologyPage').then((module) => ({ default: module.MethodologyPage })))
 const HealthPage = lazy(() => import('./pages/HealthPage').then((module) => ({ default: module.HealthPage })))
+const ShadowBoardPage = lazy(() => import('./pages/ShadowBoardPage').then((module) => ({ default: module.ShadowBoardPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
               <Route path="games/:gameId" element={<GameAnalysisPage />} />
               <Route path="markets" element={<MarketBoardPage />} />
               <Route path="performance" element={<PerformancePage />} />
+              <Route path="shadow-board" element={<ShadowBoardPage />} />
               <Route path="experiment" element={<BankrollPage />} />
               <Route path="methodology" element={<MethodologyPage />} />
               <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />

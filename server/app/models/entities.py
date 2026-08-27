@@ -2895,3 +2895,122 @@ class PrivateLeagueMember(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="member")
     __table_args__ = (UniqueConstraint("league_id", "user_id", name="uq_private_league_member"),)
+
+
+# ---------------------------------------------------------------------------
+# Model Studio forecast-exchange shadow board (research-shadow, never executable)
+# ---------------------------------------------------------------------------
+
+
+class ShadowForecastBundle(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable identity of one imported Model Studio daily forecast bundle."""
+
+    __tablename__ = "shadow_forecast_bundles"
+    bundle_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    bundle_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    logical_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    source_fixture_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    slate_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    league: Mapped[str] = mapped_column(String(16), nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(48), nullable=False)
+    research_shadow_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    forecast_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    quote_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    candidate_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ShadowForecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One imported research-shadow forecast; the engine id is its forecast track."""
+
+    __tablename__ = "shadow_forecasts"
+    bundle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_forecast_bundles.id"), index=True, nullable=False)
+    forecast_id: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
+    engine_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    simulator_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    simulator_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    simulator_seed: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    source_event_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    event_date: Mapped[date] = mapped_column(Date, nullable=False)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    home_team_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    away_team_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_ready: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    readiness_score: Mapped[float] = mapped_column(Float, nullable=False)
+    readiness_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String(48), nullable=False)
+    scheduled_start_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_cutoff_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    full_home_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    full_away_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    full_expected_home_score: Mapped[float] = mapped_column(Float, nullable=False)
+    full_expected_away_score: Mapped[float] = mapped_column(Float, nullable=False)
+    f5_home_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    f5_away_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    f5_expected_home_score: Mapped[float] = mapped_column(Float, nullable=False)
+    f5_expected_away_score: Mapped[float] = mapped_column(Float, nullable=False)
+    distributions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    uncertainty: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    readiness_detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    __table_args__ = (
+        Index("ix_shadow_forecasts_event_engine", "event_id", "engine_id"),
+    )
+
+
+class ShadowBoardDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Immutable evaluated shadow decision. A missing quote is a real NO_BET."""
+
+    __tablename__ = "shadow_board_decisions"
+    shadow_forecast_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_forecasts.id"), index=True, nullable=False)
+    bundle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_forecast_bundles.id"), index=True, nullable=False)
+    slate_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    engine_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    market: Mapped[str] = mapped_column(String(40), nullable=False)
+    selection: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Null only for a line-dependent market (total/team total) with no governed
+    # line: no line is ever fabricated, so no probability is stated.
+    model_probability: Mapped[float | None] = mapped_column(Float)
+    has_quote: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    book: Mapped[str | None] = mapped_column(String(80))
+    line: Mapped[float | None] = mapped_column(Float)
+    side_american: Mapped[int | None] = mapped_column(Integer)
+    opposite_american: Mapped[int | None] = mapped_column(Integer)
+    best_american: Mapped[int | None] = mapped_column(Integer)
+    best_decimal: Mapped[float | None] = mapped_column(Float)
+    quote_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    break_even_probability: Mapped[float | None] = mapped_column(Float)
+    no_vig_probability: Mapped[float | None] = mapped_column(Float)
+    raw_edge: Mapped[float | None] = mapped_column(Float)
+    no_vig_edge: Mapped[float | None] = mapped_column(Float)
+    expected_value: Mapped[float | None] = mapped_column(Float)
+    uncertainty_adjusted_edge: Mapped[float | None] = mapped_column(Float)
+    recommendation: Mapped[str] = mapped_column(String(16), nullable=False)
+    virtual_stake: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    quote_signature: Mapped[str] = mapped_column(String(80), nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint(
+            "shadow_forecast_id", "market", "selection", "quote_signature",
+            name="uq_shadow_decision_idempotent",
+        ),
+    )
+
+
+class ShadowDecisionSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Append-only settlement of a shadow decision. Virtual profit only."""
+
+    __tablename__ = "shadow_decision_settlements"
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_board_decisions.id"), unique=True, index=True, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    closing_american: Mapped[int | None] = mapped_column(Integer)
+    closing_decimal: Mapped[float | None] = mapped_column(Float)
+    closing_line_value: Mapped[float | None] = mapped_column(Float)
+    virtual_profit_loss: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    settlement_note: Mapped[str | None] = mapped_column(String(200))
+    settled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

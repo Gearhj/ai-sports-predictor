@@ -28,6 +28,7 @@ from app.models.entities import (
     ProspectiveEvaluationGameAssignment, ProspectiveEvaluationLabelAccess,
     ProspectiveEvaluationPlan,
     RosterAvailabilityObservation, RunStatus, Season, SourceFreshnessPolicy, Sport,
+    ShadowBoardDecision, ShadowDecisionSettlement, ShadowForecast, ShadowForecastBundle,
     Sportsbook, StarterObservation, StatcastPlayerObservation, Team, TeamFeature,
     TeamGameHistoryObservation, TeamGameStat, TeamRatingObservation,
     TrainingDatasetManifest, User, UserRole, UserStatus,

@@ -34,6 +34,7 @@ from app.schemas.api import (
     PerformanceData,
     PublicConfigData,
     RegisterRequest,
+    ShadowBoardData,
 )
 from app.services.auth_service import (
     AuthenticationError,
@@ -170,6 +171,20 @@ def historical_game_explorer(
 @router.get("/bankroll", response_model=BankrollData, tags=["transparency"])
 def bankroll(session: DatabaseSession, settings: AppSettings) -> BankrollData:
     return ReadService(session, settings).bankroll()
+
+
+@router.get("/shadow-board", response_model=ShadowBoardData, tags=["transparency"])
+def shadow_board(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+) -> ShadowBoardData:
+    # Read-only research-shadow board. Reads persisted decisions only; it never
+    # calls a provider and never exposes executable or promotion authority.
+    from app.services.shadow_board_service import ShadowBoardService
+
+    day = event_date or local_today(settings.display_timezone)
+    return ShadowBoardService(session, settings).board(day)
 
 
 @router.get("/health/sources", response_model=HealthData, tags=["operations"])

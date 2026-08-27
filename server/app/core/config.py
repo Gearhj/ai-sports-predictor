@@ -67,6 +67,17 @@ class Settings(BaseSettings):
     opportunity_standard_threshold: float = Field(default=0.04, ge=0, le=1)
     opportunity_strong_threshold: float = Field(default=0.07, ge=0, le=1)
 
+    # Model Studio forecast-exchange shadow board (research-shadow, never executable).
+    shadow_board_enabled: bool = True
+    shadow_bundle_import_dir: str = ""
+    shadow_virtual_bankroll: float = Field(default=1000.0, gt=0)
+    shadow_qualified_edge: float = Field(default=0.02, ge=0, le=1)
+    shadow_kelly_fraction: float = Field(default=0.25, gt=0, le=1)
+    shadow_unit_percentage: float = Field(default=0.005, gt=0, le=0.1)
+    shadow_max_position_percentage: float = Field(default=0.01, gt=0, le=0.1)
+    shadow_max_same_game_percentage: float = Field(default=0.02, gt=0, le=0.25)
+    shadow_max_daily_percentage: float = Field(default=0.05, gt=0, le=0.5)
+
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
     raw_data_root: Path = ASP_ROOT / "data" / "raw"
