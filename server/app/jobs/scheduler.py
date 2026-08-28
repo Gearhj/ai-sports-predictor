@@ -96,6 +96,17 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             **common,
         )
     if settings.live_shadow_enabled:
+        # Provider-free, idempotent evidence capture and cutoff finalization.
+        # Five-minute cadence ensures the 15-minute decision cutoff is not
+        # missed by the coarser 30-minute finalization interval.
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=5,
+            id="asp-shadow-experiment-freeze",
+            kwargs={"job_name": "freeze-shadow-experiment", "settings": settings},
+            **common,
+        )
         # Armed live shadow operation. The poll job runs at the fast base cadence
         # and internally enforces the per-game fast/slow window, so it never polls
         # a started game and never exceeds the intended cadence.

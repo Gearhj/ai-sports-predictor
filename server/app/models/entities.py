@@ -2648,6 +2648,23 @@ class OfficialAspPosition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     payout: Mapped[float | None] = mapped_column(Numeric(12, 2))
     closing_decimal_odds: Mapped[float | None] = mapped_column(Float)
     strategy: Mapped[str] = mapped_column(String(64), nullable=False, default="flat")
+    # The prospective experiment reuses this canonical virtual-position ledger.
+    # These fields are null for legacy positions.
+    shadow_experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_experiments.id"), index=True
+    )
+    shadow_decision_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_experiment_decisions.id"), unique=True, index=True
+    )
+    bankroll_before_position: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    recommendation_policy_version: Mapped[str | None] = mapped_column(String(80))
+    staking_policy_version: Mapped[str | None] = mapped_column(String(80))
+    __table_args__ = (
+        UniqueConstraint(
+            "shadow_experiment_id", "market_outcome_id",
+            name="uq_official_position_experiment_outcome",
+        ),
+    )
 
 
 class PositionSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -2659,6 +2676,14 @@ class PositionSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     game_home_score: Mapped[int | None] = mapped_column(Integer)
     game_away_score: Mapped[int | None] = mapped_column(Integer)
     settlement_note: Mapped[str | None] = mapped_column(Text)
+    bankroll_before: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    bankroll_after: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    closing_odds_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("odds_snapshots.id"))
+    closing_american_odds: Mapped[int | None] = mapped_column(Integer)
+    closing_decimal_odds: Mapped[float | None] = mapped_column(Float)
+    implied_probability_movement: Mapped[float | None] = mapped_column(Float)
+    closing_line_value: Mapped[float | None] = mapped_column(Float)
+    beat_close: Mapped[bool | None] = mapped_column(Boolean)
     __table_args__ = (UniqueConstraint("position_id", name="uq_position_result"),)
 
 
@@ -3141,10 +3166,14 @@ class ShadowExperiment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """
 
     __tablename__ = "shadow_experiments"
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     starting_bankroll: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), nullable=False)
+    recommendation_policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    staking_policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
     decision_policy: Mapped[str] = mapped_column(String(80), nullable=False)
     controlling_engine: Mapped[str] = mapped_column(String(40), nullable=False)
     supported_markets: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
@@ -3153,7 +3182,8 @@ class ShadowExperiment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     max_position_percentage: Mapped[float] = mapped_column(Float, nullable=False)
     max_same_game_percentage: Mapped[float] = mapped_column(Float, nullable=False)
     max_daily_percentage: Mapped[float] = mapped_column(Float, nullable=False)
-    code_commit: Mapped[str | None] = mapped_column(String(64))
+    code_commit: Mapped[str] = mapped_column(String(64), nullable=False)
+    code_identity: Mapped[str] = mapped_column(String(128), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -3161,9 +3191,9 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """One frozen game-day decision snapshot bound to the exact recommendation price.
 
     Distinct rows are preserved per phase (MORNING / LINEUP_CONFIRMED /
-    FINAL_PREGAME). Only a FINAL_PREGAME QUALIFIED_BET row is marked
-    ``is_primary`` and may move the bankroll. A row without a governed quote is a
-    real NO_BET at zero stake — never fabricated.
+    FINAL_PREGAME). This table is evidence only: an exact cutoff-safe
+    QUALIFIED_BET may be linked from the canonical OfficialAspPosition ledger.
+    A row without a governed quote remains an honest NO_BET observation.
     """
 
     __tablename__ = "shadow_experiment_decisions"
@@ -3184,6 +3214,7 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     quote_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"))
     forecast_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_version: Mapped[str | None] = mapped_column(String(40))
     recommended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     model_probability: Mapped[float | None] = mapped_column(Float)
@@ -3193,30 +3224,10 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     readiness: Mapped[float | None] = mapped_column(Float)
     uncertainty: Mapped[float | None] = mapped_column(Float)
     recommendation: Mapped[str] = mapped_column(String(24), nullable=False)
-    virtual_stake: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    recommendation_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    qualification_reasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    evidence_fingerprint: Mapped[str | None] = mapped_column(String(64), unique=True)
     source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
     __table_args__ = (
-        UniqueConstraint("experiment_id", "game_id", "market", "phase", name="uq_experiment_decision_phase"),
         Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
     )
-
-
-class ShadowExperimentSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """Immutable, idempotent settlement of one primary experiment decision.
-
-    Records the governed result, virtual P/L, the bankroll before and after, and
-    closing-line value. One settlement per decision (a rerun never double-settles).
-    """
-
-    __tablename__ = "shadow_experiment_settlements"
-    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_experiment_decisions.id"), unique=True, nullable=False)
-    result: Mapped[str] = mapped_column(String(8), nullable=False)
-    profit_loss: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
-    bankroll_before: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
-    bankroll_after: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
-    closing_american: Mapped[int | None] = mapped_column(Integer)
-    closing_decimal: Mapped[float | None] = mapped_column(Float)
-    closing_line_value: Mapped[float | None] = mapped_column(Float)
-    beat_close: Mapped[bool | None] = mapped_column(Boolean)
-    settled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

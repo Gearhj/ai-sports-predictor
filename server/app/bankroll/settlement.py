@@ -31,6 +31,10 @@ def settle_completed_positions(session: Session) -> list[PositionSettlement]:
         .join(Game, Game.id == Market.game_id)
         .where(
             OfficialAspPosition.status == PositionStatus.OPEN,
+            # Prospective experiment positions use this same canonical ledger,
+            # but their extended bankroll/CLV evidence is finalized by the
+            # experiment service below the same audited finalize job.
+            OfficialAspPosition.shadow_experiment_id.is_(None),
             Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT,
             Forecast.source_mode == Game.source_mode,
             Game.status == GameStatus.FINAL,

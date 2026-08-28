@@ -41,6 +41,7 @@ from app.models import (
     Forecast,
     ForecastComponent,
     RosterAvailabilityObservation,
+    ShadowExperiment,
     ShadowRescore,
     ForecastStatus,
     ForecastTrack,
@@ -378,8 +379,17 @@ class ReadService:
                 best_ev = best_view.expected_value if best_ev is None else max(best_ev, best_view.expected_value)
             exp_status, exp_stake = experiment_by_game.get(game_id, (None, None))
             if exp_status is None:
-                # Qualified but not yet frozen into a FINAL_PREGAME position.
-                exp_status = "PROVISIONAL" if state == "QUALIFIED_BET" else "NOT_IN_EXPERIMENT"
+                experiment_active = self.session.scalar(
+                    select(ShadowExperiment.id).where(ShadowExperiment.is_active.is_(True)).limit(1)
+                ) is not None
+                if not experiment_active:
+                    exp_status = "NOT_IN_EXPERIMENT"
+                elif state == "QUALIFIED_BET":
+                    exp_status = "ELIGIBLE"
+                elif state == "NO_BET":
+                    exp_status = "NO_POSITION"
+                else:
+                    exp_status = "PROVISIONAL"
             opportunities.append(GameOpportunity(
                 game_id=game_id,
                 sport=meta["sport"],
@@ -659,6 +669,9 @@ class ReadService:
                     )
                     accum["quotes"].append(BookQuote(
                         book=book.name,
+                        sportsbook_id=str(book.id),
+                        market_outcome_id=str(outcome.id),
+                        odds_snapshot_id=str(snapshot.id),
                         side_american=int(snapshot.american_odds),
                         opposite_american=int(opp_snapshot.american_odds),
                         observed_at=_aware(snapshot.observed_at),
@@ -823,6 +836,9 @@ class ReadService:
             selection=candidate.selection,
             line=candidate.line,
             sportsbook=candidate.book,
+            sportsbook_id=candidate.sportsbook_id,
+            market_outcome_id=candidate.market_outcome_id,
+            odds_snapshot_id=candidate.odds_snapshot_id,
             american_odds=candidate.american_odds,
             decimal_odds=round(candidate.decimal_odds, 4) if candidate.decimal_odds is not None else None,
             model_probability=pct(candidate.model_probability),
@@ -839,6 +855,10 @@ class ReadService:
             potential_profit=candidate.potential_profit,
             total_return=candidate.total_return,
             opportunity_score=candidate.opportunity_score,
+            model_probability_fraction=candidate.model_probability,
+            no_vig_probability_fraction=candidate.no_vig_probability,
+            edge_fraction=candidate.raw_edge,
+            expected_value_fraction=candidate.expected_value,
         )
 
     def game_card(self, game: Game) -> ForecastGame:
@@ -1286,7 +1306,13 @@ class ReadService:
         historical_dataset = HistoricalResearchReadService(
             self.session
         ).performance_summary()
-        all_rows = list(self.session.execute(
+        experiment_started_at = self.session.scalar(
+            select(ShadowExperiment.started_at)
+            .where(ShadowExperiment.is_active.is_(True))
+            .order_by(ShadowExperiment.version.desc())
+            .limit(1)
+        )
+        performance_query = (
             select(Forecast, Game)
             .join(Game, Game.id == Forecast.game_id)
             .join(GameFeatureSnapshot, GameFeatureSnapshot.id == Forecast.feature_snapshot_id)
@@ -1304,7 +1330,10 @@ class ReadService:
                 Game.home_score.is_not(None),
                 Game.away_score.is_not(None),
             ).order_by(Game.starts_at, Forecast.version.desc())
-        ))
+        )
+        if experiment_started_at is not None:
+            performance_query = performance_query.where(Game.starts_at >= experiment_started_at)
+        all_rows = list(self.session.execute(performance_query))
         rows: list[tuple[Forecast, Game]] = []
         seen_games: set[Any] = set()
         for forecast, game in all_rows:
@@ -1487,7 +1516,7 @@ class ReadService:
         """Per-game experiment membership for the board: FROZEN / SETTLED / (none).
 
         PROVISIONAL is derived by the caller from the live recommendation state."""
-        from app.models import ShadowExperiment, ShadowExperimentDecision, ShadowExperimentSettlement
+        from app.models import OfficialAspPosition, PositionSettlement, ShadowExperiment
 
         experiment = self.session.scalar(
             select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
@@ -1495,15 +1524,19 @@ class ReadService:
         )
         if experiment is None or not game_ids:
             return {}
-        settled_ids = set(self.session.scalars(select(ShadowExperimentSettlement.decision_id)))
+        settled_ids = set(self.session.scalars(select(PositionSettlement.position_id)))
         result: dict[str, tuple[str, float | None]] = {}
-        for decision in self.session.scalars(select(ShadowExperimentDecision).where(
-            ShadowExperimentDecision.experiment_id == experiment.id,
-            ShadowExperimentDecision.game_id.in_(game_ids),
-            ShadowExperimentDecision.is_primary.is_(True),
-        )):
-            status = "SETTLED" if decision.id in settled_ids else "FROZEN"
-            result[str(decision.game_id)] = (status, float(decision.virtual_stake))
+        for position, game_id in self.session.execute(
+            select(OfficialAspPosition, Market.game_id)
+            .join(MarketOutcome, MarketOutcome.id == OfficialAspPosition.market_outcome_id)
+            .join(Market, Market.id == MarketOutcome.market_id)
+            .where(
+                OfficialAspPosition.shadow_experiment_id == experiment.id,
+                Market.game_id.in_(game_ids),
+            )
+        ):
+            status = "SETTLED" if position.id in settled_ids else "FROZEN"
+            result[str(game_id)] = (status, float(position.stake))
         return result
 
     def _experiment_betting(self) -> Any:
@@ -2159,14 +2192,19 @@ class ReadService:
             policy_max_stake_percentage=experiment.max_position_percentage * 100,
             policy_kelly_fraction=experiment.kelly_fraction,
             policy_edge_threshold_percentage=self.settings.shadow_qualified_edge * 100,
-            equity_curve=ledger["equity"], monthly=ledger["monthly"],
+            equity_curve=ledger["equity"], monthly=ledger["monthly"], daily=ledger["daily"],
             positions=list(reversed(positions)),
-            experiment_start=experiment.start_date.isoformat(),
+            experiment_id=str(experiment.id),
+            experiment_name=experiment.name,
+            experiment_start=experiment.started_at.isoformat(),
             controlling_engine=experiment.controlling_engine,
             code_commit=experiment.code_commit,
             supported_markets=list(experiment.supported_markets or []),
             open_positions=ledger["open_positions"], settled_positions=ledger["settled_positions"],
-            no_bet_days=ledger["no_bet_days"], betting=betting,
+            no_bet_days=ledger["no_bet_days"],
+            current_drawdown=ledger["current_drawdown"],
+            closing_quote_coverage=ledger["closing_quote_coverage"],
+            betting=betting,
         )
 
     def _official_bankroll(self) -> BankrollData:

@@ -23,6 +23,8 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
 
   const hasEvaluation = data.evaluated_games > 0 && (data.evaluation_available ?? true)
   const hasMarketBenchmark = data.market_benchmark_available ?? (hasEvaluation && data.versus_market_brier != null && data.versus_market_brier !== 0)
+  const hasSettledBetting = data.betting?.has_settled === true
+  const hasLegitimateClv = hasSettledBetting && data.betting?.closing_line_value != null
   const metric = (value: number | null, digits: number) => hasEvaluation && value != null ? value.toFixed(digits) : 'N/A'
 
   const calibrationOption = {
@@ -71,6 +73,13 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
         <p>This section scores immutable pregame forecasts after eligible games settle. It is operational evidence, separate from the offline chronological evaluation above.</p>
       </section>
 
+      {!hasEvaluation && (
+        <div className="performance-collecting-state" role="status">
+          <CircleHelp size={19} />
+          <div><strong>COLLECTING DATA</strong><span>No eligible live games have settled. Forward log loss, Brier score, calibration, and winner accuracy are intentionally unpublished.</span></div>
+        </div>
+      )}
+
       <section className="metric-grid metric-grid--four" aria-label="Forward performance summary">
         <MetricCard label="Evaluated games" value={data.evaluated_games.toLocaleString()} detail="Settled published forecasts" />
         <MetricCard label="Brier score" value={metric(data.brier_score, 3)} detail={hasEvaluation ? 'Lower is better' : 'Awaiting settled sample'} trend={hasEvaluation ? 'positive' : 'neutral'} />
@@ -110,18 +119,25 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
             <h2 id="betting-performance-heading">Virtual bankroll record</h2>
             <p>Virtual research only — no real wagers. Positions freeze from FINAL_PREGAME QUALIFIED_BET decisions and settle from real game finals.</p>
           </section>
+          {!hasSettledBetting && (
+            <div className="performance-collecting-state" role="status">
+              <CircleHelp size={19} />
+              <div><strong>COLLECTING SETTLEMENT EVIDENCE</strong><span>ROI, yield, and closing-line value remain unpublished until eligible virtual positions settle with legitimate evidence.</span></div>
+            </div>
+          )}
           <section className="metric-grid metric-grid--four" aria-label="Betting performance summary">
             <MetricCard label="Current bankroll" value={`$${data.betting.current_bankroll.toFixed(2)}`} detail={`Opened at $${data.betting.starting_bankroll.toFixed(0)}`} />
             <MetricCard label="Net P/L" value={`${data.betting.net_profit_loss >= 0 ? '+' : ''}$${data.betting.net_profit_loss.toFixed(2)}`} detail={`$${data.betting.total_risked.toFixed(2)} risked`} trend={data.betting.net_profit_loss > 0 ? 'positive' : data.betting.net_profit_loss < 0 ? 'negative' : 'neutral'} />
-            <MetricCard label="ROI / yield" value={data.betting.has_settled && data.betting.roi != null ? `${data.betting.roi > 0 ? '+' : ''}${data.betting.roi.toFixed(2)}%` : '—'} detail={data.betting.has_settled ? 'Return on stake' : 'Awaiting settled positions'} />
+            <MetricCard label="ROI" value={hasSettledBetting && data.betting.roi != null ? `${data.betting.roi > 0 ? '+' : ''}${data.betting.roi.toFixed(2)}%` : '—'} detail={hasSettledBetting ? 'Return on settled stake' : 'Awaiting settled positions'} />
+            <MetricCard label="Yield" value={hasSettledBetting && data.betting.yield_pct != null ? `${data.betting.yield_pct > 0 ? '+' : ''}${data.betting.yield_pct.toFixed(2)}%` : '—'} detail={hasSettledBetting ? 'Net return on settled risk' : 'Awaiting settled positions'} />
             <MetricCard label="Positions" value={`${data.betting.positions}`} detail={`${data.betting.settled} settled · ${data.betting.open} open`} />
             <MetricCard label="Record" value={data.betting.record} detail="Win–loss–push" />
             <MetricCard label="Max drawdown" value={`$${data.betting.max_drawdown.toFixed(2)}`} detail={`Longest losing streak ${data.betting.longest_losing_streak}`} trend="negative" />
-            <MetricCard label="Closing line value" value={data.betting.closing_line_value != null ? `${data.betting.closing_line_value > 0 ? '+' : ''}${data.betting.closing_line_value.toFixed(2)}%` : 'N/A'} detail={data.betting.beat_close_percentage != null ? `Beat close ${data.betting.beat_close_percentage}%` : 'No closing sample'} />
+            <MetricCard label="Closing line value" value={hasLegitimateClv ? `${data.betting.closing_line_value! > 0 ? '+' : ''}${data.betting.closing_line_value!.toFixed(2)}%` : '—'} detail={hasLegitimateClv && data.betting.beat_close_percentage != null ? `Beat close ${data.betting.beat_close_percentage}%` : 'No legitimate closing sample'} />
             <MetricCard label="Void / push" value={`${data.betting.voids} / ${data.betting.pushes}`} detail="Excluded from ROI" />
           </section>
           <Panel title="Betting breakdowns" eyebrow="TIER · MARKET · ENGINE · MONTH">
-            {data.betting.has_settled ? (
+            {hasSettledBetting ? (
               <TableScroll><table className="data-table"><thead><tr><th>Dimension</th><th>Key</th><th>Positions</th><th>Record</th><th>P/L</th><th>ROI</th></tr></thead><tbody>
                 {['tier', 'market', 'engine', 'month'].flatMap((dim) => (data.betting?.breakdowns[dim] ?? []).map((row) => (
                   <tr key={`${dim}-${row.key}`}><td>{dim}</td><td>{row.key}</td><td>{row.positions}</td><td>{row.record}</td><td className={row.profit_loss > 0 ? 'positive' : row.profit_loss < 0 ? 'negative' : ''}>{`${row.profit_loss >= 0 ? '+' : ''}$${row.profit_loss.toFixed(2)}`}</td><td>{row.roi != null ? `${row.roi.toFixed(1)}%` : '—'}</td></tr>

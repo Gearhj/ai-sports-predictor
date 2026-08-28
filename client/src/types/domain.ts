@@ -161,7 +161,7 @@ export interface GameOpportunity {
   availability: AvailabilityContext
   best: OpportunitySelection | null
   alternates: OpportunitySelection[]
-  experiment_status?: 'NOT_IN_EXPERIMENT' | 'PROVISIONAL' | 'FROZEN' | 'SETTLED'
+  experiment_status?: 'NOT_IN_EXPERIMENT' | 'ELIGIBLE' | 'PROVISIONAL' | 'NO_POSITION' | 'FROZEN' | 'SETTLED'
   experiment_stake?: number | null
 }
 
@@ -575,6 +575,23 @@ export interface Position {
   clv: number | null
 }
 
+export interface BankrollDailyPerformance {
+  date: string
+  positions: number
+  settled: number
+  amount_risked: number
+  profit_loss: number
+  bankroll_after: number
+  no_bet: boolean
+  no_bet_reasons: string[]
+}
+
+export interface ClosingQuoteCoverage {
+  positions_with_closing_quote: number
+  settled_positions: number
+  percentage: number | null
+}
+
 export interface BankrollData extends DataProvenance {
   starting_bankroll: number
   current_bankroll: number
@@ -590,8 +607,11 @@ export interface BankrollData extends DataProvenance {
   policy_max_stake_percentage?: number
   policy_edge_threshold_percentage?: number
   experiment_status?: 'NOT_STARTED' | 'ACTIVE'
+  experiment_id?: string | null
+  experiment_name?: string | null
   equity_curve: Array<{ date: string; bankroll: number; benchmark: number }>
   monthly: Array<{ month: string; positions: number; record: string; profit_loss: number; roi: number }>
+  daily?: BankrollDailyPerformance[]
   positions: Position[]
   experiment_start?: string | null
   controlling_engine?: string | null
@@ -601,6 +621,8 @@ export interface BankrollData extends DataProvenance {
   open_positions?: number
   settled_positions?: number
   no_bet_days?: number
+  current_drawdown?: number
+  closing_quote_coverage?: ClosingQuoteCoverage | null
   betting?: BettingPerformance | null
 }
 

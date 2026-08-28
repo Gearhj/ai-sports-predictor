@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { demoPerformance } from '../data/demo'
 import type { OfflineEvaluation, PerformanceData } from '../types/domain'
@@ -44,6 +44,41 @@ describe('PerformancePage offline chronological evaluation', () => {
     expect(screen.getAllByText('NOT RUN').length).toBeGreaterThan(0)
     expect(screen.getByText(/No governed offline evaluation artifact has been published/i)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Published forecast record' })).toBeInTheDocument()
+  })
+
+  it('publishes a collecting state instead of zero ROI, yield, or CLV before settlement', async () => {
+    const payload = livePerformance()
+    payload.evaluated_games = 0
+    payload.evaluation_available = false
+    payload.brier_score = null
+    payload.log_loss = null
+    payload.accuracy = null
+    payload.run_mae = null
+    payload.total_mae = null
+    payload.versus_market_brier = null
+    payload.calibration = []
+    payload.rolling = []
+    payload.model_components = []
+    payload.by_confidence = []
+    payload.betting = {
+      starting_bankroll: 1000, current_bankroll: 1000, net_profit_loss: 0, total_risked: 0,
+      roi: null, yield_pct: null, positions: 0, settled: 0, open: 0,
+      wins: 0, losses: 0, pushes: 0, voids: 0, record: '0–0–0',
+      max_drawdown: 0, longest_losing_streak: 0, closing_line_value: null,
+      beat_close_percentage: null, has_settled: false, breakdowns: {},
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(payload)))
+
+    render(<PerformancePage />)
+
+    expect(await screen.findByText('COLLECTING DATA')).toBeInTheDocument()
+    expect(screen.getByText('COLLECTING SETTLEMENT EVIDENCE')).toBeInTheDocument()
+    for (const label of ['ROI', 'Yield', 'Closing line value']) {
+      const card = screen.getByText(label).closest('article') as HTMLElement
+      expect(within(card).getByText('—')).toBeInTheDocument()
+      expect(card).not.toHaveTextContent('0.00%')
+    }
+    expect(screen.getByText('No legitimate closing sample')).toBeInTheDocument()
   })
 
   it('fails closed when the historical sample is insufficient', async () => {

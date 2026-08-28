@@ -55,6 +55,8 @@ from app.models import (
     ShadowDecisionSettlement,
     ShadowForecast,
     ShadowForecastBundle,
+    ShadowExperiment,
+    ShadowExperimentDecision,
     ShadowQuoteCapture,
     ShadowRescore,
     SourceFreshnessPolicy,
@@ -121,6 +123,8 @@ _APPEND_ONLY_TYPES = (
     ShadowDecisionSettlement,
     ShadowForecast,
     ShadowForecastBundle,
+    ShadowExperiment,
+    ShadowExperimentDecision,
     ShadowQuoteCapture,
     ShadowRescore,
     SourceFreshnessPolicy,
@@ -174,6 +178,21 @@ _IMMUTABLE_MODEL_VERSION_FIELDS = frozenset({
 
 _IMMUTABLE_FORECAST_FIELDS = frozenset({"forecast_track"})
 
+_IMMUTABLE_POSITION_FIELDS = frozenset({
+    "forecast_id",
+    "market_outcome_id",
+    "odds_snapshot_id",
+    "placed_at",
+    "stake",
+    "decimal_odds",
+    "strategy",
+    "shadow_experiment_id",
+    "shadow_decision_id",
+    "bankroll_before_position",
+    "recommendation_policy_version",
+    "staking_policy_version",
+})
+
 
 def install_immutability_guards() -> None:
     """Install process-wide append-only protections once.
@@ -194,8 +213,11 @@ def install_immutability_guards() -> None:
                 raise ImmutableRecordError(f"{type(record).__name__} records are append-only")
             if isinstance(record, Forecast) and record.status == ForecastStatus.PUBLISHED:
                 raise ImmutableRecordError("Published forecasts cannot be deleted")
-            if isinstance(record, OfficialAspPosition) and record.status == PositionStatus.SETTLED:
-                raise ImmutableRecordError("Settled official positions cannot be deleted")
+            if isinstance(record, OfficialAspPosition) and (
+                record.shadow_experiment_id is not None
+                or record.status in {PositionStatus.SETTLED, PositionStatus.VOID}
+            ):
+                raise ImmutableRecordError("Experiment and settled official positions cannot be deleted")
             if isinstance(record, PositionSettlement):
                 raise ImmutableRecordError("Position settlement records are append-only")
             if isinstance(record, ModelVersion):
@@ -238,9 +260,18 @@ def install_immutability_guards() -> None:
                     raise ImmutableRecordError("Published forecasts cannot be modified; create a new version")
             if isinstance(record, OfficialAspPosition) and session.is_modified(record, include_collections=False):
                 state = inspect(record)
+                changed = sorted(
+                    field for field in _IMMUTABLE_POSITION_FIELDS
+                    if state.attrs[field].history.has_changes()
+                )
+                if changed:
+                    raise ImmutableRecordError(
+                        "Official position evidence is immutable after creation: " + ", ".join(changed)
+                    )
                 status_history = state.attrs.status.history
-                was_settled = (not status_history.has_changes() and record.status == PositionStatus.SETTLED) or (
-                    PositionStatus.SETTLED in status_history.deleted
+                terminal = {PositionStatus.SETTLED, PositionStatus.VOID}
+                was_settled = (not status_history.has_changes() and record.status in terminal) or (
+                    any(value in terminal for value in status_history.deleted)
                 )
                 if was_settled:
                     raise ImmutableRecordError("Settled official positions cannot be modified")

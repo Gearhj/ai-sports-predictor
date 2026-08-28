@@ -135,6 +135,9 @@ class OpportunitySelection(BaseModel):
     selection: str
     line: float | None = None
     sportsbook: str | None = None
+    sportsbook_id: str | None = None
+    market_outcome_id: str | None = None
+    odds_snapshot_id: str | None = None
     american_odds: int | None = None
     decimal_odds: float | None = None
     model_probability: float | None = None
@@ -151,6 +154,12 @@ class OpportunitySelection(BaseModel):
     potential_profit: float = 0.0
     total_return: float = 0.0
     opportunity_score: float = 0.0
+    # Exact unit-interval values used by the experiment service. The display
+    # fields above remain percentage points for API compatibility.
+    model_probability_fraction: float | None = None
+    no_vig_probability_fraction: float | None = None
+    edge_fraction: float | None = None
+    expected_value_fraction: float | None = None
 
 
 class AvailabilityContext(BaseModel):
@@ -188,8 +197,10 @@ class GameOpportunity(BaseModel):
     availability: AvailabilityContext = Field(default_factory=AvailabilityContext)
     best: OpportunitySelection | None = None
     alternates: list[OpportunitySelection] = Field(default_factory=list)
-    # $1,000 experiment membership: NOT_IN_EXPERIMENT | PROVISIONAL | FROZEN | SETTLED
-    experiment_status: Literal["NOT_IN_EXPERIMENT", "PROVISIONAL", "FROZEN", "SETTLED"] = "NOT_IN_EXPERIMENT"
+    # Prospective $1,000 experiment membership, derived from canonical positions.
+    experiment_status: Literal[
+        "NOT_IN_EXPERIMENT", "ELIGIBLE", "PROVISIONAL", "NO_POSITION", "FROZEN", "SETTLED"
+    ] = "NOT_IN_EXPERIMENT"
     experiment_stake: float | None = None
 
 
@@ -578,6 +589,23 @@ class BettingPerformance(BaseModel):
     breakdowns: dict[str, list[BettingBreakdownRow]]
 
 
+class BankrollDailyPerformance(BaseModel):
+    date: str
+    positions: int
+    settled: int
+    amount_risked: float
+    profit_loss: float
+    bankroll_after: float
+    no_bet: bool
+    no_bet_reasons: list[str] = Field(default_factory=list)
+
+
+class ClosingQuoteCoverage(BaseModel):
+    positions_with_closing_quote: int
+    settled_positions: int
+    percentage: float | None
+
+
 class BankrollData(BaseModel):
     data_mode: DataMode
     experiment_status: Literal["NOT_STARTED", "ACTIVE"]
@@ -596,8 +624,11 @@ class BankrollData(BaseModel):
     policy_edge_threshold_percentage: float
     equity_curve: list[dict]
     monthly: list[dict]
+    daily: list[BankrollDailyPerformance] = Field(default_factory=list)
     positions: list[PositionSchema]
     # Forward $1,000 experiment metadata (null on the legacy official-position view).
+    experiment_id: str | None = None
+    experiment_name: str | None = None
     experiment_start: str | None = None
     controlling_engine: str | None = None
     code_commit: str | None = None
@@ -606,6 +637,8 @@ class BankrollData(BaseModel):
     open_positions: int = 0
     settled_positions: int = 0
     no_bet_days: int = 0
+    current_drawdown: float = 0.0
+    closing_quote_coverage: ClosingQuoteCoverage | None = None
     betting: BettingPerformance | None = None
 
 

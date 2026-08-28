@@ -18,8 +18,12 @@ function lineupLabel(status: string): string {
   return status
 }
 
-const EXPERIMENT_LABEL: Record<string, string> = {
+type VisibleExperimentStatus = Exclude<NonNullable<GameOpportunity['experiment_status']>, 'NOT_IN_EXPERIMENT'>
+
+const EXPERIMENT_LABEL: Record<VisibleExperimentStatus, string> = {
+  ELIGIBLE: '$1K EXPERIMENT · ELIGIBLE',
   PROVISIONAL: '$1K EXPERIMENT · PROVISIONAL',
+  NO_POSITION: '$1K EXPERIMENT · NO POSITION',
   FROZEN: '$1K EXPERIMENT · FROZEN',
   SETTLED: '$1K EXPERIMENT · SETTLED',
 }
@@ -78,6 +82,7 @@ export function OpportunityCard({
   const marketsHref = `${demo ? '/demo' : ''}/markets`
   const bet = selection ?? opportunity?.best ?? null
   const state: RecommendationState = bet?.recommendation ?? opportunity?.recommendation_state ?? 'NO_BET'
+  const experimentStatus = opportunity?.experiment_status
   const reason = opportunity?.recommendation_reason ?? 'No governed quote is available.'
   const missing = warnings(game, bet)
 
@@ -106,9 +111,9 @@ export function OpportunityCard({
           <span className="opportunity-card__venue"><MapPin size={13} /> {game.venue.split(' · ')[0]}</span>
         </div>
         <span className={`rec-badge rec-badge--${state.toLowerCase()}`}>{STATE_LABEL[state]}</span>
-        {opportunity?.experiment_status && opportunity.experiment_status !== 'NOT_IN_EXPERIMENT' && (
-          <span className={`rec-badge rec-badge--experiment rec-badge--experiment-${opportunity.experiment_status.toLowerCase()}`}>
-            {EXPERIMENT_LABEL[opportunity.experiment_status]}
+        {experimentStatus && experimentStatus !== 'NOT_IN_EXPERIMENT' && (
+          <span className={`rec-badge rec-badge--experiment rec-badge--experiment-${experimentStatus.toLowerCase()}`}>
+            {EXPERIMENT_LABEL[experimentStatus]}
             {opportunity.experiment_stake ? ` · ${formatCurrency(opportunity.experiment_stake)}` : ''}
           </span>
         )}

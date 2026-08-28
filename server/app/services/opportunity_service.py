@@ -77,6 +77,9 @@ class BookQuote:
     side_american: int
     opposite_american: int
     observed_at: datetime
+    sportsbook_id: str | None = None
+    market_outcome_id: str | None = None
+    odds_snapshot_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,9 @@ class Candidate:
     american_odds: int | None
     decimal_odds: float | None
     book: str | None
+    sportsbook_id: str | None
+    market_outcome_id: str | None
+    odds_snapshot_id: str | None
     observed_at: datetime | None
     quote_age_seconds: int | None
     is_stale: bool
@@ -238,6 +244,9 @@ def price_side(
         american_odds=priced.best_american_odds,
         decimal_odds=priced.best_decimal_odds,
         book=best.book,
+        sportsbook_id=best.sportsbook_id,
+        market_outcome_id=best.market_outcome_id,
+        odds_snapshot_id=best.odds_snapshot_id,
         observed_at=observed,
         quote_age_seconds=max(0, int((now - observed).total_seconds())),
         is_stale=stale,

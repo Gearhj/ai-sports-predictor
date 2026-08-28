@@ -15,8 +15,18 @@ def test_eastern_today_does_not_flip_at_midnight_utc() -> None:
 
 
 def test_scheduler_registration_is_quota_safe(settings) -> None:
-    disabled_odds = build_scheduler(settings)
+    baseline = settings.model_copy(update={"live_shadow_enabled": False})
+    disabled_odds = build_scheduler(baseline)
     assert {job.id for job in disabled_odds.get_jobs()} == {"asp-daily-pipeline", "asp-finalize-games"}
-    enabled = settings.model_copy(update={"odds_polling_enabled": True})
+    enabled = baseline.model_copy(update={"odds_polling_enabled": True})
     with_odds = build_scheduler(enabled)
     assert {job.id for job in with_odds.get_jobs()} == {"asp-daily-pipeline", "asp-finalize-games", "asp-odds-poll"}
+
+    live_shadow = baseline.model_copy(update={"live_shadow_enabled": True})
+    with_shadow = {job.id for job in build_scheduler(live_shadow).get_jobs()}
+    assert with_shadow == {
+        "asp-daily-pipeline",
+        "asp-finalize-games",
+        "asp-shadow-experiment-freeze",
+        "asp-availability-poll",
+    }

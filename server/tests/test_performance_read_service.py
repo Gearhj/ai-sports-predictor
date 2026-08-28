@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -17,6 +18,7 @@ from app.models import (
     ModelVersion,
 )
 from app.services.read_service import ReadService
+from app.services.shadow_experiment_service import ShadowExperimentService
 
 
 @pytest.mark.asyncio
@@ -153,6 +155,31 @@ async def test_settled_performance_populates_auditable_metrics(session, settings
     assert performance.model_version == (
         f"{operational_model.name} v{operational_model.version}"
     )
+
+    # Starting the prospective experiment after the first final excludes that
+    # otherwise-valid LIVE forecast from the experiment's public scorecard.
+    ordered_games = sorted(games, key=lambda game: game.starts_at)
+    started_at = ordered_games[1].starts_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    ShadowExperimentService(session, settings).ensure_started(
+        start_date=started_at.astimezone(
+            ZoneInfo(settings.display_timezone)
+        ).date(),
+        now=started_at,
+        code_commit="abc123",
+    )
+    session.commit()
+    prospective = ReadService(session, settings).performance()
+    expected = sum(
+        1
+        for game in games
+        if (game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC))
+        >= started_at
+    )
+    assert 0 < expected < len(games)
+    assert prospective.evaluated_games == expected
+
     health = ReadService(session, settings).health(date(2026, 8, 12))
     assert health.model_version == f"{operational_model.name} v{operational_model.version}"
 

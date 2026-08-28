@@ -53,6 +53,7 @@ const opportunities: GameOpportunity[] = [
     game_id: g0.id, sport: 'MLB', recommendation_state: 'QUALIFIED_BET', review_required: false,
     recommendation_reason: 'Uncertainty-adjusted edge clears the qualified bar.', qualification_reasons: [], opportunity_score: 84,
     markets_available: ['Moneyline', 'Total'], readiness: 78, uncertainty: 2.4, model_disagreement: 5.1,
+    experiment_status: 'ELIGIBLE', experiment_stake: null,
     availability: avail({ lineup_status: 'CONFIRMED', lineup_complete: true, starting_pitcher_status: 'CONFIRMED', injury_feed_authoritative: true, production_injury_coverage: true, unavailable_players: 0, last_availability_update: '2026-08-27T14:50:00Z', last_availability_event: 'LINEUP_CONFIRMED', rescored: true, forecast_before: 52, forecast_after: 55, edge_before: 2.4, edge_after: 4.0, book_moved: true }),
     best: sel({ market_type: 'Moneyline', selection: 'QUAL-ML', american_odds: 120, expected_value: 22.5, opportunity_score: 84, virtual_stake: 10, potential_profit: 12, total_return: 22 }),
     alternates: [sel({ recommendation: 'WATCH', market_type: 'Total', selection: 'ALT-OVER-85', line: 8.5, american_odds: -110, opportunity_score: 30, virtual_stake: 0, potential_profit: 0, total_return: 0 })],
@@ -62,6 +63,7 @@ const opportunities: GameOpportunity[] = [
     recommendation_reason: 'Edge clears the value bar, but a required starter is unconfirmed — provisional.',
     qualification_reasons: ['Starting pitcher probable', 'Lineup not confirmed'], opportunity_score: 60,
     markets_available: ['Run line'], readiness: 66, uncertainty: 3.1, model_disagreement: 2.2,
+    experiment_status: 'PROVISIONAL', experiment_stake: null,
     availability: avail({ lineup_status: 'PROJECTED', starting_pitcher_status: 'PROBABLE' }),
     best: sel({ recommendation: 'PROVISIONAL_EDGE', market_type: 'Run line', selection: 'PROV-RL-15', line: 1.5, american_odds: -150, opportunity_score: 60, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
     alternates: [],
@@ -71,6 +73,7 @@ const opportunities: GameOpportunity[] = [
     recommendation_reason: 'Model–market disagreement does not clear the qualified bar.',
     qualification_reasons: ['Latest quote is stale'], opportunity_score: 40,
     markets_available: ['Total'], readiness: 64, uncertainty: 3.4, model_disagreement: 6.0,
+    experiment_status: 'NO_POSITION', experiment_stake: null,
     availability: avail(),
     best: sel({ recommendation: 'WATCH', market_type: 'Total', selection: 'WATCH-UNDER-9', line: 9, american_odds: -105, opportunity_score: 40, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
     alternates: [],
@@ -80,6 +83,7 @@ const opportunities: GameOpportunity[] = [
     recommendation_reason: 'Model–market gap +34.2 pts exceeds the review threshold — EXTREME DISAGREEMENT.',
     qualification_reasons: ['Extreme model-market disagreement'], opportunity_score: 55,
     markets_available: ['Total'], readiness: 74, uncertainty: 2.8, model_disagreement: 6.6,
+    experiment_status: 'FROZEN', experiment_stake: 8,
     availability: avail({ lineup_status: 'DETAILS_MISSING', unavailable_players: 1 }),
     best: sel({ recommendation: 'EXTREME_DISAGREEMENT', market_type: 'Total', selection: 'EXTREME-OVER-65', line: 6.5, american_odds: -103, raw_edge: 34.2, uncertainty_adjusted_edge: 34, expected_value: 67.8, opportunity_score: 55, virtual_stake: 0, potential_profit: 0, total_return: 0 }),
     alternates: [],
@@ -88,6 +92,7 @@ const opportunities: GameOpportunity[] = [
     game_id: g3.id, sport: 'MLB', recommendation_state: 'NO_BET', review_required: false,
     recommendation_reason: 'No positive-expected-value edge; no position.', qualification_reasons: ['No complete two-sided governed quote'], opportunity_score: 0,
     markets_available: [], readiness: 60, uncertainty: 4.0, model_disagreement: null,
+    experiment_status: 'SETTLED', experiment_stake: 5,
     availability: avail(),
     best: null, alternates: [],
   },
@@ -177,6 +182,18 @@ describe('Complete slate + multi-sport board', () => {
     expect(within(slate).getByText('#1 OPPORTUNITY')).toBeInTheDocument()
     expect(within(slate).getByText('#2 OPPORTUNITY')).toBeInTheDocument()
     expect(within(slate).getByText('#3 OPPORTUNITY')).toBeInTheDocument()
+  })
+
+  it('renders experiment lifecycle labels only from the explicit experiment status fields', async () => {
+    stub()
+    render(<App />)
+    const slate = await completeSlate()
+
+    expect(within(slate).getByText('$1K EXPERIMENT · ELIGIBLE')).toBeInTheDocument()
+    expect(within(slate).getByText('$1K EXPERIMENT · PROVISIONAL')).toBeInTheDocument()
+    expect(within(slate).getByText('$1K EXPERIMENT · NO POSITION')).toBeInTheDocument()
+    expect(within(slate).getByText('$1K EXPERIMENT · FROZEN · $8.00')).toBeInTheDocument()
+    expect(within(slate).getByText('$1K EXPERIMENT · SETTLED · $5.00')).toBeInTheDocument()
   })
 
   it('labels a provisional edge distinctly and takes no virtual position', async () => {
