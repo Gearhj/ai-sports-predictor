@@ -172,8 +172,22 @@ class CanonicalNormalizer:
         for dto in games:
             mode = _source_mode(dto.source_mode, "schedule")
             venue = self._venue(dto.venue.name, dto.venue.latitude, dto.venue.longitude, dto.venue.source_id, source)
-            away = self._team(league.id, dto.away_team.source_id, dto.away_team.name, dto.away_team.abbreviation, source)
-            home = self._team(league.id, dto.home_team.source_id, dto.home_team.name, dto.home_team.abbreviation, source)
+            away = self._team(
+                league.id,
+                dto.away_team.source_id,
+                dto.away_team.name,
+                dto.away_team.abbreviation,
+                source,
+                mode,
+            )
+            home = self._team(
+                league.id,
+                dto.home_team.source_id,
+                dto.home_team.name,
+                dto.home_team.abbreviation,
+                source,
+                mode,
+            )
             existing_mapping = self.session.scalar(
                 select(ExternalIdMapping).where(
                     ExternalIdMapping.entity_type == "game",
@@ -1031,9 +1045,26 @@ class CanonicalNormalizer:
         self.session.flush()
         return count
 
-    def _team(self, league_id: Any, external_id: str, name: str, abbreviation: str | None, source: str) -> Team:
+    def _team(
+        self,
+        league_id: Any,
+        external_id: str,
+        name: str,
+        abbreviation: str | None,
+        source: str,
+        source_mode: str,
+    ) -> Team:
         mapped = self._mapped_entity("team", source, external_id, Team)
         if mapped:
+            authoritative_abbreviation = (abbreviation or "").strip()
+            historical_placeholder = f"MLB{external_id}"[:12]
+            if (
+                source == "MLB_STATS_API"
+                and source_mode == "LIVE"
+                and authoritative_abbreviation
+                and mapped.abbreviation == historical_placeholder
+            ):
+                mapped.abbreviation = authoritative_abbreviation
             return mapped
         team = self.session.scalar(select(Team).where(Team.league_id == league_id, Team.name == name))
         if not team:

@@ -24,6 +24,7 @@ from app.models import (
     MarketOutcome,
     MarketType,
     OddsSnapshot,
+    ProviderRequestLedger,
     ShadowRescore,
 )
 from app.prospective.contracts import AvailabilityEventInput, AvailabilityEventType
@@ -213,6 +214,41 @@ async def test_status_states(session, settings):
     # Credentials present + not enabled -> ready.
     ready = settings.model_copy(update={"the_odds_api_key": "x" * 32, "live_shadow_enabled": False})
     assert LiveShadowOperator(session, ready).status()["operational_state"] == "LIVE_SHADOW_READY"
+
+
+def test_status_counts_one_request_lifecycle_and_reads_terminal_quota(session, settings):
+    now = datetime(2026, 8, 28, 12, tzinfo=UTC)
+    reservation = ProviderRequestLedger(
+        provider="THE_ODDS_API",
+        endpoint_key="baseball_mlb_odds",
+        requested_at=now - timedelta(minutes=1),
+        status="RESERVED",
+        request_fingerprint="a" * 64,
+        controlled_live_request=False,
+        source_mode="LIVE",
+    )
+    session.add(reservation)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=reservation.provider,
+        endpoint_key=reservation.endpoint_key,
+        requested_at=reservation.requested_at,
+        completed_at=now,
+        status="SUCCEEDED",
+        request_fingerprint=reservation.request_fingerprint,
+        quota_cost=3,
+        quota_remaining=479,
+        records_received=13,
+        controlled_live_request=False,
+        source_mode="LIVE",
+        reservation_id=reservation.id,
+    ))
+    session.commit()
+
+    quota = LiveShadowOperator(session, settings).status(now=now)["quota"]
+
+    assert quota["requests_today"] == 1
+    assert quota["quota_remaining"] == 479
 
 
 @pytest.mark.asyncio

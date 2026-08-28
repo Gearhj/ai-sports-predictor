@@ -10,6 +10,21 @@ from app.core.logging import configure_logging
 from app.data_sources import MLBStatsAPIAdapter, OpenMeteoAdapter, SourceError, TheOddsAPIAdapter
 
 
+def test_mlb_team_normalization_preserves_provider_abbreviation() -> None:
+    team = MLBStatsAPIAdapter._team({
+        "team": {
+            "id": 118,
+            "name": "Kansas City Royals",
+            "abbreviation": "KC",
+        },
+        "leagueRecord": {"wins": 70, "losses": 61},
+    })
+
+    assert team.source_id == "118"
+    assert team.name == "Kansas City Royals"
+    assert team.abbreviation == "KC"
+
+
 @pytest.mark.asyncio
 async def test_mlb_schedule_normalization_keeps_probable_unconfirmed() -> None:
     payload = {

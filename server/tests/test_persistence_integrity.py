@@ -6,10 +6,18 @@ import pytest
 from sqlalchemy import func, select
 
 from app.audit import ImmutableRecordError
-from app.data_sources.base import BookmakerDTO, BookMarketDTO, OddsEventDTO, OddsOutcomeDTO
+from app.data_sources.base import (
+    BookmakerDTO,
+    BookMarketDTO,
+    OddsEventDTO,
+    OddsOutcomeDTO,
+    ScheduleGameDTO,
+    TeamDTO,
+    VenueDTO,
+)
 from app.ingestion.normalizer import CanonicalNormalizer
 from app.jobs import seed_demo_data
-from app.models import Forecast, Game, OddsSnapshot, TeamFeature
+from app.models import ExternalIdMapping, Forecast, Game, OddsSnapshot, Team, TeamFeature
 from app.services.read_service import ReadService
 
 
@@ -54,6 +62,79 @@ async def test_odds_snapshots_append_and_use_fetch_availability(session, setting
     appended = list(session.scalars(select(OddsSnapshot).where(OddsSnapshot.source == "TEST_SOURCE")))
     assert all(item.available_as_of.replace(tzinfo=UTC) == fetched for item in appended)
     assert all(item.observed_at.replace(tzinfo=UTC) == observed for item in appended)
+
+
+def test_live_schedule_reconciles_only_exact_historical_team_placeholder(session) -> None:
+    normalizer = CanonicalNormalizer(session)
+    _, league, _, _ = normalizer.ensure_core(2026)
+    placeholder = Team(
+        league_id=league.id,
+        name="Kansas City Royals",
+        abbreviation="MLB118",
+    )
+    existing_non_placeholder = Team(
+        league_id=league.id,
+        name="Cleveland Guardians",
+        abbreviation="CLV",
+    )
+    session.add_all([placeholder, existing_non_placeholder])
+    session.flush()
+    session.add_all([
+        ExternalIdMapping(
+            entity_type="team",
+            entity_id=placeholder.id,
+            source="MLB_STATS_API",
+            external_id="118",
+        ),
+        ExternalIdMapping(
+            entity_type="team",
+            entity_id=existing_non_placeholder.id,
+            source="MLB_STATS_API",
+            external_id="114",
+        ),
+    ])
+    session.flush()
+    scheduled_at = datetime(2026, 8, 28, 23, 10, tzinfo=UTC)
+    schedule = [ScheduleGameDTO(
+        source_game_id="824396",
+        scheduled_at=scheduled_at,
+        event_date=scheduled_at.date(),
+        status="Scheduled",
+        away_team=TeamDTO(
+            source_id="118",
+            name="Kansas City Royals",
+            abbreviation="KC",
+        ),
+        home_team=TeamDTO(
+            source_id="114",
+            name="Cleveland Guardians",
+            abbreviation="CLE",
+        ),
+        venue=VenueDTO(source_id="5", name="Progressive Field"),
+        source_mode="LIVE",
+    )]
+
+    first_game = normalizer.ingest_schedule(
+        schedule,
+        "MLB_STATS_API",
+        available_as_of=scheduled_at - timedelta(hours=6),
+    )[0]
+    second_game = normalizer.ingest_schedule(
+        schedule,
+        "MLB_STATS_API",
+        available_as_of=scheduled_at - timedelta(hours=5),
+    )[0]
+
+    assert first_game.id == second_game.id
+    assert placeholder.abbreviation == "KC"
+    assert existing_non_placeholder.abbreviation == "CLV"
+    mappings = list(session.scalars(select(ExternalIdMapping).where(
+        ExternalIdMapping.entity_type == "team",
+        ExternalIdMapping.source == "MLB_STATS_API",
+        ExternalIdMapping.external_id == "118",
+    )))
+    assert len(mappings) == 1
+    assert mappings[0].entity_id == placeholder.id
 
 
 @pytest.mark.asyncio

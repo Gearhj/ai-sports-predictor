@@ -823,6 +823,7 @@ class MLBStatsAPIAdapter:
         return TeamDTO(
             source_id=str(team.get("id", "")),
             name=team.get("name", "Unknown team"),
+            abbreviation=team.get("abbreviation") or None,
             record_wins=_to_int(record.get("wins")),
             record_losses=_to_int(record.get("losses")),
         )

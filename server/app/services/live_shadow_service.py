@@ -171,10 +171,19 @@ class LiveShadowOperator:
     def status(self, *, now: datetime | None = None) -> dict:
         now = now or datetime.now(UTC)
         odds_creds = bool(self.settings.the_odds_api_key)
-        ledger = self.session.scalar(
+        terminal_ledger = self.session.scalar(
             select(ProviderRequestLedger)
-            .where(ProviderRequestLedger.provider == "THE_ODDS_API")
-            .order_by(ProviderRequestLedger.requested_at.desc()).limit(1)
+            .where(
+                ProviderRequestLedger.provider == "THE_ODDS_API",
+                ProviderRequestLedger.source_mode == "LIVE",
+                ProviderRequestLedger.status.in_(("SUCCEEDED", "FAILED")),
+            )
+            .order_by(
+                ProviderRequestLedger.completed_at.desc(),
+                ProviderRequestLedger.created_at.desc(),
+                ProviderRequestLedger.id.desc(),
+            )
+            .limit(1)
         )
         day_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
         requests_today = int(self.session.scalar(
@@ -182,6 +191,8 @@ class LiveShadowOperator:
                 ProviderRequestLedger.provider == "THE_ODDS_API",
                 ProviderRequestLedger.requested_at >= day_start,
                 ProviderRequestLedger.requested_at < day_start + timedelta(days=1),
+                ProviderRequestLedger.source_mode == "LIVE",
+                ProviderRequestLedger.status == "RESERVED",
             )
         ) or 0)
         last_event = self.session.scalar(select(AvailabilityEvent).order_by(AvailabilityEvent.received_at.desc()).limit(1))
@@ -212,7 +223,7 @@ class LiveShadowOperator:
             "injury_feed": self._injury_feed_health(),
             "executable": False,
             "quota": {
-                "quota_remaining": ledger.quota_remaining if ledger else None,
+                "quota_remaining": terminal_ledger.quota_remaining if terminal_ledger else None,
                 "quota_floor": self.settings.odds_quota_floor,
                 "daily_request_budget": self.settings.odds_daily_request_budget,
                 "requests_today": requests_today,
