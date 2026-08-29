@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -10,18 +10,51 @@ from app.core.logging import logger
 from app.core.time import local_today
 from app.db.session import SessionLocal
 from app.jobs.orchestrator import JobOrchestrator
+from app.models.entities import GameStatus
 from app.services.game_refresh_state_service import GameRefreshStateService
+
+
+def _scheduled_event_dates(
+    job_name: str,
+    orchestrator: JobOrchestrator,
+    settings: Settings,
+) -> tuple[date, ...]:
+    """Carry an unfinished prior local slate through the midnight boundary.
+
+    Only the quota-free finalization pipeline receives the carryover date. Other
+    scheduled jobs remain bound to the current local date, and a prior slate
+    containing only terminal games does not trigger another provider refresh.
+    """
+
+    today = local_today(settings.display_timezone)
+    if job_name != "finalize-games":
+        return (today,)
+    previous = today - timedelta(days=1)
+    previous_incomplete = any(
+        game.status in (GameStatus.SCHEDULED, GameStatus.LIVE)
+        for game in orchestrator._games_for_date(previous)
+    )
+    return (previous, today) if previous_incomplete else (today,)
 
 
 async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
     with SessionLocal() as session:
+        orchestrator = JobOrchestrator(session, settings)
         try:
-            await JobOrchestrator(session, settings).run(
-                job_name,
-                event_date=local_today(settings.display_timezone),
-            )
+            event_dates = _scheduled_event_dates(job_name, orchestrator, settings)
         except Exception as exc:
             logger.error("scheduled_job_failed", job=job_name, error=str(exc))
+            return
+        for event_date in event_dates:
+            try:
+                await orchestrator.run(job_name, event_date=event_date)
+            except Exception as exc:
+                logger.error(
+                    "scheduled_job_failed",
+                    job=job_name,
+                    event_date=event_date.isoformat(),
+                    error=str(exc),
+                )
 
 
 async def execute_pregame_odds_refresh(settings: Settings) -> None:
