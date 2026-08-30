@@ -29,10 +29,20 @@ function todayIso(): string {
   return '2024-09-16'
 }
 
+function initialSlateDate(): string {
+  const value = new URLSearchParams(window.location.search).get('date')
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : todayIso()
+}
+
+function initialSport(): string | null {
+  const value = new URLSearchParams(window.location.search).get('sport')?.toUpperCase()
+  return value === 'NFL' || value === 'BASEBALL' ? value : null
+}
+
 export function ShadowBoardPage() {
-  const [slateDate, setSlateDate] = useState<string>(todayIso())
+  const [slateDate, setSlateDate] = useState<string>(initialSlateDate)
   const [data, setData] = useState<ShadowBoardData | null>(null)
-  const [sport, setSport] = useState<string | null>(null)
+  const [sport, setSport] = useState<string | null>(initialSport)
   const [rescores, setRescores] = useState<ProspectiveRescore[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

@@ -50,6 +50,25 @@ const BOARD: ShadowBoardData = {
   ],
 }
 
+const NFL_BOARD: ShadowBoardData = {
+  slate_date: '2026-09-09',
+  status: 'RESEARCH_SHADOW',
+  executable: false,
+  sports_available: ['BASEBALL', 'NFL'],
+  active_sport: 'NFL',
+  lineage_disclosure: {
+    model: 'NFL M1 Long-History XGBoost',
+    status: 'Research shadow — not promoted',
+    training_evidence: '1999 through completed 2025 season',
+    training_cutoff: '2026-02-08',
+    feature_tier: 'LONG_HISTORY_CORE',
+    historical_oot_win_log_loss: 0.628770,
+    historical_sportsbook_benchmark: 0.606989,
+    historical_conclusion: 'No demonstrated improvement over the market',
+  },
+  games: [],
+}
+
 const RESCORE_BOARD = {
   slate_date: '2024-09-16',
   status: 'RESEARCH_SHADOW',
@@ -72,20 +91,23 @@ const RESCORE_BOARD = {
 }
 
 function stubFetch(board: ShadowBoardData | null, rescoreBoard: unknown = { ...RESCORE_BOARD, rescores: [] }) {
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.includes('/shadow-board/rescores')) {
       return { ok: true, status: 200, json: async () => rescoreBoard } as Response
     }
     if (!board) return { ok: true, status: 200, json: async () => ({ ...BOARD, games: [] }) } as Response
     return { ok: true, status: 200, json: async () => board } as Response
-  }))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
 }
 
 describe('ShadowBoardPage', () => {
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
+    window.history.replaceState({}, '', '/')
   })
 
   it('shows both engines, the research-shadow notice, and NO_BET decisions', async () => {
@@ -116,5 +138,28 @@ describe('ShadowBoardPage', () => {
     expect(screen.getByText('BOOK MOVED')).toBeInTheDocument()
     expect(screen.getByText('Home win before')).toBeInTheDocument()
     expect(screen.getByText('Home win after')).toBeInTheDocument()
+  })
+
+  it('initializes an NFL slate from the URL and renders the exact frozen model lineage', async () => {
+    window.history.replaceState({}, '', '/shadow-board?date=2026-09-09&sport=NFL')
+    const fetchMock = stubFetch(NFL_BOARD)
+    render(<ShadowBoardPage />)
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) =>
+        String(input).includes('/shadow-board?date=2026-09-09&sport=NFL'),
+      )).toBe(true)
+    })
+    expect(screen.getByLabelText('Slate date')).toHaveValue('2026-09-09')
+    expect(await screen.findByRole('tab', { name: 'NFL' })).toHaveClass('tab-button--active')
+    expect(screen.getByRole('heading', { name: 'What model is this?' })).toBeInTheDocument()
+    expect(screen.getByText(/NFL M1 Long-History XGBoost/)).toBeInTheDocument()
+    expect(screen.getByText(/Research shadow — not promoted/)).toBeInTheDocument()
+    expect(screen.getByText(/1999 through completed 2025 season/)).toBeInTheDocument()
+    expect(screen.getByText(/2026-02-08/)).toBeInTheDocument()
+    expect(screen.getByText(/LONG_HISTORY_CORE/)).toBeInTheDocument()
+    expect(screen.getByText(/0\.628770/)).toBeInTheDocument()
+    expect(screen.getByText(/0\.606989/)).toBeInTheDocument()
+    expect(screen.getByText(/No demonstrated improvement over the market/)).toBeInTheDocument()
   })
 })
