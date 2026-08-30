@@ -2943,6 +2943,10 @@ class ShadowForecastBundle(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     __tablename__ = "shadow_forecast_bundles"
     bundle_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    contract_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="AISP_DAILY_FORECAST_BUNDLE_V1",
+        server_default="AISP_DAILY_FORECAST_BUNDLE_V1",
+    )
     bundle_id: Mapped[str] = mapped_column(String(160), nullable=False)
     logical_uri: Mapped[str] = mapped_column(Text, nullable=False)
     source_fixture_id: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -2963,10 +2967,19 @@ class ShadowForecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     __tablename__ = "shadow_forecasts"
     bundle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("shadow_forecast_bundles.id"), index=True, nullable=False)
+    canonical_game_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("games.id"), index=True)
     forecast_id: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
+    forecast_schema_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="AISP_GAME_FORECAST_EXPORT_V1",
+        server_default="AISP_GAME_FORECAST_EXPORT_V1",
+    )
+    snapshot_type: Mapped[str] = mapped_column(String(24), nullable=False, default="HISTORICAL", server_default="HISTORICAL")
+    snapshot_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     engine_id: Mapped[str] = mapped_column(String(32), nullable=False)
     engine_version: Mapped[str] = mapped_column(String(64), nullable=False)
     model_artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_manifest_sha256: Mapped[str | None] = mapped_column(String(64))
+    feature_vector_sha256: Mapped[str | None] = mapped_column(String(64))
     simulator_id: Mapped[str] = mapped_column(String(64), nullable=False)
     simulator_version: Mapped[str] = mapped_column(String(64), nullable=False)
     simulator_seed: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -2974,6 +2987,8 @@ class ShadowForecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     source_event_id: Mapped[str] = mapped_column(String(120), nullable=False)
     event_date: Mapped[date] = mapped_column(Date, nullable=False)
     season: Mapped[int] = mapped_column(Integer, nullable=False)
+    season_type: Mapped[str | None] = mapped_column(String(16))
+    week: Mapped[int | None] = mapped_column(Integer)
     home_team_id: Mapped[str] = mapped_column(String(120), nullable=False)
     away_team_id: Mapped[str] = mapped_column(String(120), nullable=False)
     is_ready: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -2981,18 +2996,23 @@ class ShadowForecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     readiness_threshold: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(48), nullable=False)
     scheduled_start_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    schedule_as_of_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_cutoff_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_cutoff_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    available_as_of_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     full_home_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
     full_away_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
     full_expected_home_score: Mapped[float] = mapped_column(Float, nullable=False)
     full_expected_away_score: Mapped[float] = mapped_column(Float, nullable=False)
-    f5_home_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
-    f5_away_win_probability: Mapped[float] = mapped_column(Float, nullable=False)
-    f5_expected_home_score: Mapped[float] = mapped_column(Float, nullable=False)
-    f5_expected_away_score: Mapped[float] = mapped_column(Float, nullable=False)
+    f5_home_win_probability: Mapped[float | None] = mapped_column(Float)
+    f5_away_win_probability: Mapped[float | None] = mapped_column(Float)
+    f5_expected_home_score: Mapped[float | None] = mapped_column(Float)
+    f5_expected_away_score: Mapped[float | None] = mapped_column(Float)
     distributions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     uncertainty: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     readiness_detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    identity_evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    lineage_detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     __table_args__ = (
         Index("ix_shadow_forecasts_event_engine", "event_id", "engine_id"),
     )
@@ -3012,7 +3032,12 @@ class ShadowBoardDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # Null only for a line-dependent market (total/team total) with no governed
     # line: no line is ever fabricated, so no probability is stated.
     model_probability: Mapped[float | None] = mapped_column(Float)
+    push_probability: Mapped[float | None] = mapped_column(Float)
     has_quote: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    odds_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("odds_snapshots.id"), index=True)
+    opposite_odds_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("odds_snapshots.id"), index=True)
+    source_quote_event_id: Mapped[str | None] = mapped_column(String(255))
+    quote_available_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     book: Mapped[str | None] = mapped_column(String(80))
     line: Mapped[float | None] = mapped_column(Float)
     side_american: Mapped[int | None] = mapped_column(Integer)
@@ -3049,6 +3074,7 @@ class ShadowDecisionSettlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     closing_line_value: Mapped[float | None] = mapped_column(Float)
     virtual_profit_loss: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     settlement_note: Mapped[str | None] = mapped_column(String(200))
+    performance_detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     settled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

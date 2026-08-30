@@ -16,6 +16,7 @@ from app.forecast_exchange.contracts import GameSplit, Uncertainty
 
 class ShadowMarket(StrEnum):
     FULL_GAME_MONEYLINE = "FULL_GAME_MONEYLINE"
+    FULL_GAME_SPREAD = "FULL_GAME_SPREAD"
     FIRST_FIVE_MONEYLINE = "FIRST_FIVE_MONEYLINE"
     RUN_LINE_1_5 = "RUN_LINE_1_5"
     FULL_GAME_TOTAL = "FULL_GAME_TOTAL"
@@ -61,14 +62,22 @@ def no_vig_two_sided(implied_side: float, implied_opposite: float) -> float:
     return implied_side / overround
 
 
-def expected_value(model_probability: float, decimal_odds: float) -> float:
+def expected_value(
+    model_probability: float,
+    decimal_odds: float,
+    *,
+    loss_probability: float | None = None,
+) -> float:
     """Expected value per one unit staked at ``decimal_odds``."""
 
     if not 0.0 <= model_probability <= 1.0:
         raise ValueError("Model probability must be within [0, 1]")
     if decimal_odds <= 1.0:
         raise ValueError("Decimal odds must exceed 1")
-    return model_probability * (decimal_odds - 1.0) - (1.0 - model_probability)
+    loss = 1.0 - model_probability if loss_probability is None else loss_probability
+    if not 0.0 <= loss <= 1.0 or model_probability + loss > 1.0 + 1e-9:
+        raise ValueError("Win/loss probabilities are invalid")
+    return model_probability * (decimal_odds - 1.0) - loss
 
 
 # ----------------------------------------------------------------------------
@@ -90,6 +99,27 @@ def margin_at_least(split: GameSplit, threshold: int) -> float:
     return sum(cell.probability for cell in split.score_margin_distribution if cell.home_minus_away >= threshold)
 
 
+def spread_cover_probability(split: GameSplit, *, selection: str, line: float) -> float:
+    """Return the unconditional probability that one quoted side covers.
+
+    ``line`` is the points attached to the selected side by the sportsbook.
+    Integer-line pushes remain excluded from the win probability rather than
+    being silently allocated to either side.
+    """
+
+    if selection == "HOME":
+        return sum(
+            cell.probability for cell in split.score_margin_distribution
+            if cell.home_minus_away + line > 0
+        )
+    if selection == "AWAY":
+        return sum(
+            cell.probability for cell in split.score_margin_distribution
+            if -cell.home_minus_away + line > 0
+        )
+    raise ValueError(f"Unsupported spread selection: {selection}")
+
+
 def team_total_over(split: GameSplit, *, home: bool, line: float) -> float:
     total = 0.0
     for cell in split.joint_score_distribution:
@@ -101,9 +131,40 @@ def team_total_over(split: GameSplit, *, home: bool, line: float) -> float:
 
 @dataclass(frozen=True)
 class ModelProbability:
+    # ``probability`` is conditional on a settled (non-push) result, matching a
+    # two-sided no-vig market. Raw masses remain explicit for EV and audit.
     probability: float
     lower: float | None
     upper: float | None
+    win_probability: float | None = None
+    loss_probability: float | None = None
+    push_probability: float = 0.0
+
+    def raw_win(self) -> float:
+        return self.probability if self.win_probability is None else self.win_probability
+
+    def raw_loss(self) -> float:
+        return 1.0 - self.probability if self.loss_probability is None else self.loss_probability
+
+
+def _probability_from_masses(
+    win: float,
+    loss: float,
+    push: float,
+    *,
+    lower: float | None = None,
+    upper: float | None = None,
+) -> ModelProbability:
+    settled = win + loss
+    if settled <= 0 or abs(win + loss + push - 1.0) > 1e-6:
+        raise ValueError("Win/loss/push probabilities do not reconcile")
+    conditional = win / settled
+    conditional_lower = None if lower is None else max(0.0, min(1.0, lower / settled))
+    conditional_upper = None if upper is None else max(0.0, min(1.0, upper / settled))
+    return ModelProbability(
+        conditional, conditional_lower, conditional_upper,
+        win_probability=win, loss_probability=loss, push_probability=push,
+    )
 
 
 def model_probability(
@@ -119,9 +180,36 @@ def model_probability(
 
     if market == ShadowMarket.FULL_GAME_MONEYLINE:
         if selection == "HOME":
-            return ModelProbability(full_game.home_win_probability, uncertainty.home_win_probability_lower, uncertainty.home_win_probability_upper)
+            return _probability_from_masses(
+                full_game.home_win_probability,
+                full_game.away_win_probability,
+                full_game.tie_probability,
+                lower=uncertainty.home_win_probability_lower,
+                upper=uncertainty.home_win_probability_upper,
+            )
         if selection == "AWAY":
-            return ModelProbability(full_game.away_win_probability, uncertainty.away_win_probability_lower, uncertainty.away_win_probability_upper)
+            return _probability_from_masses(
+                full_game.away_win_probability,
+                full_game.home_win_probability,
+                full_game.tie_probability,
+                lower=uncertainty.away_win_probability_lower,
+                upper=uncertainty.away_win_probability_upper,
+            )
+    elif market == ShadowMarket.FULL_GAME_SPREAD:
+        if line is None:
+            raise ValueError("Spread markets require the selected side's line")
+        win = spread_cover_probability(full_game, selection=selection, line=line)
+        if selection == "HOME":
+            push = sum(
+                cell.probability for cell in full_game.score_margin_distribution
+                if cell.home_minus_away + line == 0
+            )
+        else:
+            push = sum(
+                cell.probability for cell in full_game.score_margin_distribution
+                if -cell.home_minus_away + line == 0
+            )
+        return _probability_from_masses(win, 1.0 - win - push, push)
     elif market == ShadowMarket.FIRST_FIVE_MONEYLINE:
         if selection == "HOME":
             return ModelProbability(first_five.home_win_probability, uncertainty.first_five_home_win_probability_lower, uncertainty.first_five_home_win_probability_upper)
@@ -137,10 +225,13 @@ def model_probability(
         if line is None:
             raise ValueError("Total markets require a line")
         split = full_game if market == ShadowMarket.FULL_GAME_TOTAL else first_five
+        over = total_over_probability(split, line)
+        under = total_under_probability(split, line)
+        push = max(0.0, 1.0 - over - under)
         if selection == "OVER":
-            return ModelProbability(total_over_probability(split, line), None, None)
+            return _probability_from_masses(over, under, push)
         if selection == "UNDER":
-            return ModelProbability(total_under_probability(split, line), None, None)
+            return _probability_from_masses(under, over, push)
     elif market == ShadowMarket.TEAM_TOTAL:
         if line is None:
             raise ValueError("Team total markets require a line")
@@ -173,6 +264,7 @@ class PricedSelection:
     uncertainty_adjusted_edge: float
     best_decimal_odds: float
     best_american_odds: int
+    push_probability: float
     recommendation: Recommendation
 
 
@@ -193,7 +285,9 @@ def price_selection(
     best_decimal = american_to_decimal(best_american)
     raw_edge = model.probability - break_even
     no_vig_edge = model.probability - no_vig
-    ev = expected_value(model.probability, best_decimal)
+    ev = expected_value(
+        model.raw_win(), best_decimal, loss_probability=model.raw_loss()
+    )
     conservative = model.lower if model.lower is not None else model.probability
     uncertainty_adjusted_edge = conservative - no_vig
 
@@ -214,6 +308,7 @@ def price_selection(
         uncertainty_adjusted_edge=uncertainty_adjusted_edge,
         best_decimal_odds=best_decimal,
         best_american_odds=best_american,
+        push_probability=model.push_probability,
         recommendation=recommendation,
     )
 
@@ -231,6 +326,7 @@ __all__ = [
     "model_probability",
     "no_vig_two_sided",
     "price_selection",
+    "spread_cover_probability",
     "team_total_over",
     "total_over_probability",
     "total_under_probability",

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 import json
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Awaitable, Callable
 
@@ -22,6 +24,7 @@ from app.data_sources.base import (
     BullpenAvailabilityDTO,
     LineupDTO,
     OddsEventDTO,
+    OddsScoreEventDTO,
     RosterAvailabilityDTO,
     ScheduleGameDTO,
     SourceEnvelope,
@@ -40,11 +43,16 @@ from app.models import (
     GameTeam,
     IngestionRun,
     JobRun,
+    MarketOutcome,
     ModelVersion,
+    OddsSnapshot,
     ProviderRequestLedger,
     RunStatus,
     Team,
     Venue,
+    ShadowBoardDecision,
+    ShadowForecast,
+    ShadowForecastBundle,
 )
 from app.services.forecast_service import ForecastNotReadyError, ForecastService, ForecastWindowClosedError
 from app.services.read_service import ReadService
@@ -68,6 +76,17 @@ AVAILABLE_JOBS = {
     "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
     "evaluate-shadow-betting-board": "Evaluate Research-Shadow Betting Board",
     "settle-shadow-decisions": "Settle Research-Shadow Decisions",
+    "refresh-nfl-shadow-schedule": "Refresh NFL Research-Shadow Schedule Authority",
+    "materialize-current-nfl-features": "Verify Current NFL Feature Vectors",
+    "generate-nfl-shadow-forecasts": "Generate NFL M1 Early/Current Research-Shadow Forecasts",
+    "generate-nfl-final-pregame-forecasts": "Generate NFL M1 Final-Pregame Research-Shadow Forecasts",
+    "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
+    "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
+    "evaluate-nfl-shadow-board": "Evaluate NFL Research-Shadow Board",
+    "freeze-nfl-final-pregame": "Freeze NFL Final-Pregame Research Shadow",
+    "finalize-nfl-shadow-games": "Finalize NFL Research-Shadow Games",
+    "settle-nfl-shadow-decisions": "Settle NFL Research-Shadow Decisions",
+    "recalculate-nfl-shadow-performance": "Recalculate NFL Prospective Performance",
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
     "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
     "settle-shadow-experiment": "Settle $1,000 Shadow Experiment Positions",
@@ -164,6 +183,17 @@ class JobOrchestrator:
             "import-model-studio-forecast-bundle": self.import_forecast_bundle,
             "evaluate-shadow-betting-board": self.evaluate_shadow_board,
             "settle-shadow-decisions": self.settle_shadow_decisions,
+            "refresh-nfl-shadow-schedule": self.refresh_nfl_shadow_schedule,
+            "materialize-current-nfl-features": self.materialize_current_nfl_features,
+            "generate-nfl-shadow-forecasts": self.generate_nfl_shadow_forecasts,
+            "generate-nfl-final-pregame-forecasts": self.generate_nfl_final_pregame_forecasts,
+            "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
+            "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
+            "evaluate-nfl-shadow-board": self.evaluate_nfl_shadow_board,
+            "freeze-nfl-final-pregame": self.freeze_nfl_final_pregame,
+            "finalize-nfl-shadow-games": self.finalize_nfl_shadow_games,
+            "settle-nfl-shadow-decisions": self.settle_nfl_shadow_decisions,
+            "recalculate-nfl-shadow-performance": self.recalculate_nfl_shadow_performance,
             "poll-availability-events": self.poll_availability_events,
             "freeze-shadow-experiment": self.freeze_shadow_experiment,
             "settle-shadow-experiment": self.settle_shadow_experiment,
@@ -352,6 +382,454 @@ class JobOrchestrator:
             return {"records": 0, "note": "SHADOW_BUNDLE_IMPORT_DIR is not configured"}
         result = ShadowBoardService(self.session, self.settings).import_bundle(Path(directory))
         return {"records": int(result.get("forecasts", 0)), **result}
+
+    async def import_nfl_shadow_bundle(self, event_date: date) -> dict[str, Any]:
+        """Import the configured verified NFL bundle family; no provider call.
+
+        The mutable index is navigation only. Each listed content-addressed
+        object is independently verified before it can reach persistence.
+        Unlisted objects (including the protected legacy MLB bundle in the
+        shared family) are never opened.
+        """
+        from pathlib import Path
+
+        from app.forecast_exchange import verify_nfl_shadow_bundle_index
+        from app.services.shadow_board_service import ShadowBoardService
+
+        directory = self.settings.nfl_shadow_bundle_import_dir.strip()
+        if not directory:
+            return {"records": 0, "note": "NFL_SHADOW_BUNDLE_IMPORT_DIR is not configured"}
+        configured = Path(directory)
+        if (configured / "consumer-import-fixture.json").is_file():
+            result = ShadowBoardService(self.session, self.settings).import_bundle(configured)
+            if "NFL_M1_XGBOOST" not in result.get("engines", ["NFL_M1_XGBOOST"]):
+                raise ValueError("Configured NFL bundle did not import the NFL M1 engine")
+            return {
+                "records": int(result.get("forecasts", 0)),
+                "selected_bundles": 1,
+                "unlisted_objects_skipped": 0,
+                **result,
+            }
+
+        locator = verify_nfl_shadow_bundle_index(configured)
+        historical_addresses = tuple(locator.index.historical_addresses)
+        current_addresses = tuple(locator.index.current_addresses)
+        selected_addresses = (*historical_addresses, *current_addresses)
+        selected = set(selected_addresses)
+        # Count directory names only; unlisted objects are deliberately not
+        # opened, parsed, or used as authority.
+        address_names = {
+            child.name for child in locator.sha256_root.iterdir()
+            if len(child.name) == 64 and all(ch in "0123456789abcdef" for ch in child.name)
+        }
+        results: list[dict[str, Any]] = []
+        service = ShadowBoardService(self.session, self.settings)
+        for address in selected_addresses:
+            object_dir = locator.sha256_root / address
+            result = service.import_bundle(object_dir)
+            if result.get("bundle_sha256") != address:
+                raise ValueError(f"NFL bundle import returned a different address for {address}")
+            if "NFL_M1_XGBOOST" not in result.get("engines", ["NFL_M1_XGBOOST"]):
+                raise ValueError(f"NFL bundle {address} did not import the NFL M1 engine")
+            results.append(result)
+        return {
+            "records": sum(int(row.get("forecasts", 0)) for row in results),
+            "selected_bundles": len(results),
+            "current_bundles": len(current_addresses),
+            "historical_bundles": len(historical_addresses),
+            "imported_bundles": sum(not bool(row.get("idempotent_reuse")) for row in results),
+            "reused_bundles": sum(bool(row.get("idempotent_reuse")) for row in results),
+            "forecast_rows_created": sum(int(row.get("forecast_rows_created", 0)) for row in results),
+            "forecast_children_reused": sum(
+                int(row.get("forecast_children_reused", row.get("forecasts", 0)))
+                if row.get("idempotent_reuse") else int(row.get("forecast_children_reused", 0))
+                for row in results
+            ),
+            "unlisted_objects_skipped": len(address_names - selected),
+            "locator_schema": locator.index.schema_version,
+            "locator_current_list_sha256": getattr(
+                locator.index, "current_bundle_list_sha256",
+                getattr(locator.index, "bundle_list_sha256", None),
+            ),
+            "locator_historical_list_sha256": getattr(
+                locator.index, "historical_bundle_list_sha256", None
+            ),
+            "unlisted_objects_opened": False,
+        }
+
+    async def refresh_nfl_shadow_schedule(self, event_date: date) -> dict[str, Any]:
+        """Verify schedule identities already carried by immutable NFL imports."""
+        rows = list(self.session.scalars(
+            select(ShadowForecast)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                ShadowForecast.event_date == event_date,
+                ShadowForecast.canonical_game_id.is_not(None),
+            )
+        ))
+        games = {row.canonical_game_id for row in rows}
+        return {"records": len(games), "games": len(games), "source": "VERIFIED_MODEL_STUDIO_EXCHANGE"}
+
+    async def materialize_current_nfl_features(self, event_date: date) -> dict[str, Any]:
+        """Verify persisted feature hashes; feature computation stays in Model Studio."""
+        rows = list(self.session.scalars(
+            select(ShadowForecast)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                ShadowForecast.event_date == event_date,
+            )
+        ))
+        valid = [row for row in rows if row.feature_vector_sha256 and len(row.feature_vector_sha256) == 64]
+        return {
+            "records": len(valid), "forecasts": len(rows),
+            "status": "VERIFIED_IMPORTED_FEATURE_EVIDENCE",
+            "missing_feature_hashes": len(rows) - len(valid),
+        }
+
+    async def generate_nfl_shadow_forecasts(self, event_date: date) -> dict[str, Any]:
+        """Run the frozen Model Studio producer, then verify/import its exchange.
+
+        This is deliberately a local process boundary rather than a second
+        integration channel. The child receives a fixed argument vector (never
+        a shell command), and its declared lineage must match both the configured
+        Model Studio HEAD and the independently verified exchange locator.
+        """
+
+        return await self._generate_and_import_nfl_shadow(
+            event_date, snapshot_types=("EARLY", "CURRENT")
+        )
+
+    async def generate_nfl_final_pregame_forecasts(self, event_date: date) -> dict[str, Any]:
+        """Generate only the producer-governed 15–30 minute FINAL snapshot."""
+
+        return await self._generate_and_import_nfl_shadow(
+            event_date, snapshot_types=("FINAL_PREGAME",)
+        )
+
+    async def _generate_and_import_nfl_shadow(
+        self, event_date: date, *, snapshot_types: tuple[str, ...]
+    ) -> dict[str, Any]:
+        if not self.settings.nfl_shadow_enabled or not self.settings.nfl_shadow_producer_enabled:
+            return {
+                "records": 0,
+                "status": "DISABLED",
+                "producer_called": False,
+                "snapshot_types": list(snapshot_types),
+            }
+        producer = await _invoke_nfl_shadow_producer(self.settings, snapshot_types)
+        if producer["status"] == "NO_ELIGIBLE_UPCOMING_GAMES":
+            return {
+                "records": 0,
+                "status": producer["status"],
+                "producer_called": True,
+                "snapshot_types": list(snapshot_types),
+                "games": 0,
+                "imported": False,
+            }
+
+        # Navigation metadata is not scientific authority. Re-read and validate
+        # the locator here, then import every listed object through the strict
+        # content-addressed verifier.
+        from app.forecast_exchange import verify_nfl_shadow_bundle_index
+
+        configured = Path(self.settings.nfl_shadow_bundle_import_dir).resolve()
+        locator = verify_nfl_shadow_bundle_index(configured)
+        current_list_sha = locator.index.current_bundle_list_sha256
+        historical_list_sha = getattr(locator.index, "historical_bundle_list_sha256", None)
+        if current_list_sha != producer["exchangeLocatorCurrentBundleListSha256"]:
+            raise ValueError("Model Studio stdout and verified current locator authority differ")
+        if historical_list_sha != producer["exchangeLocatorHistoricalBundleListSha256"]:
+            raise ValueError("Model Studio stdout and verified historical locator authority differ")
+        if len(locator.index.current_addresses) != producer["exchangeLocatorCurrentBundleCount"]:
+            raise ValueError("Model Studio stdout and verified current locator count differ")
+
+        imported = await self.import_nfl_shadow_bundle(event_date)
+        return {
+            "records": int(imported.get("records", 0)),
+            "status": "ACTIVE",
+            "producer_called": True,
+            "snapshot_types": list(snapshot_types),
+            "producer_revision": producer["producerRevision"],
+            "games": int(producer["games"]),
+            "forecasts_created": int(producer["forecastsCreated"]),
+            "feature_vectors": int(producer["featureVectorCount"]),
+            "current_forecasts": int(producer["exchangeLocatorCurrentForecastCount"]),
+            "model_manifest_sha256": producer["modelManifestSha256"],
+            "model_binary_sha256": producer["modelBinarySha256"],
+            "feature_contract_sha256": producer["featureContractSha256"],
+            "models_fit": 0,
+            "models_promoted": 0,
+            "market_fields_read": False,
+            "import": imported,
+        }
+
+    async def refresh_nfl_shadow_odds(self, event_date: date) -> dict[str, Any]:
+        """One quota-governed current-NFL Odds API request and exact-ID ingest."""
+        if not self.settings.nfl_shadow_enabled or not self.settings.nfl_shadow_odds_enabled:
+            return {"records": 0, "status": "DISABLED", "provider_called": False}
+        if not self.settings.the_odds_api_key:
+            raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+        self._enforce_odds_quota_policy()
+        now = datetime.now(UTC)
+        ledger = self._reserve_provider_request(
+            "THE_ODDS_API", "americanfootball_nfl_odds",
+            controlled_live_request=False,
+            request_shape={
+                "sport_key": "americanfootball_nfl",
+                "regions": self.settings.odds_regions,
+                "markets": sorted(self.settings.odds_market_list),
+                "request_window": int(
+                    now.timestamp() // (max(1, self.settings.odds_pregame_refresh_minutes) * 60)
+                ),
+            },
+        )
+        self.session.commit()
+        try:
+            response = await TheOddsAPIAdapter(
+                self.settings.the_odds_api_key,
+                self.settings.odds_market_list,
+                self.settings.odds_regions,
+                sport_key="americanfootball_nfl",
+            ).get_market_snapshot()
+            self.archive.write(response.envelope.source, response.raw_payload)
+            events = [OddsEventDTO.model_validate(item) for item in response.envelope.data]
+            from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+
+            result = NFLShadowOddsService(self.session).ingest(
+                events, available_as_of=response.envelope.fetched_at
+            )
+            metadata = response.envelope.metadata or {}
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=_int_or_none(metadata.get("requests_last")),
+                quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                records_received=len(events), controlled_live_request=False,
+                source_mode="LIVE", job_run_id=self._active_job_run_id,
+                reservation_id=ledger.id,
+                response_metadata={"sport_key": "americanfootball_nfl", **result},
+            ))
+            self.session.commit()
+            return {"records": result["quotes"], "provider_called": True, "quota": metadata, **result}
+        except Exception as exc:
+            self.session.rollback()
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=None, quota_remaining=None, records_received=None,
+                controlled_live_request=False, source_mode="LIVE",
+                job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                error_type=type(exc).__name__,
+                response_metadata={"sport_key": "americanfootball_nfl", "response_received": False},
+            ))
+            self.session.commit()
+            raise
+
+    async def evaluate_nfl_shadow_board(self, event_date: date) -> dict[str, Any]:
+        from app.services.shadow_board_service import ShadowBoardService
+
+        result = ShadowBoardService(self.session, self.settings).evaluate_board(event_date, sport="NFL")
+        return {"records": int(result.get("decisions", 0)), **result}
+
+    async def freeze_nfl_final_pregame(self, event_date: date) -> dict[str, Any]:
+        """Evaluate only already-frozen FINAL_PREGAME snapshots; provider-free."""
+        from app.services.shadow_board_service import ShadowBoardService
+
+        final_ids = set(self.session.scalars(
+            select(ShadowForecast.id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                ShadowForecast.event_date == event_date,
+                ShadowForecast.snapshot_type == "FINAL_PREGAME",
+            )
+        ))
+        if not final_ids:
+            return {"records": 0, "forecasts": 0, "status": "NO_FINAL_PREGAME_FORECAST"}
+        result = ShadowBoardService(self.session, self.settings).evaluate_board(
+            event_date, sport="NFL", snapshot_type="FINAL_PREGAME"
+        )
+        return {"records": int(result.get("decisions", 0)), "final_forecasts": len(final_ids), **result}
+
+    async def finalize_nfl_shadow_games(self, event_date: date) -> dict[str, Any]:
+        """Acquire and persist exact NFL finals through the existing Odds API.
+
+        Only provider IDs already bound by exact home/away/kickoff odds mapping
+        can update a research-shadow Game. This path cannot address LIVE MLB.
+        """
+        provider_result: dict[str, Any] = {"provider_called": False}
+        today = local_today(self.settings.display_timezone)
+        request_eligible = today - timedelta(days=3) <= event_date <= today
+        if (
+            self.settings.nfl_shadow_enabled
+            and self.settings.nfl_shadow_odds_enabled
+            and self.settings.the_odds_api_key
+            and request_eligible
+        ):
+            self._enforce_odds_quota_policy()
+            now = datetime.now(UTC)
+            ledger = self._reserve_provider_request(
+                "THE_ODDS_API", "americanfootball_nfl_scores",
+                controlled_live_request=False,
+                request_shape={
+                    "sport_key": "americanfootball_nfl",
+                    "days_from": 3,
+                    "event_date": event_date.isoformat(),
+                    "request_window": int(now.timestamp() // 3600),
+                },
+            )
+            self.session.commit()
+            try:
+                response = await TheOddsAPIAdapter(
+                    self.settings.the_odds_api_key,
+                    sport_key="americanfootball_nfl",
+                ).get_scores(days_from=3)
+                archive = self.archive.write(response.envelope.source, response.raw_payload)
+                events = [OddsScoreEventDTO.model_validate(item) for item in response.envelope.data]
+                from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+
+                ingested = NFLShadowOddsService(self.session).ingest_scores(
+                    events,
+                    available_as_of=response.envelope.fetched_at,
+                    event_date=event_date,
+                )
+                metadata = response.envelope.metadata or {}
+                self._ingestion_run(
+                    response.envelope,
+                    archive.raw_file_reference,
+                    int(ingested["final_games"]),
+                    "finalize-nfl-shadow-games",
+                )
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                    requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                    status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=_int_or_none(metadata.get("requests_last")),
+                    quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                    records_received=len(events), controlled_live_request=False,
+                    source_mode="LIVE", job_run_id=self._active_job_run_id,
+                    reservation_id=ledger.id,
+                    response_metadata={"sport_key": "americanfootball_nfl", **ingested},
+                ))
+                self.session.commit()
+                provider_result = {
+                    "provider_called": True,
+                    "provider_events": len(events),
+                    "provider_final_updates": int(ingested["final_games"]),
+                    "quota": metadata,
+                }
+            except Exception as exc:
+                self.session.rollback()
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                    requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                    status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=None, quota_remaining=None, records_received=None,
+                    controlled_live_request=False, source_mode="LIVE",
+                    job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                    error_type=type(exc).__name__,
+                    response_metadata={
+                        "sport_key": "americanfootball_nfl", "response_received": False,
+                    },
+                ))
+                self.session.commit()
+                raise
+        rows = list(self.session.scalars(
+            select(Game)
+            .join(ShadowForecast, ShadowForecast.canonical_game_id == Game.id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(ShadowForecastBundle.sport == "NFL", ShadowForecast.event_date == event_date)
+        ))
+        unique = {row.id: row for row in rows}
+        finals = [row for row in unique.values() if row.status == GameStatus.FINAL]
+        incomplete = [row for row in unique.values() if row.status != GameStatus.FINAL]
+        return {
+            "records": len(finals), "final_games": len(finals),
+            "incomplete_games": len(incomplete), **provider_result,
+        }
+
+    async def settle_nfl_shadow_decisions(self, event_date: date) -> dict[str, Any]:
+        from app.services.shadow_board_service import DecisionOutcome, ShadowBoardService
+
+        decisions = list(self.session.scalars(
+            select(ShadowBoardDecision)
+            .join(ShadowForecast, ShadowForecast.id == ShadowBoardDecision.shadow_forecast_id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(ShadowForecastBundle.sport == "NFL", ShadowBoardDecision.slate_date == event_date)
+        ))
+        outcomes: list[DecisionOutcome] = []
+        for decision in decisions:
+            forecast = self.session.get(ShadowForecast, decision.shadow_forecast_id)
+            game = self.session.get(Game, forecast.canonical_game_id) if forecast else None
+            if game is None or game.status != GameStatus.FINAL or game.home_score is None or game.away_score is None:
+                continue
+            result = _nfl_shadow_result(decision, game.home_score, game.away_score)
+            market_evidence = _nfl_closing_evidence(
+                self.session, decision, forecast, cutoff_minutes=15
+            )
+            outcomes.append(DecisionOutcome(
+                decision_id=decision.id,
+                event_id=decision.event_id, engine_id=decision.engine_id,
+                market=decision.market, selection=decision.selection, result=result,
+                closing_american=market_evidence.get("closing_american"),
+                market_evidence=market_evidence,
+                actual_home_score=game.home_score, actual_away_score=game.away_score,
+            ))
+        result = ShadowBoardService(self.session, self.settings).settle_decisions(event_date, outcomes)
+        return {"records": int(result.get("settled", 0)), **result}
+
+    async def recalculate_nfl_shadow_performance(self, event_date: date) -> dict[str, Any]:
+        from app.models import ShadowDecisionSettlement
+
+        rows = list(self.session.execute(
+            select(ShadowDecisionSettlement, ShadowBoardDecision, ShadowForecast)
+            .join(ShadowBoardDecision, ShadowBoardDecision.id == ShadowDecisionSettlement.decision_id)
+            .join(ShadowForecast, ShadowForecast.id == ShadowBoardDecision.shadow_forecast_id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(ShadowForecastBundle.sport == "NFL")
+        ))
+        latest: dict[tuple[str, str], tuple[tuple[Any, ...], dict[str, Any]]] = {}
+        priority = {"HISTORICAL": 0, "EARLY": 1, "CURRENT": 2, "FINAL_PREGAME": 3}
+        for settlement, decision, forecast in rows:
+            if not settlement.performance_detail:
+                continue
+            key = (decision.event_id, decision.engine_id)
+            ordering = (
+                _aware(forecast.forecast_cutoff_utc or forecast.created_at),
+                priority.get(forecast.snapshot_type, -1),
+                forecast.snapshot_version,
+                int(
+                    decision.market == "FULL_GAME_MONEYLINE"
+                    and decision.selection == "HOME"
+                    and decision.no_vig_probability is not None
+                ),
+            )
+            if key not in latest or ordering > latest[key][0]:
+                latest[key] = (ordering, settlement.performance_detail)
+        details = [row[1] for row in latest.values()]
+        def mean(key: str):
+            values = [float(row[key]) for row in details if key in row]
+            return sum(values) / len(values) if values else None
+        return {
+            "records": len(details), "games_evaluated": len(details), "settlements": len(rows),
+            "home_win_log_loss": mean("home_win_log_loss"),
+            "home_win_brier": mean("home_win_brier"),
+            "market_home_win_log_loss": mean("market_home_win_log_loss"),
+            "market_home_win_brier": mean("market_home_win_brier"),
+            "model_minus_market_home_probability": mean("model_minus_market_home_probability"),
+            "mean_team_points_mae": (
+                (mean("home_points_absolute_error") + mean("away_points_absolute_error")) / 2
+                if mean("home_points_absolute_error") is not None and mean("away_points_absolute_error") is not None
+                else None
+            ),
+            "margin_mae": mean("margin_absolute_error"),
+            "total_mae": mean("total_absolute_error"),
+            "status": "COLLECTING_DATA" if not details else "PROSPECTIVE_RESEARCH_SHADOW",
+        }
 
     async def evaluate_shadow_board(self, event_date: date) -> dict[str, Any]:
         """Evaluate the research-shadow board for the slate. Reads persisted odds only."""
@@ -1108,6 +1586,311 @@ class JobOrchestrator:
                 retryable=False,
             ) from exc
         return ledger
+
+
+async def _invoke_nfl_shadow_producer(
+    settings: Settings, snapshot_types: tuple[str, ...]
+) -> dict[str, Any]:
+    """Invoke and verify the sole bounded Model Studio producer entry point."""
+
+    from app.forecast_exchange.sports_contracts import (
+        NFL_FEATURE_CONTRACT_SHA256,
+        NFL_MODEL_BINARY_SHA256,
+        NFL_MODEL_MANIFEST_SHA256,
+    )
+
+    allowed = {"EARLY", "CURRENT", "FINAL_PREGAME"}
+    if not snapshot_types or len(set(snapshot_types)) != len(snapshot_types):
+        raise ValueError("NFL producer snapshot types must be nonempty and unique")
+    if set(snapshot_types) - allowed:
+        raise ValueError("NFL producer snapshot types differ from the frozen contract")
+    if "FINAL_PREGAME" in snapshot_types and len(snapshot_types) != 1:
+        raise ValueError("FINAL_PREGAME cannot be mixed with EARLY or CURRENT generation")
+    root_text = settings.nfl_model_studio_root.strip()
+    python_text = settings.nfl_model_studio_python.strip()
+    exchange_text = settings.nfl_shadow_bundle_import_dir.strip()
+    if not root_text or not python_text or not exchange_text:
+        raise ValueError(
+            "NFL producer requires NFL_MODEL_STUDIO_ROOT, NFL_MODEL_STUDIO_PYTHON, "
+            "and NFL_SHADOW_BUNDLE_IMPORT_DIR"
+        )
+    root = Path(root_text).resolve()
+    python = Path(python_text).resolve()
+    if not root.is_dir():
+        raise ValueError("Configured NFL Model Studio root is not a directory")
+    if not python.is_file():
+        raise ValueError("Configured NFL Model Studio Python executable is not a file")
+    if not (root / "scripts" / "run_nfl_2026_prospective_shadow.py").is_file():
+        raise ValueError("Configured Model Studio root lacks the frozen NFL producer CLI")
+
+    git_process = await asyncio.create_subprocess_exec(
+        "git", "-C", str(root), "rev-parse", "HEAD",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        git_stdout, git_stderr = await asyncio.wait_for(git_process.communicate(), timeout=30)
+    except TimeoutError:
+        git_process.kill()
+        await git_process.communicate()
+        raise ValueError("Timed out resolving the configured Model Studio HEAD") from None
+    if git_process.returncode != 0:
+        raise ValueError(
+            "Cannot resolve configured Model Studio HEAD: "
+            + git_stderr.decode("utf-8", errors="replace")[-500:]
+        )
+    expected_head = git_stdout.decode("ascii", errors="strict").strip().lower()
+    if len(expected_head) != 40 or any(ch not in "0123456789abcdef" for ch in expected_head):
+        raise ValueError("Configured Model Studio HEAD is not a full Git commit identity")
+    clean_process = await asyncio.create_subprocess_exec(
+        "git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=no",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        clean_stdout, clean_stderr = await asyncio.wait_for(clean_process.communicate(), timeout=30)
+    except TimeoutError:
+        clean_process.kill()
+        await clean_process.communicate()
+        raise ValueError("Timed out verifying the configured Model Studio worktree") from None
+    if clean_process.returncode != 0:
+        raise ValueError(
+            "Cannot verify configured Model Studio worktree: "
+            + clean_stderr.decode("utf-8", errors="replace")[-500:]
+        )
+    if clean_stdout.strip():
+        raise ValueError(
+            "Configured Model Studio has tracked or staged changes; producer code identity is not frozen"
+        )
+
+    arguments: list[str] = ["-m", "scripts.run_nfl_2026_prospective_shadow"]
+    for snapshot_type in snapshot_types:
+        arguments.extend(("--snapshot-type", snapshot_type))
+    process = await asyncio.create_subprocess_exec(
+        str(python), *arguments, cwd=str(root),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(), timeout=settings.nfl_shadow_producer_timeout_seconds
+        )
+    except TimeoutError:
+        process.kill()
+        await process.communicate()
+        raise ValueError("Model Studio NFL producer exceeded its configured timeout") from None
+    if process.returncode != 0:
+        raise ValueError(
+            "Model Studio NFL producer failed: "
+            + stderr.decode("utf-8", errors="replace")[-1000:]
+        )
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Model Studio NFL producer stdout is not one JSON object") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Model Studio NFL producer stdout must be a JSON object")
+    status = payload.get("status")
+    if status == "NO_ELIGIBLE_UPCOMING_GAMES":
+        if payload.get("games") != 0:
+            raise ValueError("NO_ELIGIBLE_UPCOMING_GAMES must declare zero games")
+        return payload
+    if status != "ACTIVE":
+        raise ValueError(f"Model Studio NFL producer returned unsupported status {status!r}")
+
+    exact = {
+        "modelManifestSha256": NFL_MODEL_MANIFEST_SHA256,
+        "modelBinarySha256": NFL_MODEL_BINARY_SHA256,
+        "featureContractSha256": NFL_FEATURE_CONTRACT_SHA256,
+        "modelsFit": 0,
+        "modelsPromoted": 0,
+        "marketFieldsRead": False,
+        "reloadFixtureReproduced": True,
+        "producerRevision": expected_head,
+    }
+    for field, authority in exact.items():
+        if payload.get(field) != authority:
+            raise ValueError(f"Model Studio NFL producer {field} differs from frozen authority")
+    for field in (
+        "games", "featureVectorCount", "exchangeLocatorCurrentBundleCount",
+        "exchangeLocatorCurrentForecastCount",
+    ):
+        value = payload.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"Model Studio NFL producer {field} must be a positive integer")
+    for field in (
+        "forecastsCreated", "bundleCount", "exchangeLocatorHistoricalBundleCount",
+        "lateFinalPregameOmissions",
+    ):
+        value = payload.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"Model Studio NFL producer {field} must be a nonnegative integer")
+    try:
+        forecast_cutoff = datetime.fromisoformat(
+            str(payload["forecastCutoffUtc"]).replace("Z", "+00:00")
+        )
+        completed_at = datetime.fromisoformat(
+            str(payload["completedAtUtc"]).replace("Z", "+00:00")
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Model Studio NFL producer completion timestamps are invalid") from exc
+    if forecast_cutoff.tzinfo is None or completed_at.tzinfo is None:
+        raise ValueError("Model Studio NFL producer completion timestamps must be timezone-aware")
+    if completed_at < forecast_cutoff:
+        raise ValueError("Model Studio NFL producer completion predates its evidence cutoff")
+    for field in (
+        "exchangeLocatorCurrentBundleListSha256",
+        "exchangeLocatorHistoricalBundleListSha256",
+    ):
+        value = payload.get(field)
+        if (
+            not isinstance(value, str) or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)
+        ):
+            raise ValueError(f"Model Studio NFL producer {field} is not a SHA-256")
+
+    configured = Path(exchange_text).resolve()
+    expected_locator = (
+        configured / "nfl-2026-research-shadow-index.json"
+        if configured.is_dir() else configured
+    )
+    declared_locator = Path(str(payload.get("exchangeLocatorPath", ""))).resolve()
+    if declared_locator != expected_locator:
+        raise ValueError("Model Studio NFL producer wrote a different configured exchange locator")
+    return payload
+
+
+def _nfl_shadow_result(decision: ShadowBoardDecision, home_score: int, away_score: int) -> str:
+    """Settle one NFL research-shadow market from immutable recorded terms."""
+
+    margin = home_score - away_score
+    if decision.market == "FULL_GAME_MONEYLINE":
+        if margin == 0:
+            return "PUSH"
+        selected_home = decision.selection == "HOME"
+        return "WIN" if (margin > 0) == selected_home else "LOSS"
+    if decision.market == "FULL_GAME_SPREAD":
+        if decision.line is None:
+            return "VOID"
+        adjusted = margin + decision.line if decision.selection == "HOME" else -margin + decision.line
+    elif decision.market == "FULL_GAME_TOTAL":
+        if decision.line is None:
+            return "VOID"
+        adjusted = home_score + away_score - decision.line
+        if decision.selection == "UNDER":
+            adjusted *= -1
+    else:
+        return "VOID"
+    if adjusted > 0:
+        return "WIN"
+    if adjusted < 0:
+        return "LOSS"
+    return "PUSH"
+
+
+def _nfl_closing_evidence(
+    session: Session,
+    decision: ShadowBoardDecision,
+    forecast: ShadowForecast,
+    *,
+    cutoff_minutes: int,
+) -> dict[str, Any]:
+    """Return exact same-selection checkpoint evidence for CLV and line movement."""
+
+    if (
+        decision.odds_snapshot_id is None
+        or decision.opposite_odds_snapshot_id is None
+        or forecast.scheduled_start_utc is None
+    ):
+        return {}
+    original = session.get(OddsSnapshot, decision.odds_snapshot_id)
+    original_opposite = session.get(OddsSnapshot, decision.opposite_odds_snapshot_id)
+    if original is None or original_opposite is None:
+        return {}
+    original_outcome = session.get(MarketOutcome, original.market_outcome_id)
+    opposite_outcome = session.get(MarketOutcome, original_opposite.market_outcome_id)
+    if original_outcome is None or opposite_outcome is None:
+        return {}
+    cutoff = _aware(forecast.scheduled_start_utc) - timedelta(minutes=cutoff_minutes)
+    rows = list(session.execute(
+        select(OddsSnapshot, MarketOutcome)
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .where(
+            MarketOutcome.market_id == original_outcome.market_id,
+            OddsSnapshot.sportsbook_id == original.sportsbook_id,
+            OddsSnapshot.source_event_id == original.source_event_id,
+            OddsSnapshot.available_as_of <= cutoff,
+        ).order_by(OddsSnapshot.available_as_of.desc())
+    ))
+
+    def same_selection(candidate: MarketOutcome, reference: MarketOutcome) -> bool:
+        if reference.participant_team_id is not None:
+            return candidate.participant_team_id == reference.participant_team_id
+        return candidate.label.strip().upper() == reference.label.strip().upper()
+
+    selected = [
+        (snapshot, outcome) for snapshot, outcome in rows
+        if same_selection(outcome, original_outcome)
+    ]
+    first_observed = next((
+        snapshot for snapshot, _ in reversed(selected)
+        if isinstance(snapshot.raw_payload, dict)
+        and snapshot.raw_payload.get("snapshot_state") == "FIRST_OBSERVED"
+    ), None)
+    for candidate, _ in selected:
+        if not isinstance(candidate.raw_payload, dict):
+            continue
+        if candidate.raw_payload.get("snapshot_state") != "FINAL_PREGAME":
+            continue
+        opposite_rows = [
+            (snapshot, outcome) for snapshot, outcome in rows
+            if snapshot.observed_at == candidate.observed_at
+            and snapshot.available_as_of == candidate.available_as_of
+            and same_selection(outcome, opposite_outcome)
+        ]
+        if len(opposite_rows) != 1:
+            continue
+        opposite, _ = opposite_rows[0]
+        if not isinstance(opposite.raw_payload, dict):
+            continue
+        if opposite.raw_payload.get("snapshot_state") != "FINAL_PREGAME":
+            continue
+        if decision.market in {"FULL_GAME_SPREAD", "FULL_GAME_TOTAL"}:
+            if candidate.point is None or opposite.point is None:
+                continue
+            if decision.market == "FULL_GAME_SPREAD":
+                if abs(float(candidate.point)) != abs(float(opposite.point)):
+                    continue
+            elif float(candidate.point) != float(opposite.point):
+                continue
+        recommendation_line = float(decision.line) if decision.line is not None else None
+        final_line = float(candidate.point) if candidate.point is not None else None
+        same_line = (
+            decision.market == "FULL_GAME_MONEYLINE"
+            or (recommendation_line is not None and final_line == recommendation_line)
+        )
+        final_american = int(candidate.american_odds) if candidate.american_odds is not None else None
+        first_american = (
+            int(first_observed.american_odds)
+            if first_observed is not None and first_observed.american_odds is not None else None
+        )
+        return {
+            "recommendation_line": recommendation_line,
+            "final_pregame_line": final_line,
+            "line_movement": (
+                final_line - recommendation_line
+                if final_line is not None and recommendation_line is not None else None
+            ),
+            "recommendation_american": decision.side_american,
+            "first_observed_american": first_american,
+            "final_pregame_american": final_american,
+            "american_price_movement": (
+                final_american - first_american
+                if final_american is not None and first_american is not None else None
+            ),
+            # Price-implied CLV is only comparable at the exact decision line.
+            "closing_american": final_american if same_line else None,
+            "closing_price_same_line": same_line,
+            "final_pregame_available_as_of": _aware(candidate.available_as_of).isoformat(),
+        }
+    return {}
 
 
 async def seed_demo_data(session: Session, settings: Settings, event_date: date | None = None) -> dict[str, Any]:

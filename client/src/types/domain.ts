@@ -692,14 +692,21 @@ export interface AuthResponse {
   user: AuthUser
 }
 
-export type ShadowRecommendation = 'NO_BET' | 'WATCH' | 'QUALIFIED_BET'
+export type ShadowRecommendation =
+  | 'NO_BET' | 'WATCH' | 'QUALIFIED_BET'
+  | 'PROVISIONAL_EDGE' | 'QUALIFIED_SHADOW' | 'REVIEW_REQUIRED'
 
 export interface ShadowDecisionView {
   market: string
   selection: string
   model_probability: number | null
+  push_probability?: number | null
   has_quote: boolean
   book: string | null
+  odds_snapshot_id?: string | null
+  opposite_odds_snapshot_id?: string | null
+  source_quote_event_id?: string | null
+  quote_available_as_of?: string | null
   line: number | null
   american_odds: number | null
   best_american_odds: number | null
@@ -723,14 +730,27 @@ export interface ShadowEngineView {
   away_win_probability: number
   expected_home_score: number
   expected_away_score: number
-  first_five_home_win_probability: number
-  first_five_away_win_probability: number
+  first_five_home_win_probability: number | null
+  first_five_away_win_probability: number | null
+  snapshot_type?: string
+  snapshot_version?: number
+  forecast_cutoff_utc?: string | null
+  uncertainty?: Record<string, unknown>
+  score_margin_distribution?: Array<{ home_minus_away: number; probability: number }>
+  total_score_distribution?: Array<{ total_score: number; probability: number }>
+  prediction_interval?: Record<string, number> | null
+  model_manifest_sha256?: string | null
+  model_binary_sha256?: string | null
+  feature_vector_sha256?: string | null
+  lineage?: Record<string, unknown>
   decisions: ShadowDecisionView[]
 }
 
 export interface ShadowGameView {
   event_id: string
   event_date: string
+  sport?: string
+  scheduled_start_utc?: string | null
   home_team_id: string
   away_team_id: string
   engines: ShadowEngineView[]
@@ -741,6 +761,18 @@ export interface ShadowBoardData {
   slate_date: string
   status: 'RESEARCH_SHADOW'
   executable: false
+  sports_available?: string[]
+  active_sport?: string | null
+  lineage_disclosure?: {
+    model: string
+    status: string
+    training_evidence: string
+    training_cutoff: string
+    feature_tier: string
+    historical_oot_win_log_loss: number
+    historical_sportsbook_benchmark: number
+    historical_conclusion: string
+  } | null
   games: ShadowGameView[]
 }
 

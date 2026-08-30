@@ -180,13 +180,14 @@ def shadow_board(
     session: DatabaseSession,
     settings: AppSettings,
     event_date: date | None = Query(None, alias="date"),
+    sport: Literal["BASEBALL", "NFL"] | None = Query(None),
 ) -> ShadowBoardData:
     # Read-only research-shadow board. Reads persisted decisions only; it never
     # calls a provider and never exposes executable or promotion authority.
     from app.services.shadow_board_service import ShadowBoardService
 
     day = event_date or local_today(settings.display_timezone)
-    return ShadowBoardService(session, settings).board(day)
+    return ShadowBoardService(session, settings).board(day, sport=sport)
 
 
 @router.get("/shadow-board/rescores", response_model=ProspectiveRescoreBoard, tags=["transparency"])

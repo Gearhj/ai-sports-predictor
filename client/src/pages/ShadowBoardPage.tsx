@@ -14,6 +14,9 @@ const RECOMMENDATION_CLASS: Record<ShadowRecommendation, string> = {
   NO_BET: 'job-status job-status--failed',
   WATCH: 'job-status job-status--running',
   QUALIFIED_BET: 'job-status job-status--success',
+  PROVISIONAL_EDGE: 'job-status job-status--running',
+  QUALIFIED_SHADOW: 'job-status job-status--success',
+  REVIEW_REQUIRED: 'job-status job-status--failed',
 }
 
 const pct = (value: number | null): string => (value == null ? '—' : `${(value * 100).toFixed(1)}%`)
@@ -29,6 +32,7 @@ function todayIso(): string {
 export function ShadowBoardPage() {
   const [slateDate, setSlateDate] = useState<string>(todayIso())
   const [data, setData] = useState<ShadowBoardData | null>(null)
+  const [sport, setSport] = useState<string | null>(null)
   const [rescores, setRescores] = useState<ProspectiveRescore[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,7 +42,7 @@ export function ShadowBoardPage() {
     setLoading(true)
     setError(null)
     Promise.all([
-      endpoints.shadowBoard(slateDate, controller.signal).catch(() => null),
+      endpoints.shadowBoard(slateDate, controller.signal, sport).catch(() => null),
       endpoints.rescoreBoard(slateDate, controller.signal).catch(() => null),
     ])
       .then(([board, rescoreBoard]) => {
@@ -49,7 +53,7 @@ export function ShadowBoardPage() {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [slateDate])
+  }, [slateDate, sport])
 
   const games = data?.games ?? []
 
@@ -58,7 +62,7 @@ export function ShadowBoardPage() {
       <PageHeader
         eyebrow="RESEARCH · MODEL STUDIO SHADOW BOARD"
         title="Shadow Betting Board"
-        description="Imported Direct Gold and E10 research forecasts joined with governed odds. Probabilities and edges are research evidence only."
+        description="Imported Model Studio research forecasts joined with governed odds. MLB research tracks remain separate from the NFL M1 prospective shadow."
         actions={<span className="admin-chip"><FlaskConical size={14} /> RESEARCH SHADOW</span>}
       />
 
@@ -77,6 +81,40 @@ export function ShadowBoardPage() {
           <input type="date" value={slateDate} onChange={(event) => setSlateDate(event.target.value)} />
         </label>
       </div>
+
+      {(data?.sports_available?.length ?? 0) > 0 && (
+        <div className="tab-bar" role="tablist" aria-label="Shadow board sport">
+          <button className={sport == null ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setSport(null)} role="tab">All</button>
+          {data!.sports_available!.map((item) => (
+            <button
+              key={item}
+              className={sport === item ? 'tab-button tab-button--active' : 'tab-button'}
+              onClick={() => setSport(item)}
+              role="tab"
+            >{item === 'BASEBALL' ? 'MLB' : item}</button>
+          ))}
+        </div>
+      )}
+
+      {data?.lineage_disclosure && (
+        <Panel title="What model is this?" eyebrow="NFL MODEL LINEAGE" className="section-panel">
+          <div className="analysis-grid">
+            <div>
+              <p><strong>Model:</strong> {data.lineage_disclosure.model}</p>
+              <p><strong>Status:</strong> {data.lineage_disclosure.status}</p>
+              <p><strong>Training evidence:</strong> {data.lineage_disclosure.training_evidence}</p>
+              <p><strong>Training cutoff:</strong> {data.lineage_disclosure.training_cutoff}</p>
+              <p><strong>Feature tier:</strong> {data.lineage_disclosure.feature_tier}</p>
+            </div>
+            <div>
+              <p><strong>Historical OOT win log loss:</strong> {data.lineage_disclosure.historical_oot_win_log_loss.toFixed(6)}</p>
+              <p><strong>Historical sportsbook benchmark:</strong> {data.lineage_disclosure.historical_sportsbook_benchmark.toFixed(6)}</p>
+              <p><strong>Historical conclusion:</strong> {data.lineage_disclosure.historical_conclusion}</p>
+              <p className="muted">Prospective evaluation only. Sportsbook prices are post-model comparisons and never model inputs.</p>
+            </div>
+          </div>
+        </Panel>
+      )}
 
       {rescores.length > 0 && (
         <Panel
@@ -110,7 +148,7 @@ export function ShadowBoardPage() {
         <Panel
           key={game.event_id}
           title={`${game.away_team_id} @ ${game.home_team_id}`}
-          eyebrow={`EVENT ${game.event_date}`}
+          eyebrow={`${!game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport} · ${game.scheduled_start_utc ?? game.event_date}`}
           className="section-panel"
           action={game.model_disagreement != null
             ? <span className="info-label">Model disagreement {pct(game.model_disagreement)}</span>
@@ -174,6 +212,21 @@ function EngineColumn({ engine }: { engine: ShadowEngineView }) {
     () => engine.decisions.reduce((sum, decision) => sum + decision.virtual_stake, 0),
     [engine.decisions],
   )
+  const topMargins = useMemo(
+    () => [...(engine.score_margin_distribution ?? [])]
+      .sort((a, b) => b.probability - a.probability)
+      .slice(0, 5),
+    [engine.score_margin_distribution],
+  )
+  const topTotals = useMemo(
+    () => [...(engine.total_score_distribution ?? [])]
+      .sort((a, b) => b.probability - a.probability)
+      .slice(0, 5),
+    [engine.total_score_distribution],
+  )
+  const uncertaintyLower = engine.uncertainty?.home_win_probability_lower
+  const uncertaintyUpper = engine.uncertainty?.home_win_probability_upper
+  const uncertaintyMethod = engine.uncertainty?.method
   return (
     <div className="engine-column">
       <div className="section-heading">
@@ -185,14 +238,39 @@ function EngineColumn({ engine }: { engine: ShadowEngineView }) {
       <section className="metric-grid metric-grid--three">
         <MetricCard label="Home win" value={pct(engine.home_win_probability)} detail={`Exp ${engine.expected_home_score.toFixed(2)}`} />
         <MetricCard label="Away win" value={pct(engine.away_win_probability)} detail={`Exp ${engine.expected_away_score.toFixed(2)}`} />
-        <MetricCard label="F5 home win" value={pct(engine.first_five_home_win_probability)} detail={`Readiness ${engine.readiness_score}/${engine.readiness_threshold}`} />
+        <MetricCard
+          label={engine.first_five_home_win_probability == null ? 'Forecast snapshot' : 'F5 home win'}
+          value={engine.first_five_home_win_probability == null ? (engine.snapshot_type ?? 'CURRENT').replaceAll('_', ' ') : pct(engine.first_five_home_win_probability)}
+          detail={`Readiness ${engine.readiness_score}/${engine.readiness_threshold}`}
+        />
       </section>
+      {(topMargins.length > 0 || topTotals.length > 0) && (
+        <div className="rescore-quotes" aria-label="NFL forecast distributions">
+          <div>
+            <p className="eyebrow">SPREAD DISTRIBUTION · TOP MASS</p>
+            <p>{topMargins.map((row) => `${row.home_minus_away >= 0 ? '+' : ''}${row.home_minus_away}: ${pct(row.probability)}`).join(' · ')}</p>
+          </div>
+          <div>
+            <p className="eyebrow">TOTAL DISTRIBUTION · TOP MASS</p>
+            <p>{topTotals.map((row) => `${row.total_score}: ${pct(row.probability)}`).join(' · ')}</p>
+          </div>
+          <div>
+            <p className="eyebrow">UNCERTAINTY</p>
+            <p>
+              {typeof uncertaintyLower === 'number' && typeof uncertaintyUpper === 'number'
+                ? `Home win ${pct(uncertaintyLower)}–${pct(uncertaintyUpper)}`
+                : 'Interval unavailable'}
+              {typeof uncertaintyMethod === 'string' ? ` · ${uncertaintyMethod.replaceAll('_', ' ')}` : ''}
+            </p>
+          </div>
+        </div>
+      )}
       <TableScroll>
         <table className="data-table">
           <thead>
             <tr>
               <th>Market</th><th>Selection</th><th>Model</th><th>Book</th><th>Odds</th>
-              <th>No-vig</th><th>Edge</th><th>EV</th><th>Rec</th><th>Virtual stake</th>
+              <th>No-vig</th><th>Push</th><th>Edge</th><th>EV</th><th>Rec</th><th>Virtual shadow stake</th>
             </tr>
           </thead>
           <tbody>
@@ -201,6 +279,7 @@ function EngineColumn({ engine }: { engine: ShadowEngineView }) {
         </table>
       </TableScroll>
       <p className="muted" style={{ marginTop: '0.5rem' }}>Total virtual stake: <strong>{money(staked)}</strong> (simulation only)</p>
+      {engine.forecast_cutoff_utc && <p className="muted">Forecast cutoff: {engine.forecast_cutoff_utc} · {engine.status.replaceAll('_', ' ')}</p>}
     </div>
   )
 }
@@ -214,6 +293,7 @@ function DecisionRow({ decision }: { decision: ShadowDecisionView }) {
       <td className="muted">{decision.book ?? '—'}</td>
       <td>{decision.best_american_odds ?? '—'}</td>
       <td>{pct(decision.no_vig_probability)}</td>
+      <td>{pct(decision.push_probability ?? null)}</td>
       <td>{edge(decision.no_vig_edge)}</td>
       <td>{decision.expected_value == null ? '—' : decision.expected_value.toFixed(3)}</td>
       <td><span className={RECOMMENDATION_CLASS[decision.recommendation]}>{decision.recommendation.replaceAll('_', ' ')}</span></td>

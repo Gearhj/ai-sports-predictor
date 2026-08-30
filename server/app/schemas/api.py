@@ -748,6 +748,7 @@ class ShadowDecisionView(BaseModel):
     market: str
     selection: str
     model_probability: float | None
+    push_probability: float | None = None
     has_quote: bool
     book: str | None
     line: float | None
@@ -758,7 +759,10 @@ class ShadowDecisionView(BaseModel):
     no_vig_edge: float | None
     expected_value: float | None
     uncertainty_adjusted_edge: float | None
-    recommendation: Literal["NO_BET", "WATCH", "QUALIFIED_BET"]
+    recommendation: Literal[
+        "NO_BET", "WATCH", "QUALIFIED_BET", "PROVISIONAL_EDGE",
+        "QUALIFIED_SHADOW", "REVIEW_REQUIRED",
+    ]
     virtual_stake: float
 
 
@@ -773,14 +777,27 @@ class ShadowEngineView(BaseModel):
     away_win_probability: float
     expected_home_score: float
     expected_away_score: float
-    first_five_home_win_probability: float
-    first_five_away_win_probability: float
+    first_five_home_win_probability: float | None
+    first_five_away_win_probability: float | None
+    snapshot_type: str = "HISTORICAL"
+    snapshot_version: int = 1
+    forecast_cutoff_utc: datetime | None = None
+    uncertainty: dict = Field(default_factory=dict)
+    score_margin_distribution: list[dict] = Field(default_factory=list)
+    total_score_distribution: list[dict] = Field(default_factory=list)
+    prediction_interval: dict | None = None
+    model_manifest_sha256: str | None = None
+    model_binary_sha256: str | None = None
+    feature_vector_sha256: str | None = None
+    lineage: dict = Field(default_factory=dict)
     decisions: list[ShadowDecisionView]
 
 
 class ShadowGameView(BaseModel):
     event_id: str
     event_date: date
+    sport: str = "BASEBALL"
+    scheduled_start_utc: datetime | None = None
     home_team_id: str
     away_team_id: str
     engines: list[ShadowEngineView]
@@ -791,6 +808,9 @@ class ShadowBoardData(BaseModel):
     slate_date: date
     status: Literal["RESEARCH_SHADOW"]
     executable: Literal[False]
+    sports_available: list[str] = Field(default_factory=list)
+    active_sport: str | None = None
+    lineage_disclosure: dict | None = None
     games: list[ShadowGameView]
 
 

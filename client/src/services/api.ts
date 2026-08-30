@@ -107,8 +107,11 @@ export const endpoints = {
     return apiRequest<HistoricalGameExplorerPage>(`/research/history/games?${query.toString()}`, {}, signal)
   },
   bankroll: (signal?: AbortSignal) => apiRequest<BankrollData>('/bankroll', {}, signal),
-  shadowBoard: (slateDate: string, signal?: AbortSignal) =>
-    apiRequest<ShadowBoardData>(`/shadow-board?date=${encodeURIComponent(slateDate)}`, {}, signal),
+  shadowBoard: (slateDate: string, signal?: AbortSignal, sport?: string | null) => {
+    const query = new URLSearchParams({ date: slateDate })
+    if (sport) query.set('sport', sport)
+    return apiRequest<ShadowBoardData>(`/shadow-board?${query.toString()}`, {}, signal)
+  },
   rescoreBoard: (slateDate: string, signal?: AbortSignal) =>
     apiRequest<ProspectiveRescoreBoard>(`/shadow-board/rescores?date=${encodeURIComponent(slateDate)}`, {}, signal),
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),

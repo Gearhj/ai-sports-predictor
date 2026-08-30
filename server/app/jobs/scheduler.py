@@ -10,7 +10,11 @@ from app.core.logging import logger
 from app.core.time import local_today
 from app.db.session import SessionLocal
 from app.jobs.orchestrator import JobOrchestrator
-from app.models.entities import GameStatus
+from app.models.entities import (
+    Game, GameStatus, ShadowBoardDecision, ShadowDecisionSettlement,
+    ShadowForecast, ShadowForecastBundle,
+)
+from sqlalchemy import select
 from app.services.game_refresh_state_service import GameRefreshStateService
 
 
@@ -27,6 +31,39 @@ def _scheduled_event_dates(
     """
 
     today = local_today(settings.display_timezone)
+    if job_name == "finalize-nfl-shadow-games":
+        now = datetime.now(UTC)
+        candidate_dates = set(orchestrator.session.scalars(
+            select(ShadowForecast.event_date)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .join(Game, Game.id == ShadowForecast.canonical_game_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                Game.status != GameStatus.FINAL,
+                Game.starts_at <= now,
+                ShadowForecast.event_date >= today - timedelta(days=3),
+                ShadowForecast.event_date <= today,
+            )
+            .distinct()
+        ))
+        return tuple(sorted(candidate_dates))
+    if job_name == "settle-nfl-shadow-decisions":
+        settled_ids = select(ShadowDecisionSettlement.decision_id)
+        candidate_dates = set(orchestrator.session.scalars(
+            select(ShadowBoardDecision.slate_date)
+            .join(ShadowForecast, ShadowForecast.id == ShadowBoardDecision.shadow_forecast_id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .join(Game, Game.id == ShadowForecast.canonical_game_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                Game.status == GameStatus.FINAL,
+                ShadowBoardDecision.slate_date >= today - timedelta(days=3),
+                ShadowBoardDecision.slate_date <= today,
+                ShadowBoardDecision.id.not_in(settled_ids),
+            )
+            .distinct()
+        ))
+        return tuple(sorted(candidate_dates))
     if job_name != "finalize-games":
         return (today,)
     previous = today - timedelta(days=1)
@@ -67,6 +104,51 @@ async def execute_pregame_odds_refresh(settings: Settings) -> None:
             logger.info("odds_refresh_skipped", reason="outside_pregame_window")
             return
     await execute_scheduled_job("refresh-odds", settings)
+
+
+async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
+    """Spend NFL quota only when a bounded event-relative checkpoint is due."""
+
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+
+        if not NFLShadowOddsService(session).checkpoint_due(now):
+            logger.info("nfl_odds_refresh_skipped", reason="no_missing_checkpoint")
+            return
+    await execute_scheduled_job("refresh-nfl-shadow-odds", settings)
+
+
+async def execute_nfl_final_pregame_generation(settings: Settings) -> None:
+    """Invoke the producer only for an unfrozen game in its 15–30m window."""
+
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        due_events = set(session.scalars(
+            select(ShadowForecast.event_id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                ShadowForecast.scheduled_start_utc >= now + timedelta(minutes=15),
+                ShadowForecast.scheduled_start_utc <= now + timedelta(minutes=30),
+            )
+            .distinct()
+        ))
+        frozen_events = set(session.scalars(
+            select(ShadowForecast.event_id)
+            .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
+            .where(
+                ShadowForecastBundle.sport == "NFL",
+                ShadowForecast.snapshot_type == "FINAL_PREGAME",
+                ShadowForecast.event_id.in_(due_events) if due_events else False,
+            )
+            .distinct()
+        ))
+    if not due_events - frozen_events:
+        logger.info("nfl_final_pregame_generation_skipped", reason="no_unfrozen_game_in_window")
+        return
+    await execute_scheduled_job("generate-nfl-final-pregame-forecasts", settings)
+    await execute_scheduled_job("freeze-nfl-final-pregame", settings)
 
 
 def select_event_relative_refresh_states(settings: Settings) -> None:
@@ -157,6 +239,68 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
                 "interval",
                 minutes=settings.odds_pregame_refresh_minutes,
                 id="asp-live-odds-refresh",
+                kwargs={"settings": settings},
+                **common,
+            )
+    if settings.nfl_shadow_enabled:
+        # Provider-free import/evaluation/finalization jobs reuse the one app
+        # scheduler and remain independently idempotent.
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=30,
+            id="asp-nfl-shadow-import",
+            kwargs={"job_name": "import-nfl-shadow-forecast-bundle", "settings": settings},
+            **common,
+        )
+        if settings.nfl_shadow_producer_enabled:
+            # One daily current-evidence refresh plus an event-gated FINAL pass.
+            # Both use the same existing scheduler and hardened exchange.
+            scheduler.add_job(
+                execute_scheduled_job, "cron", hour=5, minute=30,
+                id="asp-nfl-shadow-producer-current",
+                kwargs={"job_name": "generate-nfl-shadow-forecasts", "settings": settings},
+                **common,
+            )
+            scheduler.add_job(
+                execute_nfl_final_pregame_generation, "interval", minutes=5,
+                id="asp-nfl-shadow-producer-final",
+                kwargs={"settings": settings},
+                **common,
+            )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=30,
+            id="asp-nfl-shadow-evaluate",
+            kwargs={"job_name": "evaluate-nfl-shadow-board", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=5,
+            id="asp-nfl-shadow-final-pregame",
+            kwargs={"job_name": "freeze-nfl-final-pregame", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=60,
+            id="asp-nfl-shadow-finalize",
+            kwargs={"job_name": "finalize-nfl-shadow-games", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=60,
+            id="asp-nfl-shadow-settle",
+            kwargs={"job_name": "settle-nfl-shadow-decisions", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=60,
+            id="asp-nfl-shadow-performance",
+            kwargs={"job_name": "recalculate-nfl-shadow-performance", "settings": settings},
+            **common,
+        )
+        if settings.nfl_shadow_odds_enabled and settings.the_odds_api_key:
+            scheduler.add_job(
+                execute_nfl_shadow_odds_refresh, "interval",
+                minutes=settings.odds_pregame_refresh_minutes,
+                id="asp-nfl-shadow-odds",
                 kwargs={"settings": settings},
                 **common,
             )

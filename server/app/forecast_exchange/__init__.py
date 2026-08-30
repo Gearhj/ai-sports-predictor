@@ -17,7 +17,20 @@ from app.forecast_exchange.contracts import (
 from app.forecast_exchange.importer import (
     ForecastBundleImportError,
     ImportedForecastBundle,
+    ImportedSportsForecastBundle,
+    VerifiedNFLShadowBundleIndex,
+    verify_and_load_any_bundle,
     verify_and_load_bundle,
+    verify_and_load_sports_bundle,
+    verify_nfl_shadow_bundle_index,
+)
+from app.forecast_exchange.sports_contracts import (
+    SPORTS_CONTRACT_VERSIONS,
+    SportsConsumerImportFixtureV1,
+    SportsForecastBundleV1,
+    SportsGameForecastV1,
+    NFLShadowBundleIndexV1,
+    NFLShadowBundleIndexV2,
 )
 
 __all__ = [
@@ -28,6 +41,17 @@ __all__ = [
     "ForecastBundleImportError",
     "GameForecastExportV1",
     "ImportedForecastBundle",
+    "ImportedSportsForecastBundle",
+    "VerifiedNFLShadowBundleIndex",
     "MarketQuoteV1",
+    "SPORTS_CONTRACT_VERSIONS",
+    "SportsConsumerImportFixtureV1",
+    "SportsForecastBundleV1",
+    "SportsGameForecastV1",
+    "NFLShadowBundleIndexV1",
+    "NFLShadowBundleIndexV2",
+    "verify_and_load_any_bundle",
     "verify_and_load_bundle",
+    "verify_and_load_sports_bundle",
+    "verify_nfl_shadow_bundle_index",
 ]

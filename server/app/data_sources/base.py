@@ -291,6 +291,22 @@ class OddsEventDTO(BaseModel):
     source_mode: SourceMode = "LIVE"
 
 
+class OddsScoreTeamDTO(BaseModel):
+    name: str
+    score: int = Field(ge=0)
+
+
+class OddsScoreEventDTO(BaseModel):
+    source_event_id: str
+    commence_time: datetime
+    completed: bool
+    home_team: str
+    away_team: str
+    scores: list[OddsScoreTeamDTO]
+    last_update: datetime | None = None
+    source_mode: SourceMode = "LIVE"
+
+
 class ScheduleSource(Protocol):
     async def get_schedule(self, event_date: date) -> "AdapterResponse": ...
 

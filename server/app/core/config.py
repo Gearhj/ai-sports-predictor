@@ -105,6 +105,19 @@ class Settings(BaseSettings):
     # Model Studio forecast-exchange shadow board (research-shadow, never executable).
     shadow_board_enabled: bool = True
     shadow_bundle_import_dir: str = ""
+    # Frozen NFL M1 prospective track. Import/read jobs are provider-free;
+    # Odds API polling is separately armed and remains off by default.
+    nfl_shadow_enabled: bool = False
+    nfl_shadow_bundle_import_dir: str = ""
+    nfl_shadow_odds_enabled: bool = False
+    # Optional local orchestration of the bounded Model Studio producer.  AISP
+    # never computes NFL features itself: when explicitly armed, the existing
+    # scheduler launches the pinned producer CLI without a shell, then imports
+    # only through the independently verified exchange above.
+    nfl_shadow_producer_enabled: bool = False
+    nfl_model_studio_root: str = ""
+    nfl_model_studio_python: str = ""
+    nfl_shadow_producer_timeout_seconds: int = Field(default=3600, ge=60, le=7200)
     shadow_virtual_bankroll: float = Field(default=1000.0, gt=0)
     shadow_qualified_edge: float = Field(default=0.02, ge=0, le=1)
     shadow_kelly_fraction: float = Field(default=0.25, gt=0, le=1)

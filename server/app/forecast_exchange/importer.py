@@ -33,6 +33,15 @@ from app.forecast_exchange.contracts import (
     DailyForecastBundleV1,
     GameForecastExportV1,
 )
+from app.forecast_exchange.sports_contracts import (
+    NFLShadowBundleIndexV1,
+    NFLShadowBundleIndexV2,
+    SPORTS_CONTRACT_VERSIONS,
+    SPORTS_FIXTURE_CONTRACT,
+    SportsConsumerImportFixtureV1,
+    SportsForecastBundleV1,
+    SportsGameForecastV1,
+)
 from app.gen2.exchange.canonical_json import canonical_json_bytes, canonical_sha256
 from app.gen2.exchange.filesystem import (
     ExchangePathError,
@@ -44,6 +53,16 @@ from app.gen2.exchange.filesystem import (
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _URI_ADDRESS = re.compile(r"/sha256/([0-9a-f]{64})/")
+_SPORTS_VALIDATION_V1 = b"""# ASP Sports Forecast Exchange V1 validation
+
+1. Resolve only the exact bundleLogicalUri named by the import fixture.
+2. Hash canonical bundle.json bytes and require the URI, fixture, and directory address to agree.
+3. Reject duplicate JSON keys, unknown fields, invalid distributions, or invalid child content IDs.
+4. Require NFL, 2026, RESEARCH_SHADOW, NOT_PROMOTED, and executionAllowed=false.
+5. Verify exact canonical event/team IDs, pre-kickoff cutoffs, model manifest/binary hashes, and feature-vector hash.
+6. This evidence authorizes no provider call, wager, model promotion, or official-bankroll mutation.
+"""
+_SPORTS_VALIDATION_V1_SHA256 = hashlib.sha256(_SPORTS_VALIDATION_V1).hexdigest()
 
 
 class ForecastBundleImportError(RuntimeError):
@@ -60,6 +79,28 @@ class ImportedForecastBundle:
     bundle: DailyForecastBundleV1
     raw_bundle: dict[str, Any]
     forecast_child_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ImportedSportsForecastBundle:
+    """Verified prospective sport-neutral research-shadow bundle."""
+
+    bundle_dir: Path
+    bundle_sha256: str
+    bundle_id: str
+    logical_uri: str
+    fixture: SportsConsumerImportFixtureV1
+    bundle: SportsForecastBundleV1
+    raw_bundle: dict[str, Any]
+    forecast_child_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VerifiedNFLShadowBundleIndex:
+    family_root: Path
+    sha256_root: Path
+    index_path: Path
+    index: NFLShadowBundleIndexV1 | NFLShadowBundleIndexV2
 
 
 def _load_unique_json(raw: bytes, *, label: str) -> Any:
@@ -165,6 +206,164 @@ def verify_and_load_bundle(bundle_dir: Path) -> ImportedForecastBundle:
     )
 
 
+def verify_and_load_any_bundle(
+    bundle_dir: Path,
+) -> ImportedForecastBundle | ImportedSportsForecastBundle:
+    """Dispatch by the closed fixture schema without weakening legacy V1.
+
+    The legacy function remains untouched for callers that deliberately accept
+    only historical MLB bundles.  The shadow service uses this dispatcher to
+    add the prospective sport-neutral family.
+    """
+
+    try:
+        root = governed_root(Path(bundle_dir))
+        fixture_path = resolve_under(
+            root, "consumer-import-fixture.json", require_exists=True, require_file=True
+        )
+        assert_regular_independent_file(fixture_path)
+    except ExchangePathError as exc:
+        raise ForecastBundleImportError(f"Unsafe bundle location: {exc}") from exc
+    raw_fixture = _load_unique_json(fixture_path.read_bytes(), label="import fixture")
+    if not isinstance(raw_fixture, dict):
+        raise ForecastBundleImportError("Import fixture must be a JSON object")
+    if raw_fixture.get("schemaVersion") == SPORTS_FIXTURE_CONTRACT:
+        return verify_and_load_sports_bundle(root)
+    return verify_and_load_bundle(root)
+
+
+def verify_and_load_sports_bundle(bundle_dir: Path) -> ImportedSportsForecastBundle:
+    """Verify one immutable ``ASP_SPORTS_FORECAST_EXCHANGE_V1`` bundle."""
+
+    try:
+        root = governed_root(Path(bundle_dir))
+        fixture_path = resolve_under(
+            root, "consumer-import-fixture.json", require_exists=True, require_file=True
+        )
+        bundle_path = resolve_under(root, "bundle.json", require_exists=True, require_file=True)
+        validation_path = resolve_under(root, "VALIDATION.md", require_exists=True, require_file=True)
+        assert_regular_independent_file(fixture_path)
+        assert_regular_independent_file(bundle_path)
+        assert_regular_independent_file(validation_path)
+    except ExchangePathError as exc:
+        raise ForecastBundleImportError(f"Unsafe bundle location: {exc}") from exc
+
+    fixture_raw = _load_unique_json(fixture_path.read_bytes(), label="sports import fixture")
+    try:
+        fixture = SportsConsumerImportFixtureV1.model_validate(fixture_raw)
+    except ValidationError as exc:
+        raise ForecastBundleImportError("Sports import fixture is invalid") from exc
+    if fixture.expected_contract_versions != SPORTS_CONTRACT_VERSIONS:
+        raise ForecastBundleImportError("Sports fixture declares unsupported contract versions")
+    _verify_child_binding(fixture_raw, "fixtureId", fixture.fixture_id, label="sports fixture")
+    actual_inventory = {entry.name for entry in root.iterdir()}
+    expected_inventory = {"bundle.json", "consumer-import-fixture.json", "VALIDATION.md"}
+    if actual_inventory != expected_inventory:
+        raise ForecastBundleImportError("Sports bundle directory inventory is not the exact three-file contract")
+    validation_bytes = validation_path.read_bytes()
+    if fixture.validation_instructions_sha256 != _SPORTS_VALIDATION_V1_SHA256:
+        raise ForecastBundleImportError("Fixture does not bind the consumer-pinned V1 validation instructions")
+    if validation_bytes != _SPORTS_VALIDATION_V1:
+        raise ForecastBundleImportError("VALIDATION.md differs from the consumer-pinned V1 instructions")
+    if hashlib.sha256(validation_bytes).hexdigest() != fixture.validation_instructions_sha256:
+        raise ForecastBundleImportError("VALIDATION.md SHA-256 differs from the fixture authority")
+    address = _uri_address(fixture.bundle_logical_uri)
+    if address != fixture.bundle_sha256:
+        raise ForecastBundleImportError("Sports logical URI address does not match bundleSha256")
+
+    raw_bytes = bundle_path.read_bytes()
+    digest = hashlib.sha256(raw_bytes).hexdigest()
+    if digest != address:
+        raise ForecastBundleImportError("sports bundle.json SHA-256 does not match the immutable address")
+    raw_bundle = _load_unique_json(raw_bytes, label="sports bundle")
+    if not isinstance(raw_bundle, dict):
+        raise ForecastBundleImportError("Sports bundle must be a JSON object")
+    if raw_bytes != canonical_json_bytes(raw_bundle):
+        raise ForecastBundleImportError("Sports bundle is not encoded with canonical exchange JSON")
+    try:
+        bundle = SportsForecastBundleV1.model_validate(raw_bundle)
+    except ValidationError as exc:
+        raise ForecastBundleImportError("Bundle failed the closed sports-forecast contract") from exc
+
+    _verify_child_binding(raw_bundle, "bundleId", bundle.bundle_id, label="sports bundle")
+    raw_forecasts = raw_bundle.get("forecasts")
+    if not isinstance(raw_forecasts, list) or len(raw_forecasts) != len(bundle.forecasts):
+        raise ForecastBundleImportError("Sports forecast list is malformed")
+    child_ids: list[str] = []
+    for raw_forecast, forecast in zip(raw_forecasts, bundle.forecasts, strict=True):
+        _verify_child_binding(raw_forecast, "forecastId", forecast.forecast_id, label="sports forecast")
+        _reject_unsafe_sports_forecast(forecast)
+        child_ids.append(forecast.forecast_id)
+    if len(bundle.forecasts) != fixture.expected_record_counts.forecasts:
+        raise ForecastBundleImportError("Sports bundle record count differs from the fixture")
+    _reject_sports_identity_inconsistency(bundle)
+    return ImportedSportsForecastBundle(
+        bundle_dir=root,
+        bundle_sha256=digest,
+        bundle_id=bundle.bundle_id,
+        logical_uri=fixture.bundle_logical_uri,
+        fixture=fixture,
+        bundle=bundle,
+        raw_bundle=raw_bundle,
+        forecast_child_ids=tuple(child_ids),
+    )
+
+
+def verify_nfl_shadow_bundle_index(location: Path) -> VerifiedNFLShadowBundleIndex:
+    """Verify the bounded mutable NFL locator without granting it scientific authority.
+
+    ``location`` may name the locator, the family directory, or its ``sha256``
+    child. Every listed object must still pass :func:`verify_and_load_sports_bundle`.
+    """
+
+    supplied = Path(location)
+    if supplied.name == "nfl-2026-research-shadow-index.json":
+        family_candidate = supplied.parent
+    elif supplied.name == "sha256":
+        family_candidate = supplied.parent
+    else:
+        family_candidate = supplied
+    try:
+        family_root = governed_root(family_candidate)
+        index_path = resolve_under(
+            family_root,
+            "nfl-2026-research-shadow-index.json",
+            require_exists=True,
+            require_file=True,
+        )
+        sha256_root = resolve_under(
+            family_root, "sha256", require_exists=True, require_file=False
+        )
+        assert_regular_independent_file(index_path)
+        if not sha256_root.is_dir():
+            raise ForecastBundleImportError("NFL exchange sha256 root is not a directory")
+    except ExchangePathError as exc:
+        raise ForecastBundleImportError(f"Unsafe NFL bundle index location: {exc}") from exc
+    raw_bytes = index_path.read_bytes()
+    raw_index = _load_unique_json(raw_bytes, label="NFL shadow bundle index")
+    if not isinstance(raw_index, dict):
+        raise ForecastBundleImportError("NFL shadow bundle index must be a JSON object")
+    if raw_bytes != canonical_json_bytes(raw_index):
+        raise ForecastBundleImportError("NFL shadow bundle index is not canonical JSON")
+    schema_version = raw_index.get("schemaVersion")
+    index_type = {
+        "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1": NFLShadowBundleIndexV1,
+        "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2": NFLShadowBundleIndexV2,
+    }.get(schema_version)
+    if index_type is None:
+        raise ForecastBundleImportError("NFL shadow bundle index schema is unsupported")
+    try:
+        index = index_type.model_validate(raw_index)
+    except ValidationError as exc:
+        raise ForecastBundleImportError("NFL shadow bundle index is invalid") from exc
+    return VerifiedNFLShadowBundleIndex(
+        family_root=family_root,
+        sha256_root=sha256_root,
+        index_path=index_path,
+        index=index,
+    )
+
+
 def _uri_address(uri: str) -> str:
     match = _URI_ADDRESS.search(uri)
     if not match:
@@ -224,8 +423,39 @@ def _reject_identity_inconsistency(bundle: DailyForecastBundleV1) -> None:
             )
 
 
+def _reject_unsafe_sports_forecast(forecast: SportsGameForecastV1) -> None:
+    if forecast.source_event_id != f"nflverse:{forecast.event_id}":
+        raise ForecastBundleImportError("NFL source event identity is not exact/provider-qualified")
+    if not forecast.home_team.team_id.strip() or not forecast.away_team.team_id.strip():
+        raise ForecastBundleImportError("NFL canonical team identity is absent")
+    if not forecast.home_team.source_team_id.strip() or not forecast.away_team.source_team_id.strip():
+        raise ForecastBundleImportError("NFL source team identity is absent")
+
+
+def _reject_sports_identity_inconsistency(bundle: SportsForecastBundleV1) -> None:
+    identities: dict[str, tuple[str, str, str, str, Any, int, str]] = {}
+    for forecast in bundle.forecasts:
+        identity = (
+            forecast.home_team.team_id,
+            forecast.away_team.team_id,
+            forecast.home_team.source_team_id,
+            forecast.away_team.source_team_id,
+            forecast.scheduled_start_utc,
+            forecast.season,
+            forecast.source_event_id,
+        )
+        existing = identities.setdefault(forecast.event_id, identity)
+        if existing != identity:
+            raise ForecastBundleImportError(
+                f"NFL event {forecast.event_id} has inconsistent exact identity across snapshots"
+            )
+
+
 __all__ = [
     "ForecastBundleImportError",
     "ImportedForecastBundle",
+    "ImportedSportsForecastBundle",
+    "verify_and_load_any_bundle",
     "verify_and_load_bundle",
+    "verify_and_load_sports_bundle",
 ]
