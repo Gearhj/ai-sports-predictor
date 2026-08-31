@@ -103,6 +103,8 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
         data_mode=data_mode,
         model_status="DEVELOPMENT",
         component_weights=normalized,
+        display_timezone=settings.display_timezone,
+        operational_date=local_today(settings.display_timezone),
         bankroll_policy={
             "kelly_fraction": 0.25,
             "maximum_stake_percentage": settings.official_max_stake_percentage,

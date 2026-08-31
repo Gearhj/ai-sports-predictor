@@ -67,6 +67,22 @@ class MarketPulseRow(BaseModel):
     alert_count: int = 0
 
 
+class ObserverJobStatus(BaseModel):
+    """Honest per-job scheduler evidence for the observer's registered jobs."""
+
+    name: str
+    enabled: bool = False
+    cadence_minutes: int = 0
+    scheduler_running: bool = False
+    last_run_at: datetime | None = None
+    last_status: str | None = None
+    last_success_at: datetime | None = None
+    last_error: str | None = None
+    next_run_at: datetime | None = None
+    records_inspected: int = 0
+    records_persisted: int = 0
+
+
 class MarketPulseBoard(BaseModel):
     data_mode: DataMode
     date: date
@@ -75,15 +91,19 @@ class MarketPulseBoard(BaseModel):
     disclosure: str = "RESEARCH OBSERVER · NO TRADING · NOT A MODEL INPUT · NOT A GUARANTEE"
     public_display_enabled: bool = False
     observer_enabled: bool = False
-    # OBSERVER_DISABLED | PROVIDER_DEGRADED | PROVIDERS_HEALTHY_ZERO_MARKETS | ELIGIBLE_MARKETS
+    # OBSERVER_DISABLED | PROVIDERS_DISABLED | DISCOVERY_PENDING |
+    # PROVIDERS_HEALTHY_ZERO_ELIGIBLE | ELIGIBLE_MARKETS_AVAILABLE | PROVIDER_DEGRADED
     # (API_UNAVAILABLE is a frontend-only state when the backend itself is unreachable.)
-    board_state: str = "PROVIDERS_HEALTHY_ZERO_MARKETS"
+    board_state: str = "DISCOVERY_PENDING"
     state_reason: str = ""
     providers: list["ProviderHealth"] = []
     next_discovery_at: datetime | None = None
     semantics_review_count: int = 0
     rows: list[MarketPulseRow] = []
     summary: dict[str, Any] = {}
+    # Excluded Market Activity — inspected-but-not-eligible counts by reason.
+    excluded_summary: dict[str, int] = {}
+    jobs: list[ObserverJobStatus] = []
 
 
 class TimelinePoint(BaseModel):
@@ -184,6 +204,7 @@ class ProviderHealth(BaseModel):
     enabled: bool
     connection_mode: str
     last_discovery_at: datetime | None = None
+    last_success_at: datetime | None = None
     last_snapshot_at: datetime | None = None
     subscribed_markets: int = 0
     request_count: int | None = None
@@ -191,6 +212,10 @@ class ProviderHealth(BaseModel):
     status: str = "IDLE"
     events_inspected: int = 0
     markets_inspected: int = 0
+    # Raw provider records inspected by the latest successful discovery cycle
+    # (None until a discovery run has recorded raw counts).
+    raw_markets_inspected: int | None = None
+    excluded: dict[str, int] = {}
     eligible_game_markets: int = 0
     mapped_markets: int = 0
     unresolved_markets: int = 0

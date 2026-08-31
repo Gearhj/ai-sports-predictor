@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+
+from app.core.time import local_day_bounds, local_today
 from typing import Callable
 
 from sqlalchemy import func, select
@@ -185,12 +187,16 @@ class LiveShadowOperator:
             )
             .limit(1)
         )
-        day_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
+        # Budget accounting mirrors the orchestrator: the operational day in the
+        # configured display timezone, never the UTC calendar day.
+        day_start, day_end = local_day_bounds(
+            local_today(self.settings.display_timezone, now), self.settings.display_timezone
+        )
         requests_today = int(self.session.scalar(
             select(func.count()).select_from(ProviderRequestLedger).where(
                 ProviderRequestLedger.provider == "THE_ODDS_API",
                 ProviderRequestLedger.requested_at >= day_start,
-                ProviderRequestLedger.requested_at < day_start + timedelta(days=1),
+                ProviderRequestLedger.requested_at < day_end,
                 ProviderRequestLedger.source_mode == "LIVE",
                 ProviderRequestLedger.status == "RESERVED",
             )

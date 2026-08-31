@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.middleware import SecurityHeadersMiddleware
 from app.data_sources import SourceError
-from app.jobs.scheduler import build_scheduler
+from app.jobs.scheduler import build_scheduler, mark_scheduler_started, mark_scheduler_stopped
 
 
 @asynccontextmanager
@@ -25,8 +25,10 @@ async def lifespan(application: FastAPI):
         scheduler = build_scheduler(settings)
         scheduler.start()
         application.state.scheduler = scheduler
+        mark_scheduler_started()
     yield
     if scheduler:
+        mark_scheduler_stopped()
         scheduler.shutdown(wait=False)
 
 

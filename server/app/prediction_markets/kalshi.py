@@ -109,20 +109,27 @@ class KalshiPredictionMarketSource:
     async def discover_contracts(
         self, *, series_ticker: str, league: str, sport: str, limit: int = 100,
     ) -> AdapterResponse:
-        raw = await self._get("/markets", params={"series_ticker": series_ticker, "status": "open", "limit": limit})
+        params = {"series_ticker": series_ticker, "status": "open", "limit": limit}
+        raw = await self._get("/markets", params=params)
         markets = raw.get("markets", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
         contracts: list[ProviderContractDTO] = []
+        excluded: dict[str, int] = {}
         for market in markets:
             dto = self._normalize_market(market, league=league, sport=sport)
             if dto is not None:
                 contracts.append(dto)
+            else:
+                reason = "malformed_record" if not isinstance(market, dict) else "missing_identifiers"
+                excluded[reason] = excluded.get(reason, 0) + 1
         fetched = datetime.now(UTC)
         return AdapterResponse(
             envelope=SourceEnvelope(
                 source=self.source, fetched_at=fetched,
                 data=[c.model_dump(mode="json") for c in contracts],
                 metadata={"markets_seen": len(markets), "contracts": len(contracts),
-                          "series_ticker": series_ticker, "mode": self.connection_mode},
+                          "series_ticker": series_ticker, "mode": self.connection_mode,
+                          "excluded": excluded,
+                          "query": {"path": "/markets", "params": params}},
             ),
             raw_payload=raw if isinstance(raw, (dict, list)) else {"raw": raw},
         )

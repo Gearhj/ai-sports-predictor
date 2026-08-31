@@ -1557,11 +1557,17 @@ class JobOrchestrator:
         return local_day_bounds(value, self.settings.display_timezone)
 
     def _enforce_odds_quota_policy(self) -> None:
-        start_of_day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        # The "daily" budget window is the operational day in the configured
+        # display timezone — the same day that defines the slate it serves. A
+        # UTC window resets at 20:00 ET and lets the prior evening's spend
+        # exhaust the next slate's budget by mid-afternoon.
+        budget_day = local_today(self.settings.display_timezone)
+        start_of_day, end_of_day = local_day_bounds(budget_day, self.settings.display_timezone)
         requests_today = self.session.scalar(
             select(func.count(ProviderRequestLedger.id)).where(
                 ProviderRequestLedger.provider == "THE_ODDS_API",
                 ProviderRequestLedger.requested_at >= start_of_day,
+                ProviderRequestLedger.requested_at < end_of_day,
                 ProviderRequestLedger.source_mode == "LIVE",
                 ProviderRequestLedger.status == "RESERVED",
             )
@@ -1569,7 +1575,8 @@ class JobOrchestrator:
         if requests_today >= self.settings.odds_daily_request_budget:
             raise SourceError(
                 "THE_ODDS_API",
-                f"Daily request budget reached ({requests_today}/{self.settings.odds_daily_request_budget})",
+                f"Daily request budget reached ({requests_today}/{self.settings.odds_daily_request_budget}) "
+                f"for operational day {budget_day.isoformat()}",
                 retryable=False,
             )
         latest = self.session.scalar(select(IngestionRun).where(
@@ -1618,7 +1625,7 @@ class JobOrchestrator:
             self.session.rollback()
             raise SourceError(
                 provider,
-                "An equivalent provider request is already reserved for this UTC budget day",
+                "An equivalent provider request is already reserved for this refresh window",
                 retryable=False,
             ) from exc
         return ledger

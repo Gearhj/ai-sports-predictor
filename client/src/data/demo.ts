@@ -324,7 +324,7 @@ export const demoMarketPulse: import('../types/domain').MarketPulseBoard = {
   disclosure: 'RESEARCH OBSERVER · NO TRADING · NOT A MODEL INPUT · NOT A GUARANTEE',
   public_display_enabled: false,
   observer_enabled: true,
-  board_state: 'ELIGIBLE_MARKETS',
+  board_state: 'ELIGIBLE_MARKETS_AVAILABLE',
   state_reason: '2 mapped game(s) with persisted market snapshots.',
   providers: [
     { provider: 'POLYMARKET', enabled: true, connection_mode: 'REST_ONLY', last_discovery_at: 'Illustrative snapshot', last_snapshot_at: 'Illustrative snapshot', subscribed_markets: 2, last_error: null, status: 'ACTIVE', events_inspected: 2, markets_inspected: 2, eligible_game_markets: 2, mapped_markets: 2, unresolved_markets: 0, last_job_status: 'succeeded' },

@@ -311,3 +311,77 @@ def test_health_summary_never_exposes_credentials(session, settings):
     summary = PredictionMarketReadService(session, s).health_summary()
     blob = summary.model_dump_json()
     assert "SECRET_ID" not in blob and "/secret/key.pem" not in blob
+
+
+# -- Polymarket Gamma /events discovery parsing ------------------------------
+
+@pytest.mark.asyncio
+async def test_polymarket_discovery_parses_gamma_events_and_counts_exclusions():
+    from app.prediction_markets.polymarket import PolymarketPredictionMarketSource
+
+    game_event = {
+        "id": "981", "slug": "mlb-bos-nyy-2026-08-30", "gameId": "10078058",
+        "title": "Boston Red Sox vs. New York Yankees",
+        "startTime": "2026-08-31T00:05:00Z", "seriesSlug": "mlb",
+        "markets": [
+            {
+                "id": "1", "conditionId": "0xml", "sportsMarketType": "moneyline",
+                "question": "Boston Red Sox vs. New York Yankees",
+                "gameStartTime": "2026-08-31 00:05:00+00",
+                "outcomes": "[\"Boston Red Sox\", \"New York Yankees\"]",
+                "clobTokenIds": "[\"tok-away\", \"tok-home\"]",
+                "active": True, "closed": False,
+            },
+            {
+                "id": "2", "conditionId": "0xsp", "sportsMarketType": "spreads",
+                "question": "Spread: New York Yankees (-1.5)", "line": -1.5,
+                "gameStartTime": "2026-08-31 00:05:00+00",
+                "outcomes": "[\"New York Yankees\", \"Boston Red Sox\"]",
+                "clobTokenIds": "[\"tok-s1\", \"tok-s2\"]",
+                "active": True, "closed": False,
+            },
+            {
+                "id": "3", "conditionId": "0xnr", "sportsMarketType": "nrfi",
+                "question": "Will there be a run scored in the first inning?",
+                "gameStartTime": "2026-08-31 00:05:00+00",
+                "outcomes": "[\"Yes\", \"No\"]", "clobTokenIds": "[\"t1\", \"t2\"]",
+                "active": True, "closed": False,
+            },
+        ],
+    }
+    futures_event = {
+        "id": "982", "slug": "mlb-world-series-champion-2026",
+        "title": "MLB World Series Champion 2026",
+        "markets": [
+            {"id": "9", "conditionId": "0xws", "sportsMarketType": None,
+             "question": "Will the New York Yankees win the 2026 World Series?",
+             "outcomes": "[\"Yes\", \"No\"]", "clobTokenIds": "[\"w1\", \"w2\"]"},
+        ],
+    }
+
+    source = PolymarketPredictionMarketSource()
+
+    async def fake_get(base, path, params=None):
+        assert path == "/events"
+        assert params["tag_slug"] == "mlb"
+        return [game_event, futures_event]
+
+    source._get = fake_get  # type: ignore[method-assign]
+    resp = await source.discover_contracts(league="MLB", limit=100)
+    meta = resp.envelope.metadata
+    assert meta["events_seen"] == 2
+    assert meta["markets_seen"] == 4
+    assert meta["query"]["path"] == "/events"
+    # NRFI is a period market and the World Series market is a future — both
+    # inspected, both excluded, with honest reason buckets.
+    assert meta["excluded"]["non_governed_market_type"] == 1
+    assert meta["excluded"]["futures_or_season"] == 1
+    dtos = [ProviderContractDTO.model_validate(item) for item in resp.envelope.data]
+    ml = [d for d in dtos if d.market_type == CanonicalMarketType.FULL_GAME_MONEYLINE]
+    assert {d.selection for d in ml} == {CanonicalSelection.HOME, CanonicalSelection.AWAY}
+    # "Away vs. Home" title order: the Yankees are the home side.
+    assert all(d.provider_home_team == "New York Yankees" for d in dtos)
+    assert all(d.provider_away_team == "Boston Red Sox" for d in dtos)
+    assert all(d.provider_event_id == "10078058" for d in dtos)
+    spread = [d for d in dtos if d.market_type == CanonicalMarketType.FULL_GAME_SPREAD]
+    assert spread and all(d.line_value == -1.5 for d in spread)

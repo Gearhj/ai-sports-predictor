@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.time import local_date_of, local_day_bounds
 from app.forecast_exchange.pricing import (
     ModelProbability,
     Recommendation,
@@ -171,7 +172,7 @@ class ProspectiveShadowService:
         rescore = ShadowRescore(
             availability_event_id=event.id,
             game_id=game.id,
-            slate_date=_aware(game.starts_at).date(),
+            slate_date=local_date_of(_aware(game.starts_at), self.settings.display_timezone),
             engine="AISP_BASELINE",
             market="FULL_GAME_MONEYLINE",
             before_forecast_id=before.id if before else None,
@@ -398,7 +399,10 @@ class ProspectiveShadowService:
             if mapping is None:
                 return []
             slate_day = (event.published_at or event.received_at)
-            bounds = _day_bounds(_aware(slate_day).date())
+            bounds = local_day_bounds(
+                local_date_of(_aware(slate_day), self.settings.display_timezone),
+                self.settings.display_timezone,
+            )
             return list(self.session.scalars(
                 select(Game)
                 .join(GameTeam, GameTeam.game_id == Game.id)
@@ -566,11 +570,6 @@ def _iso(value: datetime | None) -> str | None:
 def _as_uuid(value):
     import uuid
     return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
-
-
-def _day_bounds(day: date) -> tuple[datetime, datetime]:
-    start = datetime(day.year, day.month, day.day, tzinfo=UTC)
-    return start, start + timedelta(days=1)
 
 
 __all__ = [

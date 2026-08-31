@@ -57,6 +57,18 @@ def _aware(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _idempotency_key(*parts: str) -> str:
+    """Deterministic snapshot identity within the column's 120-char bound.
+
+    Provider ids can be arbitrarily long (Polymarket condition/token ids), so
+    the identity material is hash-compressed; the provider prefix is kept for
+    operator legibility."""
+    import hashlib
+
+    material = ":".join(parts)
+    return f"{parts[0][:24]}:{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+
+
 class PredictionMarketObserver:
     def __init__(self, session: Session, settings: Settings) -> None:
         self.session = session
@@ -195,7 +207,10 @@ class PredictionMarketObserver:
             min_depth=self.settings.prediction_market_min_depth, in_play=in_play,
         )
         payload_hash = quote.payload_sha256()
-        idem = f"{contract.provider}:{contract.provider_market_id}:{contract.provider_outcome_id}:{int(obs.timestamp())}:{payload_hash[:16]}"
+        idem = _idempotency_key(
+            contract.provider, contract.provider_market_id, contract.provider_outcome_id,
+            str(int(obs.timestamp())), payload_hash[:16],
+        )
         if self._exists(PredictionMarketSnapshot, idempotency_key=idem):
             return None
         depth1, depth2, depth5, imbalance = self._depth_metrics(quote.book, pv.midpoint)
@@ -234,7 +249,10 @@ class PredictionMarketObserver:
         ).order_by(PredictionMarketOrderbookSnapshot.observed_at.desc()))
         if last is not None and last.raw_payload_sha256 == payload_hash:
             return  # nothing changed — no duplicate frame
-        idem = f"{contract.provider}:{contract.provider_market_id}:{contract.provider_outcome_id}:ob:{int(observed_at.timestamp())}:{payload_hash[:16]}"
+        idem = _idempotency_key(
+            contract.provider, contract.provider_market_id, contract.provider_outcome_id,
+            "ob", str(int(observed_at.timestamp())), payload_hash[:16],
+        )
         if self._exists(PredictionMarketOrderbookSnapshot, idempotency_key=idem):
             return
         self.session.add(PredictionMarketOrderbookSnapshot(

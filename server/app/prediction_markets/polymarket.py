@@ -111,46 +111,98 @@ class PolymarketPredictionMarketSource:
     async def discover_contracts(self, *, league: str, limit: int = 100) -> AdapterResponse:
         """Discover active governed game contracts for a league.
 
-        Returns normalized ProviderContractDTO rows (one per selection). Only the
-        governed full-game moneyline/spread/total types are emitted; props,
-        futures, same-game and non-game markets are skipped.
+        Uses the official Gamma events listing with a league tag filter
+        (``/events?tag_slug=mlb``), which returns per-game events whose nested
+        markets carry ``sportsMarketType``, ``gameStartTime``, line values, and
+        outcome tokens. Only the governed full-game moneyline/spread/total
+        types are emitted; props, futures, same-game and non-game markets are
+        skipped and counted by exclusion reason so the observer can report
+        honest raw activity.
         """
-        params = {"closed": "false", "limit": limit}
-        raw = await self._get(self.gamma_base_url, "/markets/keyset", params=params)
-        markets = raw.get("data", raw) if isinstance(raw, dict) else raw
-        if not isinstance(markets, list):
-            markets = []
+        params = {"tag_slug": league.lower(), "closed": "false", "limit": min(limit, 100)}
+        raw = await self._get(self.gamma_base_url, "/events", params=params)
+        events = raw if isinstance(raw, list) else (raw.get("events") or raw.get("data") or []) if isinstance(raw, dict) else []
         contracts: list[ProviderContractDTO] = []
-        for market in markets:
-            contracts.extend(self._normalize_market(market, league_hint=league))
+        excluded: dict[str, int] = {}
+        markets_seen = 0
+        for event in events:
+            if not isinstance(event, dict):
+                excluded["malformed_record"] = excluded.get("malformed_record", 0) + 1
+                continue
+            markets = event.get("markets") or []
+            markets_seen += len(markets)
+            for market in markets:
+                normalized, reason = self._normalize_market(market, league_hint=league, event=event)
+                if reason is not None:
+                    excluded[reason] = excluded.get(reason, 0) + 1
+                contracts.extend(normalized)
         fetched = datetime.now(UTC)
         return AdapterResponse(
             envelope=SourceEnvelope(
                 source=self.source, fetched_at=fetched,
                 data=[c.model_dump(mode="json") for c in contracts],
-                metadata={"markets_seen": len(markets), "contracts": len(contracts), "league": league},
+                metadata={
+                    "events_seen": len(events), "markets_seen": markets_seen,
+                    "contracts": len(contracts), "league": league,
+                    "excluded": excluded,
+                    "query": {"path": "/events", "params": params},
+                },
             ),
             raw_payload=raw if isinstance(raw, (dict, list)) else {"raw": raw},
         )
 
-    def _normalize_market(self, market: dict[str, Any], *, league_hint: str) -> list[ProviderContractDTO]:
+    @staticmethod
+    def _event_teams(event: dict[str, Any] | None) -> tuple[str | None, str | None]:
+        """(home, away) from a Gamma game-event title.
+
+        Polymarket lists MLB/NFL game events as "Away Team vs. Home Team".
+        Non-game events (futures, win totals) have no "vs." and yield nothing.
+        """
+        if not event:
+            return None, None
+        title = str(event.get("title") or "")
+        for sep in (" vs. ", " vs ", " @ "):
+            if sep in title:
+                left, _, right = title.partition(sep)
+                if left.strip() and right.strip():
+                    return right.strip(), left.strip()
+        return None, None
+
+    def _normalize_market(
+        self, market: dict[str, Any], *, league_hint: str, event: dict[str, Any] | None = None
+    ) -> tuple[list[ProviderContractDTO], str | None]:
+        """Normalize one raw market. Returns (contracts, exclusion_reason).
+
+        A skipped market carries exactly one honest exclusion-reason bucket so
+        the observer can show what it inspected even when nothing qualified.
+        """
         if not isinstance(market, dict):
-            return []
+            return [], "malformed_record"
         smt = str(market.get("sportsMarketType") or market.get("sports_market_type") or "").lower()
         market_type = _MARKET_TYPE_MAP.get(smt)
         if market_type is None:
-            return []  # non-governed / non-sports market — skip
+            return [], self._exclusion_bucket(market, smt)
         league_label = str(market.get("league") or market.get("leagueAbbreviation") or league_hint or "").lower()
         sport, league = _LEAGUE_MAP.get(league_label, ("", league_hint.upper()))
         if not sport:
             sport, league = _LEAGUE_MAP.get(league_hint.lower(), ("", league_hint.upper()))
-        event_id = str(market.get("gameId") or market.get("eventId") or market.get("conditionId") or market.get("id") or "")
+        if not sport:
+            return [], "unsupported_sport"
+        event = event if isinstance(event, dict) else {}
+        event_id = str(
+            event.get("gameId") or event.get("slug") or event.get("id")
+            or market.get("gameId") or market.get("eventId") or market.get("conditionId") or market.get("id") or ""
+        )
         market_id = str(market.get("conditionId") or market.get("id") or "")
         if not market_id:
-            return []
-        home = market.get("homeTeam") or market.get("home_team")
-        away = market.get("awayTeam") or market.get("away_team")
-        start = _to_dt(market.get("gameStartTime") or market.get("startTime") or market.get("startDate"))
+            return [], "missing_identifiers"
+        event_home, event_away = self._event_teams(event)
+        home = market.get("homeTeam") or market.get("home_team") or event_home
+        away = market.get("awayTeam") or market.get("away_team") or event_away
+        start = _to_dt(
+            market.get("gameStartTime") or market.get("startTime") or event.get("startTime")
+            or market.get("startDate")
+        )
         close = _to_dt(market.get("endDate") or market.get("closedTime"))
         question = market.get("question") or market.get("title")
         rules = market.get("description") or market.get("resolutionSource") or market.get("rules")
@@ -158,6 +210,8 @@ class PolymarketPredictionMarketSource:
         line_value = _to_float(market.get("line") or market.get("spread") or market.get("points"))
         # outcome tokens
         outcomes = self._outcomes(market)
+        if not outcomes:
+            return [], "missing_outcome_tokens"
         results: list[ProviderContractDTO] = []
         for token_id, label in outcomes:
             selection = self._selection(market_type, label, home, away)
@@ -181,7 +235,22 @@ class PolymarketPredictionMarketSource:
                 market_status=status, line_source="STRUCTURED",
                 raw={"id": market.get("id"), "slug": market.get("slug"), "sportsMarketType": smt},
             ))
-        return results
+        if not results:
+            return [], "unmatched_outcome_labels"
+        return results, None
+
+    @staticmethod
+    def _exclusion_bucket(market: dict[str, Any], smt: str) -> str:
+        """Honest heuristic bucket for a non-governed market. Coarse on purpose:
+        provider taxonomies vary, and the catch-all is reported as such."""
+        blob = f"{smt} {market.get('question') or ''} {market.get('slug') or ''}".lower()
+        if "prop" in smt or any(k in blob for k in ("strikeouts", "home runs", "passing yards", "touchdowns", " points scored by", "player")):
+            return "player_props"
+        if "alternate" in blob:
+            return "alternate_lines"
+        if any(k in blob for k in ("season", "world series", "super bowl", "mvp", "award", "champion", "playoff", "futures", "win total")):
+            return "futures_or_season"
+        return "non_governed_market_type"
 
     @staticmethod
     def _outcomes(market: dict[str, Any]) -> list[tuple[str, str]]:

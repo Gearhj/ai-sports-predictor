@@ -25,6 +25,7 @@ from app.models import (
     PredictionMarketEvent,
     PredictionMarketMapping,
     PredictionMarketSnapshot,
+    RunStatus,
     Team,
 )
 from app.prediction_markets.contracts import CanonicalMarketType, CanonicalSelection
@@ -35,6 +36,7 @@ from app.schemas.prediction_market import (
     MarketPulseGameDetail,
     MarketPulseRow,
     MovementEvent,
+    ObserverJobStatus,
     OrderBookView,
     PredictionMarketAlertsData,
     PredictionMarketAlertView,
@@ -83,31 +85,9 @@ class PredictionMarketReadService:
         now = datetime.now(UTC)
         providers = self._provider_health_list()
         observer_enabled = self.settings.prediction_market_observer_enabled
-        degraded = [p for p in providers if (p.last_job_status or "").lower() == "failed"]
-        if not observer_enabled:
-            board_state = "OBSERVER_DISABLED"
-            reason = ("The backend is healthy but the Prediction Market Observer is disabled "
-                      "(PREDICTION_MARKET_OBSERVER_ENABLED=false); no discovery or snapshots run.")
-        elif rows:
-            board_state, reason = "ELIGIBLE_MARKETS", f"{len(rows)} mapped game(s) with persisted market snapshots."
-        elif degraded:
-            board_state = "PROVIDER_DEGRADED"
-            reason = f"Provider(s) {', '.join(p.provider for p in degraded)} last audited job failed: {degraded[0].last_error or 'see admin health'}."
-        else:
-            board_state = "PROVIDERS_HEALTHY_ZERO_MARKETS"
-            events = sum(p.events_inspected for p in providers)
-            markets = sum(p.markets_inspected for p in providers)
-            mapped = sum(p.mapped_markets for p in providers)
-            unresolved = sum(p.unresolved_markets for p in providers)
-            reason = (
-                f"Providers reachable but no semantically comparable per-game market is currently available "
-                f"({events} events / {markets} markets inspected; {mapped} mapped, {unresolved} unresolved). "
-                "This is a healthy zero-market state — no demo data is substituted."
-                if (events or markets) else
-                "Observer is armed but no discovery has persisted governed sports markets yet for this date."
-            )
+        board_state, reason = self._board_state(rows, providers, now)
         next_discovery = None
-        if observer_enabled and providers:
+        if observer_enabled and self._scheduler_running() and providers:
             last = max((p.last_discovery_at for p in providers if p.last_discovery_at), default=None)
             if last is not None:
                 next_discovery = _aware(last) + timedelta(minutes=self.settings.prediction_market_discovery_minutes)
@@ -126,7 +106,133 @@ class PredictionMarketReadService:
             observer_enabled=observer_enabled, board_state=board_state, state_reason=reason,
             providers=providers, next_discovery_at=next_discovery,
             semantics_review_count=self._semantics_review_count(), rows=rows, summary=summary,
+            excluded_summary=self._excluded_summary(providers),
+            jobs=self._observer_jobs(),
         )
+
+    @staticmethod
+    def _scheduler_running() -> bool:
+        from app.jobs.scheduler import scheduler_is_running
+
+        return scheduler_is_running()
+
+    def _board_state(self, rows, providers: list[ProviderHealth], now: datetime) -> tuple[str, str]:
+        """Exact, non-contradictory observer state machine.
+
+        API_UNAVAILABLE is a frontend-only state (backend unreachable). The
+        healthy-zero label is only earned by a successful discovery that
+        actually inspected provider records.
+        """
+        s = self.settings
+        if not s.prediction_market_observer_enabled:
+            return ("OBSERVER_DISABLED",
+                    "The backend is healthy but the Prediction Market Observer is disabled "
+                    "(PREDICTION_MARKET_OBSERVER_ENABLED=false); no discovery or snapshots run.")
+        polymarket_active = s.polymarket_enabled
+        kalshi_active = s.kalshi_enabled and s.kalshi_rest_polling_enabled
+        if not (polymarket_active or kalshi_active):
+            return ("PROVIDERS_DISABLED",
+                    "The observer is enabled but every provider is disabled "
+                    "(POLYMARKET_ENABLED / KALSHI_ENABLED+KALSHI_REST_POLLING_ENABLED are off); nothing can be discovered.")
+        if rows:
+            return ("ELIGIBLE_MARKETS_AVAILABLE", f"{len(rows)} mapped game(s) with persisted market snapshots.")
+        enabled = [p for p in providers if p.enabled]
+        stale_cutoff = now - timedelta(minutes=3 * s.prediction_market_discovery_minutes)
+        degraded: list[tuple[ProviderHealth, str]] = []
+        for p in enabled:
+            if (p.last_job_status or "").lower() == "failed":
+                degraded.append((p, f"last audited job failed: {p.last_error or 'see admin health'}"))
+            elif p.last_success_at is not None and _aware(p.last_success_at) < stale_cutoff and self._scheduler_running():
+                degraded.append((p, f"last successful discovery is stale (before {stale_cutoff.isoformat(timespec='minutes')})"))
+        if degraded:
+            names = ", ".join(p.provider for p, _ in degraded)
+            return ("PROVIDER_DEGRADED", f"Provider(s) {names} degraded — {degraded[0][1]}.")
+        successes = [p for p in enabled if p.last_success_at is not None]
+        if not successes:
+            return ("DISCOVERY_PENDING",
+                    "Providers are enabled but no discovery job has completed yet. "
+                    "Counts appear after the first audited discovery run.")
+        raw_total = sum(p.raw_markets_inspected or 0 for p in enabled)
+        if raw_total == 0:
+            return ("DISCOVERY_PENDING",
+                    "The latest discovery succeeded but inspected zero provider records; the exact provider "
+                    "response and query are recorded on the audited ingestion run. Healthy-zero is not claimed "
+                    "without inspected records.")
+        mapped = sum(p.mapped_markets for p in enabled)
+        unresolved = sum(p.unresolved_markets for p in enabled)
+        events = sum(p.events_inspected for p in enabled)
+        return ("PROVIDERS_HEALTHY_ZERO_ELIGIBLE",
+                f"Discovery succeeded and inspected {raw_total} raw provider market(s) "
+                f"({events} events persisted; {mapped} mapped, {unresolved} unresolved), but no governed, "
+                "semantically comparable per-game market qualified for this date. "
+                "This is a healthy zero-eligible state — no demo data is substituted.")
+
+    def _excluded_summary(self, providers: list[ProviderHealth]) -> dict[str, int]:
+        """Excluded Market Activity: discovery-time exclusions by reason plus
+        current mapping/quality exclusions derived from persisted evidence."""
+        summary: dict[str, int] = {}
+        for p in providers:
+            for reason, n in (p.excluded or {}).items():
+                summary[reason] = summary.get(reason, 0) + int(n)
+        summary["unresolved_mappings"] = sum(p.unresolved_markets for p in providers)
+        mismatch = int(self.session.scalar(select(func.count()).select_from(PredictionMarketMapping).where(
+            PredictionMarketMapping.semantics_status == "SEMANTICS_MISMATCH")) or 0)
+        if mismatch:
+            summary["rules_mismatch"] = mismatch
+        cutoff = datetime.now(UTC) - timedelta(hours=24)
+        recent = list(self.session.scalars(select(PredictionMarketSnapshot).where(
+            PredictionMarketSnapshot.aisp_received_at >= cutoff,
+        ).order_by(PredictionMarketSnapshot.provider_observed_at.desc())))
+        latest: dict[tuple[str, str, Any], PredictionMarketSnapshot] = {}
+        for snap in recent:
+            latest.setdefault((snap.provider, snap.provider_market_id, snap.provider_outcome_id), snap)
+        thin = sum(1 for snap in latest.values() if snap.quality_tier == "THIN")
+        incomplete = sum(1 for snap in latest.values() if snap.book_complete is False)
+        if thin:
+            summary["thin_markets"] = thin
+        if incomplete:
+            summary["incomplete_order_books"] = incomplete
+        return {k: v for k, v in summary.items() if v}
+
+    def _observer_jobs(self) -> list[ObserverJobStatus]:
+        """Registered observer jobs with honest cadence/run evidence (§ scheduler)."""
+        from app.models import JobRun
+
+        s = self.settings
+        snapshot_cadence = s.prediction_market_snapshot_minutes
+        defs = [
+            ("discover-prediction-markets", s.prediction_market_discovery_minutes),
+            ("refresh-prediction-market-snapshots", snapshot_cadence),
+            ("compute-prediction-market-consensus", max(snapshot_cadence, 5)),
+            ("evaluate-prediction-market-alerts", max(snapshot_cadence, 5)),
+            ("finalize-prediction-market-pregame", 5),
+        ]
+        running = self._scheduler_running() and s.prediction_market_observer_enabled
+        out: list[ObserverJobStatus] = []
+        for name, cadence in defs:
+            last = self.session.scalar(select(JobRun).where(JobRun.job_name == name)
+                                       .order_by(JobRun.started_at.desc()))
+            last_success = self.session.scalar(select(JobRun).where(
+                JobRun.job_name == name, JobRun.status == RunStatus.SUCCEEDED,
+            ).order_by(JobRun.started_at.desc()))
+            result = (last_success.result or {}) if last_success else {}
+            next_run = None
+            if running and last is not None and last.started_at is not None:
+                next_run = _aware(last.started_at) + timedelta(minutes=cadence)
+            out.append(ObserverJobStatus(
+                name=name,
+                enabled=s.prediction_market_observer_enabled,
+                cadence_minutes=cadence,
+                scheduler_running=running,
+                last_run_at=_aware(last.started_at) if last else None,
+                last_status=last.status.value if last and last.status is not None else None,
+                last_success_at=_aware(last_success.started_at) if last_success else None,
+                last_error=last.error_message if last else None,
+                next_run_at=next_run,
+                records_inspected=_int_or_zero(result.get("markets_seen") or result.get("contracts") or result.get("requests")),
+                records_persisted=_int_or_zero(result.get("records")),
+            ))
+        return out
 
     def _row(self, game: Game) -> MarketPulseRow | None:
         home_team, home_abbr, away_team, away_abbr = self._teams(game)
@@ -352,8 +458,16 @@ class PredictionMarketReadService:
         )
 
     def _provider_health(self, provider: str, enabled: bool, mode: str) -> ProviderHealth:
-        last_run = self.session.scalar(select(IngestionRun).where(IngestionRun.source == provider)
-                                       .order_by(IngestionRun.completed_at.desc().nulls_last()))
+        last_run = self.session.scalar(select(IngestionRun).where(
+            IngestionRun.source == provider,
+            IngestionRun.job_name == "discover-prediction-markets",
+        ).order_by(IngestionRun.completed_at.desc().nulls_last()))
+        last_success = self.session.scalar(select(IngestionRun).where(
+            IngestionRun.source == provider,
+            IngestionRun.job_name == "discover-prediction-markets",
+            IngestionRun.status == RunStatus.SUCCEEDED,
+        ).order_by(IngestionRun.completed_at.desc().nulls_last()))
+        raw_markets, excluded = self._discovery_cycle_stats(provider, last_success)
         last_snap = self.session.scalar(select(func.max(PredictionMarketSnapshot.aisp_received_at)).where(
             PredictionMarketSnapshot.provider == provider))
         subscribed = self.session.scalar(select(func.count(func.distinct(PredictionMarketContract.provider_market_id)))
@@ -366,13 +480,44 @@ class PredictionMarketReadService:
         return ProviderHealth(
             provider=provider, enabled=enabled, connection_mode=mode,
             last_discovery_at=_aware(last_run.completed_at) if last_run else None,
+            last_success_at=_aware(last_success.completed_at) if last_success else None,
             last_snapshot_at=_aware(last_snap), subscribed_markets=int(subscribed),
             last_error=last_run.error_message if last_run else None,
             status="ACTIVE" if last_snap else ("ARMED" if enabled else "IDLE"),
             events_inspected=int(events), markets_inspected=int(subscribed),
+            raw_markets_inspected=raw_markets, excluded=excluded,
             eligible_game_markets=int(mapped), mapped_markets=int(mapped), unresolved_markets=int(unresolved),
             last_job_status=last_status,
         )
+
+    def _discovery_cycle_stats(
+        self, provider: str, last_success: IngestionRun | None
+    ) -> tuple[int | None, dict[str, int]]:
+        """Raw inspected/excluded counts for the latest discovery cycle.
+
+        One discovery cycle records one audited run per governed sport; runs
+        completed within ten minutes of the newest success are the same cycle.
+        """
+        if last_success is None or last_success.completed_at is None:
+            return None, {}
+        window_start = _aware(last_success.completed_at) - timedelta(minutes=10)
+        runs = list(self.session.scalars(select(IngestionRun).where(
+            IngestionRun.source == provider,
+            IngestionRun.job_name == "discover-prediction-markets",
+            IngestionRun.status == RunStatus.SUCCEEDED,
+            IngestionRun.completed_at >= window_start,
+        )))
+        raw_total = 0
+        excluded: dict[str, int] = {}
+        saw_meta = False
+        for run in runs:
+            meta = run.source_metadata or {}
+            if "markets_seen" in meta:
+                saw_meta = True
+                raw_total += int(meta.get("markets_seen") or 0)
+            for reason, n in (meta.get("excluded") or {}).items():
+                excluded[reason] = excluded.get(reason, 0) + int(n)
+        return (raw_total if saw_meta else None), excluded
 
     def _provider_health_list(self) -> list[ProviderHealth]:
         return [
@@ -497,6 +642,13 @@ class PredictionMarketReadService:
 
         code = self.session.scalar(select(League.code).where(League.id == game.league_id))
         return code or "UNKNOWN"
+
+
+def _int_or_zero(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
 
 
 def _avg(values: list[float]) -> float | None:

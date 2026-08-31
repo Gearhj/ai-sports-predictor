@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   font-family: Inter, "Segoe UI", Arial, sans-serif;
   color: #18283d;
   background: #eef2f5;
@@ -110,7 +110,7 @@ h1, h2, h3, p { margin-top: 0; }
 .experiment-badge--research { padding: 9px 12px; color: #68420f; }
 .experiment-badge--research > span { display: grid; gap: 2px; }
 .experiment-badge--research strong { font: 700 11px "IBM Plex Mono", monospace; }
-.experiment-badge--research small { color: #9a5c18; font: 800 10px "IBM Plex Mono", monospace; letter-spacing: .09em; }
+.experiment-badge--research small { color: #9a5c18; font: 800 11px "IBM Plex Mono", monospace; letter-spacing: .09em; }
 
 .data-banner { min-height: 34px; display: flex; align-items: center; gap: 11px; padding: 7px 11px; margin-bottom: 15px; border: 1px solid; border-radius: 5px; font-size: 11px; }
 .data-banner > span:first-child { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; font: 700 11px "IBM Plex Mono", monospace; letter-spacing: .08em; }
@@ -552,7 +552,7 @@ h1, h2, h3, p { margin-top: 0; }
 .experiment-hero > p { margin: 0; color: #9aabba; font-size: 11px; line-height: 1.6; }
 .experiment-hero__meta { grid-column: 1 / -1; display: grid; gap: 4px; padding-top: 13px; border-top: 1px solid #263d54; }
 .experiment-hero__meta strong { color: #dce8ef; font: 700 12px "IBM Plex Mono", monospace; }
-.experiment-hero__meta small { color: #8ea2b3; font: 500 10px/1.5 "IBM Plex Mono", monospace; overflow-wrap: anywhere; }
+.experiment-hero__meta small { color: #8ea2b3; font: 500 11px/1.5 "IBM Plex Mono", monospace; overflow-wrap: anywhere; }
 .equity-panel { margin-bottom: 12px; }
 .policy-card { display: flex; gap: 11px; padding: 17px; color: var(--orange); border-bottom: 1px solid var(--line); }
 .policy-card strong { color: #374d63; font: 600 11px "IBM Plex Mono", monospace; }
@@ -571,7 +571,7 @@ h1, h2, h3, p { margin-top: 0; }
 .monthly-list b { font: 600 11px "IBM Plex Mono", monospace; }
 .monthly-list em { color: #687b8e; font: 500 11px "IBM Plex Mono", monospace; font-style: normal; text-align: right; }
 .positions-table td:nth-child(2) a { color: var(--teal-dark); text-decoration: none; }
-.daily-decision-reasons { display: block; max-width: 420px; margin-top: 3px; color: #77899a; font-size: 10px; line-height: 1.4; }
+.daily-decision-reasons { display: block; max-width: 420px; margin-top: 3px; color: #77899a; font-size: 11px; line-height: 1.4; }
 .experiment-clv-note { margin: 10px 0 0; color: #617589; font-size: 11px; }
 .responsible-callout { display: flex; gap: 11px; padding: 14px 16px; margin-top: 12px; color: #8a6324; background: var(--amber-soft); border: 1px solid #ead59f; border-radius: 6px; }
 .responsible-callout svg { flex: 0 0 auto; }
@@ -597,7 +597,7 @@ h1, h2, h3, p { margin-top: 0; }
 .principle-cards p { margin: 0; color: #7a8999; font-size: 11px; line-height: 1.5; }
 .not-list { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 10px 12px; color: #7b8a99; background: #f5f7f8; border-radius: 5px; font-size: 11px; }
 .not-list strong { color: #4e6378; margin-right: 5px; }
-.not-list span::before { content: "×"; margin-right: 4px; color: var(--red); font-weight: 700; }
+.not-list span::before { content: "Ã—"; margin-right: 4px; color: var(--red); font-weight: 700; }
 .pipeline { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin: 18px 0; }
 .pipeline > div { position: relative; min-height: 70px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 8px; color: #51677d; border: 1px solid var(--line); border-radius: 5px; background: #f8fafb; text-align: center; }
 .pipeline span { color: var(--teal); font: 600 11px "IBM Plex Mono", monospace; }
@@ -1144,3 +1144,27 @@ h1, h2, h3, p { margin-top: 0; }
 .qual-funnel__bar { height: 8px; border-radius: 4px; background: linear-gradient(90deg,#2b8a6a,#7bd0a8); }
 .qual-funnel__label { min-width: 220px; font-size: 13px; }
 .qual-funnel__value { font-weight: 700; min-width: 40px; text-align: right; }
+
+/* -- operational date navigation (Market Pulse + experiment funnel) -------- */
+.date-nav { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; }
+.date-nav input[type="date"] { padding: 5px 8px; border: 1px solid var(--border, #cdd7e0); border-radius: 6px; font: 500 13px "IBM Plex Mono", monospace; background: transparent; color: inherit; }
+.date-nav__step, .date-nav__today { display: inline-flex; align-items: center; justify-content: center; padding: 5px 9px; border: 1px solid var(--border, #cdd7e0); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font: 600 12px "IBM Plex Mono", monospace; }
+.date-nav__step:hover, .date-nav__today:hover { background: rgba(120,130,160,.12); }
+.date-nav__today:disabled { opacity: .45; cursor: default; }
+
+/* -- excluded market activity (Market Pulse healthy-zero evidence) --------- */
+.excluded-activity { margin: 14px 0 4px; }
+.excluded-activity h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.excluded-activity ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.excluded-activity li { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; background: rgba(120,130,160,.12); font-size: 12px; }
+.excluded-activity li b { font: 700 12px "IBM Plex Mono", monospace; }
+
+/* -- experiment page state strip + collapsibles ---------------------------- */
+.experiment-kpi-primary article strong { font-size: 26px; }
+.experiment-state-strip { display: grid; gap: 3px; padding: 12px 16px; margin-bottom: 12px; border-left: 3px solid var(--navy-900, #16283c); background: rgba(120,130,160,.08); border-radius: 6px; }
+.experiment-state-strip strong { font: 700 12px "IBM Plex Mono", monospace; }
+.experiment-state-strip small { font: 500 11px/1.5 "IBM Plex Mono", monospace; opacity: .8; overflow-wrap: anywhere; }
+.experiment-collapsible { margin-bottom: 12px; }
+.experiment-collapsible > summary { cursor: pointer; padding: 9px 14px; border-radius: 6px; background: rgba(120,130,160,.08); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .05em; }
+.experiment-collapsible[open] > summary { margin-bottom: 8px; }
+.qual-funnel__status { margin: 2px 0 10px; font-size: 13px; font-weight: 600; }

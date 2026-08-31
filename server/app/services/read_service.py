@@ -19,7 +19,7 @@ from app.bankroll.service import (
 )
 from app.core.config import Settings
 from app.forecast_exchange.pricing import ShadowPricingConfig
-from app.core.time import local_day_bounds
+from app.core.time import local_date_of, local_day_bounds
 from app.features.lifecycle import LifecycleStage, classify_lifecycle
 from app.features.readiness import (
     GATE2_WEIGHTS,
@@ -492,14 +492,19 @@ class ReadService:
         )
         last_refresh = _aware(last_run.completed_at) if last_run and last_run.completed_at else freshest
         age = int((now - _aware(freshest)).total_seconds()) if freshest else None
-        # "Running" means the scheduler that drives refresh-odds is actually armed.
-        scheduler_running = bool(
+        # "Running" requires BOTH the configuration that arms refresh-odds AND
+        # the scheduler actually started in this serving process — configuration
+        # alone must never present a dead scheduler as running.
+        from app.jobs.scheduler import scheduler_is_running
+
+        scheduler_armed = bool(
             self.settings.scheduler_enabled
             and (
                 self.settings.odds_polling_enabled
                 or (self.settings.live_shadow_enabled and self.settings.the_odds_api_key)
             )
         )
+        scheduler_running = scheduler_armed and scheduler_is_running()
         return last_refresh, age, self._odds_quota(), scheduler_running
 
     @staticmethod
@@ -2230,15 +2235,16 @@ class ReadService:
             result = position.result.value
             profit = settle_profit(float(position.stake), position.decimal_odds, SettlementResult(result)) if result != "pending" else 0.0
             balance += profit
-            equity.append({"date": position.placed_at.date().isoformat(), "bankroll": round(balance, 2), "benchmark": 1000.0})
-            month = position.placed_at.strftime("%Y-%m")
+            placed_local = local_date_of(position.placed_at, self.settings.display_timezone)
+            equity.append({"date": placed_local.isoformat(), "bankroll": round(balance, 2), "benchmark": 1000.0})
+            month = placed_local.strftime("%Y-%m")
             bucket = monthly.setdefault(month, {"month": month, "positions": 0, "wins": 0, "losses": 0, "pushes": 0, "profit_loss": 0.0, "stake": 0.0})
             bucket["positions"] += 1
             bucket["stake"] += float(position.stake)
             bucket[f"{result}es" if result == "push" else f"{result}s"] = bucket.get(f"{result}es" if result == "push" else f"{result}s", 0) + 1
             bucket["profit_loss"] += profit
             positions.append(PositionSchema(
-                id=str(position.id), date=position.placed_at.date(), game_id=str(game.id), selection=outcome.label,
+                id=str(position.id), date=placed_local, game_id=str(game.id), selection=outcome.label,
                 market=_market_label(market.market_type), price=decimal_to_american(position.decimal_odds), stake=float(position.stake),
                 result="OPEN" if result == "pending" else result.upper(), profit_loss=profit,
                 closing_price=decimal_to_american(position.closing_decimal_odds) if position.closing_decimal_odds else None,

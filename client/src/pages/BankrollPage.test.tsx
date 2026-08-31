@@ -97,6 +97,49 @@ describe('BankrollPage prospective experiment states', () => {
     expect(screen.getByText('No legitimate closing sample')).toBeInTheDocument()
   })
 
+  it('shows honest empty open/settled states in the top KPI section', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(activePayload())))
+
+    render(<MemoryRouter><BankrollPage /></MemoryRouter>)
+
+    const openCard = (await screen.findByText('Open positions')).closest('article') as HTMLElement
+    expect(within(openCard).getByText('0')).toBeInTheDocument()
+    expect(within(openCard).getByText('No open virtual positions')).toBeInTheDocument()
+    const settledCard = screen.getByText('Settled positions').closest('article') as HTMLElement
+    expect(within(settledCard).getByText('0')).toBeInTheDocument()
+    expect(within(settledCard).getByText('No settled positions yet')).toBeInTheDocument()
+  })
+
+  it('puts bankroll, open, and settled positions above the qualification funnel and policy sections', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(activePayload())))
+
+    const { container } = render(<MemoryRouter><BankrollPage /></MemoryRouter>)
+    await screen.findByText('Current bankroll')
+
+    const text = container.textContent ?? ''
+    const bankrollAt = text.indexOf('Current bankroll')
+    const openAt = text.indexOf('Open positions')
+    const settledAt = text.indexOf('Settled positions')
+    const funnelAt = text.indexOf('Qualification funnel')
+    const policyAt = text.indexOf('Staking policy')
+    const identityAt = text.indexOf('Experiment identity')
+
+    expect(bankrollAt).toBeGreaterThanOrEqual(0)
+    expect(openAt).toBeGreaterThanOrEqual(0)
+    expect(settledAt).toBeGreaterThanOrEqual(0)
+    // Funnel may be absent when its endpoint returns no funnel payload, but the
+    // policy/identity sections must always trail the operational results.
+    if (funnelAt >= 0) {
+      expect(bankrollAt).toBeLessThan(funnelAt)
+      expect(openAt).toBeLessThan(funnelAt)
+      expect(settledAt).toBeLessThan(funnelAt)
+      expect(funnelAt).toBeLessThan(policyAt)
+    }
+    expect(bankrollAt).toBeLessThan(policyAt)
+    expect(settledAt).toBeLessThan(policyAt)
+    expect(policyAt).toBeLessThan(identityAt)
+  })
+
   it('shows ROI and CLV only after a legitimately closed settlement exists', async () => {
     const payload = activePayload()
     payload.data_mode = 'live'
@@ -116,9 +159,11 @@ describe('BankrollPage prospective experiment states', () => {
 
     render(<MemoryRouter><BankrollPage /></MemoryRouter>)
 
-    const roiCard = (await screen.findByText('ROI on stake')).closest('article') as HTMLElement
-    expect(within(roiCard).getByText('+80.0%')).toBeInTheDocument()
+    const returnCard = (await screen.findByText('Total simulated return')).closest('article') as HTMLElement
+    expect(within(returnCard).getByText(/ROI on stake \+80\.0%/)).toBeInTheDocument()
     expect(screen.getByText(/Aggregate legitimate CLV:/)).toHaveTextContent('+1.5%')
     expect(screen.queryByText('ACTIVE · COLLECTING DATA')).not.toBeInTheDocument()
+    // A settled position renders in the settled table near the top of the page.
+    expect(screen.getByText('Latest settled positions')).toBeInTheDocument()
   })
 })

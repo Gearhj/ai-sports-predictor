@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
 import { MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { endpoints } from '../services/api'
+import { resolveOperationalDate } from '../services/operationalDate'
 import type {
   ProspectiveRescore,
   ShadowBoardData,
@@ -23,15 +24,11 @@ const pct = (value: number | null): string => (value == null ? '—' : `${(value
 const edge = (value: number | null): string => (value == null ? '—' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`)
 const money = (value: number): string => `$${value.toFixed(2)}`
 
-function todayIso(): string {
-  // Default to the historical research slate carried by the imported bundle so
-  // the transparency board is populated on first view.
-  return '2024-09-16'
-}
-
 function initialSlateDate(): string {
+  // Same date authority as every daily surface: an explicit ?date= wins,
+  // otherwise the operational (display-timezone) today.
   const value = new URLSearchParams(window.location.search).get('date')
-  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : todayIso()
+  return resolveOperationalDate(value)
 }
 
 function initialSport(): string | null {

@@ -75,10 +75,13 @@ class PredictionMarketJobs:
             self._record_run("POLYMARKET", "discover-prediction-markets", status=RunStatus.FAILED, count=0, error=str(exc))
             return {"error": str(exc), "contracts": 0}
         contracts = [ProviderContractDTO.model_validate(item) for item in resp.envelope.data]
+        meta = dict(resp.envelope.metadata or {})
         run = self._record_run("POLYMARKET", "discover-prediction-markets", status=RunStatus.SUCCEEDED,
-                                count=len(contracts), meta=resp.envelope.metadata)
+                                count=len(contracts), meta=meta)
         result = self.observer.ingest_contracts(contracts, ingestion_run_id=run.id)
-        return {**result, "provider": "POLYMARKET"}
+        return {**result, "provider": "POLYMARKET",
+                "markets_seen": int(meta.get("markets_seen") or 0),
+                "excluded": meta.get("excluded") or {}}
 
     async def _discover_kalshi(self, league: str, sport: str) -> dict[str, Any]:
         source = KalshiPredictionMarketSource(
@@ -95,16 +98,35 @@ class PredictionMarketJobs:
         series = series_resp.envelope.data or []
         tickers = [s.get("ticker") for s in series if isinstance(s, dict) and self._series_matches(s, sport)][:5]
         contracts: list[ProviderContractDTO] = []
+        markets_seen = 0
+        excluded: dict[str, int] = {}
+        queries: list[dict[str, Any]] = []
+        errors: list[str] = []
         for ticker in tickers:
             try:
                 resp = await source.discover_contracts(series_ticker=ticker, league=league, sport=sport, limit=50)
                 contracts.extend(ProviderContractDTO.model_validate(item) for item in resp.envelope.data)
-            except SourceError:
+                meta = resp.envelope.metadata or {}
+                markets_seen += int(meta.get("markets_seen") or 0)
+                for reason, n in (meta.get("excluded") or {}).items():
+                    excluded[reason] = excluded.get(reason, 0) + int(n)
+                queries.append(meta.get("query") or {"series_ticker": ticker})
+            except SourceError as exc:
+                errors.append(f"{ticker}: {exc}")
                 continue
-        run = self._record_run("KALSHI", "discover-prediction-markets", status=RunStatus.SUCCEEDED,
-                               count=len(contracts), meta={"series_scanned": len(tickers), "mode": source.connection_mode})
+        run = self._record_run(
+            "KALSHI", "discover-prediction-markets", status=RunStatus.SUCCEEDED,
+            count=len(contracts),
+            meta={
+                "series_scanned": len(tickers), "series_seen": len(series), "mode": source.connection_mode,
+                "markets_seen": markets_seen, "contracts": len(contracts), "league": league,
+                "excluded": excluded, "query": {"series": tickers, "requests": queries},
+                "series_errors": errors,
+            },
+        )
         result = self.observer.ingest_contracts(contracts, ingestion_run_id=run.id)
-        return {**result, "provider": "KALSHI", "mode": source.connection_mode}
+        return {**result, "provider": "KALSHI", "mode": source.connection_mode,
+                "markets_seen": markets_seen, "excluded": excluded}
 
     @staticmethod
     def _series_matches(series: dict[str, Any], sport: str) -> bool:
@@ -120,6 +142,7 @@ class PredictionMarketJobs:
         budget = self.settings.prediction_market_max_requests_per_hour
         snapshots = errors = 0
         used = 0
+        persist_errors: list[str] = []
         for contract in contracts:
             if used >= budget:
                 break
@@ -130,8 +153,14 @@ class PredictionMarketJobs:
                     snapshots += 1
             except SourceError:
                 errors += 1
+            except Exception as exc:  # one bad row must not abort the audited run
+                self.session.rollback()
+                errors += 1
+                if len(persist_errors) < 5:
+                    persist_errors.append(f"{contract.provider}:{contract.provider_market_id}: {type(exc).__name__}: {exc}"[:300])
         self._record_run("PREDICTION_MARKET", "refresh-prediction-market-snapshots", status=RunStatus.SUCCEEDED,
-                         count=snapshots, meta={"contracts": len(contracts), "requests": used, "errors": errors})
+                         count=snapshots, meta={"contracts": len(contracts), "requests": used, "errors": errors,
+                                                "persist_errors": persist_errors})
         return {"records": snapshots, "contracts": len(contracts), "requests": used, "errors": errors}
 
     async def _fetch_quote(self, contract: PredictionMarketContract) -> ProviderQuoteDTO | None:

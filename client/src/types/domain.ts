@@ -17,6 +17,8 @@ export interface PublicConfig extends DataProvenance {
     maximum_stake_percentage: number
     standard_edge_threshold?: number
   }
+  display_timezone?: string
+  operational_date?: string | null
 }
 export type Trend = 'positive' | 'negative' | 'neutral'
 export type ReadinessState = 'ready' | 'watch' | 'stale' | 'missing'
@@ -927,16 +929,41 @@ export interface PredictionProviderHealth {
   enabled: boolean
   connection_mode: string
   last_discovery_at: string | null
+  last_success_at?: string | null
   last_snapshot_at: string | null
   subscribed_markets: number
   last_error: string | null
   status: string
   events_inspected: number
   markets_inspected: number
+  raw_markets_inspected?: number | null
+  excluded?: Record<string, number>
   eligible_game_markets: number
   mapped_markets: number
   unresolved_markets: number
   last_job_status: string | null
+}
+
+export type MarketPulseBoardState =
+  | 'OBSERVER_DISABLED'
+  | 'PROVIDERS_DISABLED'
+  | 'DISCOVERY_PENDING'
+  | 'PROVIDERS_HEALTHY_ZERO_ELIGIBLE'
+  | 'ELIGIBLE_MARKETS_AVAILABLE'
+  | 'PROVIDER_DEGRADED'
+
+export interface ObserverJobStatus {
+  name: string
+  enabled: boolean
+  cadence_minutes: number
+  scheduler_running: boolean
+  last_run_at: string | null
+  last_status: string | null
+  last_success_at: string | null
+  last_error: string | null
+  next_run_at: string | null
+  records_inspected: number
+  records_persisted: number
 }
 
 export interface MarketPulseBoard extends DataProvenance {
@@ -946,13 +973,15 @@ export interface MarketPulseBoard extends DataProvenance {
   disclosure: string
   public_display_enabled: boolean
   observer_enabled: boolean
-  board_state: 'OBSERVER_DISABLED' | 'PROVIDER_DEGRADED' | 'PROVIDERS_HEALTHY_ZERO_MARKETS' | 'ELIGIBLE_MARKETS'
+  board_state: MarketPulseBoardState
   state_reason: string
   providers: PredictionProviderHealth[]
   next_discovery_at: string | null
   semantics_review_count: number
   rows: MarketPulseRow[]
   summary: Record<string, unknown>
+  excluded_summary?: Record<string, number>
+  jobs?: ObserverJobStatus[]
 }
 
 export interface PredictionTimelinePoint {

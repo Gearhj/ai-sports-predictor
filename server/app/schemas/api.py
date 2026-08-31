@@ -29,6 +29,10 @@ class PublicConfigData(BaseModel):
     model_status: Literal["DEVELOPMENT"]
     component_weights: ComponentWeights
     bankroll_policy: BankrollPolicyContract
+    # Central operational-date authority, exposed so every client surface can
+    # resolve "today" in the configured display timezone instead of UTC.
+    display_timezone: str = "America/New_York"
+    operational_date: date | None = None
 
 
 class TeamSummary(BaseModel):

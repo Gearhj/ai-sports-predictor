@@ -18,7 +18,15 @@ def test_eastern_today_does_not_flip_at_midnight_utc() -> None:
 
 
 def test_scheduler_registration_is_quota_safe(settings) -> None:
-    baseline = settings.model_copy(update={"live_shadow_enabled": False})
+    # Pin every optional feature off so a developer's local .env (NFL shadow,
+    # observer, live shadow) cannot leak extra registrations into the baseline.
+    baseline = settings.model_copy(update={
+        "live_shadow_enabled": False,
+        "nfl_shadow_enabled": False,
+        "prediction_market_observer_enabled": False,
+        "event_relative_scheduler_enabled": False,
+        "odds_polling_enabled": False,
+    })
     disabled_odds = build_scheduler(baseline)
     assert {job.id for job in disabled_odds.get_jobs()} == {"asp-daily-pipeline", "asp-finalize-games"}
     enabled = baseline.model_copy(update={"odds_polling_enabled": True})
@@ -33,6 +41,24 @@ def test_scheduler_registration_is_quota_safe(settings) -> None:
         "asp-shadow-experiment-freeze",
         "asp-availability-poll",
     }
+
+
+def test_scheduler_registers_all_observer_jobs_when_armed(settings) -> None:
+    observer = settings.model_copy(update={
+        "live_shadow_enabled": False,
+        "nfl_shadow_enabled": False,
+        "prediction_market_observer_enabled": True,
+        "event_relative_scheduler_enabled": False,
+        "odds_polling_enabled": False,
+    })
+    job_ids = {job.id for job in build_scheduler(observer).get_jobs()}
+    assert {
+        "asp-pm-discover",
+        "asp-pm-refresh",
+        "asp-pm-consensus",
+        "asp-pm-alerts",
+        "asp-pm-finalize-pregame",
+    } <= job_ids
 
 
 def test_finalize_carries_an_incomplete_prior_local_slate(settings, monkeypatch) -> None:

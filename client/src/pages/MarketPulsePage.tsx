@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Radio, ShieldAlert } from 'lucide-react'
-import { DataModeBanner, formatPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
+import { DataModeBanner, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
+import { OperationalDateNav } from '../components/OperationalDateNav'
 import { formatDate } from '../services/format'
+import { operationalToday, resolveOperationalDate } from '../services/operationalDate'
 import { demoMarketPulse } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
-import type { MarketPulseBoard, MarketPulseRow } from '../types/domain'
+import type { MarketPulseBoard, MarketPulseRow, ObserverJobStatus } from '../types/domain'
 
 function pct(value: number | null | undefined): string {
   return value == null ? '—' : `${(value * 100).toFixed(1)}%`
@@ -22,16 +24,83 @@ function tierClass(tier: string | null): string {
   return `pill pill--${(tier || 'unknown').toLowerCase()}`
 }
 
+// Exact observer states. API_UNAVAILABLE is a frontend-only state rendered
+// when the AISP backend itself cannot be reached.
 const STATE_TITLE: Record<string, string> = {
   OBSERVER_DISABLED: 'Observer disabled',
-  PROVIDERS_HEALTHY_ZERO_MARKETS: 'Providers healthy — zero eligible markets',
+  PROVIDERS_DISABLED: 'Providers disabled',
+  DISCOVERY_PENDING: 'Discovery pending',
+  PROVIDERS_HEALTHY_ZERO_ELIGIBLE: 'Providers healthy — zero eligible markets',
+  ELIGIBLE_MARKETS_AVAILABLE: 'Eligible markets available',
   PROVIDER_DEGRADED: 'Provider degraded',
 }
 
-function fmt(value: string | null): string {
+const EXCLUSION_LABEL: Record<string, string> = {
+  player_props: 'Player props',
+  futures_or_season: 'Futures / season markets',
+  alternate_lines: 'Alternate lines',
+  unsupported_sport: 'Unsupported sports',
+  non_governed_market_type: 'Non-governed market types',
+  missing_identifiers: 'Missing identifiers',
+  missing_outcome_tokens: 'Missing outcome tokens',
+  unmatched_outcome_labels: 'Unmatched outcome labels',
+  malformed_record: 'Malformed records',
+  incomplete_order_books: 'Incomplete order books',
+  thin_markets: 'Thin markets',
+  unresolved_mappings: 'Unresolved mappings',
+  rules_mismatch: 'Rules mismatch',
+}
+
+function fmt(value: string | null | undefined): string {
   if (!value) return '—'
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? value : d.toLocaleString()
+}
+
+function ObserverJobsTable({ jobs }: { jobs: ObserverJobStatus[] }) {
+  if (!jobs.length) return null
+  return (
+    <TableScroll ariaLabel="Observer job registration">
+      <table className="data-table pulse-health-table">
+        <thead>
+          <tr><th>Job</th><th>Enabled</th><th>Cadence</th><th>Last run</th><th>Last success</th><th>Next run</th><th>Inspected</th><th>Persisted</th><th>Last error</th></tr>
+        </thead>
+        <tbody>
+          {jobs.map((job) => (
+            <tr key={job.name}>
+              <td><strong>{job.name}</strong></td>
+              <td>{job.enabled ? (job.scheduler_running ? 'Yes' : 'Armed (scheduler off)') : 'No'}</td>
+              <td>{job.cadence_minutes}m</td>
+              <td>{fmt(job.last_run_at)}{job.last_status ? ` · ${job.last_status}` : ''}</td>
+              <td>{fmt(job.last_success_at)}</td>
+              <td>{fmt(job.next_run_at)}</td>
+              <td>{job.records_inspected}</td>
+              <td>{job.records_persisted}</td>
+              <td>{job.last_error ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableScroll>
+  )
+}
+
+function ExcludedActivity({ excluded }: { excluded: Record<string, number> | undefined }) {
+  const entries = Object.entries(excluded ?? {}).filter(([, n]) => n > 0)
+  return (
+    <div className="excluded-activity">
+      <h3>Excluded market activity</h3>
+      {entries.length === 0 ? (
+        <p className="pulse-health-meta">No inspected-but-excluded markets recorded for the latest discovery cycle.</p>
+      ) : (
+        <ul>
+          {entries.map(([reason, n]) => (
+            <li key={reason}><span>{EXCLUSION_LABEL[reason] ?? reason}</span><b>{n}</b></li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onRetry: () => void }) {
@@ -39,11 +108,12 @@ function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onR
   return (
     <div className={cls} role="status">
       <h2>{STATE_TITLE[data.board_state] ?? 'Market pulse status'}</h2>
+      <p className="pulse-health-meta">Operating date: <strong>{formatDate(data.date)}</strong></p>
       <p className="pulse-health-reason">{data.state_reason}</p>
       <TableScroll ariaLabel="Provider health">
         <table className="data-table pulse-health-table">
           <thead>
-            <tr><th>Provider</th><th>Enabled</th><th>Access</th><th>Last discovery</th><th>Last snapshot</th><th>Events</th><th>Markets</th><th>Eligible</th><th>Mapped</th><th>Unresolved</th><th>Last job</th></tr>
+            <tr><th>Provider</th><th>Enabled</th><th>Access</th><th>Last discovery</th><th>Last snapshot</th><th>Raw markets</th><th>Events</th><th>Markets</th><th>Eligible</th><th>Mapped</th><th>Unresolved</th><th>Last job</th></tr>
           </thead>
           <tbody>
             {data.providers.map((p) => (
@@ -53,6 +123,7 @@ function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onR
                 <td>{p.connection_mode}</td>
                 <td>{fmt(p.last_discovery_at)}</td>
                 <td>{fmt(p.last_snapshot_at)}</td>
+                <td>{p.raw_markets_inspected ?? '—'}</td>
                 <td>{p.events_inspected}</td>
                 <td>{p.markets_inspected}</td>
                 <td>{p.eligible_game_markets}</td>
@@ -64,6 +135,8 @@ function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onR
           </tbody>
         </table>
       </TableScroll>
+      <ExcludedActivity excluded={data.excluded_summary} />
+      <ObserverJobsTable jobs={data.jobs ?? []} />
       <p className="pulse-health-meta">
         Semantics review pending: {data.semantics_review_count} · Next scheduled discovery: {fmt(data.next_discovery_at)} ·
         Public display: {data.public_display_enabled ? 'enabled' : 'gated (LOCAL_PRIVATE_RESEARCH)'}
@@ -75,9 +148,32 @@ function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onR
 }
 
 export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
-  const today = new Date().toISOString().slice(0, 10)
-  const [slateDate, setSlateDate] = useState(today)
-  const [sport, setSport] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const slateDate = resolveOperationalDate(searchParams.get('date'))
+  const sport = searchParams.get('sport')
+
+  // The URL is the source of truth for the selected operating date.
+  useEffect(() => {
+    if (searchParams.get('date') !== slateDate) {
+      const next = new URLSearchParams(searchParams)
+      next.set('date', slateDate)
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slateDate])
+
+  const setDate = (next: string) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('date', next)
+    setSearchParams(params)
+  }
+  const setSport = (next: string | null) => {
+    const params = new URLSearchParams(searchParams)
+    if (next) params.set('sport', next)
+    else params.delete('sport')
+    setSearchParams(params)
+  }
+
   const loader = useMemo(
     () => (signal?: AbortSignal) => endpoints.marketPulse(slateDate, signal, sport),
     [slateDate, sport],
@@ -89,15 +185,17 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
       eyebrow="RESEARCH OBSERVER · NO TRADING · NOT A MODEL INPUT · NOT A GUARANTEE"
       title="ASP Crowd & Market Pulse"
       description="Real-time comparison of AISP forecasts, sportsbook consensus, and prediction-market beliefs."
-      actions={data ? <span className="page-actions__date">{formatDate(data.date)}</span> : undefined}
+      actions={<span className="page-actions__date">{formatDate(data?.date ?? slateDate)}</span>}
     />
   )
+  const dateNav = <OperationalDateNav date={slateDate} onChange={setDate} ariaLabel="Market pulse operating date" />
 
-  // A. API UNAVAILABLE — the AISP backend itself cannot be reached (network/5xx/404).
+  // A. API_UNAVAILABLE — the AISP backend itself cannot be reached (network/5xx/404).
   if (state === 'loading' || state === 'unavailable' || !data) {
     return (
       <div className="page market-pulse-page">
         {header}
+        {dateNav}
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
         {state === 'unavailable' && (
           <div className="pulse-health-panel pulse-health-panel--error" role="alert">
@@ -112,11 +210,12 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
     )
   }
 
-  // B / C / E — backend healthy; distinguish observer-disabled, healthy-zero, and degraded.
-  if (data.board_state !== 'ELIGIBLE_MARKETS' || data.rows.length === 0) {
+  // B–F — backend healthy; render the exact observer state.
+  if (data.board_state !== 'ELIGIBLE_MARKETS_AVAILABLE' || data.rows.length === 0) {
     return (
       <div className="page market-pulse-page">
         {header}
+        {dateNav}
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
         <MarketPulseHealthPanel data={data} onRetry={refresh} />
       </div>
@@ -133,6 +232,7 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
   return (
     <div className="page market-pulse-page">
       {header}
+      {dateNav}
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
       <div className="research-note" role="note">
@@ -162,10 +262,6 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
           {data.sports_available.map((s) => (
             <button key={s} role="tab" className={sport === s ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setSport(s)}>{s}</button>
           ))}
-          <label className="inline-field">
-            <span>Date</span>
-            <input type="date" value={slateDate} onChange={(event) => setSlateDate(event.target.value)} />
-          </label>
         </div>
       )}
 

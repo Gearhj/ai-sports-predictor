@@ -18,6 +18,27 @@ from sqlalchemy import select
 from app.services.game_refresh_state_service import GameRefreshStateService
 
 
+# -- runtime state ---------------------------------------------------------
+# Process-local truth for "is the authoritative scheduler actually running?".
+# Set by the application lifespan; read by the public status surfaces so the UI
+# only claims SCHEDULER RUNNING when this process really started it.
+_SCHEDULER_RUNNING = False
+
+
+def mark_scheduler_started() -> None:
+    global _SCHEDULER_RUNNING
+    _SCHEDULER_RUNNING = True
+
+
+def mark_scheduler_stopped() -> None:
+    global _SCHEDULER_RUNNING
+    _SCHEDULER_RUNNING = False
+
+
+def scheduler_is_running() -> bool:
+    return _SCHEDULER_RUNNING
+
+
 def _scheduled_event_dates(
     job_name: str,
     orchestrator: JobOrchestrator,
@@ -104,6 +125,30 @@ async def execute_pregame_odds_refresh(settings: Settings) -> None:
             logger.info("odds_refresh_skipped", reason="outside_pregame_window")
             return
     await execute_scheduled_job("refresh-odds", settings)
+
+
+async def execute_pm_finalize_pregame(settings: Settings) -> None:
+    """Capture a final pregame prediction-market snapshot only when a mapped
+    game is about to start; otherwise skip without spending provider requests."""
+
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        from app.models import PredictionMarketMapping
+
+        due = session.scalar(
+            select(PredictionMarketMapping.id)
+            .join(Game, Game.id == PredictionMarketMapping.canonical_game_id)
+            .where(
+                PredictionMarketMapping.mapping_status.in_(("EXACT", "MANUAL_APPROVED")),
+                Game.starts_at > now,
+                Game.starts_at <= now + timedelta(minutes=20),
+            )
+            .limit(1)
+        )
+    if due is None:
+        logger.info("pm_finalize_pregame_skipped", reason="no_mapped_game_in_window")
+        return
+    await execute_scheduled_job("finalize-prediction-market-pregame", settings)
 
 
 async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
@@ -327,5 +372,9 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             execute_scheduled_job, "interval",
             minutes=max(settings.prediction_market_snapshot_minutes, 5),
             id="asp-pm-alerts", kwargs={"job_name": "evaluate-prediction-market-alerts", "settings": settings}, **common,
+        )
+        scheduler.add_job(
+            execute_pm_finalize_pregame, "interval", minutes=5,
+            id="asp-pm-finalize-pregame", kwargs={"settings": settings}, **common,
         )
     return scheduler
