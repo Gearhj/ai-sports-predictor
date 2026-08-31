@@ -132,25 +132,33 @@ class QualificationService:
 
         gates = [
             ("scheduled_games", "Scheduled games"),
-            ("supported_selections", "Supported selections evaluated (moneyline)"),
+            ("supported_selections", "Moneyline markets supported"),
             ("valid_forecast", "Valid current forecast"),
-            ("fresh_complete_quote", "Fresh complete moneyline quote"),
+            ("complete_quote", "Complete two-sided quote"),
+            ("fresh_quote", "Fresh quote"),
+            ("exact_identity", "Exact game identity"),
+            ("starters_eligible", "Starter confirmed or probable-stable"),
+            ("lineup_eligible", "Lineup confirmed, adequate, or pending-allowed"),
             ("no_unresolved_event", "No unresolved availability event"),
-            ("starters_eligible", "Starters CONFIRMED or PROBABLE_STABLE"),
-            ("lineup_eligible", "Lineup confirmed or pending-allowed"),
+            ("model_inputs_valid", "Model-required inputs valid or governed fallback"),
+            ("critical_complete", "V2 critical evidence complete"),
             ("adjusted_edge", f"Adjusted edge ≥ {MIN_ADJUSTED_EDGE * 100:.1f} pts"),
             ("adjusted_ev", "Positive adjusted EV"),
+            ("adjusted_kelly", "Positive adjusted Kelly"),
             ("qualified", "V2 qualified decision"),
             ("positions_created", "Positions created"),
         ]
         counts = {key: 0 for key, _ in gates}
         rejection: dict[str, int] = {}
         diagnostics = {
-            "blocked_only_by_confirmed_status": 0,
-            "blocked_only_by_lineup_confirmation": 0,
-            "blocked_only_by_unsupported_market": 0,
-            "blocked_only_by_adjusted_edge": 0,
-            "blocked_by_other_evidence": 0,
+            "awaiting_final_pregame_evaluation": 0,
+            "blocked_only_by_starter_instability": 0,
+            "blocked_only_by_lineup_conflict": 0,
+            "blocked_only_by_model_required_input": 0,
+            "previously_blocked_by_duplicate_feature_completeness_gate": 0,
+            "unsupported_market": 0,
+            "edge_ev_kelly_failure": 0,
+            "portfolio_cap_failure": 0,
         }
         per_game: list[dict[str, Any]] = []
         experiment_games = [g for g in games if self._sport(g) == "MLB"]
@@ -185,15 +193,32 @@ class QualificationService:
                 cutoff=cutoff,
             )
             all_reasons = " | ".join([v2.reason, *v2.reasons]).lower()
+            decomposition = v2.decomposition or {}
+            model_required_missing = decomposition.get("model_required_missing", [])
+            scratch_or_event = (
+                "scratch" in all_reasons
+                or "availability event" in all_reasons
+                or "material lineup change" in all_reasons
+            )
+            edge_pass = v2.adjusted_edge is not None and v2.adjusted_edge >= MIN_ADJUSTED_EDGE
+            ev_pass = bool(v2.adjusted_expected_value and v2.adjusted_expected_value > 0)
             passes = {
                 "valid_forecast": forecast is not None,
-                "fresh_complete_quote": moneyline is not None and not bool(getattr(moneyline, "is_stale", False)),
-                "no_unresolved_event": "scratch" not in all_reasons and "availability event" not in all_reasons,
+                "complete_quote": moneyline is not None,
+                "fresh_quote": moneyline is not None and not bool(getattr(moneyline, "is_stale", False)),
+                "exact_identity": "identity unavailable" not in all_reasons,
                 "starters_eligible": bool(v2.starter_home and v2.starter_away
                                           and v2.starter_home.eligible and v2.starter_away.eligible),
                 "lineup_eligible": bool(v2.lineup and v2.lineup.eligible_for_moneyline),
-                "adjusted_edge": v2.adjusted_edge is not None and v2.adjusted_edge >= MIN_ADJUSTED_EDGE,
-                "adjusted_ev": bool(v2.adjusted_expected_value and v2.adjusted_expected_value > 0),
+                "no_unresolved_event": not scratch_or_event,
+                "model_inputs_valid": forecast is not None and not model_required_missing,
+                "critical_complete": v2.critical_evidence_complete,
+                "adjusted_edge": edge_pass,
+                "adjusted_ev": ev_pass,
+                # Positive adjusted Kelly is mathematically equivalent to
+                # positive adjusted EV at the same price; shown as its own gate
+                # for transparency.
+                "adjusted_kelly": ev_pass,
                 "qualified": v2.qualified,
             }
             survived = True
@@ -210,29 +235,47 @@ class QualificationService:
                     failed_gate = key
                     for reason in (v2.reasons or [v2.reason]):
                         rejection[reason] = rejection.get(reason, 0) + 1
-            # diagnostics against the V1 strict outcome
-            v1_reasons = set(opp.qualification_reasons or []) if opp else set()
-            if v1_reasons == {"Starting pitcher probable"}:
-                diagnostics["blocked_only_by_confirmed_status"] += 1
-            elif v1_reasons and v1_reasons <= {"Lineup missing", "Lineup not confirmed"}:
-                diagnostics["blocked_only_by_lineup_confirmation"] += 1
+            # -- diagnostics -------------------------------------------------
+            if v2.lifecycle in ("PENDING_FINAL_EVIDENCE", "NOT_YET_EVALUATED"):
+                diagnostics["awaiting_final_pregame_evaluation"] += 1
+            if failed_gate == "starters_eligible":
+                diagnostics["blocked_only_by_starter_instability"] += 1
+            if failed_gate == "lineup_eligible" and v2.lineup is not None and v2.lineup.state in (
+                "CONFLICT", "LATE_SCRATCH_UNRESOLVED",
+            ):
+                diagnostics["blocked_only_by_lineup_conflict"] += 1
+            if failed_gate == "model_inputs_valid":
+                diagnostics["blocked_only_by_model_required_input"] += 1
             if opp is not None and moneyline is None and opp.best is not None:
-                diagnostics["blocked_only_by_unsupported_market"] += 1
-            if failed_gate in {"adjusted_edge", "adjusted_ev"}:
-                diagnostics["blocked_only_by_adjusted_edge"] += 1
-            elif failed_gate not in (None, "adjusted_edge", "adjusted_ev"):
-                diagnostics["blocked_by_other_evidence"] += 1
+                diagnostics["unsupported_market"] += 1
+            if failed_gate in {"adjusted_edge", "adjusted_ev", "adjusted_kelly"}:
+                diagnostics["edge_ev_kelly_failure"] += 1
+            # Would the OLD composite gate have blocked this game even though
+            # no model-required component is actually missing?
+            fc = (forecast.readiness_components or {}).get("feature_completeness") if forecast else None
+            if (
+                forecast is not None and isinstance(fc, dict)
+                and str(fc.get("status", "")).lower() != "ready"
+                and not model_required_missing
+            ):
+                diagnostics["previously_blocked_by_duplicate_feature_completeness_gate"] += 1
             per_game.append({
                 "game_id": str(game.id),
                 "matchup": self._matchup(game),
                 "starts_at": _iso(game.starts_at),
                 "tier": v2.tier,
+                "lifecycle": v2.lifecycle,
                 "recommendation_state": v2.recommendation,
                 "failed_gate": failed_gate,
                 "rejection_reasons": list(v2.reasons),
+                "gates_passed": list(v2.gates_passed),
+                "critical_evidence_complete": v2.critical_evidence_complete,
                 "starter_state_home": v2.starter_home.state if v2.starter_home else None,
                 "starter_state_away": v2.starter_away.state if v2.starter_away else None,
+                "starter_stable_since_home": v2.starter_home.stable_since if v2.starter_home else None,
+                "starter_stable_since_away": v2.starter_away.stable_since if v2.starter_away else None,
                 "lineup_state": v2.lineup.state if v2.lineup else None,
+                "model_required_missing": list(model_required_missing),
                 "adjusted_edge": v2.adjusted_edge,
                 "readiness": opp.readiness if opp else None,
                 "best_market": moneyline.market_type if moneyline else None,
@@ -258,6 +301,11 @@ class QualificationService:
                 )
             ) or 0)
         top = sorted(rejection.items(), key=lambda kv: kv[1], reverse=True)
+        exposure_excluded = (
+            max(0, counts["qualified"] - counts["positions_created"])
+            if v2_experiment is not None and event_date >= v2_experiment.start_date else 0
+        )
+        diagnostics["portfolio_cap_failure"] = exposure_excluded
         return {
             "date": event_date.isoformat(),
             "policy": POLICY_VERSION,
@@ -265,8 +313,7 @@ class QualificationService:
             "steps": [{"key": k, "label": lbl, "count": counts[k]} for k, lbl in gates],
             "qualified_selections": counts["qualified"],
             "positions_created": counts["positions_created"],
-            "exposure_cap_exclusions": max(0, counts["qualified"] - counts["positions_created"])
-            if v2_experiment is not None and event_date >= v2_experiment.start_date else 0,
+            "exposure_cap_exclusions": exposure_excluded,
             "top_rejection_reasons": [{"reason": r, "count": c} for r, c in top[:8]],
             "diagnostics": diagnostics,
             "experiment_registered": v2_experiment is not None,

@@ -367,6 +367,7 @@ class ReadService:
         sports_available: list[str] = []
         v1_ml_top: tuple[float, Any] | None = None
         v2_top: Any = None
+        v2_pending_count = 0
         for game, forecast in zip(games, forecasts):
             game_id = str(game.id)
             priced = candidates_by_game.get(game_id, [])
@@ -408,9 +409,12 @@ class ReadService:
                 ml_score = ml_view.opportunity_score or 0.0
                 if v1_ml_top is None or ml_score > v1_ml_top[0]:
                     v1_ml_top = (ml_score, ml_view)
-            if v2_view is not None and v2_view.recommendation == "QUALIFIED_BET":
-                if v2_top is None or (v2_view.adjusted_edge or -999.0) > (v2_top.adjusted_edge or -999.0):
-                    v2_top = v2_view
+            if v2_view is not None:
+                if v2_view.recommendation == "QUALIFIED_BET":
+                    if v2_top is None or (v2_view.adjusted_edge or -999.0) > (v2_top.adjusted_edge or -999.0):
+                        v2_top = v2_view
+                elif v2_view.lifecycle in ("PENDING_FINAL_EVIDENCE", "NOT_YET_EVALUATED"):
+                    v2_pending_count += 1
             opportunities.append(GameOpportunity(
                 game_id=game_id,
                 sport=meta["sport"],
@@ -463,9 +467,15 @@ class ReadService:
                 if v1_ml_top is not None else None
             ),
             top_v2_moneyline=(
-                f"{v2_top.selection} · {v2_top.tier}"
-                f"{f' · adj {v2_top.adjusted_edge:+.1f} pts' if v2_top.adjusted_edge is not None else ''}"
-                if v2_top is not None else None
+                (
+                    f"{v2_top.selection} · {v2_top.tier}"
+                    f"{f' · adj {v2_top.adjusted_edge:+.1f} pts' if v2_top.adjusted_edge is not None else ''}"
+                    f"{' · awaiting final evaluation' if v2_top.lifecycle == 'PROVISIONALLY_ELIGIBLE' else ''}"
+                )
+                if v2_top is not None
+                else f"No V2 final decision yet — {v2_pending_count} candidate(s) awaiting final evidence"
+                if v2_pending_count > 0
+                else "No V2-qualified moneyline after final evaluation"
             ),
         )
         return opportunities, summary
@@ -886,13 +896,35 @@ class ReadService:
             (view for view in views if (view.market_type or "").upper() == "MONEYLINE"), None,
         )
         cutoff = _aware(game.starts_at) - _td(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
-        evaluation = PracticalPolicyEvaluator(self.session, self.settings).evaluate(
-            game, forecast, availability, moneyline, now=now, cutoff=cutoff,
-        )
         service = ShadowExperimentService(self.session, self.settings)
         experiment = service.active_experiment(V2_DECISION_POLICY)
         slate_date = _aware(game.starts_at).astimezone(ZoneInfo(self.settings.display_timezone)).date()
         active = experiment is not None and slate_date >= experiment.start_date
+        is_final = now >= cutoff
+        final_decision = None
+        if is_final and active:
+            from app.models import ExperimentDecisionPhase, ShadowExperimentDecision
+
+            final_decision = self.session.scalar(
+                select(ShadowExperimentDecision).where(
+                    ShadowExperimentDecision.experiment_id == experiment.id,
+                    ShadowExperimentDecision.game_id == game.id,
+                    ShadowExperimentDecision.phase == ExperimentDecisionPhase.FINAL_PREGAME,
+                    ShadowExperimentDecision.recommended_at <= cutoff,
+                ).order_by(ShadowExperimentDecision.recommended_at.desc()).limit(1)
+            )
+        # Post-cutoff the view describes the AT-CUTOFF decision (point-in-time),
+        # never a re-litigated later state.
+        evaluation = PracticalPolicyEvaluator(self.session, self.settings).evaluate(
+            game, forecast, availability, moneyline,
+            now=min(now, cutoff - _td(seconds=1)), cutoff=cutoff, final=is_final,
+        )
+        if final_decision is not None:
+            # The audited frozen decision is the authority for the final state.
+            evaluation.recommendation = final_decision.recommendation
+            evaluation.lifecycle = (
+                "FINAL_QUALIFIED" if final_decision.recommendation == "QUALIFIED_BET" else "FINAL_NO_BET"
+            )
         stake = None
         if evaluation.qualified and moneyline is not None and moneyline.decimal_odds:
             bankroll = service.current_bankroll(experiment) if experiment is not None \
@@ -915,14 +947,20 @@ class ReadService:
         def pts(value):
             return round(value * 100, 2) if value is not None else None
 
+        decomposition = evaluation.decomposition or {}
         return V2PolicyView(
             policy_version=POLICY_VERSION,
             tier=evaluation.tier,
+            lifecycle=evaluation.lifecycle,
             recommendation=evaluation.recommendation,
             reason=evaluation.reason,
             reasons=list(evaluation.reasons),
+            gates_passed=list(evaluation.gates_passed),
+            critical_evidence_complete=evaluation.critical_evidence_complete,
             starter_state_home=evaluation.starter_home.state if evaluation.starter_home else None,
             starter_state_away=evaluation.starter_away.state if evaluation.starter_away else None,
+            starter_stable_since_home=evaluation.starter_home.stable_since if evaluation.starter_home else None,
+            starter_stable_since_away=evaluation.starter_away.stable_since if evaluation.starter_away else None,
             lineup_state=evaluation.lineup.state if evaluation.lineup else None,
             selection=moneyline.selection if moneyline else None,
             raw_edge=pts(evaluation.raw_edge),
@@ -936,6 +974,13 @@ class ReadService:
                 experiment.start_date.isoformat() if experiment is not None else None
             ),
             active=active,
+            feature_decomposition={
+                "version": decomposition.get("version"),
+                "model_required_missing": decomposition.get("model_required_missing", []),
+                "duplicate_components": len(decomposition.get("duplicate_components", [])),
+                "fallback_components": len(decomposition.get("fallback_components", [])),
+                "optional_components": len(decomposition.get("optional_components", [])),
+            } if decomposition else None,
         )
 
     @staticmethod
@@ -2354,7 +2399,18 @@ class ReadService:
         from app.services.shadow_experiment_service import ShadowExperimentService
 
         service = ShadowExperimentService(self.session, self.settings)
-        out: dict[str, Any] = {"experiments": []}
+        out: dict[str, Any] = {"experiments": [], "superseded": [
+            {
+                "name": row.name,
+                "policy": row.decision_policy,
+                "status": status,
+                "effective_date": row.start_date.isoformat(),
+                "decisions": 0,
+                "positions": 0,
+                "note": "Preserved immutably; superseded before activation with zero decisions and zero positions.",
+            }
+            for row, status in service.superseded_experiments()
+        ]}
         for experiment in service.active_experiments():
             decisions = list(self.session.scalars(select(ShadowExperimentDecision).where(
                 ShadowExperimentDecision.experiment_id == experiment.id,
@@ -2380,7 +2436,7 @@ class ReadService:
             losses = sum(1 for s in settlements if s.result.value.upper() == "LOSS")
             scheduled = experiment.start_date > local_today(self.settings.display_timezone)
             out["experiments"].append({
-                "key": "v2" if experiment.decision_policy.endswith("V2") else "v1",
+                "key": "v1" if experiment.decision_policy == "AISP_OPPORTUNITY_POLICY_V1" else "v2",
                 "name": experiment.name,
                 "policy": experiment.decision_policy,
                 "staking_policy": experiment.staking_policy_version,

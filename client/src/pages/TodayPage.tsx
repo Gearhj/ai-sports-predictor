@@ -168,7 +168,7 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
         <div className="opportunity-summary__stat opportunity-summary__stat--pass"><span>Passes</span><strong>{summary?.no_bet ?? data.summary.games}</strong></div>
         <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Best board opportunity</span><strong>{summary?.top_opportunity ?? 'No qualified edge today'}</strong></div>
         <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Best V1-eligible moneyline</span><strong>{summary?.top_v1_moneyline ?? 'No governed moneyline candidate'}</strong></div>
-        <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Best V2-eligible moneyline</span><strong>{summary?.top_v2_moneyline ?? 'No V2-qualified moneyline'}</strong></div>
+        <div className="opportunity-summary__stat opportunity-summary__stat--wide"><span>Best V2-eligible moneyline</span><strong>{summary?.top_v2_moneyline ?? 'No V2 final decision yet'}</strong></div>
         <div className="opportunity-summary__stat"><span>Best expected value</span><strong>{summary?.best_expected_value != null ? `${summary.best_expected_value > 0 ? '+' : ''}${summary.best_expected_value.toFixed(1)}%` : '—'}</strong></div>
         <div className="opportunity-summary__stat"><span>Virtual daily exposure</span><strong>{formatCurrency(summary?.virtual_daily_exposure ?? 0)}</strong></div>
         <div className="opportunity-summary__stat"><span>Data health</span><strong>{dataHealth}</strong></div>

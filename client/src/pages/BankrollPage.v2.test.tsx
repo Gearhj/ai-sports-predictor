@@ -65,9 +65,14 @@ const v2Funnel = {
   qualified_selections: 0, positions_created: 0, exposure_cap_exclusions: 0,
   top_rejection_reasons: [{ reason: 'Adjusted edge below minimum', count: 5 }],
   diagnostics: {
-    blocked_only_by_confirmed_status: 9, blocked_only_by_lineup_confirmation: 0,
-    blocked_only_by_unsupported_market: 2, blocked_only_by_adjusted_edge: 5,
-    blocked_by_other_evidence: 4,
+    awaiting_final_pregame_evaluation: 9,
+    blocked_only_by_starter_instability: 3,
+    blocked_only_by_lineup_conflict: 0,
+    blocked_only_by_model_required_input: 0,
+    previously_blocked_by_duplicate_feature_completeness_gate: 9,
+    unsupported_market: 2,
+    edge_ev_kelly_failure: 5,
+    portfolio_cap_failure: 0,
   },
   experiment_registered: true, effective_date: '2026-09-01', games: [],
 }
@@ -129,7 +134,8 @@ describe('BankrollPage dual-policy experiments', () => {
     const { calls } = stub()
     render(<MemoryRouter initialEntries={['/experiment?experiment=v2']}><BankrollPage /></MemoryRouter>)
 
-    await screen.findByText(/Diagnostics: blocked only by CONFIRMED status 9/)
+    await screen.findByText(/Diagnostics: awaiting final-pregame evaluation 9/)
+    expect(screen.getByText(/formerly blocked by duplicate feature-completeness gate 9/)).toBeInTheDocument()
     expect(calls.some((u) => u.includes('/experiment/qualification-funnel') && u.includes('policy=v2'))).toBe(true)
     expect(screen.getByText('Starters CONFIRMED or PROBABLE_STABLE')).toBeInTheDocument()
   })

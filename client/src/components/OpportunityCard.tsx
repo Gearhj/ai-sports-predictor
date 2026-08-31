@@ -5,6 +5,14 @@ import type { GameOpportunity, ForecastGame, OpportunitySelection, Recommendatio
 import { formatTime, formatTimestamp } from '../services/format'
 import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamLogo } from './ui'
 
+const LIFECYCLE_LABEL: Record<string, string> = {
+  NOT_YET_EVALUATED: 'Not yet evaluated',
+  PENDING_FINAL_EVIDENCE: 'Pending final evidence',
+  PROVISIONALLY_ELIGIBLE: 'Provisionally eligible — awaiting final evaluation',
+  FINAL_QUALIFIED: 'FINAL QUALIFIED',
+  FINAL_NO_BET: 'Final no-bet',
+}
+
 const STATE_LABEL: Record<RecommendationState, string> = {
   QUALIFIED_BET: 'QUALIFIED BET',
   PROVISIONAL_EDGE: 'PROVISIONAL EDGE',
@@ -162,18 +170,18 @@ export function OpportunityCard({
                 {isMoneyline ? (
                   <span className="experiment-eligibility experiment-eligibility--eligible">V1 strict control: moneyline market</span>
                 ) : (
-                  <span className="experiment-eligibility experiment-eligibility--board-only">Board opportunity — both experiments support moneyline only</span>
+                  <span className="experiment-eligibility experiment-eligibility--board-only">Not funded by the current moneyline experiments.</span>
                 )}
-                {v2 && (
+                {isMoneyline && v2 && (
                   v2.recommendation === 'QUALIFIED_BET' ? (
                     <span className="experiment-eligibility experiment-eligibility--eligible">
-                      V2 challenger: QUALIFIED · {v2.tier}
+                      V2 challenger: {LIFECYCLE_LABEL[v2.lifecycle] ?? 'Qualified'} · {v2.tier}
                       {v2.adjusted_edge != null ? ` · adj ${v2.adjusted_edge > 0 ? '+' : ''}${v2.adjusted_edge.toFixed(1)} pts` : ''}
-                      {v2.theoretical_stake != null ? ` · ${formatCurrency(v2.theoretical_stake)}` : ''}
+                      {v2.lifecycle === 'FINAL_QUALIFIED' && v2.theoretical_stake != null ? ` · ${formatCurrency(v2.theoretical_stake)}` : ''}
                     </span>
                   ) : (
                     <span className="experiment-eligibility experiment-eligibility--board-only">
-                      V2 challenger: {v2.tier}
+                      V2 challenger: {LIFECYCLE_LABEL[v2.lifecycle] ?? v2.tier}
                       {v2.reasons.length > 0 ? ` — ${v2.reasons[0]}` : ''}
                     </span>
                   )
@@ -193,8 +201,14 @@ export function OpportunityCard({
         <dl className="opportunity-analytics">
           <div><dt>ASP probability</dt><dd>{formatPct(bet.model_probability)}</dd></div>
           <div><dt>No-vig market</dt><dd>{formatPct(bet.no_vig_probability ?? bet.consensus_probability)}</dd></div>
-          <div><dt>Fair odds</dt><dd>{formatMoneyline(bet.fair_odds)}</dd></div>
+          <div><dt>Raw edge</dt><dd>{signedPts(bet.raw_edge)}</dd></div>
           <div><dt>Edge (unc-adj)</dt><dd className="opportunity-analytics__edge">{signedPts(bet.uncertainty_adjusted_edge)}</dd></div>
+          {opportunity?.v2 && (opportunity.v2.starter_penalty > 0 || opportunity.v2.lineup_penalty > 0) && (
+            <div><dt>V2 penalties</dt><dd>-{(opportunity.v2.starter_penalty + opportunity.v2.lineup_penalty).toFixed(1)} pts</dd></div>
+          )}
+          {opportunity?.v2?.adjusted_edge != null && (
+            <div><dt>V2 adjusted edge</dt><dd className="opportunity-analytics__edge">{signedPts(opportunity.v2.adjusted_edge)}</dd></div>
+          )}
           <div><dt>Expected value</dt><dd>{signedPct(bet.expected_value)}</dd></div>
         </dl>
       )}
@@ -236,7 +250,11 @@ export function OpportunityCard({
       {opportunity?.v2 && (
         <div className="opportunity-availability opportunity-availability--v2">
           <span>V2 starter evidence <b>{opportunity.v2.starter_state_home ?? '—'}{opportunity.v2.starter_state_away && opportunity.v2.starter_state_away !== opportunity.v2.starter_state_home ? ` / ${opportunity.v2.starter_state_away}` : ''}</b></span>
+          {opportunity.v2.starter_stable_since_home && (
+            <span>Stable since <b>{formatTimestamp(opportunity.v2.starter_stable_since_home)}</b></span>
+          )}
           <span>V2 lineup <b>{opportunity.v2.lineup_state ?? '—'}</b></span>
+          <span>V2 state <b>{LIFECYCLE_LABEL[opportunity.v2.lifecycle] ?? opportunity.v2.lifecycle}</b></span>
           {(opportunity.v2.starter_penalty > 0 || opportunity.v2.lineup_penalty > 0) && (
             <span>Evidence penalties <b>
               {opportunity.v2.starter_penalty > 0 ? `starter -${opportunity.v2.starter_penalty.toFixed(1)}` : ''}
@@ -244,6 +262,12 @@ export function OpportunityCard({
               {opportunity.v2.lineup_penalty > 0 ? `lineup -${opportunity.v2.lineup_penalty.toFixed(1)}` : ''}
               {' pts'}
             </b></span>
+          )}
+          {(opportunity.v2.feature_decomposition?.model_required_missing?.length ?? 0) > 0 && (
+            <span className="opportunity-availability__flag">Model-required missing <b>{opportunity.v2.feature_decomposition!.model_required_missing.join(', ')}</b></span>
+          )}
+          {opportunity.v2.recommendation !== 'QUALIFIED_BET' && opportunity.v2.reasons.length > 0 && (
+            <span>Current blocker <b>{opportunity.v2.reasons[0]}</b></span>
           )}
         </div>
       )}

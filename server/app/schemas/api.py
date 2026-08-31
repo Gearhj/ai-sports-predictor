@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -193,13 +193,22 @@ class V2PolicyView(BaseModel):
 
     policy_version: str
     tier: str
+    # NOT_YET_EVALUATED | PENDING_FINAL_EVIDENCE | PROVISIONALLY_ELIGIBLE |
+    # FINAL_QUALIFIED | FINAL_NO_BET — indicative through the day; only the
+    # final-pregame job creates a position.
+    lifecycle: str = "PENDING_FINAL_EVIDENCE"
     recommendation: str
     reason: str = ""
     reasons: list[str] = Field(default_factory=list)
+    gates_passed: list[str] = Field(default_factory=list)
+    critical_evidence_complete: bool = False
     starter_state_home: str | None = None
     starter_state_away: str | None = None
+    starter_stable_since_home: str | None = None
+    starter_stable_since_away: str | None = None
     lineup_state: str | None = None
     selection: str | None = None
+    feature_decomposition: dict[str, Any] | None = None
     # Percentage points / percent, matching the board's display convention.
     raw_edge: float | None = None
     starter_penalty: float = 0.0

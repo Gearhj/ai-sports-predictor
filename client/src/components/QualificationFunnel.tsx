@@ -93,11 +93,14 @@ export function QualificationFunnel({
       )}
       {data.diagnostics && (
         <p className="pulse-health-meta">
-          Diagnostics: blocked only by CONFIRMED status {data.diagnostics.blocked_only_by_confirmed_status} ·
-          {' '}only by lineup confirmation {data.diagnostics.blocked_only_by_lineup_confirmation} ·
-          {' '}only by unsupported market {data.diagnostics.blocked_only_by_unsupported_market} ·
-          {' '}only by adjusted edge {data.diagnostics.blocked_only_by_adjusted_edge} ·
-          {' '}other evidence {data.diagnostics.blocked_by_other_evidence}
+          Diagnostics: awaiting final-pregame evaluation {data.diagnostics.awaiting_final_pregame_evaluation} ·
+          {' '}starter instability {data.diagnostics.blocked_only_by_starter_instability} ·
+          {' '}lineup conflict {data.diagnostics.blocked_only_by_lineup_conflict} ·
+          {' '}model-required input {data.diagnostics.blocked_only_by_model_required_input} ·
+          {' '}formerly blocked by duplicate feature-completeness gate {data.diagnostics.previously_blocked_by_duplicate_feature_completeness_gate} ·
+          {' '}unsupported market {data.diagnostics.unsupported_market} ·
+          {' '}edge/EV/Kelly {data.diagnostics.edge_ev_kelly_failure} ·
+          {' '}portfolio caps {data.diagnostics.portfolio_cap_failure}
         </p>
       )}
       {!compact && (
@@ -107,6 +110,7 @@ export function QualificationFunnel({
             {data.games.map((g) => (
               <li key={g.game_id}>
                 {g.matchup} · <b>{g.recommendation_state}</b>
+                {g.lifecycle ? ` · ${g.lifecycle}` : ''}
                 {g.tier ? ` · ${g.tier}` : ''}
                 {g.failed_gate ? ` · first blocker: ${g.failed_gate}` : ''}
                 {g.starter_state_home ? ` · starters ${g.starter_state_home}/${g.starter_state_away ?? '—'}` : ''}

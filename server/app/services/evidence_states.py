@@ -50,14 +50,22 @@ def _aware(value: datetime | None) -> datetime | None:
 
 @dataclass(frozen=True)
 class StarterEvidence:
-    """The governed starter state for one game side, with its audit trail."""
+    """The governed starter state for one game side, with its audit trail.
+
+    ``stable_since`` is the instant stability was FIRST established (the first
+    observation at least MIN_OBSERVATION_SPACING_MINUTES after the identity
+    streak began). Later identical observations strengthen and refresh the
+    evidence — they never reset ``stable_since``.
+    """
 
     state: str
     pitcher_id: str | None = None
     observation_count: int = 0
     stable_streak_count: int = 0
     streak_started_at: str | None = None
+    stable_since: str | None = None
     latest_observed_at: str | None = None
+    forecast_evidence_match: bool = False
     reasons: tuple[str, ...] = ()
 
     @property
@@ -71,7 +79,9 @@ class StarterEvidence:
             "observation_count": self.observation_count,
             "stable_streak_count": self.stable_streak_count,
             "streak_started_at": self.streak_started_at,
+            "stable_since": self.stable_since,
             "latest_observed_at": self.latest_observed_at,
+            "forecast_evidence_match": self.forecast_evidence_match,
             "reasons": list(self.reasons),
         }
 
@@ -142,6 +152,8 @@ def starter_evidence(
         )
 
     # Terminal streak: the maximal suffix of observations naming this pitcher.
+    # Later identical observations EXTEND the streak forward; they never reset
+    # its start, so stable_since is monotone once established.
     streak: list[StarterObservation] = []
     for o in reversed(obs):
         if o.probable_pitcher_id == latest.probable_pitcher_id and o.probable_pitcher_id is not None:
@@ -150,6 +162,15 @@ def starter_evidence(
             break
     streak.reverse()
     streak_start = _aware(streak[0].available_as_of) if streak else None
+    # stable_since: the first observation >= the minimum spacing after the
+    # streak began — the moment two adequately separated identical
+    # observations first existed.
+    stable_since: datetime | None = None
+    if streak_start is not None:
+        for o in streak[1:]:
+            if _aware(o.available_as_of) - streak_start >= timedelta(minutes=MIN_OBSERVATION_SPACING_MINUTES):
+                stable_since = _aware(o.available_as_of)
+                break
 
     if latest.probable_pitcher_id is None:
         reasons.append("Latest observation is not a named probable pitcher")
@@ -158,7 +179,7 @@ def starter_evidence(
             f"Only {len(streak)} consecutive observation(s) of the current pitcher "
             f"(need >= {MIN_STABLE_OBSERVATIONS})"
         )
-    elif (_aware(streak[-1].available_as_of) - streak_start) < timedelta(minutes=MIN_OBSERVATION_SPACING_MINUTES):
+    elif stable_since is None:
         reasons.append(
             f"Qualifying observations span under {MIN_OBSERVATION_SPACING_MINUTES} minutes"
         )
@@ -167,11 +188,20 @@ def starter_evidence(
             f"Latest observation is not current at the decision cutoff "
             f"(older than {STARTER_OBSERVATION_CURRENT_MINUTES} minutes)"
         )
+    # Forecast currency: the forecast must postdate the moment the identity was
+    # first known (streak start) — equivalently, its input evidence carries the
+    # same canonical starter. Repeated identical polls after generation never
+    # invalidate it; only an identity change/conflict/scratch does.
+    forecast_evidence_match = False
     if forecast_generated_at is None:
         reasons.append("No current forecast exists")
-    elif streak_start is not None and _aware(forecast_generated_at) < streak_start:
+    elif streak_start is not None and _aware(forecast_generated_at) >= streak_start:
+        forecast_evidence_match = True
+    else:
         reasons.append("Current forecast predates the stable starter identity")
-    unresolved = _unresolved_availability_events(session, game, forecast_generated_at, cutoff)
+    unresolved = _unresolved_availability_events(
+        session, game, forecast_generated_at, cutoff, kinds=STARTER_MATERIAL_EVENTS,
+    )
     if unresolved:
         reasons.append(f"Unresolved availability event(s): {', '.join(sorted(unresolved))}")
     starts_at = _aware(game.starts_at)
@@ -185,28 +215,47 @@ def starter_evidence(
         observation_count=len(obs),
         stable_streak_count=len(streak),
         streak_started_at=streak_start.isoformat() if streak_start else None,
+        stable_since=stable_since.isoformat() if stable_since else None,
         latest_observed_at=latest_at.isoformat(),
+        forecast_evidence_match=forecast_evidence_match,
         reasons=tuple(reasons),
     )
 
 
+# Only these event kinds are MATERIAL to each state machine. An identical
+# repeated poll never emits an event (the pollers diff before emitting), and a
+# lineup event must never destabilize the starter state (or vice versa) — that
+# would be duplicate derived gating.
+STARTER_MATERIAL_EVENTS = ("PROBABLE_PITCHER_CHANGED", "SCRATCH")
+LINEUP_MATERIAL_EVENTS = ("LINEUP", "SCRATCH")
+
+
 def _unresolved_availability_events(
-    session: Session, game: Game, forecast_generated_at: datetime | None, cutoff: datetime,
+    session: Session,
+    game: Game,
+    forecast_generated_at: datetime | None,
+    cutoff: datetime,
+    *,
+    kinds: tuple[str, ...],
 ) -> set[str]:
-    """Events newer than the current forecast are unresolved: the rescore path
-    regenerates the forecast on a material event, so a forecast older than the
-    latest event has not absorbed it."""
+    """Material events newer than the current forecast are unresolved: the
+    rescore path regenerates the forecast on a material event, so a forecast
+    older than the latest material event has not absorbed it."""
 
     rows = list(session.scalars(select(AvailabilityEvent).where(
         AvailabilityEvent.game_id == game.id,
         AvailabilityEvent.received_at <= cutoff,
     )))
-    if not rows:
+    material = [
+        r for r in rows
+        if any(kind in (r.event_type or "").upper() for kind in kinds)
+    ]
+    if not material:
         return set()
     if forecast_generated_at is None:
-        return {r.event_type for r in rows}
+        return {r.event_type for r in material}
     fga = _aware(forecast_generated_at)
-    return {r.event_type for r in rows if _aware(r.received_at) > fga}
+    return {r.event_type for r in material if _aware(r.received_at) > fga}
 
 
 @dataclass(frozen=True)
@@ -241,14 +290,15 @@ class LineupEvidence:
 
 @dataclass(frozen=True)
 class LineupContext:
-    """Everything §9 requires before a pending lineup may be soft-allowed."""
+    """The exact conditions the pending-lineup allowance may consider.
+
+    Deliberately decoupled from the starter, quote, and cutoff gates: those are
+    evaluated independently and must never block the lineup state a second
+    time (duplicate derived gating)."""
 
     market_is_moneyline: bool
-    starters_eligible: bool
-    quote_fresh_and_complete: bool
-    forecast_current: bool
-    before_final_cutoff: bool
     dependency_allows_pending: bool
+    pregame: bool = True
 
 
 def lineup_evidence(
@@ -277,8 +327,11 @@ def lineup_evidence(
     home_complete = bool(home and home.is_complete)
     away_complete = bool(away and away.is_complete)
 
-    unresolved = _unresolved_availability_events(session, game, forecast_generated_at, cutoff)
+    unresolved = _unresolved_availability_events(
+        session, game, forecast_generated_at, cutoff, kinds=LINEUP_MATERIAL_EVENTS,
+    )
     scratch = {e for e in unresolved if "SCRATCH" in e.upper()}
+    material_change = {e for e in unresolved if "SCRATCH" not in e.upper()}
     base = {
         "home_status": home_status, "away_status": away_status,
         "home_complete": home_complete, "away_complete": away_complete,
@@ -286,6 +339,15 @@ def lineup_evidence(
     if scratch:
         return LineupEvidence(state=LINEUP_LATE_SCRATCH_UNRESOLVED,
                               reasons=(f"Unresolved late scratch: {', '.join(sorted(scratch))}",), **base)
+    if material_change:
+        # A lineup event landed after the current forecast: the affected game
+        # must be refreshed once before the (now-changed) lineup evidence can
+        # qualify. The earlier forecast and state remain immutable.
+        return LineupEvidence(
+            state=LINEUP_MISSING_BLOCKING,
+            reasons=(f"Material lineup change after the current forecast: {', '.join(sorted(material_change))}",),
+            **base,
+        )
 
     both_confirmed_complete = (
         home is not None and away is not None
@@ -301,22 +363,15 @@ def lineup_evidence(
         return LineupEvidence(state=LINEUP_ADEQUATE_PARTIAL,
                               reasons=("Lineups present but not both confirmed-complete",), **base)
 
-    # Pending/missing: the moneyline-only soft allowance (§9), context-gated.
+    # Ordinary not-yet-published lineup: the moneyline-only soft allowance.
+    # This is the NORMAL morning state, never branded blocking by itself.
     blockers: list[str] = []
     if not context.market_is_moneyline:
         blockers.append("Pending lineup allowance applies to full-game moneyline only")
     if not context.dependency_allows_pending:
         blockers.append("Controlling-model lineup dependency does not permit a pending lineup")
-    if not context.starters_eligible:
-        blockers.append("Starters are not CONFIRMED or PROBABLE_STABLE")
-    if unresolved:
-        blockers.append(f"Unresolved availability event(s): {', '.join(sorted(unresolved))}")
-    if not context.forecast_current:
-        blockers.append("Forecast is not current after the latest material availability event")
-    if not context.quote_fresh_and_complete:
-        blockers.append("Quote is not fresh and complete")
-    if not context.before_final_cutoff:
-        blockers.append("Past the final-pregame cutoff")
+    if not context.pregame:
+        blockers.append("Game is no longer pregame")
     if blockers:
         return LineupEvidence(state=LINEUP_MISSING_BLOCKING, reasons=tuple(blockers), **base)
     return LineupEvidence(

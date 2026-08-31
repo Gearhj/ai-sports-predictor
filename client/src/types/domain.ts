@@ -168,16 +168,37 @@ export interface GameOpportunity {
   v2?: V2PolicyView | null
 }
 
+export type V2Lifecycle =
+  | 'NOT_YET_EVALUATED'
+  | 'PENDING_FINAL_EVIDENCE'
+  | 'PROVISIONALLY_ELIGIBLE'
+  | 'FINAL_QUALIFIED'
+  | 'FINAL_NO_BET'
+
+export interface V2FeatureDecomposition {
+  version: string | null
+  model_required_missing: string[]
+  duplicate_components: number
+  fallback_components: number
+  optional_components: number
+}
+
 export interface V2PolicyView {
   policy_version: string
   tier: 'TIER_A_FULL_EVIDENCE' | 'TIER_B_PROBABLE_STABLE' | 'TIER_C_LINEUP_PENDING' | 'TIER_D_INELIGIBLE'
+  lifecycle: V2Lifecycle
   recommendation: string
   reason: string
   reasons: string[]
+  gates_passed: string[]
+  critical_evidence_complete: boolean
   starter_state_home: string | null
   starter_state_away: string | null
+  starter_stable_since_home?: string | null
+  starter_stable_since_away?: string | null
   lineup_state: string | null
   selection: string | null
+  feature_decomposition?: V2FeatureDecomposition | null
   raw_edge: number | null
   starter_penalty: number
   lineup_penalty: number
@@ -214,6 +235,15 @@ export interface ExperimentComparisonRow {
 
 export interface ExperimentComparison {
   experiments: ExperimentComparisonRow[]
+  superseded?: Array<{
+    name: string
+    policy: string
+    status: string
+    effective_date: string
+    decisions: number
+    positions: number
+    note: string
+  }>
 }
 
 export interface BettingBreakdownRow {
@@ -1121,17 +1151,26 @@ export interface QualificationFunnelGame {
   best_selection: string | null
   experiment_status: string
   tier?: string
+  lifecycle?: V2Lifecycle
+  gates_passed?: string[]
+  critical_evidence_complete?: boolean
   starter_state_home?: string | null
   starter_state_away?: string | null
+  starter_stable_since_home?: string | null
+  starter_stable_since_away?: string | null
   lineup_state?: string | null
+  model_required_missing?: string[]
   adjusted_edge?: number | null
 }
 export interface QualificationFunnelDiagnostics {
-  blocked_only_by_confirmed_status: number
-  blocked_only_by_lineup_confirmation: number
-  blocked_only_by_unsupported_market: number
-  blocked_only_by_adjusted_edge: number
-  blocked_by_other_evidence: number
+  awaiting_final_pregame_evaluation: number
+  blocked_only_by_starter_instability: number
+  blocked_only_by_lineup_conflict: number
+  blocked_only_by_model_required_input: number
+  previously_blocked_by_duplicate_feature_completeness_gate: number
+  unsupported_market: number
+  edge_ev_kelly_failure: number
+  portfolio_cap_failure: number
 }
 export interface QualificationFunnel {
   date: string

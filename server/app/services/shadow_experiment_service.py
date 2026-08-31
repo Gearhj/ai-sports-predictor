@@ -63,10 +63,18 @@ AISP_BASELINE_ENGINE = "AISP_BASELINE"
 SUPPORTED_MARKETS = ["MONEYLINE"]
 
 # Practical pregame challenger (separate immutable experiment; V1 untouched).
-V2_EXPERIMENT_NAME = "ASP PRACTICAL PREGAME BANKROLL — 2026 V2"
-V2_RECOMMENDATION_POLICY_VERSION = "AISP_PRACTICAL_PREGAME_POLICY_V2"
+# V2.1 supersedes the never-activated V2 registration, whose qualification
+# contract inherited the composite feature_completeness gate. ShadowExperiment
+# rows are append-only, so supersession is recorded here (a deterministic,
+# versioned code registry) plus an audited AuditEvent — never by mutating the
+# preserved V2 row.
+V2_EXPERIMENT_NAME = "ASP PRACTICAL PREGAME BANKROLL — 2026 V2.1"
+V2_RECOMMENDATION_POLICY_VERSION = "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
 V2_STAKING_POLICY_VERSION = "AISP_QUARTER_KELLY_EVIDENCE_V2"
 V2_DECISION_POLICY = V2_RECOMMENDATION_POLICY_VERSION
+SUPERSEDED_POLICIES: dict[str, str] = {
+    "AISP_PRACTICAL_PREGAME_POLICY_V2": "SUPERSEDED_BEFORE_ACTIVATION",
+}
 
 
 def _aware(value: datetime) -> datetime:
@@ -93,7 +101,10 @@ class ShadowExperimentService:
         )
 
     def active_experiments(self) -> list[ShadowExperiment]:
-        """Every active experiment (V1 control first), one per decision policy."""
+        """Every operationally active experiment (V1 control first), one per
+        decision policy. Superseded-before-activation policies are excluded
+        from all scheduling, freezing, settlement, and default reads — their
+        rows remain preserved and immutable."""
 
         rows = list(self.session.scalars(
             select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
@@ -101,8 +112,20 @@ class ShadowExperimentService:
         ))
         latest: dict[str, ShadowExperiment] = {}
         for row in rows:
+            if row.decision_policy in SUPERSEDED_POLICIES:
+                continue
             latest.setdefault(row.decision_policy, row)
         return sorted(latest.values(), key=lambda row: row.version)
+
+    def superseded_experiments(self) -> list[tuple[ShadowExperiment, str]]:
+        """Preserved registrations superseded before activation, with status."""
+
+        rows = list(self.session.scalars(
+            select(ShadowExperiment).where(
+                ShadowExperiment.decision_policy.in_(list(SUPERSEDED_POLICIES)),
+            ).order_by(ShadowExperiment.version)
+        ))
+        return [(row, SUPERSEDED_POLICIES[row.decision_policy]) for row in rows]
 
     def ensure_started(
         self, *, start_date: date, now: datetime | None = None, code_commit: str | None = None,
@@ -182,6 +205,34 @@ class ShadowExperimentService:
         if not commit:
             raise RuntimeError("A code commit identity is required to start the V2 experiment")
         next_version = (self.session.scalar(select(ShadowExperiment.version).order_by(ShadowExperiment.version.desc()).limit(1)) or 0) + 1
+        # Audit the supersession of any never-activated predecessor exactly
+        # once. The predecessor row itself is append-only and stays untouched.
+        from app.models import AuditEvent
+
+        for predecessor, status in self.superseded_experiments():
+            already = self.session.scalar(select(AuditEvent.id).where(
+                AuditEvent.action == "experiment.superseded_before_activation",
+                AuditEvent.entity_id == predecessor.id,
+            ).limit(1))
+            if already is None:
+                self.session.add(AuditEvent(
+                    actor_user_id=None,
+                    action="experiment.superseded_before_activation",
+                    entity_type="shadow_experiment",
+                    entity_id=predecessor.id,
+                    metadata_json={
+                        "status": status,
+                        "superseded_policy": predecessor.decision_policy,
+                        "superseding_policy": V2_DECISION_POLICY,
+                        "reason": (
+                            "Qualification contract corrected: the composite "
+                            "feature_completeness gate duplicated the governed "
+                            "starter/lineup states and was structurally "
+                            "unsatisfiable; the registration never activated "
+                            "(zero decisions, zero positions)."
+                        ),
+                    },
+                ))
         experiment = ShadowExperiment(
             name=V2_EXPERIMENT_NAME,
             version=next_version,
@@ -293,7 +344,23 @@ class ShadowExperimentService:
                     getattr(opportunity, "availability", None),
                     self._moneyline_selection(opportunity),
                     now=now, cutoff=cutoff,
+                    final=(phase == ExperimentDecisionPhase.FINAL_PREGAME),
                 )
+                if now <= cutoff and self._refresh_for_newly_stable_identity(game, v2):
+                    # One governed refresh when stability was established after
+                    # the controlling forecast; re-evaluate with the new
+                    # forecast. The refreshed forecast postdates the stable
+                    # identity, so this can never repeat for the same streak.
+                    from app.services.read_service import ReadService
+
+                    forecast = ReadService(self.session, self.settings)._latest_forecast(game.id)
+                    v2 = PracticalPolicyEvaluator(self.session, self.settings).evaluate(
+                        game, forecast,
+                        getattr(opportunity, "availability", None),
+                        self._moneyline_selection(opportunity),
+                        now=now, cutoff=cutoff,
+                        final=(phase == ExperimentDecisionPhase.FINAL_PREGAME),
+                    )
             if now <= cutoff:
                 frozen += int(self._append_decision(
                     experiment, game, forecast, phase, opportunity, now, v2=v2,
@@ -308,6 +375,31 @@ class ShadowExperimentService:
         self.session.commit()
         return {"frozen": frozen, "primary": primary_count, "phase": phase.value,
                 "games": len(games), "policy": experiment.decision_policy}
+
+    def _refresh_for_newly_stable_identity(self, game: Game, v2: Any) -> bool:
+        """§ starter-lifecycle rule: when PROBABLE_STABLE is first established
+        and the controlling forecast does not yet contain that identity,
+        trigger exactly ONE governed affected-game forecast refresh. Identical
+        repeated observations never trigger anything."""
+
+        stale_identity_reason = "Current forecast predates the stable starter identity"
+        sides = [s for s in (getattr(v2, "starter_home", None), getattr(v2, "starter_away", None)) if s is not None]
+        needs = any(
+            list(side.reasons) == [stale_identity_reason]
+            for side in sides
+            if not side.eligible
+        )
+        if not needs:
+            return False
+        try:
+            from app.services.forecast_service import ForecastService
+
+            ForecastService(self.session, self.settings).generate_for_game(game)
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
 
     @staticmethod
     def _lineup_confirmed(card: Any) -> bool:

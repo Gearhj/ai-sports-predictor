@@ -234,10 +234,9 @@ def _lineup(session, game, team, *, status="CONFIRMED", complete=True, at=None):
 
 
 def _ctx(**overrides):
-    base = dict(
-        market_is_moneyline=True, starters_eligible=True, quote_fresh_and_complete=True,
-        forecast_current=True, before_final_cutoff=True, dependency_allows_pending=True,
-    )
+    # Deliberately decoupled from starter/quote/cutoff gates (they block
+    # independently; coupling them here was duplicate derived gating).
+    base = dict(market_is_moneyline=True, dependency_allows_pending=True, pregame=True)
     base.update(overrides)
     return LineupContext(**base)
 
@@ -372,8 +371,13 @@ def test_v2_blocks_stale_quote_and_missing_forecast(session, settings):
     evaluator = PracticalPolicyEvaluator(session, settings)
     stale = evaluator.evaluate(game, _forecast(), None, _selection(is_stale=True), now=NOW, cutoff=CUTOFF)
     assert stale.tier == TIER_D and "stale" in stale.reason.lower()
+    # Pre-cutoff a stale quote is pending evidence (refreshes arrive in the
+    # pregame window), never a final ineligibility.
+    assert stale.lifecycle == "PENDING_FINAL_EVIDENCE"
     missing = evaluator.evaluate(game, None, None, _selection(), now=NOW, cutoff=CUTOFF)
-    assert missing.tier == TIER_D and "Forecast unavailable" in missing.reason
+    assert missing.tier == TIER_D and "No valid current forecast" in missing.reason
+    final_missing = evaluator.evaluate(game, None, None, _selection(), now=NOW, cutoff=CUTOFF, final=True)
+    assert final_missing.lifecycle == "FINAL_NO_BET"
 
 
 # -- V2 staking ---------------------------------------------------------------
@@ -476,3 +480,273 @@ def test_public_v2_reads_make_zero_provider_calls(session, settings, monkeypatch
 
     comparison = ReadService(session, settings).experiment_comparison()
     assert "experiments" in comparison
+
+
+# -- V2.1 semantics repair: decomposition, lifecycle, stability -------------
+
+def test_feature_completeness_decomposition_classifies_every_component():
+    from app.services.practical_policy import (
+        CLASS_A, CLASS_B, CLASS_D, CLASS_E, DECOMPOSITION_VERSION,
+        decompose_feature_completeness,
+    )
+
+    forecast = SimpleNamespace(readiness_components={
+        "feature_completeness": {"status": "stale", "critical": True, "detail": "36% coverage"},
+        "lineups": {"status": "missing", "critical": False},
+        "pitcher_confirmation": {"status": "missing", "critical": False},
+        "team_stats": {"status": "ready", "critical": True},
+        "weather": {"status": "stale", "critical": False},
+        "_gate2": {
+            "missing_features": [
+                "home_lineup_xwoba", "away_starter_era", "home_statcast_xwoba",
+                "baserunning", "defense", "opponent_adjustment",
+            ],
+            "stale_features": ["roster"],
+            "provisional_features": ["park_run_factor:neutral_prior"],
+        },
+    })
+    result = decompose_feature_completeness(forecast)
+    assert result["version"] == DECOMPOSITION_VERSION
+    by_name = {c["component"]: c for c in result["components"]}
+    # Lineup/starter-derived features are DUPLICATE gates, never second blocks.
+    assert by_name["home_lineup_xwoba"]["class"] == CLASS_E
+    assert by_name["away_starter_era"]["class"] == CLASS_E
+    assert by_name["lineups"]["class"] == CLASS_E
+    assert by_name["pitcher_confirmation"]["class"] == CLASS_E
+    # Statcast disabled by configuration -> governed fallback.
+    assert by_name["home_statcast_xwoba"]["class"] == CLASS_B
+    # Structural placeholders are optional context.
+    assert by_name["baserunning"]["class"] == CLASS_D
+    assert by_name["defense"]["class"] == CLASS_D
+    # The composite itself never lands on the hard-block list here.
+    assert result["model_required_missing"] == []
+    assert not any(c["hard_block_v2"] for c in result["components"])
+
+
+def test_optional_and_fallback_absence_does_not_block_v2(session, settings):
+    game, home, away = _seed_game(session)
+    _stable_pair(session, game, home)
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    forecast = SimpleNamespace(
+        generated_at=CUTOFF - timedelta(minutes=20), uncertainty=0.01,
+        readiness_components={
+            "feature_completeness": {"status": "stale", "critical": True},
+            "weather": {"status": "missing", "critical": False},
+            "_gate2": {"missing_features": [
+                "home_lineup_xwoba", "away_lineup_xwoba", "home_statcast_xwoba",
+                "baserunning", "defense", "opponent_adjustment", "roof_orientation_adjustment",
+            ], "stale_features": ["roster"], "provisional_features": []},
+        },
+    )
+    result = PracticalPolicyEvaluator(session, settings).evaluate(
+        game, forecast, SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF,
+    )
+    assert result.qualified
+    assert result.critical_evidence_complete
+    assert "model_required_inputs_valid_or_governed_fallback" in result.gates_passed
+
+
+def test_model_required_input_with_no_fallback_blocks_v2(session, settings):
+    game, home, away = _seed_game(session)
+    _stable_pair(session, game, home)
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    forecast = SimpleNamespace(
+        generated_at=CUTOFF - timedelta(minutes=20), uncertainty=0.01,
+        readiness_components={
+            "_gate2": {"missing_features": ["home_rating"], "stale_features": [], "provisional_features": []},
+        },
+    )
+    result = PracticalPolicyEvaluator(session, settings).evaluate(
+        game, forecast, SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF,
+    )
+    assert not result.qualified
+    assert result.tier == TIER_D
+    assert any("no valid governed fallback" in r for r in result.reasons)
+    assert "home_rating" in (result.decomposition or {}).get("model_required_missing", [])
+
+
+def test_v1_readiness_score_never_independently_blocks_v2(session, settings):
+    game, home, away = _seed_game(session)
+    _stable_pair(session, game, home)
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    # Readiness far below 70 with only duplicate/fallback/optional gaps.
+    forecast = SimpleNamespace(
+        generated_at=CUTOFF - timedelta(minutes=20), uncertainty=0.01,
+        readiness_score=31.0,
+        readiness_components={
+            "feature_completeness": {"status": "stale", "critical": True},
+            "lineups": {"status": "missing", "critical": True},
+            "pitcher_confirmation": {"status": "missing", "critical": True},
+            "_gate2": {"missing_features": ["home_lineup_xwoba"], "stale_features": [], "provisional_features": []},
+        },
+    )
+    result = PracticalPolicyEvaluator(session, settings).evaluate(
+        game, forecast, SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF,
+    )
+    assert result.qualified  # V1 readiness/duplicate gates removed
+
+
+def test_identical_observations_establish_and_never_reset_stable_since(session, settings):
+    game, home, _ = _seed_game(session)
+    base = CUTOFF - timedelta(hours=4)
+    for minutes in (0, 30, 60, 90, 120):  # repeated identical polls
+        _observe(session, game, home, at=base + timedelta(minutes=minutes))
+    result = starter_evidence(
+        session, game, home.id, cutoff=CUTOFF,
+        forecast_generated_at=base + timedelta(minutes=10),
+    )
+    assert result.state == STARTER_PROBABLE_STABLE
+    assert result.streak_started_at == base.isoformat()
+    # stable_since = the first observation >= 10 minutes after the streak began
+    assert result.stable_since == (base + timedelta(minutes=30)).isoformat()
+    # A forecast generated after the identity was first known stays current
+    # regardless of later identical polls.
+    assert result.forecast_evidence_match is True
+
+
+def test_forecast_with_same_identity_survives_later_identical_polls(session, settings):
+    game, home, _ = _seed_game(session)
+    base = CUTOFF - timedelta(hours=6)
+    _observe(session, game, home, at=base)
+    _observe(session, game, home, at=base + timedelta(minutes=30))
+    forecast_at = base + timedelta(hours=1)
+    # Many identical polls AFTER the forecast.
+    for hours in (2, 3, 4, 5):
+        _observe(session, game, home, at=base + timedelta(hours=hours))
+    result = starter_evidence(session, game, home.id, cutoff=CUTOFF, forecast_generated_at=forecast_at)
+    assert result.state == STARTER_PROBABLE_STABLE
+
+
+def test_lineup_event_does_not_destabilize_starter_state(session, settings):
+    game, home, _ = _seed_game(session)
+    _stable_pair(session, game, home)
+    session.add(AvailabilityEvent(
+        schema_version="1", event_type="LINEUP_CONFIRMED", source="MLB_DERIVED",
+        source_event_key=f"lineup-{game.id}", sport="BASEBALL", league="MLB", game_id=game.id,
+        published_at=CUTOFF - timedelta(minutes=5), received_at=CUTOFF - timedelta(minutes=5),
+        description="lineup posted", payload={},
+    ))
+    session.commit()
+    result = starter_evidence(
+        session, game, home.id, cutoff=CUTOFF,
+        forecast_generated_at=CUTOFF - timedelta(hours=1),
+    )
+    # A lineup event is not material to the STARTER machine.
+    assert result.state == STARTER_PROBABLE_STABLE
+
+
+def test_material_lineup_change_after_forecast_blocks_lineup_until_refresh(session, settings):
+    game, home, away = _seed_game(session)
+    session.add(AvailabilityEvent(
+        schema_version="1", event_type="LINEUP_CONFIRMED", source="MLB_DERIVED",
+        source_event_key=f"lineup2-{game.id}", sport="BASEBALL", league="MLB", game_id=game.id,
+        published_at=CUTOFF - timedelta(minutes=5), received_at=CUTOFF - timedelta(minutes=5),
+        description="lineup posted", payload={},
+    ))
+    session.commit()
+    stale_forecast_at = CUTOFF - timedelta(hours=2)
+    blocked = lineup_evidence(session, game, home.id, away.id, cutoff=CUTOFF,
+                              forecast_generated_at=stale_forecast_at, context=_ctx())
+    assert blocked.state == LINEUP_MISSING_BLOCKING
+    assert any("Material lineup change" in r for r in blocked.reasons)
+    # After the one governed refresh the forecast postdates the event.
+    refreshed = lineup_evidence(session, game, home.id, away.id, cutoff=CUTOFF,
+                                forecast_generated_at=CUTOFF - timedelta(minutes=2), context=_ctx())
+    assert refreshed.state == LINEUP_PENDING_ALLOWED
+
+
+def test_unresolved_scratch_still_blocks_lineup(session, settings):
+    game, home, away = _seed_game(session)
+    session.add(AvailabilityEvent(
+        schema_version="1", event_type="LATE_SCRATCH", source="MLB_DERIVED",
+        source_event_key=f"scratch-{game.id}", sport="BASEBALL", league="MLB", game_id=game.id,
+        published_at=CUTOFF - timedelta(minutes=5), received_at=CUTOFF - timedelta(minutes=5),
+        description="late scratch", payload={},
+    ))
+    session.commit()
+    result = lineup_evidence(session, game, home.id, away.id, cutoff=CUTOFF,
+                             forecast_generated_at=CUTOFF - timedelta(hours=1), context=_ctx())
+    assert result.state == "LATE_SCRATCH_UNRESOLVED"
+
+
+def test_precutoff_pending_and_final_lifecycle_states(session, settings):
+    game, home, away = _seed_game(session)
+    _observe(session, game, home)  # single obs: not yet stable — pending evidence
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    evaluator = PracticalPolicyEvaluator(session, settings)
+    pre = evaluator.evaluate(
+        game, _forecast(), SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF,
+    )
+    assert pre.lifecycle == "PENDING_FINAL_EVIDENCE"
+    assert "PENDING_FINAL_EVIDENCE" in pre.reason  # not branded final-ineligible
+    final = evaluator.evaluate(
+        game, _forecast(), SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF, final=True,
+    )
+    assert final.lifecycle == "FINAL_NO_BET"
+
+
+def test_provisionally_eligible_becomes_final_qualified(session, settings):
+    game, home, away = _seed_game(session)
+    _stable_pair(session, game, home)
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    evaluator = PracticalPolicyEvaluator(session, settings)
+    pre = evaluator.evaluate(
+        game, _forecast(), SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF,
+    )
+    assert pre.qualified and pre.lifecycle == "PROVISIONALLY_ELIGIBLE"
+    final = evaluator.evaluate(
+        game, _forecast(), SimpleNamespace(last_availability_event=None),
+        _selection(), now=NOW, cutoff=CUTOFF, final=True,
+    )
+    assert final.qualified and final.lifecycle == "FINAL_QUALIFIED"
+
+
+def test_v2_supersession_registry_and_v21_separation(session, settings):
+    from datetime import timedelta as _td
+
+    from app.core.time import local_today
+    from app.models import AuditEvent, ShadowExperiment
+    from app.services.practical_policy import SUPERSEDED_POLICY_VERSION
+
+    service, v1 = _start_v1(session, settings)
+    today = local_today(settings.display_timezone)
+    # Simulate the preserved never-activated V2 registration.
+    old = ShadowExperiment(
+        name="ASP PRACTICAL PREGAME BANKROLL — 2026 V2", version=99,
+        started_at=datetime.now(UTC), start_date=today + _td(days=1),
+        starting_bankroll=1000.0, sport="MLB",
+        recommendation_policy_version=SUPERSEDED_POLICY_VERSION,
+        staking_policy_version="AISP_QUARTER_KELLY_EVIDENCE_V2",
+        decision_policy=SUPERSEDED_POLICY_VERSION,
+        controlling_engine="AISP_BASELINE", supported_markets=["MONEYLINE"],
+        kelly_fraction=0.25, unit_percentage=0.005, max_position_percentage=0.01,
+        max_same_game_percentage=0.02, max_daily_percentage=0.05,
+        code_commit="cafe", code_identity="git:cafe", is_active=True,
+    )
+    session.add(old)
+    session.commit()
+    v21 = service.ensure_v2_started(effective_date=today + _td(days=1), code_commit="deadbeef")
+    session.commit()
+    assert v21.decision_policy == V2_DECISION_POLICY
+    assert v21.decision_policy.endswith("V2_1")
+    # The superseded registration is excluded from every operational surface…
+    active_policies = {e.decision_policy for e in service.active_experiments()}
+    assert SUPERSEDED_POLICY_VERSION not in active_policies
+    assert V2_DECISION_POLICY in active_policies
+    # …but its row is preserved untouched, and the supersession is audited.
+    preserved = session.get(ShadowExperiment, old.id)
+    assert preserved.is_active is True and preserved.decision_policy == SUPERSEDED_POLICY_VERSION
+    audit = session.scalar(select(AuditEvent).where(
+        AuditEvent.action == "experiment.superseded_before_activation",
+        AuditEvent.entity_id == old.id,
+    ))
+    assert audit is not None
+    assert audit.metadata_json["status"] == "SUPERSEDED_BEFORE_ACTIVATION"
+    # V1 untouched throughout.
+    assert service.active_experiment().id == v1.id

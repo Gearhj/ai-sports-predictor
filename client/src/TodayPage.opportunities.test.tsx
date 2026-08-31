@@ -58,10 +58,18 @@ const opportunities: GameOpportunity[] = [
     best: sel({ market_type: 'Moneyline', selection: 'QUAL-ML', american_odds: 120, expected_value: 22.5, opportunity_score: 84, virtual_stake: 10, potential_profit: 12, total_return: 22 }),
     alternates: [sel({ recommendation: 'WATCH', market_type: 'Total', selection: 'ALT-OVER-85', line: 8.5, american_odds: -110, opportunity_score: 30, virtual_stake: 0, potential_profit: 0, total_return: 0 })],
     v2: {
-      policy_version: 'AISP_PRACTICAL_PREGAME_POLICY_V2', tier: 'TIER_B_PROBABLE_STABLE',
+      policy_version: 'AISP_PRACTICAL_PREGAME_POLICY_V2_1', tier: 'TIER_B_PROBABLE_STABLE',
+      lifecycle: 'PROVISIONALLY_ELIGIBLE',
       recommendation: 'QUALIFIED_BET', reason: 'V2 TIER_B qualifies.', reasons: [],
+      gates_passed: ['starters_confirmed_or_probable_stable', 'adjusted_edge_minimum'],
+      critical_evidence_complete: true,
       starter_state_home: 'PROBABLE_STABLE', starter_state_away: 'PROBABLE_STABLE',
+      starter_stable_since_home: '2026-08-31T14:00:00Z',
       lineup_state: 'CONFIRMED_COMPLETE', selection: 'QUAL-ML',
+      feature_decomposition: {
+        version: 'V2_FEATURE_COMPLETENESS_DECOMPOSITION_V1',
+        model_required_missing: [], duplicate_components: 6, fallback_components: 17, optional_components: 8,
+      },
       raw_edge: 8.0, starter_penalty: 2.0, lineup_penalty: 0,
       adjusted_edge: 4.5, adjusted_expected_value: 13.0, evidence_multiplier: 0.5,
       theoretical_stake: 2.5, experiment_effective_date: '2026-09-01', active: false,
@@ -243,22 +251,54 @@ describe('Complete slate + multi-sport board', () => {
     render(<App />)
     const featuredRegion = await featured()
     const qualifiedCard = within(featuredRegion).getAllByRole('article')[0]
-    // V2 challenger support line with tier, adjusted edge, and reduced stake.
-    expect(within(qualifiedCard).getByText(/V2 challenger: QUALIFIED · TIER_B_PROBABLE_STABLE/)).toBeInTheDocument()
+    // V2 challenger support line with lifecycle, tier, and adjusted edge — a
+    // pre-cutoff qualifier is "awaiting final evaluation", never final.
+    expect(within(qualifiedCard).getByText(/V2 challenger: Provisionally eligible — awaiting final evaluation · TIER_B_PROBABLE_STABLE/)).toBeInTheDocument()
     expect(within(qualifiedCard).getByText(/adj \+4\.5 pts/)).toBeInTheDocument()
-    // V2 evidence chips: starter state, lineup state, exact penalty.
+    // V2 evidence chips: starter state + stable-since, lineup state, lifecycle,
+    // exact penalty.
     expect(within(qualifiedCard).getByText(/V2 starter evidence/)).toBeInTheDocument()
     expect(within(qualifiedCard).getByText('PROBABLE_STABLE')).toBeInTheDocument()
+    expect(within(qualifiedCard).getByText(/Stable since/)).toBeInTheDocument()
     expect(within(qualifiedCard).getByText('CONFIRMED_COMPLETE')).toBeInTheDocument()
     expect(within(qualifiedCard).getByText(/starter -2\.0/)).toBeInTheDocument()
+  })
+
+  it('shows a pending V2 label before the final decision, never a premature no-qualified claim', async () => {
+    const pendingPayload = {
+      ...dashboardPayload,
+      opportunities: opportunities.map((o) => (o.v2 ? {
+        ...o,
+        v2: {
+          ...o.v2, recommendation: 'NO_BET', lifecycle: 'PENDING_FINAL_EVIDENCE' as const,
+          tier: 'TIER_D_INELIGIBLE' as const,
+          reasons: ['Starter evidence not CONFIRMED/PROBABLE_STABLE: home starter PROBABLE_UNSTABLE (Only 1 consecutive observation(s) of the current pitcher (need >= 2))'],
+        },
+      } : o)),
+      opportunity_summary: {
+        ...dashboardPayload.opportunity_summary,
+        top_v2_moneyline: 'No V2 final decision yet — 4 candidate(s) awaiting final evidence',
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input)
+      if (url.includes('/dashboard/today')) return { ok: true, status: 200, json: async () => pendingPayload } as Response
+      return { ok: false, status: 404, json: async () => ({}) } as Response
+    }))
+    render(<App />)
+    const summary = await screen.findByRole('region', { name: /Daily opportunity summary/i })
+    expect(within(summary).getByText(/No V2 final decision yet — 4 candidate/)).toBeInTheDocument()
+    expect(within(summary).queryByText(/No V2-qualified moneyline after final evaluation/)).not.toBeInTheDocument()
+    const featuredRegion = await featured()
+    expect(within(featuredRegion).getAllByText(/V2 challenger: Pending final evidence/).length).toBeGreaterThan(0)
   })
 
   it('never presents a non-moneyline board selection as experiment-eligible', async () => {
     stub()
     render(<App />)
     const slate = await completeSlate()
-    // The run-line card carries the unsupported-market explanation.
-    expect(within(slate).getAllByText(/both experiments support moneyline only/i).length).toBeGreaterThan(0)
+    // The run-line card states first that it is not funded by either experiment.
+    expect(within(slate).getAllByText('Not funded by the current moneyline experiments.').length).toBeGreaterThan(0)
     expect(within(slate).queryByText('V1 strict control: moneyline market · Run line')).not.toBeInTheDocument()
   })
 

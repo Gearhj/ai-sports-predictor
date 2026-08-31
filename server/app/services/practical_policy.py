@@ -1,22 +1,24 @@
-"""AISP_PRACTICAL_PREGAME_POLICY_V2 — the practical pregame challenger policy.
+"""AISP_PRACTICAL_PREGAME_POLICY_V2_1 — the practical pregame challenger policy.
 
-A separately versioned, immutable challenger to the V1 strict control. It
-replaces two structurally unsatisfiable V1 gates with governed evidence states:
+A separately versioned, immutable challenger to the V1 strict control. V2.1
+supersedes the never-activated AISP_PRACTICAL_PREGAME_POLICY_V2 registration
+(zero decisions, zero positions) whose qualification contract inherited the
+composite ``feature_completeness`` readiness gate. That composite is a coverage
+fraction over ~36 snapshot features — most lineup-, starter-, statcast- or
+placeholder-derived with registered training-consistent fallbacks — and is
+structurally unsatisfiable in this configuration (Statcast disabled; four
+structural placeholder families are unconditionally counted missing). Blocking
+on it re-imposed the exact starter/lineup conditions V2 explicitly governs and
+double-counted incompleteness the ensemble already prices into ``uncertainty``.
 
-- starter status CONFIRMED  ->  CONFIRMED or PROBABLE_STABLE (state machine)
-- lineup confirmation       ->  PENDING_ALLOWED_FOR_MONEYLINE (moneyline only)
+V2.1 therefore evaluates an explicit atomic hard-block whitelist (§ contract
+below) plus the governed starter/lineup evidence states with their audited
+penalties. Economic policy is byte-identical to V2: 2.0/0.5-point penalties,
+2.0-point minimum adjusted edge, positive adjusted EV, quarter-Kelly, 50%
+incomplete-evidence multiplier, 0.5%/1% caps.
 
-Every other V1 hard requirement is retained by component (never via the blunt
-readiness>=70 composite): current forecast, fresh complete same-book two-sided
-quote, no unresolved availability event, no extreme disagreement, no other
-critical readiness component missing, positive adjusted edge and EV.
-
-Incomplete-but-governed evidence carries an empirically derived, conservative
-decision-level penalty (audited from immutable forecast revisions, never from
-outcomes), a 50% evidence stake multiplier, and a 0.5% position cap.
-
-Nothing here mutates the V1 experiment, reads a game outcome, or calls a
-provider.
+Nothing here mutates V1 or the superseded V2 row, reads a game outcome, or
+calls a provider.
 """
 
 from __future__ import annotations
@@ -37,14 +39,17 @@ from app.services.evidence_states import (
     LineupContext,
     LineupEvidence,
     STARTER_CONFIRMED,
+    STARTER_CONFLICT,
     StarterEvidence,
     lineup_evidence,
     starter_evidence,
 )
 
-POLICY_VERSION = "AISP_PRACTICAL_PREGAME_POLICY_V2"
+POLICY_VERSION = "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
+SUPERSEDED_POLICY_VERSION = "AISP_PRACTICAL_PREGAME_POLICY_V2"
 STAKING_VERSION = "AISP_QUARTER_KELLY_EVIDENCE_V2"
 PENALTY_CALIBRATION_VERSION = "AISP_EVIDENCE_PENALTIES_V1"
+DECOMPOSITION_VERSION = "V2_FEATURE_COMPLETENESS_DECOMPOSITION_V1"
 
 # Evidence tiers (component-level; never a composite readiness threshold).
 TIER_A = "TIER_A_FULL_EVIDENCE"
@@ -52,16 +57,16 @@ TIER_B = "TIER_B_PROBABLE_STABLE"
 TIER_C = "TIER_C_LINEUP_PENDING"
 TIER_D = "TIER_D_INELIGIBLE"
 
+# Evaluation lifecycle: indicative states through the day; only the
+# final-pregame job creates a position.
+LIFECYCLE_NOT_YET = "NOT_YET_EVALUATED"
+LIFECYCLE_PENDING = "PENDING_FINAL_EVIDENCE"
+LIFECYCLE_PROVISIONAL = "PROVISIONALLY_ELIGIBLE"
+LIFECYCLE_FINAL_QUALIFIED = "FINAL_QUALIFIED"
+LIFECYCLE_FINAL_NO_BET = "FINAL_NO_BET"
+
 # ---------------------------------------------------------------------------
-# Frozen empirical penalty calibration (2026-08-31 audit; see audit block).
-#
-# Derived from immutable intraday forecast revisions only — NEVER from game
-# outcomes. Starter history is sparse (n=8 < 30 eligible revision events), so
-# the mandated conservative default of 2.0 percentage points applies. Lineup
-# history is adequate (n=57): the 95th-percentile absolute home-probability
-# movement across lineup-bracketed revisions is 0.000 points (98.2% moved
-# < 0.1, max 0.535), but incomplete evidence is never treated as zero-risk —
-# a conservative floor of 0.5 points is applied.
+# Frozen empirical penalty calibration (2026-08-31 audit; unchanged from V2).
 # ---------------------------------------------------------------------------
 PENALTY_CALIBRATION: dict[str, Any] = {
     "version": PENALTY_CALIBRATION_VERSION,
@@ -114,18 +119,140 @@ PENALTY_CALIBRATION: dict[str, Any] = {
 STARTER_PENALTY_FRACTION = PENALTY_CALIBRATION["starter"]["penalty_points"] / 100.0
 LINEUP_PENALTY_FRACTION = PENALTY_CALIBRATION["lineup"]["penalty_points"] / 100.0
 
-# Staking: quarter-Kelly base; penalized-evidence tiers halve the stake and cap
-# the position at 0.5% of the current V2 bankroll. Tier A retains V1's cap.
 EVIDENCE_STAKE_MULTIPLIER = 0.5
 PENALIZED_TIER_POSITION_CAP = 0.005
 MIN_ADJUSTED_EDGE = 0.02  # unchanged final threshold after all penalties
 
+# ---------------------------------------------------------------------------
+# V2_FEATURE_COMPLETENESS_DECOMPOSITION_V1
+#
+# ``feature_completeness`` is a numeric coverage fraction over the frozen
+# feature schema plus four structural placeholder families that are
+# UNCONDITIONALLY appended to missing_features (defense, baserunning,
+# opponent_adjustment, roof_orientation_adjustment — feature_snapshot_service).
+# Every schema feature carries a registered training-consistent default
+# (mlb_pregame_gate3_v1), and the ensemble consumes the completeness fraction
+# itself as a CONFIDENCE input already reflected in forecast.uncertainty.
+#
+# Classification classes:
+#   A MODEL_REQUIRED_NO_VALID_FALLBACK — V2 hard block
+#   B MODEL_REQUIRED_GOVERNED_FALLBACK_USED — eligible (penalty where the
+#     source evidence state is penalized)
+#   C DECISION_REQUIRED — hard block (independently gated)
+#   D OPTIONAL_CONTEXT — never a block
+#   E DUPLICATE_DERIVED_GATE — never a second block (the dedicated V2
+#     starter/lineup/availability state machines govern it)
+# ---------------------------------------------------------------------------
+CLASS_A = "MODEL_REQUIRED_NO_VALID_FALLBACK"
+CLASS_B = "MODEL_REQUIRED_GOVERNED_FALLBACK_USED"
+CLASS_C = "DECISION_REQUIRED"
+CLASS_D = "OPTIONAL_CONTEXT"
+CLASS_E = "DUPLICATE_DERIVED_GATE"
+
+# Ordered substring rules; first match wins. (feature_substring, class,
+# derived_from, has_governed_fallback)
+FEATURE_CLASSIFICATION_RULES: tuple[tuple[str, str, str, bool], ...] = (
+    ("lineup", CLASS_E, "lineup", True),          # lineup_xwoba etc. — V2 lineup state governs
+    ("starter_player_id", CLASS_E, "starter", False),  # canonical identity — V2 starter state governs
+    ("starter", CLASS_E, "starter", True),        # starter_era/xera — starter penalty governs
+    ("statcast", CLASS_B, "statcast", True),      # disabled by configuration; league-average defaults
+    ("bullpen", CLASS_B, "bullpen", True),
+    ("recent_runs", CLASS_B, "team", True),
+    ("rating", CLASS_A, "team", False),           # core team strength — no decision-grade fallback
+    ("runs_per_game", CLASS_A, "team", False),
+    ("runs_allowed", CLASS_A, "team", False),
+    ("ops", CLASS_A, "team", False),
+    ("park_run_factor", CLASS_B, "context", True),  # neutral_prior governed fallback
+    ("baserunning", CLASS_D, "context", False),   # structural placeholder, never present
+    ("defense", CLASS_D, "context", False),
+    ("opponent_adjustment", CLASS_D, "context", False),
+    ("roof_orientation", CLASS_D, "context", False),
+    ("travel_distance", CLASS_D, "context", True),
+    ("temperature", CLASS_D, "context", True),
+    ("wind", CLASS_D, "context", True),
+    ("precipitation", CLASS_D, "context", True),
+    ("days_since", CLASS_D, "schedule", True),
+    ("doubleheader", CLASS_D, "schedule", True),
+    ("roster", CLASS_D, "availability", True),
+)
+
+# Readiness components: how each maps into the atomic contract.
+READINESS_COMPONENT_CLASSIFICATION: dict[str, tuple[str, str]] = {
+    "schedule": (CLASS_C, "forecast"),
+    "team_stats": (CLASS_A, "team"),
+    "probable_pitchers": (CLASS_E, "starter"),
+    "pitcher_confirmation": (CLASS_E, "starter"),
+    "lineups": (CLASS_E, "lineup"),
+    "weather": (CLASS_D, "context"),
+    "bullpen": (CLASS_B, "bullpen"),
+    "feature_completeness": (CLASS_E, "composite"),  # decomposed per feature below
+}
+
+
+def classify_feature(name: str) -> tuple[str, str, bool]:
+    lowered = name.lower()
+    for pattern, cls, derived_from, fallback in FEATURE_CLASSIFICATION_RULES:
+        if pattern in lowered:
+            return cls, derived_from, fallback
+    return CLASS_D, "unclassified", False
+
+
+def decompose_feature_completeness(forecast: Forecast | Any) -> dict[str, Any]:
+    """The exact per-component decomposition of the composite readiness gates.
+
+    Returns the versioned diagnostic contract: every readiness component and
+    every missing/stale snapshot feature, each with its class, derivation, and
+    whether it hard-blocks V2. A published forecast is itself the evidence that
+    every governed fallback was applied by the registered model."""
+
+    components: list[dict[str, Any]] = []
+    hard_blockers: list[str] = []
+    raw = getattr(forecast, "readiness_components", None) or {}
+    gate2 = raw.get("_gate2") or {}
+    for key, value in raw.items():
+        if key.startswith("_") or not isinstance(value, dict):
+            continue
+        status = str(value.get("status", "")).lower()
+        cls, derived = READINESS_COMPONENT_CLASSIFICATION.get(key, (CLASS_D, "unclassified"))
+        blocks = cls in (CLASS_A, CLASS_C) and status == "missing"
+        components.append({
+            "component": key, "source": f"readiness_components.{key}",
+            "status": status or "unknown", "class": cls, "derived_from": derived,
+            "critical_under_v1": bool(value.get("critical")),
+            "hard_block_v2": blocks,
+            "detail": value.get("detail"),
+        })
+        if blocks:
+            hard_blockers.append(key)
+    for bucket, statuses in (("missing_features", "missing"), ("stale_features", "stale"),
+                             ("provisional_features", "provisional")):
+        for name in gate2.get(bucket) or []:
+            cls, derived, fallback = classify_feature(str(name))
+            blocks = cls == CLASS_A and statuses == "missing"
+            components.append({
+                "component": str(name), "source": f"feature_snapshot.{bucket}",
+                "status": statuses, "class": cls, "derived_from": derived,
+                "governed_fallback": fallback,
+                "hard_block_v2": blocks,
+            })
+            if blocks:
+                hard_blockers.append(str(name))
+    return {
+        "version": DECOMPOSITION_VERSION,
+        "components": components,
+        "model_required_missing": sorted(set(hard_blockers)),
+        "duplicate_components": sorted({c["component"] for c in components if c["class"] == CLASS_E}),
+        "fallback_components": sorted({c["component"] for c in components if c["class"] == CLASS_B}),
+        "optional_components": sorted({c["component"] for c in components if c["class"] == CLASS_D}),
+    }
+
 
 def frozen_policy_config(settings: Settings) -> dict[str, Any]:
-    """The immutable V2 policy_config persisted on the experiment row."""
+    """The immutable V2.1 policy_config persisted on the experiment row."""
 
     config = {
         "policy_version": POLICY_VERSION,
+        "supersedes": SUPERSEDED_POLICY_VERSION,
         "staking_version": STAKING_VERSION,
         "penalties": PENALTY_CALIBRATION,
         "starter_penalty_fraction": STARTER_PENALTY_FRACTION,
@@ -137,6 +264,38 @@ def frozen_policy_config(settings: Settings) -> dict[str, Any]:
         "supported_markets": ["MONEYLINE"],
         "eligible_starter_states": ["CONFIRMED", "PROBABLE_STABLE"],
         "pending_lineup_market_scope": ["MONEYLINE"],
+        "feature_completeness_decomposition": {
+            "version": DECOMPOSITION_VERSION,
+            "readiness_components": {
+                k: {"class": cls, "derived_from": d}
+                for k, (cls, d) in READINESS_COMPONENT_CLASSIFICATION.items()
+            },
+            "feature_rules": [
+                {"pattern": p, "class": c, "derived_from": d, "governed_fallback": f}
+                for p, c, d, f in FEATURE_CLASSIFICATION_RULES
+            ],
+        },
+        "hard_block_whitelist": [
+            "no_valid_current_forecast",
+            "forecast_identity_invalid",
+            "exact_game_identity_unavailable",
+            "unsupported_market",
+            "incomplete_two_sided_moneyline_quote",
+            "stale_quote",
+            "game_already_started",
+            "decision_after_final_pregame_cutoff",
+            "starter_identity_missing",
+            "starter_identity_conflicting",
+            "starter_probable_unstable_at_final",
+            "unresolved_material_starter_change",
+            "unresolved_scratch_or_availability_event",
+            "model_required_input_no_valid_fallback",
+            "extreme_disagreement",
+            "adjusted_edge_below_minimum",
+            "adjusted_ev_not_positive",
+            "adjusted_kelly_not_positive",
+            "exposure_cap_exceeded",
+        ],
     }
     checksum = hashlib.sha256(json.dumps(
         config, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
@@ -152,15 +311,19 @@ def _aware(value: datetime | None) -> datetime | None:
 
 @dataclass
 class V2Evaluation:
-    """One immutable V2 policy evaluation for a game's moneyline selection."""
+    """One immutable V2.1 policy evaluation for a game's moneyline selection."""
 
     tier: str = TIER_D
+    lifecycle: str = LIFECYCLE_PENDING
     recommendation: str = "NO_BET"
     reason: str = ""
     reasons: list[str] = field(default_factory=list)
+    gates_passed: list[str] = field(default_factory=list)
+    critical_evidence_complete: bool = False
     starter_home: StarterEvidence | None = None
     starter_away: StarterEvidence | None = None
     lineup: LineupEvidence | None = None
+    decomposition: dict[str, Any] | None = None
     raw_model_probability: float | None = None
     market_probability: float | None = None
     raw_edge: float | None = None
@@ -183,9 +346,13 @@ class V2Evaluation:
             "staking_version": STAKING_VERSION,
             "penalty_calibration_version": PENALTY_CALIBRATION_VERSION,
             "tier": self.tier,
+            "lifecycle": self.lifecycle,
+            "critical_evidence_complete": self.critical_evidence_complete,
+            "gates_passed": list(self.gates_passed),
             "starter_home": self.starter_home.as_json() if self.starter_home else None,
             "starter_away": self.starter_away.as_json() if self.starter_away else None,
             "lineup": self.lineup.as_json() if self.lineup else None,
+            "feature_decomposition": self.decomposition,
             "raw_model_probability": self.raw_model_probability,
             "market_probability": self.market_probability,
             "raw_edge": self.raw_edge,
@@ -201,8 +368,14 @@ class V2Evaluation:
 
 
 class PracticalPolicyEvaluator:
-    """Deterministic, point-in-time V2 evaluation from the same evidence
-    snapshot the V1 board uses. Read-only; the caller persists the result."""
+    """Deterministic, point-in-time V2.1 evaluation from the same evidence
+    snapshot the V1 board uses. Read-only; the caller persists the result.
+
+    Hard blocks come exclusively from the atomic whitelist. The composite V1
+    readiness score and ``feature_completeness`` fraction never block on their
+    own — only an exactly classified MODEL_REQUIRED_NO_VALID_FALLBACK or
+    DECISION_REQUIRED component does.
+    """
 
     def __init__(self, session: Session, settings: Settings) -> None:
         self.session = session
@@ -217,18 +390,25 @@ class PracticalPolicyEvaluator:
         *,
         now: datetime,
         cutoff: datetime,
+        final: bool | None = None,
     ) -> V2Evaluation:
         ev = V2Evaluation()
+        is_final = bool(final) if final is not None else _aware(now) >= _aware(cutoff)
 
         if forecast is None:
-            return self._blocked(ev, "Forecast unavailable")
+            if selection is None and not is_final:
+                ev.lifecycle = LIFECYCLE_NOT_YET
+                ev.recommendation = "NO_BET"
+                ev.reason = f"V2 {LIFECYCLE_NOT_YET}: the game has not reached its evaluation window."
+                ev.reasons = ["Awaiting first forecast and quote"]
+                return ev
+            return self._blocked(ev, "No valid current forecast", is_final, pending=True)
 
-        # -- governed evidence states: always computed for transparency, even
-        # when an earlier hard block decides the recommendation --------------
+        # -- governed evidence states: always computed for transparency ------
         home_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(True)))
         away_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(False)))
         if home_gt is None or away_gt is None:
-            return self._blocked(ev, "Canonical game team identities unavailable")
+            return self._blocked(ev, "Exact game identity unavailable", is_final)
         ev.starter_home = starter_evidence(
             self.session, game, home_gt.team_id, cutoff=cutoff,
             forecast_generated_at=forecast.generated_at,
@@ -238,49 +418,78 @@ class PracticalPolicyEvaluator:
             forecast_generated_at=forecast.generated_at,
         )
         starters_eligible = ev.starter_home.eligible and ev.starter_away.eligible
-        quote_ok = selection is not None and not getattr(selection, "is_stale", False)
-        context = LineupContext(
-            market_is_moneyline=True,
-            starters_eligible=starters_eligible,
-            quote_fresh_and_complete=quote_ok,
-            forecast_current=True,  # unresolved-event forecasts are caught by the state machines
-            before_final_cutoff=_aware(now) < _aware(cutoff),
-            dependency_allows_pending=True,  # audited bounded movement; see PENALTY_CALIBRATION
-        )
         ev.lineup = lineup_evidence(
             self.session, game, home_gt.team_id, away_gt.team_id,
-            cutoff=cutoff, forecast_generated_at=forecast.generated_at, context=context,
+            cutoff=cutoff, forecast_generated_at=forecast.generated_at,
+            context=LineupContext(
+                market_is_moneyline=True,
+                dependency_allows_pending=True,  # audited bounded movement; see PENALTY_CALIBRATION
+                pregame=_aware(now) < _aware(game.starts_at) if game.starts_at else True,
+            ),
         )
+        ev.decomposition = decompose_feature_completeness(forecast)
 
-        # -- hard blocks shared with V1 (component-explicit, never composite) --
-        if selection is None:
-            return self._blocked(ev, "No complete two-sided governed MONEYLINE quote")
-        if getattr(selection, "is_stale", False):
-            return self._blocked(ev, "Latest quote is stale")
-        if _aware(now) >= _aware(cutoff):
-            return self._blocked(ev, "Past the final-pregame decision cutoff")
-        other_missing = self._non_forgiven_critical_missing(forecast)
-        if other_missing:
-            return self._blocked(ev, f"Critical non-forgiven evidence incomplete: {', '.join(sorted(other_missing))}")
-        model_p = getattr(selection, "model_probability_fraction", None)
-        no_vig = getattr(selection, "no_vig_probability_fraction", None)
-        if model_p is None or no_vig is None:
-            return self._blocked(ev, "Model or market probability unavailable")
-        if (model_p - no_vig) >= self.settings.opportunity_extreme_disagreement_threshold:
-            return self._blocked(ev, "Extreme model-market disagreement — review required")
+        # -- atomic hard-block whitelist --------------------------------------
+        starts_at = _aware(game.starts_at)
+        if starts_at is not None and _aware(now) >= starts_at:
+            return self._blocked(ev, "Game already started", True)
+        gates: list[tuple[str, bool, str, bool]] = []  # (gate, passed, blocker text, pending-kind)
+        gates.append(("valid_current_forecast", True, "", False))
+        model_required = ev.decomposition["model_required_missing"]
+        gates.append((
+            "model_required_inputs_valid_or_governed_fallback",
+            not model_required,
+            f"Model-required input with no valid governed fallback: {', '.join(model_required)}",
+            False,
+        ))
+        gates.append((
+            "complete_two_sided_moneyline_quote",
+            selection is not None,
+            "No complete same-sportsbook two-sided MONEYLINE quote",
+            True,
+        ))
+        gates.append((
+            "fresh_quote",
+            selection is not None and not getattr(selection, "is_stale", False),
+            "Latest quote is stale",
+            True,
+        ))
+        model_p = getattr(selection, "model_probability_fraction", None) if selection is not None else None
+        no_vig = getattr(selection, "no_vig_probability_fraction", None) if selection is not None else None
+        gates.append((
+            "market_probabilities_available",
+            selection is None or (model_p is not None and no_vig is not None),
+            "Model or market probability unavailable",
+            True,
+        ))
+        extreme = (
+            model_p is not None and no_vig is not None
+            and (model_p - no_vig) >= self.settings.opportunity_extreme_disagreement_threshold
+        )
+        gates.append(("not_extreme_disagreement", not extreme,
+                      "Extreme model-market disagreement — review required", False))
         last_event = str(getattr(availability, "last_availability_event", "") or "")
-        if "SCRATCH" in last_event.upper():
-            return self._blocked(ev, "Unresolved late scratch")
-        if not starters_eligible:
-            detail = []
-            for label, side in (("home", ev.starter_home), ("away", ev.starter_away)):
-                if not side.eligible:
-                    why = f" ({'; '.join(side.reasons)})" if side.reasons else ""
-                    detail.append(f"{label} starter {side.state}{why}")
-            return self._blocked(ev, f"Starter evidence not CONFIRMED/PROBABLE_STABLE: {'; '.join(detail)}")
-        if not ev.lineup.eligible_for_moneyline:
-            why = f" ({'; '.join(ev.lineup.reasons)})" if ev.lineup.reasons else ""
-            return self._blocked(ev, f"Lineup evidence {ev.lineup.state}{why}")
+        gates.append(("no_unresolved_scratch", "SCRATCH" not in last_event.upper(),
+                      "Unresolved late scratch", False))
+        starter_pending = not starters_eligible and not (
+            ev.starter_home.state == STARTER_CONFLICT or ev.starter_away.state == STARTER_CONFLICT
+        )
+        starter_block = self._starter_block_text(ev)
+        gates.append(("starters_confirmed_or_probable_stable", starters_eligible,
+                      starter_block, starter_pending))
+        gates.append(("lineup_confirmed_adequate_or_pending_allowed",
+                      ev.lineup.eligible_for_moneyline,
+                      f"Lineup evidence {ev.lineup.state}"
+                      f"{f' ({chr(59).join(ev.lineup.reasons)})' if ev.lineup.reasons else ''}",
+                      False))
+
+        for gate, passed, blocker, pending in gates:
+            if passed:
+                ev.gates_passed.append(gate)
+            else:
+                return self._blocked(ev, blocker, is_final, pending=pending)
+
+        ev.critical_evidence_complete = True  # V2_CRITICAL_EVIDENCE_COMPLETE
 
         # -- penalties + adjusted edge/EV -------------------------------------
         starter_penalized = ev.starter_home.state != STARTER_CONFIRMED or ev.starter_away.state != STARTER_CONFIRMED
@@ -317,10 +526,15 @@ class PracticalPolicyEvaluator:
                 f"Adjusted edge {ev.adjusted_edge * 100:+.1f} pts below the {MIN_ADJUSTED_EDGE * 100:.1f} pt minimum "
                 f"(penalties: starter {ev.starter_penalty * 100:.1f}, lineup {ev.lineup_penalty * 100:.1f})"
             )
+        else:
+            ev.gates_passed.append("adjusted_edge_minimum")
         if ev.adjusted_expected_value is None or ev.adjusted_expected_value <= 0:
             blockers.append("Adjusted expected value is not positive")
+        else:
+            ev.gates_passed.append("adjusted_ev_positive")
         if blockers:
             ev.recommendation = "NO_BET"
+            ev.lifecycle = LIFECYCLE_FINAL_NO_BET if is_final else LIFECYCLE_PENDING
             ev.reasons = blockers
             ev.reason = (
                 f"V2 {ev.tier}: MONEYLINE selection {getattr(selection, 'selection', '—')} does not clear the "
@@ -329,6 +543,7 @@ class PracticalPolicyEvaluator:
             return ev
 
         ev.recommendation = "QUALIFIED_BET"
+        ev.lifecycle = LIFECYCLE_FINAL_QUALIFIED if is_final else LIFECYCLE_PROVISIONAL
         ev.reason = (
             f"V2 {ev.tier}: MONEYLINE selection {getattr(selection, 'selection', '—')} qualifies with adjusted edge "
             f"{ev.adjusted_edge * 100:+.1f} pts (raw {ev.raw_edge * 100:+.1f}; uncertainty "
@@ -338,33 +553,36 @@ class PracticalPolicyEvaluator:
         return ev
 
     @staticmethod
-    def _blocked(ev: V2Evaluation, reason: str) -> V2Evaluation:
+    def _starter_block_text(ev: V2Evaluation) -> str:
+        detail = []
+        for label, side in (("home", ev.starter_home), ("away", ev.starter_away)):
+            if side is not None and not side.eligible:
+                why = f" ({'; '.join(side.reasons)})" if side.reasons else ""
+                detail.append(f"{label} starter {side.state}{why}")
+        return f"Starter evidence not CONFIRMED/PROBABLE_STABLE: {'; '.join(detail)}" if detail else ""
+
+    @staticmethod
+    def _blocked(ev: V2Evaluation, reason: str, is_final: bool, *, pending: bool = False) -> V2Evaluation:
         ev.tier = TIER_D
         ev.recommendation = "NO_BET"
-        ev.reason = f"V2 {TIER_D}: {reason}."
+        if is_final:
+            ev.lifecycle = LIFECYCLE_FINAL_NO_BET
+        else:
+            # Pre-cutoff, nothing is finally ineligible: evidence may still
+            # arrive and the final decision has not run.
+            ev.lifecycle = LIFECYCLE_PENDING
+        prefix = LIFECYCLE_PENDING if (not is_final and pending) else ev.tier
+        ev.reason = f"V2 {prefix}: {reason}."
         ev.reasons = [reason]
         return ev
 
-    @staticmethod
-    def _non_forgiven_critical_missing(forecast: Forecast) -> list[str]:
-        """Critical readiness components that V2 does NOT forgive.
-
-        Only the two structurally unsatisfiable components (pitcher
-        confirmation, lineup confirmation) are governed by the V2 evidence
-        state machines; every other critical gap remains a hard block."""
-
-        forgiven = {"pitcher_confirmation", "lineups"}
-        missing: list[str] = []
-        for key, raw in (forecast.readiness_components or {}).items():
-            if key.startswith("_") or not isinstance(raw, dict) or key in forgiven:
-                continue
-            if raw.get("critical") and str(raw.get("status", "")).lower() in {"missing", "stale"}:
-                missing.append(key)
-        return missing
-
 
 __all__ = [
+    "CLASS_A", "CLASS_B", "CLASS_C", "CLASS_D", "CLASS_E",
+    "DECOMPOSITION_VERSION",
     "EVIDENCE_STAKE_MULTIPLIER",
+    "LIFECYCLE_FINAL_NO_BET", "LIFECYCLE_FINAL_QUALIFIED",
+    "LIFECYCLE_NOT_YET", "LIFECYCLE_PENDING", "LIFECYCLE_PROVISIONAL",
     "LINEUP_PENALTY_FRACTION",
     "MIN_ADJUSTED_EDGE",
     "PENALIZED_TIER_POSITION_CAP",
@@ -374,10 +592,10 @@ __all__ = [
     "PracticalPolicyEvaluator",
     "STAKING_VERSION",
     "STARTER_PENALTY_FRACTION",
-    "TIER_A",
-    "TIER_B",
-    "TIER_C",
-    "TIER_D",
+    "SUPERSEDED_POLICY_VERSION",
+    "TIER_A", "TIER_B", "TIER_C", "TIER_D",
     "V2Evaluation",
+    "classify_feature",
+    "decompose_feature_completeness",
     "frozen_policy_config",
 ]
