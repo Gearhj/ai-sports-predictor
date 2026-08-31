@@ -37,7 +37,7 @@ const firstGame = demoDashboard.games[0]
 describe('Today → Game Analysis navigation', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
-    window.history.pushState({}, '', '/')
+    window.history.pushState({}, '', '/mlb')
   })
   afterEach(() => {
     cleanup()

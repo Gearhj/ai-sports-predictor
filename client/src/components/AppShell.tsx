@@ -5,6 +5,7 @@ import {
   Archive,
   BarChart3,
   BookOpenText,
+  CalendarDays,
   ChevronDown,
   CircleDollarSign,
   DatabaseZap,
@@ -23,7 +24,8 @@ import { useAuth } from '../hooks/useAuth'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
 
 const primaryNav = [
-  { to: '/', label: "Today's forecasts", icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Daily command center', icon: LayoutDashboard, end: true, demoScoped: false },
+  { to: '/mlb', label: 'MLB Today', icon: CalendarDays, demoTo: '/demo' },
   { to: '/research/history', label: 'Historical research', icon: Archive, demoScoped: false },
   { to: '/markets', label: 'Market board', icon: BarChart3 },
   { to: '/shadow-board', label: 'Shadow board', icon: FlaskConical },
@@ -46,8 +48,12 @@ export function AppShell() {
   const { user } = useAuth()
   const demoMode = location.pathname === '/demo' || location.pathname.startsWith('/demo/')
   const scopedPath = (path: string) => demoMode ? path === '/' ? '/demo' : `/demo${path}` : path
+  const activeSport = resolveActiveSport(location.pathname, location.search)
 
-  useEffect(() => setMenuOpen(false), [location.pathname])
+  useEffect(() => {
+    setMenuOpen(false)
+    setSportOpen(false)
+  }, [location.pathname, location.search])
 
   return (
     <div className={`app-shell ${demoMode ? 'app-shell--demo' : ''}`}>
@@ -63,22 +69,24 @@ export function AppShell() {
         <Brand to={scopedPath('/')} />
         <div className="sport-switcher" aria-label="Sport selector">
           <button className="sport-switcher__active" type="button" onClick={() => setSportOpen((open) => !open)} aria-expanded={sportOpen} aria-controls="sport-options">
-            <span className="sport-ball">MLB</span>
-            <span><strong>Major League Baseball</strong><small><i /> Active season</small></span>
+            <span className="sport-ball">{activeSport.shortLabel}</span>
+            <span><strong>{activeSport.displayName}</strong><small><i /> {activeSport.status}</small></span>
             <ChevronDown size={15} />
           </button>
-          <div className={`sport-future-list ${sportOpen ? 'sport-future-list--open' : ''}`} id="sport-options" aria-label="Unavailable sports">
-            <span aria-disabled="true">NFL <em>Coming soon</em></span>
-            <span aria-disabled="true">NCAAF <em>Future</em></span>
-            <span aria-disabled="true">NHL <em>Future</em></span>
-            <span aria-disabled="true">WNBA <em>Future</em></span>
+          <div className={`sport-future-list ${sportOpen ? 'sport-future-list--open' : ''}`} id="sport-options" aria-label="Sport options">
+            <NavLink to="/">All sports <em>Daily hub</em></NavLink>
+            <NavLink to="/mlb">MLB <em>Live</em></NavLink>
+            <NavLink to="/shadow-board?sport=NFL">NFL <em>Research shadow</em></NavLink>
+            <span aria-disabled="true">NBA <em>Planned</em></span>
+            <span aria-disabled="true">WNBA <em>Planned</em></span>
+            <span aria-disabled="true">UFC <em>Planned</em></span>
           </div>
         </div>
 
         <nav className="side-nav" aria-label="Primary navigation">
           <span className="side-nav__label">Research desk</span>
-          {primaryNav.map(({ to, label, icon: Icon, end, demoScoped = true }) => (
-            <NavLink key={to} to={demoScoped ? scopedPath(to) : to} end={end} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
+          {primaryNav.map(({ to, label, icon: Icon, end, demoScoped = true, demoTo }) => (
+            <NavLink key={to} to={demoMode && demoTo ? demoTo : demoScoped ? scopedPath(to) : to} end={end} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
               <Icon size={17} /><span>{label}</span>
             </NavLink>
           ))}
@@ -115,6 +123,17 @@ export function AppShell() {
       </main>
     </div>
   )
+}
+
+function resolveActiveSport(pathname: string, search: string): { shortLabel: string; displayName: string; status: string } {
+  const requestedSport = new URLSearchParams(search).get('sport')?.toUpperCase()
+  if (pathname === '/shadow-board' && requestedSport === 'NFL') {
+    return { shortLabel: 'NFL', displayName: 'National Football League', status: 'Research shadow' }
+  }
+  if (pathname === '/' || pathname === '') {
+    return { shortLabel: 'ALL', displayName: 'All registered sports', status: 'Daily command center' }
+  }
+  return { shortLabel: 'MLB', displayName: 'Major League Baseball', status: 'Live workflow' }
 }
 
 function Brand({ compact = false, to = '/' }: { compact?: boolean; to?: string }) {

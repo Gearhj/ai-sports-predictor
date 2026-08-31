@@ -38,6 +38,7 @@ from app.schemas.api import (
     ShadowBoardData,
 )
 from app.prospective.contracts import AvailabilityEventInput
+from app.sports.contracts import TodayAllSportsReadModel
 from app.services.auth_service import (
     AuthenticationError,
     DuplicateEmailError,
@@ -119,6 +120,53 @@ def dashboard_today(session: DatabaseSession, settings: AppSettings, event_date:
     return ReadService(session, settings).dashboard(
         _current_public_date(event_date, settings)
     )
+
+
+@router.get("/today", response_model=TodayAllSportsReadModel, tags=["forecasts"])
+def today_all_sports(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+    sport: str | None = Query(None),
+) -> TodayAllSportsReadModel:
+    """TODAY_ALL_SPORTS_READ_MODEL_V1 — the all-sports decision hub.
+
+    Database-only: assembled from existing read services, never a provider.
+    Accepts ALL or an active league code; a PLANNED sport is rejected rather
+    than served as an empty live surface.
+    """
+    from app.sports.read_service import (
+        TodayAllSportsReadService,
+        is_supported_filter,
+        supported_league_filters,
+    )
+
+    if not is_supported_filter(sport):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported sport filter '{sport}'. "
+                f"Supported in this phase: {', '.join(supported_league_filters())}."
+            ),
+        )
+    return TodayAllSportsReadService(session, settings).build(
+        _today(event_date, settings), league_filter=sport,
+    )
+
+
+@router.get("/sports/registry", tags=["system"])
+def sports_registry() -> dict:
+    """SPORT_REGISTRY_V1 — the canonical multi-sport registry, including
+    PLANNED sports (declared for honesty, never navigable)."""
+    from app.sports.contracts import SPORT_REGISTRY_VERSION
+    from app.sports.read_service import supported_league_filters
+    from app.sports.registry import registry_manifest
+
+    return {
+        "version": SPORT_REGISTRY_VERSION,
+        "sports": registry_manifest(),
+        "supported_filters": supported_league_filters(),
+    }
 
 
 @router.get("/games/{game_id}", response_model=GameAnalysisData, tags=["forecasts"])

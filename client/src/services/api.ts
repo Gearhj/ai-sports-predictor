@@ -18,6 +18,7 @@ import type {
   PublicConfig,
   ShadowBoardData,
 } from '../types/domain'
+import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
 const TOKEN_KEY = 'asp_access_token'
@@ -84,6 +85,13 @@ export async function apiRequest<T>(
 }
 
 export const endpoints = {
+  today: (signal?: AbortSignal, sport?: 'MLB' | 'NFL' | null) => {
+    const query = new URLSearchParams()
+    if (sport) query.set('sport', sport)
+    const suffix = query.toString()
+    return apiRequest<TodayAllSportsReadModel>(`/today${suffix ? `?${suffix}` : ''}`, {}, signal)
+  },
+  sportsRegistry: (signal?: AbortSignal) => apiRequest<SportRegistryResponse>('/sports/registry', {}, signal),
   dashboard: (signal?: AbortSignal) => apiRequest<DashboardData>('/dashboard/today', {}, signal),
   game: (id: string, signal?: AbortSignal) => apiRequest<GameAnalysisData>(`/games/${encodeURIComponent(id)}`, {}, signal),
   markets: (signal?: AbortSignal) => apiRequest<MarketBoardData>('/markets/board', {}, signal),

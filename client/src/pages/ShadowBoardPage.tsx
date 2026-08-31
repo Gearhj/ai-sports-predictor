@@ -161,6 +161,7 @@ export function ShadowBoardPage() {
             ? <span className="info-label">Model disagreement {pct(game.model_disagreement)}</span>
             : undefined}
         >
+          <span id={`event-${game.event_id}`} className="event-anchor" aria-hidden="true" />
           <div className="analysis-grid">
             {game.engines.map((engine) => <EngineColumn key={engine.forecast_id} engine={engine} />)}
           </div>

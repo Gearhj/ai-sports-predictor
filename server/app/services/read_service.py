@@ -21,6 +21,7 @@ from app.bankroll.service import (
 from app.core.config import Settings
 from app.forecast_exchange.pricing import ShadowPricingConfig
 from app.core.time import local_date_of, local_day_bounds
+from app.sports.registry import resolve_stored_identity
 from app.features.lifecycle import LifecycleStage, classify_lifecycle
 from app.features.readiness import (
     GATE2_WEIGHTS,
@@ -820,12 +821,21 @@ class ReadService:
                 return True
         return False
 
-    @staticmethod
-    def _game_sport(game: Game) -> str:
-        """Sport label for the board. The live pipeline governs MLB only; other
-        sports appear here honestly once they have governed events."""
+    def _game_sport(self, game: Game) -> str:
+        """League label for the board, resolved from the game's canonical league.
 
-        return "MLB"
+        Previously hardcoded to MLB. It now reads the governed identity, so a
+        board row is labelled by what it actually is. Unknown identities fail
+        closed to the league code rather than silently claiming MLB.
+        """
+
+        from app.models import League
+
+        code = self.session.scalar(select(League.code).where(League.id == game.league_id))
+        if not code:
+            return "UNKNOWN"
+        entry = resolve_stored_identity(None, code)
+        return str(entry.league_code) if entry is not None else str(code).upper()
 
     @staticmethod
     def _recommendation_reason(

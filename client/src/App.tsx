@@ -7,6 +7,7 @@ import { PublicPolicyProvider } from './hooks/usePublicPolicy'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
+const MultiSportTodayPage = lazy(() => import('./pages/MultiSportTodayPage').then((module) => ({ default: module.MultiSportTodayPage })))
 const HistoricalResearchPage = lazy(() => import('./pages/HistoricalResearchPage').then((module) => ({ default: module.HistoricalResearchPage })))
 const GameAnalysisPage = lazy(() => import('./pages/GameAnalysisPage').then((module) => ({ default: module.GameAnalysisPage })))
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
@@ -40,7 +41,8 @@ export default function App() {
           <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
             <Routes>
             <Route element={<AppShell />}>
-              <Route index element={<TodayPage />} />
+              <Route index element={<MultiSportTodayPage />} />
+              <Route path="mlb" element={<TodayPage />} />
               <Route path="research/history" element={<HistoricalResearchPage />} />
               <Route path="games/:gameId" element={<GameAnalysisPage />} />
               <Route path="markets" element={<MarketBoardPage />} />

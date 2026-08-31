@@ -57,7 +57,10 @@ async def _live_slate(session, settings):
     while the exact-price / staking / settlement logic runs against real rows.
     """
     zone = ZoneInfo(settings.display_timezone)
-    event_date = datetime.now(zone).date()
+    # Seed a completed prior date so the demo fixture's point-in-time forecast
+    # cutoff is never in the real wall clock's future. The test still exercises
+    # a prospective slate relative to its explicit simulated ``now`` below.
+    event_date = datetime.now(zone).date() - timedelta(days=1)
     now = datetime.combine(event_date, time(12, 0), tzinfo=zone).astimezone(UTC)
     start = now + timedelta(hours=3)
     await seed_demo_data(session, settings, event_date)

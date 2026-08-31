@@ -16,8 +16,7 @@ describe('AI Sports Predictor application shell', () => {
 
   it('renders an honest unavailable desk without fixture substitution', async () => {
     render(<App />)
-    expect(await screen.findByRole('heading', { name: /Today’s MLB Forecasts/i })).toBeInTheDocument()
-    expect(screen.getByText('MLB')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/LIVE DATA UNAVAILABLE/i)).toBeInTheDocument())
     expect(screen.queryByText('ILLUSTRATIVE DEMO — NOT LIVE RESULTS')).not.toBeInTheDocument()
     expect(screen.queryByText(/STRONG EDGE/i)).not.toBeInTheDocument()
@@ -26,24 +25,26 @@ describe('AI Sports Predictor application shell', () => {
   it('routes to methodology from the shared navigation', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: /Today’s MLB Forecasts/i })
+    await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })
     await user.click(screen.getByRole('link', { name: 'Methodology' }))
     expect(await screen.findByRole('heading', { name: 'Methodology' })).toBeInTheDocument()
     expect(screen.getByText(/Probability estimates, not picks/i)).toBeInTheDocument()
   })
 
-  it('operates the sport selector from the keyboard and exposes unavailable labels', async () => {
+  it('operates the canonical sport selector and exposes only governed states', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: /Today’s MLB Forecasts/i })
-    const selector = screen.getByRole('button', { name: /Major League Baseball/i })
+    await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })
+    const selector = screen.getByRole('button', { name: /All registered sports/i })
     expect(selector).toHaveAttribute('aria-expanded', 'false')
 
     selector.focus()
     await user.keyboard('{Enter}')
 
     expect(selector).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('NFL').closest('[aria-disabled="true"]')).toBeInTheDocument()
-    expect(screen.getByText('Coming soon')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /NFL Research shadow/i })).toHaveAttribute('href', '/shadow-board?sport=NFL')
+    expect(screen.getByText('NBA').closest('[aria-disabled="true"]')).toBeInTheDocument()
+    expect(screen.queryByText('NCAAF')).not.toBeInTheDocument()
+    expect(screen.queryByText('NHL')).not.toBeInTheDocument()
   })
 })

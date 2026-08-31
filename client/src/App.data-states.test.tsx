@@ -18,7 +18,7 @@ function jsonResponse(payload: unknown) {
 describe('route-level data provenance and availability', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
-    window.history.pushState({}, '', '/')
+    window.history.pushState({}, '', '/mlb')
   })
 
   afterEach(() => {
