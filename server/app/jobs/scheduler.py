@@ -21,22 +21,46 @@ from app.services.game_refresh_state_service import GameRefreshStateService
 # -- runtime state ---------------------------------------------------------
 # Process-local truth for "is the authoritative scheduler actually running?".
 # Set by the application lifespan; read by the public status surfaces so the UI
-# only claims SCHEDULER RUNNING when this process really started it.
+# only claims SCHEDULER RUNNING when this process really started it. The live
+# scheduler instance is kept so status surfaces report the REAL next-run time
+# of each registered job — never a stale last-run-plus-cadence projection that
+# lands in the past after a process restart.
 _SCHEDULER_RUNNING = False
+_SCHEDULER_INSTANCE: AsyncIOScheduler | None = None
+_SCHEDULER_STARTED_AT: datetime | None = None
 
 
-def mark_scheduler_started() -> None:
-    global _SCHEDULER_RUNNING
+def mark_scheduler_started(scheduler: AsyncIOScheduler | None = None) -> None:
+    global _SCHEDULER_RUNNING, _SCHEDULER_INSTANCE, _SCHEDULER_STARTED_AT
     _SCHEDULER_RUNNING = True
+    _SCHEDULER_INSTANCE = scheduler
+    _SCHEDULER_STARTED_AT = datetime.now(UTC)
 
 
 def mark_scheduler_stopped() -> None:
-    global _SCHEDULER_RUNNING
+    global _SCHEDULER_RUNNING, _SCHEDULER_INSTANCE, _SCHEDULER_STARTED_AT
     _SCHEDULER_RUNNING = False
+    _SCHEDULER_INSTANCE = None
+    _SCHEDULER_STARTED_AT = None
 
 
 def scheduler_is_running() -> bool:
     return _SCHEDULER_RUNNING
+
+
+def scheduler_started_at() -> datetime | None:
+    return _SCHEDULER_STARTED_AT
+
+
+def scheduler_next_run_time(job_id: str) -> datetime | None:
+    """The registered job's actual next fire time, or None when unknowable."""
+    if not _SCHEDULER_RUNNING or _SCHEDULER_INSTANCE is None:
+        return None
+    try:
+        job = _SCHEDULER_INSTANCE.get_job(job_id)
+    except Exception:
+        return None
+    return getattr(job, "next_run_time", None) if job is not None else None
 
 
 def _scheduled_event_dates(

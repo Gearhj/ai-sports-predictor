@@ -25,7 +25,7 @@ async def lifespan(application: FastAPI):
         scheduler = build_scheduler(settings)
         scheduler.start()
         application.state.scheduler = scheduler
-        mark_scheduler_started()
+        mark_scheduler_started(scheduler)
     yield
     if scheduler:
         mark_scheduler_stopped()

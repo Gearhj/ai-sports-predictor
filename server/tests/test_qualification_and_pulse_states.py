@@ -185,6 +185,63 @@ def test_board_reports_registered_observer_jobs(session, settings):
         assert job.next_run_at is None
 
 
+def test_stale_discovery_is_not_degraded_right_after_scheduler_restart(session, settings, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.jobs import scheduler as sched
+    from app.models import RunStatus
+
+    # A successful discovery from 10 hours ago (well past 3x cadence).
+    _record_discovery(session, "POLYMARKET", status=RunStatus.SUCCEEDED, markets_seen=100, excluded={},
+                      completed_at=datetime.now(UTC) - timedelta(hours=10))
+    monkeypatch.setattr(sched, "_SCHEDULER_RUNNING", True)
+    monkeypatch.setattr(sched, "_SCHEDULER_INSTANCE", None)
+
+    # Scheduler just restarted after downtime: catching up, not degraded.
+    monkeypatch.setattr(sched, "_SCHEDULER_STARTED_AT", datetime.now(UTC) - timedelta(minutes=5))
+    board = PredictionMarketReadService(session, _observer_settings(settings)).board(date(2026, 8, 30))
+    assert board.board_state == "PROVIDERS_HEALTHY_ZERO_ELIGIBLE"
+
+    # Scheduler has been up for hours without a discovery success: degraded.
+    monkeypatch.setattr(sched, "_SCHEDULER_STARTED_AT", datetime.now(UTC) - timedelta(hours=5))
+    board = PredictionMarketReadService(session, _observer_settings(settings)).board(date(2026, 8, 30))
+    assert board.board_state == "PROVIDER_DEGRADED"
+    assert "stale" in board.state_reason
+
+
+def test_next_run_times_come_from_the_live_scheduler_never_a_projection(session, settings, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from app.jobs import scheduler as sched
+    from app.models import RunStatus
+
+    # An old last run that a last-run-plus-cadence projection would turn into
+    # a next-run timestamp in the past.
+    from app.models import JobRun
+
+    session.add(JobRun(job_name="discover-prediction-markets", status=RunStatus.SUCCEEDED,
+                       started_at=datetime.now(UTC) - timedelta(hours=9),
+                       completed_at=datetime.now(UTC) - timedelta(hours=9), result={"records": 1}))
+    session.commit()
+
+    future = datetime.now(UTC) + timedelta(minutes=7)
+    fake = SimpleNamespace(get_job=lambda job_id: SimpleNamespace(next_run_time=future) if job_id == "asp-pm-discover" else None)
+    monkeypatch.setattr(sched, "_SCHEDULER_RUNNING", True)
+    monkeypatch.setattr(sched, "_SCHEDULER_INSTANCE", fake)
+    monkeypatch.setattr(sched, "_SCHEDULER_STARTED_AT", datetime.now(UTC))
+
+    board = PredictionMarketReadService(session, _observer_settings(settings)).board(date(2026, 8, 30))
+    discover = next(j for j in board.jobs if j.name == "discover-prediction-markets")
+    assert discover.next_run_at == future  # the scheduler's real fire time
+    assert board.next_discovery_at == future
+    for job in board.jobs:
+        # Never a fabricated timestamp: real value or honest None.
+        assert job.next_run_at in (future, None)
+        if job.next_run_at is not None:
+            assert job.next_run_at > datetime.now(UTC)
+
+
 def test_public_board_read_makes_zero_provider_calls(session, settings, monkeypatch):
     import httpx
 

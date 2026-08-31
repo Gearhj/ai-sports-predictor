@@ -86,11 +86,8 @@ class PredictionMarketReadService:
         providers = self._provider_health_list()
         observer_enabled = self.settings.prediction_market_observer_enabled
         board_state, reason = self._board_state(rows, providers, now)
-        next_discovery = None
-        if observer_enabled and self._scheduler_running() and providers:
-            last = max((p.last_discovery_at for p in providers if p.last_discovery_at), default=None)
-            if last is not None:
-                next_discovery = _aware(last) + timedelta(minutes=self.settings.prediction_market_discovery_minutes)
+        # The real registered next fire time — never a stale projection.
+        next_discovery = self._next_run_time("asp-pm-discover") if observer_enabled else None
         summary = {
             "games": len(rows),
             "mapped": sum(1 for r in rows if r.mapping_status in {"EXACT", "MANUAL_APPROVED"}),
@@ -116,6 +113,18 @@ class PredictionMarketReadService:
 
         return scheduler_is_running()
 
+    @staticmethod
+    def _next_run_time(job_id: str) -> datetime | None:
+        from app.jobs.scheduler import scheduler_next_run_time
+
+        return scheduler_next_run_time(job_id)
+
+    @staticmethod
+    def _scheduler_running_since() -> datetime | None:
+        from app.jobs.scheduler import scheduler_started_at
+
+        return scheduler_started_at()
+
     def _board_state(self, rows, providers: list[ProviderHealth], now: datetime) -> tuple[str, str]:
         """Exact, non-contradictory observer state machine.
 
@@ -138,11 +147,20 @@ class PredictionMarketReadService:
             return ("ELIGIBLE_MARKETS_AVAILABLE", f"{len(rows)} mapped game(s) with persisted market snapshots.")
         enabled = [p for p in providers if p.enabled]
         stale_cutoff = now - timedelta(minutes=3 * s.prediction_market_discovery_minutes)
+        # Staleness only indicts the scheduler once it has been running long
+        # enough to have fired a discovery — a fresh restart after downtime is
+        # catching up, not degraded.
+        started = self._scheduler_running_since()
+        scheduler_owes_a_run = (
+            self._scheduler_running()
+            and started is not None
+            and now - _aware(started) > timedelta(minutes=s.prediction_market_discovery_minutes)
+        )
         degraded: list[tuple[ProviderHealth, str]] = []
         for p in enabled:
             if (p.last_job_status or "").lower() == "failed":
                 degraded.append((p, f"last audited job failed: {p.last_error or 'see admin health'}"))
-            elif p.last_success_at is not None and _aware(p.last_success_at) < stale_cutoff and self._scheduler_running():
+            elif p.last_success_at is not None and _aware(p.last_success_at) < stale_cutoff and scheduler_owes_a_run:
                 degraded.append((p, f"last successful discovery is stale (before {stale_cutoff.isoformat(timespec='minutes')})"))
         if degraded:
             names = ", ".join(p.provider for p, _ in degraded)
@@ -201,24 +219,25 @@ class PredictionMarketReadService:
         s = self.settings
         snapshot_cadence = s.prediction_market_snapshot_minutes
         defs = [
-            ("discover-prediction-markets", s.prediction_market_discovery_minutes),
-            ("refresh-prediction-market-snapshots", snapshot_cadence),
-            ("compute-prediction-market-consensus", max(snapshot_cadence, 5)),
-            ("evaluate-prediction-market-alerts", max(snapshot_cadence, 5)),
-            ("finalize-prediction-market-pregame", 5),
+            ("discover-prediction-markets", s.prediction_market_discovery_minutes, "asp-pm-discover"),
+            ("refresh-prediction-market-snapshots", snapshot_cadence, "asp-pm-refresh"),
+            ("compute-prediction-market-consensus", max(snapshot_cadence, 5), "asp-pm-consensus"),
+            ("evaluate-prediction-market-alerts", max(snapshot_cadence, 5), "asp-pm-alerts"),
+            ("finalize-prediction-market-pregame", 5, "asp-pm-finalize-pregame"),
         ]
         running = self._scheduler_running() and s.prediction_market_observer_enabled
         out: list[ObserverJobStatus] = []
-        for name, cadence in defs:
+        for name, cadence, job_id in defs:
             last = self.session.scalar(select(JobRun).where(JobRun.job_name == name)
                                        .order_by(JobRun.started_at.desc()))
             last_success = self.session.scalar(select(JobRun).where(
                 JobRun.job_name == name, JobRun.status == RunStatus.SUCCEEDED,
             ).order_by(JobRun.started_at.desc()))
             result = (last_success.result or {}) if last_success else {}
-            next_run = None
-            if running and last is not None and last.started_at is not None:
-                next_run = _aware(last.started_at) + timedelta(minutes=cadence)
+            # Only the live scheduler knows the true next fire time. A derived
+            # last-run-plus-cadence value goes stale (into the past) the moment
+            # a process restarts after downtime, so it is never projected.
+            next_run = self._next_run_time(job_id) if running else None
             out.append(ObserverJobStatus(
                 name=name,
                 enabled=s.prediction_market_observer_enabled,
