@@ -38,6 +38,7 @@ MLB = SportDefinition(
     stored_sport_aliases=("BASEBALL",),
     stored_league_aliases=("MLB",),
     navigable=True,
+    navigation_href="/mlb",
 )
 
 NFL = SportDefinition(
@@ -59,6 +60,7 @@ NFL = SportDefinition(
     stored_sport_aliases=("NFL", "FOOTBALL"),
     stored_league_aliases=("NFL",),
     navigable=True,
+    navigation_href="/shadow-board?sport=NFL",
 )
 
 NBA = SportDefinition(

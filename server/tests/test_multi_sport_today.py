@@ -57,6 +57,7 @@ def test_registry_contains_mlb_and_nfl_and_keeps_planned_sports_inactive():
     assert mlb.availability == SportAvailabilityState.LIVE
     assert mlb.official_positions_supported is True
     assert mlb.navigable is True
+    assert mlb.navigation_href == "/mlb"
 
     nfl = get_league("NFL")
     assert nfl.sport_code == SportCode.FOOTBALL
@@ -64,12 +65,14 @@ def test_registry_contains_mlb_and_nfl_and_keeps_planned_sports_inactive():
     # NFL may never fund an official position in this phase.
     assert nfl.official_positions_supported is False
     assert nfl.navigable is True
+    assert nfl.navigation_href == "/shadow-board?sport=NFL"
 
     planned = {str(e.league_code) for e in planned_leagues()}
     assert planned == {"NBA", "WNBA", "UFC"}
     for entry in planned_leagues():
         assert entry.availability == SportAvailabilityState.PLANNED
         assert entry.navigable is False
+        assert entry.navigation_href is None
         assert entry.official_positions_supported is False
 
     assert {str(e.league_code) for e in active_leagues()} == {"MLB", "NFL"}
@@ -104,6 +107,56 @@ def test_stored_identity_resolution_maps_history_without_renaming_it():
 
 # -- 2 / 14. public reads make zero provider calls ---------------------------
 
+def _forbid_provider_construction(monkeypatch) -> list[str]:
+    """Trap every provider/client construction boundary used by public reads."""
+
+    import httpx
+    try:
+        import requests
+    except ImportError:  # requests is not an application dependency
+        requests = None
+
+    from app.data_sources.mlb import MLBStatsAPIAdapter
+    from app.data_sources.odds import TheOddsAPIAdapter
+    from app.data_sources.statcast import BaseballSavantStatcastAdapter
+    from app.data_sources.weather import OpenMeteoAdapter
+    from app.prediction_markets.kalshi import KalshiPredictionMarketSource
+    from app.prediction_markets.polymarket import PolymarketPredictionMarketSource
+    from app.prospective.sportsdataio import SportsDataIOAvailabilityAdapter
+    from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+
+    attempts: list[str] = []
+
+    def forbidden(boundary: str):
+        def fail(*_args, **_kwargs):
+            attempts.append(boundary)
+            raise AssertionError(f"Public read crossed provider boundary: {boundary}")
+
+        return fail
+
+    constructors = (
+        httpx.Client,
+        httpx.AsyncClient,
+        TheOddsAPIAdapter,
+        PolymarketPredictionMarketSource,
+        KalshiPredictionMarketSource,
+        MLBStatsAPIAdapter,
+        BaseballSavantStatcastAdapter,
+        SportsDataIOAvailabilityAdapter,
+        NFLShadowOddsService,
+        OpenMeteoAdapter,
+    )
+    for provider_class in constructors:
+        monkeypatch.setattr(
+            provider_class, "__init__", forbidden(provider_class.__name__),
+        )
+    if requests is not None:
+        monkeypatch.setattr(
+            requests.Session, "__init__", forbidden("requests.Session"),
+        )
+    return attempts
+
+
 def test_today_read_makes_no_provider_call(session, settings, monkeypatch):
     import httpx
 
@@ -134,6 +187,91 @@ def test_public_today_route_performs_no_http_call(client, monkeypatch):
     assert body["schema_version"] == TODAY_READ_MODEL_VERSION
     assert body["registry_version"] == SPORT_REGISTRY_VERSION
     assert body["data_freshness"]["provider_calls_made"] == 0
+    assert body["overall_summary"]["official_position_count"] == len(
+        body["qualified_positions"]
+    )
+    assert "final_qualified_decision_count" in body["overall_summary"]
+    # Both V1 compatibility aliases remain serialized with documented legacy
+    # semantics while clients migrate to the unambiguous fields.
+    assert "final_qualified_position_count" in body["overall_summary"]
+    for section in body["sport_sections"]:
+        assert "official_position_count" in section
+        assert "final_qualified_decision_count" in section
+        assert "final_qualified_count" in section
+
+
+def test_populated_today_read_cannot_construct_or_invoke_any_provider(
+    session, settings, monkeypatch,
+):
+    """Executable proof for the provider-free public-read boundary.
+
+    The persisted fixture forces the MLB adapter through real dashboard/game
+    mapping, so this cannot pass merely because an empty slate short-circuits.
+    """
+
+    import httpx
+    try:
+        import requests
+    except ImportError:  # requests is not an application dependency
+        requests = None
+
+    from app.data_sources.mlb import MLBStatsAPIAdapter
+    from app.data_sources.odds import TheOddsAPIAdapter
+    from app.data_sources.statcast import BaseballSavantStatcastAdapter
+    from app.data_sources.weather import OpenMeteoAdapter
+    from app.models import ProviderRequestLedger
+    from app.prediction_markets.kalshi import KalshiPredictionMarketSource
+    from app.prediction_markets.polymarket import PolymarketPredictionMarketSource
+    from app.prospective.sportsdataio import SportsDataIOAvailabilityAdapter
+    from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+
+    _seed_mlb_game(session, starts_at=datetime(2026, 8, 31, 23, 5, tzinfo=UTC))
+
+    attempts: list[str] = []
+
+    def forbidden(boundary: str):
+        def fail(*_args, **_kwargs):
+            attempts.append(boundary)
+            raise AssertionError(f"Today read crossed provider boundary: {boundary}")
+
+        return fail
+
+    for client_class in (httpx.Client, httpx.AsyncClient):
+        monkeypatch.setattr(client_class, "__init__", forbidden(client_class.__name__))
+        for method in ("get", "post", "request", "send"):
+            monkeypatch.setattr(
+                client_class, method, forbidden(f"{client_class.__name__}.{method}"),
+            )
+    if requests is not None:
+        monkeypatch.setattr(requests.Session, "__init__", forbidden("requests.Session"))
+        monkeypatch.setattr(requests.Session, "request", forbidden("requests.Session.request"))
+        for method in ("get", "post", "request"):
+            monkeypatch.setattr(requests, method, forbidden(f"requests.{method}"))
+
+    for provider_class in (
+        TheOddsAPIAdapter,
+        PolymarketPredictionMarketSource,
+        KalshiPredictionMarketSource,
+        MLBStatsAPIAdapter,
+        BaseballSavantStatcastAdapter,
+        SportsDataIOAvailabilityAdapter,
+        NFLShadowOddsService,
+        OpenMeteoAdapter,
+    ):
+        monkeypatch.setattr(
+            provider_class, "__init__", forbidden(provider_class.__name__),
+        )
+
+    ledger_before = len(list(session.scalars(select(ProviderRequestLedger.id))))
+    model = TodayAllSportsReadService(session, settings).build(TODAY)
+    ledger_after = len(list(session.scalars(select(ProviderRequestLedger.id))))
+
+    mlb = next(section for section in model.sport_sections if str(section.league_code) == "MLB")
+    assert mlb.scheduled_event_count == 1
+    assert len(mlb.selections) == 1
+    assert attempts == []
+    assert ledger_after == ledger_before == 0
+    assert model.data_freshness.provider_calls_made == 0
 
 
 def test_today_route_rejects_planned_sports_and_accepts_active_ones(client):
@@ -145,14 +283,21 @@ def test_today_route_rejects_planned_sports_and_accepts_active_ones(client):
         assert client.get(f"/api/v1/today?sport={active}").status_code == 200
 
 
-def test_sports_registry_route_exposes_planned_sports_as_non_navigable(client):
+def test_sports_registry_route_exposes_planned_sports_as_non_navigable(client, monkeypatch):
+    # Registry authority is a static public read; even provider/client
+    # construction is forbidden, not merely expected to leave a zero ledger.
+    attempts = _forbid_provider_construction(monkeypatch)
     body = client.get("/api/v1/sports/registry").json()
     assert body["version"] == SPORT_REGISTRY_VERSION
     assert body["supported_filters"] == ["ALL", "MLB", "NFL"]
     by_league = {row["league_code"]: row for row in body["sports"]}
     assert by_league["NBA"]["availability"] == "PLANNED"
     assert by_league["NBA"]["navigable"] is False
+    assert by_league["NBA"]["navigation_href"] is None
     assert by_league["UFC"]["participant_type"] == "INDIVIDUAL"
+    assert by_league["MLB"]["navigation_href"] == "/mlb"
+    assert attempts == []
+    assert by_league["NFL"]["navigation_href"] == "/shadow-board?sport=NFL"
 
 
 # -- 8. a missing adapter fails closed ---------------------------------------
@@ -161,7 +306,7 @@ def test_missing_sport_adapter_fails_closed_as_unavailable(session, settings, mo
     from app.sports import read_service as read_service_module
 
     # Registered league, no adapter: must NOT be reported as a healthy zero.
-    monkeypatch.setattr(read_service_module, "_adapter_factories", lambda: {})
+    monkeypatch.setattr(read_service_module, "_adapter_factory", lambda _league: None)
     model = TodayAllSportsReadService(session, settings).build(TODAY)
     assert {str(s.league_code) for s in model.sport_sections} == {"MLB", "NFL"}
     for section in model.sport_sections:
@@ -182,11 +327,52 @@ def test_failing_adapter_fails_closed_instead_of_reporting_zero(session, setting
         def build_section(self, event_date, *, now=None):
             raise RuntimeError("adapter exploded")
 
-    monkeypatch.setattr(read_service_module, "_adapter_factories", lambda: {"MLB": Boom, "NFL": Boom})
+    monkeypatch.setattr(read_service_module, "_adapter_factory", lambda _league: Boom)
     model = TodayAllSportsReadService(session, settings).build(TODAY)
     for section in model.sport_sections:
         assert section.availability_state == SportAvailabilityState.UNAVAILABLE
         assert "failed" in (section.degraded_reason or "").lower()
+
+
+def test_one_adapter_import_failure_isolated_to_that_sport(
+    client, session, monkeypatch,
+):
+    from app.models import ProviderRequestLedger
+    from app.sports import read_service as read_service_module
+
+    provider_attempts = _forbid_provider_construction(monkeypatch)
+    real_import_module = read_service_module.import_module
+
+    def fail_mlb_import(name: str):
+        if name == "app.sports.adapters.mlb":
+            raise ImportError("simulated MLB adapter import failure")
+        return real_import_module(name)
+
+    monkeypatch.setattr(read_service_module, "import_module", fail_mlb_import)
+    logged: list[str] = []
+
+    def capture_exception(message: str, *args: object, **_kwargs: object) -> None:
+        logged.append(message % args)
+
+    monkeypatch.setattr(read_service_module.logger, "exception", capture_exception)
+    before = len(list(session.scalars(select(ProviderRequestLedger.id))))
+
+    response = client.get("/api/v1/today?date=2026-08-31")
+
+    assert response.status_code == 200
+    sections = {row["league_code"]: row for row in response.json()["sport_sections"]}
+    assert sections["MLB"]["availability_state"] == "UNAVAILABLE"
+    assert sections["MLB"]["degraded"] is True
+    assert (
+        sections["MLB"]["degraded_reason"]
+        == "MLB read adapter failed: ImportError: simulated MLB adapter import failure"
+    )
+    assert sections["NFL"]["availability_state"] == "RESEARCH_SHADOW"
+    assert logged == [
+        "MLB read adapter failed: ImportError: simulated MLB adapter import failure"
+    ]
+    assert provider_attempts == []
+    assert len(list(session.scalars(select(ProviderRequestLedger.id)))) == before == 0
 
 
 # -- 3 / 5 / 6 / 7 / 13. section routing from normalized states --------------
@@ -200,8 +386,14 @@ def _selection(**overrides) -> NormalizedSelection:
         decision_state=DState.FINAL_QUALIFIED,
         funding_state=FState.OFFICIAL_VIRTUAL_POSITION,
         can_ever_fund_official_position=True,
+        official_position_id="official-position-1",
     )
     base.update(overrides)
+    if (
+        "official_position_id" not in overrides
+        and base["funding_state"] != FState.OFFICIAL_VIRTUAL_POSITION
+    ):
+        base["official_position_id"] = None
     return NormalizedSelection(**base)
 
 
@@ -226,7 +418,11 @@ def _model_with(session, settings, selections, monkeypatch):
                 selections=list(selections),
             )
 
-    monkeypatch.setattr(read_service_module, "_adapter_factories", lambda: {"MLB": Stub})
+    monkeypatch.setattr(
+        read_service_module,
+        "_adapter_factory",
+        lambda league: Stub if league == "MLB" else None,
+    )
     return TodayAllSportsReadService(session, settings).build(TODAY, league_filter="MLB")
 
 
@@ -236,7 +432,14 @@ def test_final_qualified_position_appears_only_in_qualified_today(session, setti
     assert [i.event_id for i in model.qualified_positions] == ["q1"]
     assert model.awaiting_final_evidence == []
     assert model.provisional_opportunities == []
+    assert model.overall_summary.official_position_count == 1
+    assert model.overall_summary.final_qualified_decision_count == 1
+    # Stable V1 compatibility alias: historically this means funded positions.
     assert model.overall_summary.final_qualified_position_count == 1
+    assert model.sport_sections[0].official_position_count == 1
+    assert model.sport_sections[0].final_qualified_decision_count == 1
+    # Stable V1 compatibility alias: historically this means final decisions.
+    assert model.sport_sections[0].final_qualified_count == 1
     assert model.overall_summary.total_virtual_stake == 12.5
     assert model.overall_summary.sports_with_official_positions == ["MLB"]
 
@@ -251,8 +454,51 @@ def test_final_qualified_without_a_frozen_position_is_not_in_qualified_today(
     )
     model = _model_with(session, settings, [eligible_only], monkeypatch)
     assert model.qualified_positions == []
+    assert model.overall_summary.official_position_count == 0
+    assert model.overall_summary.final_qualified_decision_count == 1
     assert model.overall_summary.final_qualified_position_count == 0
+    assert model.sport_sections[0].official_position_count == 0
+    assert model.sport_sections[0].final_qualified_decision_count == 1
+    assert model.sport_sections[0].final_qualified_count == 1
     assert model.overall_summary.total_virtual_stake == 0.0
+
+
+def test_official_funding_label_without_position_identity_fails_closed(
+    session, settings, monkeypatch,
+):
+    unproven = _selection(event_id="missing-position-id", official_position_id=None)
+    model = _model_with(session, settings, [unproven], monkeypatch)
+
+    assert model.qualified_positions == []
+    assert model.overall_summary.official_position_count == 0
+    assert model.overall_summary.final_qualified_decision_count == 1
+    assert model.sport_sections[0].official_position_count == 0
+
+
+def test_final_decision_and_official_position_counts_reconcile_without_conflation(
+    session, settings, monkeypatch,
+):
+    official = _selection(
+        event_id="official", experiment_id="v1", policy_version="policy-v1",
+        official_position_id="position-1",
+    )
+    unfunded = _selection(
+        event_id="unfunded", funding_state=FState.ELIGIBLE_NOT_FUNDED,
+        experiment_id="v21", policy_version="policy-v2-1",
+    )
+
+    model = _model_with(session, settings, [official, unfunded], monkeypatch)
+    section = model.sport_sections[0]
+
+    assert len(model.qualified_positions) == 1
+    assert model.qualified_positions[0].official_position_id == "position-1"
+    assert model.overall_summary.official_position_count == len(model.qualified_positions) == 1
+    assert model.overall_summary.final_qualified_decision_count == 2
+    assert section.official_position_count == 1
+    assert section.final_qualified_decision_count == 2
+    # Deprecated aliases preserve their distinct, documented V1 semantics.
+    assert model.overall_summary.final_qualified_position_count == 1
+    assert section.final_qualified_count == 2
 
 
 def test_awaiting_candidates_are_never_shown_as_final_no_bet(session, settings, monkeypatch):
@@ -295,26 +541,82 @@ def test_research_only_selection_can_never_enter_qualified_today(session, settin
     assert model.qualified_positions == []
 
 
-def test_one_event_cannot_appear_in_two_sections(session, settings, monkeypatch):
+def test_registry_authority_keeps_mislabeled_nfl_out_of_official_positions(
+    session, settings, monkeypatch,
+):
+    from app.sports import read_service as read_service_module
+    from app.sports.contracts import SportSection
+    from app.sports.registry import NFL
+
+    rogue = NormalizedSelection(
+        sport_code=SportCode.FOOTBALL,
+        league_code="NFL",
+        event_id="nfl-rogue",
+        event_label="SF @ LAR",
+        decision_state=DState.FINAL_QUALIFIED,
+        funding_state=FState.OFFICIAL_VIRTUAL_POSITION,
+        can_ever_fund_official_position=True,
+        official_position_id="not-authoritative",
+    )
+
+    class Stub:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def build_section(self, event_date, *, now=None):
+            return SportSection(
+                sport_code=NFL.sport_code,
+                league_code=NFL.league_code,
+                display_name=NFL.display_name,
+                availability_state=NFL.availability,
+                can_create_official_positions=True,
+                selections=[rogue],
+            )
+
+    monkeypatch.setattr(
+        read_service_module,
+        "_adapter_factory",
+        lambda league: Stub if league == "NFL" else None,
+    )
+    model = TodayAllSportsReadService(session, settings).build(
+        TODAY, league_filter="NFL",
+    )
+
+    assert model.qualified_positions == []
+    assert model.overall_summary.official_position_count == 0
+    assert model.overall_summary.final_qualified_decision_count == 1
+    assert model.sport_sections[0].official_position_count == 0
+
+
+def test_one_canonical_selection_key_cannot_occupy_contradictory_sections(
+    session, settings, monkeypatch,
+):
+    identity = {
+        "event_id": "shared-event",
+        "market_label": "Moneyline",
+        "selection_label": "HOME",
+        "experiment_id": "experiment-v1",
+        "policy_version": "policy-v1",
+    }
     selections = [
-        _selection(event_id="q1"),
-        _selection(event_id="a1", decision_state=DState.AWAITING_FINAL_EVIDENCE,
-                   funding_state=FState.ELIGIBLE_NOT_FUNDED),
-        _selection(event_id="p1", decision_state=DState.WATCH,
-                   funding_state=FState.ELIGIBLE_NOT_FUNDED),
-        _selection(event_id="x1", decision_state=DState.PASS,
-                   funding_state=FState.ELIGIBLE_NOT_FUNDED),
+        _selection(**identity),
+        _selection(
+            **identity, decision_state=DState.AWAITING_FINAL_EVIDENCE,
+            funding_state=FState.ELIGIBLE_NOT_FUNDED,
+        ),
+        _selection(
+            **identity, decision_state=DState.WATCH,
+            funding_state=FState.ELIGIBLE_NOT_FUNDED,
+        ),
     ]
     model = _model_with(session, settings, selections, monkeypatch)
-    qualified = {i.event_id for i in model.qualified_positions}
-    awaiting = {i.event_id for i in model.awaiting_final_evidence}
-    provisional = {i.event_id for i in model.provisional_opportunities}
-    assert qualified & awaiting == set()
-    assert qualified & provisional == set()
-    assert awaiting & provisional == set()
-    # A PASS event belongs to no decision section but is still on the schedule.
-    assert "x1" not in qualified | awaiting | provisional
-    assert len(model.sport_sections[0].selections) == 4
+    assert model.qualified_positions == []
+    assert model.awaiting_final_evidence == []
+    assert model.provisional_opportunities == []
+    section = model.sport_sections[0]
+    assert section.availability_state == SportAvailabilityState.UNAVAILABLE
+    assert section.selections == []
+    assert "duplicate canonical selection identity" in (section.degraded_reason or "")
 
 
 # -- 11. no cross-sport raw-edge ranking -------------------------------------
@@ -354,7 +656,12 @@ def test_no_cross_sport_ranking_is_produced(session, settings, monkeypatch):
 
         return {"MLB": MlbStub, "NFL": NflStub}
 
-    monkeypatch.setattr(read_service_module, "_adapter_factories", factories)
+    adapter_factories = factories()
+    monkeypatch.setattr(
+        read_service_module,
+        "_adapter_factory",
+        lambda league: adapter_factories.get(league),
+    )
     model = TodayAllSportsReadService(session, settings).build(TODAY)
 
     assert model.cross_sport_ranking == "NOT_APPLICABLE_PHASE_1"
@@ -373,6 +680,8 @@ def test_nfl_adapter_marks_every_selection_research_only(session, settings):
     assert section.can_create_official_positions is False
     assert section.official_positions_blocked_reason
     assert section.final_qualified_count == 0
+    assert section.final_qualified_decision_count == 0
+    assert section.official_position_count == 0
     assert section.open_position_count == 0
     assert section.virtual_stake == 0.0
     for item in section.selections:
@@ -531,31 +840,132 @@ def test_today_route_honours_an_explicit_date(client):
 
 # -- 10. existing experiment identities are untouched ------------------------
 
-def test_reading_today_creates_nothing_and_leaves_experiments_unchanged(session, settings):
-    from app.models import OfficialAspPosition, ShadowExperiment, ShadowExperimentDecision
-    from app.services.shadow_experiment_service import ShadowExperimentService
+def test_reading_today_preserves_every_experiment_bankroll_and_ledger(session, settings):
+    from app.models import (
+        Forecast,
+        ModelEvaluation,
+        ModelVersion,
+        OfficialAspPosition,
+        PositionSettlement,
+        ProviderRequestLedger,
+        ShadowBoardDecision,
+        ShadowDecisionSettlement,
+        ShadowExperiment,
+        ShadowExperimentDecision,
+        ShadowForecast,
+        UserVirtualBankroll,
+        VirtualPosition,
+    )
+    from app.services.practical_policy import SUPERSEDED_POLICY_VERSION
+    from app.services.shadow_experiment_service import (
+        DECISION_POLICY,
+        SUPERSEDED_POLICIES,
+        V2_DECISION_POLICY,
+        ShadowExperimentService,
+    )
 
     service = ShadowExperimentService(session, settings)
-    service.ensure_started(start_date=local_today(settings.display_timezone), code_commit="deadbeef")
+    today = local_today(settings.display_timezone)
+    v1 = service.ensure_started(start_date=today, code_commit="deadbeef")
+    # Preserve the never-activated V2 registration exactly as production does:
+    # it remains immutable evidence while the operational registry excludes it.
+    superseded_v2 = ShadowExperiment(
+        name="ASP PRACTICAL PREGAME BANKROLL — 2026 V2",
+        version=2,
+        started_at=datetime.now(UTC),
+        start_date=today + timedelta(days=1),
+        starting_bankroll=1000.0,
+        sport="MLB",
+        recommendation_policy_version=SUPERSEDED_POLICY_VERSION,
+        staking_policy_version="AISP_QUARTER_KELLY_EVIDENCE_V2",
+        decision_policy=SUPERSEDED_POLICY_VERSION,
+        controlling_engine="AISP_BASELINE",
+        supported_markets=["MONEYLINE"],
+        kelly_fraction=0.25,
+        unit_percentage=0.005,
+        max_position_percentage=0.01,
+        max_same_game_percentage=0.02,
+        max_daily_percentage=0.05,
+        code_commit="cafebabe",
+        code_identity="git:cafebabe",
+        is_active=True,
+    )
+    session.add(superseded_v2)
+    session.flush()
+    v21 = service.ensure_v2_started(
+        effective_date=today + timedelta(days=1), code_commit="deadbeef",
+    )
     session.commit()
 
-    before = (
-        [(e.version, e.name, e.decision_policy, str(e.starting_bankroll))
-         for e in session.scalars(select(ShadowExperiment).order_by(ShadowExperiment.version))],
-        len(list(session.scalars(select(ShadowExperimentDecision.id)))),
-        len(list(session.scalars(select(OfficialAspPosition.id)))),
-    )
+    count_models = {
+        "experiment_decisions": ShadowExperimentDecision,
+        "research_decisions": ShadowBoardDecision,
+        "official_positions": OfficialAspPosition,
+        "virtual_positions": VirtualPosition,
+        "official_settlements": PositionSettlement,
+        "research_settlements": ShadowDecisionSettlement,
+        "forecasts": Forecast,
+        "research_forecasts": ShadowForecast,
+        "provider_ledger": ProviderRequestLedger,
+        "model_versions": ModelVersion,
+        "model_evaluations": ModelEvaluation,
+    }
+
+    def snapshot() -> dict:
+        experiments = list(session.scalars(
+            select(ShadowExperiment).order_by(ShadowExperiment.version)
+        ))
+        return {
+            "experiment_identity": [
+                (
+                    str(row.id), row.version, row.name, row.start_date.isoformat(),
+                    str(row.starting_bankroll), row.sport,
+                    row.recommendation_policy_version, row.staking_policy_version,
+                    row.decision_policy, row.controlling_engine,
+                    tuple(row.supported_markets), row.code_commit, row.code_identity,
+                    row.is_active, row.policy_config,
+                )
+                for row in experiments
+            ],
+            "shadow_bankroll_balances": [
+                (str(row.id), str(row.starting_bankroll), service.current_bankroll(row))
+                for row in experiments
+            ],
+            "user_bankroll_balances": [
+                (
+                    str(row.id), str(row.starting_balance),
+                    str(row.current_balance), str(row.peak_balance),
+                )
+                for row in session.scalars(
+                    select(UserVirtualBankroll).order_by(UserVirtualBankroll.id)
+                )
+            ],
+            "counts": {
+                name: len(list(session.scalars(select(model.id))))
+                for name, model in count_models.items()
+            },
+            "supersession_registry": dict(SUPERSEDED_POLICIES),
+        }
+
+    before = snapshot()
     TodayAllSportsReadService(session, settings).build(TODAY)
     TodayAllSportsReadService(session, settings).build(TODAY, league_filter="MLB")
     TodayAllSportsReadService(session, settings).build(TODAY, league_filter="NFL")
-    after = (
-        [(e.version, e.name, e.decision_policy, str(e.starting_bankroll))
-         for e in session.scalars(select(ShadowExperiment).order_by(ShadowExperiment.version))],
-        len(list(session.scalars(select(ShadowExperimentDecision.id)))),
-        len(list(session.scalars(select(OfficialAspPosition.id)))),
-    )
+    after = snapshot()
+
     assert before == after
-    assert after[2] == 0  # no position was created by a read
+    identity_by_policy = {
+        row[8]: row for row in after["experiment_identity"]
+    }
+    assert identity_by_policy[DECISION_POLICY][0] == str(v1.id)
+    assert identity_by_policy[SUPERSEDED_POLICY_VERSION][0] == str(superseded_v2.id)
+    assert identity_by_policy[V2_DECISION_POLICY][0] == str(v21.id)
+    assert after["supersession_registry"][SUPERSEDED_POLICY_VERSION] == (
+        "SUPERSEDED_BEFORE_ACTIVATION"
+    )
+    assert {balance[2] for balance in after["shadow_bankroll_balances"]} == {1000.0}
+    assert after["user_bankroll_balances"] == []
+    assert set(after["counts"].values()) == {0}
 
 
 def test_sport_bankrolls_are_isolated_never_pooled(session, settings, monkeypatch):
@@ -597,7 +1007,12 @@ def test_sport_bankrolls_are_isolated_never_pooled(session, settings, monkeypatc
 
         return {"MLB": MlbStub, "NFL": NflStub}
 
-    monkeypatch.setattr(read_service_module, "_adapter_factories", factories)
+    adapter_factories = factories()
+    monkeypatch.setattr(
+        read_service_module,
+        "_adapter_factory",
+        lambda league: adapter_factories.get(league),
+    )
     model = TodayAllSportsReadService(session, settings).build(TODAY)
 
     # Only MLB contributes funded exposure; NFL research is excluded entirely.

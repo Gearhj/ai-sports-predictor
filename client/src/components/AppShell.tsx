@@ -5,7 +5,6 @@ import {
   Archive,
   BarChart3,
   BookOpenText,
-  CalendarDays,
   ChevronDown,
   CircleDollarSign,
   DatabaseZap,
@@ -21,11 +20,18 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import {
+  navigableRegistrySports,
+  registryAvailabilityLabel,
+  sportNavigationHref,
+  useSportRegistry,
+  type SportRegistryState,
+} from '../hooks/useSportRegistry'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
+import type { SportRegistryEntry } from '../types/multisport'
 
 const primaryNav = [
   { to: '/', label: 'Daily command center', icon: LayoutDashboard, end: true, demoScoped: false },
-  { to: '/mlb', label: 'MLB Today', icon: CalendarDays, demoTo: '/demo' },
   { to: '/research/history', label: 'Historical research', icon: Archive, demoScoped: false },
   { to: '/markets', label: 'Market board', icon: BarChart3 },
   { to: '/shadow-board', label: 'Shadow board', icon: FlaskConical },
@@ -46,9 +52,11 @@ export function AppShell() {
   const [sportOpen, setSportOpen] = useState(false)
   const location = useLocation()
   const { user } = useAuth()
+  const { registry, state: registryState } = useSportRegistry()
   const demoMode = location.pathname === '/demo' || location.pathname.startsWith('/demo/')
   const scopedPath = (path: string) => demoMode ? path === '/' ? '/demo' : `/demo${path}` : path
-  const activeSport = resolveActiveSport(location.pathname, location.search)
+  const navigableSports = navigableRegistrySports(registry)
+  const activeSport = resolveActiveSport(location.pathname, location.search, navigableSports, registryState)
 
   useEffect(() => {
     setMenuOpen(false)
@@ -75,18 +83,20 @@ export function AppShell() {
           </button>
           <div className={`sport-future-list ${sportOpen ? 'sport-future-list--open' : ''}`} id="sport-options" aria-label="Sport options">
             <NavLink to="/">All sports <em>Daily hub</em></NavLink>
-            <NavLink to="/mlb">MLB <em>Live</em></NavLink>
-            <NavLink to="/shadow-board?sport=NFL">NFL <em>Research shadow</em></NavLink>
-            <span aria-disabled="true">NBA <em>Planned</em></span>
-            <span aria-disabled="true">WNBA <em>Planned</em></span>
-            <span aria-disabled="true">UFC <em>Planned</em></span>
+            {navigableSports.map((sport) => (
+              <NavLink key={sport.league_code} to={sportNavigationHref(sport)!}>
+                {sport.short_label} <em>{registryAvailabilityLabel(sport)}</em>
+              </NavLink>
+            ))}
+            {registryState === 'loading' && <span aria-disabled="true">Sports <em>Registry loading</em></span>}
+            {registryState === 'unavailable' && <span aria-disabled="true">Sports <em>Registry unavailable</em></span>}
           </div>
         </div>
 
         <nav className="side-nav" aria-label="Primary navigation">
           <span className="side-nav__label">Research desk</span>
-          {primaryNav.map(({ to, label, icon: Icon, end, demoScoped = true, demoTo }) => (
-            <NavLink key={to} to={demoMode && demoTo ? demoTo : demoScoped ? scopedPath(to) : to} end={end} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
+          {primaryNav.map(({ to, label, icon: Icon, end, demoScoped = true }) => (
+            <NavLink key={to} to={demoScoped ? scopedPath(to) : to} end={end} className={({ isActive }) => isActive ? 'side-nav__item side-nav__item--active' : 'side-nav__item'}>
               <Icon size={17} /><span>{label}</span>
             </NavLink>
           ))}
@@ -125,15 +135,38 @@ export function AppShell() {
   )
 }
 
-function resolveActiveSport(pathname: string, search: string): { shortLabel: string; displayName: string; status: string } {
-  const requestedSport = new URLSearchParams(search).get('sport')?.toUpperCase()
-  if (pathname === '/shadow-board' && requestedSport === 'NFL') {
-    return { shortLabel: 'NFL', displayName: 'National Football League', status: 'Research shadow' }
-  }
+function resolveActiveSport(
+  pathname: string,
+  search: string,
+  sports: SportRegistryEntry[],
+  registryState: SportRegistryState,
+): { shortLabel: string; displayName: string; status: string } {
   if (pathname === '/' || pathname === '') {
     return { shortLabel: 'ALL', displayName: 'All registered sports', status: 'Daily command center' }
   }
-  return { shortLabel: 'MLB', displayName: 'Major League Baseball', status: 'Live workflow' }
+  const requestedSport = new URLSearchParams(search).get('sport')?.toUpperCase()
+  const active = sports.find((sport) => {
+    const href = sportNavigationHref(sport)
+    if (!href) return false
+    const [targetPath, targetSearch = ''] = href.split('?')
+    if (pathname !== targetPath) return false
+    if (!targetSearch) return true
+    return requestedSport === new URLSearchParams(targetSearch).get('sport')?.toUpperCase()
+  })
+  if (active) {
+    return {
+      shortLabel: active.short_label,
+      displayName: active.display_name,
+      status: registryAvailabilityLabel(active),
+    }
+  }
+  if (registryState === 'loading') {
+    return { shortLabel: '…', displayName: 'Loading sport registry', status: 'Navigation pending' }
+  }
+  if (registryState === 'unavailable') {
+    return { shortLabel: '—', displayName: 'Sport registry unavailable', status: 'Sport links hidden' }
+  }
+  return { shortLabel: 'ALL', displayName: 'All registered sports', status: 'Daily command center' }
 }
 
 function Brand({ compact = false, to = '/' }: { compact?: boolean; to?: string }) {

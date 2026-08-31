@@ -158,7 +158,7 @@ const completeSlate = () => screen.findByRole('region', { name: /Complete MLB sl
 describe('Complete slate + multi-sport board', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
-    window.history.pushState({}, '', '/')
+    window.history.pushState({}, '', '/mlb')
   })
   afterEach(() => {
     cleanup()
@@ -192,6 +192,92 @@ describe('Complete slate + multi-sport board', () => {
       // Each game appears exactly once in the complete slate.
       expect(within(slate).getAllByText(game.away_team.name)).toHaveLength(1)
     }
+  })
+
+  it('keeps the legacy /mlb desk constrained to MLB evidence', async () => {
+    const nflGame = cloneGame('nfl-hidden-from-mlb', 'NFL Visitors', 'NFL Hosts')
+    const nflSelection = sel({
+      selection: 'NFL-LEAK',
+      expected_value: 999,
+      virtual_stake: 999,
+      opportunity_score: 999,
+      quote_observed_at: '2099-12-31T23:59:59Z',
+      quote_age_seconds: 1,
+    })
+    const nflOpportunity: GameOpportunity = {
+      ...opportunities[0],
+      game_id: nflGame.id,
+      sport: 'NFL',
+      opportunity_score: 999,
+      best: nflSelection,
+      v2: opportunities[0].v2 ? {
+        ...opportunities[0].v2,
+        selection: 'NFL-V2-LEAK',
+        adjusted_edge: 999,
+      } : null,
+    }
+    const mixedPayload = {
+      ...dashboardPayload,
+      games: [...dashboardPayload.games, nflGame],
+      opportunities: [...dashboardPayload.opportunities, nflOpportunity],
+      summary: {
+        ...dashboardPayload.summary,
+        overall_data_health: 1,
+        last_refresh: '2099-12-31T23:59:59Z',
+      },
+      opportunity_summary: {
+        ...dashboardPayload.opportunity_summary,
+        qualified: 999,
+        provisional: 999,
+        review_required: 999,
+        watch: 999,
+        no_bet: 999,
+        best_expected_value: 999,
+        virtual_daily_exposure: 999,
+        top_opportunity: 'NFL-LEAK +120 · BookX',
+        top_v1_moneyline: 'NFL-LEAK +120 · BookX · QUALIFIED_BET',
+        top_v2_moneyline: 'NFL-V2-LEAK · TIER_A_FULL_EVIDENCE · adj +999.0 pts',
+        sports_available: ['MLB', 'NFL'],
+        odds_last_refresh: '2099-12-31T23:59:59Z',
+        odds_quote_age_seconds: 1,
+        odds_quota_remaining: 999,
+        odds_scheduler_running: true,
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input)
+      if (url.includes('/dashboard/today')) {
+        return { ok: true, status: 200, json: async () => mixedPayload } as Response
+      }
+      return { ok: false, status: 404, json: async () => ({ detail: 'not found' }) } as Response
+    }))
+
+    render(<App />)
+    const slate = await completeSlate()
+    expect(within(slate).getAllByRole('article')).toHaveLength(5)
+    expect(within(slate).queryByText('NFL Visitors')).not.toBeInTheDocument()
+    const sportBar = screen.getByRole('tablist', { name: /Sport filter/i })
+    expect(within(sportBar).getByRole('tab', { name: 'MLB' })).toBeInTheDocument()
+    expect(within(sportBar).queryByRole('tab', { name: 'NFL' })).not.toBeInTheDocument()
+
+    const summary = screen.getByRole('region', { name: /Daily opportunity summary/i })
+    expect(within(summary).getByText('Qualified bets').nextSibling).toHaveTextContent('1')
+    expect(within(summary).getByText('Provisional').nextSibling).toHaveTextContent('1')
+    expect(within(summary).getByText('Review required').nextSibling).toHaveTextContent('1')
+    expect(within(summary).getByText('Watchlist').nextSibling).toHaveTextContent('1')
+    expect(within(summary).getByText('Passes').nextSibling).toHaveTextContent('1')
+    const unavailable = 'Unavailable — mixed-sport summary is not MLB-scoped'
+    expect(within(summary).getByText('Best board opportunity').nextSibling).toHaveTextContent(unavailable)
+    expect(within(summary).getByText('Best V1-eligible moneyline').nextSibling).toHaveTextContent(unavailable)
+    expect(within(summary).getByText('Best V2-eligible moneyline').nextSibling).toHaveTextContent(unavailable)
+    expect(within(summary).getByText('Best expected value').nextSibling).toHaveTextContent(unavailable)
+    expect(within(summary).getByText('Virtual daily exposure').nextSibling).toHaveTextContent(unavailable)
+    expect(within(summary).getByText('Data health').nextSibling).toHaveTextContent(unavailable)
+    expect(within(summary).getByText('Last quote').nextSibling).toHaveTextContent(unavailable)
+    expect(summary).not.toHaveTextContent(/NFL-LEAK|NFL-V2-LEAK|999/)
+    expect(screen.getByText(/MLB card counts were reconciled from explicit MLB rows/i)).toBeInTheDocument()
+    expect(screen.getByText(/MLB odds freshness unavailable.*provider quota and scheduler omitted/i)).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('2099')
   })
 
   it('marks the top-three games with #N OPPORTUNITY badges in the complete slate', async () => {

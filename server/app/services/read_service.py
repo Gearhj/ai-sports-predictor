@@ -113,7 +113,7 @@ from app.services.opportunity_service import (
     build_market_candidate,
     compute_opportunity_score,
 )
-from app.prospective.sportsdataio import SportsDataIOAvailabilityAdapter
+from app.prospective.sportsdataio import read_availability_feed_status
 from app.schemas.api import (
     AvailabilityContext,
     GameOpportunity,
@@ -253,7 +253,7 @@ class ReadService:
         )
         ready_floor = self.settings.opportunity_qualified_readiness
         extreme_threshold = self.settings.opportunity_extreme_disagreement_threshold
-        injury_feed_status = SportsDataIOAvailabilityAdapter(self.settings).status(self.session)
+        injury_feed_status = read_availability_feed_status(self.settings, self.session)
 
         candidates_by_game: dict[str, list[Candidate]] = {}
         meta_by_game: dict[str, dict[str, Any]] = {}

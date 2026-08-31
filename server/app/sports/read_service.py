@@ -5,15 +5,17 @@ operational day. Every value originates from persisted evidence through an
 existing read service — this module performs no provider I/O, creates nothing,
 and decides nothing.
 
-Two invariants are enforced here rather than trusted from adapters:
+Three invariants are enforced here rather than trusted from adapters:
 
 * QUALIFIED TODAY contains ONLY selections whose sport can create official
   positions AND whose normalized state is FINAL_QUALIFIED. A research-shadow
   qualification can never reach it.
-* Each event appears exactly once across the qualified/awaiting/provisional
-  lists, because those lists are filtered views of the same per-event objects
-  the sport sections hold — inconsistent duplicate states are impossible by
-  construction.
+* A canonical selection identity (league + event + market + selection +
+  policy/experiment identity) appears at most once across the qualified,
+  awaiting, and provisional lists. Contradictory adapter output fails that
+  sport closed instead of occupying multiple lanes.
+* Final-qualified decisions and immutable official positions have distinct,
+  reconciled counters. The legacy V1 aliases retain their original meanings.
 
 There is deliberately NO cross-sport ranking: MLB probability edge and NFL
 spread edge are not comparable without a validated portfolio contract, so
@@ -23,7 +25,9 @@ sport's own governed ordering.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
+from importlib import import_module
 from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
@@ -34,7 +38,6 @@ from app.sports.contracts import (
     AWAITING_STATES,
     AvailabilityEntry,
     DataFreshness,
-    NormalizedDailyDecisionState as DState,
     NormalizedFundingState as FState,
     NormalizedSelection,
     OverallSummary,
@@ -47,20 +50,33 @@ from app.sports.contracts import (
 from app.sports.registry import SPORT_REGISTRY, active_leagues, get_league
 
 
+logger = logging.getLogger(__name__)
+
+_ADAPTER_IMPORTS = {
+    "MLB": ("app.sports.adapters.mlb", "MlbTodayAdapter"),
+    "NFL": ("app.sports.adapters.nfl", "NflTodayAdapter"),
+}
+
+
 class SportTodayAdapter(Protocol):
     """Every sport adapter projects its own authority into a SportSection."""
 
     def build_section(self, event_date: date, *, now: datetime | None = None) -> SportSection: ...
 
 
-def _adapter_factories() -> dict[str, Any]:
-    """League code -> adapter class. A registered league with no entry here
-    fails closed as UNAVAILABLE; it is never reported as a healthy zero."""
+def _adapter_factory(league: str) -> Any | None:
+    """Resolve exactly one adapter lazily.
 
-    from app.sports.adapters.mlb import MlbTodayAdapter
-    from app.sports.adapters.nfl import NflTodayAdapter
+    Resolution is deliberately called from inside the per-sport fail-closed
+    boundary. An import or attribute failure for one league therefore cannot
+    prevent another league's persisted read from being reported.
+    """
 
-    return {"MLB": MlbTodayAdapter, "NFL": NflTodayAdapter}
+    target = _ADAPTER_IMPORTS.get(league)
+    if target is None:
+        return None
+    module_name, class_name = target
+    return getattr(import_module(module_name), class_name)
 
 
 class TodayAllSportsReadService:
@@ -77,28 +93,34 @@ class TodayAllSportsReadService:
     ) -> TodayAllSportsReadModel:
         now = now or datetime.now(UTC)
         event_date = event_date or local_today(self.settings.display_timezone)
-        factories = _adapter_factories()
-
         requested = (league_filter or "ALL").strip().upper()
         sections: list[SportSection] = []
         for definition in active_leagues():
             league = str(definition.league_code)
             if requested not in ("ALL", league):
                 continue
-            factory = factories.get(league)
-            if factory is None:
-                # Fail closed: no adapter means we cannot claim to know this
-                # sport's day. Never report zeros as though it were healthy.
-                sections.append(self._unavailable_section(
-                    definition,
-                    f"No read adapter is registered for {league}; its day cannot be reported.",
-                ))
-                continue
             try:
-                sections.append(factory(self.session, self.settings).build_section(event_date, now=now))
+                factory = _adapter_factory(league)
+                if factory is None:
+                    # Fail closed: no adapter means we cannot claim to know this
+                    # sport's day. Never report zeros as though it were healthy.
+                    sections.append(self._unavailable_section(
+                        definition,
+                        f"No read adapter is registered for {league}; its day cannot be reported.",
+                    ))
+                    continue
+                section = factory(self.session, self.settings).build_section(event_date, now=now)
+                section = self._enforce_unique_selection_keys(definition, section)
+                self._reconcile_official_position_count(section)
+                sections.append(section)
             except Exception as exc:  # fail closed, never fabricate a healthy zero
+                detail = str(exc).strip()
+                reason = f"{league} read adapter failed: {type(exc).__name__}"
+                if detail:
+                    reason = f"{reason}: {detail}"
+                logger.exception("%s", reason)
                 sections.append(self._unavailable_section(
-                    definition, f"{league} read adapter failed: {type(exc).__name__}",
+                    definition, reason,
                 ))
 
         selections = [item for section in sections for item in section.selections]
@@ -138,11 +160,25 @@ class TodayAllSportsReadService:
 
         ``ELIGIBLE_NOT_FUNDED`` remains useful sport-level evidence, but it is
         not a position and therefore cannot enter the cross-sport actionable
-        lane. Research-shadow output is structurally excluded as well.
+        lane. Registry capability and exact position identity are required, so
+        research-shadow output is structurally excluded even if an adapter
+        mislabels it.
         """
+        definition = get_league(str(item.league_code))
         return (
-            item.can_ever_fund_official_position
+            definition is not None
+            and definition.official_positions_supported
+            and item.can_ever_fund_official_position
             and item.funding_state == FState.OFFICIAL_VIRTUAL_POSITION
+            and bool(item.official_position_id)
+        )
+
+    def _reconcile_official_position_count(self, section: SportSection) -> None:
+        """Reconcile the section counter against registry funding authority."""
+
+        section.official_position_count = sum(
+            item.decision_state in QUALIFIED_STATES and self._can_fund(item)
+            for item in section.selections
         )
 
     @staticmethod
@@ -167,7 +203,43 @@ class TodayAllSportsReadService:
             degraded_reason=reason,
         )
 
-    def _overall(self, sections: list[SportSection], qualified: list[NormalizedSelection]) -> OverallSummary:
+    @staticmethod
+    def _selection_key(item: NormalizedSelection) -> tuple[str, str, str, str, str, str]:
+        """Exact identity used for cross-lane uniqueness.
+
+        Multiple markets from one event remain valid because market and
+        selection are part of the key. Separate governed experiments/policies
+        also remain distinct and are never pooled.
+        """
+
+        return (
+            str(item.league_code),
+            item.event_id,
+            item.market_label or "",
+            item.selection_label or "",
+            item.experiment_id or "",
+            item.policy_version or "",
+        )
+
+    def _enforce_unique_selection_keys(
+        self, definition: Any, section: SportSection,
+    ) -> SportSection:
+        seen: set[tuple[str, str, str, str, str, str]] = set()
+        for item in section.selections:
+            key = self._selection_key(item)
+            if key in seen:
+                reason = (
+                    f"{definition.league_code} read adapter emitted duplicate canonical "
+                    f"selection identity {key!r}; the sport was failed closed."
+                )
+                logger.error("%s", reason)
+                return self._unavailable_section(definition, reason)
+            seen.add(key)
+        return section
+
+    def _overall(
+        self, sections: list[SportSection], qualified: list[NormalizedSelection],
+    ) -> OverallSummary:
         funded = [item for item in qualified if item.funding_state == FState.OFFICIAL_VIRTUAL_POSITION]
         refreshes = [
             timestamp
@@ -176,6 +248,12 @@ class TodayAllSportsReadService:
             if timestamp is not None
         ]
         return OverallSummary(
+            final_qualified_decision_count=sum(
+                section.final_qualified_decision_count for section in sections
+            ),
+            official_position_count=len(qualified),
+            # Compatibility alias: this field has always counted actual
+            # Qualified Today positions despite its ambiguous name.
             final_qualified_position_count=len(qualified),
             total_virtual_stake=round(sum(item.virtual_stake or 0.0 for item in funded), 2),
             open_position_count=sum(s.open_position_count for s in sections),

@@ -4,6 +4,7 @@ import { AppShell } from './components/AppShell'
 import { RequireAdmin } from './components/RequireAdmin'
 import { AuthProvider } from './hooks/useAuth'
 import { PublicPolicyProvider } from './hooks/usePublicPolicy'
+import { SportRegistryProvider } from './hooks/useSportRegistry'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
@@ -37,37 +38,39 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <PublicPolicyProvider>
-          <ScrollToTop />
-          <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
-            <Routes>
-            <Route element={<AppShell />}>
-              <Route index element={<MultiSportTodayPage />} />
-              <Route path="mlb" element={<TodayPage />} />
-              <Route path="research/history" element={<HistoricalResearchPage />} />
-              <Route path="games/:gameId" element={<GameAnalysisPage />} />
-              <Route path="markets" element={<MarketBoardPage />} />
-              <Route path="performance" element={<PerformancePage />} />
-              <Route path="shadow-board" element={<ShadowBoardPage />} />
-              <Route path="market-pulse" element={<MarketPulsePage />} />
-              <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />
-              <Route path="experiment" element={<BankrollPage />} />
-              <Route path="methodology" element={<MethodologyPage />} />
-              <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
-              <Route path="account" element={<AuthPage />} />
-              <Route path="login" element={<AuthPage />} />
-              {DEMO_ROUTES_ENABLED && <Route path="demo" element={<TodayPage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/games/:gameId" element={<GameAnalysisPage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/markets" element={<MarketBoardPage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/market-pulse" element={<MarketPulsePage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/performance" element={<PerformancePage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/experiment" element={<BankrollPage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/methodology" element={<MethodologyPage />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/admin" element={<HealthPage demo />} />}
-              {DEMO_ROUTES_ENABLED && <Route path="demo/account" element={<Navigate to="/account" replace />} />}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-            </Routes>
-          </Suspense>
+          <SportRegistryProvider>
+            <ScrollToTop />
+            <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
+              <Routes>
+                <Route element={<AppShell />}>
+                  <Route index element={<MultiSportTodayPage />} />
+                  <Route path="mlb" element={<TodayPage />} />
+                  <Route path="research/history" element={<HistoricalResearchPage />} />
+                  <Route path="games/:gameId" element={<GameAnalysisPage />} />
+                  <Route path="markets" element={<MarketBoardPage />} />
+                  <Route path="performance" element={<PerformancePage />} />
+                  <Route path="shadow-board" element={<ShadowBoardPage />} />
+                  <Route path="market-pulse" element={<MarketPulsePage />} />
+                  <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />
+                  <Route path="experiment" element={<BankrollPage />} />
+                  <Route path="methodology" element={<MethodologyPage />} />
+                  <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
+                  <Route path="account" element={<AuthPage />} />
+                  <Route path="login" element={<AuthPage />} />
+                  {DEMO_ROUTES_ENABLED && <Route path="demo" element={<TodayPage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/games/:gameId" element={<GameAnalysisPage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/markets" element={<MarketBoardPage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/market-pulse" element={<MarketPulsePage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/performance" element={<PerformancePage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/experiment" element={<BankrollPage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/methodology" element={<MethodologyPage />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/admin" element={<HealthPage demo />} />}
+                  {DEMO_ROUTES_ENABLED && <Route path="demo/account" element={<Navigate to="/account" replace />} />}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </SportRegistryProvider>
         </PublicPolicyProvider>
       </AuthProvider>
     </BrowserRouter>

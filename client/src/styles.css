@@ -1219,7 +1219,7 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .sport-status-card > p { color: var(--muted); font-size: 12px; }
 .sport-status-card dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 12px 0; }
 .sport-status-card dl div { padding: 7px; background: var(--soft); border-radius: 5px; }
-.sport-status-card dt { color: var(--muted); font-size: 10px; }
+.sport-status-card dt { color: var(--muted); font-size: 11px; }
 .sport-status-card dd { margin: 3px 0 0; color: var(--ink); font-weight: 700; }
 .sport-status-card__warning, .sport-status-card__note { display: flex; align-items: flex-start; gap: 6px; padding: 7px 9px; border-radius: 5px; }
 .sport-status-card__warning { color: #775816 !important; background: var(--amber-soft); }

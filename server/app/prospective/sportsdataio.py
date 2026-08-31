@@ -250,6 +250,35 @@ def plan_injury_poll(
 # ---------------------------------------------------------------------------
 
 
+def read_availability_feed_status(
+    settings: Settings, session: Session | None = None,
+) -> str:
+    """Read persisted provider health without constructing its adapter.
+
+    Public read services use this function so inspecting already-persisted
+    health cannot accidentally grow into provider construction or transport.
+    """
+
+    if not (settings.sportsdataio_enabled and settings.sportsdataio_api_key.strip()):
+        return STATUS_NOT_CONFIGURED
+    if session is None:
+        return STATUS_ACTIVE
+    run = session.scalar(
+        select(IngestionRun)
+        .where(IngestionRun.source == SOURCE)
+        .order_by(IngestionRun.completed_at.desc().nulls_last(), IngestionRun.created_at.desc())
+        .limit(1)
+    )
+    if run is None:
+        return STATUS_ACTIVE
+    meta = run.source_metadata or {}
+    if run.status == RunStatus.FAILED or meta.get("error"):
+        return STATUS_ERROR
+    if meta.get("trial"):
+        return STATUS_TRIAL
+    return STATUS_ACTIVE
+
+
 class SportsDataIOAvailabilityAdapter:
     SOURCE = SOURCE
 
@@ -265,24 +294,7 @@ class SportsDataIOAvailabilityAdapter:
         Reflects the last persisted poll health when a session is supplied; never
         makes a provider call and never exposes the key."""
 
-        if not self.is_configured():
-            return STATUS_NOT_CONFIGURED
-        if session is None:
-            return STATUS_ACTIVE
-        run = session.scalar(
-            select(IngestionRun)
-            .where(IngestionRun.source == SOURCE)
-            .order_by(IngestionRun.completed_at.desc().nulls_last(), IngestionRun.created_at.desc())
-            .limit(1)
-        )
-        if run is None:
-            return STATUS_ACTIVE
-        meta = run.source_metadata or {}
-        if run.status == RunStatus.FAILED or meta.get("error"):
-            return STATUS_ERROR
-        if meta.get("trial"):
-            return STATUS_TRIAL
-        return STATUS_ACTIVE
+        return read_availability_feed_status(self.settings, session)
 
     async def fetch_injuries(self, *, client=None) -> tuple[int, list[dict]]:
         """One real InjuredPlayers request. Header auth; the key is never logged.
@@ -324,6 +336,7 @@ __all__ = [
     "NormalizedInjury",
     "InjuryPollPlan",
     "SportsDataIOAvailabilityAdapter",
+    "read_availability_feed_status",
     "parse_injuries",
     "is_trial",
     "injury_event_type",

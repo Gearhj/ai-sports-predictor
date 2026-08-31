@@ -40,6 +40,7 @@ export interface NormalizedSelection {
   experiment_id: string | null
   experiment_name: string | null
   policy_version: string | null
+  official_position_id?: string | null
   decision_timestamp: string | null
   final_decision_cutoff: string | null
   source_label: string | null
@@ -58,7 +59,10 @@ export interface SportSection {
   availability_state: SportAvailabilityState
   scheduled_event_count: number
   valid_forecast_count: number
-  final_qualified_count: number
+  final_qualified_decision_count: number
+  official_position_count: number
+  /** @deprecated Compatibility alias for final_qualified_decision_count. */
+  final_qualified_count?: number
   awaiting_final_evidence_count: number
   provisional_count: number
   watch_count: number
@@ -78,7 +82,10 @@ export interface SportSection {
 }
 
 export interface OverallSportSummary {
-  final_qualified_position_count: number
+  final_qualified_decision_count: number
+  official_position_count: number
+  /** @deprecated Compatibility alias for official_position_count. */
+  final_qualified_position_count?: number
   total_virtual_stake: number
   open_position_count: number
   settled_today_count: number
@@ -122,21 +129,24 @@ export interface TodayAllSportsReadModel extends DataProvenance {
   notes: Record<string, unknown>
 }
 
+export interface SportRegistryEntry {
+  sport_code: SportCode
+  league_code: LeagueCode
+  participant_type: 'TEAM' | 'INDIVIDUAL'
+  availability: SportAvailabilityState
+  display_name: string
+  short_label: string
+  official_positions_supported: boolean
+  official_positions_note: string
+  engine_label: string | null
+  stored_sport_aliases: string[]
+  stored_league_aliases: string[]
+  navigable: boolean
+  navigation_href: string | null
+}
+
 export interface SportRegistryResponse {
   version: 'SPORT_REGISTRY_V1'
-  sports: Array<{
-    sport_code: SportCode
-    league_code: LeagueCode
-    participant_type: 'TEAM' | 'INDIVIDUAL'
-    availability: SportAvailabilityState
-    display_name: string
-    short_label: string
-    official_positions_supported: boolean
-    official_positions_note: string
-    engine_label: string | null
-    stored_sport_aliases: string[]
-    stored_league_aliases: string[]
-    navigable: boolean
-  }>
-  supported_filters: Array<'ALL' | 'MLB' | 'NFL'>
+  sports: SportRegistryEntry[]
+  supported_filters: Array<'ALL' | LeagueCode>
 }

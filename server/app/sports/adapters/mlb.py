@@ -11,9 +11,11 @@ this side of the boundary — the shared shell never sees it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -29,7 +31,6 @@ from app.sports.registry import MLB
 
 # The MLB funding experiments support the full-game moneyline only.
 FUNDED_MARKET_PATTERNS = ("moneyline", "money line", "h2h")
-FINAL_PREGAME_CUTOFF_MINUTES = 15
 MARKET_NOT_SUPPORTED_NOTE = "Market not supported by this experiment (moneyline only)"
 
 
@@ -42,6 +43,15 @@ def _aware(value: datetime | None) -> datetime | None:
 def _is_funded_market(market_type: str | None) -> bool:
     lowered = (market_type or "").lower()
     return any(token in lowered for token in FUNDED_MARKET_PATTERNS)
+
+
+@dataclass(frozen=True)
+class _FinalAuthority:
+    """Exact immutable authority for one final-pregame projection."""
+
+    decision: Any
+    experiment: Any
+    position: Any | None
 
 
 class MlbTodayAdapter:
@@ -60,19 +70,35 @@ class MlbTodayAdapter:
         now = _aware(now) or datetime.now(UTC)
         read = ReadService(self.session, self.settings)
         dashboard = read.dashboard(event_date)
-        opportunities = {item.game_id: item for item in (dashboard.opportunities or [])}
-        games = {str(game.id): game for game in dashboard.games or []}
+        # ReadService.dashboard is a shared live-slate read. Pair cards only
+        # through its authoritative per-opportunity league identity; an
+        # unidentifiable or non-MLB card fails closed instead of defaulting MLB.
+        opportunities = {
+            item.game_id: item
+            for item in (dashboard.opportunities or [])
+            if str(getattr(item, "sport", "")).upper() == "MLB"
+        }
+        games = {
+            str(game.id): game
+            for game in (dashboard.games or [])
+            if str(game.id) in opportunities
+        }
         latest_forecast = self._latest_forecast_at(list(games))
 
         selections: list[NormalizedSelection] = []
         for game_id, game in games.items():
-            selections.append(self._selection(game_id, game, opportunities.get(game_id), now))
+            selections.extend(self._selections(game_id, game, opportunities.get(game_id), now))
 
         counts = {state: 0 for state in DState}
         for item in selections:
             counts[item.decision_state] = counts.get(item.decision_state, 0) + 1
         funded = [s for s in selections if s.funding_state == FState.OFFICIAL_VIRTUAL_POSITION]
         open_count, settled_count = self._position_counts(event_date)
+        readiness = [
+            float(game.data_readiness)
+            for game in games.values()
+            if getattr(game, "data_readiness", None) is not None
+        ]
 
         summary = dashboard.opportunity_summary
         return SportSection(
@@ -81,7 +107,11 @@ class MlbTodayAdapter:
             display_name=MLB.display_name,
             availability_state=MLB.availability,
             scheduled_event_count=len(games),
-            valid_forecast_count=int(getattr(dashboard.summary, "complete_forecasts", 0) or 0),
+            valid_forecast_count=sum(
+                bool(getattr(game, "forecast_available", False))
+                for game in games.values()
+            ),
+            official_position_count=len(funded),
             final_qualified_count=counts.get(DState.FINAL_QUALIFIED, 0),
             awaiting_final_evidence_count=counts.get(DState.AWAITING_FINAL_EVIDENCE, 0),
             provisional_count=counts.get(DState.PROVISIONAL_EDGE, 0),
@@ -90,9 +120,9 @@ class MlbTodayAdapter:
             open_position_count=open_count,
             settled_today_count=settled_count,
             virtual_stake=round(sum(s.virtual_stake or 0.0 for s in funded), 2),
-            data_health=getattr(dashboard.summary, "overall_data_health", None),
+            data_health=(sum(readiness) / len(readiness)) if readiness else None,
             latest_forecast_at=latest_forecast,
-            latest_market_at=_aware(getattr(summary, "odds_last_refresh", None)) if summary else None,
+            latest_market_at=self._latest_market_at(list(opportunities.values())),
             engine_label=MLB.engine_label,
             can_create_official_positions=True,
             official_positions_blocked_reason=None,
@@ -106,8 +136,39 @@ class MlbTodayAdapter:
 
     # -- one event ---------------------------------------------------------
     def _selection(self, game_id: str, game: Any, opportunity: Any, now: datetime) -> NormalizedSelection:
-        starts_at = _aware(getattr(game, "scheduled_at", None) or getattr(game, "starts_at", None))
+        """Backward-compatible single-selection view for direct callers.
+
+        The section builder uses :meth:`_selections` so simultaneous governed
+        experiments remain distinct.  A direct caller gets its current policy
+        when present, otherwise the first deterministic authority/board row.
+        """
+
+        selections = self._selections(game_id, game, opportunity, now)
+        preferred_policy = self._preferred_policy(opportunity)
+        return next(
+            (
+                item
+                for item in selections
+                if preferred_policy is not None and item.policy_version == preferred_policy
+            ),
+            selections[0],
+        )
+
+    def _selections(
+        self,
+        game_id: str,
+        game: Any,
+        opportunity: Any,
+        now: datetime,
+    ) -> list[NormalizedSelection]:
+        # ForecastGame's public contract names this field ``start_time``.  Keep
+        # that exact value (including an existing offset); a genuinely missing
+        # source timestamp remains missing rather than being reconstructed.
+        starts_at = _aware(getattr(game, "start_time", None))
+        from app.services.shadow_experiment_service import FINAL_PREGAME_CUTOFF_MINUTES
+
         cutoff = starts_at - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES) if starts_at else None
+        now = _aware(now) or datetime.now(UTC)
         label = self._event_label(game)
         base = dict(
             sport_code=MLB.sport_code,
@@ -121,13 +182,51 @@ class MlbTodayAdapter:
             can_ever_fund_official_position=True,
             detail_href=f"/games/{game_id}",
         )
+
+        # Even an already-persisted row is not presented as the event's final
+        # public state before the governed cutoff arrives.
+        active_experiments = (
+            self._active_experiments(starts_at)
+            if cutoff is not None and now >= cutoff
+            else []
+        )
+        authorities = self._final_authorities(
+            game_id,
+            cutoff,
+            active_experiments=active_experiments,
+        ) if active_experiments else []
+        if authorities:
+            selections = [
+                self._authority_selection(authority, base)
+                for authority in authorities
+            ]
+            authority_experiment_ids = {
+                authority.experiment.id for authority in authorities
+            }
+            selections.extend(
+                self._missing_final_authority_selection(experiment, base)
+                for experiment in active_experiments
+                if experiment.id not in authority_experiment_ids
+            )
+            return selections
+
         if opportunity is None:
-            return NormalizedSelection(
+            return [NormalizedSelection(
                 decision_state=DState.NOT_EVALUATED,
                 funding_state=FState.NOT_EVALUATED,
                 status_note="No governed evaluation exists for this event yet.",
                 **base,
-            )
+            )]
+
+        # A board row can exist even when there is no forecast (for example a
+        # quote-less NO_BET placeholder).  It is not a completed evaluation.
+        if getattr(game, "forecast_available", None) is False:
+            return [NormalizedSelection(
+                decision_state=DState.NOT_EVALUATED,
+                funding_state=FState.NOT_EVALUATED,
+                status_note="No governed forecast exists for this event yet.",
+                **base,
+            )]
 
         v2 = getattr(opportunity, "v2", None)
         best = getattr(opportunity, "best", None)
@@ -136,39 +235,31 @@ class MlbTodayAdapter:
             (item for item in ([best] if best else []) + alternates if _is_funded_market(getattr(item, "market_type", None))),
             None,
         )
-        experiment_status = getattr(opportunity, "experiment_status", None)
-        stake = getattr(opportunity, "experiment_stake", None)
-        has_position = experiment_status in ("FROZEN", "SETTLED")
+        before_cutoff = cutoff is None or now < cutoff
 
-        # 1) An immutable official position is the strongest authority.
-        if has_position:
-            return NormalizedSelection(
-                decision_state=DState.FINAL_QUALIFIED,
-                funding_state=FState.OFFICIAL_VIRTUAL_POSITION,
-                virtual_stake=float(stake) if stake is not None else None,
-                status_note="Official virtual position frozen from the final-pregame decision.",
-                **self._pricing(moneyline or best),
-                **self._experiment_identity(),
-                **base,
+        # A V2.1 display evaluation is indicative.  Even if its computed view
+        # says FINAL_*, only a persisted FINAL_PREGAME row may make that state
+        # final here.  The authority lookup above already handled such a row.
+        if v2 is not None and moneyline is not None and getattr(v2, "active", False):
+            state = (
+                DState.AWAITING_FINAL_EVIDENCE
+                if before_cutoff
+                else DState.NOT_EVALUATED
             )
-
-        # 2) The V2.1 challenger lifecycle is the explicit final/pending authority.
-        if v2 is not None and moneyline is not None:
-            lifecycle = getattr(v2, "lifecycle", None)
-            if lifecycle == "FINAL_QUALIFIED":
-                state, funding = DState.FINAL_QUALIFIED, FState.ELIGIBLE_NOT_FUNDED
-                note = "Final governed qualification; no virtual position was created (caps or challenger not yet effective)."
-            elif lifecycle == "FINAL_NO_BET":
-                state, funding = DState.FINAL_NO_BET, FState.ELIGIBLE_NOT_FUNDED
-                note = "Final decision reached: no position."
-            else:
-                state, funding = DState.AWAITING_FINAL_EVIDENCE, FState.ELIGIBLE_NOT_FUNDED
-                note = "Awaiting the final-pregame decision."
-            identity = self._experiment_identity()
-            # The V2 challenger's own policy version is the authority for a V2
-            # lifecycle decision; fall back to the active experiment's policy.
-            identity["policy_version"] = getattr(v2, "policy_version", None) or identity.get("policy_version")
-            return NormalizedSelection(
+            funding = (
+                FState.ELIGIBLE_NOT_FUNDED
+                if before_cutoff
+                else FState.NOT_EVALUATED
+            )
+            note = (
+                "Awaiting the persisted final-pregame decision."
+                if before_cutoff
+                else (
+                    "No cutoff-safe persisted final-pregame decision exists; "
+                    "the mutable V2.1 board is not final authority."
+                )
+            )
+            return [NormalizedSelection(
                 decision_state=state,
                 funding_state=funding,
                 evidence_tier=getattr(v2, "tier", None),
@@ -177,37 +268,268 @@ class MlbTodayAdapter:
                 outstanding_gates=list(getattr(v2, "reasons", []) or []),
                 status_note=note,
                 **self._pricing(moneyline),
-                **identity,
                 **base,
-            )
+            )]
 
-        # 3) No funded-market candidate: a board-only opportunity.
+        # No persisted final authority: this is a board-only opportunity.  It
+        # may be provisional or watched, but it can never become final merely
+        # because the mutable board currently says QUALIFIED_BET or NO_BET.
         board_state = getattr(opportunity, "recommendation_state", "NO_BET")
         selection_view = best
+        market_supported = (
+            selection_view is None
+            or _is_funded_market(getattr(selection_view, "market_type", None))
+        )
         funding = (
             FState.MARKET_NOT_SUPPORTED
-            if selection_view is not None and not _is_funded_market(getattr(selection_view, "market_type", None))
+            if not market_supported
             else FState.ELIGIBLE_NOT_FUNDED
         )
-        pre_cutoff = cutoff is not None and now < cutoff
-        if board_state == "QUALIFIED_BET":
-            state = DState.FINAL_QUALIFIED if not pre_cutoff else DState.AWAITING_FINAL_EVIDENCE
+        if not before_cutoff:
+            # Once the cutoff has passed there is nothing left to await, but a
+            # mutable board label still cannot manufacture PASS/final authority.
+            state = DState.NOT_EVALUATED
+            if market_supported:
+                funding = FState.NOT_EVALUATED
+        elif board_state in ("QUALIFIED_BET", "NO_BET"):
+            state = DState.AWAITING_FINAL_EVIDENCE
         elif board_state in ("PROVISIONAL_EDGE", "EXTREME_DISAGREEMENT"):
             state = DState.PROVISIONAL_EDGE
         elif board_state == "WATCH":
             state = DState.WATCH
         else:
-            # Never call a pre-cutoff candidate a final no-bet.
-            state = DState.AWAITING_FINAL_EVIDENCE if pre_cutoff and selection_view is not None else DState.PASS
-        return NormalizedSelection(
+            state = DState.AWAITING_FINAL_EVIDENCE
+        return [NormalizedSelection(
             decision_state=state,
             funding_state=funding,
             outstanding_gates=list(getattr(opportunity, "qualification_reasons", []) or []),
             status_note=(
-                MARKET_NOT_SUPPORTED_NOTE if funding == FState.MARKET_NOT_SUPPORTED
-                else getattr(opportunity, "recommendation_reason", None)
+                MARKET_NOT_SUPPORTED_NOTE
+                if not market_supported
+                else (
+                    (
+                        "No cutoff-safe persisted final-pregame decision exists; "
+                        "the mutable board is not final authority."
+                    )
+                    if not before_cutoff
+                    else getattr(opportunity, "recommendation_reason", None)
+                )
             ),
             **self._pricing(selection_view),
+            **{
+                **base,
+                "can_ever_fund_official_position": market_supported,
+            },
+        )]
+
+    @staticmethod
+    def _preferred_policy(opportunity: Any) -> str | None:
+        """Policy whose current candidate should be paired with final evidence."""
+
+        from app.services.shadow_experiment_service import DECISION_POLICY
+
+        v2 = getattr(opportunity, "v2", None) if opportunity is not None else None
+        if v2 is not None and getattr(v2, "active", False):
+            return getattr(v2, "policy_version", None)
+        return DECISION_POLICY
+
+    def _active_experiments(self, starts_at: datetime) -> list[Any]:
+        """Latest effective active MLB experiment for each governed policy."""
+
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        operational_date = starts_at.astimezone(
+            ZoneInfo(self.settings.display_timezone)
+        ).date()
+        return [
+            experiment
+            for experiment in ShadowExperimentService(
+                self.session, self.settings,
+            ).active_experiments()
+            if experiment.sport == "MLB" and experiment.start_date <= operational_date
+        ]
+
+    def _final_authorities(
+        self,
+        game_id: str,
+        cutoff: datetime | None,
+        *,
+        active_experiments: list[Any],
+    ) -> list[_FinalAuthority]:
+        """Return one cutoff-safe persisted final authority per experiment.
+
+        Board recommendation fields and experiment-status badges are
+        deliberately absent from this query.  A final state comes only from an
+        immutable FINAL_PREGAME decision; official funding additionally
+        requires the canonical position row linked to that exact decision.
+        Active V1 and V2.1 experiments are independent bankroll instruments,
+        so neither is collapsed into the other.
+        """
+
+        if cutoff is None:
+            return []
+        try:
+            governed_game_id = UUID(str(game_id))
+        except (TypeError, ValueError):
+            return []
+
+        from app.models import (
+            ExperimentDecisionPhase,
+            OfficialAspPosition,
+            ShadowExperiment,
+            ShadowExperimentDecision,
+        )
+        from app.services.shadow_experiment_service import SUPERSEDED_POLICIES
+
+        active_experiment_ids = [experiment.id for experiment in active_experiments]
+        if not active_experiment_ids:
+            return []
+
+        rows = list(self.session.execute(
+            select(ShadowExperimentDecision, ShadowExperiment, OfficialAspPosition)
+            .join(
+                ShadowExperiment,
+                ShadowExperiment.id == ShadowExperimentDecision.experiment_id,
+            )
+            .outerjoin(
+                OfficialAspPosition,
+                OfficialAspPosition.shadow_decision_id == ShadowExperimentDecision.id,
+            )
+            .where(
+                ShadowExperimentDecision.game_id == governed_game_id,
+                ShadowExperimentDecision.phase == ExperimentDecisionPhase.FINAL_PREGAME,
+                ShadowExperimentDecision.source_mode == "LIVE",
+                ShadowExperiment.id.in_(active_experiment_ids),
+                ShadowExperiment.sport == "MLB",
+                ShadowExperiment.is_active.is_(True),
+            )
+        ))
+        candidates = [
+            _FinalAuthority(decision, experiment, position)
+            for decision, experiment, position in rows
+            if experiment.decision_policy not in SUPERSEDED_POLICIES
+            and _aware(decision.recommended_at) is not None
+            and _aware(decision.recommended_at) <= cutoff
+        ]
+        if not candidates:
+            return []
+
+        by_experiment: dict[UUID, _FinalAuthority] = {}
+        for item in candidates:
+            current = by_experiment.get(item.experiment.id)
+            item_key = (
+                item.position is not None,
+                _aware(item.decision.recommended_at) or datetime.min.replace(tzinfo=UTC),
+            )
+            current_key = (
+                current.position is not None,
+                _aware(current.decision.recommended_at)
+                or datetime.min.replace(tzinfo=UTC),
+            ) if current is not None else None
+            if current_key is None or item_key > current_key:
+                by_experiment[item.experiment.id] = item
+
+        return sorted(
+            by_experiment.values(),
+            key=lambda item: (
+                int(item.experiment.version),
+                str(item.experiment.id),
+            ),
+        )
+
+    def _authority_selection(
+        self,
+        authority: _FinalAuthority,
+        base: dict[str, Any],
+    ) -> NormalizedSelection:
+        decision = authority.decision
+        experiment = authority.experiment
+        position = authority.position
+        recommendation = str(decision.recommendation or "NO_BET").upper()
+        market_supported = _is_funded_market(decision.market)
+        if not market_supported:
+            # The experiment contract funds the full-game moneyline only.  A
+            # malformed persisted decision/position for another market remains
+            # observable evidence but can never enter a qualified/official lane.
+            state = DState.NOT_EVALUATED
+            funding = FState.MARKET_NOT_SUPPORTED
+        elif position is not None:
+            state = DState.FINAL_QUALIFIED
+            funding = FState.OFFICIAL_VIRTUAL_POSITION
+        elif recommendation == "QUALIFIED_BET":
+            state = DState.FINAL_QUALIFIED
+            funding = FState.ELIGIBLE_NOT_FUNDED
+        elif recommendation == "NO_BET":
+            state = DState.FINAL_NO_BET
+            funding = FState.ELIGIBLE_NOT_FUNDED
+        else:
+            state = DState.PASS
+            funding = FState.ELIGIBLE_NOT_FUNDED
+
+        evidence = decision.evidence or {}
+
+        def percentage(value: Any) -> float | None:
+            return round(float(value) * 100, 6) if value is not None else None
+
+        return NormalizedSelection(
+            decision_state=state,
+            funding_state=funding,
+            market_label=decision.market,
+            selection_label=decision.selection,
+            line=decision.line,
+            price_american=decision.american_odds,
+            sportsbook=decision.sportsbook,
+            model_probability=percentage(decision.model_probability),
+            no_vig_probability=percentage(decision.no_vig_probability),
+            adjusted_edge=percentage(evidence.get("adjusted_edge")),
+            expected_value=percentage(
+                evidence.get("adjusted_expected_value", decision.expected_value)
+            ),
+            evidence_tier=evidence.get("tier"),
+            virtual_stake=(
+                float(position.stake)
+                if market_supported and position is not None
+                else None
+            ),
+            experiment_id=str(experiment.id),
+            experiment_name=experiment.name,
+            policy_version=experiment.decision_policy,
+            decision_timestamp=_aware(decision.recommended_at),
+            official_position_id=(
+                str(position.id)
+                if market_supported and position is not None
+                else None
+            ),
+            outstanding_gates=list(decision.qualification_reasons or []),
+            status_note=(
+                decision.recommendation_reason
+                if market_supported
+                else MARKET_NOT_SUPPORTED_NOTE
+            ),
+            **{
+                **base,
+                "can_ever_fund_official_position": market_supported,
+            },
+        )
+
+    @staticmethod
+    def _missing_final_authority_selection(
+        experiment: Any,
+        base: dict[str, Any],
+    ) -> NormalizedSelection:
+        """Fail-closed identity for an active policy that missed final freeze."""
+
+        return NormalizedSelection(
+            decision_state=DState.NOT_EVALUATED,
+            funding_state=FState.NOT_EVALUATED,
+            market_label="MONEYLINE",
+            experiment_id=str(experiment.id),
+            experiment_name=experiment.name,
+            policy_version=experiment.decision_policy,
+            status_note=(
+                "No cutoff-safe persisted FINAL_PREGAME decision exists for this "
+                "active experiment; mutable board evidence was not substituted."
+            ),
             **base,
         )
 
@@ -225,32 +547,38 @@ class MlbTodayAdapter:
             "no_vig_probability": getattr(view, "no_vig_probability", None),
         }
 
-    def _experiment_identity(self) -> dict[str, Any]:
-        from app.services.shadow_experiment_service import ShadowExperimentService
-
-        experiment = ShadowExperimentService(self.session, self.settings).active_experiment()
-        if experiment is None:
-            return {}
-        return {
-            "experiment_id": str(experiment.id),
-            "experiment_name": experiment.name,
-            "policy_version": experiment.decision_policy,
-        }
+    @staticmethod
+    def _latest_market_at(opportunities: list[Any]) -> datetime | None:
+        timestamps = [
+            _aware(getattr(selection, "quote_observed_at", None))
+            for opportunity in opportunities
+            for selection in (
+                [getattr(opportunity, "best", None)]
+                + list(getattr(opportunity, "alternates", []) or [])
+            )
+            if selection is not None
+            and getattr(selection, "quote_observed_at", None) is not None
+        ]
+        return max(timestamps, default=None)
 
     def _position_counts(self, event_date: date) -> tuple[int, int]:
         """Open positions and positions settled on this operational date,
-        across every registered MLB experiment (never pooled with another sport)."""
+        across active governed MLB experiments (never pooled with another sport)."""
         from app.models import (
             OfficialAspPosition,
             PositionSettlement,
             PositionStatus,
-            ShadowExperiment,
             ShadowExperimentDecision,
         )
+        from app.services.shadow_experiment_service import ShadowExperimentService
 
-        experiment_ids = list(self.session.scalars(
-            select(ShadowExperiment.id).where(ShadowExperiment.sport == "MLB")
-        ))
+        experiment_ids = [
+            experiment.id
+            for experiment in ShadowExperimentService(
+                self.session, self.settings,
+            ).active_experiments()
+            if experiment.sport == "MLB" and experiment.start_date <= event_date
+        ]
         if not experiment_ids:
             return 0, 0
         open_count = len(list(self.session.scalars(

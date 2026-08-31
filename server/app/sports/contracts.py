@@ -13,7 +13,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 SPORT_REGISTRY_VERSION = "SPORT_REGISTRY_V1"
 TODAY_READ_MODEL_VERSION = "TODAY_ALL_SPORTS_READ_MODEL_V1"
@@ -105,10 +105,27 @@ class SportDefinition(BaseModel):
     stored_league_aliases: tuple[str, ...] = ()
     # Only LIVE/RESEARCH_SHADOW leagues get a navigable filter in Phase 1.
     navigable: bool = False
+    # Backend-owned destination for governed navigation. Planned/unavailable
+    # entries keep this null so clients never invent a route from league code.
+    navigation_href: str | None = None
 
     @property
     def key(self) -> str:
         return str(self.league_code)
+
+    @model_validator(mode="after")
+    def navigation_is_explicit_and_fail_closed(self) -> "SportDefinition":
+        active_navigation = self.availability in (
+            SportAvailabilityState.LIVE,
+            SportAvailabilityState.RESEARCH_SHADOW,
+        )
+        if self.navigable and not active_navigation:
+            raise ValueError("only LIVE or RESEARCH_SHADOW sports may be navigable")
+        if self.navigable and not self.navigation_href:
+            raise ValueError("a navigable sport requires an explicit navigation_href")
+        if not self.navigable and self.navigation_href is not None:
+            raise ValueError("a non-navigable sport cannot expose navigation_href")
+        return self
 
 
 class NormalizedSelection(BaseModel):
@@ -135,6 +152,9 @@ class NormalizedSelection(BaseModel):
     experiment_id: str | None = None
     experiment_name: str | None = None
     policy_version: str | None = None
+    # Immutable position-ledger identity when (and only when) this selection
+    # is backed by an actual OFFICIAL_VIRTUAL_POSITION.
+    official_position_id: str | None = None
     decision_timestamp: datetime | None = None
     final_decision_cutoff: datetime | None = None
     source_label: str | None = None
@@ -158,6 +178,13 @@ class SportSection(BaseModel):
     availability_state: SportAvailabilityState
     scheduled_event_count: int = 0
     valid_forecast_count: int = 0
+    # Canonical, unambiguous counters. A final qualification may be unfunded;
+    # only an immutable funded position contributes to official_position_count.
+    final_qualified_decision_count: int = 0
+    official_position_count: int = 0
+    # Backward-compatible TODAY_ALL_SPORTS_READ_MODEL_V1 alias. Its historical
+    # semantics are final-qualified decisions, not funded positions. New
+    # clients should use final_qualified_decision_count.
     final_qualified_count: int = 0
     awaiting_final_evidence_count: int = 0
     provisional_count: int = 0
@@ -177,8 +204,33 @@ class SportSection(BaseModel):
     degraded_reason: str | None = None
     selections: list[NormalizedSelection] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def reconcile_final_decision_counts(self) -> "SportSection":
+        """Derive the final-decision concept from normalized selections.
+
+        Official-position capability belongs to SPORT_REGISTRY_V1 and is
+        therefore reconciled by the shared read service, not trusted from an
+        adapter-local flag during model validation.
+        """
+
+        final_decisions = sum(
+            item.decision_state == NormalizedDailyDecisionState.FINAL_QUALIFIED
+            for item in self.selections
+        )
+        self.final_qualified_decision_count = final_decisions
+        self.final_qualified_count = final_decisions
+        return self
+
 
 class OverallSummary(BaseModel):
+    # Canonical counters. Qualified Today reconciles exactly to
+    # official_position_count; final_qualified_decision_count also includes
+    # governed final qualifications that remain unfunded.
+    final_qualified_decision_count: int = 0
+    official_position_count: int = 0
+    # Backward-compatible TODAY_ALL_SPORTS_READ_MODEL_V1 alias. Despite its
+    # ambiguous name, its established meaning is funded official positions.
+    # New clients should use official_position_count.
     final_qualified_position_count: int = 0
     total_virtual_stake: float = 0.0
     open_position_count: int = 0
