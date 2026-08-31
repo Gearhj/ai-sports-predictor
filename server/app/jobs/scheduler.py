@@ -304,4 +304,28 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
                 kwargs={"settings": settings},
                 **common,
             )
+    if settings.prediction_market_observer_enabled:
+        # Read-only market observation. Discovery + snapshot + consensus + alerts
+        # cadences reuse this scheduler; provider access is off unless the
+        # provider flags are also armed.
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=settings.prediction_market_discovery_minutes,
+            id="asp-pm-discover", kwargs={"job_name": "discover-prediction-markets", "settings": settings}, **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=settings.prediction_market_snapshot_minutes,
+            id="asp-pm-refresh", kwargs={"job_name": "refresh-prediction-market-snapshots", "settings": settings}, **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=max(settings.prediction_market_snapshot_minutes, 5),
+            id="asp-pm-consensus", kwargs={"job_name": "compute-prediction-market-consensus", "settings": settings}, **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=max(settings.prediction_market_snapshot_minutes, 5),
+            id="asp-pm-alerts", kwargs={"job_name": "evaluate-prediction-market-alerts", "settings": settings}, **common,
+        )
     return scheduler

@@ -315,3 +315,50 @@ export function getDemoGame(gameId?: string): GameAnalysisData {
   if (!selected) throw new Error('Illustrative game not found')
   return { ...demoGameAnalysis, game: selected }
 }
+
+export const demoMarketPulse: import('../types/domain').MarketPulseBoard = {
+  data_mode: 'demo',
+  date: demoDate,
+  sport: null,
+  sports_available: ['MLB', 'NFL'],
+  disclosure: 'RESEARCH OBSERVER · NO TRADING · NOT A MODEL INPUT · NOT A GUARANTEE',
+  public_display_enabled: false,
+  rows: [
+    {
+      game_id: 'demo-pulse-1', sport: 'MLB', league: 'MLB',
+      home_team: 'New York Yankees', away_team: 'Boston Red Sox', home_abbrev: 'NYY', away_abbrev: 'BOS',
+      starts_at: 'Illustrative snapshot', status: 'SCHEDULED',
+      aisp_home_probability: 0.58, aisp_forecast_fresh: true,
+      sportsbook_home_probability: 0.565, polymarket_home_probability: 0.6, kalshi_home_probability: 0.59,
+      research_consensus_home_probability: 0.595, consensus_eligible: true,
+      consensus_note: 'Cross-provider consensus formed',
+      diff_aisp_sportsbook: 0.015, diff_aisp_prediction: -0.015, diff_polymarket_kalshi: 0.01,
+      cross_market_dispersion: 0.035,
+      providers: [
+        { provider: 'POLYMARKET', midpoint: 0.6, microprice: 0.601, best_bid: 0.59, best_ask: 0.61, last_trade: 0.6, bid_ask_spread: 0.02, volume: 125000, open_interest: null, top_depth: 4200, quality_tier: 'ROBUST', quote_age_seconds: 22, mapping_status: 'EXACT', semantics_status: 'SEMANTICS_MATCHED', in_play: false, observed_at: 'Illustrative snapshot' },
+        { provider: 'KALSHI', midpoint: 0.59, microprice: 0.589, best_bid: 0.58, best_ask: 0.6, last_trade: null, bid_ask_spread: 0.02, volume: 34000, open_interest: 12000, top_depth: 1800, quality_tier: 'USABLE', quote_age_seconds: 41, mapping_status: 'EXACT', semantics_status: 'SEMANTICS_MATCHED', in_play: false, observed_at: 'Illustrative snapshot' },
+      ],
+      movement_5m: 0.004, movement_30m: -0.011, movement_2h: 0.02, movement_24h: null,
+      first_mover: 'POLYMARKET', mapping_status: 'EXACT', semantics_status: 'SEMANTICS_MATCHED',
+      best_quality_tier: 'ROBUST', alert_count: 1,
+    },
+    {
+      game_id: 'demo-pulse-2', sport: 'NFL', league: 'NFL',
+      home_team: 'Kansas City Chiefs', away_team: 'Buffalo Bills', home_abbrev: 'KC', away_abbrev: 'BUF',
+      starts_at: 'Illustrative snapshot', status: 'SCHEDULED',
+      aisp_home_probability: 0.52, aisp_forecast_fresh: true,
+      sportsbook_home_probability: 0.55, polymarket_home_probability: 0.57, kalshi_home_probability: null,
+      research_consensus_home_probability: null, consensus_eligible: false,
+      consensus_note: 'Only one provider qualifies — cross-provider consensus unavailable',
+      diff_aisp_sportsbook: -0.03, diff_aisp_prediction: -0.05, diff_polymarket_kalshi: null,
+      cross_market_dispersion: 0.02,
+      providers: [
+        { provider: 'POLYMARKET', midpoint: 0.57, microprice: 0.57, best_bid: 0.56, best_ask: 0.58, last_trade: 0.57, bid_ask_spread: 0.02, volume: 88000, open_interest: null, top_depth: 900, quality_tier: 'THIN', quote_age_seconds: 55, mapping_status: 'EXACT', semantics_status: 'SEMANTICS_MATCHED', in_play: false, observed_at: 'Illustrative snapshot' },
+      ],
+      movement_5m: null, movement_30m: 0.008, movement_2h: null, movement_24h: null,
+      first_mover: null, mapping_status: 'EXACT', semantics_status: 'SEMANTICS_MATCHED',
+      best_quality_tier: 'THIN', alert_count: 1,
+    },
+  ],
+  summary: { games: 2, mapped: 2, review_required: 0, consensus_available: 1 },
+}

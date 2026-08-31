@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { MarketPulsePanel } from '../components/MarketPulsePanel'
 import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles } from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
 import { ComparisonTable } from '../components/ComparisonTable'
@@ -178,6 +179,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
           </table>
         </TableScroll>
       </Panel>
+
+      {!demo && <MarketPulsePanel gameId={gameId} demo={demo} />}
 
       <div className="analysis-grid" id="matchup">
         <Panel title="Starting pitchers" eyebrow="EXPECTED RUN PREVENTION"><ComparisonTable away={game.away_team} home={game.home_team} rows={data.pitcher_metrics} /></Panel>

@@ -9,6 +9,8 @@ import type {
   HistoricalResearchData,
   LiveShadowStatus,
   MarketBoardData,
+  MarketPulseBoard,
+  MarketPulseGameDetail,
   PerformanceData,
   ProspectiveRescoreBoard,
   PublicConfig,
@@ -114,6 +116,13 @@ export const endpoints = {
   },
   rescoreBoard: (slateDate: string, signal?: AbortSignal) =>
     apiRequest<ProspectiveRescoreBoard>(`/shadow-board/rescores?date=${encodeURIComponent(slateDate)}`, {}, signal),
+  marketPulse: (slateDate: string, signal?: AbortSignal, sport?: string | null) => {
+    const query = new URLSearchParams({ date: slateDate })
+    if (sport) query.set('sport', sport)
+    return apiRequest<MarketPulseBoard>(`/prediction-markets/board?${query.toString()}`, {}, signal)
+  },
+  marketPulseGame: (gameId: string, signal?: AbortSignal) =>
+    apiRequest<MarketPulseGameDetail>(`/prediction-markets/games/${encodeURIComponent(gameId)}`, {}, signal),
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),
   publicConfig: (signal?: AbortSignal) => apiRequest<PublicConfig>('/public/config', {}, signal),
   me: (signal?: AbortSignal) => apiRequest<AuthUser>('/auth/me', {}, signal),

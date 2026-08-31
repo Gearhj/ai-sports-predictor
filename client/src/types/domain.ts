@@ -867,3 +867,139 @@ export interface LiveShadowStatus {
   active_games_monitored: number
   circuit_state: { last_provider_failure: string | null; last_failed_job: string | null }
 }
+
+// ---- Prediction Market Observer (Crowd & Market Pulse) ----
+export interface PredictionProviderProbability {
+  provider: string
+  midpoint: number | null
+  microprice?: number | null
+  best_bid?: number | null
+  best_ask?: number | null
+  last_trade?: number | null
+  bid_ask_spread?: number | null
+  volume?: number | null
+  open_interest?: number | null
+  top_depth?: number | null
+  quality_tier: string
+  quote_age_seconds?: number | null
+  mapping_status: string
+  semantics_status: string
+  in_play?: boolean
+  observed_at?: string | null
+}
+
+export interface MarketPulseRow {
+  game_id: string
+  sport: string
+  league: string
+  home_team: string | null
+  away_team: string | null
+  home_abbrev: string | null
+  away_abbrev: string | null
+  starts_at: string | null
+  status: string
+  aisp_home_probability: number | null
+  aisp_forecast_fresh: boolean
+  sportsbook_home_probability: number | null
+  polymarket_home_probability: number | null
+  kalshi_home_probability: number | null
+  research_consensus_home_probability: number | null
+  consensus_eligible: boolean
+  consensus_note: string | null
+  diff_aisp_sportsbook: number | null
+  diff_aisp_prediction: number | null
+  diff_polymarket_kalshi: number | null
+  cross_market_dispersion: number | null
+  providers: PredictionProviderProbability[]
+  movement_5m: number | null
+  movement_30m: number | null
+  movement_2h: number | null
+  movement_24h: number | null
+  first_mover: string | null
+  mapping_status: string
+  semantics_status: string
+  best_quality_tier: string | null
+  alert_count: number
+}
+
+export interface MarketPulseBoard extends DataProvenance {
+  date: string
+  sport: string | null
+  sports_available: string[]
+  disclosure: string
+  public_display_enabled: boolean
+  rows: MarketPulseRow[]
+  summary: Record<string, unknown>
+}
+
+export interface PredictionTimelinePoint {
+  time: string
+  aisp: number | null
+  sportsbook: number | null
+  polymarket: number | null
+  kalshi: number | null
+  consensus: number | null
+}
+
+export interface PredictionOrderBookView {
+  provider: string
+  best_bid: number | null
+  best_ask: number | null
+  midpoint: number | null
+  microprice: number | null
+  spread: number | null
+  bids: number[][]
+  asks: number[][]
+  observed_at: string | null
+  quality_tier: string | null
+}
+
+export interface PredictionMovementEvent {
+  time: string
+  provider: string
+  market_type: string
+  selection: string
+  old_probability: number | null
+  new_probability: number | null
+  magnitude: number | null
+  alert_type: string | null
+  details: Record<string, unknown>
+}
+
+export interface PredictionContractDetail {
+  provider: string
+  market_type: string
+  selection: string
+  line_value: number | null
+  market_question: string | null
+  resolution_rules: string | null
+  settlement_source: string | null
+  market_close_at: string | null
+  semantics_status: string
+  line_source: string
+}
+
+export interface PredictionMappingDetail {
+  provider: string
+  provider_event_id: string
+  mapping_status: string
+  semantics_status: string
+  start_time_delta_seconds: number | null
+  game_time_agreement: string | null
+}
+
+export interface MarketPulseGameDetail extends DataProvenance {
+  game_id: string
+  home_team: string | null
+  away_team: string | null
+  starts_at: string | null
+  status: string
+  disclosure: string
+  lead_lag_note: string
+  timeline: PredictionTimelinePoint[]
+  order_books: PredictionOrderBookView[]
+  movement_events: PredictionMovementEvent[]
+  contracts: PredictionContractDetail[]
+  mappings: PredictionMappingDetail[]
+  row: MarketPulseRow | null
+}

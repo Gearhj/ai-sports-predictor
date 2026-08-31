@@ -70,6 +70,13 @@ from app.models import (
     TrainingDatasetManifest,
     WeatherSnapshot,
     ExistingEvidenceDerivedUseDecision,
+    PredictionMarketAlert,
+    PredictionMarketConsensusSnapshot,
+    PredictionMarketContract,
+    PredictionMarketEvent,
+    PredictionMarketMapping,
+    PredictionMarketOrderbookSnapshot,
+    PredictionMarketSnapshot,
 )
 
 
@@ -81,6 +88,13 @@ _installed = False
 
 
 _APPEND_ONLY_TYPES = (
+    PredictionMarketAlert,
+    PredictionMarketConsensusSnapshot,
+    PredictionMarketContract,
+    PredictionMarketEvent,
+    PredictionMarketMapping,
+    PredictionMarketOrderbookSnapshot,
+    PredictionMarketSnapshot,
     BattingFeature,
     BullpenAvailabilityObservation,
     BullpenFeature,

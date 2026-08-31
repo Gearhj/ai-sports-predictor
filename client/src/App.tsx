@@ -15,6 +15,8 @@ const BankrollPage = lazy(() => import('./pages/BankrollPage').then((module) => 
 const MethodologyPage = lazy(() => import('./pages/MethodologyPage').then((module) => ({ default: module.MethodologyPage })))
 const HealthPage = lazy(() => import('./pages/HealthPage').then((module) => ({ default: module.HealthPage })))
 const ShadowBoardPage = lazy(() => import('./pages/ShadowBoardPage').then((module) => ({ default: module.ShadowBoardPage })))
+const MarketPulsePage = lazy(() => import('./pages/MarketPulsePage').then((module) => ({ default: module.MarketPulsePage })))
+const MarketPulseGamePage = lazy(() => import('./pages/MarketPulseGamePage').then((module) => ({ default: module.MarketPulseGamePage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 
 function ScrollToTop() {
@@ -44,6 +46,8 @@ export default function App() {
               <Route path="markets" element={<MarketBoardPage />} />
               <Route path="performance" element={<PerformancePage />} />
               <Route path="shadow-board" element={<ShadowBoardPage />} />
+              <Route path="market-pulse" element={<MarketPulsePage />} />
+              <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />
               <Route path="experiment" element={<BankrollPage />} />
               <Route path="methodology" element={<MethodologyPage />} />
               <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
@@ -52,6 +56,7 @@ export default function App() {
               {DEMO_ROUTES_ENABLED && <Route path="demo" element={<TodayPage demo />} />}
               {DEMO_ROUTES_ENABLED && <Route path="demo/games/:gameId" element={<GameAnalysisPage demo />} />}
               {DEMO_ROUTES_ENABLED && <Route path="demo/markets" element={<MarketBoardPage demo />} />}
+              {DEMO_ROUTES_ENABLED && <Route path="demo/market-pulse" element={<MarketPulsePage demo />} />}
               {DEMO_ROUTES_ENABLED && <Route path="demo/performance" element={<PerformancePage demo />} />}
               {DEMO_ROUTES_ENABLED && <Route path="demo/experiment" element={<BankrollPage demo />} />}
               {DEMO_ROUTES_ENABLED && <Route path="demo/methodology" element={<MethodologyPage />} />}

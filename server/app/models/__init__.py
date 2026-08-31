@@ -38,5 +38,14 @@ from app.models.entities import (
     UserVirtualBankroll, Venue, VirtualPosition, WeatherSnapshot, LineupEntry,
     LineupObservation,
 )
+from app.models.prediction_market import (
+    PredictionMarketAlert,
+    PredictionMarketConsensusSnapshot,
+    PredictionMarketContract,
+    PredictionMarketEvent,
+    PredictionMarketMapping,
+    PredictionMarketOrderbookSnapshot,
+    PredictionMarketSnapshot,
+)
 
 __all__ = [name for name in globals() if not name.startswith("_")]

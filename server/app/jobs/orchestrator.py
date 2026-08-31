@@ -90,6 +90,12 @@ AVAILABLE_JOBS = {
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
     "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
     "settle-shadow-experiment": "Settle $1,000 Shadow Experiment Positions",
+    "discover-prediction-markets": "Discover Polymarket + Kalshi Sports Markets",
+    "refresh-prediction-market-snapshots": "Refresh Prediction-Market Snapshots",
+    "compute-prediction-market-consensus": "Compute Prediction-Market Consensus",
+    "evaluate-prediction-market-alerts": "Evaluate Prediction-Market Alerts",
+    "finalize-prediction-market-pregame": "Finalize Prediction-Market Pregame",
+    "backfill-prediction-market-history": "Backfill Prediction-Market History (bounded)",
 }
 
 ALIASES = {
@@ -195,10 +201,40 @@ class JobOrchestrator:
             "settle-nfl-shadow-decisions": self.settle_nfl_shadow_decisions,
             "recalculate-nfl-shadow-performance": self.recalculate_nfl_shadow_performance,
             "poll-availability-events": self.poll_availability_events,
+            "discover-prediction-markets": self._pm_discover,
+            "refresh-prediction-market-snapshots": self._pm_refresh,
+            "compute-prediction-market-consensus": self._pm_consensus,
+            "evaluate-prediction-market-alerts": self._pm_alerts,
+            "finalize-prediction-market-pregame": self._pm_finalize,
+            "backfill-prediction-market-history": self._pm_backfill,
             "freeze-shadow-experiment": self.freeze_shadow_experiment,
             "settle-shadow-experiment": self.settle_shadow_experiment,
         }
         return await handlers[name](event_date)
+
+    # -- Prediction Market Observer jobs (provider I/O confined here) -----
+    def _pm_jobs(self):
+        from app.prediction_markets.jobs import PredictionMarketJobs
+
+        return PredictionMarketJobs(self.session, self.settings)
+
+    async def _pm_discover(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().discover(event_date)
+
+    async def _pm_refresh(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().refresh(event_date)
+
+    async def _pm_consensus(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().compute_consensus(event_date)
+
+    async def _pm_alerts(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().evaluate_alerts(event_date)
+
+    async def _pm_finalize(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().finalize_pregame(event_date)
+
+    async def _pm_backfill(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().backfill(event_date)
 
     async def poll_availability_events(self, event_date: date) -> dict[str, Any]:
         """Automatic MLB availability poll: detect real probable-pitcher/lineup changes.

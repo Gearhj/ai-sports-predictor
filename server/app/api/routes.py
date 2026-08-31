@@ -331,3 +331,119 @@ async def trigger_job(job_name: str, session: DatabaseSession, settings: AppSett
 @router.get("/system/ping", tags=["system"])
 def ping() -> dict:
     return {"status": "ok", "service": "AI Sports Predictor", "timestamp": datetime.now(UTC)}
+
+
+# ==========================================================================
+# Prediction Market Observer — public reads (DB-only; ZERO provider calls) and
+# admin mapping/semantics review. No route exposes any trading capability.
+# ==========================================================================
+@router.get("/prediction-markets/board", tags=["prediction-markets"])
+def prediction_market_board(
+    session: DatabaseSession, settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+    sport: str | None = Query(None),
+):
+    from app.prediction_markets.read_service import PredictionMarketReadService
+
+    return PredictionMarketReadService(session, settings).board(_today(event_date, settings), sport=sport)
+
+
+@router.get("/prediction-markets/games/{game_id}", tags=["prediction-markets"])
+def prediction_market_game(game_id: UUID, session: DatabaseSession, settings: AppSettings):
+    from app.prediction_markets.read_service import PredictionMarketReadService
+
+    detail = PredictionMarketReadService(session, settings).game_detail(game_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    return detail
+
+
+@router.get("/prediction-markets/games/{game_id}/timeline", tags=["prediction-markets"])
+def prediction_market_timeline(game_id: UUID, session: DatabaseSession, settings: AppSettings):
+    from app.prediction_markets.read_service import PredictionMarketReadService
+
+    detail = PredictionMarketReadService(session, settings).game_detail(game_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    return {"game_id": str(game_id), "timeline": detail.timeline, "lead_lag_note": detail.lead_lag_note}
+
+
+@router.get("/prediction-markets/alerts", tags=["prediction-markets"])
+def prediction_market_alerts(
+    session: DatabaseSession, settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"), sport: str | None = Query(None),
+):
+    from app.prediction_markets.read_service import PredictionMarketReadService
+
+    return PredictionMarketReadService(session, settings).alerts(_today(event_date, settings), sport=sport)
+
+
+@router.get("/prediction-markets/health-summary", tags=["prediction-markets"])
+def prediction_market_health(session: DatabaseSession, settings: AppSettings):
+    from app.prediction_markets.read_service import PredictionMarketReadService
+
+    return PredictionMarketReadService(session, settings).health_summary()
+
+
+@router.get(
+    "/admin/prediction-markets/mappings",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:pm-mappings", category="admin"))],
+)
+def admin_prediction_market_mappings(session: DatabaseSession, settings: AppSettings, user: AdminUser):
+    """Admin-only mapping/semantics review surface (no trading controls)."""
+    from app.models import PredictionMarketMapping
+
+    rows = session.execute(
+        select(PredictionMarketMapping).order_by(PredictionMarketMapping.decided_at.desc()).limit(200)
+    ).scalars()
+    latest: dict[tuple[str, str], dict] = {}
+    for m in rows:
+        key = (m.provider, m.provider_event_id)
+        if key in latest:
+            continue
+        latest[key] = {
+            "provider": m.provider, "provider_event_id": m.provider_event_id,
+            "canonical_game_id": str(m.canonical_game_id) if m.canonical_game_id else None,
+            "mapping_status": m.mapping_status, "semantics_status": m.semantics_status,
+            "reason": m.reason, "start_time_delta_seconds": m.start_time_delta_seconds,
+            "candidate_game_ids": m.candidate_game_ids or [], "decided_at": m.decided_at,
+        }
+    return {"mappings": list(latest.values()), "count": len(latest)}
+
+
+@router.post(
+    "/admin/prediction-markets/mappings/approve",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:pm-mappings", category="admin"))],
+)
+def admin_approve_mapping(
+    session: DatabaseSession, settings: AppSettings, user: AdminUser,
+    provider: str = Query(...), provider_event_id: str = Query(...),
+    canonical_game_id: UUID = Query(...),
+    semantics_status: str = Query("SEMANTICS_MATCHED"),
+    reason: str = Query("Manual admin approval"),
+):
+    """Append a MANUAL_APPROVED mapping decision. Audited, append-only, reversible
+    only by a NEW decision — never a mutation or deletion. No trading effect."""
+    from app.models import AuditEvent, PredictionMarketMapping
+
+    prior = session.scalar(select(PredictionMarketMapping).where(
+        PredictionMarketMapping.provider == provider,
+        PredictionMarketMapping.provider_event_id == provider_event_id,
+    ).order_by(PredictionMarketMapping.decided_at.desc()))
+    decision = PredictionMarketMapping(
+        provider=provider, provider_event_id=provider_event_id, canonical_game_id=canonical_game_id,
+        mapping_status="MANUAL_APPROVED", semantics_status=semantics_status, decision_source="MANUAL",
+        reason=reason, decided_by_user_id=user.id, decided_at=datetime.now(UTC),
+        supersedes_id=prior.id if prior else None,
+    )
+    session.add(decision)
+    session.add(AuditEvent(
+        actor_user_id=user.id, action="prediction_market.mapping.manual_approved",
+        entity_type="prediction_market_mapping", entity_id=None,
+        metadata_json={"provider": provider, "provider_event_id": provider_event_id,
+                       "canonical_game_id": str(canonical_game_id), "semantics_status": semantics_status},
+    ))
+    session.commit()
+    return {"status": "approved", "mapping_id": str(decision.id), "supersedes": str(prior.id) if prior else None}

@@ -128,6 +128,36 @@ class Settings(BaseSettings):
     # Code/commit identity stamped onto the immutable experiment-start record.
     build_commit: str = ""
 
+    # ------------------------------------------------------------------
+    # Prediction Market Observer (Polymarket + Kalshi) — READ-ONLY research.
+    # Provider access stays off unless explicitly armed; public display is a
+    # second, independent gate. No trading, ever. No key is committed.
+    # ------------------------------------------------------------------
+    prediction_market_observer_enabled: bool = False
+    prediction_market_public_display_enabled: bool = False
+    polymarket_enabled: bool = False
+    polymarket_market_stream_enabled: bool = False
+    polymarket_sports_stream_enabled: bool = False
+    polymarket_gamma_base_url: str = "https://gamma-api.polymarket.com"
+    polymarket_clob_base_url: str = "https://clob.polymarket.com"
+    polymarket_market_ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    kalshi_enabled: bool = False
+    kalshi_rest_polling_enabled: bool = False
+    kalshi_market_data_ws_enabled: bool = False
+    kalshi_rest_base_url: str = "https://external-api.kalshi.com/trade-api/v2"
+    kalshi_ws_url: str = "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
+    kalshi_api_key_id: str = ""
+    kalshi_private_key_path: str = ""
+    prediction_market_sports: str = "MLB,NFL"
+    prediction_market_types: str = "MONEYLINE,SPREAD,TOTAL"
+    prediction_market_discovery_minutes: int = Field(default=60, ge=1, le=1440)
+    prediction_market_snapshot_minutes: int = Field(default=10, ge=1, le=240)
+    prediction_market_max_active_markets: int = Field(default=200, ge=1, le=5000)
+    prediction_market_max_requests_per_hour: int = Field(default=600, ge=1, le=20000)
+    prediction_market_stale_seconds: int = Field(default=300, ge=10, le=86400)
+    prediction_market_min_depth: float = Field(default=50.0, ge=0)
+    prediction_market_max_spread: float = Field(default=0.10, gt=0, le=1)
+
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
     raw_data_root: Path = ASP_ROOT / "data" / "raw"
@@ -178,6 +208,14 @@ class Settings(BaseSettings):
     @property
     def odds_market_list(self) -> list[str]:
         return [market.strip() for market in self.odds_markets.split(",") if market.strip()]
+
+    @property
+    def prediction_market_sport_list(self) -> list[str]:
+        return [s.strip().upper() for s in self.prediction_market_sports.split(",") if s.strip()]
+
+    @property
+    def prediction_market_type_list(self) -> list[str]:
+        return [t.strip().upper() for t in self.prediction_market_types.split(",") if t.strip()]
 
     @property
     def quote_burst_offset_list(self) -> list[int]:
