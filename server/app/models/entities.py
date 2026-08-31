@@ -3211,6 +3211,9 @@ class ShadowExperiment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     code_commit: Mapped[str] = mapped_column(String(64), nullable=False)
     code_identity: Mapped[str] = mapped_column(String(128), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Frozen challenger-policy calibration (evidence penalties, sample sizes,
+    # checksum, evidence multiplier, caps). NULL for the V1 strict control.
+    policy_config: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -3254,6 +3257,10 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     qualification_reasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     evidence_fingerprint: Mapped[str | None] = mapped_column(String(64), unique=True)
     source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="LIVE")
+    # Exact challenger evidence breakdown (starter/lineup states, tier, applied
+    # penalties, adjusted probability/edge, raw Kelly, evidence multiplier,
+    # final stake, policy version). NULL for V1 strict-control decisions.
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     __table_args__ = (
         Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
     )

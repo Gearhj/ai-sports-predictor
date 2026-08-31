@@ -104,6 +104,176 @@ class QualificationService:
             ],
         }
 
+    # -- V2 practical-policy funnel (point-in-time, read-only) ------------
+    def funnel_v2(self, event_date: date, *, now: datetime | None = None) -> dict[str, Any]:
+        """The challenger funnel: component-explicit V2 gates, never the blunt
+        readiness composite. Read-only — no decision or position is created."""
+        from datetime import UTC, timedelta
+
+        from app.services.practical_policy import (
+            MIN_ADJUSTED_EDGE,
+            POLICY_VERSION,
+            PracticalPolicyEvaluator,
+        )
+        from app.services.shadow_experiment_service import (
+            FINAL_PREGAME_CUTOFF_MINUTES,
+            V2_DECISION_POLICY,
+            ShadowExperimentService,
+        )
+
+        now = now or datetime.now(UTC)
+        read = ReadService(self.session, self.settings)
+        games = read._live_games_for_date(event_date)
+        cards = [read.game_card(g) for g in games]
+        forecasts = [read._latest_forecast(g.id) for g in games]
+        opportunities, _ = read._daily_opportunities(games, cards, forecasts)
+        opp_by_game = {o.game_id: o for o in opportunities}
+        evaluator = PracticalPolicyEvaluator(self.session, self.settings)
+
+        gates = [
+            ("scheduled_games", "Scheduled games"),
+            ("supported_selections", "Supported selections evaluated (moneyline)"),
+            ("valid_forecast", "Valid current forecast"),
+            ("fresh_complete_quote", "Fresh complete moneyline quote"),
+            ("no_unresolved_event", "No unresolved availability event"),
+            ("starters_eligible", "Starters CONFIRMED or PROBABLE_STABLE"),
+            ("lineup_eligible", "Lineup confirmed or pending-allowed"),
+            ("adjusted_edge", f"Adjusted edge ≥ {MIN_ADJUSTED_EDGE * 100:.1f} pts"),
+            ("adjusted_ev", "Positive adjusted EV"),
+            ("qualified", "V2 qualified decision"),
+            ("positions_created", "Positions created"),
+        ]
+        counts = {key: 0 for key, _ in gates}
+        rejection: dict[str, int] = {}
+        diagnostics = {
+            "blocked_only_by_confirmed_status": 0,
+            "blocked_only_by_lineup_confirmation": 0,
+            "blocked_only_by_unsupported_market": 0,
+            "blocked_only_by_adjusted_edge": 0,
+            "blocked_by_other_evidence": 0,
+        }
+        per_game: list[dict[str, Any]] = []
+        experiment_games = [g for g in games if self._sport(g) == "MLB"]
+        counts["scheduled_games"] = len(experiment_games)
+        counts["supported_selections"] = len(experiment_games)
+
+        for game in experiment_games:
+            opp = opp_by_game.get(str(game.id))
+            forecast = next((f for g, f in zip(games, forecasts) if g.id == game.id), None)
+            views = []
+            if opp is not None:
+                views = [v for v in (opp.best, *opp.alternates) if v is not None]
+            moneyline = next((v for v in views if (v.market_type or "").upper() == "MONEYLINE"), None)
+            starts = game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)
+            cutoff = starts - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
+            # The funnel reads the slate "as at the final decision cutoff": a
+            # point-in-time evaluation, never a retroactive decision. Quote
+            # freshness is therefore anchored to min(now, cutoff), not to the
+            # moment the funnel happens to be read.
+            reference = min(now, cutoff)
+            if moneyline is not None and moneyline.quote_observed_at is not None:
+                observed = moneyline.quote_observed_at
+                observed = observed if observed.tzinfo else observed.replace(tzinfo=UTC)
+                stale_at_reference = (
+                    observed > cutoff
+                    or observed < reference - timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES)
+                )
+                moneyline = moneyline.model_copy(update={"is_stale": stale_at_reference})
+            v2 = evaluator.evaluate(
+                game, forecast, opp.availability if opp else None, moneyline,
+                now=min(now, cutoff - timedelta(seconds=1)),
+                cutoff=cutoff,
+            )
+            all_reasons = " | ".join([v2.reason, *v2.reasons]).lower()
+            passes = {
+                "valid_forecast": forecast is not None,
+                "fresh_complete_quote": moneyline is not None and not bool(getattr(moneyline, "is_stale", False)),
+                "no_unresolved_event": "scratch" not in all_reasons and "availability event" not in all_reasons,
+                "starters_eligible": bool(v2.starter_home and v2.starter_away
+                                          and v2.starter_home.eligible and v2.starter_away.eligible),
+                "lineup_eligible": bool(v2.lineup and v2.lineup.eligible_for_moneyline),
+                "adjusted_edge": v2.adjusted_edge is not None and v2.adjusted_edge >= MIN_ADJUSTED_EDGE,
+                "adjusted_ev": bool(v2.adjusted_expected_value and v2.adjusted_expected_value > 0),
+                "qualified": v2.qualified,
+            }
+            survived = True
+            failed_gate = None
+            for key, _label in gates:
+                if key in {"scheduled_games", "supported_selections", "positions_created"}:
+                    continue
+                if not survived:
+                    continue
+                if passes.get(key, False):
+                    counts[key] += 1
+                else:
+                    survived = False
+                    failed_gate = key
+                    for reason in (v2.reasons or [v2.reason]):
+                        rejection[reason] = rejection.get(reason, 0) + 1
+            # diagnostics against the V1 strict outcome
+            v1_reasons = set(opp.qualification_reasons or []) if opp else set()
+            if v1_reasons == {"Starting pitcher probable"}:
+                diagnostics["blocked_only_by_confirmed_status"] += 1
+            elif v1_reasons and v1_reasons <= {"Lineup missing", "Lineup not confirmed"}:
+                diagnostics["blocked_only_by_lineup_confirmation"] += 1
+            if opp is not None and moneyline is None and opp.best is not None:
+                diagnostics["blocked_only_by_unsupported_market"] += 1
+            if failed_gate in {"adjusted_edge", "adjusted_ev"}:
+                diagnostics["blocked_only_by_adjusted_edge"] += 1
+            elif failed_gate not in (None, "adjusted_edge", "adjusted_ev"):
+                diagnostics["blocked_by_other_evidence"] += 1
+            per_game.append({
+                "game_id": str(game.id),
+                "matchup": self._matchup(game),
+                "starts_at": _iso(game.starts_at),
+                "tier": v2.tier,
+                "recommendation_state": v2.recommendation,
+                "failed_gate": failed_gate,
+                "rejection_reasons": list(v2.reasons),
+                "starter_state_home": v2.starter_home.state if v2.starter_home else None,
+                "starter_state_away": v2.starter_away.state if v2.starter_away else None,
+                "lineup_state": v2.lineup.state if v2.lineup else None,
+                "adjusted_edge": v2.adjusted_edge,
+                "readiness": opp.readiness if opp else None,
+                "best_market": moneyline.market_type if moneyline else None,
+                "best_selection": moneyline.selection if moneyline else None,
+                "experiment_status": (opp.experiment_status if opp else "NOT_IN_EXPERIMENT"),
+                "uncertainty": opp.uncertainty if opp else None,
+            })
+
+        # Positions created by the V2 experiment for this slate (0 pre-launch).
+        from sqlalchemy import func
+
+        from app.models import OfficialAspPosition, ShadowExperimentDecision
+
+        service = ShadowExperimentService(self.session, self.settings)
+        v2_experiment = service.active_experiment(V2_DECISION_POLICY)
+        if v2_experiment is not None:
+            counts["positions_created"] = int(self.session.scalar(
+                select(func.count()).select_from(OfficialAspPosition)
+                .join(ShadowExperimentDecision, ShadowExperimentDecision.id == OfficialAspPosition.shadow_decision_id)
+                .where(
+                    OfficialAspPosition.shadow_experiment_id == v2_experiment.id,
+                    ShadowExperimentDecision.slate_date == event_date,
+                )
+            ) or 0)
+        top = sorted(rejection.items(), key=lambda kv: kv[1], reverse=True)
+        return {
+            "date": event_date.isoformat(),
+            "policy": POLICY_VERSION,
+            "experiment_market_types": list(SUPPORTED_MARKETS),
+            "steps": [{"key": k, "label": lbl, "count": counts[k]} for k, lbl in gates],
+            "qualified_selections": counts["qualified"],
+            "positions_created": counts["positions_created"],
+            "exposure_cap_exclusions": max(0, counts["qualified"] - counts["positions_created"])
+            if v2_experiment is not None and event_date >= v2_experiment.start_date else 0,
+            "top_rejection_reasons": [{"reason": r, "count": c} for r, c in top[:8]],
+            "diagnostics": diagnostics,
+            "experiment_registered": v2_experiment is not None,
+            "effective_date": v2_experiment.start_date.isoformat() if v2_experiment else None,
+            "games": per_game,
+        }
+
     # -- qualification funnel (point-in-time, read-only) -----------------
     def funnel(self, event_date: date) -> dict[str, Any]:
         read = ReadService(self.session, self.settings)

@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   AuthUser,
   BankrollData,
+  ExperimentComparison,
   DashboardData,
   GameAnalysisData,
   HealthData,
@@ -109,7 +110,14 @@ export const endpoints = {
     if (filters.source) query.set('source', filters.source)
     return apiRequest<HistoricalGameExplorerPage>(`/research/history/games?${query.toString()}`, {}, signal)
   },
-  bankroll: (signal?: AbortSignal) => apiRequest<BankrollData>('/bankroll', {}, signal),
+  bankroll: (signal?: AbortSignal, experiment?: 'v1' | 'v2' | null) => {
+    const query = new URLSearchParams()
+    if (experiment) query.set('experiment', experiment)
+    const qs = query.toString()
+    return apiRequest<BankrollData>(`/bankroll${qs ? `?${qs}` : ''}`, {}, signal)
+  },
+  experimentComparison: (signal?: AbortSignal) =>
+    apiRequest<ExperimentComparison>('/experiment/comparison', {}, signal),
   shadowBoard: (slateDate: string, signal?: AbortSignal, sport?: string | null) => {
     const query = new URLSearchParams({ date: slateDate })
     if (sport) query.set('sport', sport)
@@ -124,8 +132,11 @@ export const endpoints = {
   },
   marketPulseGame: (gameId: string, signal?: AbortSignal) =>
     apiRequest<MarketPulseGameDetail>(`/prediction-markets/games/${encodeURIComponent(gameId)}`, {}, signal),
-  qualificationFunnel: (date: string, signal?: AbortSignal) =>
-    apiRequest<QualificationFunnel>(`/experiment/qualification-funnel?date=${encodeURIComponent(date)}`, {}, signal),
+  qualificationFunnel: (date: string, signal?: AbortSignal, policy?: 'v1' | 'v2' | null) => {
+    const query = new URLSearchParams({ date })
+    if (policy) query.set('policy', policy)
+    return apiRequest<QualificationFunnel>(`/experiment/qualification-funnel?${query.toString()}`, {}, signal)
+  },
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),
   publicConfig: (signal?: AbortSignal) => apiRequest<PublicConfig>('/public/config', {}, signal),
   me: (signal?: AbortSignal) => apiRequest<AuthUser>('/auth/me', {}, signal),

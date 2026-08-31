@@ -173,8 +173,18 @@ def historical_game_explorer(
 
 
 @router.get("/bankroll", response_model=BankrollData, tags=["transparency"])
-def bankroll(session: DatabaseSession, settings: AppSettings) -> BankrollData:
-    return ReadService(session, settings).bankroll()
+def bankroll(
+    session: DatabaseSession,
+    settings: AppSettings,
+    experiment: Literal["v1", "v2"] = Query("v1"),
+) -> BankrollData:
+    return ReadService(session, settings).bankroll(experiment)
+
+
+@router.get("/experiment/comparison", tags=["experiment"])
+def experiment_comparison(session: DatabaseSession, settings: AppSettings) -> dict:
+    """Read-only V1-vs-V2 aggregates. Ledgers are never pooled."""
+    return ReadService(session, settings).experiment_comparison()
 
 
 @router.get("/shadow-board", response_model=ShadowBoardData, tags=["transparency"])
@@ -465,11 +475,34 @@ def experiment_policy(session: DatabaseSession, settings: AppSettings):
 
 @router.get("/experiment/qualification-funnel", tags=["experiment"])
 def experiment_qualification_funnel(
-    session: DatabaseSession, settings: AppSettings, event_date: date | None = Query(None, alias="date"),
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+    policy: Literal["v1", "v2"] = Query("v1"),
 ):
     from app.services.qualification_service import QualificationService
 
-    return QualificationService(session, settings).funnel(_today(event_date, settings))
+    service = QualificationService(session, settings)
+    day = _today(event_date, settings)
+    return service.funnel_v2(day) if policy == "v2" else service.funnel(day)
+
+
+@router.get(
+    "/admin/experiment/policy-counterfactual",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:counterfactual", category="admin"))],
+)
+def experiment_policy_counterfactual(
+    session: DatabaseSession, settings: AppSettings, user: AdminUser,
+    event_date: date | None = Query(None, alias="date"),
+):
+    """Read-only policy counterfactual (V1 strict / probable-stable-only /
+    lineup-pending-only / practical V2 / expanded-market read-only). Creates
+    no position, mutates nothing, uses no hindsight outcome."""
+    from app.services.policy_counterfactual import PolicyCounterfactualService
+
+    service = PolicyCounterfactualService(session, settings)
+    return service.run(dates=[event_date] if event_date else None)
 
 
 @router.get("/experiment/starter-analysis", tags=["experiment"])

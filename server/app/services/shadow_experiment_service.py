@@ -62,6 +62,12 @@ DECISION_POLICY = RECOMMENDATION_POLICY_VERSION
 AISP_BASELINE_ENGINE = "AISP_BASELINE"
 SUPPORTED_MARKETS = ["MONEYLINE"]
 
+# Practical pregame challenger (separate immutable experiment; V1 untouched).
+V2_EXPERIMENT_NAME = "ASP PRACTICAL PREGAME BANKROLL — 2026 V2"
+V2_RECOMMENDATION_POLICY_VERSION = "AISP_PRACTICAL_PREGAME_POLICY_V2"
+V2_STAKING_POLICY_VERSION = "AISP_QUARTER_KELLY_EVIDENCE_V2"
+V2_DECISION_POLICY = V2_RECOMMENDATION_POLICY_VERSION
+
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
@@ -73,11 +79,30 @@ class ShadowExperimentService:
         self.settings = settings
 
     # -- experiment start authority --------------------------------------
-    def active_experiment(self) -> ShadowExperiment | None:
+    def active_experiment(self, policy: str = DECISION_POLICY) -> ShadowExperiment | None:
+        """The active experiment for one decision policy.
+
+        Defaults to the V1 strict control so every pre-existing call site keeps
+        its exact behavior; the V2 challenger never hijacks a V1 read."""
+
         return self.session.scalar(
-            select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
-            .order_by(ShadowExperiment.version.desc()).limit(1)
+            select(ShadowExperiment).where(
+                ShadowExperiment.is_active.is_(True),
+                ShadowExperiment.decision_policy == policy,
+            ).order_by(ShadowExperiment.version.desc()).limit(1)
         )
+
+    def active_experiments(self) -> list[ShadowExperiment]:
+        """Every active experiment (V1 control first), one per decision policy."""
+
+        rows = list(self.session.scalars(
+            select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
+            .order_by(ShadowExperiment.version.desc())
+        ))
+        latest: dict[str, ShadowExperiment] = {}
+        for row in rows:
+            latest.setdefault(row.decision_policy, row)
+        return sorted(latest.values(), key=lambda row: row.version)
 
     def ensure_started(
         self, *, start_date: date, now: datetime | None = None, code_commit: str | None = None,
@@ -126,6 +151,63 @@ class ShadowExperimentService:
         self.session.flush()
         return experiment
 
+    def ensure_v2_started(
+        self, *, effective_date: date, now: datetime | None = None, code_commit: str | None = None,
+    ) -> ShadowExperiment:
+        """Register the V2 practical pregame challenger prospectively; idempotent.
+
+        The effective date must be strictly in the future (never today or
+        earlier): V2 launches only prospectively and can never backfill or
+        replay a slate. Its frozen policy calibration (penalties, checksum,
+        multiplier, caps) is persisted on the row and never rewritten.
+        """
+
+        from app.services.practical_policy import (
+            POLICY_VERSION as V2_POLICY,
+            STAKING_VERSION as V2_STAKING,
+            frozen_policy_config,
+        )
+
+        existing = self.active_experiment(V2_DECISION_POLICY)
+        if existing is not None:
+            return existing
+        now = now or datetime.now(UTC)
+        actual_local_date = _aware(now).astimezone(ZoneInfo(self.settings.display_timezone)).date()
+        if effective_date <= actual_local_date:
+            raise ValueError(
+                f"V2 effective_date must be after the current local date {actual_local_date}; "
+                "the challenger starts prospectively only"
+            )
+        commit = (code_commit or self.settings.build_commit or self._local_commit()).strip()
+        if not commit:
+            raise RuntimeError("A code commit identity is required to start the V2 experiment")
+        next_version = (self.session.scalar(select(ShadowExperiment.version).order_by(ShadowExperiment.version.desc()).limit(1)) or 0) + 1
+        experiment = ShadowExperiment(
+            name=V2_EXPERIMENT_NAME,
+            version=next_version,
+            started_at=now,
+            start_date=effective_date,
+            starting_bankroll=self.settings.shadow_virtual_bankroll,
+            sport=SUPPORTED_SPORT,
+            recommendation_policy_version=V2_POLICY,
+            staking_policy_version=V2_STAKING,
+            decision_policy=V2_DECISION_POLICY,
+            controlling_engine=AISP_BASELINE_ENGINE,
+            supported_markets=list(SUPPORTED_MARKETS),
+            kelly_fraction=self.settings.shadow_kelly_fraction,
+            unit_percentage=self.settings.shadow_unit_percentage,
+            max_position_percentage=self.settings.shadow_max_position_percentage,
+            max_same_game_percentage=self.settings.shadow_max_same_game_percentage,
+            max_daily_percentage=self.settings.shadow_max_daily_percentage,
+            code_commit=commit,
+            code_identity=f"git:{commit}",
+            is_active=True,
+            policy_config=frozen_policy_config(self.settings),
+        )
+        self.session.add(experiment)
+        self.session.flush()
+        return experiment
+
     @staticmethod
     def _local_commit() -> str:
         try:
@@ -166,14 +248,20 @@ class ShadowExperimentService:
 
     # -- freezing decisions ----------------------------------------------
     def freeze(
-        self, event_date: date, *, phase: ExperimentDecisionPhase, now: datetime | None = None,
+        self,
+        event_date: date,
+        *,
+        phase: ExperimentDecisionPhase,
+        now: datetime | None = None,
+        experiment: ShadowExperiment | None = None,
     ) -> dict[str, Any]:
-        experiment = self.active_experiment()
+        experiment = experiment or self.active_experiment()
         if experiment is None:
             return {"note": "no active experiment", "frozen": 0, "primary": 0}
         now = now or datetime.now(UTC)
         if event_date < experiment.start_date:
-            return {"note": "no historical backfill", "frozen": 0, "primary": 0}
+            return {"note": "no historical backfill", "frozen": 0, "primary": 0,
+                    "policy": experiment.decision_policy}
 
         from app.services.read_service import ReadService
 
@@ -186,6 +274,7 @@ class ShadowExperimentService:
         forecasts = [read._latest_forecast(game.id) for game in games]
         opportunities, _ = read._daily_opportunities(games, cards, forecasts)
         opportunity_by_game = {item.game_id: item for item in opportunities}
+        is_v2 = experiment.decision_policy == V2_DECISION_POLICY
 
         frozen = 0
         primary_count = 0
@@ -193,10 +282,21 @@ class ShadowExperimentService:
             if phase == ExperimentDecisionPhase.LINEUP_CONFIRMED and not self._lineup_confirmed(card):
                 continue  # capture this phase only once the lineup is actually confirmed
             cutoff = _aware(game.starts_at) - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
+            opportunity = opportunity_by_game.get(str(game.id))
+            v2 = None
+            if is_v2:
+                # Same point-in-time snapshot as V1; independent evaluation.
+                from app.services.practical_policy import PracticalPolicyEvaluator
+
+                v2 = PracticalPolicyEvaluator(self.session, self.settings).evaluate(
+                    game, forecast,
+                    getattr(opportunity, "availability", None),
+                    self._moneyline_selection(opportunity),
+                    now=now, cutoff=cutoff,
+                )
             if now <= cutoff:
                 frozen += int(self._append_decision(
-                    experiment, game, forecast, phase,
-                    opportunity_by_game.get(str(game.id)), now,
+                    experiment, game, forecast, phase, opportunity, now, v2=v2,
                 ) is not None)
             if (
                 phase == ExperimentDecisionPhase.FINAL_PREGAME
@@ -206,7 +306,8 @@ class ShadowExperimentService:
                 primary_count += 1
 
         self.session.commit()
-        return {"frozen": frozen, "primary": primary_count, "phase": phase.value, "games": len(games)}
+        return {"frozen": frozen, "primary": primary_count, "phase": phase.value,
+                "games": len(games), "policy": experiment.decision_policy}
 
     @staticmethod
     def _lineup_confirmed(card: Any) -> bool:
@@ -276,11 +377,17 @@ class ShadowExperimentService:
         return reason, list(dict.fromkeys(reasons))[:8]
 
     def _append_decision(
-        self, experiment, game, forecast, phase, opportunity, now,
+        self, experiment, game, forecast, phase, opportunity, now, *, v2=None,
     ) -> ShadowExperimentDecision | None:
         bet = self._moneyline_selection(opportunity)
-        state = bet.recommendation if bet is not None else "NO_BET"
-        reason, reasons = self._selection_evidence(opportunity, bet, forecast)
+        if v2 is not None:
+            # V2 challenger: the recommendation and reasons come from the
+            # independent practical-policy evaluation of the SAME snapshot.
+            state = v2.recommendation
+            reason, reasons = v2.reason, list(v2.reasons)
+        else:
+            state = bet.recommendation if bet is not None else "NO_BET"
+            reason, reasons = self._selection_evidence(opportunity, bet, forecast)
         version = f"{forecast.lifecycle.value.upper()} · v{forecast.version}" if forecast else None
         payload = {
             "experiment": str(experiment.id), "game": str(game.id), "phase": phase.value,
@@ -289,6 +396,8 @@ class ShadowExperimentService:
             "snapshot": bet.odds_snapshot_id if bet else None,
             "recommendation": state, "reasons": reasons,
         }
+        if v2 is not None:
+            payload["v2_evidence"] = v2.evidence_json()
         fingerprint = hashlib.sha256(json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
         ).encode("utf-8")).hexdigest()
@@ -328,11 +437,12 @@ class ShadowExperimentService:
             expected_value=bet.expected_value_fraction if bet else None,
             readiness=forecast.readiness_score if forecast else None,
             uncertainty=forecast.uncertainty if forecast else None,
-            recommendation=state if bet is not None else "NO_BET",
+            recommendation=state if (bet is not None or v2 is not None) else "NO_BET",
             recommendation_reason=reason,
             qualification_reasons=reasons,
             evidence_fingerprint=fingerprint,
             source_mode=game.source_mode,
+            evidence=v2.evidence_json() if v2 is not None else None,
         )
         self.session.add(decision)
         self.session.flush()
@@ -344,6 +454,42 @@ class ShadowExperimentService:
             return UUID(str(value)) if value else None
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def compute_position_stake(experiment: Any, decision: Any, bankroll: float) -> float | None:
+        """Pre-portfolio-cap stake for one decision under its experiment policy.
+
+        V1: quarter-Kelly on the frozen model probability with the experiment's
+        position cap. V2 (a decision carrying evidence): quarter-Kelly on the
+        ADJUSTED probability (after uncertainty + evidence penalties), times the
+        evidence multiplier, capped at the tier's position-cap fraction — all
+        values frozen on the decision at recommendation time. Zero or negative
+        Kelly remains NO_POSITION (returns None)."""
+
+        evidence = decision.evidence or None
+        if evidence is not None:
+            staking_probability = float(evidence.get("adjusted_probability") or 0.0)
+            cap_fraction = float(evidence.get("position_cap_fraction") or experiment.max_position_percentage)
+            multiplier = float(evidence.get("evidence_multiplier") or 1.0)
+        else:
+            staking_probability = float(decision.model_probability)
+            cap_fraction = experiment.max_position_percentage
+            multiplier = 1.0
+        if staking_probability <= 0:
+            return None
+        policy = StakePolicy(
+            strategy=StakingStrategy.FRACTIONAL_KELLY,
+            kelly_fraction=experiment.kelly_fraction,
+            maximum_stake_percentage=cap_fraction,
+        )
+        stake = calculate_stake(
+            bankroll,
+            policy,
+            model_probability=staking_probability,
+            decimal_odds=float(decision.decimal_odds),
+        ) * multiplier
+        stake = min(stake, bankroll * cap_fraction)
+        return stake if stake > 0 else None
 
     def _create_canonical_position(
         self,
@@ -399,17 +545,9 @@ class ShadowExperimentService:
 
         bankroll = self.current_bankroll(experiment)
         available = self._available_bankroll(experiment)
-        policy = StakePolicy(
-            strategy=StakingStrategy.FRACTIONAL_KELLY,
-            kelly_fraction=experiment.kelly_fraction,
-            maximum_stake_percentage=experiment.max_position_percentage,
-        )
-        stake = calculate_stake(
-            bankroll,
-            policy,
-            model_probability=float(decision.model_probability),
-            decimal_odds=float(decision.decimal_odds),
-        )
+        stake = self.compute_position_stake(experiment, decision, bankroll)
+        if stake is None:
+            return False
         daily_used = sum(float(row.stake) for row in self.session.scalars(
             select(OfficialAspPosition)
             .join(ShadowExperimentDecision, ShadowExperimentDecision.id == OfficialAspPosition.shadow_decision_id)
@@ -458,9 +596,20 @@ class ShadowExperimentService:
 
     # -- settlement ------------------------------------------------------
     def settle(self, event_date: date | None = None, *, now: datetime | None = None) -> dict[str, Any]:
-        experiment = self.active_experiment()
-        if experiment is None:
+        """Settle every active experiment's open positions independently."""
+
+        experiments = self.active_experiments()
+        if not experiments:
             return {"note": "no active experiment", "settled": 0}
+        total = 0
+        per_experiment: dict[str, Any] = {}
+        for experiment in experiments:
+            result = self._settle_experiment(experiment, now=now)
+            total += result["settled"]
+            per_experiment[experiment.decision_policy] = result
+        return {"settled": total, "experiments": per_experiment}
+
+    def _settle_experiment(self, experiment: ShadowExperiment, *, now: datetime | None = None) -> dict[str, Any]:
         now = now or datetime.now(UTC)
         positions = list(self.session.scalars(select(OfficialAspPosition).where(
             OfficialAspPosition.shadow_experiment_id == experiment.id,

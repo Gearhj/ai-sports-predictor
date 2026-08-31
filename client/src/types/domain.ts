@@ -165,6 +165,55 @@ export interface GameOpportunity {
   alternates: OpportunitySelection[]
   experiment_status?: 'NOT_IN_EXPERIMENT' | 'ELIGIBLE' | 'PROVISIONAL' | 'NO_POSITION' | 'FROZEN' | 'SETTLED'
   experiment_stake?: number | null
+  v2?: V2PolicyView | null
+}
+
+export interface V2PolicyView {
+  policy_version: string
+  tier: 'TIER_A_FULL_EVIDENCE' | 'TIER_B_PROBABLE_STABLE' | 'TIER_C_LINEUP_PENDING' | 'TIER_D_INELIGIBLE'
+  recommendation: string
+  reason: string
+  reasons: string[]
+  starter_state_home: string | null
+  starter_state_away: string | null
+  lineup_state: string | null
+  selection: string | null
+  raw_edge: number | null
+  starter_penalty: number
+  lineup_penalty: number
+  adjusted_edge: number | null
+  adjusted_expected_value: number | null
+  evidence_multiplier: number
+  theoretical_stake: number | null
+  experiment_effective_date: string | null
+  active: boolean
+}
+
+export interface ExperimentComparisonRow {
+  key: 'v1' | 'v2'
+  name: string
+  policy: string
+  staking_policy: string
+  status: 'ACTIVE' | 'SCHEDULED'
+  effective_date: string
+  starting_bankroll: number
+  current_bankroll: number
+  games_evaluated: number
+  decisions: number
+  qualified_decisions: number
+  positions: number
+  average_raw_edge: number | null
+  average_adjusted_edge: number | null
+  average_stake: number | null
+  settled: number
+  record: string | null
+  profit_loss: number | null
+  average_clv: number | null
+  policy_checksum: string | null
+}
+
+export interface ExperimentComparison {
+  experiments: ExperimentComparisonRow[]
 }
 
 export interface BettingBreakdownRow {
@@ -209,6 +258,8 @@ export interface OpportunitySummary {
   best_expected_value: number | null
   virtual_daily_exposure: number
   top_opportunity: string | null
+  top_v1_moneyline?: string | null
+  top_v2_moneyline?: string | null
   markets_available: string[]
   sports_available: string[]
   injury_feed_status: string
@@ -608,7 +659,7 @@ export interface BankrollData extends DataProvenance {
   policy_kelly_fraction?: number
   policy_max_stake_percentage?: number
   policy_edge_threshold_percentage?: number
-  experiment_status?: 'NOT_STARTED' | 'ACTIVE'
+  experiment_status?: 'NOT_STARTED' | 'ACTIVE' | 'SCHEDULED'
   experiment_id?: string | null
   experiment_name?: string | null
   equity_curve: Array<{ date: string; bankroll: number; benchmark: number }>
@@ -1069,14 +1120,30 @@ export interface QualificationFunnelGame {
   best_market: string | null
   best_selection: string | null
   experiment_status: string
+  tier?: string
+  starter_state_home?: string | null
+  starter_state_away?: string | null
+  lineup_state?: string | null
+  adjusted_edge?: number | null
+}
+export interface QualificationFunnelDiagnostics {
+  blocked_only_by_confirmed_status: number
+  blocked_only_by_lineup_confirmation: number
+  blocked_only_by_unsupported_market: number
+  blocked_only_by_adjusted_edge: number
+  blocked_by_other_evidence: number
 }
 export interface QualificationFunnel {
   date: string
+  policy?: string
   experiment_market_types: string[]
   steps: QualificationFunnelStep[]
   qualified_selections: number
   positions_created: number
   exposure_cap_exclusions: number
   top_rejection_reasons: Array<{ reason: string; count: number }>
+  diagnostics?: QualificationFunnelDiagnostics
+  experiment_registered?: boolean
+  effective_date?: string | null
   games: QualificationFunnelGame[]
 }

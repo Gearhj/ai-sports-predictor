@@ -1168,3 +1168,7 @@ h1, h2, h3, p { margin-top: 0; }
 .experiment-collapsible > summary { cursor: pointer; padding: 9px 14px; border-radius: 6px; background: rgba(120,130,160,.08); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .05em; }
 .experiment-collapsible[open] > summary { margin-bottom: 8px; }
 .qual-funnel__status { margin: 2px 0 10px; font-size: 13px; font-weight: 600; }
+
+/* -- dual-policy (V1 strict / V2 practical challenger) --------------------- */
+.experiment-eligibility-stack { display: flex; flex-direction: column; gap: 3px; }
+.opportunity-availability--v2 { border-top: 1px dashed rgba(120,130,160,.35); padding-top: 7px; margin-top: 2px; }

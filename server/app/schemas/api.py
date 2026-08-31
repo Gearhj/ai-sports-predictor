@@ -186,6 +186,32 @@ class AvailabilityContext(BaseModel):
     book_moved: bool | None = None
 
 
+class V2PolicyView(BaseModel):
+    """Read-only practical-policy (V2 challenger) evaluation for one game's
+    full-game moneyline. Display/transparency only — decisions and positions
+    are created solely by the audited freeze job on/after the effective date."""
+
+    policy_version: str
+    tier: str
+    recommendation: str
+    reason: str = ""
+    reasons: list[str] = Field(default_factory=list)
+    starter_state_home: str | None = None
+    starter_state_away: str | None = None
+    lineup_state: str | None = None
+    selection: str | None = None
+    # Percentage points / percent, matching the board's display convention.
+    raw_edge: float | None = None
+    starter_penalty: float = 0.0
+    lineup_penalty: float = 0.0
+    adjusted_edge: float | None = None
+    adjusted_expected_value: float | None = None
+    evidence_multiplier: float = 1.0
+    theoretical_stake: float | None = None
+    experiment_effective_date: str | None = None
+    active: bool = False
+
+
 class GameOpportunity(BaseModel):
     game_id: str
     sport: str = "MLB"
@@ -206,6 +232,8 @@ class GameOpportunity(BaseModel):
         "NOT_IN_EXPERIMENT", "ELIGIBLE", "PROVISIONAL", "NO_POSITION", "FROZEN", "SETTLED"
     ] = "NOT_IN_EXPERIMENT"
     experiment_stake: float | None = None
+    # V2 practical pregame challenger view (strict control unaffected).
+    v2: V2PolicyView | None = None
 
 
 class OpportunitySummary(BaseModel):
@@ -225,6 +253,10 @@ class OpportunitySummary(BaseModel):
     odds_quote_age_seconds: int | None = None
     odds_quota_remaining: int | None = None
     odds_scheduler_running: bool = False
+    # Distinct top candidates: the board's best (any market) stays in
+    # top_opportunity; these are the experiment-scoped moneyline candidates.
+    top_v1_moneyline: str | None = None
+    top_v2_moneyline: str | None = None
 
 
 class DashboardData(BaseModel):
@@ -612,7 +644,8 @@ class ClosingQuoteCoverage(BaseModel):
 
 class BankrollData(BaseModel):
     data_mode: DataMode
-    experiment_status: Literal["NOT_STARTED", "ACTIVE"]
+    # SCHEDULED: a prospectively registered challenger before its effective date.
+    experiment_status: Literal["NOT_STARTED", "ACTIVE", "SCHEDULED"]
     starting_bankroll: float
     current_bankroll: float
     peak_bankroll: float

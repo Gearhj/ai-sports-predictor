@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from math import isfinite
 from typing import Any
 
@@ -364,6 +365,8 @@ class ReadService:
         counts = {"QUALIFIED_BET": 0, "PROVISIONAL_EDGE": 0, "EXTREME_DISAGREEMENT": 0, "WATCH": 0, "NO_BET": 0}
         best_ev: float | None = None
         sports_available: list[str] = []
+        v1_ml_top: tuple[float, Any] | None = None
+        v2_top: Any = None
         for game, forecast in zip(games, forecasts):
             game_id = str(game.id)
             priced = candidates_by_game.get(game_id, [])
@@ -390,6 +393,24 @@ class ReadService:
                     exp_status = "NO_POSITION"
                 else:
                     exp_status = "PROVISIONAL"
+            alternate_views = [self._opportunity_view(candidate) for candidate in priced[1:]]
+            v2_view = self._v2_policy_view(
+                game, forecast, availability_by_game[game_id],
+                [view for view in (best_view, *alternate_views) if view is not None],
+                now,
+            )
+            ml_view = next(
+                (view for view in (best_view, *alternate_views)
+                 if view is not None and (view.market_type or "").upper() == "MONEYLINE"),
+                None,
+            )
+            if ml_view is not None:
+                ml_score = ml_view.opportunity_score or 0.0
+                if v1_ml_top is None or ml_score > v1_ml_top[0]:
+                    v1_ml_top = (ml_score, ml_view)
+            if v2_view is not None and v2_view.recommendation == "QUALIFIED_BET":
+                if v2_top is None or (v2_view.adjusted_edge or -999.0) > (v2_top.adjusted_edge or -999.0):
+                    v2_top = v2_view
             opportunities.append(GameOpportunity(
                 game_id=game_id,
                 sport=meta["sport"],
@@ -406,9 +427,10 @@ class ReadService:
                 model_disagreement=meta["disagreement"],
                 availability=availability_by_game[game_id],
                 best=best_view,
-                alternates=[self._opportunity_view(candidate) for candidate in priced[1:]],
+                alternates=alternate_views,
                 experiment_status=exp_status,
                 experiment_stake=exp_stake,
+                v2=v2_view,
             ))
 
         odds_last_refresh, odds_age, odds_quota, scheduler_running = self._odds_freshness(candidates_by_game, now)
@@ -433,6 +455,18 @@ class ReadService:
             odds_quote_age_seconds=odds_age,
             odds_quota_remaining=odds_quota,
             odds_scheduler_running=scheduler_running,
+            top_v1_moneyline=(
+                f"{v1_ml_top[1].selection} "
+                f"{f'{v1_ml_top[1].american_odds:+d}' if v1_ml_top[1].american_odds is not None else '—'}"
+                f"{f' · {v1_ml_top[1].sportsbook}' if v1_ml_top[1].sportsbook else ''}"
+                f" · {v1_ml_top[1].recommendation}"
+                if v1_ml_top is not None else None
+            ),
+            top_v2_moneyline=(
+                f"{v2_top.selection} · {v2_top.tier}"
+                f"{f' · adj {v2_top.adjusted_edge:+.1f} pts' if v2_top.adjusted_edge is not None else ''}"
+                if v2_top is not None else None
+            ),
         )
         return opportunities, summary
 
@@ -828,6 +862,81 @@ class ReadService:
         price = f"{best.american_odds:+d}" if best.american_odds is not None else "—"
         book = f" · {best.book}" if best.book else ""
         return f"{best.selection} {price}{book}"
+
+    def _v2_policy_view(self, game, forecast, availability, views, now):
+        """Read-only V2 practical-policy evaluation for one game's moneyline.
+
+        Point-in-time and side-effect free: it never creates a decision or
+        position — the audited freeze job does that, and only on/after the
+        challenger's prospective effective date."""
+        from datetime import timedelta as _td
+
+        from app.bankroll.service import StakePolicy, StakingStrategy, calculate_stake
+        from app.schemas.api import V2PolicyView
+        from app.services.practical_policy import POLICY_VERSION, PracticalPolicyEvaluator
+        from app.services.shadow_experiment_service import (
+            FINAL_PREGAME_CUTOFF_MINUTES,
+            V2_DECISION_POLICY,
+            ShadowExperimentService,
+        )
+
+        if game.starts_at is None:
+            return None
+        moneyline = next(
+            (view for view in views if (view.market_type or "").upper() == "MONEYLINE"), None,
+        )
+        cutoff = _aware(game.starts_at) - _td(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
+        evaluation = PracticalPolicyEvaluator(self.session, self.settings).evaluate(
+            game, forecast, availability, moneyline, now=now, cutoff=cutoff,
+        )
+        service = ShadowExperimentService(self.session, self.settings)
+        experiment = service.active_experiment(V2_DECISION_POLICY)
+        slate_date = _aware(game.starts_at).astimezone(ZoneInfo(self.settings.display_timezone)).date()
+        active = experiment is not None and slate_date >= experiment.start_date
+        stake = None
+        if evaluation.qualified and moneyline is not None and moneyline.decimal_odds:
+            bankroll = service.current_bankroll(experiment) if experiment is not None \
+                else float(self.settings.shadow_virtual_bankroll)
+            policy = StakePolicy(
+                strategy=StakingStrategy.FRACTIONAL_KELLY,
+                kelly_fraction=self.settings.shadow_kelly_fraction,
+                maximum_stake_percentage=evaluation.position_cap_fraction
+                or self.settings.shadow_max_position_percentage,
+            )
+            stake = round(min(
+                calculate_stake(
+                    bankroll, policy,
+                    model_probability=float(evaluation.adjusted_probability or 0.0),
+                    decimal_odds=float(moneyline.decimal_odds),
+                ) * evaluation.evidence_multiplier,
+                bankroll * (evaluation.position_cap_fraction or 1.0),
+            ), 2)
+
+        def pts(value):
+            return round(value * 100, 2) if value is not None else None
+
+        return V2PolicyView(
+            policy_version=POLICY_VERSION,
+            tier=evaluation.tier,
+            recommendation=evaluation.recommendation,
+            reason=evaluation.reason,
+            reasons=list(evaluation.reasons),
+            starter_state_home=evaluation.starter_home.state if evaluation.starter_home else None,
+            starter_state_away=evaluation.starter_away.state if evaluation.starter_away else None,
+            lineup_state=evaluation.lineup.state if evaluation.lineup else None,
+            selection=moneyline.selection if moneyline else None,
+            raw_edge=pts(evaluation.raw_edge),
+            starter_penalty=pts(evaluation.starter_penalty) or 0.0,
+            lineup_penalty=pts(evaluation.lineup_penalty) or 0.0,
+            adjusted_edge=pts(evaluation.adjusted_edge),
+            adjusted_expected_value=pts(evaluation.adjusted_expected_value),
+            evidence_multiplier=evaluation.evidence_multiplier,
+            theoretical_stake=stake,
+            experiment_effective_date=(
+                experiment.start_date.isoformat() if experiment is not None else None
+            ),
+            active=active,
+        )
 
     @staticmethod
     def _opportunity_view(candidate: Candidate) -> OpportunitySelection:
@@ -1521,12 +1630,12 @@ class ReadService:
         """Per-game experiment membership for the board: FROZEN / SETTLED / (none).
 
         PROVISIONAL is derived by the caller from the live recommendation state."""
-        from app.models import OfficialAspPosition, PositionSettlement, ShadowExperiment
+        from app.models import OfficialAspPosition, PositionSettlement
+        from app.services.shadow_experiment_service import ShadowExperimentService
 
-        experiment = self.session.scalar(
-            select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
-            .order_by(ShadowExperiment.version.desc()).limit(1)
-        )
+        # Scoped to the V1 strict control — a registered V2 challenger has its
+        # own ledger and must never repaint the V1 board badges.
+        experiment = ShadowExperimentService(self.session, self.settings).active_experiment()
         if experiment is None or not game_ids:
             return {}
         settled_ids = set(self.session.scalars(select(PositionSettlement.position_id)))
@@ -2167,24 +2276,48 @@ class ReadService:
             criteria_version=policy_version,
         )
 
-    def bankroll(self) -> BankrollData:
-        from app.services.shadow_experiment_service import ShadowExperimentService
+    def bankroll(self, experiment_key: str = "v1") -> BankrollData:
+        from app.services.shadow_experiment_service import (
+            V2_DECISION_POLICY,
+            V2_EXPERIMENT_NAME,
+            ShadowExperimentService,
+        )
+        from app.services.practical_policy import POLICY_VERSION as V2_POLICY
 
         service = ShadowExperimentService(self.session, self.settings)
+        if experiment_key == "v2":
+            experiment = service.active_experiment(V2_DECISION_POLICY)
+            if experiment is not None:
+                return self._experiment_bankroll(service, experiment)
+            # Honest pre-registration state: the challenger exists as policy
+            # only; no bankroll, decisions, or positions exist yet.
+            return BankrollData(
+                data_mode="empty", experiment_status="NOT_STARTED",
+                starting_bankroll=float(self.settings.shadow_virtual_bankroll),
+                current_bankroll=float(self.settings.shadow_virtual_bankroll),
+                peak_bankroll=float(self.settings.shadow_virtual_bankroll),
+                total_return=0.0, roi=0.0, max_drawdown=0.0, record="0–0–0",
+                positions_count=0, policy=V2_POLICY,
+                policy_detail="Practical pregame challenger — not yet registered.",
+                equity_curve=[], monthly=[], positions=[],
+                experiment_name=V2_EXPERIMENT_NAME,
+            )
         experiment = service.active_experiment()
         if experiment is not None:
             return self._experiment_bankroll(service, experiment)
         return self._official_bankroll()
 
     def _experiment_bankroll(self, service: Any, experiment: Any) -> BankrollData:
+        from app.core.time import local_today
         from app.schemas.api import BettingPerformance
 
         ledger = service.ledger_view(experiment)
         betting = BettingPerformance(**ledger["betting"])
         positions = [PositionSchema(**row) for row in ledger["positions"]]
+        scheduled = experiment.start_date > local_today(self.settings.display_timezone)
         return BankrollData(
             data_mode="live",
-            experiment_status="ACTIVE",
+            experiment_status="SCHEDULED" if scheduled else "ACTIVE",
             starting_bankroll=ledger["starting"], current_bankroll=ledger["current"],
             peak_bankroll=ledger["peak"], total_return=ledger["net"], roi=ledger["roi"],
             max_drawdown=-ledger["max_drawdown"] / ledger["starting"] * 100 if ledger["starting"] else 0.0,
@@ -2211,6 +2344,68 @@ class ReadService:
             closing_quote_coverage=ledger["closing_quote_coverage"],
             betting=betting,
         )
+
+    def experiment_comparison(self) -> dict[str, Any]:
+        """V1-vs-V2 side-by-side aggregates. Read-only; separate ledgers are
+        never pooled, and result/CLV fields appear only after legitimate
+        settlement."""
+        from app.models import OfficialAspPosition, PositionSettlement, ShadowExperimentDecision
+        from app.core.time import local_today
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        service = ShadowExperimentService(self.session, self.settings)
+        out: dict[str, Any] = {"experiments": []}
+        for experiment in service.active_experiments():
+            decisions = list(self.session.scalars(select(ShadowExperimentDecision).where(
+                ShadowExperimentDecision.experiment_id == experiment.id,
+            )))
+            qualified = [d for d in decisions if d.recommendation == "QUALIFIED_BET"]
+            positions = list(self.session.scalars(select(OfficialAspPosition).where(
+                OfficialAspPosition.shadow_experiment_id == experiment.id,
+            )))
+            settlements = list(self.session.scalars(
+                select(PositionSettlement)
+                .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
+                .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
+            ))
+            raw_edges = [float(d.edge) for d in decisions if d.edge is not None]
+            adjusted_edges = [
+                float((d.evidence or {}).get("adjusted_edge"))
+                for d in decisions
+                if d.evidence and (d.evidence or {}).get("adjusted_edge") is not None
+            ]
+            clvs = [float(s.closing_line_value) for s in settlements if s.closing_line_value is not None]
+            profit = sum(float(s.profit_loss) for s in settlements)
+            wins = sum(1 for s in settlements if s.result.value.upper() == "WIN")
+            losses = sum(1 for s in settlements if s.result.value.upper() == "LOSS")
+            scheduled = experiment.start_date > local_today(self.settings.display_timezone)
+            out["experiments"].append({
+                "key": "v2" if experiment.decision_policy.endswith("V2") else "v1",
+                "name": experiment.name,
+                "policy": experiment.decision_policy,
+                "staking_policy": experiment.staking_policy_version,
+                "status": "SCHEDULED" if scheduled else "ACTIVE",
+                "effective_date": experiment.start_date.isoformat(),
+                "starting_bankroll": float(experiment.starting_bankroll),
+                "current_bankroll": round(service.current_bankroll(experiment), 2),
+                "games_evaluated": len({d.game_id for d in decisions}),
+                "decisions": len(decisions),
+                "qualified_decisions": len(qualified),
+                "positions": len(positions),
+                "average_raw_edge": round(sum(raw_edges) / len(raw_edges) * 100, 2) if raw_edges else None,
+                "average_adjusted_edge": (
+                    round(sum(adjusted_edges) / len(adjusted_edges) * 100, 2) if adjusted_edges else None
+                ),
+                "average_stake": (
+                    round(sum(float(p.stake) for p in positions) / len(positions), 2) if positions else None
+                ),
+                "settled": len(settlements),
+                "record": f"{wins}–{losses}" if settlements else None,
+                "profit_loss": round(profit, 2) if settlements else None,
+                "average_clv": round(sum(clvs) / len(clvs), 3) if clvs else None,
+                "policy_checksum": (experiment.policy_config or {}).get("checksum"),
+            })
+        return out
 
     def _official_bankroll(self) -> BankrollData:
         rows = list(self.session.execute(

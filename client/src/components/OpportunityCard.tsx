@@ -156,10 +156,29 @@ export function OpportunityCard({
           </div>
           {(() => {
             const isMoneyline = /moneyline|h2h|money line/i.test(bet!.market_type)
-            return isMoneyline ? (
-              <span className="experiment-eligibility experiment-eligibility--eligible">$1,000 experiment: moneyline market</span>
-            ) : (
-              <span className="experiment-eligibility experiment-eligibility--board-only">Board opportunity — experiment supports moneyline only</span>
+            const v2 = opportunity?.v2
+            return (
+              <span className="experiment-eligibility-stack">
+                {isMoneyline ? (
+                  <span className="experiment-eligibility experiment-eligibility--eligible">V1 strict control: moneyline market</span>
+                ) : (
+                  <span className="experiment-eligibility experiment-eligibility--board-only">Board opportunity — both experiments support moneyline only</span>
+                )}
+                {v2 && (
+                  v2.recommendation === 'QUALIFIED_BET' ? (
+                    <span className="experiment-eligibility experiment-eligibility--eligible">
+                      V2 challenger: QUALIFIED · {v2.tier}
+                      {v2.adjusted_edge != null ? ` · adj ${v2.adjusted_edge > 0 ? '+' : ''}${v2.adjusted_edge.toFixed(1)} pts` : ''}
+                      {v2.theoretical_stake != null ? ` · ${formatCurrency(v2.theoretical_stake)}` : ''}
+                    </span>
+                  ) : (
+                    <span className="experiment-eligibility experiment-eligibility--board-only">
+                      V2 challenger: {v2.tier}
+                      {v2.reasons.length > 0 ? ` — ${v2.reasons[0]}` : ''}
+                    </span>
+                  )
+                )}
+              </span>
             )
           })()}
         </div>
@@ -210,6 +229,21 @@ export function OpportunityCard({
           )}
           {opportunity.availability.last_availability_update && (
             <span>Availability {formatTimestamp(opportunity.availability.last_availability_update)}</span>
+          )}
+        </div>
+      )}
+
+      {opportunity?.v2 && (
+        <div className="opportunity-availability opportunity-availability--v2">
+          <span>V2 starter evidence <b>{opportunity.v2.starter_state_home ?? '—'}{opportunity.v2.starter_state_away && opportunity.v2.starter_state_away !== opportunity.v2.starter_state_home ? ` / ${opportunity.v2.starter_state_away}` : ''}</b></span>
+          <span>V2 lineup <b>{opportunity.v2.lineup_state ?? '—'}</b></span>
+          {(opportunity.v2.starter_penalty > 0 || opportunity.v2.lineup_penalty > 0) && (
+            <span>Evidence penalties <b>
+              {opportunity.v2.starter_penalty > 0 ? `starter -${opportunity.v2.starter_penalty.toFixed(1)}` : ''}
+              {opportunity.v2.starter_penalty > 0 && opportunity.v2.lineup_penalty > 0 ? ' · ' : ''}
+              {opportunity.v2.lineup_penalty > 0 ? `lineup -${opportunity.v2.lineup_penalty.toFixed(1)}` : ''}
+              {' pts'}
+            </b></span>
           )}
         </div>
       )}

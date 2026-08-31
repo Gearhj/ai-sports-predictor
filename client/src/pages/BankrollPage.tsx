@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Beaker, BookOpenText, CalendarClock, ShieldAlert, TrendingDown } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
@@ -9,9 +10,55 @@ import { operationalToday, resolveOperationalDate } from '../services/operationa
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
-import type { BankrollData } from '../types/domain'
+import type { BankrollData, ExperimentComparison } from '../types/domain'
 
 type PositionRow = BankrollData['positions'][number]
+
+function ExperimentComparisonPanel() {
+  const [data, setData] = useState<ExperimentComparison | null>(null)
+  useEffect(() => {
+    let active = true
+    const controller = new AbortController()
+    endpoints.experimentComparison(controller.signal).then((d) => active && setData(d)).catch(() => undefined)
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [])
+  if (!data || (data.experiments?.length ?? 0) < 2) return null
+  const v1 = data.experiments.find((row) => row.key === 'v1')
+  const v2 = data.experiments.find((row) => row.key === 'v2')
+  if (!v1 || !v2) return null
+  const num = (value: number | null | undefined, suffix = '') => (value == null ? '—' : `${value}${suffix}`)
+  const rows: Array<[string, string, string]> = [
+    ['Status', v1.status, `${v2.status}${v2.status === 'SCHEDULED' ? ` · starts ${v2.effective_date}` : ''}`],
+    ['Bankroll', formatCurrency(v1.current_bankroll), formatCurrency(v2.current_bankroll)],
+    ['Games evaluated', String(v1.games_evaluated), String(v2.games_evaluated)],
+    ['Qualified decisions', String(v1.qualified_decisions), String(v2.qualified_decisions)],
+    ['Positions', String(v1.positions), String(v2.positions)],
+    ['Average raw edge', num(v1.average_raw_edge, ' pts'), num(v2.average_raw_edge, ' pts')],
+    ['Average adjusted edge', num(v1.average_adjusted_edge, ' pts'), num(v2.average_adjusted_edge, ' pts')],
+    ['Average stake', v1.average_stake == null ? '—' : formatCurrency(v1.average_stake), v2.average_stake == null ? '—' : formatCurrency(v2.average_stake)],
+    ['Record', v1.settled ? (v1.record ?? '—') : 'No settled positions', v2.settled ? (v2.record ?? '—') : 'No settled positions'],
+    ['P/L (settled only)', v1.settled ? formatSignedCurrency(v1.profit_loss ?? 0) : '—', v2.settled ? formatSignedCurrency(v2.profit_loss ?? 0) : '—'],
+    ['Average CLV (settled only)', v1.settled && v1.average_clv != null ? `${v1.average_clv}%` : '—', v2.settled && v2.average_clv != null ? `${v2.average_clv}%` : '—'],
+  ]
+  return (
+    <Panel title="V1 vs V2" eyebrow="STRICT CONTROL VS PRACTICAL CHALLENGER · SEPARATE LEDGERS — NEVER POOLED" className="section-panel">
+      <TableScroll ariaLabel="Experiment comparison">
+        <table className="data-table">
+          <thead><tr><th>Metric</th><th>{v1.name}</th><th>{v2.name}</th></tr></thead>
+          <tbody>
+            {rows.map(([label, a, b]) => (
+              <tr key={label}><td><strong>{label}</strong></td><td>{a}</td><td>{b}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </TableScroll>
+      <p className="pulse-health-meta">Result and CLV columns populate only after legitimate settlement. No profitability is claimed.</p>
+    </Panel>
+  )
+}
 
 function PositionTable({ positions, ariaLabel }: { positions: PositionRow[]; ariaLabel: string }) {
   return (
@@ -38,22 +85,44 @@ function PositionTable({ positions, ariaLabel }: { positions: PositionRow[]; ari
 }
 
 export function BankrollPage({ demo = false }: { demo?: boolean }) {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.bankroll, demo ? { demoData: demoBankroll } : {})
-  const { policy } = usePublicPolicy()
   const [searchParams, setSearchParams] = useSearchParams()
+  const experimentKey: 'v1' | 'v2' = searchParams.get('experiment') === 'v2' ? 'v2' : 'v1'
+  const loader = useMemo(
+    () => (signal?: AbortSignal) => endpoints.bankroll(signal, experimentKey),
+    [experimentKey],
+  )
+  const { data, state, loading, error, refresh } = useApiResource(loader, demo ? { demoData: demoBankroll } : {})
+  const { policy } = usePublicPolicy()
   const funnelDate = resolveOperationalDate(searchParams.get('date'))
   const setFunnelDate = (next: string) => {
     const params = new URLSearchParams(searchParams)
     params.set('date', next)
     setSearchParams(params)
   }
-  const experimentIsActive = demo || data?.experiment_status === 'ACTIVE'
+  const setExperiment = (next: 'v1' | 'v2') => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'v2') params.set('experiment', 'v2')
+    else params.delete('experiment')
+    setSearchParams(params)
+  }
+  const experimentIsActive = demo || data?.experiment_status === 'ACTIVE' || data?.experiment_status === 'SCHEDULED'
+
+  const selector = !demo && (
+    <div className="tab-bar" role="tablist" aria-label="Experiment selector">
+      <button role="tab" aria-selected={experimentKey === 'v1'} className={experimentKey === 'v1' ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setExperiment('v1')}>Strict control — V1</button>
+      <button role="tab" aria-selected={experimentKey === 'v2'} className={experimentKey === 'v2' ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setExperiment('v2')}>Practical pregame challenger — V2</button>
+    </div>
+  )
+  const headerEyebrow = demo
+    ? 'ILLUSTRATIVE EXPERIMENT EXAMPLE'
+    : experimentKey === 'v2' ? 'PRACTICAL PREGAME CHALLENGER — V2' : 'THE OFFICIAL ASP EXPERIMENT · STRICT CONTROL — V1'
 
   if (!data || state === 'unavailable' || state === 'loading' || (!experimentIsActive && (state === 'empty' || data.experiment_status === 'NOT_STARTED'))) {
     const shownState = !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
     return (
       <div className="page bankroll-page">
-        <PageHeader eyebrow="THE OFFICIAL ASP EXPERIMENT" title="Can AI Beat the Sportsbooks?" description="A transparent virtual-bankroll forecasting experiment." actions={<ExperimentBadge />} />
+        <PageHeader eyebrow={headerEyebrow} title="Can AI Beat the Sportsbooks?" description="A transparent virtual-bankroll forecasting experiment." actions={<ExperimentBadge />} />
+        {selector}
         <DataModeBanner state={shownState} loading={loading} error={error} onRetry={refresh} />
         {shownState === 'empty' && (
           <section className="metric-grid metric-grid--three empty-bankroll-summary" aria-label="Official experiment opening state">
@@ -62,7 +131,13 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
             <MetricCard label="Official positions" value={data?.positions_count ?? 0} detail="No positions published" />
           </section>
         )}
-        <DataStatePanel state={shownState} emptyTitle="The official experiment has not started" emptyDetail="No official live positions have been published. The opening bankroll is not a performance result." />
+        <DataStatePanel
+          state={shownState}
+          emptyTitle={experimentKey === 'v2' ? 'The V2 practical challenger is not registered' : 'The official experiment has not started'}
+          emptyDetail={experimentKey === 'v2'
+            ? 'The practical pregame challenger has not been registered. When registered it starts prospectively on the next Eastern operational date with its own separate $1,000 virtual bankroll.'
+            : 'No official live positions have been published. The opening bankroll is not a performance result.'}
+        />
       </div>
     )
   }
@@ -95,7 +170,8 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
   return (
     <div className="page bankroll-page">
       {/* 1. Title + research disclosure */}
-      <PageHeader eyebrow={demo ? 'ILLUSTRATIVE EXPERIMENT EXAMPLE' : 'THE OFFICIAL ASP EXPERIMENT'} title="Can AI Beat the Sportsbooks?" description={demo ? 'Example positions demonstrate the ledger; these are not live or historical results.' : 'A transparent $1,000 virtual-bankroll forecasting experiment. No deposits. No withdrawals. No deleted losses.'} actions={<ExperimentBadge />} />
+      <PageHeader eyebrow={headerEyebrow} title="Can AI Beat the Sportsbooks?" description={demo ? 'Example positions demonstrate the ledger; these are not live or historical results.' : 'A transparent $1,000 virtual-bankroll forecasting experiment. No deposits. No withdrawals. No deleted losses.'} actions={<ExperimentBadge />} />
+      {selector}
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
       {/* 2. Bankroll / open / settled — the first visible decision area */}
@@ -118,7 +194,12 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
       </section>
 
       {/* 4. Current experiment state */}
-      {!hasSettled && (
+      {data.experiment_status === 'SCHEDULED' ? (
+        <div className="experiment-collecting-state" role="status">
+          <CalendarClock size={19} />
+          <div><strong>SCHEDULED · PROSPECTIVE START</strong><span>The practical challenger is registered and starts prospectively — no retroactive decision or position will ever be created for an earlier slate.</span></div>
+        </div>
+      ) : !hasSettled && (
         <div className="experiment-collecting-state" role="status">
           <CalendarClock size={19} />
           <div><strong>ACTIVE · COLLECTING DATA</strong><span>The experiment is live. ROI, yield, and closing-line performance remain unpublished until eligible positions settle.</span></div>
@@ -126,14 +207,18 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
       )}
       <div className="experiment-state-strip">
         <strong>{data.experiment_name ?? (demo ? 'Illustrative experiment example' : 'Experiment name unavailable')}</strong>
-        <small>ID {data.experiment_id ?? 'unavailable'} · Started {data.experiment_start ?? 'unavailable'} · Engine {data.controlling_engine ?? 'unavailable'}</small>
+        <small>ID {data.experiment_id ?? 'unavailable'} · Started {data.experiment_start ?? 'unavailable'} · Engine {data.controlling_engine ?? 'unavailable'} · Policy {data.policy ?? 'unavailable'}</small>
         <small>{settledCount} settled / {openCount} open · {data.no_bet_days ?? 0} NO-BET days · Every position remains in the public ledger.</small>
       </div>
+
+      {/* 4b. V1 vs V2 comparison (separate ledgers, never pooled) */}
+      {!demo && <ExperimentComparisonPanel />}
 
       {/* 5. Selected-date qualification funnel */}
       {!demo && (
         <QualificationFunnel
           date={funnelDate}
+          policy={experimentKey}
           nav={<OperationalDateNav date={funnelDate} onChange={setFunnelDate} ariaLabel="Qualification funnel date" />}
         />
       )}

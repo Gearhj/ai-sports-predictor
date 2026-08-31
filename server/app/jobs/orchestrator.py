@@ -90,6 +90,7 @@ AVAILABLE_JOBS = {
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
     "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
     "settle-shadow-experiment": "Settle $1,000 Shadow Experiment Positions",
+    "register-practical-experiment-v2": "Register Practical Pregame Challenger (V2, prospective)",
     "discover-prediction-markets": "Discover Polymarket + Kalshi Sports Markets",
     "refresh-prediction-market-snapshots": "Refresh Prediction-Market Snapshots",
     "compute-prediction-market-consensus": "Compute Prediction-Market Consensus",
@@ -209,6 +210,7 @@ class JobOrchestrator:
             "backfill-prediction-market-history": self._pm_backfill,
             "freeze-shadow-experiment": self.freeze_shadow_experiment,
             "settle-shadow-experiment": self.settle_shadow_experiment,
+            "register-practical-experiment-v2": self.register_practical_experiment_v2,
         }
         return await handlers[name](event_date)
 
@@ -895,13 +897,45 @@ class JobOrchestrator:
         service = ShadowExperimentService(self.session, self.settings)
         service.ensure_started(start_date=event_date, code_commit=self.settings.build_commit or None)
         self.session.commit()
-        phases: dict[str, Any] = {}
+        # Every active experiment (V1 strict control + any registered
+        # challenger) is evaluated exactly once from the same point-in-time
+        # snapshot; each freeze() call is independently idempotent and a
+        # challenger's pre-effective-date slates are skipped inside freeze().
+        results: dict[str, Any] = {}
         primary = 0
-        for phase in ExperimentDecisionPhase:
-            result = service.freeze(event_date, phase=phase)
-            phases[phase.value] = result
-            primary += int(result.get("primary", 0))
-        return {"records": primary, "phases": phases}
+        for experiment in service.active_experiments():
+            phases: dict[str, Any] = {}
+            for phase in ExperimentDecisionPhase:
+                result = service.freeze(event_date, phase=phase, experiment=experiment)
+                phases[phase.value] = result
+                primary += int(result.get("primary", 0))
+            results[experiment.decision_policy] = phases
+        return {"records": primary, "experiments": results}
+
+    async def register_practical_experiment_v2(self, event_date: date) -> dict[str, Any]:
+        """Register the V2 practical pregame challenger prospectively (idempotent).
+
+        Effective no earlier than the NEXT Eastern operational date; never
+        retroactive. The frozen policy calibration is persisted on the row."""
+        from app.services.shadow_experiment_service import ShadowExperimentService
+
+        service = ShadowExperimentService(self.session, self.settings)
+        effective = max(event_date, local_today(self.settings.display_timezone)) + timedelta(days=1)
+        experiment = service.ensure_v2_started(
+            effective_date=effective, code_commit=self.settings.build_commit or None,
+        )
+        self.session.commit()
+        config = experiment.policy_config or {}
+        return {
+            "records": 1,
+            "experiment_id": str(experiment.id),
+            "name": experiment.name,
+            "version": experiment.version,
+            "effective_date": experiment.start_date.isoformat(),
+            "policy": experiment.decision_policy,
+            "staking_policy": experiment.staking_policy_version,
+            "policy_checksum": config.get("checksum"),
+        }
 
     async def settle_shadow_experiment(self, event_date: date) -> dict[str, Any]:
         """Settle the $1,000 shadow experiment's primary positions from real finals."""

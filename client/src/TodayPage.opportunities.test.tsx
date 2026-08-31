@@ -57,6 +57,15 @@ const opportunities: GameOpportunity[] = [
     availability: avail({ lineup_status: 'CONFIRMED', lineup_complete: true, starting_pitcher_status: 'CONFIRMED', injury_feed_authoritative: true, production_injury_coverage: true, unavailable_players: 0, last_availability_update: '2026-08-27T14:50:00Z', last_availability_event: 'LINEUP_CONFIRMED', rescored: true, forecast_before: 52, forecast_after: 55, edge_before: 2.4, edge_after: 4.0, book_moved: true }),
     best: sel({ market_type: 'Moneyline', selection: 'QUAL-ML', american_odds: 120, expected_value: 22.5, opportunity_score: 84, virtual_stake: 10, potential_profit: 12, total_return: 22 }),
     alternates: [sel({ recommendation: 'WATCH', market_type: 'Total', selection: 'ALT-OVER-85', line: 8.5, american_odds: -110, opportunity_score: 30, virtual_stake: 0, potential_profit: 0, total_return: 0 })],
+    v2: {
+      policy_version: 'AISP_PRACTICAL_PREGAME_POLICY_V2', tier: 'TIER_B_PROBABLE_STABLE',
+      recommendation: 'QUALIFIED_BET', reason: 'V2 TIER_B qualifies.', reasons: [],
+      starter_state_home: 'PROBABLE_STABLE', starter_state_away: 'PROBABLE_STABLE',
+      lineup_state: 'CONFIRMED_COMPLETE', selection: 'QUAL-ML',
+      raw_edge: 8.0, starter_penalty: 2.0, lineup_penalty: 0,
+      adjusted_edge: 4.5, adjusted_expected_value: 13.0, evidence_multiplier: 0.5,
+      theoretical_stake: 2.5, experiment_effective_date: '2026-09-01', active: false,
+    },
   },
   {
     game_id: g1.id, sport: 'MLB', recommendation_state: 'PROVISIONAL_EDGE', review_required: false,
@@ -107,6 +116,8 @@ const dashboardPayload = {
     qualified: 1, provisional: 1, review_required: 1, watch: 1, no_bet: 1,
     best_expected_value: 67.8, virtual_daily_exposure: 10,
     top_opportunity: 'QUAL-ML +120 · BookX',
+    top_v1_moneyline: 'QUAL-ML +120 · BookX · QUALIFIED_BET',
+    top_v2_moneyline: 'QUAL-ML · TIER_B_PROBABLE_STABLE · adj +4.5 pts',
     markets_available: ['Moneyline', 'Run line', 'Total'], sports_available: ['MLB'],
     injury_feed_status: 'INJURY_FEED_NOT_CONFIGURED', injury_feed_authoritative: false,
     odds_last_refresh: '2026-08-27T14:57:00Z', odds_quote_age_seconds: 18000, odds_quota_remaining: 488, odds_scheduler_running: false,
@@ -215,7 +226,40 @@ describe('Complete slate + multi-sport board', () => {
     expect(within(summary).getByText('Review required').nextSibling).toHaveTextContent('1')
     expect(within(summary).getByText('Watchlist').nextSibling).toHaveTextContent('1')
     expect(within(summary).getByText('Passes').nextSibling).toHaveTextContent('1')
-    expect(within(summary).getByText(/QUAL-ML \+120/)).toBeInTheDocument()
+    expect(within(summary).getAllByText(/QUAL-ML \+120/).length).toBeGreaterThan(0)
+  })
+
+  it('separates the board, V1-eligible, and V2-eligible top candidates', async () => {
+    stub()
+    render(<App />)
+    const summary = await screen.findByRole('region', { name: /Daily opportunity summary/i })
+    expect(within(summary).getByText('Best board opportunity').nextSibling).toHaveTextContent('QUAL-ML +120 · BookX')
+    expect(within(summary).getByText('Best V1-eligible moneyline').nextSibling).toHaveTextContent('QUALIFIED_BET')
+    expect(within(summary).getByText('Best V2-eligible moneyline').nextSibling).toHaveTextContent('TIER_B_PROBABLE_STABLE')
+  })
+
+  it('shows V2 evidence states, penalties, and support lines on the card', async () => {
+    stub()
+    render(<App />)
+    const featuredRegion = await featured()
+    const qualifiedCard = within(featuredRegion).getAllByRole('article')[0]
+    // V2 challenger support line with tier, adjusted edge, and reduced stake.
+    expect(within(qualifiedCard).getByText(/V2 challenger: QUALIFIED · TIER_B_PROBABLE_STABLE/)).toBeInTheDocument()
+    expect(within(qualifiedCard).getByText(/adj \+4\.5 pts/)).toBeInTheDocument()
+    // V2 evidence chips: starter state, lineup state, exact penalty.
+    expect(within(qualifiedCard).getByText(/V2 starter evidence/)).toBeInTheDocument()
+    expect(within(qualifiedCard).getByText('PROBABLE_STABLE')).toBeInTheDocument()
+    expect(within(qualifiedCard).getByText('CONFIRMED_COMPLETE')).toBeInTheDocument()
+    expect(within(qualifiedCard).getByText(/starter -2\.0/)).toBeInTheDocument()
+  })
+
+  it('never presents a non-moneyline board selection as experiment-eligible', async () => {
+    stub()
+    render(<App />)
+    const slate = await completeSlate()
+    // The run-line card carries the unsupported-market explanation.
+    expect(within(slate).getAllByText(/both experiments support moneyline only/i).length).toBeGreaterThan(0)
+    expect(within(slate).queryByText('V1 strict control: moneyline market · Run line')).not.toBeInTheDocument()
   })
 
   it('does not surface the deferred paid injury feed on the public product', async () => {

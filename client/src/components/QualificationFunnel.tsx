@@ -15,29 +15,32 @@ export function QualificationFunnel({
   date,
   compact = false,
   nav,
+  policy = 'v1',
 }: {
   date: string
   compact?: boolean
   nav?: ReactNode
+  policy?: 'v1' | 'v2'
 }) {
   const [data, setData] = useState<FunnelData | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const eyebrowLabel = policy === 'v2' ? 'V2 PRACTICAL CHALLENGER' : '$1,000 EXPERIMENT · V1 STRICT CONTROL'
 
   useEffect(() => {
     let active = true
     const controller = new AbortController()
     setError(null)
     endpoints
-      .qualificationFunnel(date, controller.signal)
+      .qualificationFunnel(date, controller.signal, policy)
       .then((d) => active && setData(d))
       .catch((e) => active && setError(String(e?.message ?? e)))
     return () => {
       active = false
       controller.abort()
     }
-  }, [date])
+  }, [date, policy])
 
-  if (error) return <Panel title="Qualification funnel" eyebrow={`$1,000 EXPERIMENT · ${formatDate(date)}`}>{nav}<p className="empty-hint">{error}</p></Panel>
+  if (error) return <Panel title="Qualification funnel" eyebrow={`${eyebrowLabel} · ${formatDate(date)}`}>{nav}<p className="empty-hint">{error}</p></Panel>
   if (!data || !Array.isArray(data.steps)) return null
 
   const first = data.steps[0]?.count || 1
@@ -57,11 +60,17 @@ export function QualificationFunnel({
   return (
     <Panel
       title="Qualification funnel"
-      eyebrow={`$1,000 EXPERIMENT · ${formatDate(data.date)}`}
+      eyebrow={`${eyebrowLabel} · ${formatDate(data.date)}`}
       className="section-panel"
       action={<span className="info-label"><Filter size={13} /> Point-in-time · read-only</span>}
     >
       {nav}
+      {policy === 'v2' && data.experiment_registered === false && (
+        <p className="pulse-health-meta">Read-only V2 policy preview — the challenger experiment is not yet registered; no decision or position is created.</p>
+      )}
+      {policy === 'v2' && data.experiment_registered && data.effective_date && (
+        <p className="pulse-health-meta">V2 effective from {formatDate(data.effective_date)} (prospective only — earlier slates are previews).</p>
+      )}
       <p className="qual-funnel__status">{slateStatus}</p>
       <div className="qual-funnel">
         {steps.map((step) => (
@@ -82,6 +91,15 @@ export function QualificationFunnel({
           {data.top_rejection_reasons.slice(0, compact ? 2 : 5).map((r) => `${r.reason} (${r.count})`).join(' · ')}
         </p>
       )}
+      {data.diagnostics && (
+        <p className="pulse-health-meta">
+          Diagnostics: blocked only by CONFIRMED status {data.diagnostics.blocked_only_by_confirmed_status} ·
+          {' '}only by lineup confirmation {data.diagnostics.blocked_only_by_lineup_confirmation} ·
+          {' '}only by unsupported market {data.diagnostics.blocked_only_by_unsupported_market} ·
+          {' '}only by adjusted edge {data.diagnostics.blocked_only_by_adjusted_edge} ·
+          {' '}other evidence {data.diagnostics.blocked_by_other_evidence}
+        </p>
+      )}
       {!compact && (
         <details className="opportunity-blockers">
           <summary><span className="opportunity-blockers__label">Per-game evidence</span><span className="opportunity-blockers__count">{data.games.length} games</span></summary>
@@ -89,7 +107,11 @@ export function QualificationFunnel({
             {data.games.map((g) => (
               <li key={g.game_id}>
                 {g.matchup} · <b>{g.recommendation_state}</b>
+                {g.tier ? ` · ${g.tier}` : ''}
                 {g.failed_gate ? ` · first blocker: ${g.failed_gate}` : ''}
+                {g.starter_state_home ? ` · starters ${g.starter_state_home}/${g.starter_state_away ?? '—'}` : ''}
+                {g.lineup_state ? ` · lineup ${g.lineup_state}` : ''}
+                {g.adjusted_edge != null ? ` · adj edge ${(g.adjusted_edge * 100).toFixed(1)} pts` : ''}
                 {g.readiness != null ? ` · readiness ${Math.round(g.readiness)}` : ''}
               </li>
             ))}
