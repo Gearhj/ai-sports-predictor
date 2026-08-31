@@ -22,6 +22,7 @@ from app.models import (
     PredictionMarketAlert,
     PredictionMarketConsensusSnapshot,
     PredictionMarketContract,
+    PredictionMarketEvent,
     PredictionMarketMapping,
     PredictionMarketSnapshot,
     Team,
@@ -80,6 +81,36 @@ class PredictionMarketReadService:
             rows.append(row)
         rows.sort(key=lambda r: (r.starts_at or datetime.max.replace(tzinfo=UTC)))
         now = datetime.now(UTC)
+        providers = self._provider_health_list()
+        observer_enabled = self.settings.prediction_market_observer_enabled
+        degraded = [p for p in providers if (p.last_job_status or "").lower() == "failed"]
+        if not observer_enabled:
+            board_state = "OBSERVER_DISABLED"
+            reason = ("The backend is healthy but the Prediction Market Observer is disabled "
+                      "(PREDICTION_MARKET_OBSERVER_ENABLED=false); no discovery or snapshots run.")
+        elif rows:
+            board_state, reason = "ELIGIBLE_MARKETS", f"{len(rows)} mapped game(s) with persisted market snapshots."
+        elif degraded:
+            board_state = "PROVIDER_DEGRADED"
+            reason = f"Provider(s) {', '.join(p.provider for p in degraded)} last audited job failed: {degraded[0].last_error or 'see admin health'}."
+        else:
+            board_state = "PROVIDERS_HEALTHY_ZERO_MARKETS"
+            events = sum(p.events_inspected for p in providers)
+            markets = sum(p.markets_inspected for p in providers)
+            mapped = sum(p.mapped_markets for p in providers)
+            unresolved = sum(p.unresolved_markets for p in providers)
+            reason = (
+                f"Providers reachable but no semantically comparable per-game market is currently available "
+                f"({events} events / {markets} markets inspected; {mapped} mapped, {unresolved} unresolved). "
+                "This is a healthy zero-market state — no demo data is substituted."
+                if (events or markets) else
+                "Observer is armed but no discovery has persisted governed sports markets yet for this date."
+            )
+        next_discovery = None
+        if observer_enabled and providers:
+            last = max((p.last_discovery_at for p in providers if p.last_discovery_at), default=None)
+            if last is not None:
+                next_discovery = _aware(last) + timedelta(minutes=self.settings.prediction_market_discovery_minutes)
         summary = {
             "games": len(rows),
             "mapped": sum(1 for r in rows if r.mapping_status in {"EXACT", "MANUAL_APPROVED"}),
@@ -92,7 +123,9 @@ class PredictionMarketReadService:
             data_mode="live" if rows else "empty", date=event_date, sport=sport,
             sports_available=sorted(sports_available),
             public_display_enabled=self.settings.prediction_market_public_display_enabled,
-            rows=rows, summary=summary,
+            observer_enabled=observer_enabled, board_state=board_state, state_reason=reason,
+            providers=providers, next_discovery_at=next_discovery,
+            semantics_review_count=self._semantics_review_count(), rows=rows, summary=summary,
         )
 
     def _row(self, game: Game) -> MarketPulseRow | None:
@@ -318,38 +351,61 @@ class PredictionMarketReadService:
             data_mode="live" if alerts else "empty", date=event_date, sport=sport, alerts=alerts,
         )
 
-    def health_summary(self) -> PredictionMarketHealthSummary:
-        def provider_health(provider: str, enabled: bool, mode: str) -> ProviderHealth:
-            last_run = self.session.scalar(select(IngestionRun).where(IngestionRun.source == provider)
-                                           .order_by(IngestionRun.completed_at.desc().nulls_last()))
-            last_snap = self.session.scalar(select(func.max(PredictionMarketSnapshot.aisp_received_at)).where(
-                PredictionMarketSnapshot.provider == provider))
-            subscribed = self.session.scalar(select(func.count(func.distinct(PredictionMarketContract.provider_market_id)))
-                                             .where(PredictionMarketContract.provider == provider)) or 0
-            return ProviderHealth(
-                provider=provider, enabled=enabled, connection_mode=mode,
-                last_discovery_at=_aware(last_run.completed_at) if last_run else None,
-                last_snapshot_at=_aware(last_snap), subscribed_markets=int(subscribed),
-                last_error=last_run.error_message if last_run else None,
-                status="ACTIVE" if last_snap else ("ARMED" if enabled else "IDLE"),
-            )
+    def _provider_health(self, provider: str, enabled: bool, mode: str) -> ProviderHealth:
+        last_run = self.session.scalar(select(IngestionRun).where(IngestionRun.source == provider)
+                                       .order_by(IngestionRun.completed_at.desc().nulls_last()))
+        last_snap = self.session.scalar(select(func.max(PredictionMarketSnapshot.aisp_received_at)).where(
+            PredictionMarketSnapshot.provider == provider))
+        subscribed = self.session.scalar(select(func.count(func.distinct(PredictionMarketContract.provider_market_id)))
+                                         .where(PredictionMarketContract.provider == provider)) or 0
+        events = self.session.scalar(select(func.count(func.distinct(PredictionMarketEvent.provider_event_id)))
+                                     .where(PredictionMarketEvent.provider == provider)) or 0
+        mapped = self._provider_mapping_count(provider, {"EXACT", "MANUAL_APPROVED"})
+        unresolved = self._provider_mapping_count(provider, {"UNRESOLVED", "AMBIGUOUS", "REVIEW_REQUIRED", "REJECTED"})
+        last_status = last_run.status.value if last_run and last_run.status is not None else None
+        return ProviderHealth(
+            provider=provider, enabled=enabled, connection_mode=mode,
+            last_discovery_at=_aware(last_run.completed_at) if last_run else None,
+            last_snapshot_at=_aware(last_snap), subscribed_markets=int(subscribed),
+            last_error=last_run.error_message if last_run else None,
+            status="ACTIVE" if last_snap else ("ARMED" if enabled else "IDLE"),
+            events_inspected=int(events), markets_inspected=int(subscribed),
+            eligible_game_markets=int(mapped), mapped_markets=int(mapped), unresolved_markets=int(unresolved),
+            last_job_status=last_status,
+        )
 
+    def _provider_health_list(self) -> list[ProviderHealth]:
+        return [
+            self._provider_health("POLYMARKET", self.settings.polymarket_enabled,
+                                  "STREAMING" if self.settings.polymarket_market_stream_enabled else "REST_ONLY"),
+            self._provider_health("KALSHI", self.settings.kalshi_enabled,
+                                  "STREAMING" if self.settings.kalshi_market_data_ws_enabled else "REST_ONLY"),
+        ]
+
+    def _provider_mapping_count(self, provider: str, statuses: set[str]) -> int:
+        rows = self.session.execute(select(
+            PredictionMarketMapping.provider_event_id, PredictionMarketMapping.mapping_status,
+        ).where(PredictionMarketMapping.provider == provider).order_by(PredictionMarketMapping.decided_at.desc())).all()
+        seen: dict[str, str] = {}
+        for event_id, status in rows:
+            seen.setdefault(event_id, status)
+        return sum(1 for v in seen.values() if v in statuses)
+
+    def _semantics_review_count(self) -> int:
+        return int(self.session.scalar(select(func.count()).select_from(PredictionMarketMapping).where(
+            PredictionMarketMapping.semantics_status == "SEMANTICS_REVIEW_REQUIRED")) or 0)
+
+    def health_summary(self) -> PredictionMarketHealthSummary:
         stale = self.session.scalar(select(func.count()).select_from(PredictionMarketSnapshot).where(
             PredictionMarketSnapshot.quote_fresh.is_(False))) or 0
         return PredictionMarketHealthSummary(
             data_mode="live",
             observer_enabled=self.settings.prediction_market_observer_enabled,
             public_display_enabled=self.settings.prediction_market_public_display_enabled,
-            providers=[
-                provider_health("POLYMARKET", self.settings.polymarket_enabled,
-                                "STREAMING" if self.settings.polymarket_market_stream_enabled else "REST_ONLY"),
-                provider_health("KALSHI", self.settings.kalshi_enabled,
-                                "STREAMING" if self.settings.kalshi_market_data_ws_enabled else "REST_ONLY"),
-            ],
+            providers=self._provider_health_list(),
             unresolved_mappings=self._mapping_count("UNRESOLVED"),
             review_required_mappings=self._mapping_count("REVIEW_REQUIRED"),
-            semantics_review_count=int(self.session.scalar(select(func.count()).select_from(PredictionMarketMapping).where(
-                PredictionMarketMapping.semantics_status == "SEMANTICS_REVIEW_REQUIRED")) or 0),
+            semantics_review_count=self._semantics_review_count(),
             stale_markets=int(stale),
             total_contracts=int(self.session.scalar(select(func.count()).select_from(PredictionMarketContract)) or 0),
             total_snapshots=int(self.session.scalar(select(func.count()).select_from(PredictionMarketSnapshot)) or 0),

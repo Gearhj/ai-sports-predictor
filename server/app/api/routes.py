@@ -447,3 +447,33 @@ def admin_approve_mapping(
     ))
     session.commit()
     return {"status": "approved", "mapping_id": str(decision.id), "supersedes": str(prior.id) if prior else None}
+
+
+# ==========================================================================
+# Qualification transparency — public, DB-only reads (ZERO provider calls).
+# Read-only funnel + exact active policy + starter-gate audit. Never loosens a
+# threshold, never creates a position, never inspects an outcome.
+# ==========================================================================
+@router.get("/experiment/policy", tags=["experiment"])
+def experiment_policy(session: DatabaseSession, settings: AppSettings):
+    from app.services.qualification_service import QualificationService
+
+    return QualificationService(session, settings).policy_report()
+
+
+@router.get("/experiment/qualification-funnel", tags=["experiment"])
+def experiment_qualification_funnel(
+    session: DatabaseSession, settings: AppSettings, event_date: date | None = Query(None, alias="date"),
+):
+    from app.services.qualification_service import QualificationService
+
+    return QualificationService(session, settings).funnel(_today(event_date, settings))
+
+
+@router.get("/experiment/starter-analysis", tags=["experiment"])
+def experiment_starter_analysis(
+    session: DatabaseSession, settings: AppSettings, event_date: date | None = Query(None, alias="date"),
+):
+    from app.services.qualification_service import QualificationService
+
+    return QualificationService(session, settings).starter_gate_analysis(_today(event_date, settings))

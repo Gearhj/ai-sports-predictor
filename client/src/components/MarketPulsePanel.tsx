@@ -20,13 +20,15 @@ export function MarketPulsePanel({ gameId, demo = false }: { gameId: string; dem
 
   useEffect(() => {
     let active = true
+    const controller = new AbortController()
     endpoints
-      .marketPulseGame(gameId)
+      .marketPulseGame(gameId, controller.signal)
       .then((d) => active && setData(d))
       .catch(() => active && setData(null))
       .finally(() => active && setLoaded(true))
     return () => {
       active = false
+      controller.abort()
     }
   }, [gameId])
 

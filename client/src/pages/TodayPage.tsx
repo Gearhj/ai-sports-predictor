@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { OpportunityCard } from '../components/OpportunityCard'
+import { QualificationFunnel } from '../components/QualificationFunnel'
 import { DataModeBanner, DataStatePanel, formatCurrency, PageHeader } from '../components/ui'
 import { demoDashboard } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
@@ -187,6 +188,8 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
           <button key={sport} type="button" role="tab" aria-selected={activeSport === sport} className={activeSport === sport ? 'is-active' : ''} onClick={() => setSportFilter(sport)}>{SPORT_LABEL[sport] ?? sport}</button>
         ))}
       </div>
+
+      {!demo && <QualificationFunnel date={data.date} compact />}
 
       {topOpportunities.length > 0 && (
         <section aria-label="Today's best opportunities">

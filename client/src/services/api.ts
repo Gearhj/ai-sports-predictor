@@ -12,6 +12,7 @@ import type {
   MarketPulseBoard,
   MarketPulseGameDetail,
   PerformanceData,
+  QualificationFunnel,
   ProspectiveRescoreBoard,
   PublicConfig,
   ShadowBoardData,
@@ -123,6 +124,8 @@ export const endpoints = {
   },
   marketPulseGame: (gameId: string, signal?: AbortSignal) =>
     apiRequest<MarketPulseGameDetail>(`/prediction-markets/games/${encodeURIComponent(gameId)}`, {}, signal),
+  qualificationFunnel: (date: string, signal?: AbortSignal) =>
+    apiRequest<QualificationFunnel>(`/experiment/qualification-funnel?date=${encodeURIComponent(date)}`, {}, signal),
   health: (signal?: AbortSignal) => apiRequest<HealthData>('/health/sources', {}, signal),
   publicConfig: (signal?: AbortSignal) => apiRequest<PublicConfig>('/public/config', {}, signal),
   me: (signal?: AbortSignal) => apiRequest<AuthUser>('/auth/me', {}, signal),

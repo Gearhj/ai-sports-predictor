@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Radio, ShieldAlert } from 'lucide-react'
-import { DataModeBanner, DataStatePanel, formatPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
+import { DataModeBanner, formatPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { formatDate } from '../services/format'
 import { demoMarketPulse } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
-import type { MarketPulseRow } from '../types/domain'
+import type { MarketPulseBoard, MarketPulseRow } from '../types/domain'
 
 function pct(value: number | null | undefined): string {
   return value == null ? '—' : `${(value * 100).toFixed(1)}%`
@@ -20,6 +20,58 @@ function signedPts(value: number | null | undefined): string {
 
 function tierClass(tier: string | null): string {
   return `pill pill--${(tier || 'unknown').toLowerCase()}`
+}
+
+const STATE_TITLE: Record<string, string> = {
+  OBSERVER_DISABLED: 'Observer disabled',
+  PROVIDERS_HEALTHY_ZERO_MARKETS: 'Providers healthy — zero eligible markets',
+  PROVIDER_DEGRADED: 'Provider degraded',
+}
+
+function fmt(value: string | null): string {
+  if (!value) return '—'
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString()
+}
+
+function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onRetry: () => void }) {
+  const cls = data.board_state === 'PROVIDER_DEGRADED' ? 'pulse-health-panel pulse-health-panel--warn' : 'pulse-health-panel'
+  return (
+    <div className={cls} role="status">
+      <h2>{STATE_TITLE[data.board_state] ?? 'Market pulse status'}</h2>
+      <p className="pulse-health-reason">{data.state_reason}</p>
+      <TableScroll ariaLabel="Provider health">
+        <table className="data-table pulse-health-table">
+          <thead>
+            <tr><th>Provider</th><th>Enabled</th><th>Access</th><th>Last discovery</th><th>Last snapshot</th><th>Events</th><th>Markets</th><th>Eligible</th><th>Mapped</th><th>Unresolved</th><th>Last job</th></tr>
+          </thead>
+          <tbody>
+            {data.providers.map((p) => (
+              <tr key={p.provider}>
+                <td><strong>{p.provider}</strong></td>
+                <td>{p.enabled ? 'Yes' : 'No'}</td>
+                <td>{p.connection_mode}</td>
+                <td>{fmt(p.last_discovery_at)}</td>
+                <td>{fmt(p.last_snapshot_at)}</td>
+                <td>{p.events_inspected}</td>
+                <td>{p.markets_inspected}</td>
+                <td>{p.eligible_game_markets}</td>
+                <td>{p.mapped_markets}</td>
+                <td>{p.unresolved_markets}</td>
+                <td>{p.last_job_status ?? '—'}{p.last_error ? ` · ${p.last_error}` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableScroll>
+      <p className="pulse-health-meta">
+        Semantics review pending: {data.semantics_review_count} · Next scheduled discovery: {fmt(data.next_discovery_at)} ·
+        Public display: {data.public_display_enabled ? 'enabled' : 'gated (LOCAL_PRIVATE_RESEARCH)'}
+      </p>
+      <p className="pulse-health-meta">No demo data is substituted. Public reads make no provider call.</p>
+      <button className="retry-button" onClick={onRetry}>Retry</button>
+    </div>
+  )
 }
 
 export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
@@ -41,16 +93,32 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
     />
   )
 
-  if (!data || state === 'empty' || state === 'unavailable' || state === 'loading') {
+  // A. API UNAVAILABLE — the AISP backend itself cannot be reached (network/5xx/404).
+  if (state === 'loading' || state === 'unavailable' || !data) {
     return (
       <div className="page market-pulse-page">
         {header}
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-        <DataStatePanel
-          state={state}
-          emptyTitle="No governed prediction-market evidence yet"
-          emptyDetail="Discovery and snapshots persist here once the observer is armed and mapped markets exist for this date. No events are invented for sports without governed data."
-        />
+        {state === 'unavailable' && (
+          <div className="pulse-health-panel pulse-health-panel--error" role="alert">
+            <h2>API unavailable</h2>
+            <p>The AISP backend could not be reached at the configured API base. This is a connectivity problem, not a
+              statement about market availability. Confirm one authoritative backend is running and the frontend points to it,
+              then retry.</p>
+            <button className="retry-button" onClick={refresh}>Retry</button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // B / C / E — backend healthy; distinguish observer-disabled, healthy-zero, and degraded.
+  if (data.board_state !== 'ELIGIBLE_MARKETS' || data.rows.length === 0) {
+    return (
+      <div className="page market-pulse-page">
+        {header}
+        <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+        <MarketPulseHealthPanel data={data} onRetry={refresh} />
       </div>
     )
   }

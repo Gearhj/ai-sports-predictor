@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
 import { DataModeBanner, DataStatePanel, formatCurrency, formatPct, formatSignedCurrency, formatSignedPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoBankroll } from '../data/demo'
+import { QualificationFunnel } from '../components/QualificationFunnel'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
@@ -82,6 +83,8 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
           <div><strong>ACTIVE · COLLECTING DATA</strong><span>The experiment is live. ROI, yield, and closing-line performance remain unpublished until eligible positions settle.</span></div>
         </div>
       )}
+
+      {!demo && <QualificationFunnel date={new Date().toISOString().slice(0, 10)} />}
 
       <Panel title="Bankroll equity curve" eyebrow="CUMULATIVE SIMULATED PERFORMANCE" className="equity-panel">
         <AnalyticsChart option={equityOption} height={380} ariaLabel="ASP virtual bankroll over time compared with opening bankroll" />

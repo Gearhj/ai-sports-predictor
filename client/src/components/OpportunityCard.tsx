@@ -121,7 +121,7 @@ export function OpportunityCard({
 
       <div className="opportunity-card__matchup">
         <div className="opportunity-team">
-          <TeamLogo abbreviation={game.away_team.abbreviation} color={game.away_team.color} size="sm" />
+          <TeamLogo abbreviation={game.away_team.abbreviation} color={game.away_team.color} size={variant === 'featured' ? 'md' : 'sm'} />
           <div>
             <strong>{game.away_team.name}</strong>
             <small>{game.away_team.record} · {formatPct(game.away_win_probability)} win</small>
@@ -136,7 +136,7 @@ export function OpportunityCard({
             <strong>{game.home_team.name}</strong>
             <small>{game.home_team.record} · {formatPct(game.home_win_probability)} win</small>
           </div>
-          <TeamLogo abbreviation={game.home_team.abbreviation} color={game.home_team.color} size="sm" />
+          <TeamLogo abbreviation={game.home_team.abbreviation} color={game.home_team.color} size={variant === 'featured' ? 'md' : 'sm'} />
         </div>
       </div>
 
@@ -154,6 +154,14 @@ export function OpportunityCard({
             <span className="opportunity-bet__odds">{formatMoneyline(bet!.american_odds)}</span>
             <span className="opportunity-bet__book">{bet!.sportsbook ?? 'book unavailable'}</span>
           </div>
+          {(() => {
+            const isMoneyline = /moneyline|h2h|money line/i.test(bet!.market_type)
+            return isMoneyline ? (
+              <span className="experiment-eligibility experiment-eligibility--eligible">$1,000 experiment: moneyline market</span>
+            ) : (
+              <span className="experiment-eligibility experiment-eligibility--board-only">Board opportunity — experiment supports moneyline only</span>
+            )
+          })()}
         </div>
       ) : (
         <div className="opportunity-bet opportunity-bet--none">
@@ -206,23 +214,42 @@ export function OpportunityCard({
         </div>
       )}
 
-      {opportunity?.qualification_reasons && opportunity.qualification_reasons.length > 0 && state !== 'QUALIFIED_BET' && (
-        <div className="opportunity-blockers">
-          <span className="opportunity-blockers__label">Why not qualified</span>
-          {opportunity.qualification_reasons.map((item) => (
-            <span key={item} className="opportunity-blockers__chip">{item}</span>
-          ))}
-        </div>
-      )}
+      {opportunity?.qualification_reasons && opportunity.qualification_reasons.length > 0 && state !== 'QUALIFIED_BET' && (() => {
+        const reasons = opportunity.qualification_reasons
+        const critical = reasons.find((r) => /stale|lineup|forecast unavailable|review required/i.test(r)) ?? reasons[0]
+        return (
+          <details className="opportunity-blockers">
+            <summary>
+              <span className="opportunity-blockers__label">Why no position</span>
+              <span className="opportunity-blockers__count">{reasons.length} unresolved requirement{reasons.length === 1 ? '' : 's'}</span>
+              {critical && <span className="opportunity-blockers__critical">{critical}</span>}
+            </summary>
+            <ol className="opportunity-blockers__detail">
+              {reasons.map((item) => <li key={item}>{item}</li>)}
+            </ol>
+          </details>
+        )
+      })()}
 
-      {opportunity?.availability?.rescored && (
-        <div className="opportunity-beforeafter">
-          <span className="opportunity-beforeafter__tag">Rescored</span>
-          <span>Home win {pct0(opportunity.availability.forecast_before)} → <b>{pct0(opportunity.availability.forecast_after)}</b></span>
-          <span>Edge {signedPts(opportunity.availability.edge_before)} → <b>{signedPts(opportunity.availability.edge_after)}</b></span>
-          <span>Book moved <b>{opportunity.availability.book_moved == null ? '—' : opportunity.availability.book_moved ? 'yes' : 'no'}</b></span>
-        </div>
-      )}
+      {opportunity?.availability?.rescored && (() => {
+        const before = opportunity.availability.forecast_before
+        const after = opportunity.availability.forecast_after
+        const material = before != null && after != null && Math.abs(after - before) >= 0.005
+        const when = opportunity.availability.last_availability_update
+        return material ? (
+          <div className="opportunity-beforeafter">
+            <span className="opportunity-beforeafter__tag">Forecast updated</span>
+            <span>Home win {pct0(before)} → <b>{pct0(after)}</b></span>
+            <span>Edge {signedPts(opportunity.availability.edge_before)} → <b>{signedPts(opportunity.availability.edge_after)}</b></span>
+            <span>Book moved <b>{opportunity.availability.book_moved == null ? '—' : opportunity.availability.book_moved ? 'yes' : 'no'}</b></span>
+          </div>
+        ) : (
+          <div className="opportunity-beforeafter opportunity-beforeafter--quiet">
+            <span className="opportunity-beforeafter__tag">Forecast refreshed{when ? ` · ${formatTime(when)}` : ''}</span>
+            <span>No material prediction change</span>
+          </div>
+        )
+      })()}
 
       <div className="opportunity-card__signals">
         {bet != null && <span className="opportunity-card__score">Score {(bet.opportunity_score ?? opportunity?.opportunity_score ?? 0).toFixed(0)}</span>}

@@ -922,12 +922,35 @@ export interface MarketPulseRow {
   alert_count: number
 }
 
+export interface PredictionProviderHealth {
+  provider: string
+  enabled: boolean
+  connection_mode: string
+  last_discovery_at: string | null
+  last_snapshot_at: string | null
+  subscribed_markets: number
+  last_error: string | null
+  status: string
+  events_inspected: number
+  markets_inspected: number
+  eligible_game_markets: number
+  mapped_markets: number
+  unresolved_markets: number
+  last_job_status: string | null
+}
+
 export interface MarketPulseBoard extends DataProvenance {
   date: string
   sport: string | null
   sports_available: string[]
   disclosure: string
   public_display_enabled: boolean
+  observer_enabled: boolean
+  board_state: 'OBSERVER_DISABLED' | 'PROVIDER_DEGRADED' | 'PROVIDERS_HEALTHY_ZERO_MARKETS' | 'ELIGIBLE_MARKETS'
+  state_reason: string
+  providers: PredictionProviderHealth[]
+  next_discovery_at: string | null
+  semantics_review_count: number
   rows: MarketPulseRow[]
   summary: Record<string, unknown>
 }
@@ -1002,4 +1025,29 @@ export interface MarketPulseGameDetail extends DataProvenance {
   contracts: PredictionContractDetail[]
   mappings: PredictionMappingDetail[]
   row: MarketPulseRow | null
+}
+
+export interface QualificationFunnelStep { key: string; label: string; count: number }
+export interface QualificationFunnelGame {
+  game_id: string
+  matchup: string
+  starts_at: string | null
+  recommendation_state: string
+  failed_gate: string | null
+  rejection_reasons: string[]
+  readiness: number | null
+  uncertainty: number | null
+  best_market: string | null
+  best_selection: string | null
+  experiment_status: string
+}
+export interface QualificationFunnel {
+  date: string
+  experiment_market_types: string[]
+  steps: QualificationFunnelStep[]
+  qualified_selections: number
+  positions_created: number
+  exposure_cap_exclusions: number
+  top_rejection_reasons: Array<{ reason: string; count: number }>
+  games: QualificationFunnelGame[]
 }

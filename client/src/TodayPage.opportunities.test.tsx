@@ -255,7 +255,7 @@ describe('Complete slate + multi-sport board', () => {
     render(<App />)
     const slate = await completeSlate()
     const card = within(slate).getByText(g1.away_team.name).closest('article') as HTMLElement
-    expect(within(card).getByText('Why not qualified')).toBeInTheDocument()
+    expect(within(card).getByText('Why no position')).toBeInTheDocument()
     expect(within(card).getByText('Starting pitcher probable')).toBeInTheDocument()
     expect(within(card).queryByText(/injury feed/i)).not.toBeInTheDocument()
   })
@@ -307,7 +307,7 @@ describe('Complete slate + multi-sport board', () => {
     expect(within(card).getByText(/^Starter/)).toBeInTheDocument()
     expect(within(card).queryByText(/Injury feed/)).not.toBeInTheDocument()
     // Before/after strip from the persisted rescore evidence.
-    expect(within(card).getByText('Rescored')).toBeInTheDocument()
+    expect(within(card).getByText('Forecast updated')).toBeInTheDocument()
     expect(within(card).getByText(/Home win/)).toBeInTheDocument()
     expect(within(card).getByText(/Book moved/)).toBeInTheDocument()
   })

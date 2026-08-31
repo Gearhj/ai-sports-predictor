@@ -74,6 +74,14 @@ class MarketPulseBoard(BaseModel):
     sports_available: list[str] = []
     disclosure: str = "RESEARCH OBSERVER · NO TRADING · NOT A MODEL INPUT · NOT A GUARANTEE"
     public_display_enabled: bool = False
+    observer_enabled: bool = False
+    # OBSERVER_DISABLED | PROVIDER_DEGRADED | PROVIDERS_HEALTHY_ZERO_MARKETS | ELIGIBLE_MARKETS
+    # (API_UNAVAILABLE is a frontend-only state when the backend itself is unreachable.)
+    board_state: str = "PROVIDERS_HEALTHY_ZERO_MARKETS"
+    state_reason: str = ""
+    providers: list["ProviderHealth"] = []
+    next_discovery_at: datetime | None = None
+    semantics_review_count: int = 0
     rows: list[MarketPulseRow] = []
     summary: dict[str, Any] = {}
 
@@ -181,6 +189,12 @@ class ProviderHealth(BaseModel):
     request_count: int | None = None
     last_error: str | None = None
     status: str = "IDLE"
+    events_inspected: int = 0
+    markets_inspected: int = 0
+    eligible_game_markets: int = 0
+    mapped_markets: int = 0
+    unresolved_markets: int = 0
+    last_job_status: str | None = None
 
 
 class PredictionMarketHealthSummary(BaseModel):

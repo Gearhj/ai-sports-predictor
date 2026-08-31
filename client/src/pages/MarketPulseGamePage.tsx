@@ -16,13 +16,15 @@ export function MarketPulseGamePage() {
 
   useEffect(() => {
     let active = true
+    const controller = new AbortController()
     if (!gameId) return
     endpoints
-      .marketPulseGame(gameId)
+      .marketPulseGame(gameId, controller.signal)
       .then((d) => active && setData(d))
       .catch((e) => active && setError(String(e?.message ?? e)))
     return () => {
       active = false
+      controller.abort()
     }
   }, [gameId])
 

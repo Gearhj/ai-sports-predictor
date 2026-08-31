@@ -1116,3 +1116,31 @@ h1, h2, h3, p { margin-top: 0; }
 .opportunity-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-top: 10px; }
 .opportunity-blockers__label { color: var(--muted); font: 700 11px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
 .opportunity-blockers__chip { padding: 2px 8px; color: #5c4a2a; background: var(--amber-soft); border: 1px solid #e6d29a; border-radius: 999px; font-size: 11px; }
+
+/* Prediction Market Observer + Today card hierarchy (added) */
+.opportunity-card--featured .team-logo, .opportunity-card--featured .team-badge { width: 42px; height: 42px; }
+.opportunity-card--slate .team-logo, .opportunity-card--slate .team-badge { width: 34px; height: 34px; }
+.opportunity-blockers { margin: 8px 0; border-radius: 8px; background: rgba(120,120,140,.08); padding: 6px 10px; }
+.opportunity-blockers > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opportunity-blockers > summary::-webkit-details-marker { display: none; }
+.opportunity-blockers__label { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+.opportunity-blockers__count { opacity: .8; font-size: 12px; }
+.opportunity-blockers__critical { margin-left: auto; color: #b4541f; font-weight: 600; font-size: 12px; }
+.opportunity-blockers__detail { margin: 8px 0 2px 18px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; opacity: .9; }
+.opportunity-beforeafter--quiet { opacity: .72; }
+.experiment-eligibility { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.experiment-eligibility--eligible { background: rgba(32,148,96,.16); color: #1c7a4f; }
+.experiment-eligibility--board-only { background: rgba(120,120,140,.14); color: #55607a; }
+.pulse-health-panel { border-radius: 12px; padding: 18px 20px; background: rgba(120,130,160,.08); margin-top: 12px; }
+.pulse-health-panel--error { background: rgba(190,60,50,.10); }
+.pulse-health-panel--warn { background: rgba(200,140,30,.12); }
+.pulse-health-panel h2 { margin: 0 0 6px; font-size: 18px; }
+.pulse-health-reason { margin: 0 0 12px; opacity: .85; }
+.pulse-health-meta { margin: 8px 0 0; font-size: 12px; opacity: .75; }
+.pulse-health-table td, .pulse-health-table th { font-size: 12px; }
+.retry-button { margin-top: 12px; padding: 6px 16px; border-radius: 8px; border: 1px solid rgba(120,120,140,.3); background: transparent; cursor: pointer; font-weight: 600; }
+.qual-funnel { display: flex; flex-direction: column; gap: 4px; }
+.qual-funnel__step { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; }
+.qual-funnel__bar { height: 8px; border-radius: 4px; background: linear-gradient(90deg,#2b8a6a,#7bd0a8); }
+.qual-funnel__label { min-width: 220px; font-size: 13px; }
+.qual-funnel__value { font-weight: 700; min-width: 40px; text-align: right; }
