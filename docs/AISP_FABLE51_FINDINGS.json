@@ -1,0 +1,584 @@
+{
+  "audit": "AISP Fable 5.1 production-readiness audit",
+  "auditedCommit": "932f5564890b9f411ee6d7f323dea2800a8c2a78",
+  "auditBranch": "claude/fable51-production-readiness-audit",
+  "date": "2026-09-03",
+  "evidenceLabels": [
+    "OBSERVED",
+    "REPRODUCED",
+    "INFERRED",
+    "RECOMMENDED",
+    "NOT_TESTED",
+    "BLOCKED"
+  ],
+  "counts": {
+    "P0": 0,
+    "P1": 5,
+    "P2": 11,
+    "P3": 9
+  },
+  "findings": [
+    {
+      "findingId": "F51-001",
+      "severity": "P1",
+      "category": "performance/scalability",
+      "title": "Public Today/market-board reads recompute the whole board per request; one function loaded every odds snapshot ever recorded for each game",
+      "status": "PARTIALLY_REPAIRED",
+      "affectedFiles": [
+        "server/app/services/read_service.py"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/today",
+        "/api/v1/dashboard/today",
+        "/api/v1/markets/board",
+        "/api/v1/games/{id}",
+        "/api/v1/performance"
+      ],
+      "evidence": "REPRODUCED. Warm, concurrency 1, live DB: /today?date=2026-09-02 8.2-9.3 s; /markets/board 7.2-8.4 s; /performance 4.4-4.9 s. Instrumented: dashboard(15 games) = 509 SQL queries, 785 ms SQL, 6.5 s Python. cProfile: ReadService._latest_market_snapshots 30 calls, 8.0 s cumulative, 258,974 ORM instances materialised (2,160 snapshot rows per game x 4 entities, called up to 3x per game).",
+      "reproduction": "python scratch qcount.py / prof.py (SQLAlchemy cursor-event counter + cProfile around ReadService.dashboard(date(2026,9,2))) against a read-only session on the live database.",
+      "impact": "Landing-page p50 ~9 s at ONE user. Under c=8 the same request serialises to 62 s (0.13 rps). Trivially abusable as CPU denial of service via ?date=.",
+      "likelihood": "Certain under any public traffic.",
+      "rootCause": "_latest_market_snapshots selected all (Market, MarketOutcome, OddsSnapshot, Sportsbook) rows for a game ordered by observed_at and reduced 'latest batch per (market, sportsbook)' in Python; no per-request memo; no response cache.",
+      "remediation": "REPAIRED: reduction expressed in SQL (GROUP BY market_id, sportsbook_id -> MAX(observed_at) subquery join) with cutoff/source_mode pushed into SQL and a per-ReadService memo. Verified equivalent to a verbatim copy of the old reducer. REMAINING (RECOMMENDED): evidence-versioned response cache for public reads, bounded ?date= window, composite index odds_snapshots(market_outcome_id, observed_at DESC), separate scheduler process.",
+      "tests": [
+        "server/tests/test_fable51_latest_market_snapshots.py (4 tests: exact equivalence vs reference reducer, cutoff parity, memoisation, only winning rows fetched)"
+      ],
+      "commit": "c8563af",
+      "residualRisk": "After repair, measured on an idle machine: /today?date=2026-09-02 1.6 s p50 at c=1 (was 9.1 s), still GIL-serialised at c=8 (11.4 s p50, 0.69 rps; was 62 s / 0.13 rps); /markets/board 307 ms (was 7-8 s); /performance unchanged at ~4.2 s. Not acceptable for public reads without the evidence-versioned cache/read-model."
+    },
+    {
+      "findingId": "F51-002",
+      "severity": "P1",
+      "category": "reliability/scheduler",
+      "title": "Scheduler jobs execute on the API event loop and freeze every HTTP request for their duration",
+      "status": "OPEN_WITH_PLAN",
+      "affectedFiles": [
+        "server/app/main.py",
+        "server/app/jobs/scheduler.py",
+        "server/app/jobs/orchestrator.py"
+      ],
+      "affectedEndpoints": [
+        "all"
+      ],
+      "evidence": "REPRODUCED: /sports/registry (3 ms warm) showed p99 28,439 ms at c=1 and p95 53,216 ms at c=16 while freeze-shadow-experiment / finalize-games / poll-availability-events fired (backend log 16:16-16:21Z); the same endpoint ran 114 rps p95 769 ms when no job was running. OBSERVED: AsyncIOScheduler runs `async def execute_scheduled_job` on the app loop; handlers do sync DB/CPU work inline; no run_in_threadpool/to_thread anywhere in app/jobs or app/services.",
+      "reproduction": "scratch bench.py concurrency sweep during scheduled job windows.",
+      "impact": "Periodic multi-second to minute-long API freezes every 2-5 minutes; horizontal scaling impossible (each replica would also run the scheduler).",
+      "likelihood": "Certain; recurs every job interval.",
+      "rootCause": "Scheduler embedded in the API process (`lifespan`), coroutine jobs blocking the loop.",
+      "remediation": "RECOMMENDED (architecture plan §2.1/§5): standalone scheduler process (`SCHEDULER_ENABLED=false` on API replicas), advisory-lock leader lease, job-window unique key in job_runs. Not implemented in this audit because it changes the operator's runtime topology; the code split is small.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "High until separated."
+    },
+    {
+      "findingId": "F51-003",
+      "severity": "P1",
+      "category": "reliability/pipeline",
+      "title": "Missed 06:00 daily pipeline is never caught up; a dead process across the cron fire yields a silent zero-slate day",
+      "status": "REPAIRED",
+      "affectedFiles": [
+        "server/app/jobs/scheduler.py"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/today",
+        "/api/v1/dashboard/today"
+      ],
+      "evidence": "REPRODUCED in live data: job_runs has no daily-pipeline row for 2026-09-03 (process died 21:12 EDT on 9/2, restarted 11:46 EDT on 9/3); games for 2026-09-03 = 0, forecasts generated = 0; Today page showed 'No slate on this operational date'. misfire_grace_time=900 s cannot cover a 5.5 h outage.",
+      "reproduction": "SELECT ... FROM job_runs WHERE job_name='daily-pipeline' grouped by local date; days 08-21..08-27 and 09-03 absent.",
+      "impact": "A dead-scheduler day is indistinguishable from an honest no-bet day; the mandate classifies this as an operational failure.",
+      "likelihood": "Recurs on every overnight outage.",
+      "rootCause": "Cron-only registration with a 15-minute misfire grace and no startup reconciliation.",
+      "remediation": "REPAIRED: daily_pipeline_catch_up_time() schedules one immediate first fire at scheduler start when local time is past 06:00 and no SUCCEEDED daily-pipeline exists for the local date; fails safe to cron on any bookkeeping error; cron cadence unchanged afterwards. RECOMMENDED: alert 'no daily-pipeline success by 07:00 local'.",
+      "tests": [
+        "server/tests/test_fable51_scheduler_reliability.py (9 catch-up tests incl. ET day boundary, FAILED-run today, disabled scheduler, fail-safe, cron untouched)"
+      ],
+      "commit": "885d321",
+      "residualRisk": "Catch-up still runs inside the API process until F51-002 is addressed."
+    },
+    {
+      "findingId": "F51-004",
+      "severity": "P1",
+      "category": "correctness/jobs",
+      "title": "evaluate-prediction-market-alerts fails on an in-batch duplicate idempotency key and discards every alert (286 of 332 runs failed in 3 days)",
+      "status": "REPAIRED",
+      "affectedFiles": [
+        "server/app/prediction_markets/service.py"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/prediction-markets/alerts"
+      ],
+      "evidence": "REPRODUCED: live job_runs: evaluate-prediction-market-alerts FAILED x286 / SUCCEEDED x46 (72 h) with UniqueViolation uq_pm_alert_idempotency; log parameters show the identical key twice within one INSERT batch. Regression test fails on original code with 'UNIQUE constraint failed: prediction_market_alerts.idempotency_key' and passes after the fix.",
+      "reproduction": "server/tests/test_fable51_pm_alert_idempotency.py with session.autoflush=False (the operational SessionLocal setting).",
+      "impact": "Alerts feature silently non-functional ~86% of the time; wasted DB work every 10 minutes.",
+      "likelihood": "Certain whenever two lines exist for one selection.",
+      "rootCause": "_latest_snapshots_by_provider keys by (provider, market, selection, line_value) but the alert key omits line_value; _exists() cannot see pending rows under autoflush=False.",
+      "remediation": "REPAIRED: observer tracks idempotency keys added in the current batch and treats an in-batch duplicate as a no-op (key semantics unchanged). RECOMMENDED: alert on >=3 consecutive failures of any job.",
+      "tests": [
+        "server/tests/test_fable51_pm_alert_idempotency.py (2 tests)"
+      ],
+      "commit": "0fa01ba",
+      "residualRisk": "None for this defect."
+    },
+    {
+      "findingId": "F51-005",
+      "severity": "P1",
+      "category": "deployment/availability",
+      "title": "Operational backend runs as an unsupervised foreground process; it died twice during the audit week and nothing restarted it",
+      "status": "PARTIALLY_MITIGATED",
+      "affectedFiles": [
+        "(runtime)"
+      ],
+      "affectedEndpoints": [
+        "all"
+      ],
+      "evidence": "OBSERVED: process on :8010 started 8/31 14:02 with no supervisor; died 9/2 16:20 and again 9/2 21:12 (logs end mid-job, no shutdown line, no crash, no reboot, no OS error). REPRODUCED consequence: F51-003.",
+      "reproduction": "Windows event log + backend logs + job_runs timeline.",
+      "impact": "Any termination = no API, no scheduler, missed pipeline, stuck RUNNING rows.",
+      "likelihood": "Certain over time.",
+      "rootCause": "No service/supervisor; Task Scheduler registration from a non-elevated session cannot launch (Interactive tasks return result 1; S4U/Group require elevation).",
+      "remediation": "MITIGATED: restart-loop supervisor script at C:\\Users\\james\\AppData\\Local\\asp\\start-backend.cmd (currently running). RECOMMENDED: register it at logon (Startup entry or an elevated Scheduled Task with RestartCount) - exact commands in the master report; production: managed container platform with health-gated restarts and /readyz.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Still dies with the session that started it until the user installs the logon entry."
+    },
+    {
+      "findingId": "F51-006",
+      "severity": "P2",
+      "category": "observability/jobs",
+      "title": "JobRun rows killed mid-execution stay RUNNING forever (impossible status surfaced as 'running')",
+      "status": "REPAIRED",
+      "affectedFiles": [
+        "server/app/jobs/scheduler.py",
+        "server/app/main.py"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/admin/jobs",
+        "/api/v1/health/sources"
+      ],
+      "evidence": "OBSERVED in live DB: 4 rows RUNNING since 08-30..09-01 (refresh-prediction-market-snapshots x2, finalize-prediction-market-pregame, freeze-shadow-experiment).",
+      "reproduction": "SELECT job_name, started_at FROM job_runs WHERE status='running' AND started_at < now()-interval '1 hour'.",
+      "impact": "Operators cannot distinguish a wedged job from a killed process; missed-run detection is poisoned.",
+      "likelihood": "Every unclean process exit.",
+      "rootCause": "Terminal status only written by the orchestrator's own try/except; no startup reconciliation.",
+      "remediation": "REPAIRED: reconcile_abandoned_job_runs() at scheduler start marks RUNNING rows FAILED with 'ABANDONED: process restarted before the job completed' (single-process topology; must become lease-aware for replicas - documented).",
+      "tests": [
+        "server/tests/test_fable51_scheduler_reliability.py (2 reconciliation tests)"
+      ],
+      "commit": "885d321",
+      "residualRisk": "Not replica-safe by design; see architecture plan §5."
+    },
+    {
+      "findingId": "F51-007",
+      "severity": "P2",
+      "category": "observability/deployment",
+      "title": "No unauthenticated readiness probe; /healthz never checked the database or scheduler",
+      "status": "REPAIRED",
+      "affectedFiles": [
+        "server/app/main.py"
+      ],
+      "affectedEndpoints": [
+        "/readyz"
+      ],
+      "evidence": "OBSERVED: /healthz returns static ok; /health and /health/sources require ADMIN, so a load balancer/supervisor could not gate traffic.",
+      "reproduction": "n/a",
+      "impact": "Supervisors and LBs route to wedged/unready instances.",
+      "likelihood": "n/a",
+      "rootCause": "Missing.",
+      "remediation": "REPAIRED: GET /readyz -> 200 {status, database, scheduler} or 503; booleans only, no quota/credentials.",
+      "tests": [
+        "server/tests/test_fable51_scheduler_reliability.py (3 probe tests incl. 503 on DB failure and no error-detail leakage)"
+      ],
+      "commit": "885d321",
+      "residualRisk": "None."
+    },
+    {
+      "findingId": "F51-008",
+      "severity": "P2",
+      "category": "performance/database",
+      "title": "SQLAlchemy pool (5+10) smaller than the 40-slot request threadpool; 30 s pool_timeout queues instead of failing fast",
+      "status": "REPAIRED",
+      "affectedFiles": [
+        "server/app/db/session.py",
+        "server/app/core/config.py"
+      ],
+      "affectedEndpoints": [
+        "all"
+      ],
+      "evidence": "OBSERVED: _engine_options returned only pool_pre_ping; live max_connections=100, 9 active.",
+      "reproduction": "code inspection",
+      "impact": "Pool waits under >15 concurrent DB-bound requests.",
+      "likelihood": "Certain at Tier A concurrency.",
+      "rootCause": "Defaults never sized.",
+      "remediation": "REPAIRED: DB_POOL_SIZE (10), DB_MAX_OVERFLOW (20), DB_POOL_TIMEOUT_SECONDS (10) settings applied for PostgreSQL; SQLite unchanged. RECOMMENDED: PgBouncer + statement_timeout in production.",
+      "tests": [
+        "server/tests/test_fable51_db_pool.py (3 tests)"
+      ],
+      "commit": "c8563af",
+      "residualRisk": "Per-replica sizing must respect PostgreSQL max_connections."
+    },
+    {
+      "findingId": "F51-009",
+      "severity": "P2",
+      "category": "scalability/state",
+      "title": "Process-local state blocks multi-replica deployment: rate-limit counters, scheduler ownership flags, job max_instances, per-request caches",
+      "status": "OPEN_WITH_PLAN",
+      "affectedFiles": [
+        "server/app/core/rate_limit.py",
+        "server/app/jobs/scheduler.py"
+      ],
+      "affectedEndpoints": [
+        "/auth/*",
+        "/admin/*"
+      ],
+      "evidence": "OBSERVED: InMemoryRateLimiter module global; _SCHEDULER_RUNNING/_SCHEDULER_INSTANCE globals; APScheduler memory jobstore; documented in code as single-instance only.",
+      "reproduction": "code inspection",
+      "impact": "Replica N multiplies scheduled work and provider spend; rate limits per replica.",
+      "likelihood": "Certain on scale-out.",
+      "rootCause": "Single-process design.",
+      "remediation": "RECOMMENDED: Redis-backed limiter; scheduler as its own service with advisory-lock lease; job-window unique key.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Blocks Gate E."
+    },
+    {
+      "findingId": "F51-010",
+      "severity": "P2",
+      "category": "backup/recovery",
+      "title": "No PostgreSQL backup, no WAL archiving, no restore evidence",
+      "status": "OPEN",
+      "affectedFiles": [
+        "(infrastructure)"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: archive_mode=off, archive_command disabled; no pg_dump/backup script in repo; host scheduled tasks named 'Backup' are Windows OS tasks (AppListBackup, CloudRestore, RegIdleBackup).",
+      "reproduction": "SHOW archive_mode; Get-ScheduledTask inspection.",
+      "impact": "Irreplaceable immutable experiment history (positions, decisions, forecasts since 2026-08-27) has RPO = infinity.",
+      "likelihood": "Loss on any disk/host failure.",
+      "rootCause": "Never configured.",
+      "remediation": "RECOMMENDED: nightly pg_dump -Fc to off-host storage + WAL archiving/PITR; quarterly restore drill; managed PostgreSQL in production.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Blocks Gate F."
+    },
+    {
+      "findingId": "F51-011",
+      "severity": "P2",
+      "category": "security/secrets",
+      "title": "Provider-key scratch file (SportsDataIO.txt) sits in the repo root, untracked and not git-ignored",
+      "status": "REPAIRED",
+      "affectedFiles": [
+        ".gitignore"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: notepad.exe had C:\\Users\\james\\ai-sports-predictor\\SportsDataIO.txt open; `git check-ignore` reported NOT ignored; not tracked; never in history.",
+      "reproduction": "process list + git check-ignore",
+      "impact": "One `git add .` commits a paid API key.",
+      "likelihood": "Moderate.",
+      "rootCause": ".gitignore covers .env/*.key/*.pem but not ad-hoc .txt notes.",
+      "remediation": "REPAIRED: ignore patterns for /SportsDataIO*.txt and /*api-key*.txt style files. RECOMMENDED: keep keys only in .env / secret manager.",
+      "tests": [],
+      "commit": "d91be91",
+      "residualRisk": "Low."
+    },
+    {
+      "findingId": "F51-012",
+      "severity": "P2",
+      "category": "security/deployment",
+      "title": "Development listeners on all interfaces: Vite 0.0.0.0:5173, PostgreSQL 0.0.0.0:5432; runtime is APP_ENV=development with DEMO_MODE=true",
+      "status": "OPEN",
+      "affectedFiles": [
+        "client/package.json",
+        "(postgresql.conf)",
+        "(.env)"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: Get-NetTCPConnection listeners; package.json `vite --host 0.0.0.0`; .env APP_ENV=development, DEMO_MODE=true.",
+      "reproduction": "netstat / config read",
+      "impact": "LAN exposure of a dev server and the database; production validators (secret, CORS, docs, HSTS) are all bypassed in development mode.",
+      "likelihood": "Depends on network; certain misconfiguration risk if ever port-forwarded.",
+      "rootCause": "Local-first defaults never hardened.",
+      "remediation": "RECOMMENDED: bind to 127.0.0.1 locally; production behind TLS proxy with APP_ENV=production; DEMO_MODE=false (validator enforces).",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Must be closed before any public exposure."
+    },
+    {
+      "findingId": "F51-013",
+      "severity": "P2",
+      "category": "security/authentication",
+      "title": "Open registration without email verification, password reset, breached-password screening, per-account lockout, or MFA",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/api/routes.py",
+        "server/app/services/auth_service.py",
+        "server/app/schemas/api.py"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/auth/register",
+        "/api/v1/auth/login"
+      ],
+      "evidence": "OBSERVED: RegisterRequest min_length=12 only (code comment: BREACHED_PASSWORD_CHECK_REQUIRED_BEFORE_PUBLIC_PRODUCTION); no reset/verify routes; per-IP limiter only.",
+      "reproduction": "route inventory",
+      "impact": "Account-recovery impossible; credential stuffing against a specific account limited only by per-IP counters.",
+      "likelihood": "High once public.",
+      "rootCause": "Auth built for private beta.",
+      "remediation": "RECOMMENDED before public beta: email verification, reset flow, k-anonymity HIBP check, per-account lockout, Redis limiter; MFA for ADMIN.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Acceptable only for an invited cohort."
+    },
+    {
+      "findingId": "F51-014",
+      "severity": "P2",
+      "category": "integrity/database",
+      "title": "Immutability of positions/settlements/decisions is enforced only at the ORM layer",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/audit/immutability.py"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: before_flush listeners; one DB trigger exists (trg_prospective_label_access_complete_claim) proving the pattern; none on ledger tables; single DB role.",
+      "reproduction": "code + migration inspection",
+      "impact": "Raw SQL, another client, or a migration can rewrite history undetected.",
+      "likelihood": "Low accidental, moderate insider.",
+      "rootCause": "Deferred defence-in-depth (documented in code).",
+      "remediation": "RECOMMENDED: BEFORE UPDATE/DELETE triggers raising on ledger tables; role split (app/read-only/migrate).",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Medium."
+    },
+    {
+      "findingId": "F51-015",
+      "severity": "P2",
+      "category": "supply-chain/CI",
+      "title": "No CI pipeline; no Python lockfile; container runs as root and runs migrations + create-admin at start; compose hard-codes DB password",
+      "status": "OPEN",
+      "affectedFiles": [
+        "docker-compose.yml",
+        "server/Dockerfile",
+        "server/requirements.txt"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: no .github; requirements.txt ranges; Dockerfile no USER; compose POSTGRES_PASSWORD REDACTED-CREDENTIAL.",
+      "reproduction": "file inspection",
+      "impact": "No automated gate; irreproducible builds; privilege and secret hygiene gaps in the only deployment artefact.",
+      "likelihood": "n/a",
+      "rootCause": "Local-only tooling.",
+      "remediation": "RECOMMENDED: CI (pytest, vitest, tsc, pip-audit, npm audit, build); pip-compile lockfile with hashes; non-root USER; release-step migrations.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Blocks Gate F."
+    },
+    {
+      "findingId": "F51-016",
+      "severity": "P2",
+      "category": "observability",
+      "title": "No metrics, no alerting; job failures visible only to an admin reading /admin/jobs",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/core/logging.py"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: structlog JSON to stdout only; the 286-failure alert bug ran for days unnoticed; refresh-prediction-market-snapshots reports errors:122 with job_completed.",
+      "reproduction": "log + job_runs inspection",
+      "impact": "Silent degradation.",
+      "likelihood": "Certain.",
+      "rootCause": "Not built.",
+      "remediation": "RECOMMENDED: metrics + alert set in architecture plan §2.5; request-id middleware.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Blocks Gate D."
+    },
+    {
+      "findingId": "F51-017",
+      "severity": "P3",
+      "category": "security/api",
+      "title": "No request body size limit at the application layer",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/main.py"
+      ],
+      "affectedEndpoints": [
+        "POST /auth/*",
+        "POST /admin/*"
+      ],
+      "evidence": "OBSERVED grep: no size-limit middleware; pydantic bounds field lengths but the body is read first.",
+      "reproduction": "code inspection",
+      "impact": "Memory pressure from oversized POSTs.",
+      "likelihood": "Low.",
+      "rootCause": "Relies on reverse proxy.",
+      "remediation": "RECOMMENDED: proxy client_max_body_size 64k; optional Content-Length middleware.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Low."
+    },
+    {
+      "findingId": "F51-018",
+      "severity": "P3",
+      "category": "security/authentication",
+      "title": "Registration reveals whether an email exists (409 Conflict)",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/api/routes.py"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/auth/register"
+      ],
+      "evidence": "OBSERVED: DuplicateEmailError -> 409 with message.",
+      "reproduction": "code",
+      "impact": "Account enumeration (login is already safe).",
+      "likelihood": "Low value to an attacker.",
+      "rootCause": "UX choice.",
+      "remediation": "RECOMMENDED: with email verification, respond 202 uniformly.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Low."
+    },
+    {
+      "findingId": "F51-019",
+      "severity": "P3",
+      "category": "dependencies",
+      "title": "npm: echarts <6.1.0 moderate advisory (fix available); pip: pytest 8.4.2 PYSEC-2026-1845 (dev-only, UNIX /tmp)",
+      "status": "OPEN",
+      "affectedFiles": [
+        "client/package.json",
+        "server/requirements.txt"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "REPRODUCED: npm audit (1 moderate); pip-audit (1 advisory in 56 packages).",
+      "reproduction": "npm audit --json; pip-audit -r requirements.txt",
+      "impact": "Not exploitable in this app's production shape.",
+      "likelihood": "Low.",
+      "rootCause": "Normal drift.",
+      "remediation": "RECOMMENDED: upgrade echarts in a change window; pytest is dev-only.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Low."
+    },
+    {
+      "findingId": "F51-020",
+      "severity": "P3",
+      "category": "frontend/resilience",
+      "title": "Pages fetch once and never retry; a momentary API blip leaves the page in a permanent error state; registry cached for app lifetime",
+      "status": "OPEN",
+      "affectedFiles": [
+        "client/src/hooks/useApiResource.ts",
+        "client/src/hooks/useSportRegistry.tsx"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED code; REPRODUCED on 9/2 and 9/3 (page stuck on 'unavailable' after backend recovered until manual reload).",
+      "reproduction": "restart backend while page open",
+      "impact": "Users see outages longer than they last.",
+      "likelihood": "Every blip.",
+      "rootCause": "No retry/backoff/polling.",
+      "remediation": "RECOMMENDED: bounded exponential retry + visibility-change refetch; registry refetch on failure.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Low."
+    },
+    {
+      "findingId": "F51-021",
+      "severity": "P3",
+      "category": "frontend/tests",
+      "title": "vitest 5 s default timeout is too tight on this machine for jsdom route tests (6 failures under load, all pass at 30 s)",
+      "status": "OPEN",
+      "affectedFiles": [
+        "client/vitest.config.ts"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "REPRODUCED: 6 failed / 116 passed concurrently with server suite; 4 failed in isolation at 5 s; 29/29 passed with --testTimeout=30000.",
+      "reproduction": "npx vitest run --testTimeout=30000",
+      "impact": "Flaky CI signal.",
+      "likelihood": "n/a",
+      "rootCause": "Timing.",
+      "remediation": "RECOMMENDED: testTimeout 15-20 s in vitest config.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "None."
+    },
+    {
+      "findingId": "F51-022",
+      "severity": "P3",
+      "category": "correctness/settlement",
+      "title": "Moneyline tie (equal final scores) settles as LOSS rather than PUSH/VOID",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/bankroll/settlement.py"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: determine_result returns WIN if selected_score > opponent_score else LOSS.",
+      "reproduction": "code",
+      "impact": "MLB regular-season ties are effectively impossible (suspended games resume); relevant only if the sport set grows (NFL ties exist).",
+      "likelihood": "Very low for MLB; real for NFL.",
+      "rootCause": "MLB-specific assumption.",
+      "remediation": "RECOMMENDED: explicit PUSH on equality before any non-MLB funded market.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Low."
+    },
+    {
+      "findingId": "F51-023",
+      "severity": "P3",
+      "category": "data-growth",
+      "title": "Unbounded growth of append-only snapshot/log tables with no retention or partitioning",
+      "status": "OPEN",
+      "affectedFiles": [
+        "(schema)"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: odds_snapshots 173k rows (66 MB), prediction_market_* 159k rows (~200 MB), job_runs 8.4k, audit_events 8.4k in ~3 weeks; DB 3.3 GB of which 2.9 GB is historical/fd1 identity staging.",
+      "reproduction": "pg_stat_user_tables",
+      "impact": "Index bloat, slower latest-per-book scans, backup size.",
+      "likelihood": "Certain over a season.",
+      "rootCause": "No lifecycle policy.",
+      "remediation": "RECOMMENDED: monthly partitions or 90-day archival for snapshot tables; composite index F51-001.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Medium over 12 months."
+    },
+    {
+      "findingId": "F51-024",
+      "severity": "P3",
+      "category": "privacy/product",
+      "title": "No account deletion/export endpoints, no privacy notice, no age gate or responsible-gaming copy",
+      "status": "OPEN",
+      "affectedFiles": [
+        "server/app/api/routes.py",
+        "client/src/pages/AuthPage.tsx"
+      ],
+      "affectedEndpoints": [],
+      "evidence": "OBSERVED: route inventory has no delete/export; UI states research/simulation only and no real-money wagering.",
+      "reproduction": "route inventory",
+      "impact": "Public launch obligations unmet (requires qualified legal review; not legal advice).",
+      "likelihood": "n/a",
+      "rootCause": "Pre-public.",
+      "remediation": "RECOMMENDED: self-service delete/export, privacy policy, 18+/21+ gate per jurisdiction, responsible-gaming links, no profit guarantees.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Legal/compliance."
+    },
+    {
+      "findingId": "F51-025",
+      "severity": "P3",
+      "category": "contracts",
+      "title": "Client hard-codes sport lists (LeagueCode union, supported_filters literal) alongside the registry it now fetches",
+      "status": "OPEN",
+      "affectedFiles": [
+        "client/src/types/multisport.ts",
+        "client/src/pages/MultiSportTodayPage.tsx"
+      ],
+      "affectedEndpoints": [
+        "/api/v1/sports/registry"
+      ],
+      "evidence": "OBSERVED: 932f556 now consumes /sports/registry via useSportRegistry (repairs the earlier duplication), but the TS literal types still enumerate MLB/NFL/NBA/WNBA/UFC and 'ALL'|'MLB'|'NFL'.",
+      "reproduction": "code",
+      "impact": "Type drift when a sport is promoted.",
+      "likelihood": "Low.",
+      "rootCause": "Static typing of a dynamic registry.",
+      "remediation": "RECOMMENDED: widen to string with runtime validation, or generate types from the OpenAPI schema.",
+      "tests": [],
+      "commit": null,
+      "residualRisk": "Low."
+    }
+  ]
+}
