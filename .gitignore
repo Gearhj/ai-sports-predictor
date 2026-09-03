@@ -63,6 +63,14 @@ id_rsa*
 *.p12
 *.pfx
 
+# Provider-credential scratch notes sometimes kept at the repo root while
+# configuring a key (a SportsDataIO.txt was found open in an editor during the
+# 2026-09-03 audit). They are never source; keep them out of any `git add .`.
+/SportsDataIO*.txt
+/*apikey*.txt
+/*api-key*.txt
+/*_key.txt
+
 # OS/editor
 .DS_Store
 Thumbs.db
