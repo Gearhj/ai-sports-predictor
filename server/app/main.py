@@ -12,7 +12,13 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.middleware import SecurityHeadersMiddleware
 from app.data_sources import SourceError
-from app.jobs.scheduler import build_scheduler, mark_scheduler_started, mark_scheduler_stopped
+from app.jobs.scheduler import (
+    build_scheduler,
+    mark_scheduler_started,
+    mark_scheduler_stopped,
+    reconcile_abandoned_job_runs,
+    scheduler_is_running,
+)
 
 
 @asynccontextmanager
@@ -22,6 +28,10 @@ async def lifespan(application: FastAPI):
     scheduler = None
     settings = get_settings()
     if settings.scheduler_enabled and settings.app_env != "test":
+        # This process is the single scheduler owner: any JobRun still RUNNING
+        # was orphaned by a previous process and must be made visible as such
+        # before new runs start (never left as an impossible "running forever").
+        reconcile_abandoned_job_runs()
         scheduler = build_scheduler(settings)
         scheduler.start()
         application.state.scheduler = scheduler
@@ -63,6 +73,40 @@ def create_app(settings=None) -> FastAPI:
     @application.get("/healthz", include_in_schema=False)
     def healthz() -> dict:
         return {"status": "ok"}
+
+    @application.get("/readyz", include_in_schema=False)
+    def readyz() -> JSONResponse:
+        """Unauthenticated readiness probe for load balancers and supervisors.
+
+        Reports only booleans a public probe may know (database reachable,
+        scheduler owner alive) — never quota, credentials or job detail, which
+        stay behind the admin-only ``/api/v1/health/sources``. 503 when the
+        process must not receive traffic.
+        """
+        from sqlalchemy import text
+
+        from app.db.session import SessionLocal
+
+        checks: dict[str, str] = {}
+        ready = True
+        try:
+            with SessionLocal() as session:
+                session.execute(text("SELECT 1"))
+            checks["database"] = "reachable"
+        except Exception:
+            checks["database"] = "unreachable"
+            ready = False
+        if not settings.scheduler_enabled or settings.app_env == "test":
+            checks["scheduler"] = "disabled"
+        elif scheduler_is_running():
+            checks["scheduler"] = "running"
+        else:
+            checks["scheduler"] = "not_running"
+            ready = False
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={"status": "ready" if ready else "not_ready", **checks},
+        )
 
     @application.exception_handler(SourceError)
     async def source_error_handler(request: Request, exc: SourceError) -> JSONResponse:

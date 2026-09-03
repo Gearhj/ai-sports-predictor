@@ -3,19 +3,107 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from zoneinfo import ZoneInfo
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.config import Settings
 from app.core.logging import logger
-from app.core.time import local_today
+from app.core.time import local_day_bounds, local_today
 from app.db.session import SessionLocal
 from app.jobs.orchestrator import JobOrchestrator
 from app.models.entities import (
-    Game, GameStatus, ShadowBoardDecision, ShadowDecisionSettlement,
+    Game, GameStatus, JobRun, RunStatus, ShadowBoardDecision, ShadowDecisionSettlement,
     ShadowForecast, ShadowForecastBundle,
 )
 from sqlalchemy import select
 from app.services.game_refresh_state_service import GameRefreshStateService
+
+# Local (display-timezone) hour at which the daily pipeline is scheduled.
+DAILY_PIPELINE_HOUR = 6
+DAILY_PIPELINE_JOB = "daily-pipeline"
+
+
+def daily_pipeline_catch_up_time(
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    session_factory: Any | None = None,
+) -> datetime | None:
+    """Return an immediate first-run time for the daily pipeline when today's
+    scheduled run was missed, else ``None`` (normal cron cadence).
+
+    Observed failure this repairs: the backend was down across 06:00 local, the
+    cron fire fell outside APScheduler's 15-minute misfire grace, and the day
+    then had NO schedule, NO forecasts and an empty Today surface — a
+    dead-scheduler zero-slate day that is indistinguishable from an honest
+    no-bet day. Catch-up runs the very same idempotent job the cron would have
+    run, exactly once, only when (a) the scheduler is enabled, (b) local time
+    is already past the scheduled hour, and (c) no SUCCEEDED ``daily-pipeline``
+    run exists for the current local date. Any bookkeeping failure fails safe
+    to the normal cron (never a duplicate).
+    """
+
+    if not settings.scheduler_enabled:
+        return None
+    now = now or datetime.now(UTC)
+    zone = ZoneInfo(settings.display_timezone)
+    local_now = now.astimezone(zone)
+    if local_now.hour < DAILY_PIPELINE_HOUR:
+        return None
+    today = local_now.date()
+    factory = session_factory or SessionLocal
+    try:
+        with factory() as session:
+            start_utc, end_utc = local_day_bounds(today, settings.display_timezone)
+            succeeded = session.scalar(
+                select(JobRun.id).where(
+                    JobRun.job_name == DAILY_PIPELINE_JOB,
+                    JobRun.status == RunStatus.SUCCEEDED,
+                    JobRun.started_at >= start_utc,
+                    JobRun.started_at < end_utc,
+                ).limit(1)
+            )
+    except Exception as exc:  # fail safe: fall back to the normal cron
+        logger.warning("daily_pipeline_catch_up_check_failed", error=str(exc))
+        return None
+    if succeeded is not None:
+        return None
+    logger.warning("daily_pipeline_catch_up_scheduled", event_date=today.isoformat())
+    return now
+
+
+def reconcile_abandoned_job_runs(
+    *,
+    now: datetime | None = None,
+    session_factory: Any | None = None,
+) -> int:
+    """Mark ``JobRun`` rows left RUNNING by a previous process as FAILED.
+
+    A job row only reaches a terminal status through the orchestrator's own
+    try/except; a process killed mid-job leaves it RUNNING forever (four such
+    rows were observed in the live table). In the single-process topology this
+    runs in, any RUNNING row present at scheduler start is provably orphaned.
+    NOTE: a multi-replica deployment must NOT call this unconditionally — it
+    needs a per-process/lease identity on the row first.
+    """
+
+    now = now or datetime.now(UTC)
+    factory = session_factory or SessionLocal
+    try:
+        with factory() as session:
+            rows = list(session.scalars(select(JobRun).where(JobRun.status == RunStatus.RUNNING)))
+            for run in rows:
+                run.status = RunStatus.FAILED
+                run.completed_at = now
+                run.error_message = "ABANDONED: process restarted before the job completed"
+            session.commit()
+    except Exception as exc:
+        logger.error("job_run_reconciliation_failed", error=str(exc))
+        return 0
+    if rows:
+        logger.warning("job_runs_reconciled", abandoned=len(rows))
+    return len(rows)
 
 
 # -- runtime state ---------------------------------------------------------
@@ -243,14 +331,20 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         "misfire_grace_time": 900,
         "replace_existing": True,
     }
+    # A missed 06:00 run (process down across the cron fire) is caught up once,
+    # immediately, on scheduler start; the cron cadence resumes afterwards.
+    daily_kwargs: dict[str, Any] = dict(common)
+    catch_up_at = daily_pipeline_catch_up_time(settings)
+    if catch_up_at is not None:
+        daily_kwargs["next_run_time"] = catch_up_at
     scheduler.add_job(
         execute_scheduled_job,
         "cron",
-        hour=6,
+        hour=DAILY_PIPELINE_HOUR,
         minute=0,
         id="asp-daily-pipeline",
-        kwargs={"job_name": "daily-pipeline", "settings": settings},
-        **common,
+        kwargs={"job_name": DAILY_PIPELINE_JOB, "settings": settings},
+        **daily_kwargs,
     )
     scheduler.add_job(
         execute_scheduled_job,
