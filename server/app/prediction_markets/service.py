@@ -363,8 +363,18 @@ class PredictionMarketObserver:
 
     def _alert(self, alert_type: AlertType, game_id, snap, now, details) -> int:
         idem = f"{alert_type.value}:{game_id}:{snap.provider}:{snap.market_type}:{snap.selection}:{int(now.timestamp() // 300)}"
-        if self._exists(PredictionMarketAlert, idempotency_key=idem):
+        # ``_latest_snapshots_by_provider`` yields one row per (provider, market,
+        # selection, LINE), while this key deliberately omits the line so one
+        # alert covers a market. Several lines therefore collapse onto one key
+        # inside a single evaluation. The session runs with autoflush=False, so
+        # ``_exists`` cannot see a row added moments ago in this same batch and
+        # the flush would raise UniqueViolation on ``uq_pm_alert_idempotency``,
+        # failing the whole job and losing every alert in it. Track keys added
+        # by this observer instance so an in-batch duplicate is a no-op.
+        pending: set[str] = self.__dict__.setdefault("_pending_alert_keys", set())
+        if idem in pending or self._exists(PredictionMarketAlert, idempotency_key=idem):
             return 0
+        pending.add(idem)
         self.session.add(PredictionMarketAlert(
             alert_type=alert_type.value, canonical_game_id=game_id, provider=snap.provider,
             market_type=snap.market_type, selection=snap.selection, magnitude=details.get("spread"),
