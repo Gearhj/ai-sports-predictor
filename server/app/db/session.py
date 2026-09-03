@@ -15,11 +15,17 @@ from app.core.config import get_settings
 DEFAULT_DATABASE_URL = "postgresql+psycopg://asp:REDACTED-CREDENTIAL@localhost:5433/asp"
 
 
-def _engine_options(database_url: str) -> dict[str, object]:
+def _engine_options(database_url: str, settings=None) -> dict[str, object]:
     """Return conservative options that also make in-memory SQLite reliable."""
     url = make_url(database_url)
     if url.get_backend_name() != "sqlite":
-        return {"pool_pre_ping": True}
+        resolved = settings or get_settings()
+        return {
+            "pool_pre_ping": True,
+            "pool_size": resolved.db_pool_size,
+            "max_overflow": resolved.db_max_overflow,
+            "pool_timeout": resolved.db_pool_timeout_seconds,
+        }
 
     options: dict[str, object] = {"connect_args": {"check_same_thread": False}}
     if url.database in (None, "", ":memory:"):

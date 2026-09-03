@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     display_timezone: str = "America/New_York"
     database_url: str = "postgresql+psycopg://asp:REDACTED-CREDENTIAL@localhost:5433/asp"
+    # Connection pool for PostgreSQL. FastAPI runs sync ``def`` handlers on a
+    # 40-slot threadpool; SQLAlchemy's default pool (5 + 10 overflow) is smaller
+    # than that, so modest concurrency queued on ``pool_timeout`` (30 s default)
+    # instead of failing fast. Defaults below cover the threadpool with margin
+    # against PostgreSQL's 100-connection default; tune per replica count.
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    db_max_overflow: int = Field(default=20, ge=0, le=200)
+    db_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     secret_key: str = "change-me-before-any-shared-deployment"
     access_token_minutes: int = Field(default=60, ge=5, le=1440)
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

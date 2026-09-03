@@ -186,6 +186,10 @@ class ReadService:
     def __init__(self, session: Session, settings: Settings) -> None:
         self.session = session
         self.settings = settings
+        # Per-instance memo for ``_latest_market_snapshots``. A ReadService is
+        # built per request/job, and the board path asks for the same game's
+        # latest quotes up to three times while assembling one response.
+        self._market_snapshot_cache: dict[tuple[str, datetime | None], list[Any]] = {}
 
     def dashboard(self, event_date: date) -> DashboardData:
         # The public Today surface is a hard current-LIVE boundary. Demo rows
@@ -3079,35 +3083,72 @@ class ReadService:
         *,
         cutoff: datetime | None = None,
     ) -> list[tuple[Market, MarketOutcome, OddsSnapshot, Sportsbook]]:
-        query = (
+        """Latest persisted quote batch per (market, sportsbook) for one game.
+
+        Semantics (unchanged): for every (market, sportsbook) pair take the
+        snapshots observed at that pair's most recent ``observed_at`` (subject
+        to ``cutoff`` on ``available_as_of`` and the game's ``source_mode``),
+        one row per (outcome, sportsbook), ordered newest first.
+
+        The previous implementation loaded EVERY snapshot ever recorded for the
+        game (≈2,000+ rows × 4 ORM entities per game, ~260k instances for a
+        15-game slate) and reduced them in Python; profiling put 8 of the ~9
+        seconds of a Today request here. The reduction is now expressed in SQL
+        so only the winning rows are materialised.
+        """
+        from sqlalchemy import and_
+
+        cutoff_aware = _aware(cutoff) if cutoff is not None else None
+        cache_key = (str(game_id), cutoff_aware)
+        cached = self._market_snapshot_cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        game = self.session.get(Game, game_id)
+
+        def _scoped(statement):
+            statement = statement.where(Market.game_id == game_id)
+            if cutoff_aware is not None:
+                statement = statement.where(OddsSnapshot.available_as_of <= cutoff_aware)
+            if game is not None:
+                statement = statement.where(OddsSnapshot.source_mode == game.source_mode)
+            return statement
+
+        latest_per_market_book = _scoped(
+            select(
+                Market.id.label("market_id"),
+                OddsSnapshot.sportsbook_id.label("sportsbook_id"),
+                func.max(OddsSnapshot.observed_at).label("latest_observed_at"),
+            )
+            .join(MarketOutcome, MarketOutcome.market_id == Market.id)
+            .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
+        ).group_by(Market.id, OddsSnapshot.sportsbook_id).subquery("latest_market_book")
+
+        query = _scoped(
             select(Market, MarketOutcome, OddsSnapshot, Sportsbook)
             .join(MarketOutcome, MarketOutcome.market_id == Market.id)
             .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
             .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
-            .where(Market.game_id == game_id)
-            .order_by(OddsSnapshot.observed_at.desc())
-        )
-        if cutoff is not None:
-            query = query.where(OddsSnapshot.available_as_of <= _aware(cutoff))
-        rows = list(self.session.execute(query))
-        game = self.session.get(Game, game_id)
-        if game:
-            rows = [row for row in rows if row[2].source_mode == game.source_mode]
-        latest_market_book: dict[tuple[Any, Any], datetime] = {}
-        for market, _, snapshot, book in rows:
-            key = (market.id, book.id)
-            observed = _aware(snapshot.observed_at)
-            if key not in latest_market_book or observed > latest_market_book[key]:
-                latest_market_book[key] = observed
+            .join(
+                latest_per_market_book,
+                and_(
+                    latest_per_market_book.c.market_id == Market.id,
+                    latest_per_market_book.c.sportsbook_id == OddsSnapshot.sportsbook_id,
+                    latest_per_market_book.c.latest_observed_at == OddsSnapshot.observed_at,
+                ),
+            )
+        ).order_by(OddsSnapshot.observed_at.desc())
+
         seen: set[tuple[Any, Any]] = set()
-        latest = []
-        for row in rows:
+        latest: list[tuple[Market, MarketOutcome, OddsSnapshot, Sportsbook]] = []
+        for row in self.session.execute(query):
             market, outcome, snapshot, book = row
-            key = (market.id, book.id)
             outcome_key = (outcome.id, book.id)
-            if _aware(snapshot.observed_at) == latest_market_book[key] and outcome_key not in seen:
-                latest.append(row)
-                seen.add(outcome_key)
+            if outcome_key in seen:
+                continue
+            seen.add(outcome_key)
+            latest.append(row)
+        self._market_snapshot_cache[cache_key] = list(latest)
         return latest
 
     def _market_context(
