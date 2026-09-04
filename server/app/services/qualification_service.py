@@ -105,9 +105,25 @@ class QualificationService:
         }
 
     # -- V2 practical-policy funnel (point-in-time, read-only) ------------
-    def funnel_v2(self, event_date: date, *, now: datetime | None = None) -> dict[str, Any]:
+    def funnel_v2(self, event_date: date, *, now: datetime | None = None, prefetch: bool = True) -> dict[str, Any]:
         """The challenger funnel: component-explicit V2 gates, never the blunt
-        readiness composite. Read-only — no decision or position is created."""
+        readiness composite. Read-only — no decision or position is created.
+
+        ``prefetch=True`` (default) serves every per-game read from one
+        set-based FunnelReadContext; ``prefetch=False`` is the legacy
+        per-game query path, retained only for equivalence proofs."""
+        from app.services.funnel_read_context import begin_read_snapshot
+
+        if prefetch:
+            begin_read_snapshot(self.session)
+        read = ReadService(self.session, self.settings)
+        games = read._live_games_for_date(event_date)
+        with self._read_scope(games, now=now, prefetch=prefetch) as ctx:
+            result = self._funnel_v2_body(event_date, games, read, now=now)
+            result["read_model"] = self._read_model_meta(ctx, games)
+            return result
+
+    def _funnel_v2_body(self, event_date: date, games: list[Game], read: "ReadService", *, now: datetime | None) -> dict[str, Any]:
         from datetime import UTC, timedelta
 
         from app.services.practical_policy import (
@@ -122,8 +138,6 @@ class QualificationService:
         )
 
         now = now or datetime.now(UTC)
-        read = ReadService(self.session, self.settings)
-        games = read._live_games_for_date(event_date)
         cards = [read.game_card(g) for g in games]
         forecasts = [read._latest_forecast(g.id) for g in games]
         opportunities, _ = read._daily_opportunities(games, cards, forecasts)
@@ -340,9 +354,20 @@ class QualificationService:
         }
 
     # -- qualification funnel (point-in-time, read-only) -----------------
-    def funnel(self, event_date: date) -> dict[str, Any]:
+    def funnel(self, event_date: date, *, prefetch: bool = True) -> dict[str, Any]:
+        """V1 strict-control funnel. ``prefetch`` as in ``funnel_v2``."""
+        from app.services.funnel_read_context import begin_read_snapshot
+
+        if prefetch:
+            begin_read_snapshot(self.session)
         read = ReadService(self.session, self.settings)
         games = read._live_games_for_date(event_date)
+        with self._read_scope(games, now=None, prefetch=prefetch) as ctx:
+            result = self._funnel_body(event_date, games, read)
+            result["read_model"] = self._read_model_meta(ctx, games)
+            return result
+
+    def _funnel_body(self, event_date: date, games: list[Game], read: "ReadService") -> dict[str, Any]:
         cards = [read.game_card(g) for g in games]
         forecasts = [read._latest_forecast(g.id) for g in games]
         opportunities, _ = read._daily_opportunities(games, cards, forecasts)
@@ -486,16 +511,64 @@ class QualificationService:
 
     def _sport(self, game: Game) -> str:
         from app.models import League
+        from app.services.funnel_read_context import attached_context
 
+        ctx = attached_context(self.session)
+        if ctx is not None and game.id in ctx.games_by_id:
+            return ctx.league_code_by_id.get(game.league_id) or "UNKNOWN"
         code = self.session.scalar(select(League.code).where(League.id == game.league_id))
         return code or "UNKNOWN"
 
     def _matchup(self, game: Game) -> str:
+        from app.services.funnel_read_context import attached_context
+
+        ctx = attached_context(self.session)
+
         def ab(is_home: bool) -> str:
+            if ctx is not None and game.id in ctx.games_by_id:
+                pair = next(((s, t) for s, t in ctx.sides_by_game.get(game.id, []) if bool(s.is_home) == is_home), None)
+                return pair[1].abbreviation if pair else "?"
             gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(is_home)))
             t = self.session.get(Team, gt.team_id) if gt else None
             return t.abbreviation if t else "?"
         return f"{ab(False)} @ {ab(True)}"
+
+    # -- set-based read model (request-scoped) ---------------------------
+    def _read_scope(self, games: list[Game], *, now: datetime | None, prefetch: bool):
+        """Attach one bulk-loaded FunnelReadContext to the session for the
+        duration of a funnel request (or nothing when ``prefetch`` is False —
+        the legacy per-game path, kept for equivalence proofs)."""
+        from contextlib import contextmanager
+
+        from app.services.funnel_read_context import (
+            attach_context, build_funnel_read_context, detach_context,
+        )
+
+        @contextmanager
+        def scope():
+            if not prefetch:
+                yield None
+                return
+            ctx = build_funnel_read_context(self.session, self.settings, games, now=now)
+            attach_context(self.session, ctx)
+            try:
+                yield ctx
+            finally:
+                detach_context(self.session)
+        return scope()
+
+    @staticmethod
+    def _read_model_meta(ctx, games: list[Game]) -> dict[str, Any]:
+        from app.services.funnel_read_context import READ_MODEL_VERSION
+
+        if ctx is None:
+            return {"version": "LEGACY_PER_GAME", "prefetched": False, "games": len(games)}
+        return {
+            "version": READ_MODEL_VERSION, "prefetched": True, "games": len(games),
+            "generated_at": ctx.generated_at.isoformat(),
+            "evidence_watermark": ctx.evidence_watermark.isoformat() if ctx.evidence_watermark else None,
+            "prefetch_statements": ctx.statement_count,
+        }
 
 
 def _iso(value: datetime | None) -> str | None:

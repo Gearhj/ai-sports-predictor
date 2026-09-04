@@ -192,16 +192,45 @@ class ReadService:
         # latest quotes up to three times while assembling one response.
         self._market_snapshot_cache: dict[tuple[str, datetime | None], list[Any]] = {}
 
+    def _prefetch(self):
+        """The request's set-based FunnelReadContext when a funnel attached one
+        to this session; None for every other caller (legacy per-game reads)."""
+        from app.services.funnel_read_context import attached_context
+
+        return attached_context(self.session)
+
+    def _prefetched_game(self, game_id: Any):
+        ctx = self._prefetch()
+        return ctx if ctx is not None and game_id in ctx.games_by_id else None
+
     def dashboard(self, event_date: date) -> DashboardData:
         # The public Today surface is a hard current-LIVE boundary. Demo rows
         # remain available only through the explicitly illustrative client
         # route and historical rows remain on the research surface.
+        from app.services.funnel_read_context import (
+            attach_context, attached_context, begin_read_snapshot, build_funnel_read_context, detach_context,
+        )
+
+        if attached_context(self.session) is None:
+            begin_read_snapshot(self.session)
         games = self._live_games_for_date(event_date)
-        cards = [self.game_card(game) for game in games]
-        forecasts = [self._latest_forecast(game.id) for game in games]
-        # A game counts as forecast-complete when it has a valid current version —
-        # the morning publication or a later intraday rescore that superseded it.
-        complete = sum(forecast is not None for forecast in forecasts)
+        # The Today board walks the same per-game helpers as the funnels; serve
+        # them from one set-based read context (business contract unchanged).
+        owns_context = attached_context(self.session) is None
+        if owns_context:
+            attach_context(self.session, build_funnel_read_context(self.session, self.settings, games))
+        try:
+            cards = [self.game_card(game) for game in games]
+            forecasts = [self._latest_forecast(game.id) for game in games]
+            # A game counts as forecast-complete when it has a valid current version —
+            # the morning publication or a later intraday rescore that superseded it.
+            complete = sum(forecast is not None for forecast in forecasts)
+            return self._dashboard_from(event_date, games, cards, forecasts, complete)
+        finally:
+            if owns_context:
+                detach_context(self.session)
+
+    def _dashboard_from(self, event_date: date, games, cards, forecasts, complete: int) -> DashboardData:
         readiness = [card.data_readiness for card in cards if card.data_readiness is not None]
         bankroll = self.bankroll()
         last_refresh = max(
@@ -389,9 +418,13 @@ class ReadService:
                 best_ev = best_view.expected_value if best_ev is None else max(best_ev, best_view.expected_value)
             exp_status, exp_stake = experiment_by_game.get(game_id, (None, None))
             if exp_status is None:
-                experiment_active = self.session.scalar(
-                    select(ShadowExperiment.id).where(ShadowExperiment.is_active.is_(True)).limit(1)
-                ) is not None
+                ctx = self._prefetch()
+                if ctx is not None:
+                    experiment_active = bool(ctx.active_experiments)
+                else:
+                    experiment_active = self.session.scalar(
+                        select(ShadowExperiment.id).where(ShadowExperiment.is_active.is_(True)).limit(1)
+                    ) is not None
                 if not experiment_active:
                     exp_status = "NOT_IN_EXPERIMENT"
                 elif state == "QUALIFIED_BET":
@@ -586,11 +619,15 @@ class ReadService:
 
         Returns (context, rescored, unresolved_scratch)."""
 
-        events = list(self.session.scalars(
-            select(AvailabilityEvent)
-            .where(AvailabilityEvent.game_id == game.id)
-            .order_by(AvailabilityEvent.received_at.desc())
-        ))
+        ctx = self._prefetched_game(game.id)
+        if ctx is not None:
+            events = list(ctx.events(game.id))  # newest received first
+        else:
+            events = list(self.session.scalars(
+                select(AvailabilityEvent)
+                .where(AvailabilityEvent.game_id == game.id)
+                .order_by(AvailabilityEvent.received_at.desc())
+            ))
         last = events[0] if events else None
         confirmation = self._input_confirmation(card)
         away_lineup = card.away_lineup.status if card.away_lineup else "MISSING"
@@ -622,12 +659,16 @@ class ReadService:
         out_count = sum(1 for event_type in latest_by_player.values() if event_type in out_types)
         unavailable = out_count if (authoritative or out_count > 0) else None
 
-        rescore = self.session.scalar(
-            select(ShadowRescore)
-            .where(ShadowRescore.game_id == game.id)
-            .order_by(ShadowRescore.rescore_completed_at.desc())
-            .limit(1)
-        )
+        if ctx is not None:
+            rescores = ctx.rescores_by_game.get(game.id, [])  # newest completed first
+            rescore = rescores[0] if rescores else None
+        else:
+            rescore = self.session.scalar(
+                select(ShadowRescore)
+                .where(ShadowRescore.game_id == game.id)
+                .order_by(ShadowRescore.rescore_completed_at.desc())
+                .limit(1)
+            )
         forecast_before = forecast_after = edge_before = edge_after = None
         book_moved: bool | None = None
         if rescore is not None:
@@ -796,14 +837,22 @@ class ReadService:
             return label.upper(), f"{'Over' if label == 'over' else 'Under'} {point:g}", point, probability
         return None
 
+    def _component_rows(self, forecast: Forecast) -> list[ForecastComponent]:
+        ctx = self._prefetched_game(forecast.game_id)
+        if ctx is not None and forecast.id in ctx.components_by_forecast:
+            return list(ctx.components_by_forecast[forecast.id])
+        if ctx is not None and ctx.latest_forecast_by_game.get(forecast.game_id) is forecast:
+            return []  # loaded for the slate; this forecast simply has no components
+        return list(self.session.scalars(
+            select(ForecastComponent).where(ForecastComponent.forecast_id == forecast.id)
+        ))
+
     def _component_disagreement(self, forecast: Forecast) -> float | None:
         """Spread (percentage points) of ensemble component home-win probabilities."""
 
         probabilities = [
             float(component.output["home_win_probability"])
-            for component in self.session.scalars(
-                select(ForecastComponent).where(ForecastComponent.forecast_id == forecast.id)
-            )
+            for component in self._component_rows(forecast)
             if isinstance(component.output, dict) and component.output.get("home_win_probability") is not None
         ]
         if len(probabilities) < 2:
@@ -836,7 +885,11 @@ class ReadService:
 
         from app.models import League
 
-        code = self.session.scalar(select(League.code).where(League.id == game.league_id))
+        ctx = self._prefetched_game(game.id)
+        if ctx is not None:
+            code = ctx.league_code_by_id.get(game.league_id)
+        else:
+            code = self.session.scalar(select(League.code).where(League.id == game.league_id))
         if not code:
             return "UNKNOWN"
         entry = resolve_stored_identity(None, code)
@@ -918,17 +971,21 @@ class ReadService:
         active = experiment is not None and slate_date >= experiment.start_date
         is_final = now >= cutoff
         final_decision = None
+        ctx = self._prefetched_game(game.id)
         if is_final and active:
-            from app.models import ExperimentDecisionPhase, ShadowExperimentDecision
+            if ctx is not None:
+                final_decision = ctx.final_decision_by_experiment_game.get((experiment.id, game.id))
+            else:
+                from app.models import ExperimentDecisionPhase, ShadowExperimentDecision
 
-            final_decision = self.session.scalar(
-                select(ShadowExperimentDecision).where(
-                    ShadowExperimentDecision.experiment_id == experiment.id,
-                    ShadowExperimentDecision.game_id == game.id,
-                    ShadowExperimentDecision.phase == ExperimentDecisionPhase.FINAL_PREGAME,
-                    ShadowExperimentDecision.recommended_at <= cutoff,
-                ).order_by(ShadowExperimentDecision.recommended_at.desc()).limit(1)
-            )
+                final_decision = self.session.scalar(
+                    select(ShadowExperimentDecision).where(
+                        ShadowExperimentDecision.experiment_id == experiment.id,
+                        ShadowExperimentDecision.game_id == game.id,
+                        ShadowExperimentDecision.phase == ExperimentDecisionPhase.FINAL_PREGAME,
+                        ShadowExperimentDecision.recommended_at <= cutoff,
+                    ).order_by(ShadowExperimentDecision.recommended_at.desc()).limit(1)
+                )
         # Post-cutoff the view describes the AT-CUTOFF decision (point-in-time),
         # never a re-litigated later state.
         evaluation = PracticalPolicyEvaluator(self.session, self.settings).evaluate(
@@ -943,8 +1000,17 @@ class ReadService:
             )
         stake = None
         if evaluation.qualified and moneyline is not None and moneyline.decimal_odds:
-            bankroll = service.current_bankroll(experiment) if experiment is not None \
-                else float(self.settings.shadow_virtual_bankroll)
+            if experiment is None:
+                bankroll = float(self.settings.shadow_virtual_bankroll)
+            elif ctx is not None:
+                # Ledger-derived value memoised once per request (one settlement
+                # scan), never per qualified game.
+                key = f"bankroll:{experiment.id}"
+                if key not in ctx.memo:
+                    ctx.memo[key] = service.current_bankroll(experiment)
+                bankroll = ctx.memo[key]
+            else:
+                bankroll = service.current_bankroll(experiment)
             policy = StakePolicy(
                 strategy=StakingStrategy.FRACTIONAL_KELLY,
                 kelly_fraction=self.settings.shadow_kelly_fraction,
@@ -2756,6 +2822,9 @@ class ReadService:
         )
 
     def _latest_forecast(self, game_id: Any) -> Forecast | None:
+        ctx = self._prefetched_game(game_id)
+        if ctx is not None:
+            return ctx.latest_forecast_by_game.get(game_id)
         game = self.session.get(Game, game_id)
         if game is None:
             return None
@@ -2810,6 +2879,10 @@ class ReadService:
         return "MISSING"
 
     def _latest_refresh_state(self, game_id: Any, source_mode: str) -> GameRefreshState | None:
+        ctx = self._prefetched_game(game_id)
+        if ctx is not None:
+            state = ctx.refresh_state_by_game.get(game_id)
+            return state if state is not None and state.source_mode == source_mode else None
         return self.session.scalar(
             select(GameRefreshState)
             .where(
@@ -2825,6 +2898,10 @@ class ReadService:
         game_id: Any,
         source_mode: str,
     ) -> GameFeatureSnapshot | None:
+        ctx = self._prefetched_game(game_id)
+        if ctx is not None:
+            snap = ctx.latest_feature_snapshot_by_game.get(game_id)
+            return snap if snap is not None and snap.source_mode == source_mode else None
         return self.session.scalar(
             select(GameFeatureSnapshot)
             .where(
@@ -3038,14 +3115,22 @@ class ReadService:
         if observation is not None and (observation.game_id != game.id or observation.team_id != team_id):
             observation = None
         if observation is None:
-            candidates = list(self.session.scalars(
-                select(LineupObservation).where(
-                    LineupObservation.game_id == game.id,
-                    LineupObservation.team_id == team_id,
-                    LineupObservation.available_as_of <= cutoff,
-                    LineupObservation.source_mode == game.source_mode,
-                )
-            ))
+            ctx = self._prefetched_game(game.id)
+            if ctx is not None:
+                cutoff_aware = _aware(cutoff)
+                candidates = [
+                    o for o in ctx.lineup_rows(game.id, team_id)
+                    if _aware(o.available_as_of) <= cutoff_aware and o.source_mode == game.source_mode
+                ]
+            else:
+                candidates = list(self.session.scalars(
+                    select(LineupObservation).where(
+                        LineupObservation.game_id == game.id,
+                        LineupObservation.team_id == team_id,
+                        LineupObservation.available_as_of <= cutoff,
+                        LineupObservation.source_mode == game.source_mode,
+                    )
+                ))
             status_rank = {"PROJECTED": 1, "EXPECTED": 2, "CONFIRMED": 3}
             observation = max(
                 candidates,
@@ -3092,7 +3177,11 @@ class ReadService:
         return details
 
     def _sides(self, game_id: Any) -> tuple[GameTeam, Team, GameTeam, Team]:
-        rows = list(self.session.execute(select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id == game_id)))
+        ctx = self._prefetched_game(game_id)
+        if ctx is not None:
+            rows = list(ctx.sides_by_game.get(game_id, []))
+        else:
+            rows = list(self.session.execute(select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id == game_id)))
         home_side, home = next(row for row in rows if row[0].is_home)
         away_side, away = next(row for row in rows if not row[0].is_home)
         return home_side, home, away_side, away
@@ -3123,29 +3212,44 @@ class ReadService:
             observation.game_id != game_id or observation.team_id != team_id
         ):
             observation = None
+        ctx = self._prefetched_game(game_id)
         if observation is None and not snapshot_bound and game is not None:
-            observation = self.session.scalar(
-                select(StarterObservation)
-                .where(
-                    StarterObservation.game_id == game_id,
-                    StarterObservation.team_id == team_id,
-                    StarterObservation.available_as_of <= cutoff,
-                    StarterObservation.source_mode == game.source_mode,
+            if ctx is not None:
+                cutoff_aware = _aware(cutoff)
+                eligible = [
+                    o for o in ctx.starter_rows(game_id, team_id)
+                    if _aware(o.available_as_of) <= cutoff_aware and o.source_mode == game.source_mode
+                ]
+                observation = eligible[-1] if eligible else None
+            else:
+                observation = self.session.scalar(
+                    select(StarterObservation)
+                    .where(
+                        StarterObservation.game_id == game_id,
+                        StarterObservation.team_id == team_id,
+                        StarterObservation.available_as_of <= cutoff,
+                        StarterObservation.source_mode == game.source_mode,
+                    )
+                    .order_by(StarterObservation.available_as_of.desc())
+                    .limit(1)
                 )
-                .order_by(StarterObservation.available_as_of.desc())
-                .limit(1)
-            )
         player_id = (
             observation.confirmed_pitcher_id or observation.probable_pitcher_id
             if observation is not None else side.probable_pitcher_id
         )
-        player = self.session.get(Player, player_id) if player_id else None
+        if ctx is not None and player_id and player_id in ctx.players_by_id:
+            player = ctx.players_by_id[player_id]
+        else:
+            player = self.session.get(Player, player_id) if player_id else None
         if snapshot_bound:
             values = {"starter_era": starter_era, "starter_xera": starter_xera}
         else:
             feature = self._latest_feature(team_id, cutoff, game.source_mode if game else None)
             values = feature.values if feature else {}
-        pitcher = self.session.scalar(select(Pitcher).where(Pitcher.player_id == player.id)) if player else None
+        if ctx is not None and player is not None:
+            pitcher = ctx.pitcher_by_player_id.get(player.id)
+        else:
+            pitcher = self.session.scalar(select(Pitcher).where(Pitcher.player_id == player.id)) if player else None
         throwing_hand = str(pitcher.throws).upper() if pitcher and pitcher.throws else None
         hand = "LHP" if throwing_hand == "L" else "RHP" if throwing_hand == "R" else None
         return PitcherSummary(
@@ -3160,6 +3264,13 @@ class ReadService:
         )
 
     def _latest_feature(self, team_id: Any, cutoff: datetime, source_mode: str | None = None) -> TeamFeature | None:
+        ctx = self._prefetch()
+        if ctx is not None and team_id in ctx.team_features_by_team:
+            cutoff_aware = _aware(cutoff)
+            for tf in ctx.team_features_by_team[team_id]:  # newest first
+                if _aware(tf.available_as_of) <= cutoff_aware and (not source_mode or tf.source_mode == source_mode):
+                    return tf
+            return None
         query = select(TeamFeature).where(
             TeamFeature.team_id == team_id,
             TeamFeature.available_as_of <= cutoff,
@@ -3194,6 +3305,13 @@ class ReadService:
         cached = self._market_snapshot_cache.get(cache_key)
         if cached is not None:
             return list(cached)
+        ctx = self._prefetched_game(game_id)
+        if ctx is not None and cutoff_aware is None:
+            # Set-based read model: the same (market, sportsbook) latest-batch
+            # reduction was executed once for the whole slate.
+            rows = list(ctx.market_rows_by_game.get(game_id, []))
+            self._market_snapshot_cache[cache_key] = list(rows)
+            return rows
 
         game = self.session.get(Game, game_id)
 
@@ -3228,7 +3346,12 @@ class ReadService:
                     latest_per_market_book.c.latest_observed_at == OddsSnapshot.observed_at,
                 ),
             )
-        ).order_by(OddsSnapshot.observed_at.desc())
+        ).order_by(
+            # Deterministic: rows sharing one observed_at (alternate lines quoted
+            # in the same batch) previously came back in unspecified physical
+            # order, which silently decided score ties between equal candidates.
+            OddsSnapshot.observed_at.desc(), Market.id, MarketOutcome.id, Sportsbook.id,
+        )
 
         seen: set[tuple[Any, Any]] = set()
         latest: list[tuple[Market, MarketOutcome, OddsSnapshot, Sportsbook]] = []

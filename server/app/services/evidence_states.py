@@ -60,6 +60,55 @@ def _aware(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+# -- evidence row loaders --------------------------------------------------
+# Each loader consults the request's prefetched FunnelReadContext when one is
+# attached to the session (set-based read model) and otherwise issues the
+# original per-(game, team) query. Both paths apply the SAME point-in-time
+# filter (available_as_of / received_at <= reference) and the same ordering
+# (source time ascending, id as the stable tie-breaker), so the reduction is
+# identical whichever path served the rows.
+
+def _prefetch(session: Session):
+    from app.services.funnel_read_context import attached_context
+
+    return attached_context(session)
+
+
+def _starter_rows_upto(session: Session, game: Game, team_id: Any, reference: datetime) -> list[StarterObservation]:
+    ctx = _prefetch(session)
+    if ctx is not None and game.id in ctx.games_by_id:
+        return [o for o in ctx.starter_rows(game.id, team_id) if _aware(o.available_as_of) <= reference]
+    return list(session.scalars(
+        select(StarterObservation).where(
+            StarterObservation.game_id == game.id,
+            StarterObservation.team_id == team_id,
+            StarterObservation.available_as_of <= reference,
+        ).order_by(StarterObservation.available_as_of, StarterObservation.id)
+    ))
+
+
+def _lineup_latest_upto(session: Session, game: Game, team_id: Any, reference: datetime) -> LineupObservation | None:
+    ctx = _prefetch(session)
+    if ctx is not None and game.id in ctx.games_by_id:
+        eligible = [o for o in ctx.lineup_rows(game.id, team_id) if _aware(o.available_as_of) <= reference]
+        return eligible[-1] if eligible else None
+    return session.scalar(select(LineupObservation).where(
+        LineupObservation.game_id == game.id,
+        LineupObservation.team_id == team_id,
+        LineupObservation.available_as_of <= reference,
+    ).order_by(LineupObservation.available_as_of.desc(), LineupObservation.id.desc()))
+
+
+def _events_upto(session: Session, game: Game, reference: datetime) -> list[AvailabilityEvent]:
+    ctx = _prefetch(session)
+    if ctx is not None and game.id in ctx.games_by_id:
+        return [e for e in ctx.events(game.id) if _aware(e.received_at) <= reference]
+    return list(session.scalars(select(AvailabilityEvent).where(
+        AvailabilityEvent.game_id == game.id,
+        AvailabilityEvent.received_at <= reference,
+    )))
+
+
 @dataclass(frozen=True)
 class StarterEvidence:
     """The governed starter state for one game side, with its audit trail.
@@ -157,13 +206,7 @@ def starter_evidence(
     cutoff = _aware(cutoff)
     reference = evaluation_reference(cutoff, as_of)
     reasons: list[str] = []
-    obs = list(session.scalars(
-        select(StarterObservation).where(
-            StarterObservation.game_id == game.id,
-            StarterObservation.team_id == team_id,
-            StarterObservation.available_as_of <= reference,
-        ).order_by(StarterObservation.available_as_of)
-    ))
+    obs = _starter_rows_upto(session, game, team_id, reference)
     if not obs:
         return StarterEvidence(state=STARTER_MISSING, reasons=("No governed starter observation exists",),
                                reference_at=reference.isoformat(), freshness=FRESHNESS_MISSING)
@@ -325,10 +368,7 @@ def _unresolved_availability_events(
     rescore path regenerates the forecast on a material event, so a forecast
     older than the latest material event has not absorbed it."""
 
-    rows = list(session.scalars(select(AvailabilityEvent).where(
-        AvailabilityEvent.game_id == game.id,
-        AvailabilityEvent.received_at <= cutoff,
-    )))
+    rows = _events_upto(session, game, _aware(cutoff))
     material = [
         r for r in rows
         if any(kind in (r.event_type or "").upper() for kind in kinds)
@@ -415,11 +455,7 @@ def lineup_evidence(
 
     def latest_for(team_id: Any) -> LineupObservation | None:
         # Newest eligible observation at the reference — never a later one.
-        return session.scalar(select(LineupObservation).where(
-            LineupObservation.game_id == game.id,
-            LineupObservation.team_id == team_id,
-            LineupObservation.available_as_of <= reference,
-        ).order_by(LineupObservation.available_as_of.desc()))
+        return _lineup_latest_upto(session, game, team_id, reference)
 
     home = latest_for(home_team_id)
     away = latest_for(away_team_id)

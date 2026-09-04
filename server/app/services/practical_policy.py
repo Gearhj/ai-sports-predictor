@@ -405,8 +405,15 @@ class PracticalPolicyEvaluator:
             return self._blocked(ev, "No valid current forecast", is_final, pending=True)
 
         # -- governed evidence states: always computed for transparency ------
-        home_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(True)))
-        away_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(False)))
+        from app.services.funnel_read_context import attached_context
+
+        ctx = attached_context(self.session)
+        if ctx is not None and game.id in ctx.games_by_id:
+            home_gt = ctx.game_team(game.id, True)
+            away_gt = ctx.game_team(game.id, False)
+        else:
+            home_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(True)))
+            away_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(False)))
         if home_gt is None or away_gt is None:
             return self._blocked(ev, "Exact game identity unavailable", is_final)
         # Evidence is reduced and aged at the evaluation reference

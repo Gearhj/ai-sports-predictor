@@ -106,6 +106,14 @@ class ShadowExperimentService:
         Defaults to the V1 strict control so every pre-existing call site keeps
         its exact behavior; the V2 challenger never hijacks a V1 read."""
 
+        from app.services.funnel_read_context import attached_context
+
+        ctx = attached_context(self.session)
+        if ctx is not None:
+            # Request-scoped read model: the active list was loaded once for
+            # the request (highest version per policy, same rule as below).
+            matches = [e for e in ctx.active_experiments if e.decision_policy == policy]
+            return max(matches, key=lambda e: e.version) if matches else None
         return self.session.scalar(
             select(ShadowExperiment).where(
                 ShadowExperiment.is_active.is_(True),
