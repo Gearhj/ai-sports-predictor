@@ -41,6 +41,7 @@ from app.models import (
 from app.schemas.api import GameOpportunity, OpportunitySelection, OpportunitySummary
 from app.services.read_service import ReadService
 from app.services.shadow_experiment_service import (
+    FINAL_PREGAME_CUTOFF_MINUTES,
     EXPERIMENT_NAME,
     RECOMMENDATION_POLICY_VERSION,
     STAKING_POLICY_VERSION,
@@ -62,7 +63,9 @@ async def _live_slate(session, settings):
     # a prospective slate relative to its explicit simulated ``now`` below.
     event_date = datetime.now(zone).date() - timedelta(days=1)
     now = datetime.combine(event_date, time(12, 0), tzinfo=zone).astimezone(UTC)
-    start = now + timedelta(hours=3)
+    # First pitch 26 minutes out: the FINAL_PREGAME capture (cutoff - 10m)
+    # then falls one minute after ``now`` and inside the final freeze window.
+    start = now + timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES + 11)
     await seed_demo_data(session, settings, event_date)
     for model in (Game, GameFeatureSnapshot, WeatherSnapshot, GameRefreshState):
         session.execute(update(model).values(source_mode="LIVE"))
@@ -165,10 +168,13 @@ def _start(service, event_date, now):
 
 
 def _append_then_position(service, event_date, now, start):
+    # The FINAL_PREGAME phase is frozen only inside the final window
+    # (FINAL_FREEZE_WINDOW_MINUTES before the cutoff); earlier snapshots are
+    # the MORNING phase. Capture at cutoff - 10 minutes.
     captured = service.freeze(
         event_date,
         phase=ExperimentDecisionPhase.FINAL_PREGAME,
-        now=now,
+        now=start - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES + 10),
     )
     positioned = service.freeze(
         event_date,

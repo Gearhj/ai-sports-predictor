@@ -54,6 +54,19 @@ from app.models import (
 )
 
 FINAL_PREGAME_CUTOFF_MINUTES = 15
+# The FINAL_PREGAME phase may only be frozen inside this window before the
+# cutoff (three freeze cadences of 5 minutes, so a single missed run cannot
+# leave a slate without a final evaluation). Versioned with the pipeline:
+# AISP_FINAL_FREEZE_WINDOW_V1.
+FINAL_FREEZE_WINDOW_MINUTES = 15
+FINAL_FREEZE_WINDOW_VERSION = "AISP_FINAL_FREEZE_WINDOW_V1"
+
+
+def in_final_window(cutoff: datetime, now: datetime) -> bool:
+    """True when ``now`` lies in [cutoff - FINAL_FREEZE_WINDOW_MINUTES, cutoff]."""
+    cutoff = _aware(cutoff)
+    now = _aware(now)
+    return cutoff - timedelta(minutes=FINAL_FREEZE_WINDOW_MINUTES) <= now <= cutoff
 EXPERIMENT_NAME = "ASP MODEL BANKROLL — 2026 V1"
 SUPPORTED_SPORT = "MLB"
 RECOMMENDATION_POLICY_VERSION = "AISP_OPPORTUNITY_POLICY_V1"
@@ -333,6 +346,18 @@ class ShadowExperimentService:
             if phase == ExperimentDecisionPhase.LINEUP_CONFIRMED and not self._lineup_confirmed(card):
                 continue  # capture this phase only once the lineup is actually confirmed
             cutoff = _aware(game.starts_at) - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
+            if (
+                phase == ExperimentDecisionPhase.FINAL_PREGAME
+                and now <= cutoff
+                and not in_final_window(cutoff, now)
+            ):
+                # The FINAL_PREGAME phase is the last evaluation before the
+                # cutoff. Evaluating it all day (every run while now <= cutoff)
+                # wrote hundreds of "final" rows per slate aged against a
+                # future cutoff. Earlier snapshots remain the MORNING phase.
+                # Post-cutoff runs fall through to position creation, which
+                # consumes only the persisted at-cutoff decision.
+                continue
             opportunity = opportunity_by_game.get(str(game.id))
             v2 = None
             if is_v2:

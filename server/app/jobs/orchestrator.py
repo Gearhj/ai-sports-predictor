@@ -58,6 +58,14 @@ from app.services.forecast_service import ForecastNotReadyError, ForecastService
 from app.services.read_service import ReadService
 
 
+# Starter-evidence heartbeat: the availability poll persists the verified
+# probable-pitcher state for a due game when its latest starter observation is
+# older than this many minutes. Inside the pregame fast window (2-minute
+# polls) this bounds the freshness authority's lag to ~10 minutes; outside it
+# the 10-minute slow poll and the 30-minute schedule refresh already suffice.
+STARTER_HEARTBEAT_MINUTES = 10
+STARTER_HEARTBEAT_VERSION = "AISP_STARTER_HEARTBEAT_V1"
+
 AVAILABLE_JOBS = {
     "refresh-schedule": "Refresh Today's Schedule",
     "refresh-mlb-data": "Refresh MLB Data",
@@ -238,6 +246,41 @@ class JobOrchestrator:
     async def _pm_backfill(self, event_date: date) -> dict[str, Any]:
         return await self._pm_jobs().backfill(event_date)
 
+    def _persist_starter_heartbeats(
+        self, due_games: dict[Any, Any], by_source: dict[str, Any], game_source_ids: dict[Any, str],
+        fetched_at: datetime, now: datetime,
+    ) -> int:
+        """Persist the poll-verified starter state for due games whose latest
+        starter observation is older than STARTER_HEARTBEAT_MINUTES.
+
+        Uses the same governed normalizer path as the schedule refresh, with
+        the poll's fetch time as ``available_as_of``. Never fabricates: only
+        games present in the fetched schedule payload are written."""
+        from app.models import StarterObservation
+
+        candidates: list[ScheduleGameDTO] = []
+        threshold = now - timedelta(minutes=STARTER_HEARTBEAT_MINUTES)
+        for game in due_games.values():
+            source_id = game_source_ids.get(game.id)
+            item = by_source.get(str(source_id)) if source_id is not None else None
+            if item is None:
+                continue
+            latest = self.session.scalar(
+                select(func.max(StarterObservation.available_as_of)).where(StarterObservation.game_id == game.id)
+            )
+            if latest is not None:
+                latest = latest if latest.tzinfo else latest.replace(tzinfo=UTC)
+                if latest > threshold:
+                    continue
+            try:
+                candidates.append(ScheduleGameDTO.model_validate(item))
+            except Exception:  # a malformed row must never abort the poll
+                continue
+        if not candidates:
+            return 0
+        persisted = self.normalizer.ingest_schedule(candidates, "MLB_STATS_API", available_as_of=fetched_at)
+        return len(persisted)
+
     async def poll_availability_events(self, event_date: date) -> dict[str, Any]:
         """Automatic MLB availability poll: detect real probable-pitcher/lineup changes.
 
@@ -303,10 +346,34 @@ class JobOrchestrator:
                 home_lineup_status=home_lineup, away_lineup_status=home_lineup,
                 source_payload_id=payload_id, published_at=fetched_at,
             ))
-        if lineups_persisted:
+        # Heartbeat starter observations: the poll has just VERIFIED the
+        # source's current probable pitcher for every due game, but a diff-only
+        # poll discarded that verification when nothing changed, so the
+        # governed freshness authority (latest available_as_of) advanced only
+        # at the 30-minute schedule-refresh cadence. Persist the verified state
+        # for due games whose latest observation is older than the heartbeat
+        # interval — bounded, idempotent (unique on available_as_of+checksum),
+        # and using the poll's own fetch time as the source timestamp.
+        heartbeats = self._persist_starter_heartbeats(due_games, by_source, game_source_ids, fetched_at, now)
+        if lineups_persisted or heartbeats:
             self.session.commit()
         result = operator.poll(snapshots, now=now)
         result["lineups_persisted"] = lineups_persisted
+        result["starter_heartbeats"] = heartbeats
+        # Honest run record for the MLB part of the poll (previously only the
+        # SportsDataIO part recorded a run, so the poll was invisible to the
+        # ingestion-run audit and to freshness monitoring).
+        self._ingestion_run(
+            SourceEnvelope(
+                source="MLB_STATS_API", source_mode="LIVE", fetched_at=fetched_at, data=[],
+                metadata={"polled_games": result.get("polled_games", 0), "due_games": len(due_games),
+                          "events_emitted": result.get("events_emitted", 0), "rescores": result.get("rescores", 0),
+                          "lineups_persisted": lineups_persisted, "starter_heartbeats": heartbeats,
+                          "cadence_version": STARTER_HEARTBEAT_VERSION},
+            ),
+            None, heartbeats + lineups_persisted, "poll-availability-events",
+        )
+        self.session.commit()
         injuries = await self._poll_sportsdataio_injuries(event_date, now)
         return {"records": result["events_emitted"] + injuries.get("events_created", 0), **result, "sportsdataio": injuries}
 
@@ -910,7 +977,17 @@ class JobOrchestrator:
                 phases[phase.value] = result
                 primary += int(result.get("primary", 0))
             results[experiment.decision_policy] = phases
-        return {"records": primary, "experiments": results}
+        # Narrow pregame-evidence monitoring (idempotent AuditEvents): runs on
+        # the freeze cadence, reads persisted rows only, never a provider.
+        from app.services.pregame_evidence_monitor import PregameEvidenceMonitor
+
+        try:
+            monitor = PregameEvidenceMonitor(self.session, self.settings).run(event_date)
+            self.session.commit()
+        except Exception as exc:  # monitoring must never break the freeze job
+            self.session.rollback()
+            monitor = {"error": f"{type(exc).__name__}: {exc}"[:200]}
+        return {"records": primary, "experiments": results, "pregame_evidence_monitor": monitor}
 
     async def register_practical_experiment_v2(self, event_date: date) -> dict[str, Any]:
         """Register the V2 practical pregame challenger prospectively (idempotent).
