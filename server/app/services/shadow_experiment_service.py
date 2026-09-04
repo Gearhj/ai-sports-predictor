@@ -38,6 +38,8 @@ from app.bankroll.settlement import determine_result
 from app.core.config import Settings
 from app.markets.odds import decimal_to_american
 from app.models import (
+    GameTeam,
+    Team,
     ExperimentDecisionPhase,
     Forecast,
     Game,
@@ -814,6 +816,31 @@ class ShadowExperimentService:
         )
 
     # -- read/ledger aggregation -----------------------------------------
+    @staticmethod
+    def _settlement_order(events: list[tuple[Any, Any]], starting: float) -> list[tuple[Any, Any]]:
+        """Chronological settlement order with the persisted bankroll chain as tie-breaker.
+
+        settled_at is the primary key. When several settlements carry the same
+        timestamp (one settlement pass over several finals), the settlement
+        engine's own persisted bankroll_before/bankroll_after chain decides
+        which was applied first; recommended_at is only the last resort.
+        """
+        remaining = sorted(events, key=lambda item: (_aware(item[0].settled_at), _aware(item[1].recommended_at)))
+        ordered: list[tuple[Any, Any]] = []
+        running = float(starting)
+        while remaining:
+            head_time = _aware(remaining[0][0].settled_at)
+            group = [event for event in remaining if _aware(event[0].settled_at) == head_time]
+            pick = next(
+                (event for event in group
+                 if event[0].bankroll_before is not None and abs(float(event[0].bankroll_before) - running) < 0.005),
+                group[0],
+            )
+            remaining.remove(pick)
+            ordered.append(pick)
+            running = round(running + float(pick[0].profit_loss), 2)
+        return ordered
+
     def ledger_view(self, experiment: ShadowExperiment) -> dict[str, Any]:
         """Aggregate the experiment ledger for the bankroll + scorecard reads."""
         position_rows = list(self.session.execute(
@@ -827,6 +854,19 @@ class ShadowExperimentService:
             .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
             .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
         )}
+        # Matchup labels for the public ledger (one bulk read, never per row).
+        game_ids = {decision.game_id for _, decision in position_rows}
+        matchup_parts: dict[Any, dict[bool, str]] = {}
+        if game_ids:
+            for game_id, is_home, abbreviation in self.session.execute(
+                select(GameTeam.game_id, GameTeam.is_home, Team.abbreviation)
+                .join(Team, Team.id == GameTeam.team_id)
+                .where(GameTeam.game_id.in_(game_ids))
+            ):
+                matchup_parts.setdefault(game_id, {})[bool(is_home)] = abbreviation
+        matchups = {
+            game_id: f"{parts.get(False, '?')} @ {parts.get(True, '?')}" for game_id, parts in matchup_parts.items()
+        }
         starting = float(experiment.starting_bankroll)
         balance = starting
         peak = starting
@@ -838,25 +878,46 @@ class ShadowExperimentService:
         clvs: list[float] = []
         beats = 0
         rows: list[dict[str, Any]] = []
-        equity = [{"date": experiment.start_date.isoformat(), "bankroll": round(starting, 2), "benchmark": round(starting, 2)}]
+        # The equity curve is the settlement sequence itself: it starts at the
+        # opening bankroll and advances exactly once per settlement, in
+        # settlement order. Each point carries the settlement that moved it so
+        # the public curve and the ledger reconcile point-for-point.
+        equity: list[dict[str, Any]] = [{
+            "date": experiment.start_date.isoformat(), "bankroll": round(starting, 2), "benchmark": round(starting, 2),
+            "sequence": 0, "position_id": None, "selection": None, "result": None, "profit_loss": 0.0,
+            "high_water": round(starting, 2), "drawdown": 0.0, "settled_at": None,
+        }]
+        bankroll_after_by_position: dict[Any, float] = {}
+        settlement_sequence: dict[Any, int] = {}
         monthly: dict[str, dict[str, Any]] = {}
         breakdowns: dict[str, dict[str, dict[str, float]]] = {"tier": {}, "market": {}, "month": {}, "engine": {}, "sportsbook": {}}
-        settlement_events = sorted(
-            (
+        settlement_events = self._settlement_order(
+            [
                 (settlement, decision)
                 for position, decision in position_rows
                 if (settlement := settlements.get(position.id)) is not None
-            ),
-            key=lambda item: (_aware(item[0].settled_at), _aware(item[1].recommended_at)),
+            ],
+            starting,
         )
-        for settlement, _decision in settlement_events:
+        chain_reconciled = True
+        for sequence, (settlement, event_decision) in enumerate(settlement_events, start=1):
             balance = round(balance + float(settlement.profit_loss), 2)
             peak = max(peak, balance)
             max_dd = max(max_dd, peak - balance)
-            settled_date = _aware(settlement.settled_at).astimezone(
-                ZoneInfo(self.settings.display_timezone)
-            ).date().isoformat()
-            equity.append({"date": settled_date, "bankroll": balance, "benchmark": round(starting, 2)})
+            settled_local = _aware(settlement.settled_at).astimezone(ZoneInfo(self.settings.display_timezone))
+            settled_date = settled_local.date().isoformat()
+            if settlement.bankroll_after is not None and abs(float(settlement.bankroll_after) - balance) > 0.005:
+                chain_reconciled = False
+            bankroll_after_by_position[settlement.position_id] = balance
+            settlement_sequence[settlement.position_id] = sequence
+            equity.append({
+                "date": settled_date, "bankroll": balance, "benchmark": round(starting, 2),
+                "sequence": sequence, "position_id": str(settlement.position_id),
+                "selection": event_decision.selection, "result": settlement.result.value.upper(),
+                "profit_loss": round(float(settlement.profit_loss), 2),
+                "high_water": round(peak, 2), "drawdown": round(peak - balance, 2),
+                "settled_at": settled_local.isoformat(),
+            })
         for position, decision in position_rows:
             settlement = settlements.get(position.id)
             stake = float(position.stake)
@@ -908,6 +969,24 @@ class ShadowExperimentService:
                 "result": result, "profit_loss": round(profit, 2),
                 "closing_price": settlement.closing_american_odds if settlement else None,
                 "clv": settlement.closing_line_value if settlement else None,
+                # Additive public-ledger evidence (all persisted at decision or
+                # settlement time; nothing is derived from later data).
+                "matchup": matchups.get(decision.game_id),
+                "sportsbook": decision.sportsbook,
+                "bankroll_after": bankroll_after_by_position.get(position.id),
+                "settlement_sequence": settlement_sequence.get(position.id),
+                "settled_at": (
+                    _aware(settlement.settled_at).astimezone(ZoneInfo(self.settings.display_timezone)).isoformat()
+                    if settlement else None
+                ),
+                "beat_close": settlement.beat_close if settlement else None,
+                "model_probability": decision.model_probability,
+                "market_probability": decision.no_vig_probability,
+                "raw_edge": decision.edge,
+                "adjusted_edge": (decision.evidence or {}).get("adjusted_edge") if isinstance(decision.evidence, dict) else None,
+                "decision_id": str(decision.id),
+                "decision_phase": decision.phase.value if hasattr(decision.phase, "value") else str(decision.phase),
+                "recommended_at": _aware(decision.recommended_at).astimezone(ZoneInfo(self.settings.display_timezone)).isoformat(),
             })
         settled_count = len(settlements)
         net = balance - starting
@@ -928,6 +1007,10 @@ class ShadowExperimentService:
             "closing_line_value": round(sum(clvs) / len(clvs), 3) if clvs else None,
             "beat_close_percentage": round(beats / len(clvs) * 100, 1) if clvs else None,
             "has_settled": settled_count > 0,
+            # True when the running balance reproduces every persisted
+            # bankroll_after in settlement order (the public curve and the
+            # settlement engine's own chain agree point-for-point).
+            "bankroll_chain_reconciled": chain_reconciled,
             "breakdowns": {
                 dim: [
                     {"key": key, "positions": b["positions"], "settled": b["settled"],

@@ -602,6 +602,21 @@ class PositionSchema(BaseModel):
     profit_loss: float
     closing_price: int | None
     clv: float | None
+    # Additive public-ledger evidence; every field is persisted at decision
+    # or settlement time. None means "not recorded", never zero.
+    matchup: str | None = None
+    sportsbook: str | None = None
+    bankroll_after: float | None = None
+    settlement_sequence: int | None = None
+    settled_at: str | None = None
+    beat_close: bool | None = None
+    model_probability: float | None = None
+    market_probability: float | None = None
+    raw_edge: float | None = None
+    adjusted_edge: float | None = None
+    decision_id: str | None = None
+    decision_phase: str | None = None
+    recommended_at: str | None = None
 
 
 class BettingBreakdownRow(BaseModel):
@@ -634,6 +649,7 @@ class BettingPerformance(BaseModel):
     closing_line_value: float | None
     beat_close_percentage: float | None
     has_settled: bool
+    bankroll_chain_reconciled: bool = True
     breakdowns: dict[str, list[BettingBreakdownRow]]
 
 
@@ -724,6 +740,10 @@ class BankrollData(BaseModel):
     model_status: str | None = None
     model_identity_source: str | None = None
     decision_metrics: ExperimentDecisionMetrics | None = None
+    # Frozen experiment contract identity (registered once, never edited).
+    staking_policy: str | None = None
+    policy_checksum: str | None = None
+    experiment_start_date: str | None = None
 
 
 class SourceHealth(BaseModel):

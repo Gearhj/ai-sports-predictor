@@ -2475,6 +2475,9 @@ class ReadService:
             betting=betting,
             **self._experiment_identity(experiment),
             decision_metrics=ExperimentDecisionMetrics(**self._decision_metrics(experiment)),
+            staking_policy=experiment.staking_policy_version,
+            policy_checksum=(experiment.policy_config or {}).get("checksum"),
+            experiment_start_date=experiment.start_date.isoformat(),
         )
 
     _V1_POLICY = "AISP_OPPORTUNITY_POLICY_V1"
@@ -2630,6 +2633,9 @@ class ReadService:
                 "record": f"{wins}–{losses}" if settlements else None,
                 "profit_loss": round(profit, 2) if settlements else None,
                 "average_clv": round(sum(clvs) / len(clvs), 3) if clvs else None,
+                "clv_sample_size": len(clvs),
+                "total_risked": round(sum(float(p.stake) for p in positions), 2),
+                "started_at": experiment.started_at.isoformat(),
                 "policy_checksum": (experiment.policy_config or {}).get("checksum"),
             })
         return out
