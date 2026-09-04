@@ -31,6 +31,35 @@ class ProviderProbability(BaseModel):
     semantics_status: str
     in_play: bool = False
     observed_at: datetime | None = None
+    # A quote is decision-eligible for the research consensus only when its
+    # mapping semantics were reviewed AND its quality tier is ROBUST/USABLE.
+    # Unreviewed quotes are shown as research observations, never as a gap.
+    decision_eligible: bool = False
+
+
+# Per-provider coverage for one canonical game. Exactly one state per provider:
+#   PROVIDER_DISABLED        provider flag off — nothing can be observed
+#   NO_MAPPED_MARKET         no provider event is mapped to this game (not listed, or never discovered)
+#   MAPPING_REVIEW_REQUIRED  a candidate exists but identity is AMBIGUOUS/REVIEW_REQUIRED
+#   MAPPING_REJECTED         the candidate was rejected by review
+#   MAPPED_NOT_QUOTED        identity is EXACT/MANUAL_APPROVED, contracts listed, no snapshot persisted yet
+#   QUOTED_UNREVIEWED        a snapshot exists but market semantics are not yet reviewed (research observation)
+#   QUOTED_REVIEWED          semantics matched; quote shown and consensus-eligible subject to quality tier
+ProviderCoverageState = Literal[
+    "PROVIDER_DISABLED", "NO_MAPPED_MARKET", "MAPPING_REVIEW_REQUIRED", "MAPPING_REJECTED",
+    "MAPPED_NOT_QUOTED", "QUOTED_UNREVIEWED", "QUOTED_REVIEWED",
+]
+
+
+class ProviderCoverage(BaseModel):
+    provider: str
+    state: ProviderCoverageState
+    reason: str
+    contracts_listed: int = 0
+    mapping_status: str | None = None
+    semantics_status: str | None = None
+    quality_tier: str | None = None
+    last_snapshot_at: datetime | None = None
 
 
 class MarketPulseRow(BaseModel):
@@ -65,6 +94,17 @@ class MarketPulseRow(BaseModel):
     semantics_status: str = "SEMANTICS_UNKNOWN"
     best_quality_tier: str | None = None
     alert_count: int = 0
+    # Canonical-slate coverage. Every scheduled game gets a row; these say
+    # exactly why a provider column is blank instead of hiding the game.
+    coverage_state: ProviderCoverageState | Literal["NO_PROVIDER_ENABLED"] = "NO_MAPPED_MARKET"
+    provider_coverage: list[ProviderCoverage] = []
+    # True when at least one provider quote is reviewed AND ROBUST/USABLE.
+    decision_eligible_quote: bool = False
+    # True when a quote exists but only as an unreviewed research observation;
+    # diff_aisp_prediction is then None and the gap is reported separately.
+    unreviewed_observation: bool = False
+    diff_aisp_prediction_unreviewed: float | None = None
+    display_note: str | None = None
 
 
 class ObserverJobStatus(BaseModel):
@@ -92,8 +132,11 @@ class MarketPulseBoard(BaseModel):
     public_display_enabled: bool = False
     observer_enabled: bool = False
     # OBSERVER_DISABLED | PROVIDERS_DISABLED | DISCOVERY_PENDING |
-    # PROVIDERS_HEALTHY_ZERO_ELIGIBLE | ELIGIBLE_MARKETS_AVAILABLE | PROVIDER_DEGRADED
+    # PROVIDERS_HEALTHY_ZERO_ELIGIBLE | RESEARCH_OBSERVATIONS_UNREVIEWED |
+    # ELIGIBLE_MARKETS_AVAILABLE | PROVIDER_DEGRADED
     # (API_UNAVAILABLE is a frontend-only state when the backend itself is unreachable.)
+    # ELIGIBLE_MARKETS_AVAILABLE is earned only by a reviewed, ROBUST/USABLE quote;
+    # unreviewed snapshots yield RESEARCH_OBSERVATIONS_UNREVIEWED instead.
     board_state: str = "DISCOVERY_PENDING"
     state_reason: str = ""
     providers: list["ProviderHealth"] = []
@@ -101,6 +144,10 @@ class MarketPulseBoard(BaseModel):
     semantics_review_count: int = 0
     rows: list[MarketPulseRow] = []
     summary: dict[str, Any] = {}
+    # Canonical slate accounting: every scheduled game for the date is a row,
+    # and `coverage` reconciles rows to the canonical denominator by state.
+    canonical_games: int = 0
+    coverage: dict[str, int] = {}
     # Excluded Market Activity — inspected-but-not-eligible counts by reason.
     excluded_summary: dict[str, int] = {}
     jobs: list[ObserverJobStatus] = []

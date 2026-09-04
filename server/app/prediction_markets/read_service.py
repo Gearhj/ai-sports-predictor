@@ -41,6 +41,7 @@ from app.schemas.prediction_market import (
     PredictionMarketAlertsData,
     PredictionMarketAlertView,
     PredictionMarketHealthSummary,
+    ProviderCoverage,
     ProviderHealth,
     ProviderProbability,
     TimelinePoint,
@@ -62,19 +63,33 @@ class PredictionMarketReadService:
 
     # -- board -----------------------------------------------------------
     def board(self, event_date: date, *, sport: str | None = None) -> MarketPulseBoard:
+        """One row per canonical scheduled game.
+
+        The board is seeded from the canonical slate (the same LIVE games the
+        Daily Command Center shows), never from whichever games happen to have
+        a persisted snapshot. A game without a quote is still a row whose
+        provider coverage says exactly why the column is blank.
+        """
         start, end = local_day_bounds(event_date, self.settings.display_timezone)
-        game_ids = list(self.session.scalars(
+        slate = self._canonical_slate(start, end)
+        seen = {g.id for g in slate}
+        # Snapshot-bearing games outside the canonical slate (e.g. demo-mode
+        # rows) are still shown so a persisted observation is never hidden.
+        for gid in self.session.scalars(
             select(PredictionMarketSnapshot.canonical_game_id)
-            .where(PredictionMarketSnapshot.canonical_game_id.is_not(None))
-            .distinct()
-        ))
+            .where(PredictionMarketSnapshot.canonical_game_id.is_not(None)).distinct()
+        ):
+            if gid in seen:
+                continue
+            game = self.session.get(Game, gid)
+            if game is not None and start <= _aware(game.starts_at) < end:
+                slate.append(game)
+                seen.add(gid)
+        ctx = self._coverage_context([g.id for g in slate])
         rows: list[MarketPulseRow] = []
         sports_available: set[str] = set()
-        for gid in game_ids:
-            game = self.session.get(Game, gid)
-            if game is None or not (start <= _aware(game.starts_at) < end):
-                continue
-            row = self._row(game)
+        for game in slate:
+            row = self._row(game, ctx)
             if row is None:
                 continue
             sports_available.add(row.sport)
@@ -88,12 +103,21 @@ class PredictionMarketReadService:
         board_state, reason = self._board_state(rows, providers, now)
         # The real registered next fire time — never a stale projection.
         next_discovery = self._next_run_time("asp-pm-discover") if observer_enabled else None
+        coverage = self._coverage_counts(rows)
         summary = {
             "games": len(rows),
+            "canonical_games": len(rows),
             "mapped": sum(1 for r in rows if r.mapping_status in {"EXACT", "MANUAL_APPROVED"}),
+            "quoted": coverage["quoted_any"],
+            "decision_eligible": coverage["decision_eligible"],
+            "unreviewed_observations": coverage["QUOTED_UNREVIEWED"],
             "review_required": sum(1 for r in rows if r.mapping_status == "REVIEW_REQUIRED"),
+            "semantics_review_pending": coverage["semantics_review_pending"],
             "consensus_available": sum(1 for r in rows if r.consensus_eligible),
+            # Only reviewed, decision-eligible quotes may claim a gap.
             "biggest_disagreement": max((abs(r.diff_aisp_prediction) for r in rows if r.diff_aisp_prediction is not None), default=None),
+            "biggest_unreviewed_gap": max((abs(r.diff_aisp_prediction_unreviewed) for r in rows
+                                           if r.diff_aisp_prediction_unreviewed is not None), default=None),
             "generated_at": now.isoformat(),
         }
         return MarketPulseBoard(
@@ -103,9 +127,157 @@ class PredictionMarketReadService:
             observer_enabled=observer_enabled, board_state=board_state, state_reason=reason,
             providers=providers, next_discovery_at=next_discovery,
             semantics_review_count=self._semantics_review_count(), rows=rows, summary=summary,
+            canonical_games=len(rows), coverage=coverage,
             excluded_summary=self._excluded_summary(providers),
             jobs=self._observer_jobs(),
         )
+
+    def _canonical_slate(self, start: datetime, end: datetime) -> list[Game]:
+        """Same slate rule as the operational read model: LIVE games for the
+        local day; demo games only when demo mode is on."""
+        games = list(self.session.scalars(
+            select(Game).where(Game.starts_at >= start, Game.starts_at < end).order_by(Game.starts_at)))
+        live = [g for g in games if g.source_mode == "LIVE"]
+        if live:
+            return live
+        return games if self.settings.demo_mode else []
+
+    # -- canonical coverage ----------------------------------------------
+    def _enabled_providers(self) -> dict[str, bool]:
+        s = self.settings
+        return {"POLYMARKET": bool(s.polymarket_enabled),
+                "KALSHI": bool(s.kalshi_enabled and s.kalshi_rest_polling_enabled)}
+
+    def _coverage_context(self, game_ids: list[Any]) -> dict[str, Any]:
+        """Bulk-prefetch everything `_row` needs per (game, provider) in three
+        queries instead of three per row: latest mapping, listed-contract
+        counts for the mapped events, and the latest moneyline snapshot."""
+        ctx: dict[str, Any] = {"mapping": {}, "latest_mapping": {}, "contracts": {}, "snapshot": {},
+                               "teams": {}, "refresh": self._latest_refresh_meta()}
+        if not game_ids:
+            return ctx
+        for gid, is_home, name, abbrev in self.session.execute(
+            select(GameTeam.game_id, GameTeam.is_home, Team.name, Team.abbreviation)
+            .join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id.in_(game_ids))
+        ).all():
+            ctx["teams"].setdefault(gid, {})[bool(is_home)] = (name, abbrev)
+        mappings = list(self.session.scalars(select(PredictionMarketMapping).where(
+            PredictionMarketMapping.canonical_game_id.in_(game_ids),
+        ).order_by(PredictionMarketMapping.decided_at.desc())))
+        event_keys: set[tuple[str, str]] = set()
+        for m in mappings:
+            ctx["latest_mapping"].setdefault(m.canonical_game_id, m)
+            ctx["mapping"].setdefault((m.canonical_game_id, m.provider), m)
+            event_keys.add((m.provider, m.provider_event_id))
+        if event_keys:
+            counts = self.session.execute(
+                select(PredictionMarketContract.provider, PredictionMarketContract.provider_event_id,
+                       func.count(func.distinct(PredictionMarketContract.provider_market_id)))
+                .where(PredictionMarketContract.provider_event_id.in_({e for _, e in event_keys}))
+                .group_by(PredictionMarketContract.provider, PredictionMarketContract.provider_event_id)
+            ).all()
+            ctx["contracts"] = {(p, e): int(n) for p, e, n in counts}
+        ranked = select(
+            PredictionMarketSnapshot.id,
+            func.row_number().over(
+                partition_by=(PredictionMarketSnapshot.canonical_game_id, PredictionMarketSnapshot.provider),
+                order_by=PredictionMarketSnapshot.provider_observed_at.desc(),
+            ).label("rn"),
+        ).where(
+            PredictionMarketSnapshot.canonical_game_id.in_(game_ids),
+            PredictionMarketSnapshot.market_type == CanonicalMarketType.FULL_GAME_MONEYLINE.value,
+        ).subquery()
+        latest_ids = select(ranked.c.id).where(ranked.c.rn == 1)
+        for snap in self.session.scalars(select(PredictionMarketSnapshot).where(PredictionMarketSnapshot.id.in_(latest_ids))):
+            ctx["snapshot"][(snap.canonical_game_id, snap.provider)] = snap
+        # Latest HOME moneyline consensus per game, alert counts, league codes.
+        cons_ranked = select(
+            PredictionMarketConsensusSnapshot.id,
+            func.row_number().over(partition_by=PredictionMarketConsensusSnapshot.canonical_game_id,
+                                   order_by=PredictionMarketConsensusSnapshot.computed_at.desc()).label("rn"),
+        ).where(
+            PredictionMarketConsensusSnapshot.canonical_game_id.in_(game_ids),
+            PredictionMarketConsensusSnapshot.market_type == CanonicalMarketType.FULL_GAME_MONEYLINE.value,
+            PredictionMarketConsensusSnapshot.selection == CanonicalSelection.HOME.value,
+        ).subquery()
+        ctx["consensus"] = {c.canonical_game_id: c for c in self.session.scalars(
+            select(PredictionMarketConsensusSnapshot).where(
+                PredictionMarketConsensusSnapshot.id.in_(select(cons_ranked.c.id).where(cons_ranked.c.rn == 1))))}
+        ctx["alerts"] = {gid: int(n) for gid, n in self.session.execute(
+            select(PredictionMarketAlert.canonical_game_id, func.count())
+            .where(PredictionMarketAlert.canonical_game_id.in_(game_ids))
+            .group_by(PredictionMarketAlert.canonical_game_id)).all()}
+        from app.models import League
+
+        ctx["league"] = {lid: code for lid, code in self.session.execute(select(League.id, League.code)).all()}
+        return ctx
+
+    def _latest_refresh_meta(self) -> dict[str, Any]:
+        run = self.session.scalar(select(IngestionRun).where(
+            IngestionRun.source == "PREDICTION_MARKET",
+            IngestionRun.job_name == "refresh-prediction-market-snapshots",
+        ).order_by(IngestionRun.completed_at.desc().nulls_last()))
+        return dict(run.source_metadata or {}) if run else {}
+
+    def _provider_coverage(self, game: Game, provider: str, ctx: dict[str, Any]) -> tuple[ProviderCoverage, ProviderProbability | None]:
+        enabled = self._enabled_providers().get(provider, False)
+        mapping = ctx["mapping"].get((game.id, provider))
+        snap = ctx["snapshot"].get((game.id, provider))
+        listed = ctx["contracts"].get((provider, mapping.provider_event_id), 0) if mapping else 0
+        common = {"provider": provider, "contracts_listed": listed,
+                  "mapping_status": mapping.mapping_status if mapping else None,
+                  "semantics_status": mapping.semantics_status if mapping else None,
+                  "last_snapshot_at": _aware(snap.provider_observed_at) if snap else None}
+        # A persisted observation is always shown, even if the provider flag
+        # has since been turned off — the flag only governs new collection.
+        if snap is not None:
+            prob = self._probability_from_snapshot(snap)
+            common["quality_tier"] = snap.quality_tier
+            if snap.semantics_status == "SEMANTICS_MATCHED":
+                return ProviderCoverage(state="QUOTED_REVIEWED",
+                                        reason=f"Reviewed market semantics; latest quote tier {snap.quality_tier}.", **common), prob
+            return ProviderCoverage(
+                state="QUOTED_UNREVIEWED",
+                reason="Quote persisted but market semantics are not yet reviewed — shown as an unreviewed "
+                       "research observation, not decision-eligible.", **common), prob
+        if not enabled:
+            return ProviderCoverage(state="PROVIDER_DISABLED", reason=f"{provider} is disabled by configuration.", **common), None
+        if mapping is None:
+            return ProviderCoverage(state="NO_MAPPED_MARKET",
+                                    reason=f"No {provider} market is mapped to this game (not listed, or not discovered).", **common), None
+        if mapping.mapping_status in {"EXACT", "MANUAL_APPROVED"}:
+            return ProviderCoverage(state="MAPPED_NOT_QUOTED", reason=self._not_quoted_reason(provider, listed, ctx["refresh"]), **common), None
+        if mapping.mapping_status == "REJECTED":
+            return ProviderCoverage(state="MAPPING_REJECTED", reason=mapping.reason or "Mapping rejected by review.", **common), None
+        return ProviderCoverage(state="MAPPING_REVIEW_REQUIRED",
+                                reason=mapping.reason or f"Game identity is {mapping.mapping_status}; human review required.", **common), None
+
+    def _not_quoted_reason(self, provider: str, listed: int, refresh: dict[str, Any]) -> str:
+        skipped = (refresh.get("skipped") or {}).get(provider)
+        if provider == "KALSHI" and not self.settings.kalshi_api_key_id:
+            return (f"{listed} contract(s) listed; Kalshi order books require API credentials and none are configured, "
+                    "so no quote can be captured.")
+        if skipped:
+            return f"{listed} contract(s) listed; the refresh job skipped {provider}: {skipped}."
+        if not refresh:
+            return f"{listed} contract(s) listed; no snapshot refresh job has completed yet."
+        return (f"{listed} contract(s) listed; not yet quoted by the last refresh "
+                f"({refresh.get('requests', 0)} requests, {refresh.get('errors', 0)} errors, "
+                f"cap {self.settings.prediction_market_max_active_markets}).")
+
+    @staticmethod
+    def _coverage_counts(rows: list[MarketPulseRow]) -> dict[str, int]:
+        states = ["QUOTED_REVIEWED", "QUOTED_UNREVIEWED", "MAPPED_NOT_QUOTED", "MAPPING_REVIEW_REQUIRED",
+                  "MAPPING_REJECTED", "NO_MAPPED_MARKET", "PROVIDER_DISABLED", "NO_PROVIDER_ENABLED"]
+        out = {s: sum(1 for r in rows if r.coverage_state == s) for s in states}
+        out["canonical_games"] = len(rows)
+        out["quoted_any"] = out["QUOTED_REVIEWED"] + out["QUOTED_UNREVIEWED"]
+        out["decision_eligible"] = sum(1 for r in rows if r.decision_eligible_quote)
+        out["consensus_available"] = sum(1 for r in rows if r.consensus_eligible)
+        out["semantics_review_pending"] = sum(
+            1 for r in rows if any(c.state == "QUOTED_UNREVIEWED" or c.semantics_status == "SEMANTICS_REVIEW_REQUIRED"
+                                   for c in r.provider_coverage))
+        return out
 
     @staticmethod
     def _scheduler_running() -> bool:
@@ -143,8 +315,16 @@ class PredictionMarketReadService:
             return ("PROVIDERS_DISABLED",
                     "The observer is enabled but every provider is disabled "
                     "(POLYMARKET_ENABLED / KALSHI_ENABLED+KALSHI_REST_POLLING_ENABLED are off); nothing can be discovered.")
-        if rows:
-            return ("ELIGIBLE_MARKETS_AVAILABLE", f"{len(rows)} mapped game(s) with persisted market snapshots.")
+        eligible = [r for r in rows if r.decision_eligible_quote]
+        if eligible:
+            return ("ELIGIBLE_MARKETS_AVAILABLE",
+                    f"{len(eligible)} of {len(rows)} canonical game(s) have a reviewed, decision-eligible quote.")
+        observed = [r for r in rows if r.unreviewed_observation]
+        if observed:
+            return ("RESEARCH_OBSERVATIONS_UNREVIEWED",
+                    f"{len(observed)} of {len(rows)} canonical game(s) have persisted quotes whose market semantics "
+                    "are not yet reviewed. They are shown as unreviewed research observations; none is "
+                    "decision-eligible and no AISP–market gap is claimed from them.")
         enabled = [p for p in providers if p.enabled]
         stale_cutoff = now - timedelta(minutes=3 * s.prediction_market_discovery_minutes)
         # Staleness only indicts the scheduler once it has been running long
@@ -181,8 +361,8 @@ class PredictionMarketReadService:
         events = sum(p.events_inspected for p in enabled)
         return ("PROVIDERS_HEALTHY_ZERO_ELIGIBLE",
                 f"Discovery succeeded and inspected {raw_total} raw provider market(s) "
-                f"({events} events persisted; {mapped} mapped, {unresolved} unresolved), but no governed, "
-                "semantically comparable per-game market qualified for this date. "
+                f"({events} events persisted; {mapped} mapped, {unresolved} unresolved), but none of the "
+                f"{len(rows)} canonical game(s) for this date has a persisted, semantically comparable quote. "
                 "This is a healthy zero-eligible state — no demo data is substituted.")
 
     def _excluded_summary(self, providers: list[ProviderHealth]) -> dict[str, int]:
@@ -253,20 +433,57 @@ class PredictionMarketReadService:
             ))
         return out
 
-    def _row(self, game: Game) -> MarketPulseRow | None:
-        home_team, home_abbr, away_team, away_abbr = self._teams(game)
-        mapping = self._latest_mapping_for_game(game.id)
-        providers = self._provider_probabilities(game.id)
+    _COVERAGE_RANK = ["QUOTED_REVIEWED", "QUOTED_UNREVIEWED", "MAPPED_NOT_QUOTED", "MAPPING_REVIEW_REQUIRED",
+                      "MAPPING_REJECTED", "NO_MAPPED_MARKET", "PROVIDER_DISABLED"]
+
+    def _row(self, game: Game, ctx: dict[str, Any] | None = None) -> MarketPulseRow | None:
+        if ctx is None:
+            ctx = self._coverage_context([game.id])
+        teams = ctx["teams"].get(game.id)
+        if teams:
+            (home_team, home_abbr), (away_team, away_abbr) = teams.get(True, (None, None)), teams.get(False, (None, None))
+        else:
+            home_team, home_abbr, away_team, away_abbr = self._teams(game)
+        mapping = ctx["latest_mapping"].get(game.id)
+        coverage: list[ProviderCoverage] = []
+        providers: dict[str, ProviderProbability] = {}
+        for provider in ("POLYMARKET", "KALSHI"):
+            cov, prob = self._provider_coverage(game, provider, ctx)
+            coverage.append(cov)
+            if prob is not None:
+                providers[provider] = prob
         poly = providers.get("POLYMARKET")
         kalshi = providers.get("KALSHI")
         poly_home = poly.midpoint if poly else None
         kalshi_home = kalshi.midpoint if kalshi else None
         aisp_home, aisp_fresh = self._aisp_home_probability(game)
         book_home = self._sportsbook_home_probability(game)
-        consensus = self._latest_consensus(game.id)
-        pred_avg = _avg([p for p in (poly_home, kalshi_home) if p is not None])
+        consensus = ctx["consensus"].get(game.id) if "consensus" in ctx else self._latest_consensus(game.id)
+        alert_count = ctx["alerts"].get(game.id, 0) if "alerts" in ctx else self._alert_count(game.id)
+        league_code = ctx["league"].get(game.league_id) if "league" in ctx else None
+        # The AISP–market gap is claimed only from reviewed quotes. Unreviewed
+        # observations are reported on a separate, clearly labelled field.
+        reviewed = [p.midpoint for p in providers.values()
+                    if p.semantics_status == "SEMANTICS_MATCHED" and p.midpoint is not None]
+        unreviewed = [p.midpoint for p in providers.values()
+                      if p.semantics_status != "SEMANTICS_MATCHED" and p.midpoint is not None]
+        pred_avg = _avg(reviewed)
+        pred_avg_unreviewed = _avg(unreviewed) if not reviewed else None
+        if all(c.state == "PROVIDER_DISABLED" for c in coverage):
+            coverage_state = "NO_PROVIDER_ENABLED"
+        else:
+            coverage_state = next(s for s in self._COVERAGE_RANK if any(c.state == s for c in coverage))
+        eligible = any(p.decision_eligible for p in providers.values())
+        note = None
+        if coverage_state == "QUOTED_UNREVIEWED":
+            note = "UNREVIEWED RESEARCH OBSERVATION — NOT DECISION ELIGIBLE"
+        elif coverage_state == "MAPPED_NOT_QUOTED":
+            note = "LISTED — NOT YET QUOTED"
+        elif coverage_state == "NO_MAPPED_MARKET":
+            note = "NO PROVIDER MARKET MAPPED"
+        league = league_code or self._league(game)
         row = MarketPulseRow(
-            game_id=str(game.id), sport=self._sport(game), league=self._league(game),
+            game_id=str(game.id), sport={"MLB": "MLB", "NFL": "NFL", "NBA": "NBA", "NHL": "NHL"}.get(league, league), league=league,
             home_team=home_team, away_team=away_team, home_abbrev=home_abbr, away_abbrev=away_abbr,
             starts_at=_aware(game.starts_at), status=game.status.value.upper(),
             aisp_home_probability=aisp_home, aisp_forecast_fresh=aisp_fresh,
@@ -285,36 +502,38 @@ class PredictionMarketReadService:
             mapping_status=mapping.mapping_status if mapping else "UNRESOLVED",
             semantics_status=mapping.semantics_status if mapping else "SEMANTICS_UNKNOWN",
             best_quality_tier=self._best_tier(providers.values()),
-            alert_count=self._alert_count(game.id),
+            alert_count=alert_count,
+            coverage_state=coverage_state, provider_coverage=coverage,
+            decision_eligible_quote=eligible,
+            unreviewed_observation=bool(unreviewed) and not reviewed,
+            diff_aisp_prediction_unreviewed=_diff(aisp_home, pred_avg_unreviewed),
+            display_note=note,
         )
         self._movement(game.id, row)
         return row
 
+    _DECISION_ELIGIBLE_TIERS = {"ROBUST", "USABLE"}
+
+    def _probability_from_snapshot(self, snap: PredictionMarketSnapshot) -> ProviderProbability:
+        """HOME win probability view of one persisted snapshot (P(home))."""
+        return ProviderProbability(
+            provider=snap.provider, midpoint=self._to_home(snap.midpoint, snap.selection),
+            microprice=self._to_home(snap.microprice, snap.selection),
+            best_bid=snap.best_bid, best_ask=snap.best_ask, last_trade=snap.last_trade,
+            bid_ask_spread=snap.bid_ask_spread, volume=snap.volume, open_interest=snap.open_interest,
+            top_depth=(snap.top_bid_size or 0) + (snap.top_ask_size or 0) if snap.top_bid_size is not None else None,
+            quality_tier=snap.quality_tier,
+            quote_age_seconds=(snap.quality_components or {}).get("quote_age"),
+            mapping_status=snap.mapping_status, semantics_status=snap.semantics_status,
+            in_play=snap.in_play, observed_at=_aware(snap.provider_observed_at),
+            decision_eligible=(snap.semantics_status == "SEMANTICS_MATCHED"
+                               and snap.quality_tier in self._DECISION_ELIGIBLE_TIERS),
+        )
+
     def _provider_probabilities(self, game_id: Any) -> dict[str, ProviderProbability]:
         """Latest moneyline HOME win probability per provider (P(home))."""
-        rows = list(self.session.scalars(
-            select(PredictionMarketSnapshot).where(
-                PredictionMarketSnapshot.canonical_game_id == game_id,
-                PredictionMarketSnapshot.market_type == CanonicalMarketType.FULL_GAME_MONEYLINE.value,
-            ).order_by(PredictionMarketSnapshot.provider_observed_at.desc())
-        ))
-        out: dict[str, ProviderProbability] = {}
-        for snap in rows:
-            if snap.provider in out:
-                continue
-            home_mid = self._to_home(snap.midpoint, snap.selection)
-            out[snap.provider] = ProviderProbability(
-                provider=snap.provider, midpoint=home_mid,
-                microprice=self._to_home(snap.microprice, snap.selection),
-                best_bid=snap.best_bid, best_ask=snap.best_ask, last_trade=snap.last_trade,
-                bid_ask_spread=snap.bid_ask_spread, volume=snap.volume, open_interest=snap.open_interest,
-                top_depth=(snap.top_bid_size or 0) + (snap.top_ask_size or 0) if snap.top_bid_size is not None else None,
-                quality_tier=snap.quality_tier,
-                quote_age_seconds=(snap.quality_components or {}).get("quote_age"),
-                mapping_status=snap.mapping_status, semantics_status=snap.semantics_status,
-                in_play=snap.in_play, observed_at=_aware(snap.provider_observed_at),
-            )
-        return out
+        return {provider: self._probability_from_snapshot(snap)
+                for provider, snap in self._provider_snapshots(game_id).items()}
 
     @staticmethod
     def _to_home(prob: float | None, selection: str) -> float | None:

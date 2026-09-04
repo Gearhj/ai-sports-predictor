@@ -1139,6 +1139,22 @@ h1, h2, h3, p { margin-top: 0; }
 .pulse-health-panel h2 { margin: 0 0 6px; font-size: 18px; }
 .pulse-health-reason { margin: 0 0 12px; opacity: .85; }
 .pulse-health-meta { margin: 8px 0 0; font-size: 12px; opacity: .75; }
+/* Experiment identity: the V2.1 challenger is the same model under a different policy. */
+.experiment-identity-badge { display: inline-block; margin: 4px 0 6px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(38, 166, 154, .6); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.experiment-decision-metrics .metric-card__value { text-transform: none; }
+/* Canonical-slate coverage: honest per-provider states and unreviewed markers. */
+.pulse-state-banner { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; padding: 10px 14px; margin: 12px 0; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.12)); font-size: 13px; }
+.pulse-state-banner strong { letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+.pulse-state-banner span { opacity: .8; }
+.pulse-state-banner--eligible_markets_available { border-color: rgba(38, 166, 154, .55); }
+.pulse-state-banner--research_observations_unreviewed { border-color: rgba(255, 179, 0, .6); }
+.pulse-state-banner--provider_degraded { border-color: rgba(229, 57, 53, .6); }
+.pill--coverage { font-size: 11px; letter-spacing: .02em; white-space: nowrap; opacity: .85; }
+.pill--quoted_unreviewed, .pill--mapping_review_required { border-color: rgba(255, 179, 0, .6); }
+.pill--mapped_not_quoted { border-color: rgba(100, 181, 246, .6); }
+.pill--no_mapped_market, .pill--provider_disabled, .pill--mapping_rejected { opacity: .6; }
+.pulse-unreviewed small { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: rgba(255, 179, 0, .95); }
+.pulse-row-note { display: block; margin-top: 4px; font-size: 11px; letter-spacing: .03em; opacity: .75; max-width: 220px; white-space: normal; }
 .pulse-health-table td, .pulse-health-table th { font-size: 12px; }
 .retry-button { margin-top: 12px; padding: 6px 16px; border-radius: 8px; border: 1px solid rgba(120,120,140,.3); background: transparent; cursor: pointer; font-weight: 600; }
 .qual-funnel { display: flex; flex-direction: column; gap: 4px; }

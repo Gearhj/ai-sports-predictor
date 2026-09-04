@@ -31,13 +31,28 @@ const STATE_TITLE: Record<string, string> = {
   PROVIDERS_DISABLED: 'Providers disabled',
   DISCOVERY_PENDING: 'Discovery pending',
   PROVIDERS_HEALTHY_ZERO_ELIGIBLE: 'Providers healthy — zero eligible markets',
+  RESEARCH_OBSERVATIONS_UNREVIEWED: 'Research observations — semantics unreviewed',
   ELIGIBLE_MARKETS_AVAILABLE: 'Eligible markets available',
   PROVIDER_DEGRADED: 'Provider degraded',
+}
+
+// Per-provider coverage states for one canonical game (why a column is blank).
+const COVERAGE_LABEL: Record<string, string> = {
+  QUOTED_REVIEWED: 'Quoted · reviewed',
+  QUOTED_UNREVIEWED: 'Quoted · unreviewed',
+  MAPPED_NOT_QUOTED: 'Listed · not quoted',
+  MAPPING_REVIEW_REQUIRED: 'Mapping review',
+  MAPPING_REJECTED: 'Mapping rejected',
+  NO_MAPPED_MARKET: 'No market mapped',
+  PROVIDER_DISABLED: 'Provider disabled',
+  NO_PROVIDER_ENABLED: 'No provider enabled',
 }
 
 const EXCLUSION_LABEL: Record<string, string> = {
   player_props: 'Player props',
   futures_or_season: 'Futures / season markets',
+  partial_game_or_derivative: 'Partial-game / derivative markets',
+  other_league_or_sport: 'Other leagues / sports',
   alternate_lines: 'Alternate lines',
   unsupported_sport: 'Unsupported sports',
   non_governed_market_type: 'Non-governed market types',
@@ -210,8 +225,8 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
     )
   }
 
-  // B–F — backend healthy; render the exact observer state.
-  if (data.board_state !== 'ELIGIBLE_MARKETS_AVAILABLE' || data.rows.length === 0) {
+  // B–F — backend healthy but no canonical game row to show; render the exact observer state.
+  if (data.rows.length === 0) {
     return (
       <div className="page market-pulse-page">
         {header}
@@ -222,12 +237,39 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
     )
   }
 
+  // The board is seeded from the canonical slate: every scheduled game is a
+  // row even when no provider has quoted it, and the row says why.
   const rows = data.rows
+  const coverage = data.coverage ?? {}
+  const canonical = data.canonical_games ?? rows.length
+  const quotedReviewed = coverage.QUOTED_REVIEWED ?? rows.filter((r) => r.coverage_state === 'QUOTED_REVIEWED').length
+  const quotedUnreviewed = coverage.QUOTED_UNREVIEWED ?? rows.filter((r) => r.coverage_state === 'QUOTED_UNREVIEWED').length
+  const listedNotQuoted = coverage.MAPPED_NOT_QUOTED ?? rows.filter((r) => r.coverage_state === 'MAPPED_NOT_QUOTED').length
+  const noMarket = coverage.NO_MAPPED_MARKET ?? rows.filter((r) => r.coverage_state === 'NO_MAPPED_MARKET').length
+  const mappingReview = coverage.MAPPING_REVIEW_REQUIRED ?? rows.filter((r) => r.coverage_state === 'MAPPING_REVIEW_REQUIRED').length
+  const semanticsPending = coverage.semantics_review_pending ?? 0
   const bestDisagreement = rows.reduce<MarketPulseRow | null>((best, r) => {
     if (r.diff_aisp_prediction == null) return best
     if (!best || Math.abs(r.diff_aisp_prediction) > Math.abs(best.diff_aisp_prediction ?? 0)) return r
     return best
   }, null)
+  const bestUnreviewed = rows.reduce<MarketPulseRow | null>((best, r) => {
+    if (r.diff_aisp_prediction_unreviewed == null) return best
+    if (!best || Math.abs(r.diff_aisp_prediction_unreviewed) > Math.abs(best.diff_aisp_prediction_unreviewed ?? 0)) return r
+    return best
+  }, null)
+  const stateTitle = STATE_TITLE[data.board_state] ?? data.board_state
+  const providerCell = (row: MarketPulseRow, provider: 'POLYMARKET' | 'KALSHI', value: number | null) => {
+    if (value != null) {
+      const unreviewed = row.providers.find((p) => p.provider === provider)?.semantics_status !== 'SEMANTICS_MATCHED'
+      return unreviewed
+        ? <span className="pulse-unreviewed" title="Unreviewed research observation — not decision eligible">{pct(value)} <small>unreviewed</small></span>
+        : pct(value)
+    }
+    const cov = row.provider_coverage?.find((c) => c.provider === provider)
+    if (!cov) return '—'
+    return <span className={`pill pill--coverage pill--${cov.state.toLowerCase()}`} title={cov.reason}>{COVERAGE_LABEL[cov.state] ?? cov.state}</span>
+  }
 
   return (
     <div className="page market-pulse-page">
@@ -244,16 +286,37 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
         </p>
       </div>
 
-      <section className="metric-grid metric-grid--four">
-        <MetricCard label="Mapped games" value={`${data.summary?.mapped ?? 0} / ${rows.length}`} detail="Fail-closed identity" />
-        <MetricCard label="Cross-provider consensus" value={`${data.summary?.consensus_available ?? 0}`} detail="Eligible games" />
+      <div className={`pulse-state-banner pulse-state-banner--${data.board_state.toLowerCase()}`} role="status" aria-label="Observer state">
+        <strong>{stateTitle}</strong>
+        <span>{data.state_reason}</span>
+      </div>
+
+      <section className="metric-grid metric-grid--four" aria-label="Canonical slate coverage">
+        <MetricCard label="Canonical games" value={`${rows.length} / ${canonical}`} detail="Every scheduled game is a row" />
         <MetricCard
-          label="Biggest AISP–market gap"
+          label="Quoted"
+          value={`${quotedReviewed + quotedUnreviewed} / ${canonical}`}
+          detail={`${quotedReviewed} reviewed · ${quotedUnreviewed} unreviewed`}
+        />
+        <MetricCard
+          label="Listed, not quoted"
+          value={`${listedNotQuoted} / ${canonical}`}
+          detail={`${noMarket} no market mapped · ${mappingReview} mapping review`}
+        />
+        <MetricCard label="Cross-provider consensus" value={`${data.summary?.consensus_available ?? 0} / ${canonical}`} detail="≥2 reviewed providers" />
+      </section>
+      <section className="metric-grid metric-grid--two" aria-label="Gaps and review">
+        <MetricCard
+          label="Biggest AISP–market gap (reviewed)"
           value={bestDisagreement ? signedPts(bestDisagreement.diff_aisp_prediction) : '—'}
-          detail={bestDisagreement ? `${bestDisagreement.away_abbrev} @ ${bestDisagreement.home_abbrev}` : 'None'}
+          detail={bestDisagreement
+            ? `${bestDisagreement.away_abbrev} @ ${bestDisagreement.home_abbrev}`
+            : bestUnreviewed
+              ? `No reviewed quote. Unreviewed observation: ${signedPts(bestUnreviewed.diff_aisp_prediction_unreviewed)} (${bestUnreviewed.away_abbrev} @ ${bestUnreviewed.home_abbrev}) — not decision eligible`
+              : 'No reviewed quote'}
           trend="neutral"
         />
-        <MetricCard label="Review required" value={`${data.summary?.review_required ?? 0}`} detail="Mapping / semantics" />
+        <MetricCard label="Semantics review pending" value={`${semanticsPending}`} detail={`${data.summary?.review_required ?? 0} mapping review · human approval required`} />
       </section>
 
       {data.sports_available.length > 0 && (
@@ -286,17 +349,24 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
                   </td>
                   <td>{pct(row.aisp_home_probability)}</td>
                   <td>{pct(row.sportsbook_home_probability)}</td>
-                  <td>{pct(row.polymarket_home_probability)}</td>
-                  <td>{pct(row.kalshi_home_probability)}</td>
+                  <td>{providerCell(row, 'POLYMARKET', row.polymarket_home_probability)}</td>
+                  <td>{providerCell(row, 'KALSHI', row.kalshi_home_probability)}</td>
                   <td>{row.consensus_eligible ? pct(row.research_consensus_home_probability) : <span title={row.consensus_note ?? ''}>No consensus</span>}</td>
-                  <td>{signedPts(row.diff_aisp_prediction)}</td>
+                  <td>
+                    {row.diff_aisp_prediction != null
+                      ? signedPts(row.diff_aisp_prediction)
+                      : row.diff_aisp_prediction_unreviewed != null
+                        ? <span className="pulse-unreviewed" title="Unreviewed research observation — not decision eligible">{signedPts(row.diff_aisp_prediction_unreviewed)} <small>unreviewed</small></span>
+                        : '—'}
+                  </td>
                   <td>{signedPts(row.diff_polymarket_kalshi)}</td>
                   <td>{signedPts(row.movement_5m)}</td>
                   <td>{signedPts(row.movement_30m)}</td>
-                  <td><span className={tierClass(row.best_quality_tier)}>{row.best_quality_tier ?? 'UNMAPPED'}</span></td>
+                  <td><span className={tierClass(row.best_quality_tier)}>{row.best_quality_tier ?? (row.coverage_state === 'NO_MAPPED_MARKET' || row.coverage_state == null ? 'UNMAPPED' : 'NO QUOTE')}</span></td>
                   <td>
                     <span className={`pill pill--${row.mapping_status.toLowerCase()}`}>{row.mapping_status}</span>
                     {row.providers.some((p) => p.in_play) && <span className="pill pill--inplay">IN PLAY</span>}
+                    {row.display_note && <small className="pulse-row-note">{row.display_note}</small>}
                   </td>
                 </tr>
               ))}
@@ -310,7 +380,14 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
           {rows.map((row) => (
             <li key={row.game_id}>
               <strong>{row.away_abbrev} @ {row.home_abbrev}</strong>
-              <span>{row.consensus_eligible ? `Median ${pct(row.research_consensus_home_probability)} · dispersion ${signedPts(row.cross_market_dispersion)}` : (row.consensus_note ?? 'No consensus')}</span>
+              <span>
+                {row.consensus_eligible
+                  ? `Median ${pct(row.research_consensus_home_probability)} · dispersion ${signedPts(row.cross_market_dispersion)}`
+                  : (row.consensus_note ?? 'No consensus')}
+                {row.provider_coverage?.length
+                  ? ` · ${row.provider_coverage.map((c) => `${c.provider}: ${COVERAGE_LABEL[c.state] ?? c.state}`).join(' · ')}`
+                  : ''}
+              </span>
             </li>
           ))}
         </ul>

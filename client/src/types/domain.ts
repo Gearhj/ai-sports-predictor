@@ -231,6 +231,13 @@ export interface ExperimentComparisonRow {
   profit_loss: number | null
   average_clv: number | null
   policy_checksum: string | null
+  role?: 'STRICT_CONTROL' | 'POLICY_CHALLENGER'
+  policy_label?: string
+  policy_relationship?: string
+  model_name?: string | null
+  model_version?: string | null
+  model_status?: string | null
+  decision_metrics?: ExperimentDecisionMetrics
 }
 
 export interface ExperimentComparison {
@@ -707,6 +714,27 @@ export interface BankrollData extends DataProvenance {
   current_drawdown?: number
   closing_quote_coverage?: ClosingQuoteCoverage | null
   betting?: BettingPerformance | null
+  // Honest experiment identity: same model, different decision policy.
+  experiment_key?: 'v1' | 'v2' | null
+  experiment_role?: 'STRICT_CONTROL' | 'POLICY_CHALLENGER' | null
+  policy_label?: string | null
+  policy_relationship?: string | null
+  model_name?: string | null
+  model_version?: string | null
+  model_status?: string | null
+  model_identity_source?: string | null
+  decision_metrics?: ExperimentDecisionMetrics | null
+}
+
+export interface ExperimentDecisionMetrics {
+  candidate_evaluations: number
+  games_evaluated: number
+  qualified_evaluations: number
+  qualified_selections: number
+  frozen_positions: number
+  settled_positions: number
+  evidence_stage: 'NO_EVIDENCE' | 'EARLY_EVIDENCE' | 'ACCUMULATING' | 'MATURE'
+  evidence_note: string
 }
 
 export interface SourceHealth {
@@ -1003,6 +1031,33 @@ export interface MarketPulseRow {
   semantics_status: string
   best_quality_tier: string | null
   alert_count: number
+  // Canonical-slate coverage (why a provider column is blank).
+  coverage_state?: ProviderCoverageState | 'NO_PROVIDER_ENABLED'
+  provider_coverage?: ProviderCoverage[]
+  decision_eligible_quote?: boolean
+  unreviewed_observation?: boolean
+  diff_aisp_prediction_unreviewed?: number | null
+  display_note?: string | null
+}
+
+export type ProviderCoverageState =
+  | 'PROVIDER_DISABLED'
+  | 'NO_MAPPED_MARKET'
+  | 'MAPPING_REVIEW_REQUIRED'
+  | 'MAPPING_REJECTED'
+  | 'MAPPED_NOT_QUOTED'
+  | 'QUOTED_UNREVIEWED'
+  | 'QUOTED_REVIEWED'
+
+export interface ProviderCoverage {
+  provider: string
+  state: ProviderCoverageState
+  reason: string
+  contracts_listed: number
+  mapping_status: string | null
+  semantics_status: string | null
+  quality_tier: string | null
+  last_snapshot_at: string | null
 }
 
 export interface PredictionProviderHealth {
@@ -1030,6 +1085,7 @@ export type MarketPulseBoardState =
   | 'PROVIDERS_DISABLED'
   | 'DISCOVERY_PENDING'
   | 'PROVIDERS_HEALTHY_ZERO_ELIGIBLE'
+  | 'RESEARCH_OBSERVATIONS_UNREVIEWED'
   | 'ELIGIBLE_MARKETS_AVAILABLE'
   | 'PROVIDER_DEGRADED'
 
@@ -1063,6 +1119,8 @@ export interface MarketPulseBoard extends DataProvenance {
   summary: Record<string, unknown>
   excluded_summary?: Record<string, number>
   jobs?: ObserverJobStatus[]
+  canonical_games?: number
+  coverage?: Record<string, number>
 }
 
 export interface PredictionTimelinePoint {
