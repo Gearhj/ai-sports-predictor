@@ -161,7 +161,7 @@ describe('BankrollPage prospective experiment states', () => {
 
     const returnCard = (await screen.findByText('ROI on risked capital')).closest('article') as HTMLElement
     expect(within(returnCard).getByText('+80.0%')).toBeInTheDocument()
-    expect(within(returnCard).getByText(/Net P\/L ÷ \$10\.00 risked — not ÷ bankroll/)).toBeInTheDocument()
+    expect(within(returnCard).getByText(/Net P\/L ÷ \$10\.00 settled stake — open exposure excluded, never ÷ bankroll/)).toBeInTheDocument()
     const clvCard = screen.getByText('CLV sample').closest('article') as HTMLElement
     expect(within(clvCard).getByText('+1.5%')).toBeInTheDocument()
     expect(within(clvCard).getByText(/1 of 1 settled with a closing quote/)).toBeInTheDocument()

@@ -110,7 +110,7 @@ function ExperimentComparisonPanel() {
     ['Frozen positions', String(m1?.frozen_positions ?? v1.positions), String(m2?.frozen_positions ?? v2.positions)],
     ['Settled positions', String(v1.settled), String(v2.settled)],
     ['Record', v1.settled ? (v1.record ?? '—') : 'No settled positions', v2.settled ? (v2.record ?? '—') : 'No settled positions'],
-    ['Amount risked', v1.total_risked == null ? '—' : formatCurrency(v1.total_risked), v2.total_risked == null ? '—' : formatCurrency(v2.total_risked)],
+    ['Total stake (settled + open)', v1.total_risked == null ? '—' : formatCurrency(v1.total_risked), v2.total_risked == null ? '—' : formatCurrency(v2.total_risked)],
     ['Average stake', v1.average_stake == null ? '—' : formatCurrency(v1.average_stake), v2.average_stake == null ? '—' : formatCurrency(v2.average_stake)],
     ['Net P/L (settled only)', v1.settled ? formatSignedCurrency(v1.profit_loss ?? 0) : '—', v2.settled ? formatSignedCurrency(v2.profit_loss ?? 0) : '—'],
     ['Current bankroll', formatCurrency(v1.current_bankroll), formatCurrency(v2.current_bankroll)],
@@ -405,7 +405,11 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
   const openCount = data.open_positions ?? openPositions.length
   const settledCount = data.settled_positions ?? data.positions.filter((position) => position.result !== 'OPEN').length
   const netPl = betting?.net_profit_loss ?? data.total_return
-  const roi = betting?.roi ?? (hasSettled ? data.roi : null)
+  // Settled performance and open exposure are never mixed: ROI divides settled
+  // P/L by the stake of settled positions only; open stakes are exposure.
+  const openExposure = openPositions.reduce((sum, position) => sum + position.stake, 0)
+  const settledRisked = Math.round((totalRisked - openExposure) * 100) / 100
+  const roi = hasSettled && settledRisked > 0 ? Math.round((netPl / settledRisked) * 1000) / 10 : null
   const record = betting?.record ?? data.record
   const averageStake = data.positions.length ? totalRisked / data.positions.length : null
   const maxDrawdownDollars = betting?.max_drawdown ?? null
@@ -460,16 +464,16 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
         <MetricCard
           label="ROI on risked capital"
           value={hasSettled && roi != null ? <span className="metric-help" title="ROI = net P/L ÷ total amount risked on frozen positions. The bankroll is never the denominator, and open positions are excluded.">{formatSignedPct(roi)}</span> : '—'}
-          detail={hasSettled ? `Net P/L ÷ ${formatCurrency(totalRisked)} risked — not ÷ bankroll` : 'Published only after settlement'}
+          detail={hasSettled ? `Net P/L ÷ ${formatCurrency(settledRisked)} settled stake — open exposure excluded, never ÷ bankroll` : 'Published only after settlement'}
           trend={!hasSettled || roi == null ? 'neutral' : roi > 0 ? 'positive' : roi < 0 ? 'negative' : 'neutral'}
         />
         <MetricCard label="Settled positions" value={settledCount} detail={settledCount ? 'Each settled exactly once' : 'No settled positions yet'} />
-        <MetricCard label="Open positions" value={openCount} detail={openCount ? 'Awaiting eligible final results' : 'No open virtual positions'} />
+        <MetricCard label="Open positions" value={openCount} detail={openCount ? `${formatCurrency(openExposure)} open exposure · not in P/L, record or ROI` : 'No open virtual positions'} />
       </section>
       <section className="metric-grid metric-grid--six experiment-scoreboard" aria-label="Record, risk and closing-line sample">
         <MetricCard label="Record" value={hasSettled ? record : '—'} detail={hasSettled ? 'Wins – losses – pushes' : 'No settled positions'} />
-        <MetricCard label="Amount risked" value={formatCurrency(totalRisked)} detail={`${data.positions_count} frozen virtual position${data.positions_count === 1 ? '' : 's'}`} />
-        <MetricCard label="Average stake" value={averageStake == null ? '—' : formatCurrency(averageStake)} detail={averageStake == null ? 'No positions' : 'Amount risked ÷ positions'} />
+        <MetricCard label="Amount risked" value={formatCurrency(settledRisked)} detail={openCount ? `${settledCount} settled · ${formatCurrency(openExposure)} open exposure shown separately` : `${settledCount} settled position${settledCount === 1 ? '' : 's'}`} />
+        <MetricCard label="Average stake" value={averageStake == null ? '—' : formatCurrency(averageStake)} detail={averageStake == null ? 'No positions' : `Total stake ${formatCurrency(totalRisked)} ÷ ${data.positions_count} frozen position${data.positions_count === 1 ? '' : 's'}`} />
         <MetricCard label="Max drawdown" value={hasSettled ? (maxDrawdownDollars != null ? formatCurrency(maxDrawdownDollars) : formatPct(maxDrawdownPct)) : '—'} detail={hasSettled ? `${formatPct(maxDrawdownPct)} of opening bankroll · peak-to-trough in settlement order` : 'Awaiting settled positions'} trend={hasSettled && (maxDrawdownDollars ?? maxDrawdownPct) > 0 ? 'negative' : 'neutral'} />
         <MetricCard label="Current drawdown" value={hasSettled ? formatPct(data.current_drawdown ?? 0) : '—'} detail={hasSettled ? `From high-water mark ${formatCurrency(data.peak_bankroll)}` : 'Awaiting settled positions'} trend={hasSettled && (data.current_drawdown ?? 0) > 0 ? 'negative' : 'neutral'} />
         <MetricCard

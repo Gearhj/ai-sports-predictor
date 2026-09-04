@@ -218,7 +218,7 @@ describe('primary evidence', () => {
     expect(within(await card('Net P/L')).getByText('-$0.22')).toBeInTheDocument()
     const roi = await card('ROI on risked capital')
     expect(within(roi).getByText('-1.1%')).toBeInTheDocument()
-    expect(within(roi).getByText(/Net P\/L ÷ \$20\.00 risked — not ÷ bankroll/)).toBeInTheDocument()
+    expect(within(roi).getByText(/Net P\/L ÷ \$20\.00 settled stake — open exposure excluded, never ÷ bankroll/)).toBeInTheDocument()
     expect(within(roi).getByTitle(/The bankroll is never the denominator/)).toBeInTheDocument()
     expect(within(await card('Settled positions')).getByText('8')).toBeInTheDocument()
     expect(within(await card('Record')).getByText('3–5–0')).toBeInTheDocument()
@@ -411,6 +411,25 @@ describe('position history', () => {
     expect(rows[8]).toHaveTextContent('OPEN') // unsettled rows trail the settlement sequence
   })
 
+  it('keeps ROI, record and amount risked on settled positions only when a position is open', async () => {
+    const open: Position = { ...positionsOldestFirst[0], id: 'p9', result: 'OPEN', profit_loss: 0, closing_price: null, clv: null, bankroll_after: null, settlement_sequence: null, settled_at: null, beat_close: null, date: '2026-09-04', selection: 'SF ML', matchup: 'SF @ NYM', price: 172 }
+    const betting = { ...v2Payload().betting!, total_risked: 22.5, roi: -0.98, yield_pct: -0.98, positions: 9, open: 1 }
+    stub({ v2: v2Payload({ positions: [open, ...[...positionsOldestFirst].reverse()], open_positions: 1, positions_count: 9, betting }) })
+    renderAt('/experiment')
+    const top = await screen.findByLabelText('Bankroll and position counts')
+    const second = screen.getByLabelText('Record, risk and closing-line sample')
+    const roi = within(top).getByText('ROI on risked capital').closest('article') as HTMLElement
+    expect(within(roi).getByText('-1.1%')).toBeInTheDocument() // -0.22 ÷ 20.00, not ÷ 22.50
+    expect(within(roi).getByText(/÷ \$20\.00 settled stake — open exposure excluded/)).toBeInTheDocument()
+    const openCard = within(top).getByText('Open positions').closest('article') as HTMLElement
+    expect(within(openCard).getByText('1')).toBeInTheDocument()
+    expect(within(openCard).getByText(/\$2\.50 open exposure · not in P\/L, record or ROI/)).toBeInTheDocument()
+    expect(within(within(second).getByText('Amount risked').closest('article') as HTMLElement).getByText('$20.00')).toBeInTheDocument()
+    expect(within(within(second).getByText('Record').closest('article') as HTMLElement).getByText('3–5–0')).toBeInTheDocument()
+    expect(within(within(top).getByText('Net P/L').closest('article') as HTMLElement).getByText('-$0.22')).toBeInTheDocument()
+    expect(within(within(second).getByText('Average stake').closest('article') as HTMLElement).getByText(/Total stake \$22\.50 ÷ 9 frozen positions/)).toBeInTheDocument()
+  })
+
   it('keeps the honest empty ledger copy when nothing has been frozen', async () => {
     stub()
     renderAt('/experiment?experiment=v1')
@@ -426,7 +445,7 @@ describe('position history', () => {
     expect(within(rowOf('Qualified selections (distinct)')).getByText('15')).toBeInTheDocument()
     expect(within(rowOf('Frozen positions')).getByText('8')).toBeInTheDocument()
     expect(within(rowOf('Settled positions')).getByText('8')).toBeInTheDocument()
-    expect(within(rowOf('Amount risked')).getByText('$20.00')).toBeInTheDocument()
+    expect(within(rowOf('Total stake (settled + open)')).getByText('$20.00')).toBeInTheDocument()
     expect(within(rowOf('Net P/L (settled only)')).getByText('-$0.22')).toBeInTheDocument()
     expect(within(rowOf('CLV sample (settled only)')).getByText('-0.153% · 5 of 8 settled')).toBeInTheDocument()
     expect(within(rowOf('Start date')).getByText('2026-08-27')).toBeInTheDocument()
