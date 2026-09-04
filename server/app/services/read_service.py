@@ -899,6 +899,7 @@ class ReadService:
         from app.bankroll.service import StakePolicy, StakingStrategy, calculate_stake
         from app.schemas.api import V2PolicyView
         from app.services.practical_policy import POLICY_VERSION, PracticalPolicyEvaluator
+        from app.services.pregame_evidence import pregame_evidence_summary
         from app.services.shadow_experiment_service import (
             FINAL_PREGAME_CUTOFF_MINUTES,
             V2_DECISION_POLICY,
@@ -977,6 +978,9 @@ class ReadService:
             starter_stable_since_home=evaluation.starter_home.stable_since if evaluation.starter_home else None,
             starter_stable_since_away=evaluation.starter_away.stable_since if evaluation.starter_away else None,
             lineup_state=evaluation.lineup.state if evaluation.lineup else None,
+            pregame_evidence=pregame_evidence_summary(
+                evaluation, cutoff=cutoff, reference=min(now, cutoff),
+            ),
             selection=moneyline.selection if moneyline else None,
             raw_edge=pts(evaluation.raw_edge),
             starter_penalty=pts(evaluation.starter_penalty) or 0.0,

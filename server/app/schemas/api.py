@@ -207,6 +207,9 @@ class V2PolicyView(BaseModel):
     starter_stable_since_home: str | None = None
     starter_stable_since_away: str | None = None
     lineup_state: str | None = None
+    # Concise pregame evidence (source, observation time, age at the
+    # evaluation reference, freshness, exact block) — see pregame_evidence.py.
+    pregame_evidence: dict[str, Any] | None = None
     selection: str | None = None
     feature_decomposition: dict[str, Any] | None = None
     # Percentage points / percent, matching the board's display convention.

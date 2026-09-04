@@ -197,6 +197,7 @@ export interface V2PolicyView {
   starter_stable_since_home?: string | null
   starter_stable_since_away?: string | null
   lineup_state: string | null
+  pregame_evidence?: PregameEvidence | null
   selection: string | null
   feature_decomposition?: V2FeatureDecomposition | null
   raw_edge: number | null
@@ -1219,6 +1220,41 @@ export interface QualificationFunnelGame {
   lineup_state?: string | null
   model_required_missing?: string[]
   adjusted_edge?: number | null
+  cutoff_at?: string
+  reference_at?: string
+  pregame_evidence?: PregameEvidence | null
+}
+
+/** Concise pregame evidence: source, observation time, age at the evaluation reference, freshness, exact block. */
+export interface PregameStarterEvidence {
+  state: string | null
+  status: string | null
+  source: string | null
+  observed_at: string | null
+  age_minutes_at_reference: number | null
+  freshness: 'FRESH' | 'STALE' | 'MISSING' | 'INVALID_FUTURE_DATED' | string
+  stable_since?: string | null
+  label: string
+  reasons: string[]
+}
+
+export interface PregameLineupTeamEvidence {
+  source_state: string
+  label: string
+  observed_at: string | null
+}
+
+export interface PregameEvidence {
+  reference_at: string
+  cutoff_at: string
+  reference_is_cutoff: boolean
+  starter_home: PregameStarterEvidence
+  starter_away: PregameStarterEvidence
+  starter_block_category: 'PASS' | 'STALE' | 'MISSING' | 'UNSTABLE' | 'CONFLICT' | 'EVENT' | 'NOT_EVALUATED' | string
+  starter_block_reason: string | null
+  lineup: { state: string | null; label: string; home: PregameLineupTeamEvidence | null; away: PregameLineupTeamEvidence | null; source: string | null; reasons?: string[] }
+  source_note: string
+  any_fresh: boolean
 }
 export interface QualificationFunnelDiagnostics {
   awaiting_final_pregame_evaluation: number
@@ -1243,4 +1279,6 @@ export interface QualificationFunnel {
   experiment_registered?: boolean
   effective_date?: string | null
   games: QualificationFunnelGame[]
+  starter_evidence_reconciliation?: Record<string, number>
+  evidence_reference_policy?: string
 }

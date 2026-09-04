@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import type { GameOpportunity, ForecastGame, OpportunitySelection, RecommendationState } from '../types/domain'
 import { formatTime, formatTimestamp } from '../services/format'
 import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamLogo } from './ui'
+import { PregameEvidenceBadges } from './PregameEvidenceBadges'
 
 const LIFECYCLE_LABEL: Record<string, string> = {
   NOT_YET_EVALUATED: 'Not yet evaluated',
@@ -254,6 +255,7 @@ export function OpportunityCard({
             <span>Stable since <b>{formatTimestamp(opportunity.v2.starter_stable_since_home)}</b></span>
           )}
           <span>V2 lineup <b>{opportunity.v2.lineup_state ?? '—'}</b></span>
+          {opportunity.v2.pregame_evidence && <PregameEvidenceBadges evidence={opportunity.v2.pregame_evidence} compact />}
           <span>V2 state <b>{LIFECYCLE_LABEL[opportunity.v2.lifecycle] ?? opportunity.v2.lifecycle}</b></span>
           {(opportunity.v2.starter_penalty > 0 || opportunity.v2.lineup_penalty > 0) && (
             <span>Evidence penalties <b>

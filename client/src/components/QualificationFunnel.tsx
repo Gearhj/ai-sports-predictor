@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Filter } from 'lucide-react'
 import { Panel } from './ui'
+import { PregameEvidenceBadges } from './PregameEvidenceBadges'
 import { endpoints } from '../services/api'
 import { formatDate } from '../services/format'
 import type { QualificationFunnel as FunnelData } from '../types/domain'
@@ -97,6 +98,16 @@ export function QualificationFunnel({
           {data.top_rejection_reasons.slice(0, compact ? 2 : 5).map((r) => `${r.reason} (${r.count})`).join(' · ')}
         </p>
       )}
+      {data.starter_evidence_reconciliation && (
+        <p className="pulse-health-meta" data-testid="starter-evidence-reconciliation">
+          Starter evidence at the evaluation reference:{' '}
+          {(['PASS', 'STALE', 'MISSING', 'UNSTABLE', 'CONFLICT', 'EVENT', 'NOT_EVALUATED'] as const)
+            .filter((k) => (data.starter_evidence_reconciliation?.[k] ?? 0) > 0)
+            .map((k) => `${k.toLowerCase().replace('_', ' ')} ${data.starter_evidence_reconciliation?.[k]}`)
+            .join(' · ')}
+          {' '}(sums to {scheduled}). {data.evidence_reference_policy ?? ''}
+        </p>
+      )}
       {data.diagnostics && (
         <p className="pulse-health-meta">
           Diagnostics: awaiting final-pregame evaluation {data.diagnostics.awaiting_final_pregame_evaluation} ·
@@ -123,6 +134,7 @@ export function QualificationFunnel({
                 {g.lineup_state ? ` · lineup ${g.lineup_state}` : ''}
                 {g.adjusted_edge != null ? ` · adj edge ${(g.adjusted_edge * 100).toFixed(1)} pts` : ''}
                 {g.readiness != null ? ` · readiness ${Math.round(g.readiness)}` : ''}
+                {g.pregame_evidence && <PregameEvidenceBadges evidence={g.pregame_evidence} />}
               </li>
             ))}
           </ol>
