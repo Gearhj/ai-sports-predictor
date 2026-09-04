@@ -23,7 +23,7 @@ from app.models import (
     PredictionMarketMapping,
     RunStatus,
 )
-from app.prediction_markets.contracts import ProviderContractDTO, ProviderQuoteDTO
+from app.prediction_markets.contracts import CanonicalMarketType, ProviderContractDTO, ProviderQuoteDTO
 from app.prediction_markets.kalshi import KalshiPredictionMarketSource
 from app.prediction_markets.polymarket import PolymarketPredictionMarketSource
 from app.prediction_markets.service import PredictionMarketObserver
@@ -138,14 +138,21 @@ class PredictionMarketJobs:
     async def refresh(self, event_date: date) -> dict[str, Any]:
         if not self.settings.prediction_market_observer_enabled:
             return {"records": 0, "status": "skipped", "reason": "observer disabled"}
-        contracts = self._active_contracts()
+        contracts = self._active_contracts(event_date)
         budget = self.settings.prediction_market_max_requests_per_hour
         snapshots = errors = 0
         used = 0
         persist_errors: list[str] = []
+        # Providers that cannot possibly answer are skipped with the reason
+        # recorded, instead of burning the hourly budget on guaranteed errors.
+        skipped: dict[str, str] = {}
+        if self.settings.kalshi_enabled and not self.settings.kalshi_api_key_id:
+            skipped["KALSHI"] = "order books require API credentials; none configured"
         for contract in contracts:
             if used >= budget:
                 break
+            if contract.provider in skipped:
+                continue
             try:
                 quote = await self._fetch_quote(contract)
                 used += 1
@@ -160,8 +167,9 @@ class PredictionMarketJobs:
                     persist_errors.append(f"{contract.provider}:{contract.provider_market_id}: {type(exc).__name__}: {exc}"[:300])
         self._record_run("PREDICTION_MARKET", "refresh-prediction-market-snapshots", status=RunStatus.SUCCEEDED,
                          count=snapshots, meta={"contracts": len(contracts), "requests": used, "errors": errors,
-                                                "persist_errors": persist_errors})
-        return {"records": snapshots, "contracts": len(contracts), "requests": used, "errors": errors}
+                                                "persist_errors": persist_errors, "skipped": skipped})
+        return {"records": snapshots, "contracts": len(contracts), "requests": used, "errors": errors,
+                "skipped": skipped}
 
     async def _fetch_quote(self, contract: PredictionMarketContract) -> ProviderQuoteDTO | None:
         if contract.provider == "POLYMARKET":
@@ -178,7 +186,17 @@ class PredictionMarketJobs:
         data = resp.envelope.data
         return ProviderQuoteDTO.model_validate(data[0]) if data else None
 
-    def _active_contracts(self) -> list[PredictionMarketContract]:
+    def _active_contracts(self, event_date: date | None = None) -> list[PredictionMarketContract]:
+        """Contracts to quote this cycle, within the active-market cap.
+
+        Ordering is by evidence value, not alphabet: contracts whose provider
+        event is EXACT/MANUAL_APPROVED-mapped to a canonical game on the
+        operational date come first, then other mapped contracts, then the
+        unmapped remainder; providers are interleaved so one provider's
+        listing volume cannot starve the other. (The previous alphabetical
+        `provider_market_id` order let unrelated markets fill the cap and left
+        mapped slate games permanently unquoted.)
+        """
         rows = list(self.session.scalars(select(PredictionMarketContract).order_by(
             PredictionMarketContract.provider_market_id, PredictionMarketContract.version.desc())))
         seen: set[tuple[str, str, Any]] = set()
@@ -190,7 +208,50 @@ class PredictionMarketJobs:
             seen.add(key)
             if (r.market_status or "").lower() not in {"closed", "settled", "inactive"}:
                 latest.append(r)
-        return latest[: self.settings.prediction_market_max_active_markets]
+        slate_events, mapped_events = self._mapped_event_priority(event_date)
+
+        def priority(c: PredictionMarketContract) -> int:
+            key = (c.provider, c.provider_event_id)
+            # Within each mapping tier the full-game moneyline (the board's
+            # comparison market) precedes spread/total contracts.
+            moneyline = 0 if c.market_type == CanonicalMarketType.FULL_GAME_MONEYLINE.value else 1
+            if key in slate_events:
+                return 0 + moneyline
+            if key in mapped_events:
+                return 2 + moneyline
+            return 4 + moneyline
+
+        buckets: dict[tuple[int, str], list[PredictionMarketContract]] = {}
+        for c in latest:
+            buckets.setdefault((priority(c), c.provider), []).append(c)
+        ordered: list[PredictionMarketContract] = []
+        for level in range(6):
+            queues = [buckets[k] for k in sorted(buckets) if k[0] == level]
+            while any(queues):
+                for q in queues:
+                    if q:
+                        ordered.append(q.pop(0))
+        return ordered[: self.settings.prediction_market_max_active_markets]
+
+    def _mapped_event_priority(self, event_date: date | None) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+        """(events mapped to games on the operational date, all mapped events)."""
+        from app.core.time import local_day_bounds
+
+        rows = self.session.execute(select(
+            PredictionMarketMapping.provider, PredictionMarketMapping.provider_event_id,
+            PredictionMarketMapping.canonical_game_id, PredictionMarketMapping.mapping_status,
+            PredictionMarketMapping.decided_at,
+        ).order_by(PredictionMarketMapping.decided_at.desc())).all()
+        latest: dict[tuple[str, str], tuple[Any, str]] = {}
+        for provider, event_id, gid, status, _ in rows:
+            latest.setdefault((provider, event_id), (gid, status))
+        mapped = {k for k, (gid, st) in latest.items() if gid is not None and st in {"EXACT", "MANUAL_APPROVED"}}
+        if not mapped or event_date is None:
+            return set(), mapped
+        start, end = local_day_bounds(event_date, self.settings.display_timezone)
+        slate_ids = set(self.session.scalars(select(Game.id).where(Game.starts_at >= start, Game.starts_at < end)))
+        slate = {k for k in mapped if latest[k][0] in slate_ids}
+        return slate, mapped
 
     # -- consensus / alerts / finalize / backfill ------------------------
     async def compute_consensus(self, event_date: date) -> dict[str, Any]:

@@ -119,8 +119,8 @@ class KalshiPredictionMarketSource:
             if dto is not None:
                 contracts.append(dto)
             else:
-                reason = "malformed_record" if not isinstance(market, dict) else "missing_identifiers"
-                excluded[reason] = excluded.get(reason, 0) + 1
+                excluded_reason = self._exclusion_reason(market, league)
+                excluded[excluded_reason] = excluded.get(excluded_reason, 0) + 1
         fetched = datetime.now(UTC)
         return AdapterResponse(
             envelope=SourceEnvelope(
@@ -142,11 +142,18 @@ class KalshiPredictionMarketSource:
             return None
         title = str(market.get("title") or "")
         subtitle = str(market.get("subtitle") or market.get("yes_sub_title") or "")
-        blob = f"{title} {subtitle}".lower()
-        # Governed type inference: default game-winner => moneyline.
-        if any(k in blob for k in ("spread", "handicap", "by ", "margin")):
+        # Governed type inference keyed on the series ticker family. Kalshi
+        # tickers are `KX<LEAGUE><FAMILY>-<event>-<side>`; only the GAME /
+        # SPREAD / TOTAL families are full-game markets. Everything else
+        # (TB total bases, HIT, ERA, RFI, F5*, INNINGWIN, TEAMTOTAL, WINS
+        # season totals, ...) is a prop/partial/futures market and must NOT
+        # be labelled FULL_GAME_MONEYLINE by default.
+        family = self._series_family(str(market.get("series_ticker") or ticker), league)
+        if family is None:
+            return None
+        if family == "SPREAD":
             market_type, line = CanonicalMarketType.FULL_GAME_SPREAD, self._strike(market)
-        elif any(k in blob for k in ("total", "over/under", "combined", "points scored", "runs scored")):
+        elif family == "TOTAL":
             market_type, line = CanonicalMarketType.FULL_GAME_TOTAL, self._strike(market)
         else:
             market_type, line = CanonicalMarketType.FULL_GAME_MONEYLINE, None
@@ -178,6 +185,38 @@ class KalshiPredictionMarketSource:
             line_source="STRUCTURED" if line is not None or market_type == CanonicalMarketType.FULL_GAME_MONEYLINE else "TITLE_PARSED",
             raw={"series_ticker": market.get("series_ticker"), "event_ticker": market.get("event_ticker")},
         )
+
+    # Full-game series families per league ticker prefix (KXMLBGAME, KXNFLSPREAD, ...).
+    _FULL_GAME_FAMILIES = {"GAME": "MONEYLINE", "SPREAD": "SPREAD", "TOTAL": "TOTAL"}
+
+    @classmethod
+    def _series_family(cls, series_ticker: str, league: str) -> str | None:
+        """MONEYLINE / SPREAD / TOTAL for a full-game series; None otherwise."""
+        head = series_ticker.upper().split("-", 1)[0]
+        prefix = f"KX{league.upper()}"
+        if not head.startswith(prefix):
+            return None
+        return cls._FULL_GAME_FAMILIES.get(head[len(prefix):])
+
+    @classmethod
+    def _exclusion_reason(cls, market: Any, league: str) -> str:
+        if not isinstance(market, dict):
+            return "malformed_record"
+        ticker = str(market.get("series_ticker") or market.get("ticker") or "")
+        if not ticker:
+            return "missing_identifiers"
+        head = ticker.upper().split("-", 1)[0]
+        prefix = f"KX{league.upper()}"
+        if not head.startswith(prefix):
+            return "other_league_or_sport"
+        family = head[len(prefix):]
+        if family in cls._FULL_GAME_FAMILIES:
+            return "missing_identifiers"
+        if family.startswith("F5") or family in {"INNINGWIN", "RFI", "TEAMTOTAL", "1H", "1Q"} or family[:1].isdigit():
+            return "partial_game_or_derivative"
+        if family in {"WINS", "CHAMP", "DIV", "PLAYOFF", "MVP", "CY"}:
+            return "futures_or_season"
+        return "player_props"
 
     @staticmethod
     def _strike(market: dict[str, Any]) -> float | None:
