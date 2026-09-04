@@ -148,8 +148,13 @@ class QualificationService:
             ("qualified", "V2.1 qualified decision"),
             ("positions_created", "Positions created"),
         ]
+        from app.services.pregame_evidence import STARTER_BLOCK_CATEGORIES, pregame_evidence_summary
+
         counts = {key: 0 for key, _ in gates}
         rejection: dict[str, int] = {}
+        # Exact starter-evidence reconciliation: every game lands in exactly one
+        # category (PASS / STALE / MISSING / UNSTABLE / CONFLICT / OTHER).
+        evidence_counts: dict[str, int] = {key: 0 for key in STARTER_BLOCK_CATEGORIES}
         diagnostics = {
             "awaiting_final_pregame_evaluation": 0,
             "blocked_only_by_starter_instability": 0,
@@ -259,10 +264,14 @@ class QualificationService:
                 and not model_required_missing
             ):
                 diagnostics["previously_blocked_by_duplicate_feature_completeness_gate"] += 1
+            evidence = pregame_evidence_summary(v2, cutoff=cutoff, reference=reference)
+            evidence_counts[evidence["starter_block_category"]] = evidence_counts.get(evidence["starter_block_category"], 0) + 1
             per_game.append({
                 "game_id": str(game.id),
                 "matchup": self._matchup(game),
                 "starts_at": _iso(game.starts_at),
+                "cutoff_at": cutoff.isoformat(),
+                "reference_at": reference.isoformat(),
                 "tier": v2.tier,
                 "lifecycle": v2.lifecycle,
                 "recommendation_state": v2.recommendation,
@@ -275,6 +284,9 @@ class QualificationService:
                 "starter_stable_since_home": v2.starter_home.stable_since if v2.starter_home else None,
                 "starter_stable_since_away": v2.starter_away.stable_since if v2.starter_away else None,
                 "lineup_state": v2.lineup.state if v2.lineup else None,
+                # Concise, user-facing pregame evidence (source, observation
+                # time, age at the evaluation reference, freshness, exact block).
+                "pregame_evidence": evidence,
                 "model_required_missing": list(model_required_missing),
                 "adjusted_edge": v2.adjusted_edge,
                 "readiness": opp.readiness if opp else None,
@@ -316,6 +328,12 @@ class QualificationService:
             "exposure_cap_exclusions": exposure_excluded,
             "top_rejection_reasons": [{"reason": r, "count": c} for r, c in top[:8]],
             "diagnostics": diagnostics,
+            # Sums to scheduled_games; freshness is aged at min(now, cutoff).
+            "starter_evidence_reconciliation": evidence_counts,
+            "evidence_reference_policy": (
+                "Evidence is reduced and aged at min(evaluation instant, final cutoff); "
+                "only observations available at or before that reference are used."
+            ),
             "experiment_registered": v2_experiment is not None,
             "effective_date": v2_experiment.start_date.isoformat() if v2_experiment else None,
             "games": per_game,
