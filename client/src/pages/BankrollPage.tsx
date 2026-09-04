@@ -14,6 +14,12 @@ import type { BankrollData, ExperimentComparison } from '../types/domain'
 
 type PositionRow = BankrollData['positions'][number]
 
+/** "AISP_PRACTICAL_PREGAME_POLICY_V2_1" → "V2.1"; null when no version suffix. */
+export function policyVersionLabel(policy: string | null | undefined): string | null {
+  const m = policy?.match(/_V(\d+(?:_\d+)*)$/)
+  return m ? `V${m[1].replace(/_/g, '.')}` : null
+}
+
 function ExperimentComparisonPanel() {
   const [data, setData] = useState<ExperimentComparison | null>(null)
   useEffect(() => {
@@ -30,12 +36,21 @@ function ExperimentComparisonPanel() {
   const v2 = data.experiments.find((row) => row.key === 'v2')
   if (!v1 || !v2) return null
   const num = (value: number | null | undefined, suffix = '') => (value == null ? '—' : `${value}${suffix}`)
+  const v2Label = policyVersionLabel(v2.policy) ?? 'V2'
+  const model = (row: typeof v1) => (row.model_name ? `${row.model_name} ${row.model_version ?? ''}`.trim() : 'unavailable')
+  const m1 = v1.decision_metrics
+  const m2 = v2.decision_metrics
   const rows: Array<[string, string, string]> = [
     ['Status', v1.status, `${v2.status}${v2.status === 'SCHEDULED' ? ` · starts ${v2.effective_date}` : ''}`],
+    ['Role', v1.policy_label ?? 'Strict control', v2.policy_label ?? `Policy challenger — ${v2Label}`],
+    ['Forecasting model', model(v1), model(v2)],
+    ['Decision policy', v1.policy, v2.policy],
     ['Bankroll', formatCurrency(v1.current_bankroll), formatCurrency(v2.current_bankroll)],
-    ['Games evaluated', String(v1.games_evaluated), String(v2.games_evaluated)],
-    ['Qualified decisions', String(v1.qualified_decisions), String(v2.qualified_decisions)],
-    ['Positions', String(v1.positions), String(v2.positions)],
+    ['Games evaluated', String(m1?.games_evaluated ?? v1.games_evaluated), String(m2?.games_evaluated ?? v2.games_evaluated)],
+    ['Candidate evaluations (per phase)', String(m1?.candidate_evaluations ?? v1.decisions), String(m2?.candidate_evaluations ?? v2.decisions)],
+    ['Qualified evaluations', String(m1?.qualified_evaluations ?? v1.qualified_decisions), String(m2?.qualified_evaluations ?? v2.qualified_decisions)],
+    ['Qualified selections (distinct)', m1 ? String(m1.qualified_selections) : '—', m2 ? String(m2.qualified_selections) : '—'],
+    ['Frozen positions', String(m1?.frozen_positions ?? v1.positions), String(m2?.frozen_positions ?? v2.positions)],
     ['Average raw edge', num(v1.average_raw_edge, ' pts'), num(v2.average_raw_edge, ' pts')],
     ['Average adjusted edge', num(v1.average_adjusted_edge, ' pts'), num(v2.average_adjusted_edge, ' pts')],
     ['Average stake', v1.average_stake == null ? '—' : formatCurrency(v1.average_stake), v2.average_stake == null ? '—' : formatCurrency(v2.average_stake)],
@@ -44,7 +59,7 @@ function ExperimentComparisonPanel() {
     ['Average CLV (settled only)', v1.settled && v1.average_clv != null ? `${v1.average_clv}%` : '—', v2.settled && v2.average_clv != null ? `${v2.average_clv}%` : '—'],
   ]
   return (
-    <Panel title="V1 vs V2" eyebrow="STRICT CONTROL VS PRACTICAL CHALLENGER · SEPARATE LEDGERS — NEVER POOLED" className="section-panel">
+    <Panel title={`V1 vs ${v2Label}`} eyebrow="STRICT CONTROL VS PRACTICAL POLICY CHALLENGER · SAME MODEL · SEPARATE LEDGERS — NEVER POOLED" className="section-panel">
       <TableScroll ariaLabel="Experiment comparison">
         <table className="data-table">
           <thead><tr><th>Metric</th><th>{v1.name}</th><th>{v2.name}</th></tr></thead>
@@ -55,6 +70,11 @@ function ExperimentComparisonPanel() {
           </tbody>
         </table>
       </TableScroll>
+      <p className="pulse-health-meta">
+        {v2.policy_relationship ?? 'The challenger changes only the decision policy; the forecasting model is shared.'}
+        {' '}Candidate evaluations count every pregame phase snapshot and are not positions.
+        {m2?.evidence_note ? ` ${v2Label}: ${m2.evidence_note}` : ''}
+      </p>
       <p className="pulse-health-meta">Result and CLV columns populate only after legitimate settlement. No profitability is claimed.</p>
     </Panel>
   )
@@ -106,16 +126,21 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     setSearchParams(params)
   }
   const experimentIsActive = demo || data?.experiment_status === 'ACTIVE' || data?.experiment_status === 'SCHEDULED'
+  // The challenger's version label is derived from the policy the backend
+  // reports (…_POLICY_V2_1 → "V2.1"), never hard-coded to a stale "V2".
+  const challengerVersion = policyVersionLabel(experimentKey === 'v2' ? data?.policy : null) ?? 'V2.1'
 
   const selector = !demo && (
     <div className="tab-bar" role="tablist" aria-label="Experiment selector">
       <button role="tab" aria-selected={experimentKey === 'v1'} className={experimentKey === 'v1' ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setExperiment('v1')}>Strict control — V1</button>
-      <button role="tab" aria-selected={experimentKey === 'v2'} className={experimentKey === 'v2' ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setExperiment('v2')}>Practical pregame challenger — V2</button>
+      <button role="tab" aria-selected={experimentKey === 'v2'} className={experimentKey === 'v2' ? 'tab-button tab-button--active' : 'tab-button'} onClick={() => setExperiment('v2')}>Practical pregame policy challenger — {challengerVersion}</button>
     </div>
   )
   const headerEyebrow = demo
     ? 'ILLUSTRATIVE EXPERIMENT EXAMPLE'
-    : experimentKey === 'v2' ? 'PRACTICAL PREGAME CHALLENGER — V2' : 'THE OFFICIAL ASP EXPERIMENT · STRICT CONTROL — V1'
+    : experimentKey === 'v2'
+      ? `PRACTICAL PREGAME POLICY CHALLENGER — ${challengerVersion} · SAME MODEL · DIFFERENT DECISION POLICY`
+      : 'THE OFFICIAL ASP EXPERIMENT · STRICT CONTROL — V1'
 
   if (!data || state === 'unavailable' || state === 'loading' || (!experimentIsActive && (state === 'empty' || data.experiment_status === 'NOT_STARTED'))) {
     const shownState = !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
@@ -133,9 +158,9 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
         )}
         <DataStatePanel
           state={shownState}
-          emptyTitle={experimentKey === 'v2' ? 'The V2 practical challenger is not registered' : 'The official experiment has not started'}
+          emptyTitle={experimentKey === 'v2' ? `The ${challengerVersion} practical policy challenger is not registered` : 'The official experiment has not started'}
           emptyDetail={experimentKey === 'v2'
-            ? 'The practical pregame challenger has not been registered. When registered it starts prospectively on the next Eastern operational date with its own separate $1,000 virtual bankroll.'
+            ? 'The practical pregame policy challenger has not been registered. When registered it starts prospectively on the next Eastern operational date with its own separate $1,000 virtual bankroll, using the same forecasting model as the V1 control under a different decision policy.'
             : 'No official live positions have been published. The opening bankroll is not a performance result.'}
         />
       </div>
@@ -207,9 +232,26 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
       )}
       <div className="experiment-state-strip">
         <strong>{data.experiment_name ?? (demo ? 'Illustrative experiment example' : 'Experiment name unavailable')}</strong>
+        {data.experiment_role === 'POLICY_CHALLENGER' && (
+          <span className="experiment-identity-badge" title={data.policy_relationship ?? ''}>SAME MODEL · DIFFERENT DECISION POLICY</span>
+        )}
         <small>ID {data.experiment_id ?? 'unavailable'} · Started {data.experiment_start ?? 'unavailable'} · Engine {data.controlling_engine ?? 'unavailable'} · Policy {data.policy ?? 'unavailable'}</small>
+        <small>
+          Model {data.model_name ?? 'unavailable'} {data.model_version ?? ''}{data.model_status ? ` (${data.model_status})` : ''}
+          {data.model_identity_source ? ` · identity from ${data.model_identity_source}` : ''}
+        </small>
         <small>{settledCount} settled / {openCount} open · {data.no_bet_days ?? 0} NO-BET days · Every position remains in the public ledger.</small>
       </div>
+
+      {/* 4a. Distinct decision metrics — candidate evaluations are NOT positions */}
+      {data.decision_metrics && (
+        <section className="metric-grid metric-grid--four experiment-decision-metrics" aria-label="Decision metrics">
+          <MetricCard label="Candidate evaluations" value={data.decision_metrics.candidate_evaluations} detail={`${data.decision_metrics.games_evaluated} distinct games · one per pregame phase`} />
+          <MetricCard label="Qualified evaluations" value={data.decision_metrics.qualified_evaluations} detail={`${data.decision_metrics.qualified_selections} distinct qualified selections`} />
+          <MetricCard label="Frozen positions" value={data.decision_metrics.frozen_positions} detail="Immutable virtual positions created" />
+          <MetricCard label="Evidence stage" value={data.decision_metrics.evidence_stage.replace(/_/g, ' ')} detail={data.decision_metrics.evidence_note} trend="neutral" />
+        </section>
+      )}
 
       {/* 4b. V1 vs V2 comparison (separate ledgers, never pooled) */}
       {!demo && <ExperimentComparisonPanel />}

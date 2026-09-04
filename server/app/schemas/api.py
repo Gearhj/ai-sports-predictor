@@ -651,6 +651,28 @@ class ClosingQuoteCoverage(BaseModel):
     percentage: float | None
 
 
+class ExperimentDecisionMetrics(BaseModel):
+    """Distinct, honestly named counts — never conflated.
+
+    candidate_evaluations: every phase snapshot the policy evaluated (a game
+      evaluated at several pregame phases counts once per phase).
+    games_evaluated: distinct games with at least one evaluation.
+    qualified_evaluations: evaluations whose recommendation was QUALIFIED_BET.
+    qualified_selections: distinct (game, selection) that qualified at least once.
+    frozen_positions: immutable virtual positions actually created.
+    settled_positions: positions with exactly one settlement.
+    """
+
+    candidate_evaluations: int = 0
+    games_evaluated: int = 0
+    qualified_evaluations: int = 0
+    qualified_selections: int = 0
+    frozen_positions: int = 0
+    settled_positions: int = 0
+    evidence_stage: Literal["NO_EVIDENCE", "EARLY_EVIDENCE", "ACCUMULATING", "MATURE"] = "NO_EVIDENCE"
+    evidence_note: str = ""
+
+
 class BankrollData(BaseModel):
     data_mode: DataMode
     # SCHEDULED: a prospectively registered challenger before its effective date.
@@ -686,6 +708,19 @@ class BankrollData(BaseModel):
     current_drawdown: float = 0.0
     closing_quote_coverage: ClosingQuoteCoverage | None = None
     betting: BettingPerformance | None = None
+    # Experiment identity. The V1 control and the V2.1 challenger share the
+    # SAME forecasting model and differ ONLY in decision policy; the page must
+    # never imply a second model. Model identity is derived from the
+    # forecasts the experiment's decisions actually referenced.
+    experiment_key: Literal["v1", "v2"] | None = None
+    experiment_role: Literal["STRICT_CONTROL", "POLICY_CHALLENGER"] | None = None
+    policy_label: str | None = None
+    policy_relationship: str | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    model_status: str | None = None
+    model_identity_source: str | None = None
+    decision_metrics: ExperimentDecisionMetrics | None = None
 
 
 class SourceHealth(BaseModel):

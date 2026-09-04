@@ -141,11 +141,11 @@ class QualificationService:
             ("lineup_eligible", "Lineup confirmed, adequate, or pending-allowed"),
             ("no_unresolved_event", "No unresolved availability event"),
             ("model_inputs_valid", "Model-required inputs valid or governed fallback"),
-            ("critical_complete", "V2 critical evidence complete"),
+            ("critical_complete", "V2.1 critical evidence complete"),
             ("adjusted_edge", f"Adjusted edge ≥ {MIN_ADJUSTED_EDGE * 100:.1f} pts"),
             ("adjusted_ev", "Positive adjusted EV"),
             ("adjusted_kelly", "Positive adjusted Kelly"),
-            ("qualified", "V2 qualified decision"),
+            ("qualified", "V2.1 qualified decision"),
             ("positions_created", "Positions created"),
         ]
         counts = {key: 0 for key, _ in gates}

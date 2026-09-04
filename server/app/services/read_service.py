@@ -78,6 +78,7 @@ from app.models import (
 )
 from app.schemas.api import (
     BankrollData,
+    ExperimentDecisionMetrics,
     ComparisonMetric,
     DashboardData,
     DashboardSummary,
@@ -2402,7 +2403,84 @@ class ReadService:
             current_drawdown=ledger["current_drawdown"],
             closing_quote_coverage=ledger["closing_quote_coverage"],
             betting=betting,
+            **self._experiment_identity(experiment),
+            decision_metrics=ExperimentDecisionMetrics(**self._decision_metrics(experiment)),
         )
+
+    _V1_POLICY = "AISP_OPPORTUNITY_POLICY_V1"
+
+    def _experiment_identity(self, experiment: Any) -> dict[str, Any]:
+        """Honest naming: the V2.1 challenger is the SAME model under a
+        different decision policy. Model identity comes from the forecasts
+        the experiment's decisions referenced — never from a label."""
+        from app.models import ModelVersion, ShadowExperimentDecision
+
+        is_v1 = experiment.decision_policy == self._V1_POLICY
+        versions = list(self.session.execute(
+            select(ModelVersion.name, ModelVersion.version, ModelVersion.status, func.count())
+            .select_from(ShadowExperimentDecision)
+            .join(Forecast, Forecast.id == ShadowExperimentDecision.forecast_id)
+            .join(ModelVersion, ModelVersion.id == Forecast.model_version_id)
+            .where(ShadowExperimentDecision.experiment_id == experiment.id)
+            .group_by(ModelVersion.name, ModelVersion.version, ModelVersion.status)
+            .order_by(func.count().desc())
+        ).all())
+        if versions:
+            name, version, status, _ = versions[0]
+            source = ("decisions→forecasts→model_versions"
+                      + ("" if len(versions) == 1 else f" ({len(versions)} model versions referenced; most frequent shown)"))
+            status_value = status.value if hasattr(status, "value") else str(status)
+        else:
+            name = version = status_value = None
+            source = "no decision references a forecast yet"
+        policy_version = experiment.decision_policy
+        label = ("Strict control — V1" if is_v1
+                 else f"Practical pregame policy challenger — V{policy_version.rsplit('_V', 1)[-1].replace('_', '.')}")
+        return {
+            "experiment_key": "v1" if is_v1 else "v2",
+            "experiment_role": "STRICT_CONTROL" if is_v1 else "POLICY_CHALLENGER",
+            "policy_label": label,
+            "policy_relationship": ("Reference control policy" if is_v1
+                                    else "SAME MODEL · DIFFERENT DECISION POLICY — not a new forecasting model"),
+            "model_name": name,
+            "model_version": version,
+            "model_status": status_value,
+            "model_identity_source": source,
+        }
+
+    def _decision_metrics(self, experiment: Any) -> dict[str, Any]:
+        from app.models import OfficialAspPosition, PositionSettlement, ShadowExperimentDecision
+
+        decisions = list(self.session.execute(select(
+            ShadowExperimentDecision.game_id, ShadowExperimentDecision.selection,
+            ShadowExperimentDecision.recommendation,
+        ).where(ShadowExperimentDecision.experiment_id == experiment.id)).all())
+        qualified = [(g, sel) for g, sel, rec in decisions if rec == "QUALIFIED_BET"]
+        positions = int(self.session.scalar(select(func.count()).select_from(OfficialAspPosition).where(
+            OfficialAspPosition.shadow_experiment_id == experiment.id)) or 0)
+        settled = int(self.session.scalar(
+            select(func.count()).select_from(PositionSettlement)
+            .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
+            .where(OfficialAspPosition.shadow_experiment_id == experiment.id)) or 0)
+        if settled == 0 and positions == 0:
+            stage, note = "NO_EVIDENCE", "No position has been created; nothing can be concluded."
+        elif settled < 30:
+            stage, note = "EARLY_EVIDENCE", (f"{settled} settled position(s) — far too few to distinguish skill from noise; "
+                                             "no performance claim is made.")
+        elif settled < 200:
+            stage, note = "ACCUMULATING", f"{settled} settled positions — directional only; confidence intervals remain wide."
+        else:
+            stage, note = "MATURE", f"{settled} settled positions."
+        return {
+            "candidate_evaluations": len(decisions),
+            "games_evaluated": len({g for g, _, _ in decisions}),
+            "qualified_evaluations": len(qualified),
+            "qualified_selections": len(set(qualified)),
+            "frozen_positions": positions,
+            "settled_positions": settled,
+            "evidence_stage": stage,
+            "evidence_note": note,
+        }
 
     def experiment_comparison(self) -> dict[str, Any]:
         """V1-vs-V2 side-by-side aggregates. Read-only; separate ledgers are
@@ -2449,10 +2527,19 @@ class ReadService:
             wins = sum(1 for s in settlements if s.result.value.upper() == "WIN")
             losses = sum(1 for s in settlements if s.result.value.upper() == "LOSS")
             scheduled = experiment.start_date > local_today(self.settings.display_timezone)
+            identity = self._experiment_identity(experiment)
             out["experiments"].append({
-                "key": "v1" if experiment.decision_policy == "AISP_OPPORTUNITY_POLICY_V1" else "v2",
+                "key": identity["experiment_key"],
                 "name": experiment.name,
                 "policy": experiment.decision_policy,
+                # Honest identity + distinct decision metrics (see ExperimentDecisionMetrics).
+                "role": identity["experiment_role"],
+                "policy_label": identity["policy_label"],
+                "policy_relationship": identity["policy_relationship"],
+                "model_name": identity["model_name"],
+                "model_version": identity["model_version"],
+                "model_status": identity["model_status"],
+                "decision_metrics": self._decision_metrics(experiment),
                 "staking_policy": experiment.staking_policy_version,
                 "status": "SCHEDULED" if scheduled else "ACTIVE",
                 "effective_date": experiment.start_date.isoformat(),

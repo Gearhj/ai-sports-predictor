@@ -43,7 +43,7 @@ const comparison = {
       policy_checksum: null,
     },
     {
-      key: 'v2', name: 'ASP PRACTICAL PREGAME BANKROLL — 2026 V2', policy: 'AISP_PRACTICAL_PREGAME_POLICY_V2',
+      key: 'v2', name: 'ASP PRACTICAL PREGAME BANKROLL — 2026 V2.1', policy: 'AISP_PRACTICAL_PREGAME_POLICY_V2_1',
       staking_policy: 'AISP_QUARTER_KELLY_EVIDENCE_V2', status: 'SCHEDULED', effective_date: '2026-09-01',
       starting_bankroll: 1000, current_bankroll: 1000, games_evaluated: 0, decisions: 0,
       qualified_decisions: 0, positions: 0, average_raw_edge: null, average_adjusted_edge: null,
@@ -54,12 +54,12 @@ const comparison = {
 }
 
 const v2Funnel = {
-  date: '2026-08-31', policy: 'AISP_PRACTICAL_PREGAME_POLICY_V2',
+  date: '2026-08-31', policy: 'AISP_PRACTICAL_PREGAME_POLICY_V2_1',
   experiment_market_types: ['MONEYLINE'],
   steps: [
     { key: 'scheduled_games', label: 'Scheduled games', count: 12 },
     { key: 'starters_eligible', label: 'Starters CONFIRMED or PROBABLE_STABLE', count: 9 },
-    { key: 'qualified', label: 'V2 qualified decision', count: 0 },
+    { key: 'qualified', label: 'V2.1 qualified decision', count: 0 },
     { key: 'positions_created', label: 'Positions created', count: 0 },
   ],
   qualified_selections: 0, positions_created: 0, exposure_cap_exclusions: 0,
@@ -89,8 +89,8 @@ function stub() {
       return json(basePayload({
         experiment_status: 'SCHEDULED',
         experiment_id: 'v2-id',
-        experiment_name: 'ASP PRACTICAL PREGAME BANKROLL — 2026 V2',
-        policy: 'AISP_PRACTICAL_PREGAME_POLICY_V2',
+        experiment_name: 'ASP PRACTICAL PREGAME BANKROLL — 2026 V2.1',
+        policy: 'AISP_PRACTICAL_PREGAME_POLICY_V2_1',
       }))
     }
     if (url.includes('/bankroll')) return json(basePayload({}))
@@ -106,26 +106,26 @@ afterEach(() => {
 })
 
 describe('BankrollPage dual-policy experiments', () => {
-  it('switches between the V1 strict control and the V2 challenger with separate data', async () => {
+  it('switches between the V1 strict control and the V2.1 challenger with separate data', async () => {
     const { calls } = stub()
     render(<MemoryRouter initialEntries={['/experiment']}><BankrollPage /></MemoryRouter>)
 
     expect(await screen.findAllByText('ASP MODEL BANKROLL — 2026 V1')).not.toHaveLength(0)
-    const v2Tab = screen.getByRole('tab', { name: /Practical pregame challenger — V2/i })
+    const v2Tab = screen.getByRole('tab', { name: /Practical pregame policy challenger — V2.1/i })
     await userEvent.click(v2Tab)
 
     expect(await screen.findByText('SCHEDULED · PROSPECTIVE START')).toBeInTheDocument()
-    expect(screen.getAllByText('ASP PRACTICAL PREGAME BANKROLL — 2026 V2').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ASP PRACTICAL PREGAME BANKROLL — 2026 V2.1').length).toBeGreaterThan(0)
     await waitFor(() => expect(calls.some((u) => u.includes('/bankroll?experiment=v2'))).toBe(true))
   }, 20000)
 
-  it('renders the V1-vs-V2 comparison with separate bankrolls and settlement-gated results', async () => {
+  it('renders the V1-vs-V2.1 comparison with separate bankrolls and settlement-gated results', async () => {
     stub()
     render(<MemoryRouter initialEntries={['/experiment']}><BankrollPage /></MemoryRouter>)
 
-    const panel = (await screen.findByText('V1 vs V2')).closest('section, article, div') as HTMLElement
+    const panel = (await screen.findByText('V1 vs V2.1')).closest('section, article, div') as HTMLElement
     expect(await screen.findByText(/SEPARATE LEDGERS — NEVER POOLED/i)).toBeInTheDocument()
-    expect(screen.getAllByText('ASP PRACTICAL PREGAME BANKROLL — 2026 V2').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ASP PRACTICAL PREGAME BANKROLL — 2026 V2.1').length).toBeGreaterThan(0)
     expect(screen.getAllByText('No settled positions').length).toBeGreaterThan(0)
     expect(panel).toBeTruthy()
   })

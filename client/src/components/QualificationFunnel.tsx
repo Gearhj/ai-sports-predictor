@@ -24,7 +24,13 @@ export function QualificationFunnel({
 }) {
   const [data, setData] = useState<FunnelData | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const eyebrowLabel = policy === 'v2' ? 'V2 PRACTICAL CHALLENGER' : '$1,000 EXPERIMENT · V1 STRICT CONTROL'
+  // The challenger label follows the policy version the backend actually
+  // evaluated ("…_POLICY_V2_1" → V2.1) so the funnel never claims a stale "V2".
+  const versionSuffix = data?.policy?.match(/_V(\d+(?:_\d+)*)$/)
+  const challengerVersion = versionSuffix ? `V${versionSuffix[1].replace(/_/g, '.')}` : 'V2.1'
+  const eyebrowLabel = policy === 'v2'
+    ? `${challengerVersion} PRACTICAL POLICY CHALLENGER · SAME MODEL`
+    : '$1,000 EXPERIMENT · V1 STRICT CONTROL'
 
   useEffect(() => {
     let active = true
@@ -66,10 +72,10 @@ export function QualificationFunnel({
     >
       {nav}
       {policy === 'v2' && data.experiment_registered === false && (
-        <p className="pulse-health-meta">Read-only V2 policy preview — the challenger experiment is not yet registered; no decision or position is created.</p>
+        <p className="pulse-health-meta">Read-only {challengerVersion} policy preview — the challenger experiment is not yet registered; no decision or position is created.</p>
       )}
       {policy === 'v2' && data.experiment_registered && data.effective_date && (
-        <p className="pulse-health-meta">V2 effective from {formatDate(data.effective_date)} (prospective only — earlier slates are previews).</p>
+        <p className="pulse-health-meta">{challengerVersion} effective from {formatDate(data.effective_date)} (prospective only — earlier slates are previews). Same forecasting model as V1; only the decision policy differs.</p>
       )}
       <p className="qual-funnel__status">{slateStatus}</p>
       <div className="qual-funnel">
