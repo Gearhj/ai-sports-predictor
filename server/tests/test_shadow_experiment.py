@@ -258,7 +258,8 @@ async def test_final_pregame_qualified_creates_exact_bound_canonical_position(
     ))
     outcome, snapshot, _ = evidence
     assert decision is not None and position is not None
-    assert _aware(decision.recommended_at) == now
+    # The final capture happened inside the final window (cutoff - 10m), not at ``now``.
+    assert _aware(decision.recommended_at) == start - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES + 10)
     assert _aware(decision.quote_observed_at) <= start - timedelta(minutes=15)
     assert _aware(decision.forecast_cutoff) <= start - timedelta(minutes=15)
     assert position.shadow_decision_id == decision.id
@@ -617,10 +618,12 @@ async def test_ledger_bankroll_uses_settlement_order_not_placement_order(
     _opportunities(monkeypatch, {games[0].id: first_evidence})
     _append_then_position(service, event_date, now, start)
     _opportunities(monkeypatch, {games[1].id: second_evidence})
+    # Still inside the final window, and strictly after the first capture so
+    # the at-cutoff decision ordering is unambiguous.
     service.freeze(
         event_date,
         phase=ExperimentDecisionPhase.FINAL_PREGAME,
-        now=now + timedelta(minutes=1),
+        now=now + timedelta(minutes=2),
     )
     service.freeze(
         event_date,
