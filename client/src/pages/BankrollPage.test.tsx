@@ -159,11 +159,15 @@ describe('BankrollPage prospective experiment states', () => {
 
     render(<MemoryRouter><BankrollPage /></MemoryRouter>)
 
-    const returnCard = (await screen.findByText('Total simulated return')).closest('article') as HTMLElement
-    expect(within(returnCard).getByText(/ROI on stake \+80\.0%/)).toBeInTheDocument()
-    expect(screen.getByText(/Aggregate legitimate CLV:/)).toHaveTextContent('+1.5%')
+    const returnCard = (await screen.findByText('ROI on risked capital')).closest('article') as HTMLElement
+    expect(within(returnCard).getByText('+80.0%')).toBeInTheDocument()
+    expect(within(returnCard).getByText(/Net P\/L ÷ \$10\.00 risked — not ÷ bankroll/)).toBeInTheDocument()
+    const clvCard = screen.getByText('CLV sample').closest('article') as HTMLElement
+    expect(within(clvCard).getByText('+1.5%')).toBeInTheDocument()
+    expect(within(clvCard).getByText(/1 of 1 settled with a closing quote/)).toBeInTheDocument()
     expect(screen.queryByText('ACTIVE · COLLECTING DATA')).not.toBeInTheDocument()
-    // A settled position renders in the settled table near the top of the page.
-    expect(screen.getByText('Latest settled positions')).toBeInTheDocument()
+    // The settled position renders in the immutable ledger.
+    expect(screen.getByText('Every position')).toBeInTheDocument()
+    expect(screen.getByText('NO CHERRY-PICKING · IMMUTABLE POSITION HISTORY')).toBeInTheDocument()
   })
 })

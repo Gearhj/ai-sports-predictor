@@ -108,10 +108,10 @@ afterEach(() => {
 describe('BankrollPage dual-policy experiments', () => {
   it('switches between the V1 strict control and the V2.1 challenger with separate data', async () => {
     const { calls } = stub()
-    render(<MemoryRouter initialEntries={['/experiment']}><BankrollPage /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/experiment?experiment=v1']}><BankrollPage /></MemoryRouter>)
 
     expect(await screen.findAllByText('ASP MODEL BANKROLL — 2026 V1')).not.toHaveLength(0)
-    const v2Tab = screen.getByRole('tab', { name: /Practical pregame policy challenger — V2.1/i })
+    const v2Tab = screen.getByRole('tab', { name: /V2\.1 — Practical Pregame Policy Challenger/i })
     await userEvent.click(v2Tab)
 
     expect(await screen.findByText('SCHEDULED · PROSPECTIVE START')).toBeInTheDocument()

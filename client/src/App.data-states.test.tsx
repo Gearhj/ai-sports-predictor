@@ -101,7 +101,9 @@ describe('route-level data provenance and availability', () => {
   })
 
   it('shows the exact unopened $1,000 experiment state', async () => {
-    window.history.pushState({}, '', '/experiment')
+    // The bare /experiment route resolves to the active V2.1 challenger; the
+    // official V1 control is selected explicitly.
+    window.history.pushState({}, '', '/experiment?experiment=v1')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
       ...demoBankroll,
       data_mode: 'empty',

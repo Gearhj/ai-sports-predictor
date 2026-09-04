@@ -17,11 +17,14 @@ export function QualificationFunnel({
   compact = false,
   nav,
   policy = 'v1',
+  onData,
 }: {
   date: string
   compact?: boolean
   nav?: ReactNode
   policy?: 'v1' | 'v2'
+  /** Receives the funnel payload the component fetched (null on error), so a parent can derive state without a second request. */
+  onData?: (data: FunnelData | null) => void
 }) {
   const [data, setData] = useState<FunnelData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -39,8 +42,16 @@ export function QualificationFunnel({
     setError(null)
     endpoints
       .qualificationFunnel(date, controller.signal, policy)
-      .then((d) => active && setData(d))
-      .catch((e) => active && setError(String(e?.message ?? e)))
+      .then((d) => {
+        if (!active) return
+        setData(d)
+        onData?.(d)
+      })
+      .catch((e) => {
+        if (!active) return
+        setError(String(e?.message ?? e))
+        onData?.(null)
+      })
     return () => {
       active = false
       controller.abort()

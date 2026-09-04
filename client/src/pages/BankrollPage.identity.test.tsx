@@ -100,8 +100,8 @@ describe('BankrollPage V2.1 identity', () => {
   it('names the challenger by its real policy version and states SAME MODEL · DIFFERENT DECISION POLICY', async () => {
     stubFetch()
     render(<MemoryRouter initialEntries={['/experiment?experiment=v2']}><BankrollPage /></MemoryRouter>)
-    expect(await screen.findByText('PRACTICAL PREGAME POLICY CHALLENGER — V2.1 · SAME MODEL · DIFFERENT DECISION POLICY')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /Practical pregame policy challenger — V2\.1/ })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByText('PRACTICAL PREGAME POLICY CHALLENGER — V2.1')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /V2\.1 — Practical Pregame Policy Challenger/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('SAME MODEL · DIFFERENT DECISION POLICY')).toBeInTheDocument()
     expect(screen.getByText(/Model asp_mlb_ensemble 2\.0\.0-gate2-08cca634c81b \(development\)/)).toBeInTheDocument()
     expect(screen.getByText(/identity from decisions→forecasts→model_versions/)).toBeInTheDocument()

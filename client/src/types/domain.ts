@@ -231,6 +231,9 @@ export interface ExperimentComparisonRow {
   record: string | null
   profit_loss: number | null
   average_clv: number | null
+  clv_sample_size?: number
+  total_risked?: number
+  started_at?: string
   policy_checksum: string | null
   role?: 'STRICT_CONTROL' | 'POLICY_CHALLENGER'
   policy_label?: string
@@ -284,6 +287,7 @@ export interface BettingPerformance {
   closing_line_value: number | null
   beat_close_percentage: number | null
   has_settled: boolean
+  bankroll_chain_reconciled?: boolean
   breakdowns: Record<string, BettingBreakdownRow[]>
 }
 
@@ -664,6 +668,36 @@ export interface Position {
   profit_loss: number
   closing_price: number | null
   clv: number | null
+  // Additive public-ledger evidence (persisted at decision or settlement
+  // time). null means "not recorded" — never zero.
+  matchup?: string | null
+  sportsbook?: string | null
+  bankroll_after?: number | null
+  settlement_sequence?: number | null
+  settled_at?: string | null
+  beat_close?: boolean | null
+  model_probability?: number | null
+  market_probability?: number | null
+  raw_edge?: number | null
+  adjusted_edge?: number | null
+  decision_id?: string | null
+  decision_phase?: string | null
+  recommended_at?: string | null
+}
+
+/** One point of the settlement-ordered equity curve (sequence 0 = opening bankroll). */
+export interface EquityCurvePoint {
+  date: string
+  bankroll: number
+  benchmark: number
+  sequence?: number
+  position_id?: string | null
+  selection?: string | null
+  result?: 'WIN' | 'LOSS' | 'PUSH' | 'VOID' | null
+  profit_loss?: number
+  high_water?: number
+  drawdown?: number
+  settled_at?: string | null
 }
 
 export interface BankrollDailyPerformance {
@@ -700,7 +734,7 @@ export interface BankrollData extends DataProvenance {
   experiment_status?: 'NOT_STARTED' | 'ACTIVE' | 'SCHEDULED'
   experiment_id?: string | null
   experiment_name?: string | null
-  equity_curve: Array<{ date: string; bankroll: number; benchmark: number }>
+  equity_curve: EquityCurvePoint[]
   monthly: Array<{ month: string; positions: number; record: string; profit_loss: number; roi: number }>
   daily?: BankrollDailyPerformance[]
   positions: Position[]
@@ -725,6 +759,9 @@ export interface BankrollData extends DataProvenance {
   model_status?: string | null
   model_identity_source?: string | null
   decision_metrics?: ExperimentDecisionMetrics | null
+  staking_policy?: string | null
+  policy_checksum?: string | null
+  experiment_start_date?: string | null
 }
 
 export interface ExperimentDecisionMetrics {
