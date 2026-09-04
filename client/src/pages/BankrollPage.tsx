@@ -629,4 +629,3 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     </div>
   )
 }
-

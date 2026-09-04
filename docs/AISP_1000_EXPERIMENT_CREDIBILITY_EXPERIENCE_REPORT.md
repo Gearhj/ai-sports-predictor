@@ -135,6 +135,7 @@ This task: 0 provider calls, 0 prediction-market refreshes, 0 semantics approval
 3. `fix(market-pulse): reconcile quote and semantics counts` — `server/app/prediction_markets/read_service.py`, `server/app/schemas/prediction_market.py`, `client/src/pages/MarketPulsePage.tsx`, `MarketPulsePage.coverage.test.tsx`, `domain.ts`, `styles.css`.
 4. `test: prove public experiment evidence integrity` — the three new test files.
 5. `docs: record credibility experience redesign` — this report.
+6. `style(experiment): trim trailing blank line` — whitespace-only follow-up (git diff --check) plus this line.
 Full hashes are listed in the final response. No push; primary and main untouched; not integrated into 8010.
 
 ## 29. Residuals and next
