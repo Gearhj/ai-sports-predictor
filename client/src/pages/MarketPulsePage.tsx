@@ -40,6 +40,7 @@ const STATE_TITLE: Record<string, string> = {
 const COVERAGE_LABEL: Record<string, string> = {
   QUOTED_REVIEWED: 'Quoted · reviewed',
   QUOTED_UNREVIEWED: 'Quoted · unreviewed',
+  QUOTED_STRUCTURALLY_EXCLUDED: 'Quoted · excluded (not pregame)',
   MAPPED_NOT_QUOTED: 'Listed · not quoted',
   MAPPING_REVIEW_REQUIRED: 'Mapping review',
   MAPPING_REJECTED: 'Mapping rejected',
@@ -242,11 +243,19 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
   const rows = data.rows
   const coverage = data.coverage ?? {}
   const canonical = data.canonical_games ?? rows.length
-  const quotedReviewed = coverage.QUOTED_REVIEWED ?? rows.filter((r) => r.coverage_state === 'QUOTED_REVIEWED').length
-  const quotedUnreviewed = coverage.QUOTED_UNREVIEWED ?? rows.filter((r) => r.coverage_state === 'QUOTED_UNREVIEWED').length
-  const listedNotQuoted = coverage.MAPPED_NOT_QUOTED ?? rows.filter((r) => r.coverage_state === 'MAPPED_NOT_QUOTED').length
-  const noMarket = coverage.NO_MAPPED_MARKET ?? rows.filter((r) => r.coverage_state === 'NO_MAPPED_MARKET').length
-  const mappingReview = coverage.MAPPING_REVIEW_REQUIRED ?? rows.filter((r) => r.coverage_state === 'MAPPING_REVIEW_REQUIRED').length
+  // Exclusive coverage states: every canonical game sits in exactly one, so
+  // they sum to the canonical slate. Counts come from the backend when present
+  // and otherwise from the rows themselves (same authority either way).
+  const count = (key: string) => coverage[key] ?? rows.filter((r) => r.coverage_state === key).length
+  const quotedReviewed = count('QUOTED_REVIEWED')
+  const quotedUnreviewed = count('QUOTED_UNREVIEWED')
+  const quotedExcluded = count('QUOTED_STRUCTURALLY_EXCLUDED')
+  const listedNotQuoted = count('MAPPED_NOT_QUOTED')
+  const noMarket = count('NO_MAPPED_MARKET')
+  const mappingReview = count('MAPPING_REVIEW_REQUIRED')
+  const mappingRejected = count('MAPPING_REJECTED')
+  const noProvider = count('PROVIDER_DISABLED') + count('NO_PROVIDER_ENABLED')
+  const exclusiveSum = quotedReviewed + quotedUnreviewed + quotedExcluded + listedNotQuoted + noMarket + mappingReview + mappingRejected + noProvider
   const semanticsPending = coverage.semantics_review_pending ?? 0
   const bestDisagreement = rows.reduce<MarketPulseRow | null>((best, r) => {
     if (r.diff_aisp_prediction == null) return best
@@ -295,16 +304,23 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
         <MetricCard label="Canonical games" value={`${rows.length} / ${canonical}`} detail="Every scheduled game is a row" />
         <MetricCard
           label="Quoted"
-          value={`${quotedReviewed + quotedUnreviewed} / ${canonical}`}
-          detail={`${quotedReviewed} reviewed · ${quotedUnreviewed} unreviewed`}
+          value={`${quotedReviewed + quotedUnreviewed + quotedExcluded} / ${canonical}`}
+          detail={`${quotedReviewed} reviewed · ${quotedUnreviewed} unreviewed · ${quotedExcluded} excluded (not pregame)`}
         />
         <MetricCard
           label="Listed, not quoted"
           value={`${listedNotQuoted} / ${canonical}`}
           detail={`${noMarket} no market mapped · ${mappingReview} mapping review`}
         />
-        <MetricCard label="Cross-provider consensus" value={`${data.summary?.consensus_available ?? 0} / ${canonical}`} detail="≥2 reviewed providers" />
+        <MetricCard label="Cross-provider consensus" value={`${data.summary?.consensus_available ?? 0} / ${canonical}`} detail="≥2 reviewed providers · overlapping measure" />
       </section>
+      <p className={`pulse-coverage-reconciliation${exclusiveSum === canonical ? '' : ' pulse-coverage-reconciliation--mismatch'}`} role="note" aria-label="Coverage reconciliation">
+        <strong>Each game counted once:</strong>{' '}
+        {quotedReviewed} quoted & reviewed · {quotedUnreviewed} quoted, semantics pending · {quotedExcluded} quoted but structurally excluded (final / in-play / no usable price)
+        {' '}· {listedNotQuoted} listed, not quoted · {mappingReview} mapping review · {mappingRejected} mapping rejected · {noMarket} no market mapped · {noProvider} no provider
+        {' '}= <b>{exclusiveSum} of {canonical}</b>{exclusiveSum === canonical ? ' — reconciles.' : ' — DOES NOT RECONCILE.'}
+        {' '}Decision-eligible, consensus and semantics-review counts are overlapping measures and are labelled as such.
+      </p>
       <section className="metric-grid metric-grid--two" aria-label="Gaps and review">
         <MetricCard
           label="Biggest AISP–market gap (reviewed)"
@@ -316,7 +332,7 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
               : 'No reviewed quote'}
           trend="neutral"
         />
-        <MetricCard label="Semantics review pending" value={`${semanticsPending}`} detail={`${data.summary?.review_required ?? 0} mapping review · human approval required`} />
+        <MetricCard label="Semantics review pending" value={`${semanticsPending}`} detail={`${data.summary?.review_required ?? 0} mapping review · human approval required · overlapping measure (per provider)`} />
       </section>
 
       {data.sports_available.length > 0 && (

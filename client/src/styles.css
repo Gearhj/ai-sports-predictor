@@ -1165,6 +1165,10 @@ h1, h2, h3, p { margin-top: 0; }
 .pulse-state-banner--provider_degraded { border-color: rgba(229, 57, 53, .6); }
 .pill--coverage { font-size: 11px; letter-spacing: .02em; white-space: nowrap; opacity: .85; }
 .pill--quoted_unreviewed, .pill--mapping_review_required { border-color: rgba(255, 179, 0, .6); }
+.pill--quoted_structurally_excluded { border-color: rgba(120,130,160,.6); opacity: .75; }
+.pulse-coverage-reconciliation { margin: -4px 0 14px; padding: 9px 13px; border-left: 3px solid #26a69a; border-radius: 6px; background: rgba(38,166,154,.07); color: #34506a; font-size: 12px; line-height: 1.55; }
+.pulse-coverage-reconciliation--mismatch { border-left-color: var(--red); background: var(--red-soft); }
+.pulse-coverage-reconciliation b { font-family: "IBM Plex Mono", monospace; }
 .pill--mapped_not_quoted { border-color: rgba(100, 181, 246, .6); }
 .pill--no_mapped_market, .pill--provider_disabled, .pill--mapping_rejected { opacity: .6; }
 .pulse-unreviewed small { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: rgba(255, 179, 0, .95); }

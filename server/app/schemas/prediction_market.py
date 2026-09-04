@@ -43,11 +43,14 @@ class ProviderProbability(BaseModel):
 #   MAPPING_REVIEW_REQUIRED  a candidate exists but identity is AMBIGUOUS/REVIEW_REQUIRED
 #   MAPPING_REJECTED         the candidate was rejected by review
 #   MAPPED_NOT_QUOTED        identity is EXACT/MANUAL_APPROVED, contracts listed, no snapshot persisted yet
+#   QUOTED_STRUCTURALLY_EXCLUDED a snapshot exists but it cannot be a pregame observation: the game is no
+#                            longer pregame (in progress / final), the quote was captured in-play, or it
+#                            carries no usable midpoint. Counted once, never as a research observation.
 #   QUOTED_UNREVIEWED        a snapshot exists but market semantics are not yet reviewed (research observation)
 #   QUOTED_REVIEWED          semantics matched; quote shown and consensus-eligible subject to quality tier
 ProviderCoverageState = Literal[
     "PROVIDER_DISABLED", "NO_MAPPED_MARKET", "MAPPING_REVIEW_REQUIRED", "MAPPING_REJECTED",
-    "MAPPED_NOT_QUOTED", "QUOTED_UNREVIEWED", "QUOTED_REVIEWED",
+    "MAPPED_NOT_QUOTED", "QUOTED_STRUCTURALLY_EXCLUDED", "QUOTED_UNREVIEWED", "QUOTED_REVIEWED",
 ]
 
 

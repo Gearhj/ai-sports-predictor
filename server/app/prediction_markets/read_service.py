@@ -233,6 +233,14 @@ class PredictionMarketReadService:
         if snap is not None:
             prob = self._probability_from_snapshot(snap)
             common["quality_tier"] = snap.quality_tier
+            excluded_reason = self._structural_exclusion(game, snap, prob)
+            if excluded_reason is not None:
+                # A persisted quote that cannot be a pregame observation is
+                # reported exactly once, in its own mutually exclusive state,
+                # and contributes no price to the board.
+                return ProviderCoverage(state="QUOTED_STRUCTURALLY_EXCLUDED",
+                                        reason=f"Quote persisted but structurally excluded: {excluded_reason}.",
+                                        **common), None
             if snap.semantics_status == "SEMANTICS_MATCHED":
                 return ProviderCoverage(state="QUOTED_REVIEWED",
                                         reason=f"Reviewed market semantics; latest quote tier {snap.quality_tier}.", **common), prob
@@ -252,6 +260,18 @@ class PredictionMarketReadService:
         return ProviderCoverage(state="MAPPING_REVIEW_REQUIRED",
                                 reason=mapping.reason or f"Game identity is {mapping.mapping_status}; human review required.", **common), None
 
+    @staticmethod
+    def _structural_exclusion(game: Game, snap: PredictionMarketSnapshot, prob: ProviderProbability) -> str | None:
+        """Why a persisted quote is not a pregame observation (None when it is one)."""
+        status = game.status.value.upper() if hasattr(game.status, "value") else str(game.status).upper()
+        if status != "SCHEDULED":
+            return f"game is {status}, not pregame"
+        if snap.in_play:
+            return "quote was captured in-play"
+        if prob.midpoint is None:
+            return "quote carries no usable midpoint"
+        return None
+
     def _not_quoted_reason(self, provider: str, listed: int, refresh: dict[str, Any]) -> str:
         skipped = (refresh.get("skipped") or {}).get(provider)
         if provider == "KALSHI" and not self.settings.kalshi_api_key_id:
@@ -267,11 +287,17 @@ class PredictionMarketReadService:
 
     @staticmethod
     def _coverage_counts(rows: list[MarketPulseRow]) -> dict[str, int]:
-        states = ["QUOTED_REVIEWED", "QUOTED_UNREVIEWED", "MAPPED_NOT_QUOTED", "MAPPING_REVIEW_REQUIRED",
-                  "MAPPING_REJECTED", "NO_MAPPED_MARKET", "PROVIDER_DISABLED", "NO_PROVIDER_ENABLED"]
+        # Mutually exclusive row states: every canonical game is counted in
+        # exactly one of these, so they sum to canonical_games.
+        states = ["QUOTED_REVIEWED", "QUOTED_UNREVIEWED", "QUOTED_STRUCTURALLY_EXCLUDED", "MAPPED_NOT_QUOTED",
+                  "MAPPING_REVIEW_REQUIRED", "MAPPING_REJECTED", "NO_MAPPED_MARKET", "PROVIDER_DISABLED",
+                  "NO_PROVIDER_ENABLED"]
         out = {s: sum(1 for r in rows if r.coverage_state == s) for s in states}
         out["canonical_games"] = len(rows)
-        out["quoted_any"] = out["QUOTED_REVIEWED"] + out["QUOTED_UNREVIEWED"]
+        out["exclusive_sum"] = sum(out[s] for s in states)
+        # Overlapping measures (a row may appear in several): labelled as such by the client.
+        out["quoted_any"] = out["QUOTED_REVIEWED"] + out["QUOTED_UNREVIEWED"] + out["QUOTED_STRUCTURALLY_EXCLUDED"]
+        out["unreviewed_observations"] = sum(1 for r in rows if r.unreviewed_observation)
         out["decision_eligible"] = sum(1 for r in rows if r.decision_eligible_quote)
         out["consensus_available"] = sum(1 for r in rows if r.consensus_eligible)
         out["semantics_review_pending"] = sum(
@@ -319,12 +345,17 @@ class PredictionMarketReadService:
         if eligible:
             return ("ELIGIBLE_MARKETS_AVAILABLE",
                     f"{len(eligible)} of {len(rows)} canonical game(s) have a reviewed, decision-eligible quote.")
-        observed = [r for r in rows if r.unreviewed_observation]
+        # Same authority as the coverage strip: a row is an unreviewed research
+        # observation iff its exclusive coverage state says so.
+        observed = [r for r in rows if r.coverage_state == "QUOTED_UNREVIEWED"]
+        excluded = [r for r in rows if r.coverage_state == "QUOTED_STRUCTURALLY_EXCLUDED"]
         if observed:
+            suffix = (f" {len(excluded)} further quoted game(s) are structurally excluded (final, in-play or no usable price)"
+                      " and are not observations." if excluded else "")
             return ("RESEARCH_OBSERVATIONS_UNREVIEWED",
                     f"{len(observed)} of {len(rows)} canonical game(s) have persisted quotes whose market semantics "
                     "are not yet reviewed. They are shown as unreviewed research observations; none is "
-                    "decision-eligible and no AISP–market gap is claimed from them.")
+                    f"decision-eligible and no AISP–market gap is claimed from them.{suffix}")
         enabled = [p for p in providers if p.enabled]
         stale_cutoff = now - timedelta(minutes=3 * s.prediction_market_discovery_minutes)
         # Staleness only indicts the scheduler once it has been running long
@@ -433,8 +464,8 @@ class PredictionMarketReadService:
             ))
         return out
 
-    _COVERAGE_RANK = ["QUOTED_REVIEWED", "QUOTED_UNREVIEWED", "MAPPED_NOT_QUOTED", "MAPPING_REVIEW_REQUIRED",
-                      "MAPPING_REJECTED", "NO_MAPPED_MARKET", "PROVIDER_DISABLED"]
+    _COVERAGE_RANK = ["QUOTED_REVIEWED", "QUOTED_UNREVIEWED", "QUOTED_STRUCTURALLY_EXCLUDED", "MAPPED_NOT_QUOTED",
+                      "MAPPING_REVIEW_REQUIRED", "MAPPING_REJECTED", "NO_MAPPED_MARKET", "PROVIDER_DISABLED"]
 
     def _row(self, game: Game, ctx: dict[str, Any] | None = None) -> MarketPulseRow | None:
         if ctx is None:
@@ -477,6 +508,8 @@ class PredictionMarketReadService:
         note = None
         if coverage_state == "QUOTED_UNREVIEWED":
             note = "UNREVIEWED RESEARCH OBSERVATION — NOT DECISION ELIGIBLE"
+        elif coverage_state == "QUOTED_STRUCTURALLY_EXCLUDED":
+            note = "QUOTED — STRUCTURALLY EXCLUDED (NOT PREGAME / IN-PLAY / NO USABLE PRICE)"
         elif coverage_state == "MAPPED_NOT_QUOTED":
             note = "LISTED — NOT YET QUOTED"
         elif coverage_state == "NO_MAPPED_MARKET":
@@ -505,7 +538,7 @@ class PredictionMarketReadService:
             alert_count=alert_count,
             coverage_state=coverage_state, provider_coverage=coverage,
             decision_eligible_quote=eligible,
-            unreviewed_observation=bool(unreviewed) and not reviewed,
+            unreviewed_observation=coverage_state == "QUOTED_UNREVIEWED" and bool(unreviewed) and not reviewed,
             diff_aisp_prediction_unreviewed=_diff(aisp_home, pred_avg_unreviewed),
             display_note=note,
         )

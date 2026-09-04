@@ -97,7 +97,7 @@ describe('MarketPulsePage canonical coverage', () => {
     const strip = screen.getByRole('region', { name: /Canonical slate coverage/i })
     expect(within(strip).getByText('3 / 3')).toBeInTheDocument()            // canonical games
     expect(within(strip).getAllByText('1 / 3').length).toBeGreaterThanOrEqual(2) // quoted; listed-not-quoted
-    expect(within(strip).getByText('0 reviewed · 1 unreviewed')).toBeInTheDocument()
+    expect(within(strip).getByText('0 reviewed · 1 unreviewed · 0 excluded (not pregame)')).toBeInTheDocument()
     expect(within(strip).getByText('1 no market mapped · 0 mapping review')).toBeInTheDocument()
     expect(within(strip).getByText('0 / 3')).toBeInTheDocument()            // consensus
   })
