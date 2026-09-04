@@ -35,6 +35,18 @@ LINEUP_MISSING_BLOCKING = "MISSING_BLOCKING"
 LINEUP_CONFLICT = "CONFLICT"
 LINEUP_LATE_SCRATCH_UNRESOLVED = "LATE_SCRATCH_UNRESOLVED"
 
+# -- freshness verdicts (age measured at the evaluation reference) -----------
+FRESHNESS_FRESH = "FRESH"
+FRESHNESS_STALE = "STALE"
+FRESHNESS_MISSING = "MISSING"
+FRESHNESS_INVALID = "INVALID_FUTURE_DATED"
+
+# -- lineup source availability (per team, distinct from the policy state) ---
+LINEUP_SOURCE_NOT_YET_PUBLISHED = "EXPECTED_NOT_YET_PUBLISHED"
+LINEUP_SOURCE_PARTIAL = "PARTIAL"
+LINEUP_SOURCE_AVAILABLE = "AVAILABLE"
+LINEUP_SOURCE_CONFIRMED = "CONFIRMED"
+
 # PROBABLE_STABLE contract constants (versioned via the policy checksum).
 MIN_STABLE_OBSERVATIONS = 2
 MIN_OBSERVATION_SPACING_MINUTES = 10
@@ -67,6 +79,16 @@ class StarterEvidence:
     latest_observed_at: str | None = None
     forecast_evidence_match: bool = False
     reasons: tuple[str, ...] = ()
+    # Evidence detail (user-facing and audit): the source status the provider
+    # actually reported, the source family, the evaluation reference instant
+    # the freshness age was measured against, that age in minutes, and the
+    # freshness verdict. ``reference_at`` is min(evaluation instant, cutoff) —
+    # never a future cutoff.
+    source_status: str | None = None
+    source: str | None = None
+    reference_at: str | None = None
+    age_minutes_at_reference: float | None = None
+    freshness: str = FRESHNESS_MISSING
 
     @property
     def eligible(self) -> bool:
@@ -83,7 +105,27 @@ class StarterEvidence:
             "latest_observed_at": self.latest_observed_at,
             "forecast_evidence_match": self.forecast_evidence_match,
             "reasons": list(self.reasons),
+            "source_status": self.source_status,
+            "source": self.source,
+            "reference_at": self.reference_at,
+            "age_minutes_at_reference": self.age_minutes_at_reference,
+            "freshness": self.freshness,
         }
+
+
+def evaluation_reference(cutoff: datetime, as_of: datetime | None) -> datetime:
+    """The instant evidence is reduced and aged against: min(as_of, cutoff).
+
+    Evidence used for a decision must have been available at or before the
+    decision reference. Before the cutoff the reference is the evaluation
+    instant itself; at/after the cutoff it is the cutoff. Aging evidence
+    against a cutoff that is still hours away would brand every observation
+    stale merely because the game is far off.
+    """
+    cutoff = _aware(cutoff)
+    if as_of is None:
+        return cutoff
+    return min(_aware(as_of), cutoff)
 
 
 def starter_evidence(
@@ -93,31 +135,58 @@ def starter_evidence(
     *,
     cutoff: datetime,
     forecast_generated_at: datetime | None,
+    as_of: datetime | None = None,
 ) -> StarterEvidence:
-    """Evaluate the governed starter evidence state for one team at a cutoff.
+    """Evaluate the governed starter evidence state for one team.
 
-    PROBABLE_STABLE requires (all point-in-time at ``cutoff``):
+    ``cutoff`` is the final decision cutoff; ``as_of`` is the evaluation
+    instant (defaults to the cutoff). All observations consulted satisfy
+    ``available_as_of <= min(as_of, cutoff)`` and the freshness age is
+    measured from that same reference — the governed source timestamp, never
+    a persistence or render time.
+
+    PROBABLE_STABLE requires (all point-in-time at the reference):
     exact canonical game + pitcher identities; the same pitcher in at least
     two observations spanning >= 10 minutes; the latest observation current at
-    the cutoff; no competing identity after the streak began; no simultaneous
-    provider conflict; no unresolved availability event; a forecast generated
-    after the stable identity was established; and the game not yet started.
+    the reference; no competing identity after the streak began; no
+    simultaneous provider conflict; no unresolved availability event; a
+    forecast generated after the stable identity was established; and the
+    game not yet started.
     """
 
     cutoff = _aware(cutoff)
+    reference = evaluation_reference(cutoff, as_of)
     reasons: list[str] = []
     obs = list(session.scalars(
         select(StarterObservation).where(
             StarterObservation.game_id == game.id,
             StarterObservation.team_id == team_id,
-            StarterObservation.available_as_of <= cutoff,
+            StarterObservation.available_as_of <= reference,
         ).order_by(StarterObservation.available_as_of)
     ))
     if not obs:
-        return StarterEvidence(state=STARTER_MISSING, reasons=("No governed starter observation exists",))
+        return StarterEvidence(state=STARTER_MISSING, reasons=("No governed starter observation exists",),
+                               reference_at=reference.isoformat(), freshness=FRESHNESS_MISSING)
 
     latest = obs[-1]
     latest_at = _aware(latest.available_as_of)
+    age = reference - latest_at
+    age_minutes = round(age.total_seconds() / 60.0, 1)
+    if age < timedelta(0):
+        # Fail closed: a future-dated observation can never be "current".
+        return StarterEvidence(
+            state=STARTER_MISSING, observation_count=len(obs), latest_observed_at=latest_at.isoformat(),
+            source=latest.source, source_status=latest.confirmation_state,
+            reference_at=reference.isoformat(), age_minutes_at_reference=age_minutes,
+            freshness=FRESHNESS_INVALID,
+            reasons=("Latest observation is dated after the evaluation reference (future-dated evidence)",),
+        )
+    freshness = FRESHNESS_FRESH if age <= timedelta(minutes=STARTER_OBSERVATION_CURRENT_MINUTES) else FRESHNESS_STALE
+    detail = {
+        "source": latest.source, "source_status": latest.confirmation_state,
+        "reference_at": reference.isoformat(), "age_minutes_at_reference": age_minutes,
+        "freshness": freshness,
+    }
 
     # Simultaneous provider conflict: distinct identities observed within the
     # tolerance window around the latest observation.
@@ -132,6 +201,7 @@ def starter_evidence(
             observation_count=len(obs),
             latest_observed_at=latest_at.isoformat(),
             reasons=("Competing pitcher identities observed simultaneously",),
+            **detail,
         )
 
     identity = latest.confirmed_pitcher_id or latest.probable_pitcher_id
@@ -141,14 +211,26 @@ def starter_evidence(
             observation_count=len(obs),
             latest_observed_at=latest_at.isoformat(),
             reasons=("Latest observation names no canonical pitcher identity",),
+            **detail,
         )
 
     if (latest.confirmation_state or "").upper() == "CONFIRMED":
+        if freshness != FRESHNESS_FRESH:
+            # A confirmed identity is still evidence with an age; a stale
+            # confirmation is reported as stale, never silently current.
+            return StarterEvidence(
+                state=STARTER_PROBABLE_UNSTABLE, pitcher_id=str(identity), observation_count=len(obs),
+                latest_observed_at=latest_at.isoformat(),
+                reasons=(f"Latest observation is not current at the evaluation reference "
+                         f"(older than {STARTER_OBSERVATION_CURRENT_MINUTES} minutes)",),
+                **detail,
+            )
         return StarterEvidence(
             state=STARTER_CONFIRMED,
             pitcher_id=str(identity),
             observation_count=len(obs),
             latest_observed_at=latest_at.isoformat(),
+            **detail,
         )
 
     # Terminal streak: the maximal suffix of observations naming this pitcher.
@@ -183,9 +265,9 @@ def starter_evidence(
         reasons.append(
             f"Qualifying observations span under {MIN_OBSERVATION_SPACING_MINUTES} minutes"
         )
-    if cutoff - latest_at > timedelta(minutes=STARTER_OBSERVATION_CURRENT_MINUTES):
+    if freshness != FRESHNESS_FRESH:
         reasons.append(
-            f"Latest observation is not current at the decision cutoff "
+            f"Latest observation is not current at the evaluation reference "
             f"(older than {STARTER_OBSERVATION_CURRENT_MINUTES} minutes)"
         )
     # Forecast currency: the forecast must postdate the moment the identity was
@@ -200,12 +282,12 @@ def starter_evidence(
     else:
         reasons.append("Current forecast predates the stable starter identity")
     unresolved = _unresolved_availability_events(
-        session, game, forecast_generated_at, cutoff, kinds=STARTER_MATERIAL_EVENTS,
+        session, game, forecast_generated_at, reference, kinds=STARTER_MATERIAL_EVENTS,
     )
     if unresolved:
         reasons.append(f"Unresolved availability event(s): {', '.join(sorted(unresolved))}")
     starts_at = _aware(game.starts_at)
-    if starts_at is not None and cutoff >= starts_at:
+    if starts_at is not None and reference >= starts_at:
         reasons.append("Game has started")
 
     state = STARTER_PROBABLE_STABLE if not reasons else STARTER_PROBABLE_UNSTABLE
@@ -219,6 +301,7 @@ def starter_evidence(
         latest_observed_at=latest_at.isoformat(),
         forecast_evidence_match=forecast_evidence_match,
         reasons=tuple(reasons),
+        **detail,
     )
 
 
@@ -268,6 +351,15 @@ class LineupEvidence:
     home_complete: bool = False
     away_complete: bool = False
     reasons: tuple[str, ...] = ()
+    # Per-team SOURCE availability, distinct from the policy state: a lineup
+    # that MLB has not published yet is EXPECTED_NOT_YET_PUBLISHED, never
+    # collapsed into a generic "missing".
+    home_observed_at: str | None = None
+    away_observed_at: str | None = None
+    home_source_state: str = LINEUP_SOURCE_NOT_YET_PUBLISHED
+    away_source_state: str = LINEUP_SOURCE_NOT_YET_PUBLISHED
+    source: str | None = None
+    reference_at: str | None = None
 
     @property
     def eligible_for_moneyline(self) -> bool:
@@ -285,6 +377,12 @@ class LineupEvidence:
             "home_complete": self.home_complete,
             "away_complete": self.away_complete,
             "reasons": list(self.reasons),
+            "home_observed_at": self.home_observed_at,
+            "away_observed_at": self.away_observed_at,
+            "home_source_state": self.home_source_state,
+            "away_source_state": self.away_source_state,
+            "source": self.source,
+            "reference_at": self.reference_at,
         }
 
 
@@ -310,14 +408,17 @@ def lineup_evidence(
     cutoff: datetime,
     forecast_generated_at: datetime | None,
     context: LineupContext,
+    as_of: datetime | None = None,
 ) -> LineupEvidence:
     cutoff = _aware(cutoff)
+    reference = evaluation_reference(cutoff, as_of)
 
     def latest_for(team_id: Any) -> LineupObservation | None:
+        # Newest eligible observation at the reference — never a later one.
         return session.scalar(select(LineupObservation).where(
             LineupObservation.game_id == game.id,
             LineupObservation.team_id == team_id,
-            LineupObservation.available_as_of <= cutoff,
+            LineupObservation.available_as_of <= reference,
         ).order_by(LineupObservation.available_as_of.desc()))
 
     home = latest_for(home_team_id)
@@ -327,14 +428,26 @@ def lineup_evidence(
     home_complete = bool(home and home.is_complete)
     away_complete = bool(away and away.is_complete)
 
+    def source_state(row: LineupObservation | None) -> str:
+        if row is None:
+            return LINEUP_SOURCE_NOT_YET_PUBLISHED
+        if (row.lineup_status or "").upper() == "CONFIRMED" and row.is_complete:
+            return LINEUP_SOURCE_CONFIRMED
+        return LINEUP_SOURCE_AVAILABLE if row.is_complete else LINEUP_SOURCE_PARTIAL
+
     unresolved = _unresolved_availability_events(
-        session, game, forecast_generated_at, cutoff, kinds=LINEUP_MATERIAL_EVENTS,
+        session, game, forecast_generated_at, reference, kinds=LINEUP_MATERIAL_EVENTS,
     )
     scratch = {e for e in unresolved if "SCRATCH" in e.upper()}
     material_change = {e for e in unresolved if "SCRATCH" not in e.upper()}
     base = {
         "home_status": home_status, "away_status": away_status,
         "home_complete": home_complete, "away_complete": away_complete,
+        "home_observed_at": _aware(home.available_as_of).isoformat() if home else None,
+        "away_observed_at": _aware(away.available_as_of).isoformat() if away else None,
+        "home_source_state": source_state(home), "away_source_state": source_state(away),
+        "source": (home or away).source if (home or away) else None,
+        "reference_at": reference.isoformat(),
     }
     if scratch:
         return LineupEvidence(state=LINEUP_LATE_SCRATCH_UNRESOLVED,
@@ -385,8 +498,17 @@ __all__ = [
     "LineupContext",
     "LineupEvidence",
     "StarterEvidence",
+    "evaluation_reference",
     "lineup_evidence",
     "starter_evidence",
+    "FRESHNESS_FRESH",
+    "FRESHNESS_INVALID",
+    "FRESHNESS_MISSING",
+    "FRESHNESS_STALE",
+    "LINEUP_SOURCE_AVAILABLE",
+    "LINEUP_SOURCE_CONFIRMED",
+    "LINEUP_SOURCE_NOT_YET_PUBLISHED",
+    "LINEUP_SOURCE_PARTIAL",
     "MIN_OBSERVATION_SPACING_MINUTES",
     "MIN_STABLE_OBSERVATIONS",
     "STARTER_OBSERVATION_CURRENT_MINUTES",

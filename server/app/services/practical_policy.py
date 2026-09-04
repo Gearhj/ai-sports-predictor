@@ -409,18 +409,22 @@ class PracticalPolicyEvaluator:
         away_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == game.id, GameTeam.is_home.is_(False)))
         if home_gt is None or away_gt is None:
             return self._blocked(ev, "Exact game identity unavailable", is_final)
+        # Evidence is reduced and aged at the evaluation reference
+        # min(now, cutoff): before the cutoff that is this instant, at/after it
+        # the cutoff. Aging pre-cutoff evidence against a future cutoff was the
+        # defect that branded fresh observations "stale" hours before first pitch.
         ev.starter_home = starter_evidence(
             self.session, game, home_gt.team_id, cutoff=cutoff,
-            forecast_generated_at=forecast.generated_at,
+            forecast_generated_at=forecast.generated_at, as_of=now,
         )
         ev.starter_away = starter_evidence(
             self.session, game, away_gt.team_id, cutoff=cutoff,
-            forecast_generated_at=forecast.generated_at,
+            forecast_generated_at=forecast.generated_at, as_of=now,
         )
         starters_eligible = ev.starter_home.eligible and ev.starter_away.eligible
         ev.lineup = lineup_evidence(
             self.session, game, home_gt.team_id, away_gt.team_id,
-            cutoff=cutoff, forecast_generated_at=forecast.generated_at,
+            cutoff=cutoff, forecast_generated_at=forecast.generated_at, as_of=now,
             context=LineupContext(
                 market_is_moneyline=True,
                 dependency_allows_pending=True,  # audited bounded movement; see PENALTY_CALIBRATION

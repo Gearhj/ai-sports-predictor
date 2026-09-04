@@ -60,6 +60,10 @@ from app.services.shadow_experiment_service import (
 NOW = datetime(2026, 8, 31, 20, 0, tzinfo=UTC)  # fixed instant; wall clock never used
 STARTS = datetime(2026, 8, 31, 23, 5, tzinfo=UTC)
 CUTOFF = STARTS - timedelta(minutes=15)
+# Evaluation instant for fixtures whose starter observations land between NOW and
+# the cutoff: evidence is reduced at min(now, cutoff), so an evaluation must
+# happen AFTER the observations it relies on exist (never before).
+EVAL_AT = CUTOFF - timedelta(minutes=5)
 import uuid as _uuid
 
 PITCHER_A = _uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -313,7 +317,7 @@ def test_v2_qualifies_with_probable_stable_and_pending_lineup(session, settings)
     evaluator = PracticalPolicyEvaluator(session, settings)
     result = evaluator.evaluate(
         game, _forecast(), SimpleNamespace(last_availability_event=None),
-        _selection(), now=NOW, cutoff=CUTOFF,
+        _selection(), now=EVAL_AT, cutoff=CUTOFF,
     )
     assert result.qualified
     assert result.tier == TIER_C  # lineup pending dominates the tier
@@ -333,7 +337,7 @@ def test_v2_blocks_below_adjusted_edge_threshold(session, settings):
     _stable_pair(session, game, away, pitcher=PITCHER_B)
     result = PracticalPolicyEvaluator(session, settings).evaluate(
         game, _forecast(), SimpleNamespace(last_availability_event=None),
-        _selection(no_vig_probability_fraction=0.555), now=NOW, cutoff=CUTOFF,
+        _selection(no_vig_probability_fraction=0.555), now=EVAL_AT, cutoff=CUTOFF,
     )
     assert not result.qualified
     assert any("Adjusted edge" in r for r in result.reasons)
@@ -348,7 +352,7 @@ def test_v2_requires_positive_adjusted_ev(session, settings):
         game, _forecast(uncertainty=0.0),
         SimpleNamespace(last_availability_event=None),
         _selection(model_probability_fraction=0.62, no_vig_probability_fraction=0.58, decimal_odds=1.30),
-        now=NOW, cutoff=CUTOFF,
+        now=EVAL_AT, cutoff=CUTOFF,
     )
     assert not result.qualified
     assert any("expected value" in r.lower() for r in result.reasons)
@@ -540,7 +544,7 @@ def test_optional_and_fallback_absence_does_not_block_v2(session, settings):
     )
     result = PracticalPolicyEvaluator(session, settings).evaluate(
         game, forecast, SimpleNamespace(last_availability_event=None),
-        _selection(), now=NOW, cutoff=CUTOFF,
+        _selection(), now=EVAL_AT, cutoff=CUTOFF,
     )
     assert result.qualified
     assert result.critical_evidence_complete
@@ -584,7 +588,7 @@ def test_v1_readiness_score_never_independently_blocks_v2(session, settings):
     )
     result = PracticalPolicyEvaluator(session, settings).evaluate(
         game, forecast, SimpleNamespace(last_availability_event=None),
-        _selection(), now=NOW, cutoff=CUTOFF,
+        _selection(), now=EVAL_AT, cutoff=CUTOFF,
     )
     assert result.qualified  # V1 readiness/duplicate gates removed
 
@@ -697,12 +701,12 @@ def test_provisionally_eligible_becomes_final_qualified(session, settings):
     evaluator = PracticalPolicyEvaluator(session, settings)
     pre = evaluator.evaluate(
         game, _forecast(), SimpleNamespace(last_availability_event=None),
-        _selection(), now=NOW, cutoff=CUTOFF,
+        _selection(), now=EVAL_AT, cutoff=CUTOFF,
     )
     assert pre.qualified and pre.lifecycle == "PROVISIONALLY_ELIGIBLE"
     final = evaluator.evaluate(
         game, _forecast(), SimpleNamespace(last_availability_event=None),
-        _selection(), now=NOW, cutoff=CUTOFF, final=True,
+        _selection(), now=EVAL_AT, cutoff=CUTOFF, final=True,
     )
     assert final.qualified and final.lifecycle == "FINAL_QUALIFIED"
 
