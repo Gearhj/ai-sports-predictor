@@ -46,6 +46,7 @@ from app.models.prediction_market import (
     PredictionMarketMapping,
     PredictionMarketOrderbookSnapshot,
     PredictionMarketSnapshot,
+    PredictionMarketSemanticTemplate,
 )
 
 __all__ = [name for name in globals() if not name.startswith("_")]

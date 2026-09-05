@@ -11,7 +11,7 @@ or an order.
 from __future__ import annotations
 
 import statistics
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.models import (
+    GameTeam,
+    Team,
     ExternalIdMapping,
     Game,
     PredictionMarketAlert,
@@ -29,6 +31,7 @@ from app.models import (
     PredictionMarketOrderbookSnapshot,
     PredictionMarketSnapshot,
 )
+from app.prediction_markets.aliases import polymarket_name_to_aisp
 from app.prediction_markets.contracts import (
     ACCEPTED_MAPPING_STATUSES,
     ADAPTER_VERSION,
@@ -49,6 +52,9 @@ from app.prediction_markets.contracts import (
 from app.prediction_markets.mapping import map_event_to_game, review_semantics
 
 ALERT_THRESHOLD_VERSION = "PREDICTION_MARKET_ALERTS_V1"
+
+
+PREGAME_INGESTION_GRACE_SECONDS = 120
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -103,15 +109,17 @@ class PredictionMarketObserver:
                 events_new += 1
 
             # 2) mapping decision (append-only; only when it changes)
+            raw = head.raw or {}
+            home_abbr = raw.get("home_abbr") or (polymarket_name_to_aisp(head.provider_home_team) if provider == "POLYMARKET" else None)
+            away_abbr = raw.get("away_abbr") or (polymarket_name_to_aisp(head.provider_away_team) if provider == "POLYMARKET" else None)
             decision = map_event_to_game(
                 self.session, provider=provider, provider_event_id=event_id, league_code=head.league,
                 provider_home_team=head.provider_home_team, provider_away_team=head.provider_away_team,
                 scheduled_start_at=head.scheduled_start_at,
+                provider_home_abbr=home_abbr, provider_away_abbr=away_abbr,
+                doubleheader_game_number=raw.get("doubleheader_game_number"),
             )
-            semantics, sem_reason = review_semantics(
-                market_question=head.market_question, resolution_rules=head.resolution_rules,
-                market_status=head.market_status,
-            )
+            semantics, sem_reason, sem_source = self._semantics_for(head, decision)
             latest = self._latest_mapping(provider, event_id)
             changed = (
                 latest is None
@@ -123,7 +131,7 @@ class PredictionMarketObserver:
                 self.session.add(PredictionMarketMapping(
                     provider=provider, provider_event_id=event_id,
                     canonical_game_id=decision.canonical_game_id, mapping_status=decision.status.value,
-                    semantics_status=semantics.value, decision_source="AUTO",
+                    semantics_status=semantics.value, decision_source=sem_source,
                     reason=f"{decision.reason}; {sem_reason}",
                     start_time_delta_seconds=decision.start_time_delta_seconds,
                     candidate_game_ids=decision.candidate_game_ids, decided_at=now,
@@ -175,6 +183,37 @@ class PredictionMarketObserver:
         self.session.commit()
         return {"events": events_new, "contracts": contracts_new, "mappings": mappings_new}
 
+    def _semantics_for(self, head: ProviderContractDTO, decision: Any) -> tuple[SemanticsStatus, str, str]:
+        """Semantics come from the versioned template authority only. The
+        legacy keyword recognizer may still flag a MISMATCH (regulation-only
+        wording) but never grants SEMANTICS_MATCHED on its own — a human must
+        approve the provider template first."""
+        from app.prediction_markets.semantics import SemanticTemplateAuthority
+
+        legacy, legacy_reason = review_semantics(
+            market_question=head.market_question, resolution_rules=head.resolution_rules,
+            market_status=head.market_status,
+        )
+        if legacy == SemanticsStatus.SEMANTICS_MISMATCH:
+            return legacy, legacy_reason, "AUTO"
+        home_name = away_name = None
+        if decision.canonical_game_id is not None:
+            home_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == decision.canonical_game_id, GameTeam.is_home.is_(True)))
+            away_gt = self.session.scalar(select(GameTeam).where(GameTeam.game_id == decision.canonical_game_id, GameTeam.is_home.is_(False)))
+            home_team = self.session.get(Team, home_gt.team_id) if home_gt else None
+            away_team = self.session.get(Team, away_gt.team_id) if away_gt else None
+            home_name = home_team.name if home_team else None
+            away_name = away_team.name if away_team else None
+        try:
+            authority = SemanticTemplateAuthority(self.session)
+            authority.ensure_seeded()
+            verdict = authority.evaluate(head, home_abbr=(head.raw or {}).get("home_abbr"), away_abbr=(head.raw or {}).get("away_abbr"),
+                                         home_name=home_name, away_name=away_name)
+        except Exception as exc:  # template table absent (pre-migration) — hold closed, never approve
+            return SemanticsStatus.SEMANTICS_REVIEW_REQUIRED, f"Template authority unavailable ({type(exc).__name__}); held closed", "AUTO"
+        source = "TEMPLATE" if verdict.status == SemanticsStatus.SEMANTICS_MATCHED else "AUTO"
+        return verdict.status, f"{verdict.reason} [{verdict.authority}]", source
+
     @staticmethod
     def _canonical_selection(dto: ProviderContractDTO, home_is_yes: bool | None) -> CanonicalSelection:
         # Kalshi single-sided YES markets default to HOME at discovery; flip to
@@ -196,7 +235,11 @@ class PredictionMarketObserver:
         quote_age = (now - obs).total_seconds()
         seconds_to_game = int((game_start - obs).total_seconds()) if game_start else None
         in_play = bool(game_start and obs >= game_start)
-        pregame_eligible = bool(game_start and obs < game_start)
+        # Pregame evidence is governed by the SOURCE timestamp, and a delayed
+        # ingestion can never backdate it: an observation received after first
+        # pitch (beyond a short grace) is not pregame even if its source time is.
+        late_ingestion = bool(game_start and obs < game_start and now >= game_start + timedelta(seconds=PREGAME_INGESTION_GRACE_SECONDS))
+        pregame_eligible = bool(game_start and obs < game_start and not late_ingestion)
         mapped = mapping is not None and MappingStatus(mapping.mapping_status) in ACCEPTED_MAPPING_STATUSES
         semantics_reviewed = mapping is not None and mapping.semantics_status == SemanticsStatus.SEMANTICS_MATCHED.value
         quality = assess_quality(
@@ -226,8 +269,9 @@ class PredictionMarketObserver:
             open_interest=quote.open_interest, liquidity=quote.liquidity, provider_observed_at=obs,
             aisp_received_at=now, game_starts_at=game_start, seconds_to_game=seconds_to_game,
             pregame_eligible=pregame_eligible, in_play=in_play, provider_sequence=quote.provider_sequence,
-            timeline_cut=timeline_cut_for(obs, game_start), quality_tier=quality.tier.value,
-            quality_components=quality.components, quality_flags=quality.flags,
+            timeline_cut=timeline_cut_for(obs, game_start) if not late_ingestion else None, quality_tier=quality.tier.value,
+            quality_components=quality.components,
+            quality_flags=list(quality.flags) + (["LATE_INGESTION"] if late_ingestion else []),
             mapping_status=mapping.mapping_status if mapping else MappingStatus.UNRESOLVED.value,
             semantics_status=mapping.semantics_status if mapping else SemanticsStatus.SEMANTICS_UNKNOWN.value,
             book_complete=pv.book_complete, quote_fresh=quality.quote_fresh, market_liquid=quality.market_liquid,

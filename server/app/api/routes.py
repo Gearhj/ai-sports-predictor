@@ -445,6 +445,48 @@ def prediction_market_health(session: DatabaseSession, settings: AppSettings):
     return PredictionMarketReadService(session, settings).health_summary()
 
 
+@router.get("/prediction-markets/semantic-templates", tags=["prediction-markets"])
+def prediction_market_semantic_templates(session: DatabaseSession, settings: AppSettings) -> dict:
+    """Inspectable review packet: one versioned template per provider contract
+    family with its conditions, source hash, status and the single decision a
+    human must make. Read-only; nothing is approved here."""
+    from app.prediction_markets.semantics import SemanticTemplateAuthority
+
+    authority = SemanticTemplateAuthority(session)
+    authority.ensure_seeded()
+    return {"templates": authority.review_packet(), "decision_count": sum(1 for t in authority.all_latest() if t.status == "HELD_CLOSED")}
+
+
+@router.post(
+    "/admin/prediction-markets/semantic-templates/decide",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:pm-mappings", category="admin"))],
+)
+def admin_decide_semantic_template(
+    session: DatabaseSession, settings: AppSettings, user: AdminUser,
+    provider: str = Query(...), template_key: str = Query(...),
+    status: str = Query(..., pattern="^(APPROVED|REJECTED|HELD_CLOSED)$"),
+    notes: str = Query("Manual admin decision"),
+):
+    """Append one audited decision for a provider contract-family template.
+    Exact markets satisfying every template condition inherit the decision;
+    ambiguous markets stay held. Never a mutation, never a trading effect."""
+    from app.models import AuditEvent
+    from app.prediction_markets.semantics import SemanticTemplateAuthority
+
+    authority = SemanticTemplateAuthority(session)
+    authority.ensure_seeded()
+    row = authority.decide(provider=provider, template_key=template_key, status=status,
+                           decided_by_user_id=user.id, notes=notes)
+    session.add(AuditEvent(
+        actor_user_id=user.id, action="prediction_market.semantic_template.decided",
+        entity_type="prediction_market_semantic_template", entity_id=row.id,
+        metadata_json={"provider": provider, "template_key": template_key, "status": status, "version": row.version},
+    ))
+    session.commit()
+    return {"status": row.status, "template_key": row.template_key, "version": row.version, "id": str(row.id)}
+
+
 @router.get(
     "/admin/prediction-markets/mappings",
     tags=["administration"],

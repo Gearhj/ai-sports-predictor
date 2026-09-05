@@ -25,6 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import Date
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.entities import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -231,7 +232,34 @@ class PredictionMarketAlert(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     )
 
 
+class PredictionMarketSemanticTemplate(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Versioned provider-market-template semantic authority (append-only).
+
+    One row per (provider, template_key, version). A human decision appends a
+    new version; individual markets inherit SEMANTICS_MATCHED only from an
+    APPROVED template whose every condition they satisfy."""
+
+    __tablename__ = "prediction_market_semantic_templates"
+    provider: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    template_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), nullable=False)
+    league: Mapped[str] = mapped_column(String(24), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    conditions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    effective_date: Mapped[Any] = mapped_column(Date, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    decision_source: Mapped[str] = mapped_column(String(16), nullable=False, default="SEED")
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("prediction_market_semantic_templates.id"))
+    __table_args__ = (UniqueConstraint("provider", "template_key", "version", name="uq_pm_semantic_template_version"),)
+
+
 __all__ = [
+    "PredictionMarketSemanticTemplate",
     "PredictionMarketEvent", "PredictionMarketContract", "PredictionMarketMapping",
     "PredictionMarketSnapshot", "PredictionMarketOrderbookSnapshot",
     "PredictionMarketConsensusSnapshot", "PredictionMarketAlert",

@@ -77,6 +77,7 @@ from app.models import (
     PredictionMarketMapping,
     PredictionMarketOrderbookSnapshot,
     PredictionMarketSnapshot,
+    PredictionMarketSemanticTemplate,
 )
 
 
@@ -88,6 +89,7 @@ _installed = False
 
 
 _APPEND_ONLY_TYPES = (
+    PredictionMarketSemanticTemplate,
     PredictionMarketAlert,
     PredictionMarketConsensusSnapshot,
     PredictionMarketContract,
