@@ -1,0 +1,303 @@
+{
+ "receipt_version": "AISP_PM_OVERNIGHT_RECEIPT_V1",
+ "generated_at": "2026-09-05T12:16:28.199158+00:00",
+ "window": {
+  "start": "2026-09-04T23:57:00-04:00",
+  "end": "2026-09-05T08:15:00-04:00",
+  "slate_date": "2026-09-05"
+ },
+ "task_initiated_provider_calls": {
+  "kalshi_rulebook_pdf": 1,
+  "polymarket_gamma_events": 1,
+  "mlb_stats_api_schedule": 1,
+  "cap": 250,
+  "note": "public GETs without credentials; no Odds API; no trading endpoint"
+ },
+ "scheduler_runs_since_window_start": [
+  {
+   "source": "KALSHI",
+   "job_name": "discover-prediction-markets",
+   "status": "SUCCEEDED",
+   "runs": 16,
+   "requests": 94,
+   "errors": 0,
+   "records": 2548,
+   "avg_seconds": "0.00",
+   "max_seconds": "0.00"
+  },
+  {
+   "source": "POLYMARKET",
+   "job_name": "discover-prediction-markets",
+   "status": "SUCCEEDED",
+   "runs": 16,
+   "requests": 0,
+   "errors": 0,
+   "records": 5280,
+   "avg_seconds": "0.00",
+   "max_seconds": "0.00"
+  },
+  {
+   "source": "PREDICTION_MARKET",
+   "job_name": "refresh-prediction-market-snapshots",
+   "status": "SUCCEEDED",
+   "runs": 48,
+   "requests": 3978,
+   "errors": 437,
+   "records": 5294,
+   "avg_seconds": "0.00",
+   "max_seconds": "0.00"
+  }
+ ],
+ "refresh_per_provider_totals": {
+  "polymarket_requests": 3928,
+  "polymarket_errors": 437,
+  "kalshi_requests": 48,
+  "kalshi_errors": 0
+ },
+ "refresh_status_distribution_after_repair": {
+  "s2xx": 3298,
+  "s404": 0,
+  "s429": 0,
+  "s5xx": 0,
+  "timeout": 2,
+  "other": 0,
+  "terminalized": 0,
+  "runs_with_distribution": 33
+ },
+ "capture_pregame_cut_runs": [],
+ "job_runs": [
+  {
+   "job_name": "compute-prediction-market-consensus",
+   "status": "SUCCEEDED",
+   "n": 49,
+   "last": "2026-09-05 08:16:16.934672-04:00"
+  },
+  {
+   "job_name": "discover-prediction-markets",
+   "status": "SUCCEEDED",
+   "n": 8,
+   "last": "2026-09-05 07:46:20.868725-04:00"
+  },
+  {
+   "job_name": "evaluate-prediction-market-alerts",
+   "status": "SUCCEEDED",
+   "n": 49,
+   "last": "2026-09-05 08:16:12.807273-04:00"
+  },
+  {
+   "job_name": "refresh-prediction-market-snapshots",
+   "status": "RUNNING",
+   "n": 1,
+   "last": "2026-09-05 08:16:21.234739-04:00"
+  },
+  {
+   "job_name": "refresh-prediction-market-snapshots",
+   "status": "SUCCEEDED",
+   "n": 48,
+   "last": "2026-09-05 08:05:41.894513-04:00"
+  }
+ ],
+ "duplicate_snapshots_in_window": 0,
+ "slate_pregame_observations": [
+  {
+   "provider": "KALSHI",
+   "games": 15,
+   "rows": 1620,
+   "all_before_start": true,
+   "late_ingestion": 0
+  },
+  {
+   "provider": "POLYMARKET",
+   "games": 15,
+   "rows": 1168,
+   "all_before_start": true,
+   "late_ingestion": 0
+  }
+ ],
+ "entity_counts_at_close": {
+  "pm_snapshots": 124071,
+  "orderbooks": 88501,
+  "contracts": 29747,
+  "mappings": 3739,
+  "experiments": 3,
+  "model_versions": 2,
+  "forecasts": 306,
+  "decisions": 13293,
+  "positions": 10,
+  "settlements": 9,
+  "semantic_templates": 2,
+  "templates_held": 2,
+  "legacy_pre_authority_observations": 34242,
+  "db_bytes": 3837508631
+ },
+ "coverage_counts": {
+  "KALSHI": {
+   "FIRST_DISCOVERED": {
+    "CAPTURED": 15,
+    "NOT_DUE": 0,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_6_HOURS": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_2_HOURS": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_30_MINUTES": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_5_MINUTES": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "FINAL_VALID_PREGAME": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   }
+  },
+  "POLYMARKET": {
+   "FIRST_DISCOVERED": {
+    "CAPTURED": 15,
+    "NOT_DUE": 0,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_6_HOURS": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_2_HOURS": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_30_MINUTES": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "T_MINUS_5_MINUTES": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   },
+   "FINAL_VALID_PREGAME": {
+    "CAPTURED": 0,
+    "NOT_DUE": 15,
+    "NO_LIQUIDITY": 0,
+    "MARKET_NOT_OPEN": 0,
+    "PROVIDER_UNAVAILABLE": 0,
+    "MISSED_SCHEDULER_RUN": 0,
+    "FAILED_PROVIDER_CALL": 0,
+    "MAPPING_UNAVAILABLE": 0,
+    "STRUCTURALLY_INELIGIBLE": 0,
+    "NOT_APPLICABLE": 0
+   }
+  }
+ },
+ "coverage_totals": {
+  "KALSHI": {
+   "FIRST_DISCOVERED": 15,
+   "T_MINUS_6_HOURS": 15,
+   "T_MINUS_2_HOURS": 15,
+   "T_MINUS_30_MINUTES": 15,
+   "T_MINUS_5_MINUTES": 15,
+   "FINAL_VALID_PREGAME": 15
+  },
+  "POLYMARKET": {
+   "FIRST_DISCOVERED": 15,
+   "T_MINUS_6_HOURS": 15,
+   "T_MINUS_2_HOURS": 15,
+   "T_MINUS_30_MINUTES": 15,
+   "T_MINUS_5_MINUTES": 15,
+   "FINAL_VALID_PREGAME": 15
+  }
+ },
+ "canonical_games": 15,
+ "coverage_generated_at": "2026-09-05T12:16:27.836830Z"
+}

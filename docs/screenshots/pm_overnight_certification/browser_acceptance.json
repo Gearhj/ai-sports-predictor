@@ -1,0 +1,174 @@
+{
+ "generated_at": "2026-09-05T06:37:16.369Z",
+ "base": "http://127.0.0.1:5173",
+ "pages": [
+  {
+   "name": "daily-command-center",
+   "url": "http://127.0.0.1:5173/?date=2026-09-05",
+   "console_errors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "hosts": {
+    "127.0.0.1:5173": 28,
+    "127.0.0.1:8010": 5
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Today’s Sports Command Center"
+   },
+   "screenshots": [
+    "daily-command-center.png"
+   ]
+  },
+  {
+   "name": "market-board",
+   "url": "http://127.0.0.1:5173/markets?date=2026-09-05",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 28,
+    "127.0.0.1:8010": 5
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Market Board"
+   },
+   "screenshots": [
+    "market-board.png"
+   ]
+  },
+  {
+   "name": "market-pulse",
+   "url": "http://127.0.0.1:5173/market-pulse?date=2026-09-05",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 43,
+    "127.0.0.1:8010": 8,
+    "": 1
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "ASP Crowd & Market Pulse"
+   },
+   "screenshots": [
+    "market-pulse-pregame-evidence-capture.png",
+    "market-pulse.png"
+   ],
+   "capture": {
+    "buttons": 180,
+    "reconcile": "counts reconcile to the slate",
+    "meta": "15 canonical games · 2 providers × 6 milestones · generated Sep 5, 2:37 AM EDT · counts reconcile to the slate",
+    "detail": "CHC @ MIA · KALSHI · FIRST: Captured\n\nearliest two-sided pregame observation\n\nSource timestamp\nSep 5, 12:25 AM EDT\nReceived\nSep 5, 12:25 AM EDT\nBefore first pitch\n944 min\nCut label\nT_MINUS_24_HOURS\nMidpoint / bid / ask\n44.0% / 43.0% / 45.0%\nLate ingestion\nno",
+    "states": {
+     "Captured": 30,
+     "Not due": 150
+    }
+   }
+  },
+  {
+   "name": "experiment",
+   "url": "http://127.0.0.1:5173/experiment",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 43,
+    "127.0.0.1:8010": 9,
+    "": 1
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Can AI Beat the Sportsbooks?"
+   },
+   "screenshots": [
+    "experiment.png"
+   ]
+  },
+  {
+   "name": "historical-research",
+   "url": "http://127.0.0.1:5173/research/history",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 27,
+    "127.0.0.1:8010": 7
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Historical MLB Research Warehouse"
+   },
+   "screenshots": [
+    "historical-research.png"
+   ]
+  },
+  {
+   "name": "shadow-board",
+   "url": "http://127.0.0.1:5173/shadow-board?date=2026-09-05",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 26,
+    "127.0.0.1:8010": 7,
+    "": 1
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Shadow Betting Board"
+   },
+   "screenshots": [
+    "shadow-board.png"
+   ]
+  },
+  {
+   "name": "model-performance",
+   "url": "http://127.0.0.1:5173/performance",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 38,
+    "127.0.0.1:8010": 5
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Model Performance"
+   },
+   "screenshots": [
+    "model-performance.png"
+   ]
+  },
+  {
+   "name": "methodology",
+   "url": "http://127.0.0.1:5173/methodology",
+   "console_errors": [],
+   "hosts": {
+    "127.0.0.1:5173": 25,
+    "127.0.0.1:8010": 3
+   },
+   "overflow": {
+    "scrollWidth": 1400,
+    "innerWidth": 1400,
+    "alert": null,
+    "title": "AI Sports Predictor",
+    "h1": "Methodology"
+   },
+   "screenshots": [
+    "methodology.png"
+   ]
+  }
+ ]
+}
