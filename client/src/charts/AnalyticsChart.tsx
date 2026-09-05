@@ -1,11 +1,11 @@
 import ReactEChartsCore from 'echarts-for-react/lib/core'
 import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CustomChart, LineChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 
-echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, SVGRenderer])
+echarts.use([LineChart, ScatterChart, CustomChart, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, SVGRenderer])
 
 export const chartTheme = {
   text: '#26374d',

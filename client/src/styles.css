@@ -1336,3 +1336,35 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 @media (max-width: 470px) { .experiment-scoreboard.metric-grid--six { grid-template-columns: 1fr 1fr; } .experiment-contract-strip { grid-template-columns: 1fr; } .experiment-badge-row { gap: 4px; } }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* -- Crowd & Market Pulse: disjoint evidence states + visual layers ------- */
+.pulse-evidence-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; margin-bottom: 8px; }
+.pulse-evidence-card { position: relative; min-width: 0; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: white; display: grid; gap: 4px; }
+.pulse-evidence-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 10px 0 0 10px; background: var(--pulse-accent, var(--line)); }
+.pulse-evidence-card--reviewed_pregame { --pulse-accent: #087f7a; }
+.pulse-evidence-card--pregame_unreviewed { --pulse-accent: #d9a62a; }
+.pulse-evidence-card--excluded_in_play { --pulse-accent: #8a98a7; }
+.pulse-evidence-card--listed_not_quoted { --pulse-accent: #2f91c9; }
+.pulse-evidence-card--no_mapped_market { --pulse-accent: #b9c4cf; }
+.pulse-evidence-card--provider_unavailable { --pulse-accent: var(--red); }
+.pulse-evidence-card .metric-label { margin-bottom: 0; }
+.pulse-evidence-card strong { font: 600 22px "IBM Plex Mono", monospace; color: #152940; line-height: 1; }
+.pulse-evidence-card small { color: #6f8496; font-size: 11px; line-height: 1.4; }
+.pulse-audit-drawer { margin: 4px 0 14px; }
+.pulse-audit-drawer > summary { cursor: pointer; padding: 8px 13px; border-radius: 6px; background: rgba(120,130,160,.08); font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+.pulse-audit-drawer[open] > summary { margin-bottom: 8px; }
+.pulse-compare-table td, .pulse-compare-table th { white-space: nowrap; }
+.pulse-research-only { color: #6f8496; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.pulse-matrix td, .pulse-matrix th { white-space: nowrap; font-size: 12px; }
+.pulse-matrix__cell span[aria-hidden] { display: inline-block; width: 14px; text-align: center; font-weight: 700; }
+.pulse-matrix__cell--reviewed { color: #0f6b66; }
+.pulse-matrix__cell--unreviewed { color: #8a6412; }
+.pulse-matrix__cell--excluded { color: #5f6f80; }
+.pulse-matrix__cell--notquoted { color: #2a6f99; }
+.pulse-matrix__cell--nomarket { color: #8a98a7; }
+.pulse-matrix__cell--error { color: var(--red); }
+.pulse-select { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #34506a; }
+.pulse-select select { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+@media (max-width: 1240px) { .pulse-evidence-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .pulse-evidence-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pulse-matrix__label { display: none; } }
+@media (max-width: 470px) { .pulse-evidence-grid { grid-template-columns: 1fr 1fr; } }

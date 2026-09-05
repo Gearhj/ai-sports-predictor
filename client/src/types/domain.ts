@@ -1035,7 +1035,25 @@ export interface PredictionProviderProbability {
   semantics_status: string
   in_play?: boolean
   observed_at?: string | null
+  // Point-in-time honesty (which observation this price is).
+  observation_kind?: 'FINAL_PREGAME' | 'PREGAME' | 'IN_PLAY' | 'FINAL' | 'UNKNOWN'
+  seconds_before_start?: number | null
+  timeline_cut?: string | null
+  latest_observed_at?: string | null
+  latest_in_play?: boolean
+  mapping_authority?: string | null
+  semantics_authority?: string | null
+  freshness_seconds?: number | null
+  decision_eligible?: boolean
 }
+
+export type GameEvidenceState =
+  | 'REVIEWED_PREGAME'
+  | 'PREGAME_UNREVIEWED'
+  | 'EXCLUDED_IN_PLAY'
+  | 'LISTED_NOT_QUOTED'
+  | 'NO_MAPPED_MARKET'
+  | 'PROVIDER_UNAVAILABLE'
 
 export interface MarketPulseRow {
   game_id: string
@@ -1076,10 +1094,16 @@ export interface MarketPulseRow {
   unreviewed_observation?: boolean
   diff_aisp_prediction_unreviewed?: number | null
   display_note?: string | null
+  // Disjoint game-level evidence state (headline authority).
+  evidence_state?: GameEvidenceState
+  reviewed_probability_min?: number | null
+  reviewed_probability_max?: number | null
+  market_disagreement?: number | null
 }
 
 export type ProviderCoverageState =
   | 'PROVIDER_DISABLED'
+  | 'PROVIDER_ERROR'
   | 'NO_MAPPED_MARKET'
   | 'MAPPING_REVIEW_REQUIRED'
   | 'MAPPING_REJECTED'
@@ -1097,6 +1121,10 @@ export interface ProviderCoverage {
   semantics_status: string | null
   quality_tier: string | null
   last_snapshot_at: string | null
+  pregame_observed_at?: string | null
+  pregame_timeline_cut?: string | null
+  latest_in_play?: boolean
+  semantics_authority?: string | null
 }
 
 export interface PredictionProviderHealth {
@@ -1160,6 +1188,8 @@ export interface MarketPulseBoard extends DataProvenance {
   jobs?: ObserverJobStatus[]
   canonical_games?: number
   coverage?: Record<string, number>
+  coverage_by_provider?: Record<string, Record<string, number>>
+  semantic_template_decisions_pending?: number | null
 }
 
 export interface PredictionTimelinePoint {
@@ -1169,6 +1199,14 @@ export interface PredictionTimelinePoint {
   polymarket: number | null
   kalshi: number | null
   consensus: number | null
+  polymarket_pregame?: boolean | null
+  kalshi_pregame?: boolean | null
+}
+
+export interface PredictionTimelineMarker {
+  key: string
+  label: string
+  time: string
 }
 
 export interface PredictionOrderBookView {
@@ -1227,6 +1265,7 @@ export interface MarketPulseGameDetail extends DataProvenance {
   disclosure: string
   lead_lag_note: string
   timeline: PredictionTimelinePoint[]
+  timeline_markers?: PredictionTimelineMarker[]
   order_books: PredictionOrderBookView[]
   movement_events: PredictionMovementEvent[]
   contracts: PredictionContractDetail[]
