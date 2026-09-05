@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 import json
+import logging
 from math import log10
 from typing import Any
 
@@ -111,9 +112,15 @@ VENUE_TIMEZONES = {
 }
 
 
+logger = logging.getLogger(__name__)
+
+
 class CanonicalNormalizer:
     def __init__(self, session: Session) -> None:
         self.session = session
+        # Observable quarantine of conflicting per-batch team-rating payloads
+        # (INT-008). Callers and tests can inspect this after ingest_schedule.
+        self.rating_conflicts: list[dict[str, Any]] = []
 
     def ensure_core(self, year: int) -> tuple[Sport, League, Season, FeatureVersion]:
         sport = self.session.scalar(select(Sport).where(Sport.code == "BASEBALL"))
@@ -169,6 +176,11 @@ class CanonicalNormalizer:
         knowledge_time = _aware(available_as_of or datetime.now(UTC))
         _, league, season, _ = self.ensure_core(games[0].event_date.year)
         persisted: list[Game] = []
+        # INT-008: collect team-record rating candidates across the whole batch and
+        # resolve one canonical record per natural key after the loop, so a
+        # doubleheader team appearing in two games with a differing record no longer
+        # double-inserts and aborts the entire date's finalization.
+        rating_candidates: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
         for dto in games:
             mode = _source_mode(dto.source_mode, "schedule")
             venue = self._venue(dto.venue.name, dto.venue.latitude, dto.venue.longitude, dto.venue.source_id, source)
@@ -270,38 +282,47 @@ class CanonicalNormalizer:
                 knowledge_time,
                 ingestion_run_id,
             )
-            self._append_record_rating(
+            self._collect_record_rating(
+                rating_candidates,
                 home.id,
                 dto.home_team.record_wins,
                 dto.home_team.record_losses,
                 source,
                 dto.source_mode.upper(),
                 knowledge_time,
-                ingestion_run_id,
             )
-            self._append_record_rating(
+            self._collect_record_rating(
+                rating_candidates,
                 away.id,
                 dto.away_team.record_wins,
                 dto.away_team.record_losses,
                 source,
                 dto.source_mode.upper(),
                 knowledge_time,
-                ingestion_run_id,
             )
             persisted.append(game)
+        self._resolve_and_persist_record_ratings(rating_candidates, ingestion_run_id)
         self.session.flush()
         return persisted
 
-    def _append_record_rating(
+    _RATING_METHOD = "record_log_odds_shrunk"
+    _RATING_VERSION = "gate2_v1"
+
+    def _collect_record_rating(
         self,
+        candidates: dict[tuple[Any, ...], list[dict[str, Any]]],
         team_id: Any,
         wins: int | None,
         losses: int | None,
         source: str,
         source_mode: str,
         available_as_of: datetime,
-        ingestion_run_id: Any | None,
     ) -> None:
+        """Buffer one team-record rating candidate keyed by its natural key.
+
+        Nothing is written here; ``_resolve_and_persist_record_ratings`` picks a
+        single canonical record per key after the whole batch is collected.
+        """
         if wins is None or losses is None or wins < 0 or losses < 0:
             return
         games = wins + losses
@@ -319,35 +340,133 @@ class CanonicalNormalizer:
             "rating": round(rating, 6),
         }
         checksum = _checksum(payload)
-        duplicate = self.session.scalar(
-            select(TeamRatingObservation.id).where(
-                TeamRatingObservation.team_id == team_id,
-                TeamRatingObservation.method == "record_log_odds_shrunk",
-                TeamRatingObservation.version == "gate2_v1",
-                TeamRatingObservation.available_as_of == available_as_of,
-                TeamRatingObservation.source == source,
-                TeamRatingObservation.source_mode == source_mode,
-                TeamRatingObservation.payload_checksum == checksum,
-            ).limit(1)
-        )
-        if duplicate is not None:
-            return
-        self.session.add(TeamRatingObservation(
-            team_id=team_id,
-            rating=rating,
-            method="record_log_odds_shrunk",
-            version="gate2_v1",
-            evidence_cutoff=available_as_of,
-            sample_size=float(games),
-            components=payload,
-            observed_at=available_as_of,
-            available_as_of=available_as_of,
-            source=source,
-            source_mode=source_mode,
-            source_record_id=f"{team_id}:{wins}-{losses}",
-            payload_checksum=checksum,
-            ingestion_run_id=ingestion_run_id,
-        ))
+        # The key mirrors uq_team_rating_observation exactly (no payload_checksum),
+        # so buffering, idempotency, and the database natural key now agree.
+        key = (team_id, self._RATING_METHOD, self._RATING_VERSION, source, source_mode, available_as_of)
+        candidates.setdefault(key, []).append({
+            "team_id": team_id,
+            "wins": wins,
+            "losses": losses,
+            "games": games,
+            "rating": rating,
+            "payload": payload,
+            "checksum": checksum,
+            "source": source,
+            "source_mode": source_mode,
+            "available_as_of": available_as_of,
+        })
+
+    def _resolve_and_persist_record_ratings(
+        self,
+        candidates: dict[tuple[Any, ...], list[dict[str, Any]]],
+        ingestion_run_id: Any | None,
+    ) -> None:
+        """Persist exactly one lawful rating per natural key.
+
+        Identical repeats collapse to one row (idempotent across retries). When a
+        team appears more than once in a batch (e.g. a doubleheader) with a
+        *differing* record, one canonical record is chosen deterministically and
+        the conflict is quarantined for observability rather than aborting the
+        batch or overwriting already-persisted append-only evidence.
+        """
+        for key, group in candidates.items():
+            team_id, method, version, source, source_mode, available_as_of = key
+            distinct_checksums = {candidate["checksum"] for candidate in group}
+            canonical = self._canonical_rating(group)
+
+            existing = self.session.execute(
+                select(
+                    TeamRatingObservation.id,
+                    TeamRatingObservation.payload_checksum,
+                ).where(
+                    TeamRatingObservation.team_id == team_id,
+                    TeamRatingObservation.method == method,
+                    TeamRatingObservation.version == version,
+                    TeamRatingObservation.available_as_of == available_as_of,
+                    TeamRatingObservation.source == source,
+                    TeamRatingObservation.source_mode == source_mode,
+                ).limit(1)
+            ).first()
+
+            if existing is not None:
+                if existing.payload_checksum != canonical["checksum"]:
+                    # A conflicting observation already exists for this natural key.
+                    # It is append-only authoritative evidence: never overwrite it.
+                    self._record_rating_conflict(
+                        canonical,
+                        distinct_checksums | {existing.payload_checksum},
+                        reason="conflicts_with_persisted_observation",
+                        persisted_checksum=existing.payload_checksum,
+                    )
+                elif len(distinct_checksums) > 1:
+                    self._record_rating_conflict(
+                        canonical, distinct_checksums, reason="intra_batch_conflict_idempotent"
+                    )
+                # Same natural key already persisted: idempotent no-op.
+                continue
+
+            if len(distinct_checksums) > 1:
+                self._record_rating_conflict(
+                    canonical, distinct_checksums, reason="intra_batch_conflict_resolved"
+                )
+
+            self.session.add(TeamRatingObservation(
+                team_id=team_id,
+                rating=canonical["rating"],
+                method=method,
+                version=version,
+                evidence_cutoff=available_as_of,
+                sample_size=float(canonical["games"]),
+                components=canonical["payload"],
+                observed_at=available_as_of,
+                available_as_of=available_as_of,
+                source=source,
+                source_mode=source_mode,
+                source_record_id=f"{team_id}:{canonical['wins']}-{canonical['losses']}",
+                payload_checksum=canonical["checksum"],
+                ingestion_run_id=ingestion_run_id,
+            ))
+
+    @staticmethod
+    def _canonical_rating(group: list[dict[str, Any]]) -> dict[str, Any]:
+        """Deterministic, order-independent choice of one record for a natural key.
+
+        Prefer the most complete record (most games), then the higher rating, and
+        finally the lexicographically smallest checksum so the result never depends
+        on the order games were processed in.
+        """
+        best = max(group, key=lambda candidate: (candidate["games"], candidate["rating"]))
+        tied = [
+            candidate
+            for candidate in group
+            if (candidate["games"], candidate["rating"]) == (best["games"], best["rating"])
+        ]
+        return min(tied, key=lambda candidate: candidate["checksum"])
+
+    def _record_rating_conflict(
+        self,
+        canonical: dict[str, Any],
+        checksums: set[str],
+        *,
+        reason: str,
+        persisted_checksum: str | None = None,
+    ) -> None:
+        detail = {
+            "team_id": str(canonical["team_id"]),
+            "source": canonical["source"],
+            "source_mode": canonical["source_mode"],
+            "available_as_of": canonical["available_as_of"].isoformat(),
+            "method": self._RATING_METHOD,
+            "version": self._RATING_VERSION,
+            "chosen_checksum": canonical["checksum"],
+            "chosen_record": f"{canonical['wins']}-{canonical['losses']}",
+            "conflicting_checksums": sorted(checksums),
+            "reason": reason,
+        }
+        if persisted_checksum is not None:
+            detail["persisted_checksum"] = persisted_checksum
+        self.rating_conflicts.append(detail)
+        logger.warning("team-rating conflict quarantined (INT-008): %s", detail)
 
     def _append_schedule_observations(
         self,
