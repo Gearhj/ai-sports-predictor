@@ -104,6 +104,7 @@ AVAILABLE_JOBS = {
     "compute-prediction-market-consensus": "Compute Prediction-Market Consensus",
     "evaluate-prediction-market-alerts": "Evaluate Prediction-Market Alerts",
     "finalize-prediction-market-pregame": "Finalize Prediction-Market Pregame",
+    "capture-prediction-market-pregame-cuts": "Capture Scheduled Pregame Cuts (T-6h/T-2h/T-30m/T-5m)",
     "backfill-prediction-market-history": "Backfill Prediction-Market History (bounded)",
 }
 
@@ -215,6 +216,7 @@ class JobOrchestrator:
             "compute-prediction-market-consensus": self._pm_consensus,
             "evaluate-prediction-market-alerts": self._pm_alerts,
             "finalize-prediction-market-pregame": self._pm_finalize,
+            "capture-prediction-market-pregame-cuts": self._pm_capture_cuts,
             "backfill-prediction-market-history": self._pm_backfill,
             "freeze-shadow-experiment": self.freeze_shadow_experiment,
             "settle-shadow-experiment": self.settle_shadow_experiment,
@@ -242,6 +244,9 @@ class JobOrchestrator:
 
     async def _pm_finalize(self, event_date: date) -> dict[str, Any]:
         return await self._pm_jobs().finalize_pregame(event_date)
+
+    async def _pm_capture_cuts(self, event_date: date) -> dict[str, Any]:
+        return await self._pm_jobs().capture_pregame_cuts(event_date)
 
     async def _pm_backfill(self, event_date: date) -> dict[str, Any]:
         return await self._pm_jobs().backfill(event_date)

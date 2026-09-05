@@ -239,28 +239,56 @@ async def execute_pregame_odds_refresh(settings: Settings) -> None:
     await execute_scheduled_job("refresh-odds", settings)
 
 
-async def execute_pm_finalize_pregame(settings: Settings) -> None:
-    """Capture a final pregame prediction-market snapshot only when a mapped
-    game is about to start; otherwise skip without spending provider requests."""
+PM_FINALIZE_WINDOW_MINUTES = 20
 
-    now = datetime.now(UTC)
-    with SessionLocal() as session:
-        from app.models import PredictionMarketMapping
 
-        due = session.scalar(
+def pm_pregame_capture_action(session, now: datetime) -> str | None:
+    """Which pregame job the 5-minute tick should run, from persisted state only.
+
+    * A mapped game starts within PM_FINALIZE_WINDOW_MINUTES -> the full
+      finalize job (final pregame snapshot + refresh + consensus).
+    * Otherwise a mapped game starts within the widest scheduled cut offset
+      (T-6h) -> the bounded, idempotent cut capture only, so the T-6h / T-2h /
+      T-30m / T-5m milestones can actually be captured by the scheduler.
+    * Otherwise None: no provider request is spent.
+    """
+    from app.models import PredictionMarketMapping
+    from app.prediction_markets.contracts import TIMELINE_CUT_OFFSETS_MINUTES
+    from app.prediction_markets.jobs import PREGAME_CAPTURE_CUTS
+
+    widest = max(TIMELINE_CUT_OFFSETS_MINUTES[c] for c in PREGAME_CAPTURE_CUTS)
+
+    def mapped_game_within(minutes: int):
+        return session.scalar(
             select(PredictionMarketMapping.id)
             .join(Game, Game.id == PredictionMarketMapping.canonical_game_id)
             .where(
                 PredictionMarketMapping.mapping_status.in_(("EXACT", "MANUAL_APPROVED")),
                 Game.starts_at > now,
-                Game.starts_at <= now + timedelta(minutes=20),
+                Game.starts_at <= now + timedelta(minutes=minutes),
             )
             .limit(1)
         )
-    if due is None:
+
+    if mapped_game_within(PM_FINALIZE_WINDOW_MINUTES) is not None:
+        return "finalize-prediction-market-pregame"
+    if mapped_game_within(widest) is not None:
+        return "capture-prediction-market-pregame-cuts"
+    return None
+
+
+async def execute_pm_finalize_pregame(settings: Settings) -> None:
+    """Five-minute pregame tick: finalize when a mapped game is about to start,
+    capture due scheduled cuts when one is within the widest cut window,
+    otherwise skip without spending provider requests."""
+
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        action = pm_pregame_capture_action(session, now)
+    if action is None:
         logger.info("pm_finalize_pregame_skipped", reason="no_mapped_game_in_window")
         return
-    await execute_scheduled_job("finalize-prediction-market-pregame", settings)
+    await execute_scheduled_job(action, settings)
 
 
 async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
