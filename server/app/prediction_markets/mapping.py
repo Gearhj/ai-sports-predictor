@@ -53,8 +53,18 @@ def map_event_to_game(
     provider_home_team: str | None,
     provider_away_team: str | None,
     scheduled_start_at: datetime | None,
+    provider_home_abbr: str | None = None,
+    provider_away_abbr: str | None = None,
+    doubleheader_game_number: int | None = None,
 ) -> MappingDecision:
-    """Resolve a provider event to a canonical AISP game, failing closed."""
+    """Resolve a provider event to a canonical AISP game, failing closed.
+
+    When the provider supplies registry-resolved abbreviations (Kalshi event
+    tickers, Polymarket team names through the alias registry) identity is an
+    EXACT abbreviation match on both teams in the stated orientation; the
+    doubleheader ordinal (game 1 / game 2) selects between same-day games of
+    the same teams, and without one the nearest start within the exact window
+    wins only when it is unambiguous."""
 
     # 1) Stable identity: a prior ExternalIdMapping is authoritative (EXACT).
     mapping = session.scalar(select(ExternalIdMapping).where(
@@ -81,6 +91,18 @@ def map_event_to_game(
     )))
     if not games:
         return MappingDecision(MappingStatus.UNRESOLVED, reason="No AISP game near the provider start time")
+
+    if provider_home_abbr and provider_away_abbr:
+        decision = _map_by_abbreviation(
+            session, games, start, home_abbr=provider_home_abbr.upper(), away_abbr=provider_away_abbr.upper(),
+            game_number=doubleheader_game_number,
+        )
+        # Kalshi identity is abbreviation-only (registry) and fails closed here.
+        # Polymarket supplies full names too; when the registry abbreviations
+        # match no game (e.g. a league whose AISP abbreviations differ) the
+        # deterministic full-name path below still decides.
+        if decision.status != MappingStatus.UNRESOLVED or not (provider_home_team and provider_away_team):
+            return decision
 
     scored: list[tuple[Game, dict[str, Any]]] = []
     for game in games:
@@ -136,6 +158,51 @@ def map_event_to_game(
         candidate_game_ids=[str(game.id)],
         home_is_yes=meta.get("home_is_yes"),
     )
+
+
+def _map_by_abbreviation(
+    session: Session, games: list[Game], start: datetime, *, home_abbr: str, away_abbr: str, game_number: int | None,
+) -> MappingDecision:
+    forward: list[Game] = []
+    reversed_: list[Game] = []
+    for game in games:
+        home = _team(session, game, is_home=True)
+        away = _team(session, game, is_home=False)
+        if home is None or away is None:
+            continue
+        if home.abbreviation.upper() == home_abbr and away.abbreviation.upper() == away_abbr:
+            forward.append(game)
+        elif home.abbreviation.upper() == away_abbr and away.abbreviation.upper() == home_abbr:
+            reversed_.append(game)
+    if not forward:
+        if reversed_:
+            return MappingDecision(MappingStatus.REVIEW_REQUIRED,
+                                   reason="Provider teams appear reversed vs the AISP game; needs review",
+                                   candidate_game_ids=[str(g.id) for g in reversed_])
+        return MappingDecision(MappingStatus.UNRESOLVED, reason="No AISP game matched the registered team abbreviations")
+    forward.sort(key=lambda g: _aware(g.starts_at))
+    if len(forward) > 1:
+        # Same teams, same window: a doubleheader. The provider ordinal decides;
+        # otherwise only an unambiguous exact-window start may decide.
+        if game_number is not None and 1 <= game_number <= len(forward):
+            game = forward[game_number - 1]
+        else:
+            within = [g for g in forward if abs((_aware(g.starts_at) - start).total_seconds()) <= EXACT_START_WINDOW.total_seconds()]
+            if len(within) != 1:
+                return MappingDecision(MappingStatus.AMBIGUOUS,
+                                       reason="Multiple AISP games match (doubleheader); provider ordinal missing",
+                                       candidate_game_ids=[str(g.id) for g in forward])
+            game = within[0]
+    else:
+        game = forward[0]
+    delta_seconds = int(abs((_aware(game.starts_at) - start).total_seconds()))
+    if delta_seconds > EXACT_START_WINDOW.total_seconds():
+        return MappingDecision(MappingStatus.REVIEW_REQUIRED, canonical_game_id=game.id,
+                               reason=f"Start-time mismatch of {delta_seconds}s exceeds the exact window",
+                               start_time_delta_seconds=delta_seconds, candidate_game_ids=[str(game.id)], home_is_yes=True)
+    return MappingDecision(MappingStatus.EXACT, canonical_game_id=game.id,
+                           reason="Deterministic team-abbreviation + start-time match" + (f" (game {game_number})" if game_number else ""),
+                           start_time_delta_seconds=delta_seconds, candidate_game_ids=[str(game.id)], home_is_yes=True)
 
 
 def _team_orientation(

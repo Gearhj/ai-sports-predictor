@@ -152,7 +152,8 @@ class Settings(BaseSettings):
     kalshi_enabled: bool = False
     kalshi_rest_polling_enabled: bool = False
     kalshi_market_data_ws_enabled: bool = False
-    kalshi_rest_base_url: str = "https://external-api.kalshi.com/trade-api/v2"
+    # Public market data (series/events/markets/orderbooks) needs no API key.
+    kalshi_rest_base_url: str = "https://api.elections.kalshi.com/trade-api/v2"
     kalshi_ws_url: str = "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
     kalshi_api_key_id: str = ""
     kalshi_private_key_path: str = ""
