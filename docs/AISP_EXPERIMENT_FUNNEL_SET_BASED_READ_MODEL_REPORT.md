@@ -5,7 +5,7 @@ Operator: Claude Fable 5.1 · 2026-09-04 (America/New_York) · Provider-call bud
 ## 1–5. Worktree, branches, git, runtime authority
 - Start: worktree `C:\Users\james\worktrees\aisp-funnel-read-model-v1`, branch `claude/experiment-funnel-set-based-read-model` created from `codex/multisport-platform-architecture` @ `9df5c0f` (verified; implementation state through `951fa4e`). Final: same branch @ `6fe4a9c` + docs commit. Primary untouched at `9df5c0f`. main `92f92dde5d5ec6b8d1d68e9d69284368dbd0525b` before and after.
 - Git status before: primary clean except the two preserved untracked files; no locks; no other agent; 9 worktrees. After: worktree clean.
-- Runtime: operational backend 127.0.0.1:8010 (PID 52076, scheduler running — never restarted here), Vite 5173, PostgreSQL `asp` (`postgresql+psycopg://asp_user:<redacted>@localhost:5432/asp`), migration head `20260831_0024` = live; **no migration and no index added**. Scheduled jobs that append evidence (finalize-games/refresh-schedule, availability poll, freeze, odds, PM observer) kept running on 8010 throughout; diagnosis used read-only transactions.
+- Runtime: operational backend 127.0.0.1:8010 (PID 52076, scheduler running — never restarted here), Vite 5173, PostgreSQL `asp` (`postgresql+psycopg://[REDACTED_CREDENTIALS]@localhost:5432/asp`), migration head `20260831_0024` = live; **no migration and no index added**. Scheduled jobs that append evidence (finalize-games/refresh-schedule, availability poll, freeze, odds, PM observer) kept running on 8010 throughout; diagnosis used read-only transactions.
 
 ## 6–9. Baseline (reproduced with an SQLAlchemy `before_cursor_execute` counter)
 | Request | Games | Statements | Unique fingerprints | DB time | Service time | Bytes |

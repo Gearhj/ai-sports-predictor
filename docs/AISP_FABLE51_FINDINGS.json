@@ -359,7 +359,7 @@
         "server/requirements.txt"
       ],
       "affectedEndpoints": [],
-      "evidence": "OBSERVED: no .github; requirements.txt ranges; Dockerfile no USER; compose POSTGRES_PASSWORD REDACTED-CREDENTIAL.",
+      "evidence": "OBSERVED: no .github; requirements.txt ranges; Dockerfile no USER; compose POSTGRES_PASSWORD [redacted; see SEC-DB-001].",
       "reproduction": "file inspection",
       "impact": "No automated gate; irreproducible builds; privilege and secret hygiene gaps in the only deployment artefact.",
       "likelihood": "n/a",

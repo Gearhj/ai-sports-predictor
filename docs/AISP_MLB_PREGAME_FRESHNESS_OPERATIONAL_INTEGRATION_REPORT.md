@@ -7,7 +7,7 @@ Date: 2026-09-04 (America/New_York) · Operator: Claude Fable 5.1, non-elevated 
 - Completed: worktree `C:\Users\james\worktrees\aisp-pregame-evidence-freshness`, branch `claude/pregame-evidence-freshness-integrity` @ `951fa4e`, clean.
 - main: `92f92dde5d5ec6b8d1d68e9d69284368dbd0525b` before and after.
 - Status before: primary clean apart from the preserved untracked `docs/MONTE_CARLO_SIMULATION_THEATER.md` and `install-supervision.ps1`; staged 0; no Git locks; no other agent process referencing the repo; 9 worktrees enumerated. After: identical (plus this record).
-- Environment: backend 127.0.0.1:8010, Vite 5173 (PID 32840, serving the primary client), PostgreSQL `asp` (`postgresql+psycopg://asp_user:<redacted>@localhost:5432/asp`), migration head `20260831_0024` (source = live; no migration in the branch).
+- Environment: backend 127.0.0.1:8010, Vite 5173 (PID 32840, serving the primary client), PostgreSQL `asp` (`postgresql+psycopg://[REDACTED_CREDENTIALS]@localhost:5432/asp`), migration head `20260831_0024` (source = live; no migration in the branch).
 
 ## 5–6. Integration method and commits
 `git merge --ff-only claude/pregame-evidence-freshness-integrity` (44076e4 was an ancestor; 19 files, +1,251/−29; `git diff --check` clean). Commits integrated, oldest first:

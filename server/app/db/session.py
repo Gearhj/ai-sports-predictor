@@ -12,7 +12,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://asp:REDACTED-CREDENTIAL@localhost:5433/asp"
+# No shared database URL default is shipped. The engine URL is resolved at call
+# time from an explicit argument, the DATABASE_URL environment variable, or the
+# governed settings (which itself fails closed when unset outside tests).
 
 
 def _engine_options(database_url: str, settings=None) -> dict[str, object]:
@@ -36,6 +38,11 @@ def _engine_options(database_url: str, settings=None) -> dict[str, object]:
 def get_engine(database_url: str | None = None) -> Engine:
     """Build an engine without coupling persistence to the application config module."""
     resolved_url = database_url or os.getenv("DATABASE_URL") or get_settings().database_url
+    if not resolved_url or not str(resolved_url).strip():
+        raise RuntimeError(
+            "No database URL is configured. Set DATABASE_URL explicitly; no shared "
+            "database default is shipped."
+        )
     return create_engine(resolved_url, future=True, **_engine_options(resolved_url))
 
 

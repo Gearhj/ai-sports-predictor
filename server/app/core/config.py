@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     api_v1_prefix: str = "/api/v1"
     display_timezone: str = "America/New_York"
-    database_url: str = "postgresql+psycopg://asp:REDACTED-CREDENTIAL@localhost:5433/asp"
+    # No shared credential is shipped. Every non-test installation must supply an
+    # explicit DATABASE_URL (environment variable or .env). Startup fails closed
+    # when it is absent (see ``require_explicit_database_url`` below). Tests set an
+    # explicit disposable URL (e.g. ``sqlite://``) and ``app_env="test"``.
+    database_url: str = ""
     # Connection pool for PostgreSQL. FastAPI runs sync ``def`` handlers on a
     # 40-slot threadpool; SQLAlchemy's default pool (5 + 10 overflow) is smaller
     # than that, so modest concurrency queued on ``pool_timeout`` (30 s default)
@@ -189,6 +193,23 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_optional_key(cls, value: object) -> str:
         return "" if value is None else str(value).strip()
+
+    @model_validator(mode="after")
+    def require_explicit_database_url(self) -> "Settings":
+        """Fail closed when no database configuration is supplied outside tests.
+
+        Only ``app_env == "test"`` may run without an explicitly injected URL; the
+        test harness always provides ``sqlite://`` (or a disposable PostgreSQL URL).
+        Development and production must be given an installation-specific URL rather
+        than inheriting a shipped shared credential.
+        """
+        if self.app_env != "test" and not self.database_url.strip():
+            raise ValueError(
+                "DATABASE_URL must be set explicitly; no shared database default is "
+                "shipped. Provide an installation-specific PostgreSQL URL via the "
+                "environment or .env before starting the application."
+            )
+        return self
 
     @model_validator(mode="after")
     def production_guards(self) -> "Settings":

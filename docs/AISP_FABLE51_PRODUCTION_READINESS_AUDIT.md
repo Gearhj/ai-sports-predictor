@@ -32,12 +32,12 @@ Can it support thousands of users today? **No.** Measured ceiling ≈ 0.6 heavy 
 | Collision check | No editor/builder writing source in the primary; only `.runtime/*.log` and `client/dist` changed in 3 days; Notepad had `SportsDataIO.txt` open at the repo root (untracked, not ignored) |
 | Git locks | none |
 | Runtime processes | Vite `node` PID 32840 `--host 0.0.0.0 --port 5173` (since 8/31 14:06); ASP uvicorn `:8010` PID 31016 (venv → anaconda python, started 9/3 11:46 by `start-backend.cmd`, no `--reload`, no `--workers`); Model Studio uvicorn `:8101`; unrelated `python -m src` on `:8000` (since 8/27); PostgreSQL 16.14 PID 5308 on `0.0.0.0:5432` |
-| Authoritative DB | `postgresql+psycopg://asp_user:<redacted>@localhost:5432/asp` — 3,339 MB, 110 tables, `max_connections=100`, 9 active, 1 user (`admin@example.com`, ADMIN) |
+| Authoritative DB | `postgresql+psycopg://[REDACTED_CREDENTIALS]@localhost:5432/asp` — 3,339 MB, 110 tables, `max_connections=100`, 9 active, 1 user (`admin@example.com`, ADMIN) |
 | Env loaded | repo-root `.env` via `pydantic-settings` (`ASP_ROOT/.env`); non-secret values: `APP_ENV=development`, `DEMO_MODE=true`, `SCHEDULER_ENABLED=true`, `LIVE_SHADOW_ENABLED=true`, `NFL_SHADOW_ENABLED=true`, `PREDICTION_MARKET_OBSERVER_ENABLED=true`, `POLYMARKET_ENABLED=true`, `KALSHI_ENABLED=true`, `ODDS_POLLING_ENABLED=false`, `OFFICIAL_POSITIONS_ENABLED=false`, `ODDS_DAILY_REQUEST_BUDGET=40`, `CORS_ORIGINS=localhost:5173` |
 | Migration head (source / live DB) | `20260831_0024` / `20260831_0024` — in sync; 24 revisions, 1 head, linear |
 | Dependencies | `requirements.txt` ranges (no lockfile); `package-lock.json` present; Python 3.12.4 venv |
 | Commands | backend `python -m uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8010`; frontend `npm run dev` (Vite, `--host 0.0.0.0`); tests `pytest` (server), `vitest run` (client) |
-| CI / deploy | No CI. `docker-compose.yml` (local: hard-coded `REDACTED-CREDENTIAL` password, migrations + `create-admin` at container start, API on `0.0.0.0:8000`, root user), `server/Dockerfile`, `client/Dockerfile` + `nginx.conf` (CSP/frame/nosniff headers). No IaC, no reverse-proxy config for production. |
+| CI / deploy | No CI. `docker-compose.yml` (local: hard-coded local DB password (value redacted; see SEC-DB-001), migrations + `create-admin` at container start, API on `0.0.0.0:8000`, root user), `server/Dockerfile`, `client/Dockerfile` + `nginx.conf` (CSP/frame/nosniff headers). No IaC, no reverse-proxy config for production. |
 | Scheduler | APScheduler `AsyncIOScheduler` inside the API `lifespan`; 18 jobs registered with the current flags |
 
 Baseline test run **before any source change** (isolated in-memory SQLite fixtures; no live-DB mutation; provider egress monkeypatched in the tests that cover it):

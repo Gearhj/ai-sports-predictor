@@ -6,7 +6,7 @@ Date: 2026-09-04 (America/New_York) · Operator: Claude Fable 5.1, non-elevated 
 - Primary `C:\Users\james\ai-sports-predictor`, branch `codex/multisport-platform-architecture`: **before `9df5c0f59913afcd4f40e3b42c8db7c1076230cc` → after `0ee7146a10fc2a8dfd394ac7f4f73217d640576e`** (+ this record's commit).
 - Completed: worktree `C:\Users\james\worktrees\aisp-funnel-read-model-v1`, branch `claude/experiment-funnel-set-based-read-model` @ `0ee7146a10fc2a8dfd394ac7f4f73217d640576e`, clean.
 - main: `92f92dde5d5ec6b8d1d68e9d69284368dbd0525b` before and after.
-- Status before: primary clean except the preserved untracked `docs/MONTE_CARLO_SIMULATION_THEATER.md` and `install-supervision.ps1`; staged 0; no Git locks; no other agent process; 10 worktrees enumerated. After: identical plus this record. Migration head `20260831_0024` = live (no migration in the branch). DB `postgresql+psycopg://asp_user:<redacted>@localhost:5432/asp`.
+- Status before: primary clean except the preserved untracked `docs/MONTE_CARLO_SIMULATION_THEATER.md` and `install-supervision.ps1`; staged 0; no Git locks; no other agent process; 10 worktrees enumerated. After: identical plus this record. Migration head `20260831_0024` = live (no migration in the branch). DB `postgresql+psycopg://[REDACTED_CREDENTIALS]@localhost:5432/asp`.
 
 ## 5–6. Integration
 `git merge --ff-only claude/experiment-funnel-set-based-read-model` (9df5c0f… was a direct ancestor; 8 files, +1,114/−80; `git diff --check` clean). Commits integrated (full hashes verified):
