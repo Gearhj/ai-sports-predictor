@@ -1,0 +1,129 @@
+{
+  "packet_version": "AISP_PM_SEMANTIC_REVIEW_PACKET_V1",
+  "prepared_at": "2026-09-05T02:35:00-04:00",
+  "prepared_by": "Claude Fable 5.1 (overnight capture certification)",
+  "authority_state": "Both templates are HELD_CLOSED (decision_source SEED, decided 2026-09-04T21:59:41-04:00). No decision was executed and the approval endpoint was not called. Recommendations below are advisory; one human decision per provider remains required.",
+  "packets": [
+    {
+      "provider": "KALSHI",
+      "template_key": "KALSHI_MLB_FULL_GAME_WINNER",
+      "series_ticker": "KXMLBGAME",
+      "version": 1,
+      "status": "HELD_CLOSED",
+      "template_source_hash": "ec56dba82996c10aa53f8e49875925557733df22f727207d6389d8f5515108b2",
+      "source_documents": [
+        {
+          "identity": "KalshiEX LLC CFTC Regulation 40.2(a) self-certification, 'Will <team> win <time period> of <baseball game>?', rulebook BASEBALLGAMEWIN, dated February 12, 2026",
+          "url": "https://assets.kalshi.com/regulatory/product-certifications/MLBGAME.pdf",
+          "retrieved_at": "2026-09-05 between 23:57 ET (09-04) and 00:01 ET; task-initiated public GET, no credentials",
+          "http_last_modified": "Tue, 24 Feb 2026",
+          "etag": "\"f14c315c0d1b3a962b687d8d00ad2fb5\"",
+          "bytes": 326380,
+          "sha256": "fc45c80992ac981552440e4be1226f7e8f9d4048e6bdac478cbdf56839c8c25b",
+          "pages": 13
+        },
+        {
+          "identity": "Persisted KXMLBGAME contract rules_primary text (2026-09-04 slate, 32 mapped full-game contracts, 16 markets x YES/NO orientation)",
+          "sample_market": "KXMLBGAME-26SEP041410DETCLEG1-CLE",
+          "sample_rules_sha256": "ec90b4285d7a27d4238e8362c43d8a4a37e0d2a83adeda78cfc02d9c1eeed641",
+          "sample_rules": "If Cleveland wins the Detroit vs Cleveland professional baseball game 1 of the double header originally scheduled for Sep 4, 2026 at 2:10 PM EDT, then the market resolves to Yes.",
+          "settlement_sources_persisted": "ESPN, Fox Sports, the Governing League"
+        }
+      ],
+      "question_structure": "Binary YES/NO per team market inside one event per game; each market: 'If <team> wins the <away> vs <home> professional baseball game [N of the double header] originally scheduled for <date time ET>, then the market resolves to Yes.'",
+      "league": "MLB (series KXMLBGAME; rulebook covers any organized baseball, the series is MLB-specific)",
+      "full_game_scope": "YES. Rulebook: unless otherwise specified <time period> is the full duration of the game including all regulation innings and any extra innings; KXMLBGAME markets carry no sub-game time period.",
+      "excluded_market_types": "Sub-game periods (innings, first five), spreads, totals, run-first-inning, player props, futures/season wins, combos, and other-league series are separate Kalshi series and are excluded by classify_series (not KXMLBGAME).",
+      "extra_innings": "INCLUDED. 'all extra innings (or any equivalent tie-breaking procedure) are included in determining the winner.'",
+      "result_authority": "Official final result per the Source Agency hierarchy: governing league (MLB, mlb.com/scores), ESPN, CBS Sports, Fox Sports, AP, WSJ, official broadcaster. First official final result governs unless clearly erroneous and corrected before expiration.",
+      "postponed": "Rescheduled and started within 48 hours of the original start: market stays open and resolves on the rescheduled game's official result. Not started within 48 hours: resolves at the last fair market price determined by the Exchange (NOT a void / 50-50).",
+      "rescheduled": "Same as postponed (48-hour rule). Venue change with same home/away designation and start within 48 hours: stays open. Home/away reversal: last fair market price.",
+      "suspended": "Resumed within 48 hours of original start: stays open, resolves on the completed game. Not resumed within 48 hours: last fair market price.",
+      "shortened": "Game called/shortened (weather, curfew, mercy) with the governing body declaring it official with a winner: full-game market resolves on that official result.",
+      "cancelled_or_void": "Abandoned/cancelled and not started within 48 hours: resolves at the last fair market price. Pre-first-pitch forfeit: last fair market price. There is no void / refund outcome.",
+      "tie": "No 'Tie' strike is listed for full-game MLB markets; a full-game tie after all innings resolves each team strike at $1/(tied teams) = $0.50.",
+      "orientation": "YES = the named team wins. Canonical HOME/AWAY comes from the event ticker KXMLBGAME-<YYMMMDDHHMM><AWAY><HOME>[G<n>]; the named team must equal the market's yes_sub_title (condition 2) and both teams must equal the mapped canonical game's teams (condition 3).",
+      "token_orientation": "Kalshi has no outcome tokens; each market is a YES/NO contract per team. ASP records the HOME market as the HOME selection (YES price = home win probability) and the AWAY market as AWAY.",
+      "doubleheader": "Event tickers carry a G1/G2 suffix and the rules text says 'game 1 of the double header'. Mapping uses the game ordinal (verified on the 2026-09-04 DET@CLE doubleheader: two distinct EXACT mappings).",
+      "pregame_timing_rule": "Markets open days before first pitch and remain tradeable in-play; only observations whose provider source timestamp is strictly before the canonical first pitch, ingested within the 120-second grace, are pregame. The final valid pregame observation is retained after the market goes in-play.",
+      "matches_asp_canonical_complete_game_winner": "YES for every game that reaches an official result (regulation, extra innings, or official shortened game). DIVERGES for games with no official result: Kalshi resolves postponed/cancelled/suspended-beyond-48h games at the last fair market price, while ASP treats them as no result. Ties are practically impossible in regular-season MLB; both sides treat a tie as no winner.",
+      "template_condition_check_on_persisted_contracts": {
+        "slate": "2026-09-04",
+        "mapped_full_game_contracts": 32,
+        "rules_pattern_matches": 28,
+        "rules_pattern_misses": 4,
+        "miss_reason": "The v1 rules_pattern requires 'professional baseball game originally scheduled for'; doubleheader markets read 'professional baseball game 1 of the double header originally scheduled for'. Those 4 contracts (both sides of DET@CLE G1 and G2) would stay SEMANTICS_REVIEW_REQUIRED even after approval — held closed, never silently matched."
+      },
+      "effect_of_approve": "Every current and future KXMLBGAME full-game contract that satisfies all three conditions (series ticker, rules_pattern with named team = YES side, event teams = mapped canonical game) inherits SEMANTICS_MATCHED from v1; its pregame quotes become REVIEWED_PREGAME evidence on Market Pulse. Contracts failing any condition (including doubleheader phrasing) stay held. No forecast, decision, position, settlement or model artefact changes.",
+      "effect_of_reject": "Every KXMLBGAME contract is labelled SEMANTICS_MISMATCH by the template (rules_mismatch in Excluded Market Activity); Kalshi evidence stays research-only until a new version is approved.",
+      "ambiguity": [
+        "Non-result cases (postponed/cancelled/suspended beyond 48 h, pre-game forfeit) resolve at Exchange-determined last fair market price rather than void; ASP never uses the provider's settlement, so this affects only interpretation of a resolved price, not ASP evidence.",
+        "Doubleheader rules phrasing is not covered by the v1 pattern: DH contracts remain held under v1. A v2 template with a '(?: game \\d of the double header)?' clause would be a new human decision.",
+        "The rulebook is the generic BASEBALLGAMEWIN certification; KXMLBGAME-specific market text was verified from persisted rules_primary, not from a series-level Kalshi document."
+      ],
+      "recommendation": "RECOMMEND_APPROVE",
+      "recommendation_basis": "The persisted market text, the CFTC-filed rulebook and the v1 conditions agree on a complete-game winner including extra innings, with official-result authority. The only pattern gap (doubleheader phrasing) fails closed. Approval is a human action and was not executed."
+    },
+    {
+      "provider": "POLYMARKET",
+      "template_key": "POLYMARKET_MLB_FULL_GAME_WINNER",
+      "series_ticker": "Gamma event tag 'mlb', market.sportsMarketType == 'moneyline'",
+      "version": 1,
+      "status": "HELD_CLOSED",
+      "template_source_hash": "55f0ba1d5c46797be7dd102cd9f1d8eb8caa2588a07238c26806ee137aab8a45",
+      "source_documents": [
+        {
+          "identity": "Polymarket Gamma market description (market id 4001441, condition 0x67a56e928076b8c7342b25e902cb6a62d5aa0b8a36f51b51ba806a5913f59c5e, 'San Francisco Giants vs. New York Mets', game start 2026-09-05T20:10:00Z)",
+          "url": "https://gamma-api.polymarket.com/events?tag_slug=mlb (public GET, no credentials)",
+          "retrieved_at": "2026-09-05 between 23:57 ET (09-04) and 00:01 ET; task-initiated public GET, no credentials",
+          "description_sha256": "2ff0a8aeff85e286b6375ad99baf2b1da9d5e2c13853f432f73ed88631d86d90",
+          "resolution_source_field": "https://www.mlb.com/"
+        },
+        {
+          "identity": "Persisted Polymarket moneyline descriptions (2026-09-04 slate, 16 mapped markets, 16 distinct rules hashes because each names its teams/date)",
+          "sample_market": "0x0d234b4bb87f8b1e7adaddd8eaaf2a8e254551977b45484b8c043df32ae2ec12",
+          "sample_rules_sha256": "c160dd3272275e05d29ef50cb85f6c23e73626ee11b75efcc73f2904197e9949",
+          "sample_rules": "In the upcoming MLB game between the Washington Nationals and Los Angeles Dodgers, scheduled for September 4 at 10:10PM ET: This market will resolve to \"Washington Nationals\" if the Washington Nationals win the game. This market will resolve to \"Los Angeles Dodgers\" if the Los Angeles Dodgers win the game. If the game is postponed, this market will remain open until the game has been completed. If the game is canceled entirely, with no make-up game, or ends in a tie, this market will resolve 50-50. The primary resolution source for this market is the official final statistics of the event as recognized by the governing body or event organizers. However, if the governing body or event organizers have not published final match statistics within 24 hours after the event's conclusion, a consensus of credible reporting may be used instead."
+        }
+      ],
+      "question_structure": "One two-outcome market per game; outcomes are the two team names; each outcome has a CLOB token id; the description is templated per game.",
+      "league": "MLB (Gamma tag 'mlb'; sportsMarketType 'moneyline')",
+      "full_game_scope": "YES. 'if the <team> win the game' with no inning qualifier; sportsMarketType 'moneyline' distinguishes it from spreads/totals/first-five markets.",
+      "excluded_market_types": "Markets whose sportsMarketType is not 'moneyline' (spreads, totals, first-inning/first-five, props) and non-MLB tags are excluded at normalization.",
+      "extra_innings": "INCLUDED implicitly: the market resolves to whichever team wins the game; a game ending in a tie resolves 50-50.",
+      "result_authority": "Official final statistics as recognized by the governing body (resolutionSource https://www.mlb.com/); consensus of credible reporting only if the governing body publishes nothing within 24 hours.",
+      "postponed": "Market remains open until the game has been completed (follows the rescheduled game).",
+      "rescheduled": "Same market continues; ASP mapping follows the canonical game's updated start time.",
+      "suspended": "Not addressed explicitly; the postponement clause ('remain open until the game has been completed') applies to a completed resumed game.",
+      "shortened": "Not addressed explicitly; an official shortened game with a winner is 'the game' won by that team under the governing body's final statistics.",
+      "cancelled_or_void": "Canceled entirely with no make-up game: resolves 50-50 (both outcomes paid half). No void/refund outcome.",
+      "tie": "Resolves 50-50.",
+      "orientation": "Each outcome token names its team. Canonical HOME/AWAY is assigned from the event title 'Away vs. Home' and verified against the mapped canonical game's teams (condition 3).",
+      "token_orientation": "clobTokenIds[i] corresponds to outcomes[i]; ASP records the HOME team's token as the HOME selection (its price = home win probability) and the AWAY token as AWAY.",
+      "doubleheader": "Polymarket lists distinct markets per doubleheader game with distinct gameStartTime values; mapping uses the start-time window (EXACT within 90 min) plus team identity, so the two games map separately.",
+      "pregame_timing_rule": "acceptingOrders continues in-play; only observations with provider timestamp strictly before the canonical first pitch (120-second ingestion grace) are pregame; the final valid pregame observation is retained after first pitch. Closed books (HTTP 404) are terminalized without retry.",
+      "matches_asp_canonical_complete_game_winner": "YES for every game reaching an official result. DIVERGES only in the no-result cases (cancelled with no make-up, or tie) where Polymarket pays 50-50 and ASP records no result — no ASP evidence depends on provider settlement.",
+      "template_condition_check_on_persisted_contracts": {
+        "slate": "2026-09-04",
+        "mapped_moneyline_markets": 16,
+        "rules_pattern_matches": 16,
+        "rules_pattern_misses": 0,
+        "note": "The v1 rules_pattern is applied with re.match (prefix). Descriptions carry an additional trailing paragraph about the primary resolution source that the pattern does not enumerate; that paragraph is consistent across all 16 markets and does not alter the winner semantics."
+      },
+      "effect_of_approve": "Every current and future Polymarket MLB moneyline market that satisfies all four conditions (moneyline type, exact description template, outcome labels = the two named teams, teams = mapped canonical game) inherits SEMANTICS_MATCHED; its pregame quotes become REVIEWED_PREGAME evidence. Non-matching markets stay held. No forecast, decision, position, settlement or model artefact changes.",
+      "effect_of_reject": "All Polymarket MLB moneyline markets are labelled SEMANTICS_MISMATCH; Polymarket evidence stays research-only until a new version is approved.",
+      "ambiguity": [
+        "The trailing 'primary resolution source' paragraph is not part of the v1 pattern; because the pattern is a prefix match it is tolerated, but a future wording change inside the matched prefix would fail closed (held), which is the intended direction.",
+        "Suspended and officially shortened games are not explicitly addressed by the description; the governing body's final statistics govern.",
+        "A 50-50 outcome for a tie/cancel differs from ASP's no-result handling; ASP does not consume provider settlement."
+      ],
+      "recommendation": "RECOMMEND_APPROVE",
+      "recommendation_basis": "All 16 persisted slate descriptions match the v1 template, the winner semantics (winner of the game, official statistics from MLB) equal ASP's complete-game winner, and every divergence is a no-result case that fails toward 50-50 rather than a different winner. Approval is a human action and was not executed."
+    }
+  ],
+  "provider_calls_for_this_packet": {
+    "kalshi_rulebook_pdf": 1,
+    "polymarket_gamma_events": 1,
+    "note": "Both were task-initiated public GETs without credentials; all other evidence came from the ASP database."
+  }
+}
