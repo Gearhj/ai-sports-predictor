@@ -94,12 +94,10 @@ describe('MarketPulsePage canonical coverage', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(board)))
     render(<MemoryRouter initialEntries={['/market-pulse?date=2026-09-04']}><MarketPulsePage /></MemoryRouter>)
     await screen.findByText('Cross-market probability board')
-    const strip = screen.getByRole('region', { name: /Canonical slate coverage/i })
-    expect(within(strip).getByText('3 / 3')).toBeInTheDocument()            // canonical games
-    expect(within(strip).getAllByText('1 / 3').length).toBeGreaterThanOrEqual(2) // quoted; listed-not-quoted
-    expect(within(strip).getByText('0 reviewed · 1 unreviewed · 0 excluded (not pregame)')).toBeInTheDocument()
-    expect(within(strip).getByText('1 no market mapped · 0 mapping review')).toBeInTheDocument()
-    expect(within(strip).getByText('0 / 3')).toBeInTheDocument()            // consensus
+    const grid = screen.getByLabelText('Game evidence states')
+    const cards = within(grid).getAllByRole('article')
+    expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual(['0 / 3', '1 / 3', '0 / 3', '1 / 3', '1 / 3', '0 / 3'])
+    expect(screen.getByRole('note', { name: 'Coverage reconciliation' })).toHaveTextContent('= 3 of 3 — reconciles.')
   })
 
   it('labels an unreviewed quote as a research observation and does not claim it as the AISP–market gap', async () => {
@@ -115,7 +113,7 @@ describe('MarketPulsePage canonical coverage', () => {
     // Headline gap card: no reviewed gap is claimed; the unreviewed observation is disclosed as such.
     const gaps = screen.getByRole('region', { name: /Gaps and review/i })
     expect(within(gaps).getByText('Biggest AISP–market gap (reviewed)')).toBeInTheDocument()
-    expect(within(gaps).getByText('—')).toBeInTheDocument()
+    expect(within(gaps).getAllByText('—').length).toBeGreaterThanOrEqual(1)
     expect(within(gaps).getByText(/Unreviewed observation: -15\.7 pts \(WSH @ LAD\) — not decision eligible/)).toBeInTheDocument()
   })
 

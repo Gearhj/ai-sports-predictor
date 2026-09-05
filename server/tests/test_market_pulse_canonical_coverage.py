@@ -113,7 +113,9 @@ def test_mapped_but_unquoted_game_reports_listed_not_quoted(session, settings):
     assert board.coverage["MAPPED_NOT_QUOTED"] == 1
 
 
-def test_kalshi_listed_without_credentials_states_the_exact_reason(session, settings):
+def test_kalshi_listed_without_credentials_never_blames_credentials(session, settings):
+    """Public REST market data needs no key: a listed-but-unquoted Kalshi market
+    states the real reason (no refresh yet), never a credential requirement."""
     s = _observer_settings(settings, kalshi_api_key_id="")
     start = datetime.now(UTC) + timedelta(hours=4)
     game, _, _ = _seed_game(session, start=start)
@@ -122,7 +124,7 @@ def test_kalshi_listed_without_credentials_states_the_exact_reason(session, sett
     row = PredictionMarketReadService(session, s).board(_event_date(s, start)).rows[0]
     kalshi = next(c for c in row.provider_coverage if c.provider == "KALSHI")
     assert kalshi.state == "MAPPED_NOT_QUOTED"
-    assert "require API credentials" in kalshi.reason
+    assert "credential" not in kalshi.reason.lower() and "no snapshot refresh job has completed yet" in kalshi.reason
 
 
 def test_disabled_provider_is_labelled_disabled_but_persisted_quotes_still_show(session, settings):
@@ -238,7 +240,12 @@ def test_active_contracts_prioritise_slate_moneylines_and_interleave_providers(s
 
 
 @pytest.mark.asyncio
-async def test_refresh_skips_kalshi_without_credentials_and_records_it(session, settings, monkeypatch):
+async def test_refresh_never_skips_kalshi_for_missing_credentials(session, settings, monkeypatch):
+    """Kalshi public REST needs no API key: the refresh must quote Kalshi from
+    the public listing with an empty key and record that no credential was used."""
+    from app.data_sources.base import AdapterResponse, SourceEnvelope
+    from app.prediction_markets.contracts import ProviderQuoteDTO, normalize_kalshi_book
+
     s = _observer_settings(settings, kalshi_api_key_id="")
     start = datetime.now(UTC) + timedelta(hours=4)
     _seed_game(session, start=start)
@@ -253,12 +260,26 @@ async def test_refresh_skips_kalshi_without_credentials_and_records_it(session, 
         fetched.append(contract.provider)
         return None
 
+    async def fake_listing(self, *, series_ticker, league, sport, statuses=("open",), page_limit=200, max_pages=10):
+        self.request_count += 1
+        quote = ProviderQuoteDTO(
+            provider=PredictionMarketProvider.KALSHI, provider_market_id="KXMLBGAME-k", provider_outcome_id="KXMLBGAME-k:YES",
+            book=normalize_kalshi_book([(0.55, 100.0)], [(0.43, 80.0)]), provider_observed_at=datetime.now(UTC),
+            raw={"source": "events.nested_markets", "credentials_used": False},
+        ).model_dump(mode="json")
+        return AdapterResponse(envelope=SourceEnvelope(source="KALSHI", fetched_at=datetime.now(UTC), data=[],
+                                                       metadata={"quotes": [quote], "credentials_used": False}), raw_payload={})
+
     monkeypatch.setattr(PredictionMarketJobs, "_fetch_quote", fake_fetch)
+    monkeypatch.setattr(KalshiPredictionMarketSource, "discover_game_events", fake_listing)
     result = await PredictionMarketJobs(session, s).refresh(_event_date(s, start))
-    assert fetched == ["POLYMARKET"]                      # no request wasted on Kalshi
-    assert result["skipped"] == {"KALSHI": "order books require API credentials; none configured"}
+    assert fetched == ["POLYMARKET"]                      # Kalshi answered from one public listing, not per-market calls
+    assert result["skipped"] == {}
+    assert result["per_provider"]["KALSHI"]["requests"] == 1 and result["per_provider"]["KALSHI"]["snapshots"] == 1
+    snap = session.scalar(select(PredictionMarketSnapshot).where(PredictionMarketSnapshot.provider == "KALSHI"))
+    assert snap is not None and snap.best_bid == 0.55 and snap.best_ask == pytest.approx(0.57)
     run = session.scalar(select(IngestionRun).where(IngestionRun.job_name == "refresh-prediction-market-snapshots"))
-    assert run.status == RunStatus.SUCCEEDED and run.source_metadata["skipped"]["KALSHI"]
+    assert run.status == RunStatus.SUCCEEDED and run.source_metadata["skipped"] == {} and run.source_metadata["credentials_used"] is False
 
 
 # -- 5. Kalshi series families -----------------------------------------------

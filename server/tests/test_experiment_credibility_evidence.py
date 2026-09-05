@@ -143,8 +143,10 @@ def _exclusive_sum(board) -> int:
 
 
 def test_final_game_quote_is_structurally_excluded_not_an_observation(session, settings, monkeypatch):
+    """A game whose ONLY observation was captured after first pitch (and is now
+    FINAL) has no pregame evidence: structurally excluded, never an observation."""
     s = _observer_settings(settings)
-    start = datetime.now(UTC) + timedelta(hours=4)
+    start = datetime.now(UTC) - timedelta(minutes=30)
     game, _, _ = _seed_quoted_game(session, s, start=start, rules="Resolves per the official market description.",
                                    question="Yankees vs Red Sox")
     game.status = GameStatus.FINAL
@@ -184,10 +186,11 @@ def test_in_play_quote_on_a_scheduled_game_is_structurally_excluded(session, set
 def test_banner_and_coverage_strip_share_one_authority(session, settings, monkeypatch):
     """One pregame unreviewed quote + one final-game quote: 1 observation of 2, 1 excluded — never 2 of 2 or 1 of 2 disagreeing."""
     s = _observer_settings(settings)
-    start = datetime.now(UTC) + timedelta(hours=4)
+    start = datetime.now(UTC) + timedelta(minutes=30)  # pregame, same operating date as the in-play game
     _seed_quoted_game(session, s, start=start, event_id="evt-a", rules="Resolves per the official market description.", question="Yankees vs Red Sox")
-    # Same start so both games always share one operating date (no midnight crossing).
-    final_game, _, _ = _seed_quoted_game(session, s, start=start, event_id="evt-b", home="Los Angeles Dodgers",
+    # The second game's only quote is captured after its first pitch (in-play),
+    # so it carries no pregame evidence; both games sit on today's operating date.
+    final_game, _, _ = _seed_quoted_game(session, s, start=datetime.now(UTC) - timedelta(minutes=30), event_id="evt-b", home="Los Angeles Dodgers",
                                          away="Washington Nationals", rules="Resolves per the official market description.",
                                          question="Dodgers vs Nationals")
     final_game.status = GameStatus.FINAL

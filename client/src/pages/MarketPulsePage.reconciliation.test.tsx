@@ -78,8 +78,8 @@ describe('MarketPulsePage coverage reconciliation', () => {
     stub(board)
     render(<MemoryRouter initialEntries={['/market-pulse?date=2026-09-04']}><MarketPulsePage /></MemoryRouter>)
     const note = await screen.findByRole('note', { name: 'Coverage reconciliation' })
-    expect(note).toHaveTextContent('0 quoted & reviewed · 1 quoted, semantics pending · 1 quoted but structurally excluded (final / in-play / no usable price) · 0 listed, not quoted · 0 mapping review · 0 mapping rejected · 1 no market mapped · 0 no provider = 3 of 3 — reconciles.')
-    expect(note).toHaveTextContent('overlapping measures')
+    expect(note).toHaveTextContent('0 reviewed pregame quote · 1 pregame quote · awaiting review · 1 in-play / final · excluded · 0 listed · not quoted · 1 no mapped market · 0 provider unavailable / error = 3 of 3 — reconciles.')
+    expect(note).toHaveTextContent('Overlapping provider-level counts')
     expect(note).not.toHaveClass('pulse-coverage-reconciliation--mismatch')
   })
 
@@ -89,18 +89,20 @@ describe('MarketPulsePage coverage reconciliation', () => {
     const banner = await screen.findByRole('status', { name: 'Observer state' })
     expect(banner).toHaveTextContent('1 of 3 canonical game(s)')
     expect(banner).toHaveTextContent('1 further quoted game(s) are structurally excluded')
-    const strip = screen.getByRole('region', { name: /Canonical slate coverage/i })
-    expect(within(strip).getByText('2 / 3')).toBeInTheDocument() // quoted (all three quoted sub-states)
-    expect(within(strip).getByText('0 reviewed · 1 unreviewed · 1 excluded (not pregame)')).toBeInTheDocument()
-    expect(within(strip).getByText('≥2 reviewed providers · overlapping measure')).toBeInTheDocument()
+    const grid = screen.getByLabelText('Game evidence states')
+    const cards = within(grid).getAllByRole('article')
+    expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual(['0 / 3', '1 / 3', '1 / 3', '0 / 3', '1 / 3', '0 / 3'])
+    const drawer = screen.getByText(/Audit detail — overlapping provider counts/).closest('details') as HTMLElement
+    expect(within(drawer).getByText('Quoted (any observation)')).toBeInTheDocument()
+    expect(within(drawer).getByText('2 / 3')).toBeInTheDocument() // quoted-any is an overlapping audit measure now
   })
 
   it('labels the structurally excluded game in the board without a price and never as an observation', async () => {
     stub(board)
     render(<MemoryRouter initialEntries={['/market-pulse?date=2026-09-04']}><MarketPulsePage /></MemoryRouter>)
-    const cell = (await screen.findAllByText('DET @ CLE')).find((el) => el.closest('tr') !== null) as HTMLElement
-    const table = cell.closest('table') as HTMLTableElement
-    const row = cell.closest('tr') as HTMLElement
+    await screen.findAllByText('DET @ CLE')
+    const table = screen.getByRole('region', { name: 'Cross-market probability comparison' }).querySelector('table') as HTMLTableElement
+    const row = within(table).getByText('DET @ CLE').closest('tr') as HTMLElement
     expect(within(row).getByText('Quoted · excluded (not pregame)')).toBeInTheDocument()
     expect(within(row).queryByText('unreviewed')).not.toBeInTheDocument()
     expect(within(table).getByText('QUOTED — STRUCTURALLY EXCLUDED (NOT PREGAME / IN-PLAY / NO USABLE PRICE)')).toBeInTheDocument()
@@ -108,10 +110,10 @@ describe('MarketPulsePage coverage reconciliation', () => {
   })
 
   it('flags a non-reconciling decomposition instead of hiding it', async () => {
-    stub({ ...board, coverage: { ...board.coverage!, NO_MAPPED_MARKET: 0, exclusive_sum: 2 } })
+    stub({ ...board, canonical_games: 4 })
     render(<MemoryRouter initialEntries={['/market-pulse?date=2026-09-04']}><MarketPulsePage /></MemoryRouter>)
     const note = await screen.findByRole('note', { name: 'Coverage reconciliation' })
-    expect(note).toHaveTextContent('= 2 of 3 — DOES NOT RECONCILE.')
+    expect(note).toHaveTextContent('= 3 of 4 — DOES NOT RECONCILE.')
     expect(note).toHaveClass('pulse-coverage-reconciliation--mismatch')
   })
 })
