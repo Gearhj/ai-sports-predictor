@@ -181,8 +181,9 @@ still plotted. Existing Market Pulse suites remain green.
    `codex/multisport-platform-architecture`, `8826f4d475cfa2fa644996b9da26f147f4acb01e` (verified).
 2. **Repair worktree / branch / final HEAD**:
    `C:\Users\james\worktrees\aisp-critical-integrity-repair-v1`,
-   `claude/aisp-critical-integrity-repair-v1`, final HEAD recorded in the commit
-   receipt appended at publication (the docs commit).
+   `claude/aisp-critical-integrity-repair-v1`; final HEAD is the documentation
+   commit `af92bd8` (built on `f4e90a6` config, `8d70752` integrity, `0609b66`
+   scheduler, `0f33a4b` markets, `7f6698e` tests).
 3. **Main HEAD**: `92f92dde5d5ec6b8d1d68e9d69284368dbd0525b` (unchanged).
 4. **Git status before/after**: primary clean except the two known untracked files;
    after, the primary checkout is untouched and the repair branch carries only the
@@ -193,9 +194,7 @@ still plotted. Existing Market Pulse suites remain green.
    (`7768030dfaf43783c481eeb226bbe01b694a4b8d1dc03c5aa4673c4798ef2c48`) — unchanged.
 6. **Files changed**: 23 (18 source/config/doc edits + 5 new files); see the commit
    list. Application changes and the migration are only on the repair branch.
-7. **Commits created**: five code/test commits plus one documentation commit
-   (SHAs in the commit receipt): `fix(config)`, `feat(integrity)`, `fix(scheduler)`,
-   `fix(markets)`, `test`, `docs`.
+7. **Commits created**: `f4e90a6` fix(config), `8d70752` feat(integrity), `0609b66` fix(scheduler), `0f33a4b` fix(markets), `7f6698e` test, `af92bd8` docs.
 8. **Pushes performed**: none.
 9. **Audit findings addressed**: SEC-DB-001, INT-001, INT-008, INT-007.
 10. **Shared-default occurrences before**: eight tracked paths for the `asp` shared
