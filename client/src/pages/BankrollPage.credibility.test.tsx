@@ -182,6 +182,31 @@ describe('experiment selection', () => {
     expect(screen.getByTestId('location').textContent).not.toContain('experiment=')
   })
 
+  it('never renders the other experiment’s figures under the selected tab while switching', async () => {
+    let releaseV1: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => { releaseV1 = resolve })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input)
+      const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body } as Response)
+      if (url.includes('/experiment/comparison')) return json(comparison)
+      if (url.includes('/experiment/qualification-funnel')) return json(funnel())
+      if (url.includes('/bankroll') && url.includes('experiment=v1')) { await gate; return json(v1Payload()) }
+      if (url.includes('/bankroll')) return json(v2Payload())
+      return json({})
+    }))
+    renderAt('/experiment')
+    await screen.findByText('PRACTICAL PREGAME POLICY CHALLENGER — V2.1')
+    await userEvent.click(screen.getByRole('tab', { name: /V1 — Strict Control/ }))
+    // V1 selected, V1 payload still in flight: no V2.1 figure or name may show.
+    expect(screen.getByRole('tab', { name: /V1 — Strict Control/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('$999.78')).not.toBeInTheDocument()
+    expect(screen.queryByText(/ASP PRACTICAL PREGAME BANKROLL/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/CHALLENGER — V1/)).not.toBeInTheDocument()
+    releaseV1()
+    expect(await screen.findByText('STRICT CONTROL — V1 · THE OFFICIAL ASP EXPERIMENT')).toBeInTheDocument()
+    expect(screen.getByText('No V1 positions have settled. The opening bankroll is not a performance result.')).toBeInTheDocument()
+  })
+
   it('labels both experiments as the same forecast model with distinct roles', async () => {
     stub()
     renderAt('/experiment')

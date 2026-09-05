@@ -354,9 +354,13 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     setSearchParams(params)
   }
   const experimentIsActive = demo || data?.experiment_status === 'ACTIVE' || data?.experiment_status === 'SCHEDULED'
+  // While the selection changes, the resource hook still holds the previous
+  // experiment's payload. A payload for another experiment is never rendered
+  // under the selected tab: it is treated as loading until the right one lands.
+  const stale = !demo && Boolean(data?.experiment_key) && data?.experiment_key !== experimentKey
   // The challenger's version label is derived from the policy the backend
   // reports (…_POLICY_V2_1 → "V2.1"), never hard-coded to a stale "V2".
-  const challengerVersion = policyVersionLabel(experimentKey === 'v2' ? data?.policy : null) ?? 'V2.1'
+  const challengerVersion = policyVersionLabel(experimentKey === 'v2' && !stale ? data?.policy : null) ?? 'V2.1'
 
   const selector = !demo && <ExperimentSelector experimentKey={experimentKey} challengerVersion={challengerVersion} onSelect={setExperiment} />
   const headerEyebrow = demo
@@ -368,8 +372,8 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     ? 'Example positions demonstrate the ledger; these are not live or historical results.'
     : 'A $1,000 virtual bankroll follows one frozen forecasting model under one frozen decision policy: every position is recorded before first pitch, settled exactly once, and never edited or removed.'
 
-  if (!data || state === 'unavailable' || state === 'loading' || (!experimentIsActive && (state === 'empty' || data.experiment_status === 'NOT_STARTED'))) {
-    const shownState = !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
+  if (!data || stale || state === 'unavailable' || state === 'loading' || (!experimentIsActive && (state === 'empty' || data.experiment_status === 'NOT_STARTED'))) {
+    const shownState = stale ? 'loading' : !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
     return (
       <div className="page bankroll-page">
         <PageHeader eyebrow={headerEyebrow} title="Can AI Beat the Sportsbooks?" description={contractSentence} actions={<ExperimentBadge />} />
