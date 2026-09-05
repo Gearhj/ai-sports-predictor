@@ -1,0 +1,75 @@
+{
+  "schema": "AISP_CRITICAL_REPAIR_TEST_RECEIPT_V1",
+  "repair_branch": "claude/aisp-critical-integrity-repair-v1",
+  "base_head": "8826f4d475cfa2fa644996b9da26f147f4acb01e",
+  "environment": "Windows; server .venv Python 3.12.4; disposable PostgreSQL 16.14 on 127.0.0.1:55433; client Node vitest 3.2.7; operational services never used for tests",
+  "backend_full_suite": {
+    "command": "pytest tests -q --continue-on-collection-errors (PYTHONPATH=worktree/server, APP_ENV=test, DATABASE_URL=sqlite://, AISP_TEST_PG_URL=disposable)",
+    "passed": 1527,
+    "failed": 40,
+    "errors": 6,
+    "skipped": 8,
+    "note": "Counts derived from the pytest progress stream; the redirected summary line did not flush under the background redirect. Two full runs varied between 44 and 46 non-passes, which is itself evidence that the residual failures are environment/data dependent, not deterministic regressions.",
+    "audit_baseline_at_same_head": {"passed": 1482, "failed": 47, "setup_errors": 6, "skipped": 8, "source": "AISP_CHATGPT_TEST_AND_SCANNER_RECEIPT.json"},
+    "delta_vs_baseline": "more passes (new repair suites) and fewer failures (a real disposable PostgreSQL resolves several of the audit's ENVIRONMENT_DEPENDENT / MISSING_LOCAL_TEST_DATA failures); no new failing file introduced"
+  },
+  "repair_suites_all_pass": {
+    "test_sec_db_001_database_credentials.py": 6,
+    "test_int001_db_immutability.py": 16,
+    "test_int008_finalization_rating_conflict.py": "12 (6 SQLite + 6 PostgreSQL)",
+    "test_int007_missing_sportsbook_not_zero.py": 4
+  },
+  "nonpass_classification": {
+    "INTRODUCED_BY_AUDIT_REPAIR": 0,
+    "explanation": "Every failing/erroring file in this run is present in the independent audit's baseline non-pass set at the same HEAD 8826f4d, with the audit's classification of PRE_EXISTING_REPRODUCIBLE, ENVIRONMENT_DEPENDENT, MISSING_LOCAL_TEST_DATA, or GENUINE_UNRESOLVED_DEFECT.",
+    "failing_files": [
+      {"file": "tests/test_gate3c_fd1_readiness_actual_operator.py", "audit_class": "MISSING_LOCAL_TEST_DATA"},
+      {"file": "tests/test_gate3c_fd1_operator.py", "audit_class": "MISSING_LOCAL_TEST_DATA"},
+      {"file": "tests/test_gate3c_x1_contracts.py", "audit_class": "MISSING_LOCAL_TEST_DATA", "kind": "collection/setup errors"},
+      {"file": "tests/test_gate3c_fd1_active_identity_operator.py", "audit_class": "MISSING_LOCAL_TEST_DATA"},
+      {"file": "tests/test_funnel_read_model.py", "audit_class": "GENUINE_UNRESOLVED_DEFECT", "note": "pre-existing query-budget defect, not in this repair's scope"},
+      {"file": "tests/test_gate3c_fd1_recovery_migration.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE", "note": "asserts get_current_head()=='20260815_0015' — already red at base head 0026; my migration only advances the actual value to 0027"},
+      {"file": "tests/test_gate2_migration.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE", "note": "fails on the pre-existing SQLite 'No support for ALTER of constraints' in migration 0021, unrelated to 0027"},
+      {"file": "tests/test_gate3a_a1_migration_and_cli.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_migration_runtime.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3_model_governance.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3a_a2_attestation_persistence.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3a_historical_warehouse.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3c_forecast_track_separation.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3c_prospective.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3c_fd1_partition_families.py", "audit_class": "PRE_EXISTING_REPRODUCIBLE"},
+      {"file": "tests/test_gate3c_x1_io.py", "audit_class": "ENVIRONMENT_DEPENDENT / MISSING_LOCAL_TEST_DATA"}
+    ]
+  },
+  "no_multiple_heads": "alembic has one linear head (20260905_0027, down_revision 20260904_0026); no 'Multiple heads' error anywhere in the run.",
+  "migration": {
+    "identifier": "20260905_0027",
+    "applied_to_operational_db": false,
+    "disposable_postgres_upgrade": "PASS (installs 6 triggers)",
+    "disposable_postgres_downgrade_upgrade_round_trip": "PASS",
+    "int001_reproduction": "Independently reproduced the original bypass on the disposable cluster: same-natural-key different-checksum raw INSERT collides on uq_team_rating_observation; the finding's Core UPDATE/DELETE bypass is the same class the triggers now reject."
+  },
+  "frontend": {
+    "command": "vitest run (Node, vitest 3.2.7)",
+    "test_files": 31,
+    "tests": 184,
+    "passed": 183,
+    "failed": 1,
+    "failed_detail": "src/App.data-states.test.tsx timed out at 5000ms during the concurrent full run (resource contention with the backend suite + PostgreSQL). Re-run in isolation: 7/7 PASS. Classification: ENVIRONMENT_DEPENDENT (flake); the audit baseline had this suite passing (30 files / 181 tests).",
+    "int007_component_tests": "src/components/MarketPulseVisuals.int007.test.tsx 3/3 PASS",
+    "existing_market_pulse_suites": "reconciliation/coverage/visuals/page suites all PASS"
+  },
+  "typescript": {
+    "command": "tsc -b",
+    "result": "FAIL (1 error)",
+    "error": "src/pages/MarketPulsePage.reconciliation.test.tsx:25 TS2537 — pre-existing (file unchanged from base, reproduced at 8826f4d; flagged by the independent audit); out of the four-family scope"
+  },
+  "frontend_build": {
+    "command": "vite build",
+    "result": "PASS (production bundle built; chunk-size warning only)",
+    "credential_scan_of_dist": "clean (no REDACTED-CREDENTIAL, no credential-bearing database URL)"
+  },
+  "secret_scan_current_tree": "clean — no credential-bearing database URL under server/app, server/alembic, config files, or docs; no REDACTED-CREDENTIAL token in the tracked tree",
+  "git_diff_check": "clean; only new/edited files on the repair branch",
+  "dependency_audits": "no dependencies added or changed by this repair; the audit's dependency posture is unchanged"
+}

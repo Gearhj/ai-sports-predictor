@@ -1,0 +1,143 @@
+{
+ "schema": "AISP_CRITICAL_REPAIR_PROTECTED_COUNTS_V1",
+ "repair_branch": "claude/aisp-critical-integrity-repair-v1",
+ "base_head": "8826f4d475cfa2fa644996b9da26f147f4acb01e",
+ "operational_snapshot_captured_at": "2026-09-05T19:04:21.296219+00:00",
+ "operational_snapshot_read_only": true,
+ "audit_baseline_source": "AISP_CHATGPT_PROTECTED_COUNTS_AND_DIGESTS.json (independent audit 'after' snapshot, 2026-09-05T16:22Z)",
+ "tables": {
+  "users": {
+   "audit_baseline_after": 1,
+   "post_repair": 1,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "fa1eeaf955c4c36a5fbeb30368bd2d27973765070e34ab1e2b74bb24e9efb5f4",
+   "authoritative_identity_ledger": true
+  },
+  "model_versions": {
+   "audit_baseline_after": 2,
+   "post_repair": 2,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "a7d1e69b8f32c7e99909ce3d5e589d535ece4c1a415943c72d98d99bf027d716",
+   "authoritative_identity_ledger": true
+  },
+  "forecasts": {
+   "audit_baseline_after": 306,
+   "post_repair": 313,
+   "delta_vs_audit_baseline": 7,
+   "sha256_post_repair": "c2420c1039938d8166f7c3a482487151fd4f07c182b91b3084d801e601378436",
+   "authoritative_identity_ledger": false
+  },
+  "forecast_components": {
+   "audit_baseline_after": 918,
+   "post_repair": 939,
+   "delta_vs_audit_baseline": 21,
+   "sha256_post_repair": "bd472ee8ae7cc2f4cf2bc10ede45ead9a0d3cda66ff39e8310a7cca16e801442",
+   "authoritative_identity_ledger": false
+  },
+  "shadow_experiments": {
+   "audit_baseline_after": 3,
+   "post_repair": 3,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "85c4eea17ac721953c07c8d5d7fc10cead8d9440e68cce3647885fb43db254c1",
+   "authoritative_identity_ledger": true
+  },
+  "shadow_experiment_decisions": {
+   "audit_baseline_after": 14060,
+   "post_repair": 14555,
+   "delta_vs_audit_baseline": 495,
+   "sha256_post_repair": "3f12db86375de21da1a02f74fd802fdcb4a8d56ad27efebac6ef62417672528e",
+   "authoritative_identity_ledger": false
+  },
+  "official_asp_positions": {
+   "audit_baseline_after": 10,
+   "post_repair": 10,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "5fa958088df8abf0d87c53afda511e908562c0a15d31b0bd476d57a23389c7cc",
+   "authoritative_identity_ledger": true
+  },
+  "position_results": {
+   "audit_baseline_after": 9,
+   "post_repair": 9,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "d716dd26c7c01463d4cfce0dc6f940ad06cbbac0f72563da50697ce5228003e8",
+   "authoritative_identity_ledger": true
+  },
+  "market_comparisons": {
+   "audit_baseline_after": null,
+   "post_repair": 396,
+   "delta_vs_audit_baseline": null,
+   "sha256_post_repair": "9375b8dbc4747002f8e15c8be8262b81fed3a916c33a73ccbd13ebb9f7672831",
+   "authoritative_identity_ledger": false
+  },
+  "team_rating_observations": {
+   "audit_baseline_after": null,
+   "post_repair": 11728,
+   "delta_vs_audit_baseline": null,
+   "sha256_post_repair": "3287cc9244d65ae8572aab8f8837eea6a994b0ea46979adc4df87d8348cda934",
+   "authoritative_identity_ledger": false
+  },
+  "prediction_market_semantic_templates": {
+   "audit_baseline_after": 2,
+   "post_repair": 2,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "7c179c5b22c49c99fcd4ee92f077db15976656982333d679df6858689e106710",
+   "authoritative_identity_ledger": false
+  },
+  "prediction_market_mappings": {
+   "audit_baseline_after": 3739,
+   "post_repair": 3749,
+   "delta_vs_audit_baseline": 10,
+   "sha256_post_repair": "ef5c3e12f3d40a2afa951212b172259917e87b40d9521c01aa7b1512c39065f6",
+   "authoritative_identity_ledger": false
+  },
+  "prediction_market_snapshots": {
+   "audit_baseline_after": 128139,
+   "post_repair": 130820,
+   "delta_vs_audit_baseline": 2681,
+   "sha256_post_repair": "d2edc01718e636f10967df335bcd4d028df8cffbeac6c306d8c96c7e4ddc7458",
+   "authoritative_identity_ledger": false
+  },
+  "prediction_market_consensus_snapshots": {
+   "audit_baseline_after": 440717,
+   "post_repair": 495997,
+   "delta_vs_audit_baseline": 55280,
+   "sha256_post_repair": "0ae8a8ba47a5cad5dc0064a0517f8ba344588b7f5668f7dce80e5f3c89f0a3cf",
+   "authoritative_identity_ledger": false
+  },
+  "prediction_market_alerts": {
+   "audit_baseline_after": 72818,
+   "post_repair": 84152,
+   "delta_vs_audit_baseline": 11334,
+   "sha256_post_repair": "a840c2cd52f7948cc83b4d82aab9e6e8570616eda1d1d4bbde60e21d5910d130",
+   "authoritative_identity_ledger": false
+  },
+  "ingestion_runs": {
+   "audit_baseline_after": 2691,
+   "post_repair": 2813,
+   "delta_vs_audit_baseline": 122,
+   "sha256_post_repair": "57bb132649fe65cc9d4c77275a8109137a32f76c46f6bbe1e6c6cdd340ce3514",
+   "authoritative_identity_ledger": false
+  },
+  "odds_snapshots": {
+   "audit_baseline_after": 222174,
+   "post_repair": 222174,
+   "delta_vs_audit_baseline": 0,
+   "sha256_post_repair": "078187f36e65e0436f1a1bc06b903c3ad63ad3edb9fcc21cc9f3fb7346469686",
+   "authoritative_identity_ledger": false
+  }
+ },
+ "task_operational_writes": {
+  "forecasts_created": 0,
+  "decisions_created": 0,
+  "positions_created": 0,
+  "settlements_created": 0,
+  "clv_observations_created": 0,
+  "semantic_decisions_executed": 0,
+  "provider_calls": 0,
+  "provider_observations_created": 0,
+  "operational_migrations_applied": 0,
+  "credential_changes": 0,
+  "operational_role_changes": 0
+ },
+ "interpretation": "All database mutation for this repair used a disposable PostgreSQL cluster on 127.0.0.1:55433 and in-memory SQLite; the operational database on :5432 was opened exactly once, read-only (default_transaction_read_only=on), only to capture this snapshot. The authoritative identity/ledger tables (users, model_versions, shadow_experiments, official_asp_positions, position_results) are byte-for-byte unchanged in COUNT from the independent audit's after-snapshot; the growth in forecasts, forecast_components, shadow_experiment_decisions, prediction_market_* and ingestion_runs is consistent with the live scheduler, which was intentionally left running. Whole-database equality is not claimed. This task created zero operational forecasts, decisions, positions, settlements, provider observations, or migrations."
+}
