@@ -31,6 +31,17 @@ class ProviderProbability(BaseModel):
     semantics_status: str
     in_play: bool = False
     observed_at: datetime | None = None
+    # Point-in-time honesty: which observation this price is (the final valid
+    # PREGAME observation before first pitch, or the latest IN_PLAY/FINAL one)
+    # and where the latest observation sits relative to it.
+    observation_kind: Literal["FINAL_PREGAME", "PREGAME", "IN_PLAY", "FINAL", "UNKNOWN"] = "UNKNOWN"
+    seconds_before_start: int | None = None
+    timeline_cut: str | None = None
+    latest_observed_at: datetime | None = None
+    latest_in_play: bool = False
+    mapping_authority: str | None = None
+    semantics_authority: str | None = None
+    freshness_seconds: float | None = None
     # A quote is decision-eligible for the research consensus only when its
     # mapping semantics were reviewed AND its quality tier is ROBUST/USABLE.
     # Unreviewed quotes are shown as research observations, never as a gap.
@@ -49,8 +60,21 @@ class ProviderProbability(BaseModel):
 #   QUOTED_UNREVIEWED        a snapshot exists but market semantics are not yet reviewed (research observation)
 #   QUOTED_REVIEWED          semantics matched; quote shown and consensus-eligible subject to quality tier
 ProviderCoverageState = Literal[
-    "PROVIDER_DISABLED", "NO_MAPPED_MARKET", "MAPPING_REVIEW_REQUIRED", "MAPPING_REJECTED",
+    "PROVIDER_DISABLED", "PROVIDER_ERROR", "NO_MAPPED_MARKET", "MAPPING_REVIEW_REQUIRED", "MAPPING_REJECTED",
     "MAPPED_NOT_QUOTED", "QUOTED_STRUCTURALLY_EXCLUDED", "QUOTED_UNREVIEWED", "QUOTED_REVIEWED",
+]
+
+# Disjoint game-level states for the headline (each canonical game sits in
+# exactly one; they sum to the canonical slate):
+#   REVIEWED_PREGAME   a reviewed, valid pregame quote (final pregame observation)
+#   PREGAME_UNREVIEWED a valid pregame quote awaiting semantic review
+#   EXCLUDED_IN_PLAY   only in-play / final / no-price observations exist
+#   LISTED_NOT_QUOTED  mapped, contracts listed, no observation persisted
+#   NO_MAPPED_MARKET   no accepted mapping (unmapped, review required, rejected)
+#   PROVIDER_UNAVAILABLE provider disabled or its last discovery failed
+GameEvidenceState = Literal[
+    "REVIEWED_PREGAME", "PREGAME_UNREVIEWED", "EXCLUDED_IN_PLAY", "LISTED_NOT_QUOTED", "NO_MAPPED_MARKET",
+    "PROVIDER_UNAVAILABLE",
 ]
 
 
@@ -63,6 +87,11 @@ class ProviderCoverage(BaseModel):
     semantics_status: str | None = None
     quality_tier: str | None = None
     last_snapshot_at: datetime | None = None
+    # Final valid pregame observation (None when none was captured).
+    pregame_observed_at: datetime | None = None
+    pregame_timeline_cut: str | None = None
+    latest_in_play: bool = False
+    semantics_authority: str | None = None
 
 
 class MarketPulseRow(BaseModel):
@@ -108,6 +137,11 @@ class MarketPulseRow(BaseModel):
     unreviewed_observation: bool = False
     diff_aisp_prediction_unreviewed: float | None = None
     display_note: str | None = None
+    # Disjoint game-level evidence state (headline authority).
+    evidence_state: GameEvidenceState = "NO_MAPPED_MARKET"
+    reviewed_probability_min: float | None = None
+    reviewed_probability_max: float | None = None
+    market_disagreement: float | None = None
 
 
 class ObserverJobStatus(BaseModel):
@@ -151,6 +185,10 @@ class MarketPulseBoard(BaseModel):
     # and `coverage` reconciles rows to the canonical denominator by state.
     canonical_games: int = 0
     coverage: dict[str, int] = {}
+    # Overlapping per-provider coverage counts (audit detail, not the headline).
+    coverage_by_provider: dict[str, dict[str, int]] = {}
+    # Provider contract-family templates still awaiting one human decision.
+    semantic_template_decisions_pending: int | None = None
     # Excluded Market Activity — inspected-but-not-eligible counts by reason.
     excluded_summary: dict[str, int] = {}
     jobs: list[ObserverJobStatus] = []
@@ -163,6 +201,15 @@ class TimelinePoint(BaseModel):
     polymarket: float | None = None
     kalshi: float | None = None
     consensus: float | None = None
+    # Per-source honesty flags for the point (never interpolated).
+    polymarket_pregame: bool | None = None
+    kalshi_pregame: bool | None = None
+
+
+class TimelineMarker(BaseModel):
+    key: str
+    label: str
+    time: str
 
 
 class OrderBookView(BaseModel):
@@ -222,6 +269,7 @@ class MarketPulseGameDetail(BaseModel):
     disclosure: str = "RESEARCH OBSERVER · NO TRADING · NOT A MODEL INPUT · NOT A GUARANTEE"
     lead_lag_note: str = "COLLECTING LEAD-LAG EVIDENCE"
     timeline: list[TimelinePoint] = []
+    timeline_markers: list[TimelineMarker] = []
     order_books: list[OrderBookView] = []
     movement_events: list[MovementEvent] = []
     contracts: list[ContractDetail] = []
