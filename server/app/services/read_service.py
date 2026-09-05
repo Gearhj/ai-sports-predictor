@@ -3411,7 +3411,10 @@ class ReadService:
             item.is_best_away = item.away == best_away
         return {
             "has_moneyline": bool(market_probabilities),
-            "home_probability": sum(market_probabilities) / len(market_probabilities) if market_probabilities else 0.0,
+            # No reviewed sportsbook evidence -> None (unavailable), never a 0.0
+            # sentinel that downstream readers could mistake for a real 0% quote
+            # (INT-007). Every consumer here already gates this on has_moneyline.
+            "home_probability": sum(market_probabilities) / len(market_probabilities) if market_probabilities else None,
             "best_home": best_home, "best_away": best_away,
             "book_count": len(prices), "market_prices": prices,
             "total": sum(total_lines) / len(total_lines) if total_lines else 0.0,

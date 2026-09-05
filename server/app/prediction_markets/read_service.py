@@ -1083,7 +1083,14 @@ class PredictionMarketReadService:
             ctx = ReadService(self.session, self.settings)._market_context(game.id, gt_home.team_id, gt_away.team_id)
         except Exception:
             return None
-        prob = ctx.get("home_probability") if isinstance(ctx, dict) else None
+        if not isinstance(ctx, dict):
+            return None
+        # INT-007: require actual reviewed evidence (a moneyline with at least one
+        # reporting book) before returning a probability. Without this, the absent-
+        # market 0.0 was published as a reviewed 0% sportsbook quote.
+        if not ctx.get("has_moneyline") or not ctx.get("book_count"):
+            return None
+        prob = ctx.get("home_probability")
         return round(float(prob), 6) if prob is not None else None
 
     def _latest_consensus(self, game_id: Any) -> PredictionMarketConsensusSnapshot | None:

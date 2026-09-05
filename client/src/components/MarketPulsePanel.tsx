@@ -43,7 +43,10 @@ export function MarketPulsePanel({ gameId, demo = false }: { gameId: string; dem
     <Panel title="Market pulse" eyebrow="CROWD & MARKET · RESEARCH ONLY" className="section-panel" action={<span className="info-label"><Radio size={13} /> Not a model input</span>}>
       <div className="pulse-mini-grid">
         <div><span>AISP</span><strong>{pct(row.aisp_home_probability)}</strong></div>
-        <div><span>Sportsbook</span><strong>{pct(row.sportsbook_home_probability)}</strong></div>
+        <div><span>Sportsbook</span><strong
+          title={row.sportsbook_home_probability == null ? 'No reviewed sportsbook quote' : undefined}
+          aria-label={row.sportsbook_home_probability == null ? 'Sportsbook home win probability unavailable — no reviewed quote' : undefined}
+        >{pct(row.sportsbook_home_probability)}</strong></div>
         <div><span>Polymarket</span><strong>{pct(row.polymarket_home_probability)}</strong></div>
         <div><span>Kalshi</span><strong>{pct(row.kalshi_home_probability)}</strong></div>
         <div><span>Consensus</span><strong>{row.consensus_eligible ? pct(row.research_consensus_home_probability) : '—'}</strong></div>
