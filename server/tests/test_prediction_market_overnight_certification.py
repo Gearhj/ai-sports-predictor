@@ -19,6 +19,10 @@ Contracts:
 4  Legacy pre-authority Kalshi observations are classified explicitly,
    preserved, and excluded from current book-quality evidence.
 5  Terminalization is idempotent and never touches evidence.
+6  The 5-minute pregame tick runs the bounded cut capture whenever a mapped
+   game is inside the widest scheduled cut window (T-6h), not only inside the
+   20-minute finalize window — otherwise T-6h/T-2h/T-30m cuts can never be
+   captured by the scheduler (reproduced: one capture run in 24 h, 0 records).
 """
 from __future__ import annotations
 
@@ -196,3 +200,36 @@ def test_legacy_pre_authority_kalshi_observations_are_classified_and_excluded(se
     assert summary.get("legacy_pre_authority_observations") == 1                 # classified, not hidden
     assert summary.get("incomplete_order_books") == 1                            # only the current row counts
     assert session.scalar(select(func.count()).select_from(PredictionMarketSnapshot)) == 2   # preserved, not cleaned
+
+
+@pytest.mark.asyncio
+async def test_pregame_tick_captures_cuts_inside_the_widest_window(session, settings, monkeypatch):
+    from app.jobs.orchestrator import AVAILABLE_JOBS, JobOrchestrator
+    from app.jobs.scheduler import pm_pregame_capture_action
+    from app.models import JobRun, RunStatus
+
+    s = _observer_settings(settings)
+    now = datetime.now(UTC)
+    assert pm_pregame_capture_action(session, now) is None                       # nothing mapped
+
+    start = now + timedelta(hours=5)                                            # inside T-6h, outside finalize
+    _seed_game(session, start=start)
+    obs = PredictionMarketObserver(session, s)
+    obs.ingest_contracts([_contract("evt-tick", start=start, market_id="0xtick", token="tok-tick")])
+    assert pm_pregame_capture_action(session, now) == "capture-prediction-market-pregame-cuts"
+    assert pm_pregame_capture_action(session, now - timedelta(hours=2)) is None  # 7 h out: not yet
+    assert pm_pregame_capture_action(session, start - timedelta(minutes=15)) == "finalize-prediction-market-pregame"
+    assert pm_pregame_capture_action(session, start + timedelta(minutes=1)) is None   # started: nothing pregame left
+
+    # The capture-only job is dispatchable through the orchestrator and records its own JobRun.
+    called: list[str] = []
+
+    async def fake_capture(self, event_date, *, now=None):
+        called.append(event_date.isoformat())
+        return {"records": 0, "requests": 0, "errors": 0}
+
+    monkeypatch.setattr(PredictionMarketJobs, "capture_pregame_cuts", fake_capture)
+    assert "capture-prediction-market-pregame-cuts" in AVAILABLE_JOBS
+    run = await JobOrchestrator(session, s).run("capture-prediction-market-pregame-cuts", event_date=_event_date(s, start))
+    assert run.status == RunStatus.SUCCEEDED and called == [_event_date(s, start).isoformat()]
+    assert session.scalar(select(func.count()).select_from(JobRun).where(JobRun.job_name == "capture-prediction-market-pregame-cuts")) == 1
