@@ -1256,6 +1256,53 @@ export interface PredictionMappingDetail {
   game_time_agreement: string | null
 }
 
+export interface PregameCaptureCell {
+  milestone: string
+  state: string
+  reason: string
+  snapshot_id: string | null
+  observed_at: string | null
+  received_at: string | null
+  timeline_cut: string | null
+  midpoint: number | null
+  best_bid: number | null
+  best_ask: number | null
+  seconds_before_start: number | null
+  observed_before_start: boolean | null
+  late_ingestion: boolean | null
+}
+
+export interface PregameCaptureProvider {
+  mapping_status: string | null
+  provider_event_id: string | null
+  cells: PregameCaptureCell[]
+}
+
+export interface PregameCaptureRow {
+  game_id: string
+  label: string
+  home: string
+  away: string
+  starts_at: string | null
+  game_status: string
+  doubleheader_status: string | null
+  providers: Record<string, PregameCaptureProvider>
+}
+
+export interface PregameCaptureCoverage {
+  date: string
+  generated_at: string
+  milestones: string[]
+  providers: string[]
+  states: string[]
+  canonical_games: number
+  rows: PregameCaptureRow[]
+  counts: Record<string, Record<string, Record<string, number>>>
+  totals: Record<string, Record<string, number>>
+  capture_cadence_minutes: number
+  disclosure: string
+}
+
 export interface MarketPulseGameDetail extends DataProvenance {
   game_id: string
   home_team: string | null

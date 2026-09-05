@@ -7,10 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceError(RuntimeError):
-    def __init__(self, source: str, message: str, *, retryable: bool = True) -> None:
+    def __init__(self, source: str, message: str, *, retryable: bool = True, status_code: int | None = None) -> None:
         super().__init__(message)
         self.source = source
         self.retryable = retryable
+        # HTTP status when the failure was an HTTP error (None for transport errors).
+        self.status_code = status_code
 
 
 SourceMode = Literal["LIVE", "DEMO"]

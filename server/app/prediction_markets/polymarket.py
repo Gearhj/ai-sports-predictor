@@ -91,6 +91,10 @@ class PolymarketPredictionMarketSource:
             return resp.json()
         except SourceError:
             raise
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            raise SourceError(self.source, f"Polymarket request failed: HTTP {status}",
+                              retryable=status not in {400, 404}, status_code=status) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise SourceError(self.source, f"Polymarket request failed: {type(exc).__name__}") from exc
         finally:

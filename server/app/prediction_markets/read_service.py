@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -49,6 +49,13 @@ from app.schemas.prediction_market import (
 )
 
 _SPORT_LEAGUES = {"MLB": "MLB", "NFL": "NFL", "NBA": "NBA", "NHL": "NHL"}
+
+
+# Kalshi listing quotes persisted before the persister was restricted to
+# accepted-mapped contracts (2026-09-05 02:08 UTC). Rows before this instant with
+# no canonical game are LEGACY_PRE_AUTHORITY_OBSERVATION: kept, never rewritten,
+# never counted as current pregame / book evidence.
+LEGACY_LISTING_AUTHORITY_CUTOFF = datetime(2026, 9, 5, 2, 8, tzinfo=UTC)
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -514,9 +521,25 @@ class PredictionMarketReadService:
                               PredictionMarketSnapshot.provider_outcome_id),
                 order_by=PredictionMarketSnapshot.provider_observed_at.desc(),
             ).label("rn"),
-        ).where(PredictionMarketSnapshot.aisp_received_at >= cutoff).subquery()
+        ).where(
+            PredictionMarketSnapshot.aisp_received_at >= cutoff,
+            # LEGACY_PRE_AUTHORITY_OBSERVATION rows are not current book evidence.
+            ~and_(PredictionMarketSnapshot.provider == "KALSHI", PredictionMarketSnapshot.canonical_game_id.is_(None),
+                  PredictionMarketSnapshot.aisp_received_at < LEGACY_LISTING_AUTHORITY_CUTOFF),
+        ).subquery()
         thin = int(self.session.scalar(select(func.count()).select_from(ranked).where(ranked.c.rn == 1, ranked.c.quality_tier == "THIN")) or 0)
         incomplete = int(self.session.scalar(select(func.count()).select_from(ranked).where(ranked.c.rn == 1, ranked.c.book_complete.is_(False))) or 0)
+        # Legacy pre-authority observations: Kalshi listing quotes persisted for
+        # unmapped (historical / settled) markets before the persister was
+        # restricted to accepted mappings. Preserved for audit, classified
+        # explicitly, and never counted as current pregame or book evidence.
+        legacy = int(self.session.scalar(select(func.count()).select_from(PredictionMarketSnapshot).where(
+            PredictionMarketSnapshot.provider == "KALSHI",
+            PredictionMarketSnapshot.canonical_game_id.is_(None),
+            PredictionMarketSnapshot.aisp_received_at < LEGACY_LISTING_AUTHORITY_CUTOFF,
+        )) or 0)
+        if legacy:
+            summary["legacy_pre_authority_observations"] = legacy
         if thin:
             summary["thin_markets"] = thin
         if incomplete:

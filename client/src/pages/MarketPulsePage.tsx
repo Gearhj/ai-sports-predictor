@@ -4,6 +4,7 @@ import { Radio, ShieldAlert } from 'lucide-react'
 import { DataModeBanner, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { OperationalDateNav } from '../components/OperationalDateNav'
 import { MarketMovementView, MarketProbabilityComparison, ProviderCoverageMatrix, buildComparisonRows } from '../components/MarketPulseVisuals'
+import { PregameCaptureCoverage } from '../components/PregameCaptureCoverage'
 import { formatDate } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
 import { demoMarketPulse } from '../data/demo'
@@ -204,7 +205,8 @@ function MarketPulseHealthPanel({ data, onRetry }: { data: MarketPulseBoard; onR
 }
 
 /** Overlapping, per-provider audit counts — kept out of the headline on purpose. */
-function AuditDetail({ data, rows }: { data: MarketPulseBoard; rows: MarketPulseRow[] }) {
+function AuditDetail({ data, rows, slateDate, demo }: { data: MarketPulseBoard; rows: MarketPulseRow[]; slateDate: string; demo: boolean }) {
+  const [captureOpen, setCaptureOpen] = useState(false)
   const coverage = data.coverage ?? {}
   const canonical = data.canonical_games ?? rows.length
   const byProvider = data.coverage_by_provider ?? {}
@@ -236,6 +238,11 @@ function AuditDetail({ data, rows }: { data: MarketPulseBoard; rows: MarketPulse
       <ProviderHealthTable data={data} />
       <ExcludedActivity excluded={data.excluded_summary} />
       <ObserverJobsTable jobs={data.jobs ?? []} />
+      <details className="pulse-audit-drawer pulse-capture__section" onToggle={(e) => setCaptureOpen((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary>Pregame evidence capture — snapshot coverage per game, provider and milestone</summary>
+        {demo ? <p className="pulse-health-meta">Capture coverage is read from the live database only; no demo data is substituted.</p>
+              : <PregameCaptureCoverage slateDate={slateDate} open={captureOpen} />}
+      </details>
       <p className="pulse-health-meta">
         Next scheduled discovery: {fmt(data.next_discovery_at)} · Public display: {data.public_display_enabled ? 'enabled' : 'gated (LOCAL_PRIVATE_RESEARCH)'} ·
         Public reads make no provider call.
@@ -484,7 +491,7 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
         </ul>
       </Panel>
 
-      <AuditDetail data={data} rows={rows} />
+      <AuditDetail data={data} rows={rows} slateDate={slateDate} demo={demo} />
 
       <p className="page-footnote">
         Prices are official-API observations. A missing value is shown as “—”, “No consensus”, or an honest status — never a

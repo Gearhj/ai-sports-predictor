@@ -1368,3 +1368,27 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 @media (max-width: 1240px) { .pulse-evidence-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .pulse-evidence-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pulse-matrix__label { display: none; } }
 @media (max-width: 470px) { .pulse-evidence-grid { grid-template-columns: 1fr 1fr; } }
+
+/* Pregame evidence capture matrix (capture certification audit) */
+.pulse-capture__section { margin-top: 12px; }
+.pulse-capture__table th[scope='colgroup'] { text-align: center; border-bottom: 1px solid var(--line); }
+.pulse-capture__btn { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.pulse-capture__btn:hover, .pulse-capture__btn:focus-visible { border-color: var(--line); background: rgba(15, 107, 102, 0.06); }
+.pulse-capture__btn.is-active { border-color: currentColor; }
+.pulse-capture__cell--captured { color: #0f6b66; }
+.pulse-capture__cell--notdue { color: #5f6f80; }
+.pulse-capture__cell--noliquidity { color: #8a6412; }
+.pulse-capture__cell--notopen { color: #2a6f99; }
+.pulse-capture__cell--unavailable { color: #8a6412; }
+.pulse-capture__cell--missed { color: var(--red); }
+.pulse-capture__cell--failed { color: var(--red); }
+.pulse-capture__cell--nomapping { color: #8a98a7; }
+.pulse-capture__cell--ineligible { color: #5f6f80; }
+.pulse-capture__cell--na { color: #8a98a7; }
+.pulse-capture__sum th, .pulse-capture__sum td { font-weight: 700; border-top: 1px solid var(--line); }
+.pulse-capture__detail { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.pulse-capture__dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; }
+.pulse-capture__dl dt { color: #5f6f80; }
+.pulse-capture__dl dd { margin: 0; }
+.pulse-capture__warn { color: var(--red); font-weight: 700; }
+.pulse-capture__legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }

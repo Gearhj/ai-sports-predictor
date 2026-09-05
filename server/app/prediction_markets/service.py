@@ -214,6 +214,43 @@ class PredictionMarketObserver:
         source = "TEMPLATE" if verdict.status == SemanticsStatus.SEMANTICS_MATCHED else "AUTO"
         return verdict.status, f"{verdict.reason} [{verdict.authority}]", source
 
+    def mark_contract_terminal(self, contract: PredictionMarketContract, *, reason: str, now: datetime | None = None) -> PredictionMarketContract | None:
+        """Append a new contract version with market_status="closed" so the
+        refresh loop stops requesting a book the provider no longer serves
+        (HTTP 404 on a resolved / delisted market). Never edits the prior
+        version; idempotent by content checksum. Persisted observations are
+        untouched — the final valid pregame evidence stays selectable."""
+        checksum = sha256_payload({
+            "mt": contract.market_type, "sel": contract.selection, "line": contract.line_value,
+            "q": contract.market_question, "rules": contract.rules_sha256, "label": contract.outcome_label,
+            "close": contract.market_close_at.isoformat() if contract.market_close_at else None,
+            "status": "closed", "terminal_reason": reason,
+        })
+        if self._exists(PredictionMarketContract, provider=contract.provider, provider_market_id=contract.provider_market_id,
+                        provider_outcome_id=contract.provider_outcome_id, content_checksum=checksum):
+            return None
+        prior_version = self.session.scalar(select(PredictionMarketContract.version).where(
+            PredictionMarketContract.provider == contract.provider,
+            PredictionMarketContract.provider_market_id == contract.provider_market_id,
+            PredictionMarketContract.provider_outcome_id == contract.provider_outcome_id,
+        ).order_by(PredictionMarketContract.version.desc())) or 0
+        row = PredictionMarketContract(
+            provider=contract.provider, provider_event_id=contract.provider_event_id, provider_market_id=contract.provider_market_id,
+            provider_outcome_id=contract.provider_outcome_id, sport=contract.sport, league=contract.league,
+            market_type=contract.market_type, selection=contract.selection, line_value=contract.line_value,
+            outcome_label=contract.outcome_label, provider_home_team=contract.provider_home_team,
+            provider_away_team=contract.provider_away_team, scheduled_start_at=contract.scheduled_start_at,
+            provider_game_start_at=contract.provider_game_start_at, market_question=contract.market_question,
+            market_subtitle=contract.market_subtitle, resolution_rules=contract.resolution_rules,
+            rules_sha256=contract.rules_sha256, market_close_at=contract.market_close_at or (now or datetime.now(UTC)),
+            settlement_source=contract.settlement_source, market_status="closed",
+            line_source=contract.line_source, version=int(prior_version) + 1,
+            content_checksum=checksum, adapter_version=ADAPTER_VERSION, ingestion_run_id=contract.ingestion_run_id,
+        )
+        self.session.add(row)
+        self.session.commit()
+        return row
+
     @staticmethod
     def _canonical_selection(dto: ProviderContractDTO, home_is_yes: bool | None) -> CanonicalSelection:
         # Kalshi single-sided YES markets default to HOME at discovery; flip to

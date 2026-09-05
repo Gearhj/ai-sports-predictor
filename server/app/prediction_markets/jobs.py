@@ -225,6 +225,11 @@ class PredictionMarketJobs:
         persist_errors: list[str] = []
         per_provider: dict[str, dict[str, int]] = {"POLYMARKET": {"requests": 0, "snapshots": 0, "errors": 0},
                                                    "KALSHI": {"requests": 0, "snapshots": 0, "errors": 0}}
+        # Honest response accounting: every attempted request lands in exactly one bucket.
+        status_distribution: dict[str, int] = {"2xx": 0, "404": 0, "429": 0, "5xx": 0, "timeout": 0, "other": 0}
+        terminalized: list[str] = []
+        skipped_final_games = 0
+        final_games = self._final_game_events()
         # Kalshi: one public events listing per league answers every mapped
         # market's top of book (no credentials, no per-market request).
         kalshi_contracts = [c for c in contracts if c.provider == "KALSHI"]
@@ -249,16 +254,34 @@ class PredictionMarketJobs:
                 continue
             if used >= budget:
                 break
+            if (contract.provider, contract.provider_event_id) in final_games:
+                # The canonical game is FINAL: no observation can be pregame and the
+                # last valid pregame evidence is already secured. Terminalize instead
+                # of requesting a book that can only be in-play/closed.
+                skipped_final_games += 1
+                if self.observer.mark_contract_terminal(contract, reason="canonical game FINAL") is not None:
+                    terminalized.append(contract.provider_market_id)
+                continue
             try:
                 quote = await self._fetch_quote(contract)
                 used += 1
+                status_distribution["2xx"] += 1
                 per_provider.setdefault(contract.provider, {"requests": 0, "snapshots": 0, "errors": 0})["requests"] += 1
                 if quote is not None and self.observer.record_snapshot(contract=contract, quote=quote) is not None:
                     snapshots += 1
                     per_provider[contract.provider]["snapshots"] += 1
-            except SourceError:
+            except SourceError as exc:
                 errors += 1
+                used += 1
+                code = exc.status_code
+                bucket = "404" if code == 404 else "429" if code == 429 else "5xx" if code and code >= 500 else "timeout" if "Timeout" in str(exc) else "other"
+                status_distribution[bucket] += 1
                 per_provider.setdefault(contract.provider, {"requests": 0, "snapshots": 0, "errors": 0})["errors"] += 1
+                if code == 404:
+                    # A closed / delisted market: terminalize (append-only) so the
+                    # next cycle does not retry it; persisted evidence is untouched.
+                    if self.observer.mark_contract_terminal(contract, reason="provider returned HTTP 404 for the market book") is not None:
+                        terminalized.append(contract.provider_market_id)
             except Exception as exc:  # one bad row must not abort the audited run
                 self.session.rollback()
                 errors += 1
@@ -267,9 +290,31 @@ class PredictionMarketJobs:
         self._record_run("PREDICTION_MARKET", "refresh-prediction-market-snapshots", status=RunStatus.SUCCEEDED,
                          count=snapshots, meta={"contracts": len(contracts), "requests": used, "errors": errors,
                                                 "persist_errors": persist_errors, "skipped": {},
-                                                "per_provider": per_provider, "credentials_used": False})
+                                                "per_provider": per_provider, "credentials_used": False,
+                                                "status_distribution": status_distribution,
+                                                "terminalized": terminalized[:50], "terminalized_count": len(terminalized),
+                                                "skipped_final_games": skipped_final_games})
         return {"records": snapshots, "contracts": len(contracts), "requests": used, "errors": errors,
-                "skipped": {}, "per_provider": per_provider}
+                "skipped": {}, "per_provider": per_provider, "status_distribution": status_distribution,
+                "terminalized": len(terminalized), "skipped_final_games": skipped_final_games}
+
+    def _final_game_events(self) -> set[tuple[str, str]]:
+        """(provider, event) pairs whose accepted-mapped canonical game is FINAL."""
+        from app.models import GameStatus
+
+        rows = self.session.execute(select(
+            PredictionMarketMapping.provider, PredictionMarketMapping.provider_event_id,
+            PredictionMarketMapping.canonical_game_id, PredictionMarketMapping.mapping_status,
+            PredictionMarketMapping.decided_at,
+        ).order_by(PredictionMarketMapping.decided_at.desc())).all()
+        latest: dict[tuple[str, str], tuple[Any, str]] = {}
+        for provider, event_id, gid, status, _ in rows:
+            latest.setdefault((provider, event_id), (gid, status))
+        game_ids = {gid for gid, st in latest.values() if gid is not None and st in {"EXACT", "MANUAL_APPROVED"}}
+        if not game_ids:
+            return set()
+        final_ids = set(self.session.scalars(select(Game.id).where(Game.id.in_(game_ids), Game.status == GameStatus.FINAL)))
+        return {k for k, (gid, st) in latest.items() if gid in final_ids and st in {"EXACT", "MANUAL_APPROVED"}}
 
     async def _fetch_quote(self, contract: PredictionMarketContract) -> ProviderQuoteDTO | None:
         if contract.provider == "POLYMARKET":

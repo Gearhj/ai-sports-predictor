@@ -332,3 +332,57 @@ class PredictionMarketHealthSummary(BaseModel):
     stale_markets: int = 0
     total_contracts: int = 0
     total_snapshots: int = 0
+
+
+# -- Pregame snapshot coverage (capture certification audit) -------------------
+
+class PregameCaptureCell(BaseModel):
+    """One disjoint classification for a (game, provider, milestone)."""
+
+    milestone: str
+    # CAPTURED | NOT_DUE | NO_LIQUIDITY | MARKET_NOT_OPEN | PROVIDER_UNAVAILABLE | MISSED_SCHEDULER_RUN |
+    # FAILED_PROVIDER_CALL | MAPPING_UNAVAILABLE | STRUCTURALLY_INELIGIBLE | NOT_APPLICABLE
+    state: str
+    reason: str = ""
+    snapshot_id: str | None = None
+    observed_at: datetime | None = None
+    received_at: datetime | None = None
+    timeline_cut: str | None = None
+    midpoint: float | None = None
+    best_bid: float | None = None
+    best_ask: float | None = None
+    seconds_before_start: int | None = None
+    observed_before_start: bool | None = None
+    late_ingestion: bool | None = None
+
+
+class PregameCaptureProvider(BaseModel):
+    mapping_status: str | None = None
+    provider_event_id: str | None = None
+    cells: list[PregameCaptureCell] = []
+
+
+class PregameCaptureRow(BaseModel):
+    game_id: str
+    label: str
+    home: str
+    away: str
+    starts_at: datetime | None = None
+    game_status: str
+    doubleheader_status: str | None = None
+    providers: dict[str, PregameCaptureProvider] = {}
+
+
+class PregameCaptureCoverage(BaseModel):
+    date: date
+    generated_at: datetime
+    milestones: list[str] = []
+    providers: list[str] = []
+    states: list[str] = []
+    canonical_games: int = 0
+    rows: list[PregameCaptureRow] = []
+    # counts[provider][milestone][state]; totals[provider][milestone] == canonical_games
+    counts: dict[str, dict[str, dict[str, int]]] = {}
+    totals: dict[str, dict[str, int]] = {}
+    capture_cadence_minutes: int = 5
+    disclosure: str = ""

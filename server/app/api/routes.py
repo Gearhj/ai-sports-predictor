@@ -445,6 +445,19 @@ def prediction_market_health(session: DatabaseSession, settings: AppSettings):
     return PredictionMarketReadService(session, settings).health_summary()
 
 
+@router.get("/prediction-markets/capture-coverage", tags=["prediction-markets"])
+def prediction_market_capture_coverage(
+    session: DatabaseSession, settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+):
+    """Pregame snapshot coverage matrix: one disjoint state per (game, provider,
+    milestone) from persisted observations and scheduler runs. Read-only; zero
+    provider calls; a future milestone is NOT_DUE, never missed."""
+    from app.prediction_markets.capture_coverage import PregameCaptureCoverageService
+
+    return PregameCaptureCoverageService(session, settings).coverage(_today(event_date, settings))
+
+
 @router.get("/prediction-markets/semantic-templates", tags=["prediction-markets"])
 def prediction_market_semantic_templates(session: DatabaseSession, settings: AppSettings) -> dict:
     """Inspectable review packet: one versioned template per provider contract

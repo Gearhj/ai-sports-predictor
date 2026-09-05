@@ -12,6 +12,7 @@ import type {
   MarketBoardData,
   MarketPulseBoard,
   MarketPulseGameDetail,
+  PregameCaptureCoverage,
   PerformanceData,
   QualificationFunnel,
   ProspectiveRescoreBoard,
@@ -138,6 +139,8 @@ export const endpoints = {
     if (sport) query.set('sport', sport)
     return apiRequest<MarketPulseBoard>(`/prediction-markets/board?${query.toString()}`, {}, signal)
   },
+  marketPulseCaptureCoverage: (slateDate: string, signal?: AbortSignal) =>
+    apiRequest<PregameCaptureCoverage>(`/prediction-markets/capture-coverage?date=${encodeURIComponent(slateDate)}`, {}, signal),
   marketPulseGame: (gameId: string, signal?: AbortSignal) =>
     apiRequest<MarketPulseGameDetail>(`/prediction-markets/games/${encodeURIComponent(gameId)}`, {}, signal),
   qualificationFunnel: (date: string, signal?: AbortSignal, policy?: 'v1' | 'v2' | null) => {
