@@ -37,17 +37,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # /readyz is the unauthenticated readiness probe: it reports 200 only when
+    # the database is reachable and the scheduler owner is alive, and 503
+    # otherwise. /api/v1/health is admin-gated and answers 401 to an
+    # unauthenticated probe, so using it here left the container permanently
+    # unhealthy and blocked `client` on its `service_healthy` dependency.
     healthcheck:
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).status == 200 else 1)",
         ]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 30s
     restart: unless-stopped
 
   client:
