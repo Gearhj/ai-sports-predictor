@@ -48,6 +48,7 @@ from app.services.auth_service import (
     revoke_user_tokens,
 )
 from app.services.read_service import ReadService
+from app.services.simulation_replay_service import replay_official_simulation
 from app.services.historical_research_read_service import HistoricalResearchReadService
 
 
@@ -175,6 +176,24 @@ def game_analysis(game_id: UUID, session: DatabaseSession, settings: AppSettings
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
     return result
+
+
+@router.get("/games/{game_id}/simulation", tags=["forecasts"])
+def game_simulation(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Read-only Monte Carlo evidence for one game's official forecast.
+
+    Deterministically replays the official simulation from the inputs the
+    forecast already persists and verifies the replay against the stored
+    aggregates. Performs no write, no provider call and no forecast mutation.
+    """
+
+    payload = replay_official_simulation(session, game_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast exists for this game",
+        )
+    return payload
 
 
 @router.get("/markets/board", response_model=MarketBoardData, tags=["markets"])

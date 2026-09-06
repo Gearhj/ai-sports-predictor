@@ -1,3 +1,4 @@
+import type { GameSimulationData } from '../types/simulation'
 import type {
   AuthResponse,
   AuthUser,
@@ -95,6 +96,8 @@ export const endpoints = {
   sportsRegistry: (signal?: AbortSignal) => apiRequest<SportRegistryResponse>('/sports/registry', {}, signal),
   dashboard: (signal?: AbortSignal) => apiRequest<DashboardData>('/dashboard/today', {}, signal),
   game: (id: string, signal?: AbortSignal) => apiRequest<GameAnalysisData>(`/games/${encodeURIComponent(id)}`, {}, signal),
+  gameSimulation: (id: string, signal?: AbortSignal) =>
+    apiRequest<GameSimulationData>(`/games/${encodeURIComponent(id)}/simulation`, {}, signal),
   markets: (signal?: AbortSignal) => apiRequest<MarketBoardData>('/markets/board', {}, signal),
   performance: (signal?: AbortSignal) => apiRequest<PerformanceData>('/performance', {}, signal),
   history: (signal?: AbortSignal) => apiRequest<HistoricalResearchData>('/research/history', {}, signal),

@@ -11,6 +11,7 @@ const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ def
 const MultiSportTodayPage = lazy(() => import('./pages/MultiSportTodayPage').then((module) => ({ default: module.MultiSportTodayPage })))
 const HistoricalResearchPage = lazy(() => import('./pages/HistoricalResearchPage').then((module) => ({ default: module.HistoricalResearchPage })))
 const GameAnalysisPage = lazy(() => import('./pages/GameAnalysisPage').then((module) => ({ default: module.GameAnalysisPage })))
+const GameSimulationPage = lazy(() => import('./pages/GameSimulationPage').then((module) => ({ default: module.GameSimulationPage })))
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
 const PerformancePage = lazy(() => import('./pages/PerformancePage').then((module) => ({ default: module.PerformancePage })))
 const BankrollPage = lazy(() => import('./pages/BankrollPage').then((module) => ({ default: module.BankrollPage })))
@@ -47,6 +48,7 @@ export default function App() {
                   <Route path="mlb" element={<TodayPage />} />
                   <Route path="research/history" element={<HistoricalResearchPage />} />
                   <Route path="games/:gameId" element={<GameAnalysisPage />} />
+                  <Route path="games/:gameId/simulation" element={<GameSimulationPage />} />
                   <Route path="markets" element={<MarketBoardPage />} />
                   <Route path="performance" element={<PerformancePage />} />
                   <Route path="shadow-board" element={<ShadowBoardPage />} />
