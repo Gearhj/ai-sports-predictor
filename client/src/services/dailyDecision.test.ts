@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cutoffPassed,
+  distinctGameCount,
   deriveDecision,
   edgeDisplay,
   fairAmericanOdds,
@@ -123,8 +124,9 @@ describe('grouping: ready and final', () => {
       position_status: 'SETTLED',
       position_result: 'WIN',
     }), NOW)
-    expect(result.group).toBe('FINAL')
-    expect(result.status).toMatch(/settled — won/)
+    expect(result.group).toBe('CLOSED')
+    expect(result.reasonCode).toBe('CLOSED_POSITION_SETTLED')
+    expect(result.status).toBe('Final — virtual position settled, won')
   })
 
   it('reports a completed game awaiting settlement', () => {
@@ -134,13 +136,14 @@ describe('grouping: ready and final', () => {
       official_position_id: 'pos-1',
       event_status: 'FINAL',
     }), NOW)
-    expect(result.group).toBe('FINAL')
-    expect(result.reasonCode).toBe('FINAL_AWAITING_SETTLEMENT')
+    expect(result.group).toBe('CLOSED')
+    expect(result.reasonCode).toBe('CLOSED_FINAL_SETTLEMENT_PENDING')
   })
 
-  it('groups a postponed game as final rather than watching', () => {
+  it('groups a postponed game as closed rather than watching', () => {
     const result = deriveDecision(selection({ event_status: 'POSTPONED' }), NOW)
-    expect(result.group).toBe('FINAL')
+    expect(result.group).toBe('CLOSED')
+    expect(result.reasonCode).toBe('CLOSED_POSTPONED')
     expect(result.checkpoint).toBeNull()
   })
 })
@@ -250,23 +253,23 @@ describe('gate language', () => {
 
 describe('slate message', () => {
   it('states a zero-position day honestly', () => {
-    expect(slateMessage({ READY: 0, WATCHING: 11, PASSED: 0, FINAL: 0 }))
-      .toBe('No qualified positions yet. 11 games are still under review.')
+    expect(slateMessage({ READY: 0, WATCHING: 11, PASSED: 0, CLOSED: 0 }))
+      .toBe('No qualified decisions yet. 11 decisions are still under review.')
   })
 
   it('reports ready positions without implying profit', () => {
-    const message = slateMessage({ READY: 2, WATCHING: 3, PASSED: 0, FINAL: 0 })
-    expect(message).toBe('2 qualified positions are ready. 3 games remain under review.')
+    const message = slateMessage({ READY: 2, WATCHING: 3, PASSED: 0, CLOSED: 0 }, 2)
+    expect(message).toBe('2 virtual positions are ready. 3 decisions remain under review.')
     expect(message).not.toMatch(/profit|win|edge|lock|value/i)
   })
 
   it('describes a completed slate', () => {
-    expect(slateMessage({ READY: 0, WATCHING: 0, PASSED: 13, FINAL: 2 }))
-      .toBe('Today’s slate is complete: 2 games are complete and 13 games passed.')
+    expect(slateMessage({ READY: 0, WATCHING: 0, PASSED: 13, CLOSED: 2 }))
+      .toBe('Nothing is left to decide today: 2 decisions are closed and 13 decisions passed.')
   })
 
   it('reports an empty slate without inventing games', () => {
-    expect(slateMessage({ READY: 0, WATCHING: 0, PASSED: 0, FINAL: 0 }))
+    expect(slateMessage({ READY: 0, WATCHING: 0, PASSED: 0, CLOSED: 0 }))
       .toBe('No governed slate is persisted for this date.')
   })
 })
@@ -283,6 +286,130 @@ describe('groupSelections', () => {
     expect(grouped.READY).toHaveLength(1)
     expect(grouped.WATCHING).toHaveLength(1)
     expect(grouped.PASSED).toHaveLength(1)
-    expect(grouped.FINAL).toHaveLength(1)
+    expect(grouped.CLOSED).toHaveLength(1)
+  })
+})
+
+describe('in-progress games are never actionable', () => {
+  const live = (overrides = {}) => selection({ event_status: 'LIVE', ...overrides })
+
+  it('overrides READY once the game has started', () => {
+    const result = deriveDecision(live({
+      decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION',
+      official_position_id: 'pos-1', virtual_stake: 25,
+    }), NOW)
+    expect(result.group).toBe('CLOSED')
+    expect(result.reasonCode).toBe('CLOSED_IN_PROGRESS')
+    expect(result.status).toBe('In progress — pregame decision window closed')
+    expect(result.detail).toMatch(/open and will settle/i)
+  })
+
+  it('overrides WATCHING so a live game never awaits more pregame evidence', () => {
+    const result = deriveDecision(live({
+      decision_state: 'AWAITING_FINAL_EVIDENCE', outstanding_gates: ['LINEUP_NOT_CONFIRMED'],
+    }), NOW)
+    expect(result.group).toBe('CLOSED')
+    expect(result.reasonCode).toBe('CLOSED_IN_PROGRESS')
+    expect(result.status).not.toMatch(/waiting|lineup/i)
+  })
+
+  it('overrides PASSED presentation for a live game', () => {
+    expect(deriveDecision(live({ decision_state: 'FINAL_NO_BET' }), NOW).group).toBe('CLOSED')
+  })
+
+  it('never leaves a live game with a pregame countdown', () => {
+    const result = deriveDecision(live({
+      next_scheduled_refresh_at: '2026-09-06T23:00:00Z',
+      final_decision_cutoff: '2026-09-06T23:30:00Z',
+    }), NOW)
+    expect(result.checkpoint).toBeNull()
+  })
+
+  it('accepts the other persisted in-progress spellings', () => {
+    for (const status of ['LIVE', 'IN_PROGRESS', 'STARTED']) {
+      expect(deriveDecision(live({ event_status: status }), NOW).reasonCode).toBe('CLOSED_IN_PROGRESS')
+    }
+  })
+
+  it('lets a settled position still outrank in-progress', () => {
+    const result = deriveDecision(live({ position_status: 'SETTLED', position_result: 'LOSS' }), NOW)
+    expect(result.reasonCode).toBe('CLOSED_POSITION_SETTLED')
+  })
+})
+
+describe('closed-group card distinctions stay separate', () => {
+  const cases: Array<[string, Partial<NormalizedSelection>, string, RegExp]> = [
+    ['final with a settled position', { event_status: 'FINAL', position_status: 'SETTLED', position_result: 'WIN', official_position_id: 'p' }, 'CLOSED_POSITION_SETTLED', /settled, won/],
+    ['final with a position not yet settled', { event_status: 'FINAL', official_position_id: 'p' }, 'CLOSED_FINAL_SETTLEMENT_PENDING', /settlement pending/],
+    ['final with no position', { event_status: 'FINAL' }, 'CLOSED_FINAL_NO_POSITION', /no position was taken/],
+    ['in progress', { event_status: 'LIVE' }, 'CLOSED_IN_PROGRESS', /in progress/i],
+    ['postponed', { event_status: 'POSTPONED' }, 'CLOSED_POSTPONED', /^Postponed$/],
+    ['canceled', { event_status: 'CANCELED' }, 'CLOSED_CANCELED', /^Canceled$/],
+    ['voided position', { position_status: 'VOID', official_position_id: 'p' }, 'CLOSED_POSITION_VOID', /voided/],
+  ]
+
+  it.each(cases)('%s keeps its own reason and wording', (_name, overrides, reason, wording) => {
+    const result = deriveDecision(selection(overrides), NOW)
+    expect(result.group).toBe('CLOSED')
+    expect(result.reasonCode).toBe(reason)
+    expect(result.status).toMatch(wording)
+  })
+
+  it('never calls a postponed or canceled game final or settled', () => {
+    for (const status of ['POSTPONED', 'CANCELED']) {
+      const result = deriveDecision(selection({ event_status: status, official_position_id: 'p' }), NOW)
+      expect(result.status).not.toMatch(/final|settled/i)
+      expect(result.detail).toMatch(/has not been settled/i)
+    }
+  })
+
+  it('produces a distinct reason code for every closed situation', () => {
+    const codes = cases.map(([, overrides]) => deriveDecision(selection(overrides), NOW).reasonCode)
+    expect(new Set(codes).size).toBe(cases.length)
+  })
+})
+
+describe('counting unit: one decision per game per policy', () => {
+  const gameA1 = selection({ event_id: 'game-a', policy_version: 'V1', decision_state: 'FINAL_NO_BET' })
+  const gameA2 = selection({ event_id: 'game-a', policy_version: 'V2', decision_state: 'AWAITING_FINAL_EVIDENCE' })
+  const gameB = selection({ event_id: 'game-b', policy_version: 'V1', decision_state: 'AWAITING_FINAL_EVIDENCE' })
+
+  it('groups two policies on one game independently', () => {
+    const grouped = groupSelections([gameA1, gameA2, gameB], NOW)
+    expect(grouped.PASSED).toHaveLength(1)
+    expect(grouped.WATCHING).toHaveLength(2)
+  })
+
+  it('counts decisions, not games, so the groups sum to the decision total', () => {
+    const items = [gameA1, gameA2, gameB]
+    const grouped = groupSelections(items, NOW)
+    const total = grouped.READY.length + grouped.WATCHING.length + grouped.PASSED.length + grouped.CLOSED.length
+    expect(total).toBe(items.length)
+    expect(total).toBeGreaterThan(distinctGameCount(items.map((s) => ({ selection: s }))))
+  })
+
+  it('reports distinct games separately from decisions', () => {
+    expect(distinctGameCount([gameA1, gameA2, gameB].map((s) => ({ selection: s })))).toBe(2)
+  })
+
+  it('deduplicates games within a single group', () => {
+    const both = [
+      selection({ event_id: 'game-a', policy_version: 'V1', decision_state: 'FINAL_NO_BET' }),
+      selection({ event_id: 'game-a', policy_version: 'V2', decision_state: 'PASS' }),
+    ]
+    const grouped = groupSelections(both, NOW)
+    expect(grouped.PASSED).toHaveLength(2)
+    expect(distinctGameCount(grouped.PASSED)).toBe(1)
+  })
+
+  it('lets one game appear in two groups when its policies disagree', () => {
+    const grouped = groupSelections([
+      selection({ event_id: 'game-a', policy_version: 'V1', decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION', official_position_id: 'p1' }),
+      selection({ event_id: 'game-a', policy_version: 'V2', decision_state: 'FINAL_NO_BET' }),
+    ], NOW)
+    expect(grouped.READY).toHaveLength(1)
+    expect(grouped.PASSED).toHaveLength(1)
+    expect(distinctGameCount(grouped.READY)).toBe(1)
+    expect(distinctGameCount(grouped.PASSED)).toBe(1)
   })
 })

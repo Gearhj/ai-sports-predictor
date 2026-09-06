@@ -22,6 +22,7 @@ import {
 } from '../hooks/useSportRegistry'
 import { endpoints } from '../services/api'
 import {
+  distinctGameCount,
   GROUP_ORDER,
   groupSelections,
   slateMessage,
@@ -54,10 +55,14 @@ const GROUP_META: Record<DecisionGroup, { title: string; blurb: string; empty: s
     blurb: 'Evaluated with sufficient evidence, but did not qualify under the policy.',
     empty: 'No game has been evaluated and passed today.',
   },
-  FINAL: {
-    title: 'Final and settled',
-    blurb: 'The game finished or the virtual position was settled.',
-    empty: 'No game has finished yet today.',
+  // Deliberately not "Final and settled": this group also holds in-progress,
+  // postponed and canceled games, which are neither final games nor settled
+  // wagers. The umbrella states only what every member shares — no pregame
+  // decision is possible any more — and each card names its own situation.
+  CLOSED: {
+    title: 'Closed for decisions',
+    blurb: 'The pregame window has closed: in progress, final, postponed, canceled, or settled.',
+    empty: 'No game has closed for decisions yet today.',
   },
 }
 
@@ -119,13 +124,19 @@ export function MultiSportTodayPage() {
 
   const leagueOrder = registry.sports.map((sport) => sport.league_code)
   const navigationByLeague = new Map(navigableSports.map((sport) => [sport.league_code, sportNavigationHref(sport)]))
+  // A game with two active policies produces two governed decisions that may
+  // legitimately disagree, so the groups count DECISIONS. The game total is
+  // shown separately and never inside the same row, because four tiles that
+  // look like a partition of 15 games but sum to 24 is simply wrong.
   const gameCount = new Set(selections.map((item) => item.event_id)).size
   const counts = {
     READY: grouped.READY.length,
     WATCHING: grouped.WATCHING.length,
     PASSED: grouped.PASSED.length,
-    FINAL: grouped.FINAL.length,
+    CLOSED: grouped.CLOSED.length,
   }
+  const decisionCount = counts.READY + counts.WATCHING + counts.PASSED + counts.CLOSED
+  const readyFunded = grouped.READY.filter((item) => item.decision.reasonCode === 'READY_FUNDED').length
   const checkpoint = slateNextCheckpoint(grouped.WATCHING)
   const policy = dominantPolicy(selections)
 
@@ -148,9 +159,13 @@ export function MultiSportTodayPage() {
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
       <section className="daily-summary" aria-label="Daily summary">
-        <p className="daily-summary__message">{slateMessage(counts)}</p>
-        <div className="daily-summary__counts">
-          <SummaryCount label="Games" value={gameCount} />
+        <p className="daily-summary__message">{slateMessage(counts, readyFunded)}</p>
+        <p className="daily-summary__scope">
+          <strong>{gameCount}</strong> {gameCount === 1 ? 'game' : 'games'} today
+          {' · '}
+          <strong>{decisionCount}</strong> governed {decisionCount === 1 ? 'decision' : 'decisions'}
+        </p>
+        <div className="daily-summary__counts" role="group" aria-label={`Breakdown of ${decisionCount} governed decisions`}>
           {GROUP_ORDER.map((group) => (
             <SummaryCount key={group} label={GROUP_META[group].title} value={counts[group]} tone={group} />
           ))}
@@ -177,9 +192,11 @@ export function MultiSportTodayPage() {
             <dd>${data.overall_summary.total_virtual_stake.toFixed(2)} <small>· virtual only</small></dd>
           </div>
         </dl>
-        {counts.READY + counts.WATCHING + counts.PASSED + counts.FINAL > gameCount && (
+        {decisionCount > gameCount && (
           <p className="daily-summary__footnote">
-            Some games carry more than one governed policy, so decisions outnumber games.
+            These four counts break down {decisionCount} governed decisions, not{' '}
+            {gameCount} {gameCount === 1 ? 'game' : 'games'}: some games carry more than one
+            active policy.
           </p>
         )}
       </section>
@@ -242,6 +259,7 @@ function DecisionGroupSection({ group, items, leagueOrder, sections, now }: {
   now: number
 }) {
   const meta = GROUP_META[group]
+  const games = distinctGameCount(items)
   const headingId = `group-${group.toLowerCase()}`
   const orderedLeagues = [...leagueOrder]
   items.forEach(({ selection }) => {
@@ -255,7 +273,7 @@ function DecisionGroupSection({ group, items, leagueOrder, sections, now }: {
   // page. Collapse them past a handful so they still answer "how many passed?"
   // at a glance without pushing the open decisions off the screen. <details>
   // keeps the content in the DOM and keyboard reachable.
-  const collapsible = (group === 'PASSED' || group === 'FINAL') && items.length > 6
+  const collapsible = (group === 'PASSED' || group === 'CLOSED') && items.length > 6
 
   const body = byLeague.length === 0
     ? <p className="multisport-empty" role="status">{meta.empty}</p>
@@ -265,7 +283,11 @@ function DecisionGroupSection({ group, items, leagueOrder, sections, now }: {
             <div className="decision-group__league" key={league}>
               <h3>
                 {definition?.display_name ?? league}
-                <span>{entries.length} {entries.length === 1 ? 'decision' : 'decisions'} · ranked only within {league}</span>
+                <span>
+                  {entries.length} {entries.length === 1 ? 'decision' : 'decisions'} ·{' '}
+                  {distinctGameCount(entries)} {distinctGameCount(entries) === 1 ? 'game' : 'games'} ·{' '}
+                  ranked only within {league}
+                </span>
               </h3>
               <div className="decision-card-grid">
                 {entries.map(({ selection, decision }) => (
@@ -287,7 +309,15 @@ function DecisionGroupSection({ group, items, leagueOrder, sections, now }: {
         <h2 id={headingId}>
           {meta.title} <span className="decision-group__count">{items.length}</span>
         </h2>
-        <p>{meta.blurb}</p>
+        <p>
+          {meta.blurb}
+          {items.length > 0 && (
+            <span className="decision-group__unit">
+              {' '}{items.length} {items.length === 1 ? 'decision' : 'decisions'} across{' '}
+              {games} {games === 1 ? 'game' : 'games'}.
+            </span>
+          )}
+        </p>
       </div>
       {collapsible
         ? (

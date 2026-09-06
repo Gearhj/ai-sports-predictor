@@ -4,6 +4,13 @@
  * Every function here is pure and takes `now` explicitly, so the grouping and
  * the countdowns are testable and never depend on a hidden clock.
  *
+ * COUNTING UNIT. One `NormalizedSelection` is one *governed decision*: the
+ * adapter emits one per (game x active experiment policy), so a single game
+ * with two active policies produces two decisions that may legitimately
+ * disagree. The four groups therefore partition decisions, never games, and
+ * the UI must say so — collapsing them to one row per game would hide a real
+ * disagreement between two governed policies.
+ *
  * The single rule behind all of it: this module *translates* persisted state,
  * it never infers authority. In particular it must keep four situations apart
  * that a naive "is there a position?" check would collapse into one:
@@ -18,7 +25,7 @@
  */
 import type { NormalizedSelection } from '../types/multisport'
 
-export type DecisionGroup = 'READY' | 'WATCHING' | 'PASSED' | 'FINAL'
+export type DecisionGroup = 'READY' | 'WATCHING' | 'PASSED' | 'CLOSED'
 
 export type DecisionReasonCode =
   | 'READY_FUNDED'
@@ -31,11 +38,15 @@ export type DecisionReasonCode =
   | 'WATCH_RESEARCH_ONLY'
   | 'PASSED_NO_QUALIFYING_EDGE'
   | 'PASSED_POLICY_REJECTION'
-  | 'FINAL_POSITION_SETTLED'
-  | 'FINAL_POSITION_VOID'
-  | 'FINAL_AWAITING_SETTLEMENT'
-  | 'FINAL_POSTPONED'
-  | 'FINAL_CANCELED'
+  // Closed-for-decisions reasons. These are deliberately NOT interchangeable:
+  // a postponed game is not a final game, and neither is a settled wager.
+  | 'CLOSED_POSITION_SETTLED'
+  | 'CLOSED_POSITION_VOID'
+  | 'CLOSED_FINAL_SETTLEMENT_PENDING'
+  | 'CLOSED_FINAL_NO_POSITION'
+  | 'CLOSED_IN_PROGRESS'
+  | 'CLOSED_POSTPONED'
+  | 'CLOSED_CANCELED'
 
 export interface DecisionCheckpoint {
   label: string
@@ -56,6 +67,8 @@ export interface DerivedDecision {
 const SETTLED_POSITION_STATES = new Set(['SETTLED'])
 const VOID_POSITION_STATES = new Set(['VOID'])
 const COMPLETED_EVENT_STATES = new Set(['FINAL', 'COMPLETED', 'CLOSED'])
+/** The event has started. No pregame decision can be taken or awaited. */
+const IN_PROGRESS_EVENT_STATES = new Set(['LIVE', 'IN_PROGRESS', 'INPROGRESS', 'STARTED'])
 
 function parse(at: string | null | undefined): number | null {
   if (!at) return null
@@ -138,56 +151,86 @@ export function humanizeGate(gate: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
-function final(
+function closed(
   reasonCode: DecisionReasonCode,
   status: string,
   detail: string | null,
 ): DerivedDecision {
-  return { group: 'FINAL', reasonCode, status, detail, checkpoint: null }
+  return { group: 'CLOSED', reasonCode, status, detail, checkpoint: null }
 }
 
 /**
- * Classifies one selection into a consumer group with a plain-language reason.
+ * Classifies one governed decision into a consumer group with plain language.
  *
- * Precedence is deliberate: completion outranks decision state, because a
- * settled position or a finished game is the last word regardless of what the
- * pregame decision was.
+ * Precedence, highest first — each step is a fact the later steps cannot
+ * override, and each keeps its own distinct wording:
+ *
+ *   1. position voided        (ledger)
+ *   2. position settled       (ledger)
+ *   3. postponed / canceled   (event)  — NOT a final game, NOT a settled wager
+ *   4. event final            (event)  — split by whether a position exists
+ *   5. event in progress      (event)  — the pregame window is closed by definition
+ *   6. final qualified decision         -> READY
+ *   7. final negative decision          -> PASSED
+ *   8. everything still open            -> WATCHING
+ *
+ * Steps 3-5 exist because a pregame decision cannot stay actionable once the
+ * event has started: presenting a live game as READY, or as awaiting further
+ * pregame evidence, would invite an action that is no longer possible.
  */
 export function deriveDecision(selection: NormalizedSelection, now: number): DerivedDecision {
   const checkpoint = nextCheckpoint(selection, now)
   const positionStatus = (selection.position_status ?? '').toUpperCase()
   const eventStatus = (selection.event_status ?? '').toUpperCase()
+  const hasPosition = Boolean(selection.official_position_id)
 
-  // 1. Completion, from persisted ledger/event state only.
   if (VOID_POSITION_STATES.has(positionStatus)) {
-    return final('FINAL_POSITION_VOID', 'Virtual position voided', 'The position was voided in the experiment ledger.')
+    return closed('CLOSED_POSITION_VOID', 'Virtual position voided', 'The position was voided in the experiment ledger.')
   }
   if (SETTLED_POSITION_STATES.has(positionStatus)) {
     const result = (selection.position_result ?? '').toUpperCase()
     const outcome = result === 'WIN' ? 'won' : result === 'LOSS' ? 'lost' : result === 'PUSH' ? 'pushed' : null
-    return final(
-      'FINAL_POSITION_SETTLED',
-      outcome ? `Virtual position settled — ${outcome}` : 'Virtual position settled',
+    return closed(
+      'CLOSED_POSITION_SETTLED',
+      outcome ? `Final — virtual position settled, ${outcome}` : 'Final — virtual position settled',
       'Recorded in the experiment ledger.',
     )
   }
   if (eventStatus === 'POSTPONED') {
-    return final('FINAL_POSTPONED', 'Game postponed', 'No decision is carried forward automatically.')
+    return closed(
+      'CLOSED_POSTPONED',
+      'Postponed',
+      hasPosition
+        ? 'The game was postponed. The virtual position has not been settled.'
+        : 'The game was postponed. No result is recorded.',
+    )
   }
   if (eventStatus === 'CANCELED' || eventStatus === 'CANCELLED') {
-    return final('FINAL_CANCELED', 'Game canceled', null)
+    return closed(
+      'CLOSED_CANCELED',
+      'Canceled',
+      hasPosition
+        ? 'The game was canceled. The virtual position has not been settled.'
+        : 'The game was canceled. No result is recorded.',
+    )
   }
   if (COMPLETED_EVENT_STATES.has(eventStatus)) {
-    return final(
-      'FINAL_AWAITING_SETTLEMENT',
-      selection.official_position_id ? 'Game completed; settlement pending' : 'Game completed',
-      selection.official_position_id ? 'The virtual position has not been settled yet.' : null,
+    return hasPosition
+      ? closed('CLOSED_FINAL_SETTLEMENT_PENDING', 'Final — settlement pending', 'The virtual position has not been settled yet.')
+      : closed('CLOSED_FINAL_NO_POSITION', 'Final — no position was taken', null)
+  }
+  if (IN_PROGRESS_EVENT_STATES.has(eventStatus)) {
+    return closed(
+      'CLOSED_IN_PROGRESS',
+      'In progress — pregame decision window closed',
+      hasPosition
+        ? 'A virtual position is open and will settle after the game.'
+        : 'No further pregame decision is possible for this game.',
     )
   }
 
-  // 2. A final positive decision.
   if (selection.decision_state === 'FINAL_QUALIFIED') {
-    if (selection.funding_state === 'OFFICIAL_VIRTUAL_POSITION' && selection.official_position_id) {
+    if (selection.funding_state === 'OFFICIAL_VIRTUAL_POSITION' && hasPosition) {
       return {
         group: 'READY',
         reasonCode: 'READY_FUNDED',
@@ -205,7 +248,6 @@ export function deriveDecision(selection: NormalizedSelection, now: number): Der
     }
   }
 
-  // 3. A final negative decision. Only these are a genuine "pass".
   if (selection.decision_state === 'FINAL_NO_BET') {
     return {
       group: 'PASSED',
@@ -225,7 +267,6 @@ export function deriveDecision(selection: NormalizedSelection, now: number): Der
     }
   }
 
-  // 4. Everything still open. None of these is a pass.
   if (selection.funding_state === 'MARKET_NOT_SUPPORTED') {
     return {
       group: 'WATCHING',
@@ -315,20 +356,20 @@ export function edgeDisplay(selection: NormalizedSelection): EdgeDisplay | null 
   }
 }
 
-export const GROUP_ORDER: DecisionGroup[] = ['READY', 'WATCHING', 'PASSED', 'FINAL']
+export const GROUP_ORDER: DecisionGroup[] = ['READY', 'WATCHING', 'PASSED', 'CLOSED']
 
 export interface GroupedGame {
   selection: NormalizedSelection
   decision: DerivedDecision
 }
 
-/** Groups selections, preserving each sport's own governed ordering. */
+/** Groups decisions, preserving each sport's own governed ordering. */
 export function groupSelections(
   selections: NormalizedSelection[],
   now: number,
 ): Record<DecisionGroup, GroupedGame[]> {
   const grouped: Record<DecisionGroup, GroupedGame[]> = {
-    READY: [], WATCHING: [], PASSED: [], FINAL: [],
+    READY: [], WATCHING: [], PASSED: [], CLOSED: [],
   }
   selections.forEach((selection) => {
     const decision = deriveDecision(selection, now)
@@ -337,8 +378,13 @@ export function groupSelections(
   return grouped
 }
 
+/** Distinct games represented by a set of decisions. */
+export function distinctGameCount(items: { selection: NormalizedSelection }[]): number {
+  return new Set(items.map((item) => item.selection.event_id)).size
+}
+
 /**
- * The soonest checkpoint across every watching game — the slate's own
+ * The soonest checkpoint across every watching decision — the slate's own
  * "next meaningful moment". Null when nothing is scheduled.
  */
 export function slateNextCheckpoint(
@@ -354,25 +400,34 @@ export function slateNextCheckpoint(
 }
 
 /**
- * The honest one-line slate message. Describes what the day actually is; it
- * never implies an edge, a profit, or a recommendation.
+ * The honest one-line slate message.
+ *
+ * It speaks in decisions, matching the group counts exactly, so the sentence
+ * and the tiles can never disagree. It never implies an edge, a profit, or a
+ * recommendation.
  */
-export function slateMessage(counts: Record<DecisionGroup, number>): string {
-  const { READY, WATCHING, PASSED, FINAL } = counts
-  const total = READY + WATCHING + PASSED + FINAL
+export function slateMessage(
+  counts: Record<DecisionGroup, number>,
+  readyFunded = 0,
+): string {
+  const { READY, WATCHING, PASSED, CLOSED } = counts
+  const total = READY + WATCHING + PASSED + CLOSED
   if (total === 0) return 'No governed slate is persisted for this date.'
 
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
-  if (READY === 0 && WATCHING === 0 && total > 0) {
+  if (READY === 0 && WATCHING === 0) {
     const parts: string[] = []
-    if (FINAL > 0) parts.push(`${plural(FINAL, 'game is', 'games are')} complete`)
-    if (PASSED > 0) parts.push(`${plural(PASSED, 'game', 'games')} passed`)
-    return `Today’s slate is complete: ${parts.join(' and ')}.`
+    if (CLOSED > 0) parts.push(`${plural(CLOSED, 'decision is', 'decisions are')} closed`)
+    if (PASSED > 0) parts.push(`${plural(PASSED, 'decision', 'decisions')} passed`)
+    return `Nothing is left to decide today: ${parts.join(' and ')}.`
   }
   if (READY === 0) {
-    return `No qualified positions yet. ${plural(WATCHING, 'game is', 'games are')} still under review.`
+    return `No qualified decisions yet. ${plural(WATCHING, 'decision is', 'decisions are')} still under review.`
   }
-  const tail = WATCHING > 0 ? ` ${plural(WATCHING, 'game remains', 'games remain')} under review.` : ''
-  return `${plural(READY, 'qualified position is', 'qualified positions are')} ready.${tail}`
+  const ready = readyFunded === READY
+    ? `${plural(READY, 'virtual position is', 'virtual positions are')} ready`
+    : `${plural(READY, 'qualified decision is', 'qualified decisions are')} ready`
+  const tail = WATCHING > 0 ? ` ${plural(WATCHING, 'decision remains', 'decisions remain')} under review.` : ''
+  return `${ready}.${tail}`
 }

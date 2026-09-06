@@ -23,7 +23,7 @@ const GROUP_TONE: Record<DecisionGroup, string> = {
   READY: 'ready',
   WATCHING: 'watching',
   PASSED: 'passed',
-  FINAL: 'final',
+  CLOSED: 'closed',
 }
 
 /** Groups whose games were genuinely evaluated, so a rank can't be mistaken for a tip. */

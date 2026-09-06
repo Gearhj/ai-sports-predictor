@@ -158,7 +158,7 @@ describe('Daily Command Center — grouping', () => {
     ]
     mount(model([mlbSection(watching)]))
 
-    expect(await screen.findByText(/No qualified positions yet\. 3 games are still under review\./)).toBeInTheDocument()
+    expect(await screen.findByText(/No qualified decisions yet\. 3 decisions are still under review\./)).toBeInTheDocument()
     expect(within(group('Ready')).getByText(/A zero-position day is valid/i)).toBeInTheDocument()
     expect(within(group('Watching')).getByText('TB @ TOR')).toBeInTheDocument()
   })
@@ -172,7 +172,7 @@ describe('Daily Command Center — grouping', () => {
     }
     mount(model([mlbSection([ready, baseSelection])]))
 
-    expect(await screen.findByText(/1 qualified position is ready\. 1 game remains under review\./)).toBeInTheDocument()
+    expect(await screen.findByText(/1 virtual position is ready\. 1 decision remains under review\./)).toBeInTheDocument()
     const readyGroup = group('Ready')
     expect(within(readyGroup).getByText('TOR @ BAL')).toBeInTheDocument()
     expect(within(readyGroup).getByText(/Qualified virtual position recorded before the cutoff/)).toBeInTheDocument()
@@ -232,10 +232,10 @@ describe('Daily Command Center — grouping', () => {
     }
     mount(model([mlbSection([settled])]))
 
-    const finalGroup = await screen.findByRole('heading', { name: /^Final and settled/ })
+    const closedGroup = await screen.findByRole('heading', { name: /^Closed for decisions/ })
       .then((heading) => heading.closest('section')!)
-    expect(within(finalGroup).getByText('HOU @ TEX')).toBeInTheDocument()
-    expect(within(finalGroup).getByText(/Virtual position settled — won/)).toBeInTheDocument()
+    expect(within(closedGroup).getByText('HOU @ TEX')).toBeInTheDocument()
+    expect(within(closedGroup).getByText('Final — virtual position settled, won')).toBeInTheDocument()
     expect(within(group('Ready')).queryByText('HOU @ TEX')).not.toBeInTheDocument()
   })
 
@@ -330,9 +330,11 @@ describe('Daily Command Center — preserved governance guarantees', () => {
     const v21 = { ...baseSelection, experiment_id: 'experiment-v2-1', experiment_name: 'V2.1 challenger', policy_version: 'AISP_V2_1' }
     mount(model([mlbSection([v1, v21])]))
 
-    expect(await screen.findByText(/2 decisions · ranked only within MLB/i)).toBeInTheDocument()
+    await screen.findAllByText('BOS @ NYY')
+    const leagueHeading = document.querySelector('.decision-group__league h3 span')!
+    expect(leagueHeading).toHaveTextContent('2 decisions · 1 game · ranked only within MLB')
     expect(screen.getAllByText('BOS @ NYY')).toHaveLength(2)
-    expect(screen.getByText(/decisions outnumber games/i)).toBeInTheDocument()
+    expect(screen.getByText(/break down 2 governed decisions, not 1 game/i)).toBeInTheDocument()
     expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/same key|encountered two children/i)
   })
 
@@ -350,6 +352,102 @@ describe('Daily Command Center — preserved governance guarantees', () => {
     expect(within(readyCard).getByText(/#1 in MLB/)).toBeInTheDocument()
     const watchingCard = screen.getByText('BOS @ NYY').closest('article')!
     expect(within(watchingCard).queryByText(/#2 in MLB/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Daily Command Center — count units and in-progress games', () => {
+  it('never presents four counts that look like a partition of the games', async () => {
+    const twoPolicies = [
+      { ...baseSelection, event_id: 'g1', policy_version: 'V1' },
+      { ...baseSelection, event_id: 'g1', policy_version: 'V2' },
+      { ...baseSelection, event_id: 'g2', policy_version: 'V1' },
+    ]
+    mount(model([mlbSection(twoPolicies)]))
+    await screen.findAllByText('BOS @ NYY')
+
+    // The tile row is labelled as a breakdown of decisions, and the scope line
+    // states games and decisions separately.
+    const tiles = screen.getByRole('group', { name: /Breakdown of 3 governed decisions/i })
+    const tileTotal = [...tiles.querySelectorAll('.summary-count__value')]
+      .reduce((sum, node) => sum + Number(node.textContent), 0)
+    expect(tileTotal).toBe(3)
+    expect(within(tiles).queryByText('Games')).not.toBeInTheDocument()
+    // The <strong> counts split the sentence into several text nodes, so assert
+    // on the element itself rather than on a single text node.
+    expect(document.querySelector('.daily-summary__scope'))
+      .toHaveTextContent('2 games today · 3 governed decisions')
+  })
+
+  it('states decisions and distinct games per group', async () => {
+    const twoPolicies = [
+      { ...baseSelection, event_id: 'g1', policy_version: 'V1' },
+      { ...baseSelection, event_id: 'g1', policy_version: 'V2' },
+    ]
+    mount(model([mlbSection(twoPolicies)]))
+    await screen.findAllByText('BOS @ NYY')
+    expect(screen.getByText(/2 decisions across 1 game\./)).toBeInTheDocument()
+  })
+
+  it('moves a live game out of Ready and Watching into Closed for decisions', async () => {
+    const liveReady: NormalizedSelection = {
+      ...baseSelection,
+      event_id: 'live-1', event_label: 'BOS @ NYY',
+      decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION',
+      official_position_id: 'pos-live', virtual_stake: 15, event_status: 'LIVE',
+      outstanding_gates: [],
+    }
+    const liveWatching: NormalizedSelection = {
+      ...baseSelection,
+      event_id: 'live-2', event_label: 'TB @ TOR', event_status: 'LIVE',
+    }
+    mount(model([mlbSection([liveReady, liveWatching])]))
+
+    const closed = await screen.findByRole('heading', { name: /^Closed for decisions/ })
+      .then((heading) => heading.closest('section')!)
+    expect(within(closed).getByText('BOS @ NYY')).toBeInTheDocument()
+    expect(within(closed).getByText('TB @ TOR')).toBeInTheDocument()
+    expect(within(closed).getAllByText('In progress — pregame decision window closed')).toHaveLength(2)
+
+    expect(within(group('Ready')).queryByText('BOS @ NYY')).not.toBeInTheDocument()
+    expect(within(group('Watching')).queryByText('TB @ TOR')).not.toBeInTheDocument()
+    expect(within(group('Watching')).queryByText(/Starting lineup/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps postponed and canceled games out of "final" and "settled" language', async () => {
+    const postponed: NormalizedSelection = {
+      ...baseSelection, event_id: 'pp', event_label: 'MIA @ NYM',
+      event_status: 'POSTPONED', official_position_id: 'pos-pp', outstanding_gates: [],
+    }
+    const canceled: NormalizedSelection = {
+      ...baseSelection, event_id: 'cc', event_label: 'SD @ SF',
+      event_status: 'CANCELED', outstanding_gates: [],
+    }
+    mount(model([mlbSection([postponed, canceled])]))
+
+    const closed = await screen.findByRole('heading', { name: /^Closed for decisions/ })
+      .then((heading) => heading.closest('section')!)
+    const postponedCard = within(closed).getByText('MIA @ NYM').closest('article')!
+    expect(postponedCard.querySelector('.decision-card__status')).toHaveTextContent('Postponed')
+    expect(postponedCard.querySelector('.decision-card__status')).not.toHaveTextContent(/final|settled/i)
+
+    const canceledCard = within(closed).getByText('SD @ SF').closest('article')!
+    expect(canceledCard.querySelector('.decision-card__status')).toHaveTextContent('Canceled')
+  })
+
+  it('distinguishes a final game with a position from one without', async () => {
+    const withPosition: NormalizedSelection = {
+      ...baseSelection, event_id: 'f1', event_label: 'HOU @ TEX',
+      event_status: 'FINAL', official_position_id: 'pos-f1', virtual_stake: 18, outstanding_gates: [],
+    }
+    const withoutPosition: NormalizedSelection = {
+      ...baseSelection, event_id: 'f2', event_label: 'CHC @ STL',
+      event_status: 'FINAL', official_position_id: null, outstanding_gates: [],
+    }
+    mount(model([mlbSection([withPosition, withoutPosition])]))
+
+    await screen.findByText('HOU @ TEX')
+    expect(screen.getByText('Final — settlement pending')).toBeInTheDocument()
+    expect(screen.getByText('Final — no position was taken')).toBeInTheDocument()
   })
 })
 
