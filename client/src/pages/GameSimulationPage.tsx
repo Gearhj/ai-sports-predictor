@@ -17,6 +17,7 @@ import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import {
+  OUTCOME_LABELS,
   centralScores,
   gameStory,
   modelMarketDifference,
@@ -155,12 +156,17 @@ export function GameSimulationPage() {
           {/* 2 — DIAMOND EXPERIENCE */}
           <DiamondTheater simulation={simulation} homeTeam={homeTeam} awayTeam={awayTeam} />
 
-          {/* 3 — OUTCOME DISTRIBUTIONS */}
+          {/* 3 — REPRESENTATIVE OUTCOMES (compact, no longer the main animation) */}
+          <RepresentativeOutcomes simulation={simulation} homeTeam={homeTeam} awayTeam={awayTeam} />
+
+          {/* 4 — OUTCOME DISTRIBUTIONS */}
           <section className="analysis-section" aria-labelledby="distributions-heading">
             <h2 id="distributions-heading">Outcome distributions</h2>
             <p className="analysis-section__sub">
-              Every chart below is computed from the {simulation.inputs?.simulations.toLocaleString()} draws
-              of the official simulation, replayed and verified against the stored forecast.
+              The field shows the complete outcome population; the charts below provide its exact
+              numerical distribution. Every chart is computed from the same{' '}
+              {simulation.inputs?.simulations.toLocaleString()} draws, replayed and verified
+              against the stored forecast.
             </p>
             <div className="chart-grid">
               <ChartCard
@@ -285,6 +291,39 @@ export function GameSimulationPage() {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Representative exact scores, kept as a compact reference section.
+ * These are real draws chosen by fixed rules — not a playlist to step through.
+ */
+function RepresentativeOutcomes({
+  simulation, homeTeam, awayTeam,
+}: { simulation: GameSimulationData; homeTeam: string; awayTeam: string }) {
+  const outcomes = (simulation.representative_outcomes ?? []).filter((o) => o.available)
+  if (outcomes.length === 0) return null
+  return (
+    <section className="analysis-section" aria-labelledby="representative-heading">
+      <h2 id="representative-heading">Representative outcomes</h2>
+      <p className="analysis-section__sub">
+        Individual simulated results picked from the population by fixed rules, each citing the
+        draw it came from. Representative simulated outcomes—not predictions of the exact game.
+      </p>
+      <ul className="representative-list">
+        {outcomes.map((outcome) => (
+          <li key={outcome.key}>
+            <span className="representative-list__label">{OUTCOME_LABELS[outcome.key]}</span>
+            <strong>{awayTeam} {outcome.away_runs} — {homeTeam} {outcome.home_runs}</strong>
+            <small>{outcome.criterion}</small>
+            <small className="representative-list__meta">
+              draw #{outcome.draw_index?.toLocaleString()} ·{' '}
+              {(outcome.share_of_simulations * 100).toFixed(2)}% of all simulations
+            </small>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

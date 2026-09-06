@@ -1516,28 +1516,9 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .model-identity svg { flex: 0 0 auto; margin-top: 1px; }
 
 .diamond-theater { margin: 0 0 24px; padding: 18px 20px; color: #dbe8f0; background: var(--navy-950); border: 1px solid #16304d; border-radius: 10px; }
-.diamond-theater__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .diamond-theater h2 { margin: 0; color: white; font-size: 19px; }
-.diamond-theater__sub { margin: 4px 0 0; color: #9fbccd; font-size: 12px; }
-.diamond-theater__draw { padding: 5px 9px; color: #9fbccd; background: #0f1e33; border: 1px solid #1d3f5f; border-radius: 5px; font: 600 11px "IBM Plex Mono", monospace; white-space: nowrap; }
 
-.scorebug { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; margin: 16px 0; padding: 14px 18px; background: linear-gradient(90deg, #0f1e33, #16304d, #0f1e33); border: 1px solid #1d3f5f; border-radius: 8px; }
-.scorebug__team { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: 6px; }
-.scorebug__team--winner { background: rgba(8, 127, 122, .18); border: 1px solid #12706b; }
-.scorebug__label { color: #cfe2ee; font: 700 14px "IBM Plex Mono", monospace; letter-spacing: .05em; }
-.scorebug__runs { color: white; font-size: 30px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.scorebug__middle { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.scorebug__state { color: #7fd4cd; font: 700 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .06em; }
-.scorebug__total { color: #9fbccd; font-size: 11.5px; }
 
-.diamond-theater__body { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
-.diamond-figure { margin: 0; }
-.diamond-figure svg { width: 100%; height: auto; display: block; }
-.diamond-figure figcaption { margin-top: 8px; color: #7e98ad; font-size: 11px; line-height: 1.45; }
-.diamond-theater__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 0; }
-.diamond-theater__facts dt { color: #7e98ad; font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
-.diamond-theater__facts dd { margin: 4px 0 0; color: #dbe8f0; font-size: 13px; line-height: 1.45; }
-.diamond-theater__facts dd small { display: block; color: #7e98ad; font-size: 11px; }
 
 .theater-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .theater-controls button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; color: #dbe8f0; background: #16304d; border: 1px solid #2f5470; border-radius: 6px; font-size: 12.5px; font-weight: 600; }
@@ -1547,12 +1528,6 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .theater-controls__speed select { padding: 6px 8px; color: #dbe8f0; background: #16304d; border: 1px solid #2f5470; border-radius: 5px; font-size: 12px; }
 .theater-reduced-motion { margin: 10px 0 0; color: #9fbccd; font-size: 12px; }
 
-.outcome-picker { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
-.outcome-picker button { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; color: #9fbccd; background: transparent; border: 1px solid #2f5470; border-radius: 6px; font-size: 12px; font-weight: 600; text-align: left; }
-.outcome-picker button small { color: #7e98ad; font: 600 11px "IBM Plex Mono", monospace; }
-.outcome-picker button:hover { border-color: var(--teal); color: #dbe8f0; }
-.outcome-picker button.is-selected { color: white; background: rgba(8, 127, 122, .22); border-color: var(--teal); }
-.outcome-picker button.is-selected small { color: #7fd4cd; }
 .theater-note { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0 0; padding-top: 13px; border-top: 1px solid #16304d; color: #7e98ad; font-size: 11.5px; line-height: 1.5; }
 .theater-note svg { flex: 0 0 auto; margin-top: 2px; }
 
@@ -1593,8 +1568,6 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .evidence-unavailable-panel .muted { color: var(--muted); font-size: 12px; }
 
 @media (max-width: 900px) {
-  .diamond-theater__body { grid-template-columns: 1fr; }
-  .diamond-figure { max-width: 260px; }
   .chart-grid { grid-template-columns: 1fr; }
   .comparison-table__basis { max-width: none; }
 }
@@ -1602,8 +1575,6 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .simulation-page .quick-view { padding: 15px; }
   .quick-view__story { font-size: 15px; }
   .diamond-theater { padding: 15px; }
-  .scorebug { grid-template-columns: 1fr; gap: 9px; text-align: center; }
-  .scorebug__team { justify-content: space-between; }
   .theater-controls button span { display: none; }
   /* The comparison table becomes a stacked list rather than scrolling sideways. */
   .comparison-table, .comparison-table tbody, .comparison-table tr, .comparison-table td, .comparison-table th { display: block; }
@@ -1614,4 +1585,92 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 }
 @media (prefers-reduced-motion: reduce) {
   .diamond-theater *, .simulation-page * { animation: none !important; transition: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
+   Diamond Theater v2 — the field is the flagship element of the page.
+   SVG park + Canvas trace layer + HTML statistic overlays.
+   --------------------------------------------------------------------------- */
+.theater-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.theater-bar h2 { margin: 0; color: white; font-size: 18px; }
+.theater-bar__sub { margin: 3px 0 0; color: #9fbccd; font-size: 12.5px; }
+.theater-bar__verified { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; color: #7fd4cd; background: rgba(8, 127, 122, .14); border: 1px solid #12706b; border-radius: 5px; font: 600 11px "IBM Plex Mono", monospace; }
+
+.field-stage { position: relative; width: 100%; max-width: 1180px; margin: 0 auto; }
+.field-wrap { position: relative; width: 100%; aspect-ratio: 1000 / 760; }
+/* Overlay layer on desktop; the mobile media query turns it into a grid. */
+.field-stats { position: absolute; inset: 0; pointer-events: none; }
+.field-stats .field-stat { pointer-events: auto; }
+.field-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border-radius: 10px; }
+.field-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* Statistic overlays. Positioned around the field, away from the dense
+   trace bands that run from home plate into centre field. */
+.field-stat { position: absolute; display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; background: rgba(7, 17, 31, .82); border: 1px solid rgba(63, 108, 141, .55); border-radius: 7px; backdrop-filter: blur(3px); min-width: 0; }
+.field-stat strong { color: white; font-size: 20px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.field-stat small { color: #9fbccd; font-size: 11px; line-height: 1.35; }
+.field-stat__second { color: #7e98ad; }
+.field-stat__team { font: 700 12px "IBM Plex Mono", monospace; letter-spacing: .06em; }
+.field-stat__counter span { color: #7e98ad; font-size: 13px; font-weight: 600; }
+
+.field-stat--away   { left: 2%;  top: 30%; }
+.field-stat--home   { right: 2%; top: 30%; }
+.field-stat--centre { left: 50%; top: 6%; transform: translateX(-50%); align-items: center; text-align: center; }
+.field-stat--centre strong { font-size: 16px; }
+.field-stat--mound  { left: 50%; top: 63.5%; transform: translateX(-50%); align-items: center; padding: 6px 10px; }
+.field-stat--mound strong { font-size: 15px; }
+.field-stat--plate  { left: 50%; bottom: 1.5%; transform: translateX(-50%); align-items: center; text-align: center; }
+.field-stat--plate strong { font-size: 22px; }
+
+.field-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; color: #9fbccd; font-size: 11.5px; }
+.field-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
+
+.theater-controls__timing { color: #7e98ad; font: 600 11px "IBM Plex Mono", monospace; }
+
+.filter-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.filter-row button { display: inline-flex; align-items: baseline; gap: 7px; padding: 8px 12px; color: #9fbccd; background: transparent; border: 1px solid #2f5470; border-radius: 6px; font-size: 12.5px; font-weight: 600; }
+.filter-row button small { color: #7e98ad; font: 600 11px "IBM Plex Mono", monospace; }
+.filter-row button:hover { border-color: var(--teal); color: #dbe8f0; }
+.filter-row button.is-selected { color: white; background: rgba(8, 127, 122, .22); border-color: var(--teal); }
+.filter-row button.is-selected small { color: #7fd4cd; }
+.filter-summary { margin: 12px 0 0; color: #b8cddb; font-size: 12.5px; line-height: 1.55; }
+.filter-summary strong { color: white; }
+.filter-summary em { display: block; margin-top: 5px; color: #7e98ad; font-size: 11.5px; font-style: normal; }
+
+.representative-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.representative-list li { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; background: white; border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); }
+.representative-list__label { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.representative-list li strong { color: var(--ink); font-size: 15px; }
+.representative-list li small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.representative-list__meta { color: #90a2b3; font-family: "IBM Plex Mono", monospace; }
+
+@media (max-width: 1100px) {
+  .field-stat strong { font-size: 17px; }
+  .field-stat--plate strong { font-size: 19px; }
+}
+@media (max-width: 780px) {
+  /* The desktop overlays are far too large relative to a phone-width field and
+     would bury it. Below this width the statistics leave the grass entirely and
+     become a readable grid under the field, which keeps the park recognisable
+     and the numbers legible without any overlap. */
+  .field-wrap { max-width: none; }
+  .field-stat {
+    position: static; transform: none; background: rgba(7, 17, 31, .55);
+    border-color: rgba(63, 108, 141, .4); padding: 8px 10px; align-items: flex-start;
+    text-align: left;
+  }
+  .field-stage { display: block; }
+  /* The wrapper itself must leave the overlay plane, or the grid still sits
+     on top of the park. */
+  .field-stats { position: static; inset: auto; pointer-events: auto; }
+  .field-stats-mobile {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px;
+  }
+  .field-stat--centre { grid-column: span 2; }
+  .field-stat--plate { grid-column: span 2; }
+  .field-stat strong { font-size: 17px; }
+  .field-stat--centre strong, .field-stat--mound strong, .field-stat--plate strong { font-size: 15px; }
+  .field-legend { gap: 6px 12px; }
+}
 }
