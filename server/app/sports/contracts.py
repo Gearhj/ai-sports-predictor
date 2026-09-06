@@ -168,6 +168,24 @@ class NormalizedSelection(BaseModel):
     sport_rank: int | None = None
     detail_href: str | None = None
 
+    # -- event/position lifecycle projection -------------------------------
+    # Read-only projections of evidence the adapters already load. They carry
+    # no new authority: they let a consumer separate "the event is over" from
+    # "the decision is still open" without re-deriving it from a clock, which
+    # would be a guess. Every one stays None when the sport does not persist it.
+    #
+    # ``event_status`` is the persisted GameStatus (scheduled/live/final/
+    # postponed/canceled). ``position_status``/``position_result`` are the
+    # PositionStatus/PositionResult of the backing official position, present
+    # only when such a position exists.
+    event_status: str | None = None
+    position_status: str | None = None
+    position_result: str | None = None
+    # Persisted forecast lifecycle stage and the next scheduled refresh, used
+    # for an honest "next checkpoint". Never synthesised when absent.
+    lifecycle_stage: str | None = None
+    next_scheduled_refresh_at: datetime | None = None
+
 
 class SportSection(BaseModel):
     """Per-sport rollup for the all-sports Today hub."""

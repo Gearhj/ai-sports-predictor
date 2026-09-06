@@ -1392,3 +1392,101 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .pulse-capture__dl dd { margin: 0; }
 .pulse-capture__warn { color: var(--red); font-weight: 700; }
 .pulse-capture__legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+
+/* ---------------------------------------------------------------------------
+   Daily Command Center — decision-first layout.
+   Status is always carried by a text label as well as colour, never colour alone.
+   --------------------------------------------------------------------------- */
+.daily-summary { margin: 0 0 22px; padding: 16px 18px; background: white; border: 1px solid var(--line); border-left: 3px solid var(--teal); border-radius: 8px; box-shadow: var(--shadow); }
+.daily-summary__message { margin: 0 0 14px; color: var(--ink); font-size: 16px; font-weight: 650; line-height: 1.4; }
+.daily-summary__counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.summary-count { display: flex; flex-direction: column; gap: 1px; min-width: 84px; padding: 8px 12px; background: var(--soft); border: 1px solid var(--line); border-top: 2px solid var(--line-strong); border-radius: 6px; }
+.summary-count__value { color: var(--ink); font-size: 21px; font-weight: 700; line-height: 1.1; }
+.summary-count__label { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.summary-count--ready { border-top-color: var(--green); background: var(--green-soft); }
+.summary-count--watching { border-top-color: var(--amber); background: var(--amber-soft); }
+.summary-count--passed { border-top-color: var(--muted); }
+.summary-count--final { border-top-color: var(--blue); background: var(--blue-soft); }
+.daily-summary__meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.daily-summary__meta dt { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.daily-summary__meta dd { margin: 3px 0 0; color: var(--ink); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.daily-summary__meta small { color: var(--muted); font-size: 11.5px; font-weight: 500; }
+.daily-summary__footnote { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; }
+
+.decision-group { margin: 0 0 26px; }
+.decision-group__heading { margin-bottom: 12px; padding-left: 10px; border-left: 3px solid var(--line-strong); }
+.decision-group__heading h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--ink); font-size: 19px; }
+.decision-group__heading p { margin: 3px 0 0; color: var(--muted); font-size: 12.5px; }
+.decision-group__count { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 21px; padding: 0 7px; background: var(--soft); border: 1px solid var(--line-strong); border-radius: 11px; color: #4a5b6e; font: 700 12px "IBM Plex Mono", monospace; }
+.decision-group--ready .decision-group__heading { border-left-color: var(--green); }
+.decision-group--ready .decision-group__count { background: var(--green-soft); border-color: #acd4c1; color: var(--green); }
+.decision-group--watching .decision-group__heading { border-left-color: var(--amber); }
+.decision-group--watching .decision-group__count { background: var(--amber-soft); border-color: #e5d09a; color: #775816; }
+.decision-group--final .decision-group__heading { border-left-color: var(--blue); }
+.decision-group__league { margin-top: 12px; }
+.decision-group__league h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; margin: 0 0 9px; color: #3d4f63; font-size: 13px; font-weight: 700; }
+.decision-group__league h3 span { color: var(--muted); font: 500 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.decision-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+
+.decision-card { display: flex; flex-direction: column; min-width: 0; padding: 14px 15px; background: white; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow); }
+.decision-card--ready { border-left-color: var(--green); }
+.decision-card--watching { border-left-color: var(--amber); }
+.decision-card--passed { border-left-color: var(--muted); }
+.decision-card--final { border-left-color: var(--blue); }
+.decision-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.decision-card__identity { min-width: 0; }
+.decision-card__head h3 { margin: 0; color: var(--ink); font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+.decision-card__when { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
+.decision-card__countdown { color: #3d4f63; font-weight: 600; }
+.decision-card__tags { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 0 auto; }
+.decision-card__rank { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; white-space: nowrap; }
+.decision-card__status { margin: 11px 0 0; padding-left: 9px; border-left: 2px solid var(--line-strong); color: var(--ink); font-size: 13.5px; font-weight: 600; line-height: 1.4; }
+.decision-card__status--ready { border-left-color: var(--green); color: #17553f; }
+.decision-card__status--watching { border-left-color: var(--amber); color: #6d5214; }
+.decision-card__status--final { border-left-color: var(--blue); color: #235271; }
+.decision-card__detail { margin: 5px 0 0; padding-left: 11px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.decision-card__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 12px; margin: 12px 0 0; padding: 11px 0; border-block: 1px solid var(--line); }
+.decision-card__facts dt { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.decision-card__facts dd { margin: 3px 0 0; color: var(--ink); font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.decision-card__facts dd small { color: var(--muted); font-size: 11px; font-weight: 500; }
+.decision-card__facts .unavailable { color: var(--muted); font-weight: 500; font-style: italic; }
+.edge-positive { color: var(--green); }
+.edge-negative { color: var(--red); }
+.decision-card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; }
+.decision-card__checkpoint { display: inline-flex; align-items: center; gap: 5px; color: #4a5b6e; font-size: 11.5px; }
+.decision-card__checkpoint--none { color: var(--muted); font-style: italic; }
+.decision-card__link { display: inline-flex; align-items: center; gap: 4px; color: var(--teal-dark); font-size: 12.5px; font-weight: 700; text-decoration: none; }
+.decision-card__link:hover { text-decoration: underline; }
+.decision-card__evidence { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line-strong); }
+.decision-card__evidence summary { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; }
+.decision-card__evidence summary:hover { color: #3d4f63; }
+.decision-card__evidence dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin: 10px 0 0; }
+.decision-card__evidence dt { color: var(--muted); font: 600 11px "IBM Plex Mono", monospace; text-transform: uppercase; }
+.decision-card__evidence dd { margin: 2px 0 0; color: #3d4f63; font-size: 11.5px; overflow-wrap: anywhere; }
+.decision-card__gates { margin: 9px 0 0; color: #6d5214; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.decision-card__note { margin: 9px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.decision-group__collapse > summary { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; padding: 7px 12px; color: #3d4f63; background: white; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.decision-group__collapse > summary:hover { border-color: #9db8c9; color: var(--ink); }
+.sport-status-section { margin-top: 6px; }
+
+@media (max-width: 900px) {
+  .decision-card-grid { grid-template-columns: 1fr; }
+  .daily-summary__counts { gap: 6px; }
+  .summary-count { flex: 1 1 calc(50% - 6px); min-width: 0; }
+}
+@media (max-width: 560px) {
+  /* Keep the summary compact enough that today's games are not pushed a whole
+     screen down: three count tiles per row and a tighter meta list. */
+  .daily-summary { padding: 13px; }
+  .daily-summary__message { margin-bottom: 11px; font-size: 15px; }
+  .daily-summary__counts { gap: 5px; margin-bottom: 11px; }
+  .summary-count { flex: 1 1 calc(33.333% - 4px); min-width: 0; padding: 6px 8px; }
+  .summary-count__value { font-size: 18px; }
+  .summary-count__label { font-size: 11px; letter-spacing: 0; }
+  .daily-summary__meta { grid-template-columns: 1fr; gap: 8px; padding-top: 10px; }
+  .daily-summary__meta dd { font-size: 12.5px; }
+  .daily-summary__footnote { margin-top: 9px; }
+  .decision-card__head { flex-direction: column; gap: 7px; }
+  .decision-card__tags { flex-direction: row; align-items: center; }
+  .decision-group__heading h2 { font-size: 17px; }
+}

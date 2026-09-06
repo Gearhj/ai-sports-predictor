@@ -38,6 +38,15 @@ FINAL_PREGAME_SNAPSHOT = "FINAL_PREGAME"
 STORED_SPORT = "NFL"
 
 
+def _text(value: Any) -> str | None:
+    """Normalise a persisted enum/string token, or None when absent."""
+
+    if value is None:
+        return None
+    text = str(getattr(value, "value", value)).strip()
+    return text.upper() or None
+
+
 def _aware(value: Any) -> datetime | None:
     """Coerce a board timestamp to an aware datetime.
 
@@ -162,6 +171,10 @@ class NflTodayAdapter:
                 f"/shadow-board?date={self._field(game, 'event_date')}&sport=NFL"
                 f"#event-{event_id}"
             ),
+            # Only projected when the research board actually persists it. NFL
+            # is research-shadow and unfunded, so there is never a position
+            # lifecycle to report here.
+            event_status=_text(self._field(game, "status")),
         )
         if engine is None or decision is None:
             return (

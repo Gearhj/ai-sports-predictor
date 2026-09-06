@@ -50,6 +50,16 @@ export interface NormalizedSelection {
   can_ever_fund_official_position: boolean
   sport_rank: number | null
   detail_href: string | null
+  /**
+   * Read-only lifecycle projections. Each is null when the sport does not
+   * persist it, so a consumer can tell "the event is over" apart from "the
+   * decision is still open" without guessing from a clock.
+   */
+  event_status?: string | null
+  position_status?: string | null
+  position_result?: string | null
+  lifecycle_stage?: string | null
+  next_scheduled_refresh_at?: string | null
 }
 
 export interface SportSection {

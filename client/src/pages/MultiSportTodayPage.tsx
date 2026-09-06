@@ -1,6 +1,18 @@
+/**
+ * The Daily Command Center.
+ *
+ * Organised around the four questions a user actually has: what is actionable
+ * now, what is still being watched, what was evaluated and passed, and what is
+ * finished. Groups are derived in `services/dailyDecision` from persisted
+ * authority only — this page renders that derivation, it does not decide.
+ *
+ * A day with no qualified position is a valid, honestly-stated outcome.
+ */
 import { AlertTriangle, CalendarDays, Clock3, FlaskConical, RefreshCw, ShieldCheck } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { DataModeBanner, DataStatePanel, MetricCard, PageHeader } from '../components/ui'
+import { GameDecisionCard } from '../components/GameDecisionCard'
+import { DataModeBanner, DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
 import {
   navigableRegistrySports,
@@ -9,32 +21,44 @@ import {
   type SportRegistryState,
 } from '../hooks/useSportRegistry'
 import { endpoints } from '../services/api'
+import {
+  GROUP_ORDER,
+  groupSelections,
+  slateMessage,
+  slateNextCheckpoint,
+  type DecisionGroup,
+  type GroupedGame,
+} from '../services/dailyDecision'
 import { formatDate, formatTimestamp } from '../services/format'
 import type {
   LeagueCode,
-  NormalizedSelection,
-  OverallSportSummary,
+  SportAvailabilityState,
   SportRegistryEntry,
   SportSection,
   TodayAllSportsReadModel,
 } from '../types/multisport'
 
-const STATE_LABEL: Record<NormalizedSelection['decision_state'], string> = {
-  AWAITING_FINAL_EVIDENCE: 'Awaiting final evidence',
-  PROVISIONAL_EDGE: 'Provisional edge',
-  WATCH: 'Watch',
-  PASS: 'Pass',
-  FINAL_QUALIFIED: 'Final qualified',
-  FINAL_NO_BET: 'Final no bet',
-  NOT_EVALUATED: 'Not evaluated',
-}
-
-const FUNDING_LABEL: Record<NormalizedSelection['funding_state'], string> = {
-  OFFICIAL_VIRTUAL_POSITION: 'Official virtual position',
-  ELIGIBLE_NOT_FUNDED: 'Eligible · not funded',
-  RESEARCH_ONLY: 'Research only',
-  MARKET_NOT_SUPPORTED: 'Market not supported',
-  NOT_EVALUATED: 'Not evaluated',
+const GROUP_META: Record<DecisionGroup, { title: string; blurb: string; empty: string }> = {
+  READY: {
+    title: 'Ready',
+    blurb: 'A final qualified decision or a recorded virtual position exists.',
+    empty: 'No game has produced a final qualified decision today. A zero-position day is valid.',
+  },
+  WATCHING: {
+    title: 'Watching',
+    blurb: 'Forecast or decision window still open, or required evidence is incomplete.',
+    empty: 'No game is currently under review.',
+  },
+  PASSED: {
+    title: 'Passed',
+    blurb: 'Evaluated with sufficient evidence, but did not qualify under the policy.',
+    empty: 'No game has been evaluated and passed today.',
+  },
+  FINAL: {
+    title: 'Final and settled',
+    blurb: 'The game finished or the virtual position was settled.',
+    empty: 'No game has finished yet today.',
+  },
 }
 
 export function MultiSportTodayPage() {
@@ -42,6 +66,15 @@ export function MultiSportTodayPage() {
   const { registry, state: registryState } = useSportRegistry()
   const navigableSports = navigableRegistrySports(registry)
   const mlbDeskHref = sportNavigationHref(navigableSports.find((sport) => sport.league_code === 'MLB') ?? null)
+
+  // One clock for the whole render keeps grouping and countdowns consistent.
+  const now = useMemo(() => Date.now(), [data])
+
+  const selections = useMemo(
+    () => (data ? data.sport_sections.flatMap((section) => section.selections) : []),
+    [data],
+  )
+  const grouped = useMemo(() => groupSelections(selections, now), [selections, now])
 
   if (!data || state === 'unavailable' || state === 'loading') {
     return (
@@ -84,15 +117,17 @@ export function MultiSportTodayPage() {
     )
   }
 
-  const totalAwaiting = data.awaiting_final_evidence.length
-  const totalProvisional = data.provisional_opportunities.length
-  const noActiveSlate = data.sport_sections.every((section) => section.scheduled_event_count === 0)
   const leagueOrder = registry.sports.map((sport) => sport.league_code)
-  const navigationByLeague = new Map(navigableSports.map((sport) => (
-    [sport.league_code, sportNavigationHref(sport)]
-  )))
-  const officialPositions = overallOfficialPositionCount(data.overall_summary)
-  const finalQualifiedDecisions = overallFinalQualifiedDecisionCount(data.overall_summary)
+  const navigationByLeague = new Map(navigableSports.map((sport) => [sport.league_code, sportNavigationHref(sport)]))
+  const gameCount = new Set(selections.map((item) => item.event_id)).size
+  const counts = {
+    READY: grouped.READY.length,
+    WATCHING: grouped.WATCHING.length,
+    PASSED: grouped.PASSED.length,
+    FINAL: grouped.FINAL.length,
+  }
+  const checkpoint = slateNextCheckpoint(grouped.WATCHING)
+  const policy = dominantPolicy(selections)
 
   return (
     <div className="page multisport-today-page">
@@ -112,55 +147,61 @@ export function MultiSportTodayPage() {
 
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
 
-      <div className="multisport-safety-note" role="note">
-        <ShieldCheck size={18} />
-        <p><strong>No pooled bankroll and no universal sports score.</strong> Decisions remain governed within their own league, model, policy, and experiment. Display order never treats raw edges from different sports as equivalent.</p>
-      </div>
-
-      <section className="metric-grid metric-grid--three multisport-summary" aria-label="All-sports daily summary">
-        <MetricCard label="Official positions" value={officialPositions} detail="Immutable funded positions in Qualified Today" trend={officialPositions ? 'positive' : 'neutral'} />
-        <MetricCard label="Final qualified decisions" value={finalQualifiedDecisions} detail="May be unfunded or research-only" />
-        <MetricCard label="Open virtual positions" value={data.overall_summary.open_position_count} detail="Separate experiment ledgers" />
-        <MetricCard label="Awaiting final evidence" value={totalAwaiting} detail="Approaching governed cutoff" />
-        <MetricCard label="Provisional / watch" value={totalProvisional} detail="Never an official position" />
-        <MetricCard label="Settled today" value={data.overall_summary.settled_today_count} detail="Across isolated experiments" />
-        <MetricCard label="Virtual exposure" value={`$${data.overall_summary.total_virtual_stake.toFixed(2)}`} detail="Official positions only" />
+      <section className="daily-summary" aria-label="Daily summary">
+        <p className="daily-summary__message">{slateMessage(counts)}</p>
+        <div className="daily-summary__counts">
+          <SummaryCount label="Games" value={gameCount} />
+          {GROUP_ORDER.map((group) => (
+            <SummaryCount key={group} label={GROUP_META[group].title} value={counts[group]} tone={group} />
+          ))}
+        </div>
+        <dl className="daily-summary__meta">
+          <div>
+            <dt>Next checkpoint</dt>
+            <dd>
+              {checkpoint
+                ? <>{formatTimestamp(checkpoint.at)} <small>· {checkpoint.label.toLowerCase()} · {checkpoint.eventLabel}</small></>
+                : 'None scheduled'}
+            </dd>
+          </div>
+          <div>
+            <dt>Last complete refresh</dt>
+            <dd>{relativeAge(data.overall_summary.latest_complete_refresh, now)}</dd>
+          </div>
+          <div>
+            <dt>Experiment policy</dt>
+            <dd>{policy ?? 'None active'}</dd>
+          </div>
+          <div>
+            <dt>Virtual exposure</dt>
+            <dd>${data.overall_summary.total_virtual_stake.toFixed(2)} <small>· virtual only</small></dd>
+          </div>
+        </dl>
+        {counts.READY + counts.WATCHING + counts.PASSED + counts.FINAL > gameCount && (
+          <p className="daily-summary__footnote">
+            Some games carry more than one governed policy, so decisions outnumber games.
+          </p>
+        )}
       </section>
 
-      <SelectionLane
-        eyebrow="1 · ACTIONABLE AUTHORITY"
-        title="Qualified today"
-        empty="No final governed opportunity qualifies for an official virtual position today."
-        items={data.qualified_positions}
-        sections={data.sport_sections}
-        leagueOrder={leagueOrder}
-      />
+      {GROUP_ORDER.map((group) => (
+        <DecisionGroupSection
+          key={group}
+          group={group}
+          items={grouped[group]}
+          leagueOrder={leagueOrder}
+          sections={data.sport_sections}
+          now={now}
+        />
+      ))}
 
-      <OpenPositionLane sections={data.sport_sections} leagueOrder={leagueOrder} />
-
-      <SelectionLane
-        eyebrow="3 · APPROACHING START"
-        title="Awaiting final evidence"
-        empty="No event is currently waiting on a final governed evidence gate."
-        items={data.awaiting_final_evidence}
-        sections={data.sport_sections}
-        leagueOrder={leagueOrder}
-      />
-
-      <SelectionLane
-        eyebrow="4 · NOT ACTIONABLE"
-        title="Provisional candidates and watch items"
-        empty="No provisional or watch candidate is persisted for today."
-        items={data.provisional_opportunities}
-        sections={data.sport_sections}
-        leagueOrder={leagueOrder}
-      />
-
-      <section aria-labelledby="sport-status-heading">
+      <section aria-labelledby="sport-status-heading" className="sport-status-section">
         <div className="section-heading">
-          <div><span className="eyebrow">5 · SPORT-SPECIFIC STATUS</span><h2 id="sport-status-heading">Daily evidence by sport</h2></div>
+          <div>
+            <span className="eyebrow">BY SPORT</span>
+            <h2 id="sport-status-heading">Evidence by sport</h2>
+          </div>
         </div>
-        {noActiveSlate && <p className="multisport-empty" role="status">No registered live or research-shadow league has a slate on this operational date.</p>}
         <div className="sport-status-grid">
           {orderedSections(data.sport_sections, leagueOrder).map((section) => (
             <SportStatusCard
@@ -184,81 +225,78 @@ export function MultiSportTodayPage() {
   )
 }
 
-function SelectionLane({ eyebrow, title, empty, items, sections, leagueOrder }: {
-  eyebrow: string
-  title: string
-  empty: string
-  items: NormalizedSelection[]
-  sections: SportSection[]
+function SummaryCount({ label, value, tone }: { label: string; value: number; tone?: DecisionGroup }) {
+  return (
+    <div className={`summary-count${tone ? ` summary-count--${tone.toLowerCase()}` : ''}`}>
+      <span className="summary-count__value">{value}</span>
+      <span className="summary-count__label">{label}</span>
+    </div>
+  )
+}
+
+function DecisionGroupSection({ group, items, leagueOrder, sections, now }: {
+  group: DecisionGroup
+  items: GroupedGame[]
   leagueOrder: LeagueCode[]
+  sections: SportSection[]
+  now: number
 }) {
+  const meta = GROUP_META[group]
+  const headingId = `group-${group.toLowerCase()}`
   const orderedLeagues = [...leagueOrder]
-  items.forEach((item) => {
-    if (!orderedLeagues.includes(item.league_code)) orderedLeagues.push(item.league_code)
+  items.forEach(({ selection }) => {
+    if (!orderedLeagues.includes(selection.league_code)) orderedLeagues.push(selection.league_code)
   })
-  const grouped = orderedLeagues
-    .map((league) => ({ league, items: items.filter((item) => item.league_code === league) }))
-    .filter((group) => group.items.length > 0)
+  const byLeague = orderedLeagues
+    .map((league) => ({ league, entries: items.filter((item) => item.selection.league_code === league) }))
+    .filter((entry) => entry.entries.length > 0)
 
-  return (
-    <section className="multisport-lane" aria-label={title}>
-      <div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>
-      {grouped.length === 0 ? <p className="multisport-empty" role="status">{empty}</p> : grouped.map((group) => {
-        const definition = sections.find((section) => section.league_code === group.league)
-        return (
-          <div className="sport-selection-group" key={group.league}>
-            <h3>{definition?.display_name ?? group.league}<span>{selectionGroupCountLabel(group.items)} · ranked only within {group.league}</span></h3>
-            <div className="multisport-selection-grid">
-              {group.items.map((item) => <SelectionCard key={selectionIdentityKey(item)} item={item} />)}
+  // Resolved groups can be long and are rarely the reason someone opened the
+  // page. Collapse them past a handful so they still answer "how many passed?"
+  // at a glance without pushing the open decisions off the screen. <details>
+  // keeps the content in the DOM and keyboard reachable.
+  const collapsible = (group === 'PASSED' || group === 'FINAL') && items.length > 6
+
+  const body = byLeague.length === 0
+    ? <p className="multisport-empty" role="status">{meta.empty}</p>
+    : byLeague.map(({ league, entries }) => {
+          const definition = sections.find((section) => section.league_code === league)
+          return (
+            <div className="decision-group__league" key={league}>
+              <h3>
+                {definition?.display_name ?? league}
+                <span>{entries.length} {entries.length === 1 ? 'decision' : 'decisions'} · ranked only within {league}</span>
+              </h3>
+              <div className="decision-card-grid">
+                {entries.map(({ selection, decision }) => (
+                  <GameDecisionCard
+                    key={`${selection.event_id}:${selection.experiment_id ?? 'none'}:${selection.policy_version ?? 'none'}`}
+                    selection={selection}
+                    decision={decision}
+                    now={now}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        )
-      })}
-    </section>
-  )
-}
+          )
+      })
 
-function SelectionCard({ item }: { item: NormalizedSelection }) {
-  const body = (
-    <>
-      <div className="multisport-selection__topline">
-        <span className={`sport-code sport-code--${item.league_code.toLowerCase()}`}>{item.league_code}</span>
-        <span className={`decision-state decision-state--${item.decision_state.toLowerCase()}`}>{STATE_LABEL[item.decision_state]}</span>
-      </div>
-      <h4>{item.event_label}</h4>
-      <p className="multisport-selection__time">{item.starts_at ? formatTimestamp(item.starts_at) : 'Start time unavailable'}</p>
-      {item.final_decision_cutoff && (
-        <p className="multisport-selection__time">Final-decision cutoff {formatTimestamp(item.final_decision_cutoff)}</p>
-      )}
-      <dl className="multisport-selection__facts">
-        <div><dt>Market</dt><dd>{item.market_label ?? 'Not evaluated'}</dd></div>
-        <div><dt>Selection</dt><dd>{item.selection_label ?? '—'}{item.line == null ? '' : ` ${item.line > 0 ? '+' : ''}${item.line}`}</dd></div>
-        <div><dt>Price</dt><dd>{item.price_american == null ? '—' : `${item.price_american > 0 ? '+' : ''}${item.price_american}`}</dd></div>
-        <div><dt>Funding</dt><dd>{FUNDING_LABEL[item.funding_state]}</dd></div>
-      </dl>
-      {item.status_note && <p className="multisport-selection__note">{item.status_note}</p>}
-      {item.outstanding_gates.length > 0 && <p className="multisport-selection__gates"><strong>Outstanding:</strong> {item.outstanding_gates.join(' · ')}</p>}
-      <div className="multisport-selection__footer">
-        <span>{item.source_label ?? 'Engine unavailable'}</span>
-        {item.sport_rank != null && <span>Within-{item.league_code} rank #{item.sport_rank}</span>}
-      </div>
-    </>
-  )
-  return item.detail_href
-    ? <Link className="multisport-selection" to={item.detail_href} aria-label={`Open ${item.league_code} analysis for ${item.event_label}`}>{body}</Link>
-    : <article className="multisport-selection">{body}</article>
-}
-
-function OpenPositionLane({ sections, leagueOrder }: { sections: SportSection[]; leagueOrder: LeagueCode[] }) {
-  const withPositions = orderedSections(sections, leagueOrder).filter((section) => section.open_position_count > 0)
   return (
-    <section className="multisport-lane" aria-label="Open virtual positions">
-      <div className="section-heading"><div><span className="eyebrow">2 · ISOLATED LEDGERS</span><h2>Open virtual positions</h2></div></div>
-      {withPositions.length === 0
-        ? <p className="multisport-empty" role="status">No official virtual position is open. A zero-position day is valid.</p>
-        : <div className="open-position-grid">{withPositions.map((section) => (
-          <article key={section.league_code}><strong>{section.league_code}</strong><span>{section.open_position_count} open</span><small>${section.virtual_stake.toFixed(2)} current slate exposure · ledger remains separate</small></article>
-        ))}</div>}
+    <section className={`decision-group decision-group--${group.toLowerCase()}`} aria-labelledby={headingId}>
+      <div className="decision-group__heading">
+        <h2 id={headingId}>
+          {meta.title} <span className="decision-group__count">{items.length}</span>
+        </h2>
+        <p>{meta.blurb}</p>
+      </div>
+      {collapsible
+        ? (
+          <details className="decision-group__collapse">
+            <summary>Show all {items.length} {meta.title.toLowerCase()} decisions</summary>
+            {body}
+          </details>
+        )
+        : body}
     </section>
   )
 }
@@ -266,18 +304,32 @@ function OpenPositionLane({ sections, leagueOrder }: { sections: SportSection[];
 function SportStatusCard({ section, href }: { section: SportSection; href: string | null }) {
   return (
     <article className={`sport-status-card ${section.degraded ? 'sport-status-card--degraded' : ''}`}>
-      <header><span className={`sport-code sport-code--${section.league_code.toLowerCase()}`}>{section.league_code}</span><strong>{section.availability_state.replaceAll('_', ' ')}</strong></header>
+      <header>
+        <span className={`sport-code sport-code--${section.league_code.toLowerCase()}`}>{section.league_code}</span>
+        <strong>{availabilityLabel(section.availability_state)}</strong>
+      </header>
       <h3>{section.display_name}</h3>
-      <p>{section.scheduled_event_count === 0 ? 'No slate on this operational date.' : `${section.scheduled_event_count} scheduled · ${section.valid_forecast_count} with a valid forecast`}</p>
+      <p>
+        {section.scheduled_event_count === 0
+          ? 'No slate on this operational date.'
+          : `${section.scheduled_event_count} scheduled · ${section.valid_forecast_count} with a valid forecast`}
+      </p>
       <dl>
-        <div><dt>Final qualified decisions</dt><dd>{sectionFinalQualifiedDecisionCount(section)}</dd></div>
-        <div><dt>Official positions</dt><dd>{sectionOfficialPositionCount(section)}</dd></div>
-        <div><dt>Awaiting</dt><dd>{section.awaiting_final_evidence_count}</dd></div>
-        <div><dt>Provisional / watch</dt><dd>{section.provisional_count + section.watch_count}</dd></div>
+        <div><dt>Official positions</dt><dd>{section.official_position_count ?? 0}</dd></div>
+        <div><dt>Final qualified decisions</dt><dd>{section.final_qualified_decision_count ?? section.final_qualified_count ?? 0}</dd></div>
         <div><dt>Open positions</dt><dd>{section.open_position_count}</dd></div>
+        <div><dt>Settled today</dt><dd>{section.settled_today_count}</dd></div>
       </dl>
-      {section.degraded && <p className="sport-status-card__warning"><AlertTriangle size={14} /> {section.degraded_reason ?? 'Persisted evidence is degraded.'}</p>}
-      {!section.can_create_official_positions && section.official_positions_blocked_reason && <p className="sport-status-card__note"><FlaskConical size={14} /> {section.official_positions_blocked_reason}</p>}
+      {section.degraded && (
+        <p className="sport-status-card__warning">
+          <AlertTriangle size={14} aria-hidden="true" /> {section.degraded_reason ?? 'Persisted evidence is degraded.'}
+        </p>
+      )}
+      {!section.can_create_official_positions && section.official_positions_blocked_reason && (
+        <p className="sport-status-card__note">
+          <FlaskConical size={14} aria-hidden="true" /> {section.official_positions_blocked_reason}
+        </p>
+      )}
       {href
         ? <Link className="text-link" to={href}>Open {section.league_code} view</Link>
         : <span className="text-link" aria-disabled="true">{section.league_code} navigation unavailable</span>}
@@ -289,22 +341,14 @@ function AvailabilityRoadmap({ sports, registryState }: {
   sports: SportRegistryEntry[] | null
   registryState: SportRegistryState
 }) {
-  if (registryState !== 'ready') {
-    return (
-      <section className="multisport-roadmap" aria-label="Sport registry status">
-        <p className="multisport-empty" role="status">
-          {registryState === 'loading'
-            ? 'Loading the authoritative sport registry. Sport navigation remains closed until it is verified.'
-            : 'The authoritative sport registry is unavailable. Sport navigation and the planned-sports roadmap are hidden.'}
-        </p>
-      </section>
-    )
-  }
+  if (registryState !== 'ready') return null
   const planned = (sports ?? []).filter((item) => item.availability === 'PLANNED')
   if (!planned.length) return null
   return (
     <section className="multisport-roadmap" aria-labelledby="planned-sports-heading">
-      <div className="section-heading"><div><span className="eyebrow">REGISTERED · NOT LIVE</span><h2 id="planned-sports-heading">Planned sports</h2></div></div>
+      <div className="section-heading">
+        <div><span className="eyebrow">REGISTERED · NOT LIVE</span><h2 id="planned-sports-heading">Planned sports</h2></div>
+      </div>
       <div className="planned-sport-grid">
         {planned.map((item) => (
           <article key={item.league_code} aria-disabled="true">
@@ -317,6 +361,42 @@ function AvailabilityRoadmap({ sports, registryState }: {
   )
 }
 
+function availabilityLabel(state: SportAvailabilityState): string {
+  const labels: Record<SportAvailabilityState, string> = {
+    LIVE: 'Live',
+    RESEARCH_SHADOW: 'Research shadow',
+    DEVELOPMENT: 'Development',
+    PLANNED: 'Planned',
+    UNAVAILABLE: 'Unavailable',
+  }
+  return labels[state] ?? state
+}
+
+/** Human age of the last complete refresh; never guesses when unrecorded. */
+export function relativeAge(at: string | null, now: number): string {
+  if (!at) return 'Not recorded'
+  const value = Date.parse(at)
+  if (Number.isNaN(value)) return 'Not recorded'
+  const minutes = Math.round((now - value) / 60000)
+  if (minutes < 0) return formatTimestamp(at)
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+function dominantPolicy(selections: { experiment_name: string | null; policy_version: string | null }[]): string | null {
+  const tally = new Map<string, number>()
+  selections.forEach((item) => {
+    if (!item.policy_version) return
+    const label = item.experiment_name ? `${item.experiment_name} · ${item.policy_version}` : item.policy_version
+    tally.set(label, (tally.get(label) ?? 0) + 1)
+  })
+  if (tally.size === 0) return null
+  return [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0]
+}
+
 function orderedSections(sections: SportSection[], leagueOrder: LeagueCode[]): SportSection[] {
   const order = new Map(leagueOrder.map((league, index) => [league, index]))
   return sections
@@ -326,38 +406,6 @@ function orderedSections(sections: SportSection[], leagueOrder: LeagueCode[]): S
       - (order.get(b.section.league_code) ?? leagueOrder.length + b.index)
     ))
     .map(({ section }) => section)
-}
-
-function overallOfficialPositionCount(summary: OverallSportSummary): number {
-  return summary.official_position_count ?? summary.final_qualified_position_count ?? 0
-}
-
-function overallFinalQualifiedDecisionCount(summary: OverallSportSummary): number {
-  return summary.final_qualified_decision_count ?? 0
-}
-
-function sectionOfficialPositionCount(section: SportSection): number {
-  return section.official_position_count ?? 0
-}
-
-function sectionFinalQualifiedDecisionCount(section: SportSection): number {
-  return section.final_qualified_decision_count ?? section.final_qualified_count ?? 0
-}
-
-function selectionIdentityKey(item: NormalizedSelection): string {
-  return JSON.stringify([
-    item.league_code,
-    item.event_id,
-    item.market_label,
-    item.selection_label,
-    item.experiment_id,
-    item.policy_version,
-  ])
-}
-
-function selectionGroupCountLabel(items: NormalizedSelection[]): string {
-  const eventCount = new Set(items.map((item) => item.event_id)).size
-  return `${items.length} ${items.length === 1 ? 'selection' : 'selections'} · ${eventCount} ${eventCount === 1 ? 'event' : 'events'}`
 }
 
 export function hasNoCrossSportRanking(data: TodayAllSportsReadModel): boolean {

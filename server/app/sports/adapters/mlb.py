@@ -40,6 +40,20 @@ def _aware(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _text(value: Any) -> str | None:
+    """Normalise a persisted enum/string to an upper-case token, or None.
+
+    StrEnum members stringify to their value, so this keeps the wire contract
+    stable whether the adapter is handed an enum or an already-serialised
+    string. An empty value stays None rather than becoming ``""``.
+    """
+
+    if value is None:
+        return None
+    text = str(getattr(value, "value", value)).strip()
+    return text.upper() or None
+
+
 def _is_funded_market(market_type: str | None) -> bool:
     lowered = (market_type or "").lower()
     return any(token in lowered for token in FUNDED_MARKET_PATTERNS)
@@ -181,6 +195,14 @@ class MlbTodayAdapter:
             model_status="DEVELOPMENT",
             can_ever_fund_official_position=True,
             detail_href=f"/games/{game_id}",
+            # Already-loaded lifecycle evidence from the same dashboard read.
+            # Projected, never derived: a consumer must not have to infer that
+            # an event finished by comparing its start time to a clock.
+            event_status=_text(getattr(game, "status", None)),
+            lifecycle_stage=_text(getattr(game, "lifecycle_stage", None)),
+            next_scheduled_refresh_at=_aware(
+                getattr(game, "next_scheduled_refresh_at", None)
+            ),
         )
 
         # Even an already-persisted row is not presented as the event's final
@@ -497,6 +519,19 @@ class MlbTodayAdapter:
             decision_timestamp=_aware(decision.recommended_at),
             official_position_id=(
                 str(position.id)
+                if market_supported and position is not None
+                else None
+            ),
+            # Ledger lifecycle for the backing position, when one exists. This
+            # is what separates an open virtual position from a settled one;
+            # it is never inferred from the event clock.
+            position_status=(
+                _text(getattr(position, "status", None))
+                if market_supported and position is not None
+                else None
+            ),
+            position_result=(
+                _text(getattr(position, "result", None))
                 if market_supported and position is not None
                 else None
             ),
