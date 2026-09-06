@@ -53,6 +53,8 @@ export interface JointScoreDistribution {
   away_labels: string[]
   probabilities: number[][]
   counts: number[][]
+  /** Per-cell subset that was level after regulation. */
+  extra_inning_counts?: number[][]
   cap: number
   note: string
 }
@@ -103,4 +105,91 @@ export interface GameSimulationData extends DataProvenance {
   representative_outcomes?: RepresentativeOutcome[]
   extra_inning_probability?: number
   sampling_uncertainty?: SamplingUncertainty
+}
+
+/** ---- What-If Scenario Lab ---- */
+
+export interface ScenarioControl {
+  key: string
+  label: string
+  status: 'SUPPORTED' | 'PARTIAL' | 'UNSUPPORTED'
+  model_path: string
+  reason: string | null
+  required_capability: string | null
+  current_value: number | null
+  min?: number
+  max?: number
+  step?: number
+  domain_min?: number
+  domain_max?: number
+  unit?: string
+}
+
+export interface ScenarioCapabilities extends DataProvenance {
+  game_id: string
+  baseline_forecast_id: string
+  baseline_evidence_cutoff: string
+  feature_snapshot_id: string
+  missing_features: string[]
+  controls: ScenarioControl[]
+  supported_count: number
+  notice: string
+}
+
+export interface ScenarioMetrics {
+  home_win_probability: number
+  away_win_probability: number
+  expected_home_runs: number
+  expected_away_runs: number
+  expected_total_runs: number
+  expected_run_difference: number
+  home_cover_probabilities: Record<string, number>
+  total_probabilities: Record<string, { over: number; under: number; push: number }>
+  total_runs_distribution: Record<string, number>
+}
+
+export interface ScenarioResult extends DataProvenance {
+  status: 'HYPOTHETICAL'
+  notice: string
+  identity: {
+    baseline_forecast_id: string
+    feature_snapshot_id: string
+    evidence_cutoff: string
+    simulations: number
+    seed: number
+    overrides: Record<string, number>
+    scenario_hash: string
+    generated_at: string
+    baseline_model_name: string | null
+    baseline_model_version: string | null
+    baseline_model_status: string | null
+  }
+  applied_overrides: Record<string, number>
+  rejected_overrides: Record<string, string>
+  out_of_domain: string[]
+  baseline_reproduction: {
+    exact: boolean
+    max_absolute_delta: number
+    tolerance: number
+    note: string
+  }
+  official: ScenarioMetrics
+  scenario: ScenarioMetrics
+  deltas: {
+    home_win_probability_points: number
+    away_win_probability_points: number
+    expected_home_runs: number
+    expected_away_runs: number
+    expected_total_runs: number
+    expected_run_difference: number
+    home_cover_points: Record<string, number>
+    total_over_points: Record<string, number>
+  }
+  scenario_joint: JointScoreDistribution | Record<string, never>
+  interpretation: string
+  sensitivity: Array<{
+    key: string
+    home_win_probability_points: number
+    expected_total_runs: number
+  }>
 }

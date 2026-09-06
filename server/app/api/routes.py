@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.api.dependencies import AdminUser, AppSettings, CurrentUser, DatabaseSession
@@ -48,6 +49,7 @@ from app.services.auth_service import (
     revoke_user_tokens,
 )
 from app.services.read_service import ReadService
+from app.services.scenario_service import run_scenario, scenario_capabilities
 from app.services.simulation_replay_service import replay_official_simulation
 from app.services.historical_research_read_service import HistoricalResearchReadService
 
@@ -192,6 +194,53 @@ def game_simulation(game_id: UUID, session: DatabaseSession, settings: AppSettin
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No forecast exists for this game",
+        )
+    return payload
+
+
+@router.get("/games/{game_id}/simulation/capabilities", tags=["forecasts"])
+def game_scenario_capabilities(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Which What-If controls this game can honestly support, and why not.
+
+    Read-only. A control is SUPPORTED only when changing it flows through the
+    same feature mapping, ensemble and Monte Carlo the official forecast used.
+    """
+
+    payload = scenario_capabilities(session, game_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast with a feature snapshot exists for this game",
+        )
+    return payload
+
+
+class ScenarioRequest(BaseModel):
+    """Structured hypothetical assumptions. Unsupported keys are rejected."""
+
+    overrides: dict[str, float] = Field(default_factory=dict)
+
+
+@router.post("/games/{game_id}/simulation/scenario", tags=["forecasts"])
+def game_scenario(
+    game_id: UUID,
+    request: ScenarioRequest,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> dict:
+    """Recompute a HYPOTHETICAL forecast under the supplied assumptions.
+
+    POST carries structured inputs; it is still strictly read-only. It writes
+    no row, creates no forecast, decision or position, touches no ledger, makes
+    no provider request and starts no scheduler job. The official forecast is
+    read and never modified.
+    """
+
+    payload = run_scenario(session, game_id, request.overrides, settings)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast with a feature snapshot exists for this game",
         )
     return payload
 

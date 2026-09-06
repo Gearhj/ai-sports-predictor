@@ -14,8 +14,15 @@ function joint(size = 10) {
   ]
   for (const [h, a, c] of cells) counts[h][a] = c
   for (let h = 0; h < size; h++) for (let a = 0; a < size; a++) probabilities[h][a] = counts[h][a] / 20000
+  // Authoritative tie mask: only 2,640 of the 15,000 one-run outcomes were
+  // level after regulation, so the two filters must differ.
+  const extra = Array.from({ length: size }, () => Array.from({ length: size }, () => 0))
+  extra[5][4] = 1400; extra[4][5] = 1200; extra[8][7] = 40
   const labels = Array.from({ length: size }, (_, i) => String(i))
-  return { home_labels: labels, away_labels: labels, probabilities, counts, cap: size - 2, note: '' }
+  return {
+    home_labels: labels, away_labels: labels, probabilities, counts,
+    extra_inning_counts: extra, cap: size - 2, note: '',
+  }
 }
 
 function outcome(overrides: Partial<RepresentativeOutcome> = {}): RepresentativeOutcome {
@@ -162,7 +169,7 @@ describe('DiamondTheater — filtering', () => {
   it('offers the outcome subsets with their counts', () => {
     mount()
     const group = screen.getByRole('group', { name: 'Filter outcomes' })
-    for (const label of ['All outcomes', 'Typical', 'Home wins', 'Away wins', 'High scoring', 'Low scoring', 'Extra innings']) {
+    for (const label of ['All outcomes', 'Most common scores', 'BAL wins', 'BOS wins', 'High scoring', 'Low scoring', 'One-run finishes', 'Extra innings']) {
       expect(within(group).getByRole('button', { name: new RegExp(label) })).toBeInTheDocument()
     }
   })
@@ -170,9 +177,9 @@ describe('DiamondTheater — filtering', () => {
   it('reports the subset count and percentage when a filter is chosen', async () => {
     const user = userEvent.setup()
     mount()
-    await user.click(screen.getByRole('button', { name: /Home wins/ }))
-    const summary = screen.getByRole('status', { name: '' }) ?? screen.getByText(/Home wins:/)
-    expect(screen.getByText(/Home wins:/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /BAL wins/ }))
+    const summary = screen.getByText(/BAL wins:/)
+    expect(screen.getByText(/BAL wins:/)).toBeInTheDocument()
     // 6000 + 2600 + 1900 + 1900 home-team wins out of 20,000
     expect(screen.getByText(/12,400 of 20,000 outcomes \(62\.0%\)/)).toBeInTheDocument()
     expect(summary).toBeTruthy()
@@ -181,15 +188,35 @@ describe('DiamondTheater — filtering', () => {
   it('describes the selected subset, not the whole population', async () => {
     const user = userEvent.setup()
     mount()
-    await user.click(screen.getByRole('button', { name: /Away wins/ }))
+    await user.click(screen.getByRole('button', { name: /BOS wins/ }))
     expect(screen.getByText(/BAL wins 0\.0% of this subset/)).toBeInTheDocument()
   })
 
-  it('qualifies the extra-innings subset honestly', async () => {
+  it('uses the authoritative tie mask, not every one-run finish', async () => {
     const user = userEvent.setup()
     mount()
-    await user.click(screen.getByRole('button', { name: /Extra innings/ }))
-    expect(screen.getByText(/also includes one-run games decided in regulation/i)).toBeInTheDocument()
+    // 15,000 outcomes are decided by one run, but only 2,640 were level after
+    // regulation. Calling every one-run game extra innings overstated it ~5.7x.
+    const oneRun = screen.getByRole('button', { name: /One-run finishes/ })
+    const extra = screen.getByRole('button', { name: /^Extra innings/ })
+    expect(oneRun).toHaveTextContent('15,000')
+    expect(extra).toHaveTextContent('2,640')
+
+    await user.click(extra)
+    expect(screen.getByText(/Extra innings:/)).toBeInTheDocument()
+    expect(screen.getByText(/2,640 of 20,000 outcomes \(13\.2%\)/)).toBeInTheDocument()
+    expect(screen.getByText(/regulation-tie mask/i)).toBeInTheDocument()
+  })
+
+  it('states that the filters overlap and do not sum to 100%', () => {
+    mount()
+    expect(screen.getByText(/These filters overlap and do not add to 100%/i)).toBeInTheDocument()
+  })
+
+  it('prints the actual scoring thresholds in the labels', () => {
+    mount()
+    expect(screen.getByRole('button', { name: /High scoring \(\d+\+ runs\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Low scoring \(\d+ or fewer\)/ })).toBeInTheDocument()
   })
 
   it('marks the active filter with aria-pressed', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  COMMON_SCORE_MIN_SHARE,
   FIELD,
   angleForOutcome,
   buildDurationMs,
@@ -158,11 +159,46 @@ describe('filters', () => {
       .toBeGreaterThanOrEqual(Math.max(...low.map((t) => t.totalRuns)))
   })
 
-  it('treats extra innings as one-run finishes only', () => {
-    const extra = field.traces.filter((t) => matchesFilter(t, 'extra_innings', thresholds))
-    expect(extra.every((t) => Math.abs(t.differential) === 1)).toBe(true)
+  it('separates one-run finishes from extra innings', () => {
+    const oneRun = field.traces.filter((t) => matchesFilter(t, 'one_run', thresholds))
+    expect(oneRun.every((t) => Math.abs(t.differential) === 1)).toBe(true)
     // 5-4, 4-5, 8-7 and 1-0 are all one-run finishes.
-    expect(extra.length).toBe(1000 + 900 + 150 + 200)
+    expect(oneRun.length).toBe(1000 + 900 + 150 + 200)
+    // With no tie evidence supplied, NO outcome may be called extra innings.
+    expect(field.traces.filter((t) => matchesFilter(t, 'extra_innings', thresholds))).toHaveLength(0)
+  })
+
+  it('uses the authoritative tie mask for extra innings, not a one-run margin', () => {
+    const { counts, probabilities } = joint([[5, 4, 1000], [4, 5, 900], [9, 2, 100]], 12)
+    // Only 260 of the 1,900 one-run outcomes were actually level in regulation.
+    const extraCounts = counts.map((row) => row.map(() => 0))
+    extraCounts[5][4] = 160
+    extraCounts[4][5] = 100
+    const withTies = buildTraceField(probabilities, counts, 30_000, extraCounts)
+    const t2 = filterThresholds(withTies.traces)
+    const extra = withTies.traces.filter((t) => matchesFilter(t, 'extra_innings', t2))
+    const oneRun = withTies.traces.filter((t) => matchesFilter(t, 'one_run', t2))
+    expect(extra).toHaveLength(260)
+    expect(oneRun).toHaveLength(1900)
+    expect(extra.length).toBeLessThan(oneRun.length)
+    expect(extra.every((t) => Math.abs(t.differential) === 1)).toBe(true)
+  })
+
+  it('defines most-common scores by an explicit frequency floor', () => {
+    // 5 of 2,005 outcomes is 0.25%, below the 1% floor, so 11-0 is excluded.
+    const rare = joint([[5, 4, 1000], [4, 5, 1000], [11, 0, 5]], 13)
+    const rareField = buildTraceField(rare.probabilities, rare.counts)
+    const t2 = filterThresholds(rareField.traces)
+    const common = rareField.traces.filter((t) => matchesFilter(t, 'common_scores', t2))
+    const floor = rareField.traces.length * COMMON_SCORE_MIN_SHARE
+    const tally = new Map<string, number>()
+    for (const t of common) {
+      const key = `${t.homeRuns}-${t.awayRuns}`
+      tally.set(key, (tally.get(key) ?? 0) + 1)
+    }
+    expect([...tally.values()].every((n) => n >= floor)).toBe(true)
+    expect(common).toHaveLength(2000)
+    expect(common.length).toBeLessThan(rareField.traces.length)
   })
 
   it('reports the modal score of the selected subset', () => {

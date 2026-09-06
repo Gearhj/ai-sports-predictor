@@ -20,7 +20,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BaseballFieldSvg } from './BaseballField'
 import {
   FIELD,
-  TRACE_FILTERS,
+  FILTER_OVERLAP_NOTE,
+  traceFilters,
   buildDurationMs,
   buildTraceField,
   filterThresholds,
@@ -130,7 +131,9 @@ export function DiamondTheater({
 
   const joint = simulation.joint_score_distribution
   const field = useMemo(
-    () => (joint ? buildTraceField(joint.probabilities, joint.counts) : null),
+    () => (joint
+      ? buildTraceField(joint.probabilities, joint.counts, 30_000, joint.extra_inning_counts)
+      : null),
     [joint],
   )
   const thresholds = useMemo(
@@ -147,11 +150,11 @@ export function DiamondTheater({
   const filterCounts = useMemo(() => {
     if (!field || !thresholds) return {} as Record<string, number>
     const result: Record<string, number> = {}
-    for (const definition of TRACE_FILTERS) {
+    for (const definition of traceFilters(homeTeam, awayTeam, thresholds)) {
       result[definition.key] = subsetStats(field.traces, definition.key, thresholds).count
     }
     return result
-  }, [field, thresholds])
+  }, [field, thresholds, homeTeam, awayTeam])
 
   /** Sizes the backing store to device pixels and returns the field scale. */
   const prepare = useCallback((): { ctx: CanvasRenderingContext2D; scale: number } | null => {
@@ -293,7 +296,8 @@ export function DiamondTheater({
   }
 
   const complete = built >= field.totalOutcomes
-  const activeFilter = TRACE_FILTERS.find((f) => f.key === filter)!
+  const filters = traceFilters(homeTeam, awayTeam, thresholds)
+  const activeFilter = filters.find((f) => f.key === filter)!
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`
 
   return (
@@ -402,7 +406,7 @@ export function DiamondTheater({
       )}
 
       <div className="filter-row" role="group" aria-label="Filter outcomes">
-        {TRACE_FILTERS.map((definition) => {
+        {filters.map((definition) => {
           const count = filterCounts[definition.key] ?? 0
           return (
             <button
@@ -429,9 +433,12 @@ export function DiamondTheater({
             {stats.meanTotalRuns.toFixed(2)} total runs.
           </>
         )}
+        <em>{FILTER_OVERLAP_NOTE}</em>
         {filter === 'extra_innings' && (
-          <em> One-run finishes are the only signature extra innings leave in a final score, so
-            this subset also includes one-run games decided in regulation.</em>
+          <em>
+            Taken from the simulator&rsquo;s own regulation-tie mask, not inferred from a
+            one-run margin.
+          </em>
         )}
       </p>
 

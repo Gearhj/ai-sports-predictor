@@ -56,8 +56,8 @@ export const FIELD: FieldGeometry = {
 }
 
 export type TraceFilter =
-  | 'all' | 'typical' | 'home_win' | 'away_win'
-  | 'high_scoring' | 'low_scoring' | 'extra_innings'
+  | 'all' | 'common_scores' | 'home_win' | 'away_win'
+  | 'high_scoring' | 'low_scoring' | 'extra_innings' | 'one_run'
 
 export interface Trace {
   /** Quadratic curve: start (home plate) → control → end (outfield arc). */
@@ -71,6 +71,12 @@ export interface Trace {
   totalRuns: number
   /** home − away. Never 0: a simulated game cannot end level. */
   differential: number
+  /**
+   * Whether this draw was level after regulation, from the simulator's own tie
+   * mask. A one-run final score is NOT evidence of extra innings — most one-run
+   * games finish in regulation — so this flag is the only honest source.
+   */
+  extraInnings: boolean
 }
 
 export interface TraceField {
@@ -128,6 +134,7 @@ export function buildTraceField(
   probabilities: number[][],
   counts: number[][],
   maxTraces = 30_000,
+  extraInningCounts?: number[][],
 ): TraceField {
   const cells: Array<{ home: number; away: number; count: number }> = []
   let totalOutcomes = 0
@@ -156,6 +163,11 @@ export function buildTraceField(
     const baseDepth = depthForTotal(total, maxTotalRuns)
     const winner: Trace['winner'] = differential > 0 ? 'home' : 'away'
 
+    // The cell's extra-inning draws are a known count, so exactly that many
+    // traces in the cell carry the flag. No trace is guessed into the subset.
+    const cellExtra = extraInningCounts?.[cell.home]?.[cell.away] ?? 0
+    const extraDrawn = scale === 1 ? cellExtra : Math.round(cellExtra * scale)
+
     for (let i = 0; i < drawn; i++) {
       const jitter = spread(i, drawn)
       const angle = baseAngle + jitter.angle
@@ -172,6 +184,7 @@ export function buildTraceField(
         cx, cy, x, y, winner,
         homeRuns: cell.home, awayRuns: cell.away,
         totalRuns: total, differential,
+        extraInnings: i < extraDrawn,
       })
     }
   }
@@ -191,15 +204,58 @@ export interface FilterDefinition {
   description: string
 }
 
-export const TRACE_FILTERS: FilterDefinition[] = [
-  { key: 'all', label: 'All outcomes', description: 'Every simulated final score' },
-  { key: 'typical', label: 'Typical', description: 'Outcomes within one run of the median margin and total' },
-  { key: 'home_win', label: 'Home wins', description: 'Simulations the home team won' },
-  { key: 'away_win', label: 'Away wins', description: 'Simulations the away team won' },
-  { key: 'high_scoring', label: 'High scoring', description: 'Highest-scoring 10% by total runs' },
-  { key: 'low_scoring', label: 'Low scoring', description: 'Lowest-scoring 10% by total runs' },
-  { key: 'extra_innings', label: 'Extra innings', description: 'Decided by one run after a level regulation' },
-]
+/**
+ * "Most common scores" needs a stated definition or it is just a vibe.
+ * It is every exact final score that occurs in at least this share of the
+ * population, and the UI prints the rule.
+ */
+export const COMMON_SCORE_MIN_SHARE = 0.01
+
+export const FILTER_OVERLAP_NOTE =
+  'These filters overlap and do not add to 100%. The two team-win filters partition '
+  + 'the outcomes; the scoring, one-run and extra-inning filters describe subsets of '
+  + 'those same outcomes.'
+
+/**
+ * Filter list, labelled with the real team names and the actual numeric
+ * thresholds rather than vague adjectives.
+ */
+export function traceFilters(
+  homeTeam: string,
+  awayTeam: string,
+  thresholds: FilterThresholds,
+): FilterDefinition[] {
+  return [
+    { key: 'all', label: 'All outcomes', description: 'Every simulated final score' },
+    {
+      key: 'common_scores',
+      label: 'Most common scores',
+      description: `Exact scores that each occur in at least ${(COMMON_SCORE_MIN_SHARE * 100).toFixed(0)}% of simulations`,
+    },
+    { key: 'home_win', label: `${homeTeam} wins`, description: `Simulations ${homeTeam} won` },
+    { key: 'away_win', label: `${awayTeam} wins`, description: `Simulations ${awayTeam} won` },
+    {
+      key: 'high_scoring',
+      label: `High scoring (${thresholds.highCut}+ runs)`,
+      description: `Total runs at or above ${thresholds.highCut}, the 90th percentile`,
+    },
+    {
+      key: 'low_scoring',
+      label: `Low scoring (${thresholds.lowCut} or fewer)`,
+      description: `Total runs at or below ${thresholds.lowCut}, the 10th percentile`,
+    },
+    {
+      key: 'one_run',
+      label: 'One-run finishes',
+      description: 'Decided by exactly one run, in regulation or extra innings',
+    },
+    {
+      key: 'extra_innings',
+      label: 'Extra innings',
+      description: 'Level after regulation, from the simulator’s own tie mask',
+    },
+  ]
+}
 
 /** Percentile of total runs across the population, for the scoring filters. */
 function totalsQuantile(traces: Trace[], q: number): number {
@@ -213,13 +269,24 @@ export interface FilterThresholds {
   highCut: number
   lowCut: number
   medianTotal: number
+  /** Exact scores meeting COMMON_SCORE_MIN_SHARE, as "home-away" keys. */
+  commonScores: Set<string>
 }
 
 export function filterThresholds(traces: Trace[]): FilterThresholds {
+  const tally = new Map<string, number>()
+  for (const trace of traces) {
+    const key = `${trace.homeRuns}-${trace.awayRuns}`
+    tally.set(key, (tally.get(key) ?? 0) + 1)
+  }
+  const floor = traces.length * COMMON_SCORE_MIN_SHARE
+  const commonScores = new Set<string>()
+  for (const [key, count] of tally) if (count >= floor) commonScores.add(key)
   return {
     highCut: totalsQuantile(traces, 0.9),
     lowCut: totalsQuantile(traces, 0.1),
     medianTotal: totalsQuantile(traces, 0.5),
+    commonScores,
   }
 }
 
@@ -243,10 +310,11 @@ export function matchesFilter(
     case 'away_win': return trace.winner === 'away'
     case 'high_scoring': return trace.totalRuns >= thresholds.highCut
     case 'low_scoring': return trace.totalRuns <= thresholds.lowCut
-    case 'extra_innings': return Math.abs(trace.differential) === 1
-    case 'typical':
-      return Math.abs(trace.differential) <= 2
-        && Math.abs(trace.totalRuns - thresholds.medianTotal) <= 2
+    case 'one_run': return Math.abs(trace.differential) === 1
+    // The simulator's own tie mask, never inferred from a one-run margin.
+    case 'extra_innings': return trace.extraInnings
+    case 'common_scores':
+      return thresholds.commonScores.has(`${trace.homeRuns}-${trace.awayRuns}`)
     default: return true
   }
 }

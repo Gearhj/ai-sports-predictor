@@ -1,4 +1,4 @@
-import type { GameSimulationData } from '../types/simulation'
+import type { GameSimulationData, ScenarioCapabilities, ScenarioResult } from '../types/simulation'
 import type {
   AuthResponse,
   AuthUser,
@@ -98,6 +98,16 @@ export const endpoints = {
   game: (id: string, signal?: AbortSignal) => apiRequest<GameAnalysisData>(`/games/${encodeURIComponent(id)}`, {}, signal),
   gameSimulation: (id: string, signal?: AbortSignal) =>
     apiRequest<GameSimulationData>(`/games/${encodeURIComponent(id)}/simulation`, {}, signal),
+  scenarioCapabilities: (id: string, signal?: AbortSignal) =>
+    apiRequest<ScenarioCapabilities>(`/games/${encodeURIComponent(id)}/simulation/capabilities`, {}, signal),
+  // POST because the assumptions are structured input. The endpoint is still
+  // strictly read-only: it writes nothing and calls no provider.
+  runScenario: (id: string, overrides: Record<string, number>, signal?: AbortSignal) =>
+    apiRequest<ScenarioResult>(
+      `/games/${encodeURIComponent(id)}/simulation/scenario`,
+      { method: 'POST', body: JSON.stringify({ overrides }) },
+      signal,
+    ),
   markets: (signal?: AbortSignal) => apiRequest<MarketBoardData>('/markets/board', {}, signal),
   performance: (signal?: AbortSignal) => apiRequest<PerformanceData>('/performance', {}, signal),
   history: (signal?: AbortSignal) => apiRequest<HistoricalResearchData>('/research/history', {}, signal),

@@ -12,6 +12,7 @@ import { ArrowLeft, ShieldCheck } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { DiamondTheater } from '../components/DiamondTheater'
+import { ScenarioLab } from '../components/ScenarioLab'
 import { DataModeBanner, DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
@@ -156,10 +157,13 @@ export function GameSimulationPage() {
           {/* 2 — DIAMOND EXPERIENCE */}
           <DiamondTheater simulation={simulation} homeTeam={homeTeam} awayTeam={awayTeam} />
 
-          {/* 3 — REPRESENTATIVE OUTCOMES (compact, no longer the main animation) */}
+          {/* 3 — WHAT-IF SCENARIO LAB (hypothetical, never official) */}
+          <ScenarioLab gameId={gameId} homeTeam={homeTeam} awayTeam={awayTeam} />
+
+          {/* 4 — REPRESENTATIVE OUTCOMES (compact, no longer the main animation) */}
           <RepresentativeOutcomes simulation={simulation} homeTeam={homeTeam} awayTeam={awayTeam} />
 
-          {/* 4 — OUTCOME DISTRIBUTIONS */}
+          {/* 5 — OUTCOME DISTRIBUTIONS */}
           <section className="analysis-section" aria-labelledby="distributions-heading">
             <h2 id="distributions-heading">Outcome distributions</h2>
             <p className="analysis-section__sub">
@@ -197,7 +201,7 @@ export function GameSimulationPage() {
             <MostLikelyScores simulation={simulation} homeTeam={homeTeam} awayTeam={awayTeam} />
           </section>
 
-          {/* 4 — MARKET COMPARISON */}
+          {/* 6 — MARKET COMPARISON */}
           <section className="analysis-section" aria-labelledby="market-heading">
             <h2 id="market-heading">Model versus market</h2>
             <p className="analysis-section__sub">
@@ -246,7 +250,7 @@ export function GameSimulationPage() {
             </table>
           </section>
 
-          {/* 5 — METHODOLOGY */}
+          {/* 7 — METHODOLOGY */}
           <section className="analysis-section" aria-labelledby="method-heading">
             <h2 id="method-heading">How this was produced</h2>
             <dl className="method-grid">

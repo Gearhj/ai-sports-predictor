@@ -183,11 +183,21 @@ def _representative(
     return outcomes
 
 
-def _joint_matrix(home: np.ndarray, away: np.ndarray) -> dict[str, Any]:
+def _joint_matrix(
+    home: np.ndarray,
+    away: np.ndarray,
+    regulation_tie: np.ndarray | None = None,
+) -> dict[str, Any]:
     """Joint final-score distribution, capped with an explicit overflow bucket.
 
     Scores above the cap are accumulated into a labelled overflow row/column
     rather than discarded, so the matrix still sums to 1.
+
+    ``extra_inning_counts`` carries, per cell, how many of those draws were
+    level after regulation. This is the ONLY authoritative extra-innings
+    signal: a one-run final score is not evidence of extra innings, because
+    most one-run games are decided in regulation. Without this matrix a client
+    can only guess, and guessing overstated extra innings threefold.
     """
     n = len(home)
     size = SCORE_CAP + 2  # 0..SCORE_CAP plus one overflow bucket
@@ -195,16 +205,22 @@ def _joint_matrix(home: np.ndarray, away: np.ndarray) -> dict[str, Any]:
     ai = np.minimum(away, SCORE_CAP + 1)
     counts = np.zeros((size, size), dtype=np.int64)
     np.add.at(counts, (hi, ai), 1)
+    extra = np.zeros((size, size), dtype=np.int64)
+    if regulation_tie is not None:
+        np.add.at(extra, (hi[regulation_tie], ai[regulation_tie]), 1)
     labels = [str(i) for i in range(SCORE_CAP + 1)] + [f">{SCORE_CAP}"]
     return {
         "home_labels": labels,
         "away_labels": labels,
         "probabilities": (counts / n).round(8).tolist(),
         "counts": counts.tolist(),
+        "extra_inning_counts": extra.tolist(),
         "cap": SCORE_CAP,
         "note": (
             "Joint probability of each exact final score, from the official "
-            "simulation's own draws. Rows are home runs, columns away runs."
+            "simulation's own draws. Rows are home runs, columns away runs. "
+            "extra_inning_counts is the subset of each cell that was level "
+            "after regulation."
         ),
     }
 
@@ -222,7 +238,7 @@ def _replay(lambda_home: float, lambda_away: float, simulations: int, seed: int)
     home, away, tie = draws.home, draws.away, draws.regulation_tie
     return {
         "result": result,
-        "joint_score_distribution": _joint_matrix(home, away),
+        "joint_score_distribution": _joint_matrix(home, away, tie),
         "representative_outcomes": _representative(home, away, tie),
         "extra_inning_probability": float(np.mean(tie)),
     }
