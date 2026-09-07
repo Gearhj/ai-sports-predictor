@@ -54,14 +54,29 @@ function value(probability: number | null): ReactNode {
 }
 
 export function SportEventCard({
-  sport, event, children, footer,
+  sport, event, status, badge, children, extraFacts, footer, evidence,
 }: {
   sport: ResolvedSport
   event: SportEvent
+  /**
+   * Plain-language decision status, shown directly under the participants so
+   * the reader learns what the platform decided before seeing any number.
+   */
+  status?: ReactNode
+  /** Optional qualifier shown beside the league, e.g. a within-sport rank. */
+  badge?: ReactNode
   /** Sport-specific slot: pitchers, quarterbacks, goalies, weight class. */
   children?: ReactNode
+  /**
+   * Additional <div><dt/><dd/></div> facts appended to the shared fact row —
+   * edge, stake and anything else the consumer genuinely has. Rendered only
+   * where a forecast may be shown at all.
+   */
+  extraFacts?: ReactNode
   /** Sport-specific actions, e.g. the MLB Interactive Lab link. */
   footer?: ReactNode
+  /** Technical evidence, kept behind a disclosure rather than in the summary. */
+  evidence?: ReactNode
 }) {
   const forecastsAllowed = canShowForecasts(sport)
   const headingId = `event-${event.eventId}`
@@ -77,15 +92,22 @@ export function SportEventCard({
         <span className="sport-event-card__league">
           <span aria-hidden="true">{sport.icon}</span> {sport.shortName}
         </span>
-        <span className={`sport-event-card__readiness sport-event-card__readiness--${event.readinessTone}`}>
-          {event.readinessLabel}
+        <span className="sport-event-card__head-right">
+          {badge}
+          <span className={`sport-event-card__readiness sport-event-card__readiness--${event.readinessTone}`}>
+            {event.readinessLabel}
+          </span>
         </span>
       </header>
 
       <h3 id={headingId} className="sport-event-card__title">
-        {sport.participantModel === 'INDIVIDUAL_BOUT'
-          ? `${first?.name ?? 'TBD'} vs ${second?.name ?? 'TBD'}`
-          : `${first?.name ?? 'TBD'} @ ${second?.name ?? 'TBD'}`}
+        {/* A single-participant list is a label we could not split; show it as
+            given rather than inventing an opponent. */}
+        {event.participants.length === 1
+          ? (first?.name ?? 'TBD')
+          : sport.participantModel === 'INDIVIDUAL_BOUT'
+            ? `${first?.name ?? 'TBD'} vs ${second?.name ?? 'TBD'}`
+            : `${first?.name ?? 'TBD'} @ ${second?.name ?? 'TBD'}`}
       </h3>
 
       <p className="sport-event-card__when">
@@ -95,6 +117,12 @@ export function SportEventCard({
         {' · '}
         {event.statusLabel}
       </p>
+
+      {status && (
+        <p className={`sport-event-card__status sport-event-card__status--${event.readinessTone}`}>
+          {status}
+        </p>
+      )}
 
       {children && <div className="sport-event-card__slot">{children}</div>}
 
@@ -112,6 +140,7 @@ export function SportEventCard({
             <dt>Evidence</dt>
             <dd>{event.evidenceFreshness ?? <span className="unavailable">Not recorded</span>}</dd>
           </div>
+          {extraFacts}
         </dl>
       ) : (
         <p className="sport-event-card__planned" role="status">
@@ -127,6 +156,13 @@ export function SportEventCard({
           </Link>
         )}
       </footer>
+
+      {evidence && (
+        <details className="sport-event-card__evidence">
+          <summary>Technical evidence</summary>
+          {evidence}
+        </details>
+      )}
     </article>
   )
 }

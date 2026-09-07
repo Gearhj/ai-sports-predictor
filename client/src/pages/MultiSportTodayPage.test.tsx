@@ -198,7 +198,7 @@ describe('Daily Command Center — grouping', () => {
     expect(within(passedGroup).getByText('CHC @ STL')).toBeInTheDocument()
     // The same sentence is both the status and the humanised gate, so scope to the status line.
     const passedCard = within(passedGroup).getByText('CHC @ STL').closest('article')!
-    expect(passedCard.querySelector('.decision-card__status')).toHaveTextContent(/did not meet the policy threshold/i)
+    expect(passedCard.querySelector('.sport-event-card__status')).toHaveTextContent(/did not meet the policy threshold/i)
     expect(within(passedGroup).queryByText('SD @ SF')).not.toBeInTheDocument()
 
     const watchingGroup = group('Watching')
@@ -247,7 +247,7 @@ describe('Daily Command Center — grouping', () => {
     const card = within(watching).getByText('DAL @ PHI').closest('article')!
     expect(within(card).getByText(/Research shadow — no funded decision is possible/i)).toBeInTheDocument()
     // No stake: research shadow can never fund a position.
-    expect(stake(card)).toHaveTextContent('None')
+    expect(stake(card)).toHaveTextContent('No position')
     expect(within(group('Ready')).queryByText('DAL @ PHI')).not.toBeInTheDocument()
     expect(screen.getByText(/No governed NFL market observation/i)).toBeInTheDocument()
   })
@@ -385,7 +385,7 @@ describe('Daily Command Center — count units and in-progress games', () => {
     ]
     mount(model([mlbSection(twoPolicies)]))
     await screen.findAllByText('BOS @ NYY')
-    expect(screen.getByText(/2 decisions across 1 game\./)).toBeInTheDocument()
+    expect(screen.getByText(/2 decisions across 1 event\./)).toBeInTheDocument()
   })
 
   it('moves a live game out of Ready and Watching into Closed for decisions', async () => {
@@ -427,11 +427,11 @@ describe('Daily Command Center — count units and in-progress games', () => {
     const closed = await screen.findByRole('heading', { name: /^Closed for decisions/ })
       .then((heading) => heading.closest('section')!)
     const postponedCard = within(closed).getByText('MIA @ NYM').closest('article')!
-    expect(postponedCard.querySelector('.decision-card__status')).toHaveTextContent('Postponed')
-    expect(postponedCard.querySelector('.decision-card__status')).not.toHaveTextContent(/final|settled/i)
+    expect(postponedCard.querySelector('.sport-event-card__status-line')).toHaveTextContent('Postponed')
+    expect(postponedCard.querySelector('.sport-event-card__status-line')).not.toHaveTextContent(/final|settled/i)
 
     const canceledCard = within(closed).getByText('SD @ SF').closest('article')!
-    expect(canceledCard.querySelector('.decision-card__status')).toHaveTextContent('Canceled')
+    expect(canceledCard.querySelector('.sport-event-card__status-line')).toHaveTextContent('Canceled')
   })
 
   it('distinguishes a final game with a position from one without', async () => {
@@ -448,6 +448,146 @@ describe('Daily Command Center — count units and in-progress games', () => {
     await screen.findByText('HOU @ TEX')
     expect(screen.getByText('Final — settlement pending')).toBeInTheDocument()
     expect(screen.getByText('Final — no position was taken')).toBeInTheDocument()
+  })
+})
+
+describe('All Sports homepage — the redesigned public experience', () => {
+  it('leads with the product, its value and its research-only boundary', async () => {
+    mount(payload)
+
+    const heading = await screen.findByRole('heading', { level: 1, name: 'AI Sports Predictor' })
+    expect(heading).toBeInTheDocument()
+    expect(screen.getByText(/Model forecasts, market prices and governed decisions/)).toBeInTheDocument()
+    expect(screen.getByText('Research and simulation only · No real-money wagering')).toBeInTheDocument()
+    // Date and freshness are both stated, so the reader knows how current this is.
+    expect(document.querySelector('.command-header__date')).toHaveTextContent('America/New_York')
+    expect(document.querySelector('.command-header__fresh')).toHaveTextContent(/Forecasts refreshed/i)
+    // Internal governance vocabulary is not the headline.
+    expect(heading.textContent).not.toMatch(/governed|command center|persisted/i)
+  })
+
+  it('answers the day in one plain sentence above the counts', async () => {
+    mount(payload)
+    const answer = await screen.findByText(/No qualified decisions yet/i)
+    expect(answer).toHaveClass('today-answer__message')
+    const counts = screen.getByRole('group', { name: /Breakdown of 2 governed decisions/i })
+    // The answer precedes the tiles in document order.
+    expect(answer.compareDocumentPosition(counts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the four decision groups summing to the governed-decision total', async () => {
+    mount(payload)
+    await screen.findAllByText('BOS @ NYY')
+
+    const tiles = screen.getByRole('group', { name: /Breakdown of (\d+) governed decisions/i })
+    const total = [...tiles.querySelectorAll('.summary-count__value')]
+      .reduce((sum, node) => sum + Number(node.textContent), 0)
+    const stated = Number(/Breakdown of (\d+)/.exec(tiles.getAttribute('aria-label')!)![1])
+    expect(total).toBe(stated)
+    // And the group headings account for the same decisions.
+    const headingTotal = ['Ready', 'Watching', 'Passed', 'Closed for decisions']
+      .map((title) => screen.getByRole('heading', { name: new RegExp(`^${title}`) }))
+      .reduce((sum, heading) => sum + Number(heading.querySelector('.decision-group__count')!.textContent), 0)
+    expect(headingTotal).toBe(stated)
+  })
+
+  it('shows every league with its parent sport and truthful status', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: 'Sports and leagues' })
+
+    const strip = screen.getByRole('heading', { name: 'Sports and leagues' }).closest('section')!
+    const tiles = [...strip.querySelectorAll('.league-tile')]
+    expect(tiles.map((tile) => tile.querySelector('.league-tile__code')!.textContent!.trim()))
+      .toEqual(['⚾ MLB', '🏈 NFL', '🏀 NBA', '🏀 WNBA', '🏒 NHL', '🥊 UFC'])
+
+    const byCode = (code: string) => tiles.find((tile) => tile.textContent!.includes(code))!
+    expect(byCode('MLB')).toHaveTextContent('Active forecasting')
+    expect(byCode('MLB')).toHaveTextContent('Baseball')
+    expect(byCode('NFL')).toHaveTextContent('Research foundation')
+    expect(byCode('WNBA')).toHaveTextContent('Basketball')
+    for (const planned of ['NBA', 'WNBA', 'NHL', 'UFC']) {
+      expect(byCode(planned)).toHaveTextContent('Planned')
+      expect(byCode(planned).querySelector('a')).toBeNull()
+      expect(within(byCode(planned) as HTMLElement).getByText('Not available yet')).toBeInTheDocument()
+    }
+  })
+
+  it('states the real slate size on a supported league and no counts on an unsupported one', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: 'Sports and leagues' })
+
+    const mlb = screen.getByRole('heading', { name: 'Major League Baseball' }).closest('article')!
+    expect(mlb.querySelector('.league-tile__counts')).toHaveTextContent('1 scheduled game · 1 governed decision')
+    // NHL is not in the backend registry at all, so it claims nothing.
+    const nhl = screen.getByRole('heading', { name: 'National Hockey League' }).closest('article')!
+    expect(nhl.querySelector('.league-tile__counts')).toHaveTextContent(/not in the sport registry/i)
+    expect(nhl.querySelector('.league-tile__metrics')).toBeNull()
+  })
+
+  it('never lets a planned league become a link in the header nav', async () => {
+    mount(payload)
+    await screen.findByRole('navigation', { name: 'Sports and leagues' })
+    const nav = screen.getByRole('navigation', { name: 'Sports and leagues' })
+    expect(within(nav).getAllByRole('link').map((link) => link.textContent!.trim()))
+      .toEqual(['⚾ MLB', '🏈 NFL'])
+    expect(nav.querySelectorAll('[aria-disabled="true"]')).toHaveLength(4)
+  })
+
+  it('offers the rest of the platform without implying a lab that does not exist', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: /Beyond today’s slate/i })
+
+    for (const name of ['Market board', 'Crowd & market pulse', 'Model performance', '$1,000 Experiment']) {
+      expect(screen.getByRole('link', { name: new RegExp(name.replace('$', '\\$'), 'i') })).toBeInTheDocument()
+    }
+    const labs = document.querySelector('.explore__labs')!
+    expect(within(labs as HTMLElement).getByText(/MLB Diamond Simulator/)).toBeInTheDocument()
+    expect(labs.querySelectorAll('.lab--available')).toHaveLength(1)
+    // Planned labs are named honestly and carry no route.
+    expect(labs.querySelectorAll('.lab--planned')).toHaveLength(5)
+    expect(labs.querySelectorAll('a')).toHaveLength(0)
+  })
+
+  it('states how the record is kept honest without becoming a governance report', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: /How this record is kept honest/i })
+    expect(screen.getByText(/Decisions are recorded before the event/i)).toBeInTheDocument()
+    expect(screen.getByText(/Kalshi and Polymarket are comparisons only/i)).toBeInTheDocument()
+    expect(screen.getByText(/uses virtual research positions/i)).toBeInTheDocument()
+    expect(document.querySelectorAll('.trust__grid li')).toHaveLength(6)
+  })
+
+  it('offers the MLB Diamond Simulator from an MLB decision card', async () => {
+    mount(model([mlbSection([baseSelection])]))
+    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
+    expect(within(card).getByRole('link', { name: /Diamond Simulator/i }))
+      .toHaveAttribute('href', '/games/mlb-1/simulation')
+    expect(within(card).getByRole('link', { name: /Full analysis/i }))
+      .toHaveAttribute('href', '/games/mlb-1')
+  })
+
+  it('uses each sport’s own vocabulary on its cards rather than baseball’s', async () => {
+    mount(payload)
+    await screen.findByText('DAL @ PHI')
+    const mlbCard = screen.getByText('BOS @ NYY').closest('article')!
+    const nflCard = screen.getByText('DAL @ PHI').closest('article')!
+    expect(within(mlbCard).getByText(/First pitch:/)).toBeInTheDocument()
+    expect(within(nflCard).getByText(/Kickoff:/)).toBeInTheDocument()
+    expect(within(nflCard).queryByText(/First pitch/)).not.toBeInTheDocument()
+    // Market vocabulary follows the sport too.
+    expect(within(mlbCard).getAllByText('Moneyline').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('keeps technical evidence behind a disclosure instead of in the summary', async () => {
+    mount(model([mlbSection([baseSelection])]))
+    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
+    const evidence = card.querySelector('.sport-event-card__evidence')!
+    expect(evidence.tagName).toBe('DETAILS')
+    expect(evidence).not.toHaveAttribute('open')
+    expect(within(evidence as HTMLElement).getByText('AWAITING_FINAL_EVIDENCE')).toBeInTheDocument()
+    // The raw state token is not part of the visible summary.
+    expect(card.querySelector('.sport-event-card__status-line'))
+      .not.toHaveTextContent('AWAITING_FINAL_EVIDENCE')
   })
 })
 

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   AVAILABILITY_LABEL,
+  SPORTS,
   SPORT_EXPERIENCES,
   SPORT_ORDER,
   canShowForecasts,
   labIsAvailable,
+  leaguesBySport,
   marketLabel,
   navigableSports,
   resolveAllSports,
@@ -50,7 +52,7 @@ describe('backend authority always wins', () => {
   it('marks MLB active only because the backend says LIVE', () => {
     const mlb = resolveSport('MLB', BACKEND)
     expect(mlb.availability).toBe('LIVE')
-    expect(mlb.availabilityLabel).toBe('Active')
+    expect(mlb.availabilityLabel).toBe('Active forecasting')
     expect(mlb.navigable).toBe(true)
     expect(mlb.officialPositionsSupported).toBe(true)
   })
@@ -109,7 +111,7 @@ describe('availability states are honest', () => {
   })
 
   it('uses public wording rather than internal governance vocabulary', () => {
-    expect(AVAILABILITY_LABEL.LIVE).toBe('Active')
+    expect(AVAILABILITY_LABEL.LIVE).toBe('Active forecasting')
     expect(AVAILABILITY_LABEL.RESEARCH_SHADOW).toBe('Research foundation')
     expect(AVAILABILITY_LABEL.PLANNED).toBe('Planned')
   })
@@ -214,5 +216,64 @@ describe('extension boundary', () => {
     // flows into navigation and resolution without touching page components.
     const resolved = resolveAllSports(BACKEND)
     expect(resolved.map((s) => s.leagueCode)).toEqual(SPORT_ORDER)
+  })
+})
+
+describe('sport and league are separate levels', () => {
+  it('files every league under a real sport, never under a promotion', () => {
+    const parents: Record<string, string> = {
+      MLB: 'BASEBALL', NFL: 'FOOTBALL', NBA: 'BASKETBALL',
+      WNBA: 'BASKETBALL', NHL: 'HOCKEY', UFC: 'MMA',
+    }
+    for (const league of SPORT_ORDER) {
+      expect(SPORT_EXPERIENCES[league].sportCode).toBe(parents[league])
+      expect(SPORT_EXPERIENCES[league].sportCode).not.toBe(league)
+    }
+    // UFC is a promotion inside MMA, not a sport of its own.
+    expect(SPORT_EXPERIENCES.UFC.sportName).toBe('Mixed Martial Arts')
+  })
+
+  it('makes NBA and WNBA share every basketball concept while staying distinct leagues', () => {
+    const nba = SPORT_EXPERIENCES.NBA
+    const wnba = SPORT_EXPERIENCES.WNBA
+    expect(nba.sportCode).toBe(wnba.sportCode)
+    expect(nba.terminology).toEqual(wnba.terminology)
+    expect(nba.marketFamilies).toEqual(wnba.marketFamilies)
+    expect(nba.marketLabels).toEqual(wnba.marketLabels)
+    expect(nba.icon).toBe(wnba.icon)
+    // ...but they remain two leagues with their own identity and presentation.
+    expect(nba.leagueCode).not.toBe(wnba.leagueCode)
+    expect(nba.displayName).not.toBe(wnba.displayName)
+    expect(nba.accent.base).not.toBe(wnba.accent.base)
+    expect(nba.lab?.name).not.toBe(wnba.lab?.name)
+  })
+
+  it('defines terminology once per sport, so leagues cannot drift', () => {
+    expect(SPORTS.BASKETBALL.terminology.startLabel).toBe('Tip-off')
+    expect(SPORT_EXPERIENCES.NBA.terminology).toBe(SPORTS.BASKETBALL.terminology)
+    expect(SPORT_EXPERIENCES.WNBA.terminology).toBe(SPORTS.BASKETBALL.terminology)
+    expect(SPORT_EXPERIENCES.MLB.terminology).toBe(SPORTS.BASEBALL.terminology)
+  })
+
+  it('groups leagues under their sport for sport-first navigation', () => {
+    const grouped = leaguesBySport()
+    expect(grouped.map((g) => g.sport.sportCode)).toEqual(
+      ['BASEBALL', 'FOOTBALL', 'BASKETBALL', 'HOCKEY', 'MMA'],
+    )
+    const basketball = grouped.find((g) => g.sport.sportCode === 'BASKETBALL')!
+    expect(basketball.leagues.map((l) => l.leagueCode)).toEqual(['NBA', 'WNBA'])
+    // Every league appears exactly once across the whole grouping.
+    expect(grouped.flatMap((g) => g.leagues.map((l) => l.leagueCode)).sort())
+      .toEqual([...SPORT_ORDER].sort())
+  })
+
+  it('keeps the sport name available beside every league', () => {
+    expect(SPORT_EXPERIENCES.MLB.sportName).toBe('Baseball')
+    expect(SPORT_EXPERIENCES.NHL.sportName).toBe('Hockey')
+    expect(resolveSport('WNBA', BACKEND).sportName).toBe('Basketball')
+  })
+
+  it('does not invent leagues beyond the six AISP recognises', () => {
+    expect(Object.keys(SPORT_EXPERIENCES).sort()).toEqual([...SPORT_ORDER].sort())
   })
 })

@@ -1770,3 +1770,174 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .sport-event-card__facts { grid-template-columns: 1fr 1fr; }
   .sport-slot { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   ALL SPORTS DAILY COMMAND CENTER  (route "/")
+   The public front door. Dark command header, one plain-language
+   answer, league coverage, decision board, explore, trust.
+   ============================================================ */
+.command-center { display: flex; flex-direction: column; gap: 20px; }
+
+.command-header {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 26px; align-items: start;
+  padding: 22px 28px; border-radius: 14px; color: #e8f0f7;
+  background:
+    radial-gradient(120% 160% at 8% 0%, rgba(56,178,166,.30), transparent 58%),
+    radial-gradient(110% 150% at 96% 8%, rgba(40,111,158,.34), transparent 60%),
+    linear-gradient(150deg, var(--navy-950), #0d1c31 62%, #123054);
+  border: 1px solid rgba(255,255,255,.07);
+  box-shadow: 0 18px 44px rgba(7,17,31,.24);
+}
+.command-header__eyebrow { margin: 0 0 8px; color: #79d3c8; font: 700 12px/1 "IBM Plex Mono", monospace; letter-spacing: .13em; }
+.command-header__title { margin: 0 0 8px; font-size: 30px; line-height: 1.1; letter-spacing: -.022em; font-weight: 700; color: white; }
+.command-header__value { margin: 0 0 13px; max-width: 62ch; color: #c3d4e3; font-size: 15px; line-height: 1.55; }
+.command-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.command-header__meta > span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 13px; }
+.command-header__date { color: #dceaf5; background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.11); }
+.command-header__fresh { color: #a6e6da; background: rgba(56,178,166,.14); border: 1px solid rgba(86,206,192,.32); }
+.command-header__disclosure { color: #ffd9a8; background: rgba(211,109,43,.16); border: 1px solid rgba(226,146,84,.38); font-weight: 650; }
+
+.command-header__side { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; min-width: 0; }
+.command-header__refresh {
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: 7px;
+  color: #dbe8f3; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.15); font-size: 13px; font-weight: 650;
+}
+.command-header__refresh:hover:not(:disabled) { background: rgba(255,255,255,.13); }
+
+.league-nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; max-width: 460px; }
+.league-nav__chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 7px;
+  font: 650 13px "IBM Plex Mono", monospace; letter-spacing: .03em; text-decoration: none; white-space: nowrap;
+}
+.league-nav__chip--live { color: #072a26; background: #6fd3c6; border: 1px solid #6fd3c6; }
+.league-nav__chip--live:hover { background: #8ee2d7; }
+.league-nav__chip--planned { color: #8ba1b6; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.11); cursor: not-allowed; }
+.league-nav__chip em { font-style: normal; font-size: 12px; color: #6f849a; letter-spacing: .02em; }
+
+/* --- The one-line answer -------------------------------------------- */
+.today-answer { padding: 19px 22px; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.today-answer__message { margin: 0 0 7px; color: var(--ink); font-size: 22px; line-height: 1.28; font-weight: 700; letter-spacing: -.015em; }
+.today-answer__scope { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+.today-answer__scope strong { color: var(--ink); }
+.today-answer__counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 13px; }
+.today-answer__meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0; padding-top: 13px; border-top: 1px solid var(--line); }
+.today-answer__meta dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.today-answer__meta dd { margin: 4px 0 0; color: var(--ink); font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.today-answer__meta small { color: var(--muted); font-size: 12px; font-weight: 500; }
+
+/* --- League strip --------------------------------------------------- */
+.league-strip__note, .decision-board__note { margin: 0; color: var(--muted); font-size: 13px; max-width: 46ch; }
+.league-strip__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(222px, 1fr)); gap: 12px; }
+.league-tile {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 13px 14px;
+  background: white; border: 1px solid var(--line); border-top: 3px solid var(--sport-accent, var(--line-strong));
+  border-radius: 10px; box-shadow: var(--shadow);
+}
+.league-tile--planned { background: #f7f9fb; border-top-color: var(--line-strong); box-shadow: none; }
+.league-tile__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.league-tile__code { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font: 700 14px "IBM Plex Mono", monospace; letter-spacing: .03em; }
+.league-tile__status { padding: 3px 8px; border-radius: 999px; font: 650 12px "IBM Plex Mono", monospace; color: #526579; background: #edf2f5; border: 1px solid var(--line); white-space: nowrap; }
+.league-tile__status--live { color: #17553f; background: var(--green-soft); border-color: #acd4c1; }
+.league-tile__status--research-shadow { color: #235271; background: var(--blue-soft); border-color: #bfd8e7; }
+.league-tile__name { margin: 4px 0 0; font-size: 15px; line-height: 1.3; color: var(--ink); }
+.league-tile__sport { margin: 0; color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .06em; }
+.league-tile__counts { margin: 6px 0 0; color: var(--ink); font-size: 13.5px; }
+.league-tile__counts strong { font-size: 15px; }
+.league-tile__counts--none { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.league-tile__blurb { margin: 2px 0 0; color: #55697c; font-size: 13px; line-height: 1.5; }
+.league-tile__metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 7px 0 0; padding-top: 8px; border-top: 1px solid var(--line); }
+.league-tile__metrics dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; letter-spacing: .02em; }
+.league-tile__metrics dd { margin: 2px 0 0; color: var(--ink); font-size: 14px; font-weight: 700; }
+.league-tile__warning { margin: 8px 0 0; padding: 8px 10px; color: #7d5210; background: var(--amber-soft); border: 1px solid #e5d09a; border-radius: 6px; font-size: 12.5px; line-height: 1.45; }
+.league-tile__link { margin-top: auto; padding-top: 10px; color: var(--teal-dark); font-size: 13px; font-weight: 700; text-decoration: none; }
+.league-tile__link:hover { text-decoration: underline; }
+.league-tile__link--disabled { color: var(--muted); font-weight: 600; cursor: not-allowed; }
+
+/* --- Decision board ------------------------------------------------- */
+.decision-board { display: flex; flex-direction: column; gap: 18px; }
+.sport-event-card__head-right { display: inline-flex; align-items: center; gap: 7px; }
+.sport-event-card__rank { padding: 3px 7px; border-radius: 4px; color: #526579; background: #eef3f6; border: 1px solid var(--line); font: 600 12px "IBM Plex Mono", monospace; white-space: nowrap; }
+.sport-event-card__status { display: flex; flex-direction: column; gap: 3px; margin: 10px 0 0; padding: 9px 11px; border-radius: 6px; font-size: 13.5px; line-height: 1.45; font-weight: 650; color: #3a4b5c; background: var(--soft); border-left: 3px solid var(--line-strong); }
+.sport-event-card__status small { font-size: 12.5px; font-weight: 500; color: #62768a; }
+.sport-event-card__status--ready { color: #17553f; background: var(--green-soft); border-left-color: var(--green); }
+.sport-event-card__status--watching { color: #6d5111; background: var(--amber-soft); border-left-color: var(--amber); }
+.sport-event-card__status--closed { color: #235271; background: var(--blue-soft); border-left-color: var(--blue); }
+.sport-event-card__checkpoint { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12.5px; }
+.sport-event-card__lab { color: var(--teal-dark); font-size: 12.5px; font-weight: 650; text-decoration: none; }
+.sport-event-card__lab:hover { text-decoration: underline; }
+.sport-event-card__evidence { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sport-event-card__evidence summary { color: var(--muted); font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.sport-event-card__evidence dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin: 10px 0 0; }
+.sport-event-card__evidence dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; }
+.sport-event-card__evidence dd { margin: 2px 0 0; color: var(--ink); font-size: 12.5px; overflow-wrap: anywhere; }
+.sport-event-card__gates { margin: 10px 0 0; color: #55697c; font-size: 12.5px; line-height: 1.45; }
+
+/* --- Explore -------------------------------------------------------- */
+.explore { padding: 22px 24px; border-radius: 12px; color: #dde8f2; background: linear-gradient(155deg, var(--navy-900), #10233c); border: 1px solid rgba(255,255,255,.06); }
+.explore .section-heading h2 { color: white; }
+.explore .eyebrow { color: #79d3c8; }
+.explore__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 12px; }
+.explore__card { display: flex; flex-direction: column; gap: 7px; padding: 15px 16px; border-radius: 9px; color: #dde8f2; text-decoration: none; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); }
+.explore__card:hover { background: rgba(255,255,255,.1); border-color: rgba(111,211,198,.45); }
+.explore__card strong { font-size: 15px; color: white; }
+.explore__icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: #7fd8cb; background: rgba(56,178,166,.14); border: 1px solid rgba(86,206,192,.3); }
+.explore__blurb { color: #a9bece; font-size: 13px; line-height: 1.5; }
+.explore__card--disabled { cursor: not-allowed; opacity: .72; }
+.explore__card--disabled:hover { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.09); }
+.explore__card em { font-style: normal; color: #8ba1b6; font: 650 12px "IBM Plex Mono", monospace; }
+.explore__labs { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.08); }
+.explore__labs h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 4px; color: white; font-size: 15px; }
+.explore__labs-note { margin: 0 0 12px; color: #a9bece; font-size: 13px; }
+.explore__labs ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.explore__labs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); }
+.lab__name { color: #e6eff7; font-size: 13.5px; font-weight: 650; }
+.lab__status { padding: 2px 8px; border-radius: 999px; font: 650 12px "IBM Plex Mono", monospace; color: #8ba1b6; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.11); height: fit-content; }
+.lab--available .lab__status { color: #072a26; background: #6fd3c6; border-color: #6fd3c6; }
+.lab__blurb { grid-column: 1 / -1; color: #9db3c6; font-size: 12.5px; line-height: 1.45; }
+
+/* --- Verified performance ------------------------------------------- */
+.trust { padding: 20px 24px; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.trust__link { color: var(--teal-dark); font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.trust__link:hover { text-decoration: underline; }
+.trust__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px 20px; margin: 0; padding: 0; list-style: none; }
+.trust__grid li { display: flex; flex-direction: column; gap: 3px; padding-left: 12px; border-left: 2px solid var(--teal-soft); }
+.trust__grid strong { color: var(--ink); font-size: 13.5px; }
+.trust__grid span { color: #55697c; font-size: 13px; line-height: 1.5; }
+
+@media (max-width: 1180px) {
+  .command-header { grid-template-columns: 1fr; }
+  .command-header__side { align-items: flex-start; }
+  .league-nav { justify-content: flex-start; max-width: none; }
+  .today-answer__meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .command-header { padding: 20px 18px; }
+  .command-header__title { font-size: 26px; }
+  .command-header__value { font-size: 14px; }
+  .today-answer { padding: 18px 16px; }
+  .today-answer__message { font-size: 20px; }
+  .today-answer__counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .explore, .trust { padding: 18px 16px; }
+  .explore__labs li { grid-template-columns: 1fr; }
+  .sport-event-card__evidence dl { grid-template-columns: 1fr; }
+}
+.sport-event-card__status-line { display: block; }
+
+/* Public-page typography floor: nothing on the homepage reads below 12px,
+   and the labels a reader actually needs sit at 12-14px. Scoped so the
+   internal desks keep their own denser scale. */
+.command-center .eyebrow { font-size: 12px; }
+.command-center .summary-count__label { font-size: 12px; }
+.command-center .summary-count { padding: 7px 12px; }
+.command-center .summary-count__value { font-size: 20px; }
+.command-center .section-heading { margin: 0 0 9px; }
+.command-center .daily-summary__footnote { font-size: 12.5px; }
+.today-answer__meta dd { font-size: 13.5px; }
+.league-tile__metrics { grid-template-columns: 1fr; gap: 4px; }
+.league-tile__metrics div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.league-tile__metrics dd { margin: 0; }
+.command-header { padding: 20px 26px; }
+.command-header__title { font-size: 28px; }
+.command-header__value { margin-bottom: 11px; }
+.command-center .today-answer { padding: 17px 20px; }
+.command-center .decision-board { gap: 16px; }

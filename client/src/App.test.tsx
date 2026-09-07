@@ -30,7 +30,7 @@ describe('AI Sports Predictor application shell', () => {
 
   it('renders an honest unavailable desk without fixture substitution', async () => {
     render(<App />)
-    expect(await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^AI Sports Predictor$/i })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/LIVE DATA UNAVAILABLE/i)).toBeInTheDocument())
     expect(screen.queryByText('ILLUSTRATIVE DEMO — NOT LIVE RESULTS')).not.toBeInTheDocument()
     expect(screen.queryByText(/STRONG EDGE/i)).not.toBeInTheDocument()
@@ -40,7 +40,7 @@ describe('AI Sports Predictor application shell', () => {
   it('routes to methodology from the shared navigation', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })
+    await screen.findByRole('heading', { name: /^AI Sports Predictor$/i })
     await user.click(screen.getByRole('link', { name: 'Methodology' }))
     expect(await screen.findByRole('heading', { name: 'Methodology' })).toBeInTheDocument()
     expect(screen.getByText(/Probability estimates, not picks/i)).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe('AI Sports Predictor application shell', () => {
     const fetchMock = stubRegistry(sportRegistryFixture)
     const user = userEvent.setup()
     render(<StrictMode><App /></StrictMode>)
-    await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })
+    await screen.findByRole('heading', { name: /^AI Sports Predictor$/i })
     const selector = screen.getByRole('button', { name: /All registered sports/i })
     expect(selector).toHaveAttribute('aria-expanded', 'false')
 
