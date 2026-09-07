@@ -63,18 +63,18 @@ h1, h2, h3, p { margin-top: 0; }
 .brand > span:last-child { display: flex; flex-direction: column; line-height: 1; }
 .brand strong { font-size: 13px; letter-spacing: .13em; font-weight: 600; color: #b8c7d6; }
 .brand b { font-size: 17px; line-height: 1.3; letter-spacing: .035em; }
-.brand small { margin-top: 4px; color: #768aa0; font: 500 11px/1.2 "IBM Plex Mono", monospace; letter-spacing: .11em; text-transform: uppercase; }
+.brand small { margin-top: 4px; color: #8296ab; font: 500 12px/1.2 "IBM Plex Mono", monospace; letter-spacing: .11em; text-transform: uppercase; }
 
 .sport-switcher { margin-bottom: 22px; border: 1px solid rgba(255,255,255,.09); border-radius: 8px; background: rgba(255,255,255,.035); overflow: hidden; }
 .sport-switcher__active { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 11px; color: white; text-align: left; border: 0; background: transparent; }
 .sport-switcher__active > span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.sport-switcher__active strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.sport-switcher__active small { color: #8296ab; font-size: 11px; }
+.sport-switcher__active strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.sport-switcher__active small { color: #8296ab; font-size: 12px; }
 .sport-switcher__active small i { display: inline-block; width: 6px; height: 6px; margin-right: 4px; background: #3cc69e; border-radius: 50%; box-shadow: 0 0 8px #3cc69e; }
-.sport-ball { width: 34px; height: 34px; display: grid; place-items: center; color: #0b1729; border-radius: 50%; background: #dce8ee; font: 700 11px "IBM Plex Mono", monospace; }
+.sport-ball { width: 34px; height: 34px; display: grid; place-items: center; color: #0b1729; border-radius: 50%; background: #dce8ee; font: 700 12px "IBM Plex Mono", monospace; }
 .sport-future-list { display: none; gap: 5px; padding: 8px 11px 10px 54px; border-top: 1px solid rgba(255,255,255,.06); }
 .sport-future-list--open { display: grid; }
-.sport-future-list span, .sport-future-list a { display: flex; justify-content: space-between; color: #6f8295; font: 500 11px "IBM Plex Mono", monospace; letter-spacing: .06em; }
+.sport-future-list span, .sport-future-list a { display: flex; align-items: center; gap: 7px; justify-content: space-between; color: #8ba0b3; font: 500 13px "IBM Plex Mono", monospace; letter-spacing: .03em; }
 .sport-future-list a { padding: 3px 0; color: #b9c8d5; text-decoration: none; }
 .sport-future-list a:hover, .sport-future-list a.active { color: white; }
 .sport-future-list em { font-style: normal; color: #536679; text-transform: uppercase; }
@@ -89,7 +89,7 @@ h1, h2, h3, p { margin-top: 0; }
 .side-nav__item--disabled { color: #46596c; cursor: default; }
 .side-nav__item--disabled small { margin-left: auto; padding: 2px 4px; color: #536679; border: 1px solid #34475a; border-radius: 3px; font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
 .sidebar-footer { margin-top: auto; padding-top: 22px; }
-.research-note { display: flex; gap: 9px; align-items: flex-start; padding: 11px 10px; margin-bottom: 9px; color: #7e93a6; border-top: 1px solid rgba(255,255,255,.07); font-size: 11px; line-height: 1.4; }
+.research-note { display: flex; gap: 9px; align-items: flex-start; padding: 11px 10px; margin-bottom: 9px; color: #90a5b8; border-top: 1px solid rgba(255,255,255,.07); font-size: 12px; line-height: 1.45; }
 .research-note svg { flex: 0 0 auto; color: #39a397; }
 .research-note small { color: #566b7e; }
 .account-link { display: flex; align-items: center; gap: 9px; padding: 9px; color: #d5e0e9; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 7px; text-decoration: none; }
@@ -1733,4 +1733,40 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .scenario-lab { padding: 15px; }
   .scenario-sensitivity li { grid-template-columns: 1fr auto; }
   .scenario-table th, .scenario-table td { padding: 8px 7px; font-size: 12px; }
+}
+
+/* --- Multi-sport shell: every registered sport visible and honestly labelled --- */
+.sport-future-list__planned { display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: #6f8598; border-radius: 6px; font-size: 13px; cursor: not-allowed; }
+.sport-future-list__planned em { margin-left: auto; color: #7b8fa2; font-style: normal; font-size: 12px; }
+.sport-future-list a span[aria-hidden] { font-size: 14px; }
+
+/* --- Reusable sport event card ------------------------------------------- */
+.sport-event-card { display: flex; flex-direction: column; min-width: 0; padding: 15px 16px; background: white; border: 1px solid var(--line); border-left: 3px solid var(--sport-accent, var(--line-strong)); border-radius: 8px; box-shadow: var(--shadow); }
+.sport-event-card--ready { border-left-color: var(--green); }
+.sport-event-card--watching { border-left-color: var(--amber); }
+.sport-event-card--passed { border-left-color: var(--muted); }
+.sport-event-card--closed { border-left-color: var(--blue); }
+.sport-event-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sport-event-card__league { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font: 700 12px "IBM Plex Mono", monospace; letter-spacing: .04em; }
+.sport-event-card__readiness { padding: 3px 8px; border-radius: 4px; font: 600 12px "IBM Plex Mono", monospace; color: #526579; background: #edf2f5; border: 1px solid var(--line); }
+.sport-event-card__readiness--ready { color: var(--green); background: var(--green-soft); border-color: #acd4c1; }
+.sport-event-card__readiness--watching { color: #775816; background: var(--amber-soft); border-color: #e5d09a; }
+.sport-event-card__readiness--closed { color: #235271; background: var(--blue-soft); border-color: #bfd8e7; }
+.sport-event-card__title { margin: 11px 0 3px; color: var(--ink); font-size: 17px; line-height: 1.25; overflow-wrap: anywhere; }
+.sport-event-card__when { margin: 0; color: var(--muted); font-size: 12.5px; }
+.sport-event-card__slot { margin-top: 11px; }
+.sport-slot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 0; }
+.sport-slot dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.sport-slot dd { margin: 2px 0 0; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.sport-event-card__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 12px; margin: 12px 0 0; padding: 11px 0; border-block: 1px solid var(--line); }
+.sport-event-card__facts dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.sport-event-card__facts dd { margin: 3px 0 0; color: var(--ink); font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.sport-event-card .unavailable { color: var(--muted); font-weight: 500; font-style: italic; font-size: 13px; }
+.sport-event-card__planned { margin: 12px 0 0; padding: 11px 13px; color: #55697c; background: var(--soft); border: 1px dashed var(--line-strong); border-radius: 6px; font-size: 13px; line-height: 1.5; }
+.sport-event-card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.sport-event-card__link { display: inline-flex; align-items: center; gap: 5px; color: var(--teal-dark); font-size: 13px; font-weight: 700; text-decoration: none; }
+.sport-event-card__link:hover { text-decoration: underline; }
+@media (max-width: 560px) {
+  .sport-event-card__facts { grid-template-columns: 1fr 1fr; }
+  .sport-slot { grid-template-columns: 1fr; }
 }
