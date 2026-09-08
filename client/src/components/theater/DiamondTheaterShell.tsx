@@ -138,7 +138,7 @@ export function DiamondTheaterShell({ path, shadow, awayTeam, homeTeam }: {
         />
 
         <div className="theater__park">
-          <svg className="theater__field" viewBox={FIELD.frame} preserveAspectRatio={theater ? 'xMidYMid meet' : 'xMidYMid slice'} role="img" aria-label={
+          <svg className="theater__field" viewBox={FIELD.frame} preserveAspectRatio="xMidYMid meet" role="img" aria-label={
             `${current.half === 'TOP' ? 'Top' : 'Bottom'} of inning ${current.inning}, `
             + `${current.outsAfter} out. `
             + (moves.filter((move) => move.to !== null && move.to < 4).length

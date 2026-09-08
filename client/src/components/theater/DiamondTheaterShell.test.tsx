@@ -349,3 +349,27 @@ describe('an empty path', () => {
     expect(screen.queryByRole('group', { name: /scoreboard/i })).not.toBeInTheDocument()
   })
 })
+
+describe('the broadcast frame', () => {
+  /**
+   * The park's own extremes: the warning-track crown behind centre field and
+   * the foul-grass corners at the front. Both must be inside the drawn frame,
+   * and the frame must be fitted rather than sliced, or the outfield is cropped.
+   */
+  const TOP_OF_PARK = 32
+  const BOTTOM_OF_PARK = 664
+
+  it('draws the whole field and never crops it', () => {
+    mount()
+    const field = document.querySelector('.theater__field')!
+    const [minX, minY, width, height] = (field.getAttribute('viewBox') ?? '')
+      .split(' ').map(Number)
+
+    expect(field.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet')
+    expect(minY).toBeLessThanOrEqual(TOP_OF_PARK)
+    expect(minY + height).toBeGreaterThanOrEqual(BOTTOM_OF_PARK)
+    // Both foul poles and both outfield corners are within the horizontal span.
+    expect(minX).toBeLessThanOrEqual(52)
+    expect(minX + width).toBeGreaterThanOrEqual(948)
+  })
+})

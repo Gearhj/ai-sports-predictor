@@ -14,8 +14,13 @@
 /** Field geometry, exported so the runner layer cannot drift from the art. */
 export const FIELD = {
   viewBox: '0 0 1000 720',
-  /** Broadcast crop: the drawn area kept when the container is wider than tall. */
-  frame: '0 96 1000 596',
+  /**
+   * The broadcast frame: the whole park, from the warning-track crown behind
+   * centre field (y 32) down past the foul-grass corners (y 664), with a little
+   * air top and bottom. Nothing is cropped, so the curved wall, both foul poles
+   * and both outfield corners are always on screen.
+   */
+  frame: '0 20 1000 660',
   home: { x: 500, y: 618 },
   first: { x: 683, y: 470 },
   second: { x: 500, y: 322 },

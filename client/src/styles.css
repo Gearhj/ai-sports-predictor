@@ -2186,13 +2186,16 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   background: rgba(6, 16, 28, .58); border: 1px solid rgba(255,255,255,.1);
   backdrop-filter: blur(5px);
 }
-.pop-overlay__corner { top: 7%; }
-.pop-overlay__corner--left { left: 3%; border-left: 3px solid var(--accent); }
-.pop-overlay__corner--right { right: 3%; text-align: right; border-right: 3px solid var(--accent); }
+/* The corner plates flank the infield below the wall arc: with the whole
+   outfield in frame, the arc sweeps through the upper corners. */
+.pop-overlay__corner { top: 42%; }
+.pop-overlay__corner--left { left: 2%; border-left: 3px solid var(--accent); }
+.pop-overlay__corner--right { right: 2%; text-align: right; border-right: 3px solid var(--accent); }
 .pop-overlay__team { color: #9db3c6; font: 700 12px "IBM Plex Mono", monospace; letter-spacing: .07em; }
 .pop-overlay__corner strong { color: white; font-size: 24px; font-weight: 700; line-height: 1.05; letter-spacing: -.015em; }
 .pop-overlay__corner small, .pop-overlay__center small { color: #8ba1b6; font-size: 12px; }
-.pop-overlay__center { top: 2%; left: 50%; transform: translateX(-50%); align-items: center; }
+/* Sits below the centre-field wall crown, so no overlay covers the boundary. */
+.pop-overlay__center { top: 7%; left: 50%; transform: translateX(-50%); align-items: center; }
 .pop-overlay__label { color: #9db3c6; font: 700 12px "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; }
 .pop-overlay__center strong { color: white; font-size: 21px; font-weight: 700; line-height: 1.1; }
 .pop-overlay__plate { right: 3%; bottom: 6%; gap: 4px; }
@@ -2395,12 +2398,12 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .transport__row { gap: 7px 10px; }
   .transport__row button { padding: 8px 11px; }
 }
-/* Broadcast framing: the park fills a fixed wide frame and is cropped, so the
-   whole theater fits one viewport instead of scrolling the field off-screen. */
-.theater__park { aspect-ratio: 1000 / 560; max-height: 56vh; }
+/* Broadcast framing: the park carries the drawn frame's own proportions, so the
+   complete field is fitted rather than cropped and no letterbox appears around
+   it. Height is capped so the whole theater still lands in one viewport. */
+.theater__park { aspect-ratio: 1000 / 660; max-height: 56vh; margin-inline: auto; width: 100%; }
 .theater__field { width: 100%; height: 100%; }
 @media (max-width: 1240px) { .theater__park { max-height: none; } }
-@media (max-width: 640px) { .theater__park { aspect-ratio: 1000 / 700; } }
 /* The theater is the page: give it the room the page header would take. */
 .simulation-page--theater { padding-top: 18px; padding-bottom: 40px; }
 .simulation-page--theater .breadcrumbs { margin-bottom: 8px; }
@@ -2422,7 +2425,7 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 @media (max-width: 640px) { .theater__provenance { text-align: left; padding: 9px 12px; } }
 /* In theater mode the park takes every pixel the transport and scorebug leave. */
 .theater--full .theater__stage { height: 100vh; }
-.theater--full .theater__park { flex: 1; max-height: none; aspect-ratio: auto; min-height: 0; }
+.theater--full .theater__park { flex: 1; max-height: none; max-width: none; aspect-ratio: auto; min-height: 0; }
 .theater--full .theater__field { height: 100%; }
 .theater--full .feed { max-height: 100vh; }
 .theater--full .feed__list { max-height: none; }
@@ -2438,12 +2441,20 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .simulation-page--theater .track-selector button { padding: 7px 12px; font-size: 12.5px; }
 .simulation-page--theater .track-note--compact { margin-bottom: 6px; font-size: 12px; max-width: none; }
 .simulation-page--theater .data-mode-banner { margin-bottom: 8px; padding-block: 7px; }
-.theater__park { max-height: min(48vh, calc(100vh - 500px)); min-height: 300px; }
+.theater__park {
+  /* Width follows the capped height so the field keeps its proportions and the
+     park never opens a gap beside itself. */
+  max-height: min(54vh, calc(100vh - 500px));
+  max-width: min(100%, calc(min(54vh, 100vh - 500px) * 1.515));
+  min-height: 300px;
+}
 .scorebug { padding-block: 10px; }
 .scorebug__meta { padding-top: 8px; }
 .theater__provenance { padding-block: 7px; }
 .transport { padding: 10px 18px 12px; }
-@media (max-width: 1240px) { .theater__park { max-height: none; min-height: 0; } }
+@media (max-width: 1240px) {
+  .theater__park { max-height: none; max-width: 100%; min-height: 0; }
+}
 /* Mobile theater: the scorebug and field come first, the chrome gets out of
    the way, and the outcome banner never covers the infield it describes. */
 @media (max-width: 640px) {
@@ -2456,7 +2467,13 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .simulation-page--theater .data-mode-banner { display: none; }
   .simulation-page--theater .track-selector { margin-bottom: 8px; }
   .simulation-page--theater .track-selector button { padding: 8px 10px; font-size: 12.5px; }
-  .theater__park { aspect-ratio: 1000 / 880; }
+  /* The stacked mobile plates sit below the field, so the park sizes to its
+     content and the field alone carries the frame's proportions. */
+  .theater__park { aspect-ratio: auto; max-width: 100%; }
+  .theater__field { aspect-ratio: 1000 / 660; height: auto; }
+  /* Keep the outcome banner over the field, not over the plates stacked
+     beneath it: the overlay takes the field's own box. */
+  .outcome-overlay { inset: 0 0 auto 0; aspect-ratio: 1000 / 660; }
   .outcome-banner { padding: 7px 13px; gap: 8px; max-width: 88%; }
   .outcome-banner__label { font-size: 14px; }
   .outcome-banner__runs { padding: 2px 8px; font-size: 12.5px; }
