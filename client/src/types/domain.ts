@@ -411,11 +411,30 @@ export interface MarketBoardRow {
   observed_at: string
 }
 
+/**
+ * Why sportsbook data is or is not current. Four separate facts, deliberately
+ * not collapsed: ingestion state, provider credit, the last real observation,
+ * and whether that observation is historical relative to the slate shown.
+ */
+export interface MarketFeedStatus {
+  ingestion_blocked: boolean
+  reason: string
+  provider: string
+  quota_remaining: number | null
+  quota_floor: number
+  quota_observed_at: string | null
+  latest_observation_at: string | null
+  latest_observation_is_historical: boolean
+  recovery_probe_available: boolean
+  recovery_blocked_reason: string | null
+}
+
 export interface MarketBoardData extends DataProvenance {
   date: string
   books: string[]
   quota_remaining: number | null
   rows: MarketBoardRow[]
+  feed_status?: MarketFeedStatus | null
 }
 
 export type OfflineEvaluationStatus = 'AVAILABLE' | 'INSUFFICIENT_DATA' | 'NOT_RUN' | 'FAILED'

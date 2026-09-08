@@ -19,6 +19,7 @@ import {
 } from '../components/ui'
 import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { ShadowForecastPanel } from '../components/ShadowForecastPanel'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import { endpoints } from '../services/api'
 import { formatCompactTimestamp, formatTime, formatTimestamp } from '../services/format'
@@ -140,6 +141,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
       </section>
 
       <GameLifecyclePanel game={game} />
+
+      <ShadowForecastPanel gameId={gameId} />
 
       <nav className="analysis-tabs" aria-label="Analysis sections">
         <a href="#forecast">Forecast</a><a href="#market">Market</a><a href="#matchup">Matchup</a><a href="#simulation">Simulation</a><a href="#history">History</a><a href="#audit">Data audit</a>

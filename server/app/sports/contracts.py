@@ -186,6 +186,21 @@ class NormalizedSelection(BaseModel):
     lifecycle_stage: str | None = None
     next_scheduled_refresh_at: datetime | None = None
 
+    # -- current model forecast, independent of the market ------------------
+    # ``model_probability`` above is the probability FROZEN INTO THIS DECISION
+    # at decision time, and it is null whenever the decision never got a
+    # priceable quote. The three fields below are a different fact: the
+    # sport's own CURRENT published forecast for the event, which exists
+    # whether or not a sportsbook ever quoted it.
+    #
+    # They must never be substituted into a decision record or presented as
+    # what was known when that decision was taken -- that is why they carry
+    # their own timestamp and model identity, and why consumers are required
+    # to label them separately.
+    current_forecast_probability: float | None = None
+    current_forecast_generated_at: datetime | None = None
+    current_forecast_model: str | None = None
+
 
 class SportSection(BaseModel):
     """Per-sport rollup for the all-sports Today hub."""

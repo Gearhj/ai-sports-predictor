@@ -80,6 +80,11 @@ class ForecastGame(BaseModel):
     away_pitcher: PitcherSummary
     home_pitcher: PitcherSummary
     forecast_available: bool
+    # Identity and time of the CURRENT model forecast itself, independent of
+    # any sportsbook quote. A consumer must be able to show the forecast, say
+    # which model produced it and when, without a market observation existing.
+    forecast_generated_at: datetime | None = None
+    forecast_model_label: str | None = None
     market_available: bool
     projected_away_runs: float | None
     projected_home_runs: float | None
@@ -343,12 +348,40 @@ class MarketBoardRow(BaseModel):
     observed_at: datetime
 
 
+class MarketFeedStatus(BaseModel):
+    """Why sportsbook data is or is not current, from persisted evidence.
+
+    Deliberately separates four things a reader would otherwise conflate:
+    whether the AISP API answered, whether ingestion is blocked, how much
+    provider credit remains, and when a price was last actually observed.
+    Application reachability is never evidence that market data is fresh.
+    """
+
+    #: True when the quota guard is currently refusing to spend credit.
+    ingestion_blocked: bool
+    #: Consumer-language explanation of the actual blockage, or of its absence.
+    reason: str
+    provider: str
+    quota_remaining: int | None
+    quota_floor: int
+    quota_observed_at: datetime | None
+    #: The newest sportsbook observation AISP holds, whatever its age.
+    latest_observation_at: datetime | None
+    #: True when the newest observation predates the requested slate, so every
+    #: displayed price is historical and must be dated, never shown as current.
+    latest_observation_is_historical: bool
+    #: One bounded recovery probe is permitted on the next refresh.
+    recovery_probe_available: bool
+    recovery_blocked_reason: str | None
+
+
 class MarketBoardData(BaseModel):
     data_mode: DataMode
     date: date
     books: list[str]
     quota_remaining: int | None
     rows: list[MarketBoardRow]
+    feed_status: MarketFeedStatus | None = None
 
 
 class OfflineEvaluationWindow(BaseModel):

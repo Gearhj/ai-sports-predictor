@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     odds_regions: str = "us"
     odds_manual_cooldown_minutes: int = Field(default=5, ge=1)
     odds_quota_floor: int = Field(default=10, ge=0)
+    # Bounded recovery from a latched quota guard. A LOW reading is respected
+    # while it is fresh; once it is older than this it is no longer evidence
+    # about the balance now, and exactly one probe may re-read it. See
+    # app/jobs/odds_quota_recovery.py. Neither value lowers the floor.
+    odds_quota_probe_after_hours: float = Field(default=24.0, ge=1.0)
+    odds_quota_probe_cooldown_hours: float = Field(default=24.0, ge=1.0)
     odds_daily_request_budget: int = Field(default=1, ge=0, le=100)
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False

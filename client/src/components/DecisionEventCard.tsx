@@ -121,6 +121,28 @@ export function DecisionEventCard({ item, sport, now }: {
       )}
       extraFacts={(
         <>
+          {/* The decision-frozen forecast is often absent because the decision
+              never got a priceable quote. The current model forecast is a
+              different, independently persisted fact, so it gets its own row
+              with its own time rather than being written into the decision. */}
+          {selection.model_probability == null
+            && selection.current_forecast_probability != null && (
+            <div>
+              <dt>Current model forecast</dt>
+              <dd>
+                {formatPct(selection.current_forecast_probability)}
+                <small>
+                  {selection.current_forecast_generated_at
+                    ? `as of ${formatTimestamp(selection.current_forecast_generated_at)}`
+                    : 'time not recorded'}
+                  {selection.current_forecast_model
+                    ? ` · ${selection.current_forecast_model}`
+                    : ''}
+                  {' · not the forecast frozen into this decision'}
+                </small>
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Sportsbook</dt>
             <dd>

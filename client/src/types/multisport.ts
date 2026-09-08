@@ -60,6 +60,16 @@ export interface NormalizedSelection {
   position_result?: string | null
   lifecycle_stage?: string | null
   next_scheduled_refresh_at?: string | null
+  /**
+   * The sport's CURRENT published model forecast, which exists whether or not
+   * a sportsbook ever quoted the event. This is a different fact from
+   * `model_probability` above, which is the probability frozen into THIS
+   * decision at decision time and is legitimately null when the decision never
+   * got a priceable quote. Never substitute one for the other.
+   */
+  current_forecast_probability?: number | null
+  current_forecast_generated_at?: string | null
+  current_forecast_model?: string | null
 }
 
 export interface SportSection {

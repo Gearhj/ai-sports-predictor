@@ -49,6 +49,7 @@ from app.services.auth_service import (
     revoke_user_tokens,
 )
 from app.services.read_service import ReadService
+from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
 from app.services.scenario_service import run_scenario, scenario_capabilities
 from app.services.simulation_replay_service import replay_official_simulation
 from app.services.historical_research_read_service import HistoricalResearchReadService
@@ -178,6 +179,34 @@ def game_analysis(game_id: UUID, session: DatabaseSession, settings: AppSettings
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
     return result
+
+
+@router.get("/games/{game_id}/shadow-forecasts", tags=["forecasts"])
+def game_shadow_forecasts(game_id: UUID, session: DatabaseSession) -> dict:
+    """Official Gen 1 forecast beside any registered research-shadow forecast.
+
+    Read-only. Returns both tracks with their own timestamps and model
+    identity; a comparison is only paired when both satisfy the acceptance
+    contract's pregame timing rule. Grants no wagering authority.
+    """
+
+    payload = shadow_comparison(session, game_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/path", tags=["forecasts"])
+def shadow_forecast_path(forecast_id: str, session: DatabaseSession) -> dict:
+    """The persisted V18 sequential plate-appearance path for one forecast."""
+
+    payload = sequential_path(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No research-shadow path exists for this forecast",
+        )
+    return payload
 
 
 @router.get("/games/{game_id}/simulation", tags=["forecasts"])

@@ -87,6 +87,7 @@ from app.schemas.api import (
     HealthData,
     JobRunSchema,
     MarketBoardData,
+    MarketFeedStatus,
     MarketBoardRow,
     MarketBookPrice,
     MarketPrice,
@@ -1209,6 +1210,8 @@ class ReadService:
                 snapshot_bound=feature_snapshot is not None,
             ),
             forecast_available=forecast is not None,
+            forecast_generated_at=_aware(forecast.generated_at) if forecast else None,
+            forecast_model_label=self._forecast_model_label(forecast),
             market_available=bool(market["has_moneyline"]),
             projected_away_runs=forecast.expected_away_runs if forecast else None,
             projected_home_runs=forecast.expected_home_runs if forecast else None,
@@ -1544,6 +1547,38 @@ class ReadService:
             books=sorted(all_books),
             quota_remaining=quota,
             rows=rows,
+            feed_status=self._market_feed_status(event_date),
+        )
+
+    def _market_feed_status(self, event_date: date) -> MarketFeedStatus:
+        """The honest state of the sportsbook feed for this slate."""
+
+        from app.jobs.odds_quota_recovery import missing_market_reason, quota_state
+
+        state = quota_state(
+            self.session,
+            floor=self.settings.odds_quota_floor,
+            probe_after_hours=self.settings.odds_quota_probe_after_hours,
+            probe_cooldown_hours=self.settings.odds_quota_probe_cooldown_hours,
+        )
+        latest = _aware(self.session.scalar(select(func.max(OddsSnapshot.observed_at))))
+        # "Historical" is decided by the observation's own date against the
+        # slate being viewed, not by a staleness heuristic.
+        historical = bool(
+            latest is not None
+            and local_date_of(latest, self.settings.display_timezone) < event_date
+        )
+        return MarketFeedStatus(
+            ingestion_blocked=state.latched,
+            reason=missing_market_reason(state, latest),
+            provider="THE_ODDS_API",
+            quota_remaining=state.remaining,
+            quota_floor=state.floor,
+            quota_observed_at=state.observed_at,
+            latest_observation_at=latest,
+            latest_observation_is_historical=historical,
+            recovery_probe_available=state.probe_allowed,
+            recovery_blocked_reason=state.probe_blocked_reason,
         )
 
     def performance(self) -> PerformanceData:
@@ -2826,6 +2861,24 @@ class ReadService:
             Forecast.status == ForecastStatus.PUBLISHED,
             Forecast.id.in_(rescore_versions),
         )
+
+    def _forecast_model_label(self, forecast: Forecast | None) -> str | None:
+        """Human model identity behind a forecast, or None when unrecorded.
+
+        Reported so a displayed probability always names the model that
+        produced it. Never falls back to a different model's identity.
+        """
+
+        if forecast is None:
+            return None
+        version = self.session.get(ModelVersion, forecast.model_version_id)
+        if version is None:
+            return None
+        name = getattr(version, "name", None)
+        tag = getattr(version, "version", None)
+        if name and tag:
+            return f"{name} {tag}"
+        return name or tag
 
     def _latest_forecast(self, game_id: Any) -> Forecast | None:
         ctx = self._prefetched_game(game_id)

@@ -591,6 +591,55 @@ describe('All Sports homepage — the redesigned public experience', () => {
   })
 })
 
+describe('a model forecast survives a missing sportsbook quote', () => {
+  const withCurrentForecast = {
+    ...baseSelection,
+    // The decision never got a priceable quote, so nothing was frozen into it.
+    model_probability: null,
+    no_vig_probability: null,
+    price_american: null,
+    adjusted_edge: null,
+    sportsbook: null,
+    // ...but the model's own current forecast is persisted and published.
+    current_forecast_probability: 61.0,
+    current_forecast_generated_at: '2026-08-31T15:30:00Z',
+    current_forecast_model: 'asp_mlb_ensemble 2.0.0',
+  }
+
+  it('shows the current forecast with its own time and model identity', async () => {
+    mount(model([mlbSection([withCurrentForecast])]))
+    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
+
+    expect(within(card).getByText('61.0%')).toBeInTheDocument()
+    expect(within(card).getByText(/asp_mlb_ensemble 2\.0\.0/)).toBeInTheDocument()
+    // The decision-frozen value stays honestly absent, and the two are labelled
+    // as different facts rather than one being substituted for the other.
+    const decision = Array.from(card.querySelectorAll('dt'))
+      .find((node) => node.textContent === 'AISP forecast')!.parentElement!
+    expect(decision).toHaveTextContent('Not available')
+    expect(within(card).getByText(/not the forecast frozen into this decision/i))
+      .toBeInTheDocument()
+  })
+
+  it('never renders a missing market as a zero price or a zero edge', async () => {
+    mount(model([mlbSection([withCurrentForecast])]))
+    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
+    expect(within(card).queryByText('0.0%')).not.toBeInTheDocument()
+    expect(within(card).queryByText('+0.0%')).not.toBeInTheDocument()
+    const edge = Array.from(card.querySelectorAll('dt'))
+      .find((node) => node.textContent === 'Edge')!.parentElement!
+    expect(edge).toHaveTextContent('Not available')
+  })
+
+  it('shows no current-forecast row when the decision already froze one', async () => {
+    mount(model([mlbSection([{ ...withCurrentForecast, model_probability: 56 }])]))
+    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
+    expect(within(card).getByText('56.0%')).toBeInTheDocument()
+    expect(within(card).queryByText(/Current model forecast/i)).not.toBeInTheDocument()
+  })
+})
+
+
 function metric(container: HTMLElement, label: string): HTMLElement {
   const node = Array.from(container.querySelectorAll('dt')).find((item) => item.textContent === label)
   if (!node?.parentElement) throw new Error(`Metric not found: ${label}`)

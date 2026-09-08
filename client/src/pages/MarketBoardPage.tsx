@@ -6,6 +6,7 @@ import { demoMarketBoard } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { formatDate, formatTime, formatTimestamp, recencySortValue } from '../services/format'
+import { MarketFeedNotice } from '../components/MarketFeedNotice'
 import type { MarketType } from '../types/domain'
 
 export function MarketBoardPage({ demo = false }: { demo?: boolean }) {
@@ -30,7 +31,17 @@ export function MarketBoardPage({ demo = false }: { demo?: boolean }) {
       <div className="page market-board-page">
         <PageHeader eyebrow="MLB · MARKET INTELLIGENCE" title="Market Board" description="Compare observed live prices only when evidence exists." />
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-        <DataStatePanel state={state} emptyTitle="No live market observations" emptyDetail="The API is connected, but no eligible sportsbook snapshots are persisted for this board." />
+        {/* The feed's own reason first: a reachable API says nothing about
+            whether sportsbook data is current. */}
+        <MarketFeedNotice status={data?.feed_status} hasRows={false} />
+        <DataStatePanel
+          state={state}
+          emptyTitle="No current sportsbook observations"
+          emptyDetail={
+            data?.feed_status?.reason
+            ?? 'No eligible sportsbook snapshot is persisted for this board. Reaching the AISP API is not evidence that market data is current.'
+          }
+        />
       </div>
     )
   }
@@ -44,6 +55,8 @@ export function MarketBoardPage({ demo = false }: { demo?: boolean }) {
         actions={<span className="as-of-label">{formatDate(data.date)}</span>}
       />
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+
+      <MarketFeedNotice status={data.feed_status} hasRows={rows.length > 0} />
 
       <section className="metric-grid metric-grid--four">
         <MetricCard label="Markets shown" value={rows.length} detail={`${data.books.length} sportsbooks monitored`} />

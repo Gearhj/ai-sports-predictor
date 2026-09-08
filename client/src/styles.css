@@ -1941,3 +1941,48 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .command-header__value { margin-bottom: 11px; }
 .command-center .today-answer { padding: 17px 20px; }
 .command-center .decision-board { gap: 16px; }
+
+/* ============================================================
+   RESEARCH-SHADOW COMPARISON
+   Official Gen 1 and a registered challenger, side by side and
+   visibly different in authority.
+   ============================================================ */
+.shadow-compare { margin: 22px 0; }
+.shadow-compare__note { margin: 0; max-width: 52ch; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.shadow-compare__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.shadow-card { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border-radius: 10px; background: white; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.shadow-card--official { border-top: 3px solid var(--teal); }
+.shadow-card--shadow { border-top: 3px dashed var(--blue); background: #fbfdfe; }
+.shadow-card header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.shadow-card__track { color: var(--ink); font: 700 12.5px "IBM Plex Mono", monospace; letter-spacing: .03em; }
+.shadow-card__authority { padding: 3px 8px; border-radius: 999px; font: 650 12px "IBM Plex Mono", monospace; color: #17553f; background: var(--green-soft); border: 1px solid #acd4c1; }
+.shadow-card__authority--none { color: #7d2c33; background: var(--red-soft); border-color: #eab6bb; }
+.shadow-card__value { margin: 4px 0 0; color: var(--ink); font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.shadow-card__caption { margin: 0; color: var(--muted); font-size: 13px; }
+.shadow-card__delta { margin: 4px 0 0; padding: 9px 11px; border-radius: 6px; background: var(--soft); border-left: 3px solid var(--line-strong); color: #3a4b5c; font-size: 13px; line-height: 1.5; }
+.shadow-card__delta strong { font-size: 15px; color: var(--ink); }
+.shadow-card__delta em { display: block; margin-top: 3px; font-style: normal; color: var(--muted); font-size: 12.5px; }
+.shadow-card__delta--unpaired { color: var(--muted); }
+.shadow-card__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 14px; margin: 6px 0 0; padding-top: 11px; border-top: 1px solid var(--line); }
+.shadow-card__facts dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.shadow-card__facts dd { margin: 3px 0 0; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.shadow-card__facts small { display: block; color: var(--muted); font-size: 12px; }
+.shadow-card__caveat { margin: 4px 0 0; padding: 8px 10px; border-radius: 6px; color: #7d5210; background: var(--amber-soft); border: 1px solid #e5d09a; font-size: 12.5px; line-height: 1.45; }
+.shadow-card__limitations summary { color: var(--muted); font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.shadow-card__limitations ul { margin: 8px 0 0; padding-left: 18px; color: #55697c; font-size: 12.5px; line-height: 1.5; }
+.shadow-card__lineage { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+
+/* --- Market feed honesty notice ------------------------------------- */
+.market-feed-notice { margin: 0 0 18px; padding: 15px 17px; border-radius: 10px; background: var(--amber-soft); border: 1px solid #e5d09a; }
+.market-feed-notice--blocked { background: var(--red-soft); border-color: #eab6bb; }
+.market-feed-notice__head { display: flex; align-items: center; gap: 8px; color: #7d2c33; font-size: 14px; }
+.market-feed-notice--stale .market-feed-notice__head { color: #7d5210; }
+.market-feed-notice__reason { margin: 8px 0 0; color: #4a3a3c; font-size: 13.5px; line-height: 1.55; max-width: 84ch; }
+.market-feed-notice__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 20px; margin: 13px 0 0; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.08); }
+.market-feed-notice__facts dt { color: #6a5a5c; font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.market-feed-notice__facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 4px 0 0; color: var(--ink); font-size: 13px; }
+.market-feed-notice__facts small { flex-basis: 100%; color: #6a5a5c; font-size: 12px; }
+.market-feed-notice__historical { padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,.07); color: #6a5a5c; font: 650 12px "IBM Plex Mono", monospace; }
+.market-feed-notice__foot { margin: 13px 0 0; color: #4a3a3c; font-size: 13px; }
+.market-feed-notice__foot .text-link { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.sport-event-card__facts dd small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.4; }

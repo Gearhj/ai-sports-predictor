@@ -54,6 +54,17 @@ def _text(value: Any) -> str | None:
     return text.upper() or None
 
 
+def _probability(value: Any) -> float | None:
+    """Percentage 0-100, or None. Never coerces a missing value to zero."""
+
+    if value is None:
+        return None
+    try:
+        return round(float(value), 6)
+    except (TypeError, ValueError):
+        return None
+
+
 def _is_funded_market(market_type: str | None) -> bool:
     lowered = (market_type or "").lower()
     return any(token in lowered for token in FUNDED_MARKET_PATTERNS)
@@ -202,6 +213,18 @@ class MlbTodayAdapter:
             lifecycle_stage=_text(getattr(game, "lifecycle_stage", None)),
             next_scheduled_refresh_at=_aware(
                 getattr(game, "next_scheduled_refresh_at", None)
+            ),
+            # The current published forecast, carried independently of any
+            # sportsbook quote. Without this a quote-less game shows no
+            # probability at all even though one is persisted and published.
+            current_forecast_probability=_probability(
+                getattr(game, "home_win_probability", None)
+            ),
+            current_forecast_generated_at=_aware(
+                getattr(game, "forecast_generated_at", None)
+            ),
+            current_forecast_model=_text(
+                getattr(game, "forecast_model_label", None)
             ),
         )
 

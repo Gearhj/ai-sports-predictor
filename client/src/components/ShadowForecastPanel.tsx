@@ -1,0 +1,178 @@
+/**
+ * Official Gen 1 forecast beside any registered research-shadow forecast.
+ *
+ * Display rules, all enforced here rather than left to the reader:
+ *
+ *  - The official forecast is always labelled as the official one; the shadow
+ *    is always labelled research shadow with no wagering authority.
+ *  - Each carries its own timestamp and model identity, so neither can be
+ *    mistaken for the other's evidence.
+ *  - A difference is shown only when the backend paired the two under the
+ *    acceptance contract's pregame timing rule. When it did not, the two are
+ *    shown separately with the mismatch stated.
+ *  - No superiority language, no recommendation, and no implied edge: a
+ *    difference inside the shadow's own Monte Carlo interval is called
+ *    simulation-indistinguishable.
+ */
+import { useEffect, useState } from 'react'
+import { endpoints } from '../services/api'
+import { formatTimestamp } from '../services/format'
+import type { ShadowComparison, ShadowForecastView } from '../types/shadow'
+
+function pct(value: number | null | undefined): string {
+  return value == null ? 'Not available' : `${value.toFixed(1)}%`
+}
+
+export function ShadowForecastPanel({ gameId }: { gameId: string }) {
+  const [data, setData] = useState<ShadowComparison | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let live = true
+    endpoints
+      .gameShadowForecasts(gameId, controller.signal)
+      .then((payload) => {
+        if (live) setData(payload?.schema_version === 'AISP_MLB_V18_SHADOW_COMPARISON_V1' ? payload : null)
+      })
+      // A game with no shadow track is the normal case, and an unreachable
+      // endpoint must not break the official analysis around it.
+      .catch(() => { if (live) setData(null) })
+    return () => { live = false; controller.abort() }
+  }, [gameId])
+
+  // A payload without a recognisable shadow list is treated as "no shadow
+  // track", never as a rendering error: this panel must never be able to take
+  // down the official analysis around it.
+  if (!data || !Array.isArray(data.shadows) || data.shadows.length === 0) return null
+
+  return (
+    <section className="shadow-compare" id="research-shadow" aria-labelledby="shadow-compare-heading">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">RESEARCH SHADOW</span>
+          <h2 id="shadow-compare-heading">Official forecast vs. research challenger</h2>
+        </div>
+        <p className="shadow-compare__note">{data.notes}</p>
+      </div>
+
+      <div className="shadow-compare__grid">
+        {data.official && (
+          <article className="shadow-card shadow-card--official">
+            <header>
+              <span className="shadow-card__track">Official · Gen 1</span>
+              <span className="shadow-card__authority">Wagering authority</span>
+            </header>
+            <p className="shadow-card__value">{pct(data.official.home_win_probability)}</p>
+            <p className="shadow-card__caption">
+              {data.home_team ?? 'Home'} win probability
+            </p>
+            <dl className="shadow-card__facts">
+              <div><dt>Model</dt><dd>{data.official.model ?? 'Not recorded'}</dd></div>
+              <div>
+                <dt>Forecast time</dt>
+                <dd>
+                  {data.official.generated_at
+                    ? formatTimestamp(data.official.generated_at)
+                    : 'Not recorded'}
+                </dd>
+              </div>
+              <div>
+                <dt>Produced before first pitch</dt>
+                <dd>{data.official.pregame ? 'Yes' : 'No'}</dd>
+              </div>
+            </dl>
+          </article>
+        )}
+
+        {data.shadows.map((shadow) => (
+          <ShadowCard key={shadow.forecast_id} shadow={shadow} homeTeam={data.home_team} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ShadowCard({ shadow, homeTeam }: { shadow: ShadowForecastView; homeTeam: string | null }) {
+  const difference = shadow.difference_vs_official
+  return (
+    <article className="shadow-card shadow-card--shadow">
+      <header>
+        <span className="shadow-card__track">Research shadow · {shadow.engine_id}</span>
+        <span className="shadow-card__authority shadow-card__authority--none">
+          No wagering authority
+        </span>
+      </header>
+      <p className="shadow-card__value">{pct(shadow.home_win_probability)}</p>
+      <p className="shadow-card__caption">{homeTeam ?? 'Home'} win probability</p>
+
+      {shadow.paired_with_official && difference != null ? (
+        <p className="shadow-card__delta">
+          <strong>
+            {difference > 0 ? '+' : ''}{difference.toFixed(1)} pts
+          </strong>{' '}
+          vs. the official forecast
+          {shadow.simulation_indistinguishable && (
+            <em> — inside this run’s own Monte Carlo interval, so the two are
+              simulation-indistinguishable</em>
+          )}
+        </p>
+      ) : (
+        <p className="shadow-card__delta shadow-card__delta--unpaired">
+          {shadow.pairing_note ?? 'Not paired with the official forecast.'}
+        </p>
+      )}
+
+      <dl className="shadow-card__facts">
+        <div><dt>Bundle</dt><dd>{shadow.bundle_id ?? 'Not recorded'}</dd></div>
+        <div>
+          <dt>Forecast time</dt>
+          <dd>{shadow.generated_at ? formatTimestamp(shadow.generated_at) : 'Not recorded'}</dd>
+        </div>
+        <div>
+          <dt>Produced before first pitch</dt>
+          <dd>{shadow.pregame ? 'Yes' : 'No'}</dd>
+        </div>
+        <div>
+          <dt>Simulated paths</dt>
+          <dd>
+            {shadow.simulation_count ?? 'Not recorded'}
+            {shadow.monte_carlo_95_half_width != null && (
+              <small> · ±{(shadow.monte_carlo_95_half_width * 100).toFixed(2)} pts (95% sampling)</small>
+            )}
+          </dd>
+        </div>
+        <div><dt>Seed</dt><dd>{shadow.master_seed}</dd></div>
+        <div>
+          <dt>Expected runs</dt>
+          <dd>
+            {shadow.expected_away_runs?.toFixed(2) ?? '—'} away ·{' '}
+            {shadow.expected_home_runs?.toFixed(2) ?? '—'} home
+          </dd>
+        </div>
+      </dl>
+
+      {/* Projected-participant and stale-feature caveats, stated where the
+          number is, not buried in a methodology page. */}
+      {shadow.lineup_modes?.some((mode) => mode.startsWith('PROJECTED')) && (
+        <p className="shadow-card__caveat">
+          Lineups are projected from the most recent prior complete lineup, not confirmed.
+        </p>
+      )}
+      {shadow.limitations && shadow.limitations.length > 0 && (
+        <details className="shadow-card__limitations">
+          <summary>Known limitations ({shadow.limitations.length})</summary>
+          <ul>
+            {shadow.limitations.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </details>
+      )}
+
+      <p className="shadow-card__lineage">
+        {shadow.sequential_path_events > 0
+          ? `Sequential path persisted: ${shadow.sequential_path_events} plate appearances with bases, outs, innings, score and pitching changes.`
+          : 'No sequential path is persisted for this forecast.'}
+        {shadow.path_digest && <> Path digest {shadow.path_digest.slice(0, 12)}…</>}
+      </p>
+    </article>
+  )
+}
