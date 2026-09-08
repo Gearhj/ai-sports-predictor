@@ -11,7 +11,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GameSimulationPage } from './GameSimulationPage'
 import { endpoints } from '../services/api'
-import type { PlayGeometryPayload, ShadowComparison, ShadowPath } from '../types/shadow'
+import type {
+  PlayGeometryPayload, PopulationPayload, ShadowComparison, ShadowPath,
+} from '../types/shadow'
 
 vi.mock('echarts-for-react', () => ({
   default: ({ style }: { style?: Record<string, unknown> }) => (
@@ -153,12 +155,59 @@ const GEOMETRY = {
 } as unknown as PlayGeometryPayload
 
 
-function mount(search: string, { shadows = true, path = true, geometry = true } = {}) {
+/** The registered population supplement, trimmed to two frames. */
+const POPULATION = {
+  schema_version: 'AISP_MLB_V18_POPULATION_VIEW_V1',
+  forecast_id: 'mlb-v18-1',
+  supplement_id: 'mlb-v18-population-geometry-d2586fba', supplement_sha256: 'd'.repeat(64),
+  parent_bundle_sha256: 'a'.repeat(64), play_geometry_sha256: '7'.repeat(64),
+  population_digest: 'c'.repeat(64), execution_authority_sha256: 'e'.repeat(64),
+  wagering_authority: false, promotion_status: 'NOT_PROMOTED',
+  execution_allowed_in_aisp: false, display_authority: 'RESEARCH_SHADOW_POPULATION_GEOMETRY',
+  simulation_count: 5000, frame_count: 2, frame_size: 2500, master_seed: 20260907,
+  counts: {
+    plateAppearances: 377078, contactPlays: 246035, geometryBearingPlays: 246035,
+    scoringPlays: 30151, runnerSegments: 607156,
+  },
+  final_population: {
+    homeWinProbability: 0.4334, meanHomeRuns: 3.4694, meanAwayRuns: 4.423,
+    meanTotalRuns: 7.8924, meanRunDifferential: -0.9536, oneRunRate: 0.3094,
+    extraInningRate: 0.1074,
+  },
+  illegal_state_count: 0, nontermination_count: 0, deterministic_replay: true,
+  frames: [2500, 5000].map((cumulative, index) => ({
+    frameIndex: index, simulationIndexStart: index * 2500,
+    simulationIndexEndInclusive: cumulative - 1, cumulativeSimulationCount: cumulative,
+    cumulativeHomeWins: 1084 * (index + 1), cumulativeAwayWins: 1416 * (index + 1),
+    cumulativeHomeWinProbability: 0.4334, cumulativeAwayWinProbability: 0.5666,
+    cumulativeExpectedHomeRuns: 3.4694, cumulativeExpectedAwayRuns: 4.423,
+    cumulativeExpectedTotal: 7.8924, cumulativeRunDifferential: -0.9536,
+    cumulativeOneRunGameRate: 0.3094, cumulativeExtraInningRate: 0.1074,
+    cumulativeContactPlayCount: 123018 * (index + 1),
+    cumulativeGeometryDensity: 123018 * (index + 1),
+    cumulativeRunnerPathTraffic: 303578 * (index + 1),
+    cumulativeScoringPlayCount: 15076 * (index + 1),
+    frameDigest: `digest-${index}`,
+  })),
+  selectors: {},
+  notes: 'Deterministic aggregation over 5,000 complete V18 simulations.',
+} as unknown as PopulationPayload
+
+
+function mount(search: string, { shadows = true, path = true, geometry = true, population = true } = {}) {
   vi.spyOn(endpoints, 'gameSimulation').mockResolvedValue(GEN1)
   vi.spyOn(endpoints, 'marketPulseGame').mockRejectedValue(new Error('no pulse'))
   vi.spyOn(endpoints, 'gameShadowForecasts').mockResolvedValue(
     shadows ? COMPARISON : { ...COMPARISON, shadows: [] },
   )
+  vi.spyOn(endpoints, 'shadowForecastPopulation').mockImplementation(
+    population
+      ? () => Promise.resolve(POPULATION)
+      : () => Promise.reject(new Error('no population')),
+  )
+  vi.spyOn(endpoints, 'shadowForecastPopulationLayers').mockRejectedValue(new Error('no layers'))
+  vi.spyOn(endpoints, 'shadowForecastPopulationRepresentatives')
+    .mockRejectedValue(new Error('no representatives'))
   vi.spyOn(endpoints, 'shadowForecastGeometry').mockImplementation(
     geometry
       ? () => Promise.resolve(GEOMETRY)
@@ -298,12 +347,19 @@ describe('the simulator view selector', () => {
     expect(screen.queryByTestId('play-geometry')).not.toBeInTheDocument()
   })
 
-  it('reports the population as pending rather than drawing it', async () => {
+  it('shows the registered 5,000-game population, never Gen 1 draws', async () => {
     mount('?track=v18&view=population')
-    expect(await screen.findByText(/Population geometry is not yet registered/i))
+    expect(await screen.findByRole('heading', { level: 2, name: /of 5,000 simulations/ }))
       .toBeInTheDocument()
+    expect(screen.getByText(/not one continuous baseball game/i)).toBeInTheDocument()
     expect(screen.queryByTestId('play-geometry')).not.toBeInTheDocument()
     expect(screen.queryByText(/20,000/)).not.toBeInTheDocument()
+  })
+
+  it('fails closed to a clear statement when no population is registered', async () => {
+    mount('?track=v18&view=population', { population: false })
+    expect(await screen.findByText(/No checksum-verified population supplement is registered/i))
+      .toBeInTheDocument()
   })
 
   it('offers no view selector on the Gen 1 track', async () => {

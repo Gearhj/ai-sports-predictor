@@ -364,6 +364,9 @@ def geometry_payload(session: Session, forecast_id: str) -> dict[str, Any] | Non
         return None
 
     events = geometry.get("events") or []
+    # Written by the population importer; named here rather than imported so
+    # the two supplements stay independent.
+    population = lineage.get("populationGeometry") or {}
     return {
         "schema_version": "AISP_MLB_V18_PLAY_GEOMETRY_VIEW_V1",
         "forecast_id": row.forecast_id,
@@ -392,10 +395,16 @@ def geometry_payload(session: Session, forecast_id: str) -> dict[str, Any] | Non
         "events": events,
         "population": {
             # The population is a different fact from this one representative
-            # path, and its aggregate geometry is a separate future artifact.
+            # path. Its aggregate geometry is a separate supplement, owned by
+            # the population importer; this only reports whether it is there.
             "simulationCount": (row.uncertainty or {}).get("simulationCount"),
-            "populationGeometryAvailable": False,
-            "populationGeometryStatus": "AWAITING_CHECKSUM_VERIFIED_MODEL_STUDIO_SUPPLEMENT",
+            "populationGeometryAvailable": bool(population),
+            "populationGeometryStatus": (
+                "REGISTERED" if population
+                else "AWAITING_CHECKSUM_VERIFIED_MODEL_STUDIO_SUPPLEMENT"
+            ),
+            "populationSupplementId": population.get("supplementId"),
+            "populationSupplementSha256": population.get("supplementSha256"),
         },
         "notes": (
             "One representative simulated game. Geometry is modelled from "

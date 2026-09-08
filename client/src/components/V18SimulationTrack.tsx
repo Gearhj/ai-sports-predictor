@@ -15,7 +15,8 @@ import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { DiamondTheaterShell } from './theater/DiamondTheaterShell'
 import { InningLineScore, PopulationPanel } from './theater/InningLineScore'
-import { PlayGeometryView, SimulationPopulationView } from './theater/PlayGeometryView'
+import { PlayGeometryView } from './theater/PlayGeometryView'
+import { PopulationView } from './theater/PopulationView'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { PlayGeometryPayload, ShadowForecastView, ShadowPath } from '../types/shadow'
@@ -85,7 +86,13 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 
       )}
 
       {view === 'population' && (
-        <SimulationPopulationView shadow={shadow} geometry={geometry} />
+        <PopulationView
+          forecastId={shadow.forecast_id}
+          shadow={shadow}
+          awayTeam={awayTeam}
+          homeTeam={homeTeam}
+          gameId={gameId}
+        />
       )}
 
       {view === 'geometry' && (

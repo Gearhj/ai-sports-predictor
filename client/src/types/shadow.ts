@@ -272,3 +272,156 @@ export interface PopulationGeometrySlot {
   representativeSelectors?: unknown | null
   frameDigest?: string | null
 }
+
+/* --------------------------------------------------------------------------
+ * Population geometry: deterministic aggregation over 5,000 complete V18
+ * simulations. Every shape here mirrors the checksum-verified supplement; the
+ * browser derives nothing that the artifact does not supply.
+ * ------------------------------------------------------------------------ */
+
+/** Provenance repeated on every population response. */
+export interface PopulationIdentity {
+  supplement_id: string
+  supplement_sha256: string
+  parent_bundle_sha256: string
+  play_geometry_sha256: string
+  population_digest: string
+  execution_authority_sha256: string
+  wagering_authority: false
+  promotion_status: 'NOT_PROMOTED'
+  execution_allowed_in_aisp: false
+  display_authority: 'RESEARCH_SHADOW_POPULATION_GEOMETRY'
+}
+
+/** One deterministic accumulation frame: 50 more completed games. */
+export interface PopulationFrame {
+  frameIndex: number
+  simulationIndexStart: number
+  simulationIndexEndInclusive: number
+  cumulativeSimulationCount: number
+  cumulativeHomeWins: number
+  cumulativeAwayWins: number
+  cumulativeHomeWinProbability: number
+  cumulativeAwayWinProbability: number
+  cumulativeExpectedHomeRuns: number
+  cumulativeExpectedAwayRuns: number
+  cumulativeExpectedTotal: number
+  cumulativeRunDifferential: number
+  cumulativeOneRunGameRate: number
+  cumulativeExtraInningRate: number
+  cumulativeContactPlayCount: number
+  cumulativeGeometryDensity: number
+  cumulativeRunnerPathTraffic: number
+  cumulativeScoringPlayCount: number
+  frameDigest: string
+}
+
+export type RepresentativeSelector =
+  | 'TYPICAL' | 'HOME_WIN' | 'AWAY_WIN'
+  | 'HIGH_SCORING' | 'LOW_SCORING' | 'EXTRA_INNINGS'
+
+export interface PopulationSelector {
+  selector: RepresentativeSelector
+  /** May legitimately be 0 — that is simulation zero, not a missing value. */
+  simulationIndex: number
+  pathDigest: string
+  geometryDigest: string
+  definition: string
+  candidateCount: number
+  rank: number
+  distance: number
+  tieBreak: string
+  selectionInputs: {
+    totalRuns: number
+    runDifferential: number
+    homeRuns: number
+    awayRuns: number
+    innings: number
+  }
+  target: Record<string, unknown>
+}
+
+export interface PopulationPayload extends PopulationIdentity {
+  schema_version: 'AISP_MLB_V18_POPULATION_VIEW_V1'
+  forecast_id: string
+  simulation_count: number
+  frame_count: number
+  frame_size: number
+  master_seed: number
+  counts: {
+    plateAppearances: number
+    contactPlays: number
+    geometryBearingPlays: number
+    scoringPlays: number
+    runnerSegments: number
+  }
+  final_population: {
+    homeWinProbability: number
+    meanHomeRuns: number
+    meanAwayRuns: number
+    meanTotalRuns: number
+    meanRunDifferential: number
+    oneRunRate: number
+    extraInningRate: number
+  }
+  illegal_state_count: number
+  nontermination_count: number
+  deterministic_replay: boolean
+  frames: PopulationFrame[]
+  selectors: Record<RepresentativeSelector, PopulationSelector>
+  notes: string
+}
+
+/** A sparse 32x32 contact-density layer: [cellIndex, rawCount] pairs. */
+export interface ContactDensityLayer {
+  count: number
+  maximumCellCount: number
+  sparseRawCounts: Array<[number, number]>
+}
+
+/** A sparse ball-path layer: [origin*cells + control, destination, count]. */
+export type PathDensityLayer = Array<[number, number, number]>
+
+export interface PopulationLayersPayload extends PopulationIdentity {
+  schema_version: 'AISP_MLB_V18_POPULATION_LAYERS_V1'
+  forecast_id: string
+  contact_density: {
+    coordinateSystem: string
+    grid: { width: number; height: number; xRange: [number, number]; yRange: [number, number] }
+    layers: Record<string, ContactDensityLayer>
+    normalization: string
+  }
+  path_density: {
+    coordinateSystem: string
+    grid: { width: number; height: number; cellEncoding: string; tupleEncoding: string }
+    layers: Record<string, PathDensityLayer>
+    representation: string
+    semantics: string
+  }
+  runner_traffic: {
+    allSegments: Record<string, number>
+    dimensions: Record<string, Record<string, number>>
+    requiredTrafficCounts: Record<string, number>
+    representation: string
+    semantics: string
+  }
+}
+
+export interface RepresentativePath {
+  pathIndex: number
+  gameId: string
+  plateAppearances: number
+  pathDigest: string
+  geometryDigest: string
+  backoffSummary: Record<string, unknown> | null
+  events: GeometryEvent[]
+}
+
+export interface PopulationRepresentativesPayload extends PopulationIdentity {
+  schema_version: 'AISP_MLB_V18_POPULATION_REPRESENTATIVES_V1'
+  forecast_id: string
+  selectors: Record<RepresentativeSelector, PopulationSelector>
+  paths: RepresentativePath[]
+  unique_path_count: number
+  notes: string
+}

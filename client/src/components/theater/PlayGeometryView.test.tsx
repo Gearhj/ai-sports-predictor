@@ -6,7 +6,7 @@
  */
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PlayGeometryView, SimulationPopulationView } from './PlayGeometryView'
+import { PlayGeometryView } from './PlayGeometryView'
 import {
   ballPathD, runnerPathD, trailOpacity, visibleEvents,
 } from './GeometryPathLayers'
@@ -365,29 +365,7 @@ describe('navigation', () => {
   })
 })
 
-describe('the population is a separate fact', () => {
-  it('reports the population honestly as pending', () => {
-    render(<SimulationPopulationView shadow={SHADOW} geometry={GEOMETRY} />)
-    expect(screen.getByText(/5,000 completed simulations/i)).toBeInTheDocument()
-    expect(screen.getByText(/population geometry is not yet registered/i)).toBeInTheDocument()
-    expect(
-      screen.getByText(/AWAITING_CHECKSUM_VERIFIED_MODEL_STUDIO_SUPPLEMENT/),
-    ).toBeInTheDocument()
-  })
-
-  it('never presents the one representative path as the population', () => {
-    const view = render(<SimulationPopulationView shadow={SHADOW} geometry={GEOMETRY} />)
-    expect(screen.getByText(/1 of 5,000 · 5 plate appearances/i)).toBeInTheDocument()
-    // No density, heatmap or accumulation frame is drawn from one trace.
-    expect(view.container.querySelector('.pg-ball')).toBeNull()
-    expect(view.container.querySelector('svg')).toBeNull()
-  })
-
-  it('never shows a Gen 1 draw count as a V18 population', () => {
-    render(<SimulationPopulationView shadow={SHADOW} geometry={GEOMETRY} />)
-    expect(document.body.textContent).not.toMatch(/20,000|20000/)
-  })
-
+describe('the population stays a separate fact', () => {
   it('never presents the plate-appearance count as a simulation count', () => {
     mount()
     const provenance = screen.getByText(/one representative simulated game/i)

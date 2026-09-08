@@ -51,6 +51,11 @@ from app.services.auth_service import (
 from app.services.labs_read_service import DEFAULT_LIMIT, LabsReadService
 from app.services.read_service import ReadService
 from app.shadow_import.mlb_v18_play_geometry import geometry_payload
+from app.shadow_import.mlb_v18_population_geometry import (
+    population_layers,
+    population_payload,
+    population_representatives,
+)
 from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
 from app.services.scenario_service import run_scenario, scenario_capabilities
 from app.services.simulation_replay_service import replay_official_simulation
@@ -229,6 +234,53 @@ def shadow_forecast_geometry(forecast_id: str, session: DatabaseSession) -> dict
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No verified play-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/population", tags=["forecasts"])
+def shadow_forecast_population(forecast_id: str, session: DatabaseSession) -> dict:
+    """Stage one of the registered population supplement: summary and frames.
+
+    Read-only, and deliberately small: the accumulation frames and the accepted
+    population metrics only. Returns 404 when no checksum-verified population
+    supplement is registered, so the consumer falls back to the Broadcast
+    Replay rather than inventing an aggregate.
+    """
+
+    payload = population_payload(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified population-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/population/layers", tags=["forecasts"])
+def shadow_forecast_population_layers(forecast_id: str, session: DatabaseSession) -> dict:
+    """Stage two: the compact contact, ball-path and runner-traffic layers."""
+
+    payload = population_layers(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified population-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/population/representatives", tags=["forecasts"])
+def shadow_forecast_population_representatives(
+    forecast_id: str, session: DatabaseSession
+) -> dict:
+    """Stage three: the six distinct representative simulated games."""
+
+    payload = population_representatives(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified population-geometry supplement is registered for this forecast",
         )
     return payload
 
