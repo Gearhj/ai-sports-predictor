@@ -50,6 +50,7 @@ from app.services.auth_service import (
 )
 from app.services.labs_read_service import DEFAULT_LIMIT, LabsReadService
 from app.services.read_service import ReadService
+from app.shadow_import.mlb_v18_play_geometry import geometry_payload
 from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
 from app.services.scenario_service import run_scenario, scenario_capabilities
 from app.services.simulation_replay_service import replay_official_simulation
@@ -211,6 +212,24 @@ def game_shadow_forecasts(game_id: UUID, session: DatabaseSession) -> dict:
     payload = shadow_comparison(session, game_id)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/geometry", tags=["forecasts"])
+def shadow_forecast_geometry(forecast_id: str, session: DatabaseSession) -> dict:
+    """Registered Play Geometry for one research-shadow forecast.
+
+    Read-only. Returns 404 when no checksum-verified supplement is registered,
+    so the consumer fails closed to the Broadcast Replay instead of drawing a
+    synthesised trajectory.
+    """
+
+    payload = geometry_payload(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified play-geometry supplement is registered for this forecast",
+        )
     return payload
 
 

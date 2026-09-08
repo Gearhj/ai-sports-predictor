@@ -12,7 +12,7 @@ import { ArrowLeft, ChevronRight, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { DiamondTheater } from '../components/DiamondTheater'
-import { V18SimulationTrack } from '../components/V18SimulationTrack'
+import { V18SimulationTrack, type V18View } from '../components/V18SimulationTrack'
 import { ScenarioLab } from '../components/ScenarioLab'
 import { DataModeBanner, DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
@@ -45,6 +45,12 @@ export function GameSimulationPage() {
   // so an existing link keeps working exactly as before.
   const [params, setParams] = useSearchParams()
   const requestedTrack = params.get('track') === 'v18' ? 'v18' : 'gen1'
+  // The visualisation selector is separate from the engine selector. An
+  // existing ?track=v18 link keeps opening the Broadcast Replay.
+  const requestedView: V18View = (() => {
+    const value = params.get('view')
+    return value === 'geometry' || value === 'population' ? value : 'broadcast'
+  })()
   const [shadowTracks, setShadowTracks] = useState<ShadowComparison | null>(null)
 
   useEffect(() => {
@@ -121,16 +127,26 @@ export function GameSimulationPage() {
         <Link to={`/games/${gameId}`}>{awayTeam} @ {homeTeam}</Link>
         <ChevronRight size={13} aria-hidden="true" />
         <span aria-current="page">
-          {track === 'v18' ? 'V18 Diamond Theater' : 'Gen 1 outcome distribution'}
+          {track === 'v18'
+            ? (requestedView === 'geometry' ? 'V18 Play Geometry'
+              : requestedView === 'population' ? 'V18 simulation population'
+                : 'V18 Diamond Theater')
+            : 'Gen 1 outcome distribution'}
         </span>
       </nav>
 
       <PageHeader
         eyebrow={track === 'v18'
-          ? 'RESEARCH-SHADOW SEQUENTIAL GAME SIMULATION'
+          ? (requestedView === 'geometry'
+            ? 'RESEARCH SHADOW · MODELLED BALL AND RUNNER GEOMETRY'
+            : requestedView === 'population'
+              ? 'RESEARCH SHADOW · SIMULATED POPULATION'
+              : 'RESEARCH-SHADOW SEQUENTIAL GAME SIMULATION')
           : 'OFFICIAL GEN 1 · FINAL-SCORE DISTRIBUTION'}
         title={track === 'v18'
-          ? 'V18 Monte Carlo Diamond Theater'
+          ? (requestedView === 'geometry' ? 'V18 Play Geometry'
+            : requestedView === 'population' ? 'V18 Simulation Population'
+              : 'V18 Monte Carlo Diamond Theater')
           : 'Official Gen 1 · Final-score distribution'}
         description={`${awayTeam} @ ${homeTeam}`}
         actions={(
@@ -186,12 +202,39 @@ export function GameSimulationPage() {
       )}
 
       {track === 'v18' && shadow && (
-        <V18SimulationTrack
-          shadow={shadow}
-          awayTeam={awayTeam}
-          homeTeam={homeTeam}
-          gameId={gameId}
-        />
+        <>
+          <nav className="view-selector" aria-label="Simulator view">
+            {([
+              ['broadcast', 'Broadcast Replay', 'Score, bases, outs and the game feed'],
+              ['geometry', 'Play Geometry', 'Animated ball and runner paths'],
+              ['population', 'Simulation Population', 'All 5,000 simulated games'],
+            ] as const).map(([key, label, hint]) => (
+              <button
+                key={key}
+                type="button"
+                title={hint}
+                // The hint is a tooltip; the accessible name stays the label.
+                aria-label={label}
+                aria-current={requestedView === key ? 'page' : undefined}
+                className={requestedView === key ? 'is-active' : ''}
+                onClick={() => setParams(
+                  key === 'broadcast' ? { track: 'v18' } : { track: 'v18', view: key },
+                  { replace: true },
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          <V18SimulationTrack
+            shadow={shadow}
+            awayTeam={awayTeam}
+            homeTeam={homeTeam}
+            gameId={gameId}
+            view={requestedView}
+          />
+        </>
       )}
 
       {track === 'gen1' && simulation && (

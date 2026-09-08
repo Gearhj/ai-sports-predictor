@@ -22,7 +22,7 @@ import type {
 } from '../types/domain'
 import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
 import type { LabsGames } from '../types/labs'
-import type { ShadowComparison, ShadowPath } from '../types/shadow'
+import type { PlayGeometryPayload, ShadowComparison, ShadowPath } from '../types/shadow'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
 const TOKEN_KEY = 'asp_access_token'
@@ -104,6 +104,10 @@ export const endpoints = {
   // Research-shadow tracks. Read-only; they carry no wagering authority.
   gameShadowForecasts: (id: string, signal?: AbortSignal) =>
     apiRequest<ShadowComparison>(`/games/${encodeURIComponent(id)}/shadow-forecasts`, {}, signal),
+  shadowForecastGeometry: (forecastId: string, signal?: AbortSignal) =>
+    apiRequest<PlayGeometryPayload>(
+      `/shadow-forecasts/${encodeURIComponent(forecastId)}/geometry`, {}, signal,
+    ),
   shadowForecastPath: (forecastId: string, signal?: AbortSignal) =>
     apiRequest<ShadowPath>(`/shadow-forecasts/${encodeURIComponent(forecastId)}/path`, {}, signal),
   gameSimulation: (id: string, signal?: AbortSignal) =>

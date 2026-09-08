@@ -15,18 +15,44 @@ import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { DiamondTheaterShell } from './theater/DiamondTheaterShell'
 import { InningLineScore, PopulationPanel } from './theater/InningLineScore'
+import { PlayGeometryView, SimulationPopulationView } from './theater/PlayGeometryView'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
-import type { ShadowForecastView, ShadowPath } from '../types/shadow'
+import type { PlayGeometryPayload, ShadowForecastView, ShadowPath } from '../types/shadow'
 
-export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId }: {
+/** Which visualisation of the same V18 evidence the reader asked for. */
+export type V18View = 'broadcast' | 'geometry' | 'population'
+
+export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 'broadcast' }: {
   shadow: ShadowForecastView
   awayTeam: string
   homeTeam: string
   gameId: string
+  view?: V18View
 }) {
   const [path, setPath] = useState<ShadowPath | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [geometry, setGeometry] = useState<PlayGeometryPayload | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let live = true
+    endpoints
+      .shadowForecastGeometry(shadow.forecast_id, controller.signal)
+      .then((payload) => {
+        if (!live) return
+        // Fail closed: only a payload that declares the research-shadow display
+        // authority and no execution/wagering authority may ever be drawn.
+        const usable = payload?.schema_version === 'AISP_MLB_V18_PLAY_GEOMETRY_VIEW_V1'
+          && payload.display_authority === 'RESEARCH_SHADOW_PLAY_GEOMETRY'
+          && payload.wagering_authority === false
+          && payload.execution_allowed_in_aisp === false
+          && Array.isArray(payload.events) && payload.events.length > 0
+        setGeometry(usable ? payload : null)
+      })
+      .catch(() => { if (live) setGeometry(null) })
+    return () => { live = false; controller.abort() }
+  }, [shadow.forecast_id])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -48,25 +74,50 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId }: {
 
   return (
     <div className="v18-track">
-      {state === 'loading' && (
+      {view !== 'population' && state === 'loading' && (
         <p className="theater-empty" role="status">Loading the persisted simulated path…</p>
       )}
-      {state === 'unavailable' && (
+      {view !== 'population' && state === 'unavailable' && (
         <p className="theater-empty" role="status">
           No sequential path is persisted for this research-shadow forecast, so there
           is nothing to replay. Nothing has been reconstructed in its place.
         </p>
       )}
 
-      {state === 'ready' && path && (
-        <>
-          <DiamondTheaterShell
-            path={path}
-            shadow={shadow}
-            awayTeam={awayTeam}
-            homeTeam={homeTeam}
-          />
+      {view === 'population' && (
+        <SimulationPopulationView shadow={shadow} geometry={geometry} />
+      )}
 
+      {view === 'geometry' && (
+        geometry
+          ? (
+            <PlayGeometryView
+              geometry={geometry}
+              shadow={shadow}
+              awayTeam={awayTeam}
+              homeTeam={homeTeam}
+            />
+          )
+          : (
+            <p className="theater-empty" role="status">
+              No checksum-verified play-geometry supplement is registered for this
+              forecast, so there is no modelled geometry to draw. The Broadcast
+              Replay remains available and nothing has been synthesised here.
+            </p>
+          )
+      )}
+
+      {view === 'broadcast' && state === 'ready' && path && (
+        <DiamondTheaterShell
+          path={path}
+          shadow={shadow}
+          awayTeam={awayTeam}
+          homeTeam={homeTeam}
+        />
+      )}
+
+      {view !== 'population' && state === 'ready' && path && (
+        <>
           <PopulationPanel population={shadow.population} />
           <InningLineScore events={events} awayTeam={awayTeam} homeTeam={homeTeam} />
         </>

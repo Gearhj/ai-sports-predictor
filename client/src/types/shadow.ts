@@ -132,3 +132,143 @@ export interface ShadowPath {
   path_count: number
   paths: ShadowPathEvent[][]
 }
+
+// -- Play Geometry (AISP_MLB_V18_PLAY_GEOMETRY_VIEW_V1) ---------------------
+//
+// Modelled geometry and anonymous runner movements published beside a
+// registered V18 research-shadow forecast. Every field here is either
+// PERSISTED V18 state or explicitly MODELLED; the two are never merged.
+
+export interface GeometryPoint {
+  x: number
+  y: number
+}
+
+export interface BallTrace {
+  coordinateSystem: string
+  start: GeometryPoint
+  control: Array<GeometryPoint & { lift: number }>
+  end: GeometryPoint
+  traceStyle: 'GROUND' | 'LINE' | 'ARC_HIGH' | 'ARC_STEEP'
+  normalizedDuration: number
+  fairTerritory: boolean
+  outcomeCompatibility: string
+  /** Always states that this is not a measured flight path. */
+  semantics: string
+}
+
+export interface PlayGeometry {
+  contactOccurred: boolean
+  battedBallType: string | null
+  locationZone?: string | null
+  depthModifier?: string | null
+  foulLocation?: boolean
+  geometryAuthority: string
+  geometryBackoffLevel: string | null
+  geometryBackoffSupport?: number
+  geometryModelVersion: string
+  geometrySamplingSeed: string
+  coordinateSystem: string
+  landingOrFieldingPoint: (GeometryPoint & {
+    depth: number
+    depthClass: string
+    directionDegrees: number
+    fairTerritory: boolean
+  }) | null
+  /** Unregistered in every MLB authority; always null, never zero. */
+  exitVelocityMph: null
+  launchAngleDegrees: null
+  sprayAngleDegrees: null
+  projectedDistanceFeet: null
+  landingCoordinateMeasured: null
+}
+
+export type BaseState = 'BATTER_BOX' | 'FIRST' | 'SECOND' | 'THIRD' | 'HOME' | 'OUT'
+
+export interface RunnerMovement {
+  anonymousRunnerId: string
+  role: 'BATTER' | 'RUNNER'
+  from: BaseState
+  to: BaseState
+  scored: boolean
+  out: boolean
+  movementReason: string
+  /** Presentation sequencing only. Never a measured timestamp. */
+  startFraction: number
+  endFraction: number
+  authority: 'FITTED_HISTORICAL_TEMPLATE' | 'DETERMINISTIC_LEGAL_BACKOFF'
+}
+
+export interface GeometryEvent {
+  pa: number
+  inning: number
+  half: 'TOP' | 'BOTTOM'
+  battingTeam: 'AWAY' | 'HOME'
+  battingOrderPosition: number
+  pitcherState: string
+  pitchingChange: boolean
+  outcome: string
+  outsBefore: number
+  outsAfter: number
+  baseMaskBefore: number
+  baseMaskAfter: number
+  runsScored: number
+  homeScoreAfter: number
+  awayScoreAfter: number
+  geometry: PlayGeometry
+  ballTrace: BallTrace | null
+  runnerMovements: RunnerMovement[]
+  runnerModelVersion: string
+  runnerBackoffLevel: string
+  runnerBackoffSupport: number
+}
+
+export interface PlayGeometryPayload {
+  schema_version: 'AISP_MLB_V18_PLAY_GEOMETRY_VIEW_V1'
+  forecast_id: string
+  game_id: string
+  engine_id: string
+  supplement_id: string
+  supplement_sha256: string
+  parent_bundle_id: string
+  parent_bundle_sha256: string
+  coordinate_system: Record<string, unknown> | null
+  geometry_model_version: string
+  runner_model_version: string
+  registered_at: string
+  backoff_summary: Record<string, unknown> | null
+  limitations: string[] | null
+  wagering_authority: false
+  promotion_status: 'NOT_PROMOTED'
+  execution_allowed_in_aisp: false
+  display_authority: 'RESEARCH_SHADOW_PLAY_GEOMETRY'
+  plate_appearances: number
+  contact_plays: number
+  ball_traces: number
+  runner_movements: number
+  events: GeometryEvent[]
+  population: PopulationGeometrySlot
+  notes: string
+}
+
+/**
+ * The integration boundary for a future population-geometry artifact.
+ *
+ * Only identity and availability are fixed here. The eventual importer must be
+ * driven by the real Model Studio handoff, so nothing beyond this minimal
+ * adapter shape is guessed.
+ */
+export interface PopulationGeometrySlot {
+  simulationCount: number | null
+  populationGeometryAvailable: boolean
+  populationGeometryStatus: string
+  /** Present only once a checksum-verified aggregate is registered. */
+  populationSupplementId?: string | null
+  populationSupplementSha256?: string | null
+  accumulationFrames?: unknown[] | null
+  contactDensity?: unknown | null
+  ballPathDensity?: unknown | null
+  runnerTraffic?: unknown | null
+  representativeSelectors?: unknown | null
+  frameDigest?: string | null
+}

@@ -2471,3 +2471,145 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 @media (max-width: 640px) {
   .simulation-page--theater .data-banner--live { display: none; }
 }
+
+/* ============================================================
+   V18 PLAY GEOMETRY
+   A second visualisation of the same persisted path. The field is a
+   quiet spatial reference; the accumulated path layers are the subject.
+   ============================================================ */
+.view-selector { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; padding: 4px; background: white; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.view-selector button { flex: 1 1 180px; padding: 8px 13px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #55697c; font-size: 13px; font-weight: 650; }
+.view-selector button:hover { background: var(--soft); }
+.view-selector button.is-active { color: var(--ink); background: var(--blue-soft); border-color: #bfd8e7; }
+
+.geometry {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(282px, 336px);
+  border-radius: 16px; overflow: hidden;
+  background: linear-gradient(170deg, #0a1728, #060e19 62%, #040a12);
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 26px 60px rgba(3,8,16,.45);
+}
+.geometry__stage { display: flex; flex-direction: column; min-width: 0; }
+.geometry__field-wrap { position: relative; }
+.geometry__field { display: block; width: 100%; height: auto; max-height: 50vh; }
+
+/* --- Field scenery: deliberately low contrast ----------------------- */
+.pg-fair { fill: #0c2018; }
+.pg-boundary { fill: none; stroke: rgba(255,255,255,.22); stroke-width: 2.5; }
+.pg-dirt { fill: #33271e; opacity: .7; }
+.pg-basepath { fill: none; stroke: rgba(216,191,164,.36); stroke-width: 3; stroke-linejoin: round; }
+.pg-foul { stroke: rgba(255,255,255,.3); stroke-width: 1.5; }
+.pg-dugout { fill: none; stroke-width: 3.5; opacity: .35; stroke-linecap: round; }
+.pg-bases rect { fill: rgba(244,248,251,.8); }
+.pg-plate { fill: rgba(255,255,255,.85); }
+
+/* --- Ball paths: bright, light, dominant ---------------------------- */
+.pg-ball { fill: none; stroke: #e8f4ff; stroke-width: 2.4; stroke-linecap: round; }
+.pg-ball--active { stroke: #f4fbff; stroke-width: 3.4; filter: drop-shadow(0 0 7px rgba(180,232,255,.75)); }
+.pg-ball--ground { stroke-dasharray: none; }
+.pg-ball--arc_steep { stroke-dasharray: 5 4; }
+.pg-ball--foul { stroke-dasharray: 3 5; }
+.pg-ball--scoring { stroke: #7ff0d0; }
+.pg-ball--scoring.pg-ball--active { filter: drop-shadow(0 0 10px rgba(127,240,208,.85)); }
+.pg-ball--homer { stroke: #ffd36e; }
+.pg-ball--homer.pg-ball--active { stroke-width: 4; filter: drop-shadow(0 0 14px rgba(255,211,110,.9)); }
+.pg-ball-end { fill: #dff2ff; }
+.pg-ball-end--active { fill: #ffffff; filter: drop-shadow(0 0 6px rgba(200,240,255,.9)); }
+
+/* --- Runner paths --------------------------------------------------- */
+.pg-runner { fill: none; stroke-width: 2.4; stroke-linecap: round; }
+.pg-runner--active { stroke-width: 3.4; }
+.pg-runner--scored { stroke-width: 3.8; filter: drop-shadow(0 0 8px currentColor); }
+.pg-runner--out { stroke-dasharray: 3 4; opacity: .55; }
+.pg-token { stroke: rgba(255,255,255,.85); stroke-width: 1.6; }
+.pg-token--scored { stroke: #ffffff; stroke-width: 2.2; }
+.pg-token--out { opacity: .5; stroke-dasharray: 2 2; }
+
+/* Draw-on animation for the active play only. */
+@keyframes pg-draw { from { stroke-dashoffset: 620; } to { stroke-dashoffset: 0; } }
+.pg-ball--draw { stroke-dasharray: 620; animation: pg-draw .42s ease-out; }
+.pg-runner--draw { stroke-dasharray: 400; animation: pg-draw .5s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .pg-ball--draw, .pg-runner--draw { animation: none; stroke-dasharray: none; }
+}
+
+.geometry__legend { position: absolute; left: 14px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 12px; border-radius: 8px; background: rgba(6,16,28,.66); border: 1px solid rgba(255,255,255,.1); backdrop-filter: blur(4px); }
+.geometry__legend span { display: inline-flex; align-items: center; gap: 6px; color: #a9bece; font-size: 12px; }
+.geometry__swatch { width: 14px; height: 3px; border-radius: 2px; }
+.geometry__swatch--ball { background: #f4fbff; }
+.geometry__count { color: #7f95aa; font: 650 12px "IBM Plex Mono", monospace; }
+
+/* --- Scope and layer controls --------------------------------------- */
+.geometry__scopes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 11px 18px; background: rgba(4,10,18,.6); border-top: 1px solid rgba(255,255,255,.08); }
+.geometry__scopes > button { padding: 7px 13px; border-radius: 7px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #dbe8f3; font-size: 13px; font-weight: 650; }
+.geometry__scopes > button.is-active { color: #072a26; background: #6fd3c6; border-color: #6fd3c6; }
+.geometry__layer-toggles { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.geometry__layer-toggles button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color: #9db3c6; font-size: 12.5px; font-weight: 600; }
+.geometry__layer-toggles button.is-active { color: #dbe8f3; background: rgba(255,255,255,.12); }
+.geometry__persistence { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: #7f95aa; font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.geometry__persistence input { width: 108px; }
+.geometry__provenance { margin: 0; padding: 9px 18px; text-align: center; color: #7f95aa; font-size: 11.5px; line-height: 1.5; background: rgba(4,10,18,.5); border-top: 1px solid rgba(255,255,255,.06); }
+
+/* --- Active-play panel ---------------------------------------------- */
+.geometry__panel { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; background: rgba(4,10,18,.55); border-left: 1px solid rgba(255,255,255,.08); overflow-y: auto; }
+.geometry__panel header { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.geometry__panel-title { color: white; font-size: 15px; font-weight: 700; }
+.geometry__panel-sub { color: #7f95aa; font-size: 12.5px; }
+.geometry__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 14px; margin: 0; }
+.geometry__facts dt { color: #7f95aa; font: 600 11.5px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.geometry__facts dd { margin: 3px 0 0; color: #e8f0f7; font-size: 13px; overflow-wrap: anywhere; }
+.geometry__facts small { display: block; color: #7f95aa; font-size: 11.5px; }
+.geometry__runners h4 { display: flex; align-items: baseline; gap: 7px; margin: 0 0 7px; color: white; font-size: 13.5px; }
+.geometry__runners h4 small { color: #7f95aa; font-size: 11.5px; font-weight: 500; }
+.geometry__runners ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.geometry__runners li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,.04); border-left: 2px solid rgba(255,255,255,.14); color: #cddcea; font-size: 12.5px; }
+.geometry__runners li.is-scored { border-left-color: #7ff0d0; }
+.geometry__runners li.is-out { border-left-color: #e2915d; opacity: .8; }
+.geometry__runner-id { color: #7f95aa; font: 650 11.5px "IBM Plex Mono", monospace; text-align: right; }
+.geometry__runners small { display: block; color: #7f95aa; font-size: 11.5px; }
+.geometry__none { margin: 0; color: #7f95aa; font-size: 12.5px; }
+.geometry__technical summary { color: #9db3c6; font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.geometry__technical dl { display: grid; grid-template-columns: 1fr; gap: 7px; margin: 10px 0 0; }
+.geometry__technical dt { color: #7f95aa; font: 600 11.5px "IBM Plex Mono", monospace; text-transform: uppercase; }
+.geometry__technical dd { margin: 2px 0 0; color: #cddcea; font-size: 12.5px; overflow-wrap: anywhere; }
+.geometry__technical dd.unavailable { color: #7f95aa; font-style: italic; }
+.geometry__technical .mono { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+.geometry__note { margin: 11px 0 0; color: #7f95aa; font-size: 11.5px; line-height: 1.55; }
+
+/* --- Theater mode ---------------------------------------------------- */
+.geometry--full { position: fixed; inset: 0; z-index: 60; border-radius: 0; border: 0; }
+.geometry--full .geometry__stage { height: 100vh; }
+.geometry--full .geometry__field-wrap { flex: 1; min-height: 0; display: flex; }
+.geometry--full .geometry__field { max-height: none; height: 100%; margin: auto; }
+.geometry--full .geometry__panel { max-height: 100vh; }
+
+/* --- Population evidence-pending ------------------------------------- */
+.population-pending { padding: 20px 24px; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.population-pending__lead { margin: 0 0 16px; color: var(--ink); font-size: 15px; line-height: 1.6; max-width: 76ch; }
+.population-pending__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 13px 20px; margin: 0 0 18px; }
+.population-pending__facts dt { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .03em; }
+.population-pending__facts dd { margin: 4px 0 0; color: var(--ink); font-size: 18px; font-weight: 700; }
+.population-pending__slot { padding: 15px 17px; border-radius: 9px; background: var(--soft); border: 1px dashed var(--line-strong); }
+.population-pending__slot strong { display: block; margin-bottom: 6px; color: var(--ink); font-size: 14px; }
+.population-pending__slot p { margin: 0 0 8px; color: #55697c; font-size: 13.5px; line-height: 1.6; max-width: 84ch; }
+.population-pending__status { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; }
+
+/* --- Responsive ------------------------------------------------------ */
+@media (max-width: 1240px) {
+  .geometry, .geometry--full { grid-template-columns: 1fr; }
+  .geometry__panel { border-left: 0; border-top: 1px solid rgba(255,255,255,.08); max-height: 340px; }
+  .geometry__field { max-height: none; }
+}
+@media (max-width: 640px) {
+  .view-selector button { flex-basis: 100%; }
+  .geometry__scopes { padding: 10px 12px; gap: 7px 9px; }
+  .geometry__scopes > button { flex: 1 1 30%; padding: 8px 9px; font-size: 12.5px; }
+  .geometry__layer-toggles { width: 100%; }
+  .geometry__layer-toggles button { flex: 1 1 45%; justify-content: center; padding: 8px 8px; }
+  .geometry__persistence { width: 100%; margin-left: 0; justify-content: space-between; }
+  .geometry__persistence input { flex: 1; width: auto; }
+  .geometry__legend { position: static; margin: 0 12px 10px; }
+  .geometry__provenance { text-align: left; padding: 9px 12px; }
+  .geometry__facts { grid-template-columns: 1fr 1fr; }
+  .population-pending { padding: 16px 14px; }
+}

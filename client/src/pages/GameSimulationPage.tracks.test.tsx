@@ -11,7 +11,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GameSimulationPage } from './GameSimulationPage'
 import { endpoints } from '../services/api'
-import type { ShadowComparison, ShadowPath } from '../types/shadow'
+import type { PlayGeometryPayload, ShadowComparison, ShadowPath } from '../types/shadow'
 
 vi.mock('echarts-for-react', () => ({
   default: ({ style }: { style?: Record<string, unknown> }) => (
@@ -97,11 +97,72 @@ const PATH: ShadowPath = {
   ]],
 }
 
-function mount(search: string, { shadows = true, path = true } = {}) {
+/** A minimal but valid play-geometry payload for the same persisted path. */
+const GEOMETRY = {
+  schema_version: 'AISP_MLB_V18_PLAY_GEOMETRY_VIEW_V1',
+  forecast_id: 'mlb-v18-1', game_id: GAME_ID, engine_id: 'MLB_V18_WHOLE_GAME',
+  supplement_id: 'mlb-v18-play-geometry-7b638efe', supplement_sha256: '7'.repeat(64),
+  parent_bundle_id: 'mlb-v18-whole-game-abc', parent_bundle_sha256: 'a'.repeat(64),
+  coordinate_system: { name: 'ASP_NORMALIZED_DIAMOND_V1', origin: 'HOME_PLATE' },
+  geometry_model_version: 'MLB_V18_PLAY_GEOMETRY_SAMPLER_V1',
+  runner_model_version: 'MLB_V18_RUNNER_TEMPLATE_SAMPLER_V1',
+  registered_at: '2026-09-08T00:00:00+00:00',
+  backoff_summary: {}, limitations: [],
+  wagering_authority: false, promotion_status: 'NOT_PROMOTED',
+  execution_allowed_in_aisp: false, display_authority: 'RESEARCH_SHADOW_PLAY_GEOMETRY',
+  plate_appearances: 2, contact_plays: 1, ball_traces: 1, runner_movements: 1,
+  events: PATH.paths[0].map((event, position) => ({
+    ...event,
+    battingTeam: 'AWAY',
+    geometry: {
+      contactOccurred: position === 1,
+      battedBallType: position === 1 ? 'LINE_DRIVE' : null,
+      locationZone: position === 1 ? '7' : null,
+      geometryAuthority: position === 1 ? 'RETROSHEET_LOCATION_ZONE_CENTROID' : 'NO_CONTACT',
+      geometryBackoffLevel: null,
+      geometryModelVersion: 'MLB_V18_PLAY_GEOMETRY_SAMPLER_V1',
+      geometrySamplingSeed: '0'.repeat(16),
+      coordinateSystem: 'ASP_NORMALIZED_DIAMOND_V1',
+      landingOrFieldingPoint: position === 1
+        ? { x: 0.1, y: 0.5, depth: 0.5, depthClass: 'DEEP', directionDegrees: 10, fairTerritory: true }
+        : null,
+      exitVelocityMph: null, launchAngleDegrees: null, sprayAngleDegrees: null,
+      projectedDistanceFeet: null, landingCoordinateMeasured: null,
+    },
+    ballTrace: position === 1 ? {
+      coordinateSystem: 'ASP_NORMALIZED_DIAMOND_V1',
+      start: { x: 0, y: 0 }, control: [{ x: 0.05, y: 0.25, lift: 0.05 }],
+      end: { x: 0.1, y: 0.5 }, traceStyle: 'LINE', normalizedDuration: 0.5,
+      fairTerritory: true, outcomeCompatibility: 'COMPATIBLE_WITH_PERSISTED_OUTCOME',
+      semantics: 'PROJECTED_VISUAL_TRAJECTORY_FROM_SIMULATED_GEOMETRY_NOT_A_MEASURED_FLIGHT_PATH',
+    } : null,
+    runnerMovements: position === 1 ? [{
+      anonymousRunnerId: 'r0001-02', role: 'BATTER', from: 'BATTER_BOX', to: 'FIRST',
+      scored: false, out: false, movementReason: 'BATTER_REACHED',
+      startFraction: 0, endFraction: 0.6, authority: 'FITTED_HISTORICAL_TEMPLATE',
+    }] : [],
+    runnerModelVersion: 'MLB_V18_RUNNER_TEMPLATE_SAMPLER_V1',
+    runnerBackoffLevel: 'outcome_state_outs_runs_after_bbtype',
+    runnerBackoffSupport: 120,
+  })),
+  population: {
+    simulationCount: 5000, populationGeometryAvailable: false,
+    populationGeometryStatus: 'AWAITING_CHECKSUM_VERIFIED_MODEL_STUDIO_SUPPLEMENT',
+  },
+  notes: 'One representative simulated game.',
+} as unknown as PlayGeometryPayload
+
+
+function mount(search: string, { shadows = true, path = true, geometry = true } = {}) {
   vi.spyOn(endpoints, 'gameSimulation').mockResolvedValue(GEN1)
   vi.spyOn(endpoints, 'marketPulseGame').mockRejectedValue(new Error('no pulse'))
   vi.spyOn(endpoints, 'gameShadowForecasts').mockResolvedValue(
     shadows ? COMPARISON : { ...COMPARISON, shadows: [] },
+  )
+  vi.spyOn(endpoints, 'shadowForecastGeometry').mockImplementation(
+    geometry
+      ? () => Promise.resolve(GEOMETRY)
+      : () => Promise.reject(new Error('no geometry')),
   )
   vi.spyOn(endpoints, 'shadowForecastPath').mockImplementation(
     path
@@ -195,5 +256,59 @@ describe('simulator track routing', () => {
     mount('', { shadows: false })
     await screen.findByRole('heading', { level: 1, name: /Official Gen 1/ })
     expect(screen.queryByRole('navigation', { name: /simulation track/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('the simulator view selector', () => {
+  it('keeps Broadcast Replay as the view an existing ?track=v18 link opens', async () => {
+    mount('?track=v18')
+    await waitFor(() => expect(screen.getByTestId('diamond-theater')).toBeInTheDocument())
+    expect(screen.queryByTestId('play-geometry')).not.toBeInTheDocument()
+    const selector = screen.getByRole('navigation', { name: /simulator view/i })
+    expect(within(selector).getByRole('button', { name: /broadcast replay/i }))
+      .toHaveAttribute('aria-current', 'page')
+  })
+
+  it('shows Play Geometry for ?view=geometry, and the replay is still one click away', async () => {
+    mount('?track=v18&view=geometry')
+    await waitFor(() => expect(screen.getByTestId('play-geometry')).toBeInTheDocument())
+    expect(screen.queryByTestId('diamond-theater')).not.toBeInTheDocument()
+    const selector = screen.getByRole('navigation', { name: /simulator view/i })
+    expect(within(selector).getByRole('button', { name: /broadcast replay/i })).toBeEnabled()
+  })
+
+  it('switches to Play Geometry and back without leaving the V18 track', async () => {
+    const user = userEvent.setup()
+    mount('?track=v18')
+    await waitFor(() => expect(screen.getByTestId('diamond-theater')).toBeInTheDocument())
+    const selector = screen.getByRole('navigation', { name: /simulator view/i })
+
+    await user.click(within(selector).getByRole('button', { name: /play geometry/i }))
+    await waitFor(() => expect(screen.getByTestId('play-geometry')).toBeInTheDocument())
+    expect(screen.getByRole('navigation', { name: /simulation track/i })).toBeInTheDocument()
+
+    await user.click(within(selector).getByRole('button', { name: /broadcast replay/i }))
+    await waitFor(() => expect(screen.getByTestId('diamond-theater')).toBeInTheDocument())
+  })
+
+  it('fails closed when no verified supplement is registered', async () => {
+    mount('?track=v18&view=geometry', { geometry: false })
+    expect(await screen.findByText(/No checksum-verified play-geometry supplement is registered/i))
+      .toBeInTheDocument()
+    expect(screen.queryByTestId('play-geometry')).not.toBeInTheDocument()
+  })
+
+  it('reports the population as pending rather than drawing it', async () => {
+    mount('?track=v18&view=population')
+    expect(await screen.findByText(/Population geometry is not yet registered/i))
+      .toBeInTheDocument()
+    expect(screen.queryByTestId('play-geometry')).not.toBeInTheDocument()
+    expect(screen.queryByText(/20,000/)).not.toBeInTheDocument()
+  })
+
+  it('offers no view selector on the Gen 1 track', async () => {
+    mount('')
+    await screen.findByRole('heading', { level: 1, name: /Official Gen 1/ })
+    expect(screen.queryByRole('navigation', { name: /simulator view/i })).not.toBeInTheDocument()
   })
 })
