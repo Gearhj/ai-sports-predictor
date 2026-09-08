@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.jobs.odds_quota_recovery import PROBE_ENDPOINT_KEY, quota_state
 from app.core.logging import logger
 from app.core.time import local_day_bounds, local_today
 from app.analytics import ParquetSnapshotWriter
@@ -1703,7 +1704,35 @@ class JobOrchestrator:
             return
         remaining = (latest.source_metadata or {}).get("requests_remaining")
         if remaining is not None and int(remaining) <= self.settings.odds_quota_floor:
-            raise SourceError("THE_ODDS_API", f"Odds quota floor reached ({remaining} remaining)", retryable=False)
+            # The floor still holds. The only exception is a single bounded
+            # recovery probe for a reading too old to describe the balance now
+            # -- otherwise this guard can never be released, because only a
+            # request can refresh the number it is reading.
+            state = quota_state(
+                self.session,
+                floor=self.settings.odds_quota_floor,
+                probe_after_hours=self.settings.odds_quota_probe_after_hours,
+                probe_cooldown_hours=self.settings.odds_quota_probe_cooldown_hours,
+            )
+            if not state.probe_allowed:
+                raise SourceError(
+                    "THE_ODDS_API",
+                    f"Odds quota floor reached ({remaining} remaining). "
+                    f"{state.probe_blocked_reason or ''}".strip(),
+                    retryable=False,
+                )
+            # The probe is ledgered like any other request, so it is counted,
+            # auditable, and mutually exclusive with a concurrent probe.
+            self._reserve_provider_request(
+                "THE_ODDS_API",
+                PROBE_ENDPOINT_KEY,
+                controlled_live_request=True,
+                request_shape={
+                    "reason": "QUOTA_RECOVERY_PROBE",
+                    "stale_reading": int(remaining),
+                    "reading_age_hours": round(state.reading_age_hours or 0.0, 2),
+                },
+            )
         if latest.completed_at:
             elapsed = datetime.now(UTC) - _aware(latest.completed_at)
             cooldown = timedelta(minutes=self.settings.odds_manual_cooldown_minutes)

@@ -30,7 +30,7 @@ describe('AI Sports Predictor application shell', () => {
 
   it('renders an honest unavailable desk without fixture substitution', async () => {
     render(<App />)
-    expect(await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^AI Sports Predictor$/i })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/LIVE DATA UNAVAILABLE/i)).toBeInTheDocument())
     expect(screen.queryByText('ILLUSTRATIVE DEMO — NOT LIVE RESULTS')).not.toBeInTheDocument()
     expect(screen.queryByText(/STRONG EDGE/i)).not.toBeInTheDocument()
@@ -40,7 +40,7 @@ describe('AI Sports Predictor application shell', () => {
   it('routes to methodology from the shared navigation', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })
+    await screen.findByRole('heading', { name: /^AI Sports Predictor$/i })
     await user.click(screen.getByRole('link', { name: 'Methodology' }))
     expect(await screen.findByRole('heading', { name: 'Methodology' })).toBeInTheDocument()
     expect(screen.getByText(/Probability estimates, not picks/i)).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe('AI Sports Predictor application shell', () => {
     const fetchMock = stubRegistry(sportRegistryFixture)
     const user = userEvent.setup()
     render(<StrictMode><App /></StrictMode>)
-    await screen.findByRole('heading', { name: /Today’s Sports Command Center/i })
+    await screen.findByRole('heading', { name: /^AI Sports Predictor$/i })
     const selector = screen.getByRole('button', { name: /All registered sports/i })
     expect(selector).toHaveAttribute('aria-expanded', 'false')
 
@@ -59,11 +59,19 @@ describe('AI Sports Predictor application shell', () => {
 
     expect(selector).toHaveAttribute('aria-expanded', 'true')
     const options = screen.getByLabelText('Sport options')
-    expect(within(options).getByRole('link', { name: /MLB Live/i })).toHaveAttribute('href', '/mlb')
-    expect(within(options).getByRole('link', { name: /NFL Research shadow/i })).toHaveAttribute('href', '/shadow-board?sport=NFL')
-    expect(within(options).queryByText('NBA')).not.toBeInTheDocument()
-    expect(within(options).queryByText('WNBA')).not.toBeInTheDocument()
-    expect(within(options).queryByText('UFC')).not.toBeInTheDocument()
+    expect(within(options).getByRole('link', { name: /MLB Active/i })).toHaveAttribute('href', '/mlb')
+    expect(within(options).getByRole('link', { name: /NFL Research foundation/i })).toHaveAttribute('href', '/shadow-board?sport=NFL')
+
+    // Planned sports are now visible so the product reads as multi-sport, but
+    // the guarantee that matters is unchanged: a sport the backend has not made
+    // navigable can never be selected. Each is a disabled span, never a link.
+    for (const planned of ['NBA', 'WNBA', 'NHL', 'UFC']) {
+      const entry = within(options).getByText(new RegExp(`^${planned}$`))
+        .closest('[aria-disabled="true"]')
+      expect(entry).toBeTruthy()
+      expect(entry).toHaveTextContent(/Planned/)
+    }
+    expect(within(options).queryByRole('link', { name: /NBA|WNBA|NHL|UFC/i })).not.toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/sports/registry'))).toHaveLength(1)
   })
 
@@ -78,9 +86,9 @@ describe('AI Sports Predictor application shell', () => {
     render(<App />)
 
     const options = screen.getByLabelText('Sport options')
-    expect(await within(options).findByRole('link', { name: /NBA Live/i })).toHaveAttribute('href', '/basketball-lab')
-    expect(within(options).queryByRole('link', { name: /MLB Live/i })).not.toBeInTheDocument()
-    expect(within(options).queryByRole('link', { name: /NFL Research shadow/i })).not.toBeInTheDocument()
+    expect(await within(options).findByRole('link', { name: /NBA Active/i })).toHaveAttribute('href', '/basketball-lab')
+    expect(within(options).queryByRole('link', { name: /MLB Active/i })).not.toBeInTheDocument()
+    expect(within(options).queryByRole('link', { name: /NFL Research foundation/i })).not.toBeInTheDocument()
   })
 
   it('fails closed when the authoritative registry cannot be loaded', async () => {
@@ -89,5 +97,26 @@ describe('AI Sports Predictor application shell', () => {
 
     expect(await within(options).findByText(/Registry unavailable/i)).toBeInTheDocument()
     expect(within(options).queryByRole('link', { name: /MLB|NFL|NBA|WNBA|UFC/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('Interactive Labs discoverability', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', '/')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')))
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  it('offers a permanent labs entry in the primary navigation', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { level: 1, name: /^AI Sports Predictor$/i })
+
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' })
+    const labs = within(nav).getByRole('link', { name: /Interactive labs/i })
+    expect(labs).toHaveAttribute('href', '/labs')
+    // Sits with the other analytical destinations, not buried at the end.
+    const items = within(nav).getAllByRole('link').map((link) => link.getAttribute('href'))
+    expect(items.indexOf('/labs')).toBeGreaterThan(items.indexOf('/performance'))
+    expect(items.indexOf('/labs')).toBeLessThan(items.indexOf('/methodology'))
   })
 })

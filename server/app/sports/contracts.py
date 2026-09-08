@@ -168,6 +168,39 @@ class NormalizedSelection(BaseModel):
     sport_rank: int | None = None
     detail_href: str | None = None
 
+    # -- event/position lifecycle projection -------------------------------
+    # Read-only projections of evidence the adapters already load. They carry
+    # no new authority: they let a consumer separate "the event is over" from
+    # "the decision is still open" without re-deriving it from a clock, which
+    # would be a guess. Every one stays None when the sport does not persist it.
+    #
+    # ``event_status`` is the persisted GameStatus (scheduled/live/final/
+    # postponed/canceled). ``position_status``/``position_result`` are the
+    # PositionStatus/PositionResult of the backing official position, present
+    # only when such a position exists.
+    event_status: str | None = None
+    position_status: str | None = None
+    position_result: str | None = None
+    # Persisted forecast lifecycle stage and the next scheduled refresh, used
+    # for an honest "next checkpoint". Never synthesised when absent.
+    lifecycle_stage: str | None = None
+    next_scheduled_refresh_at: datetime | None = None
+
+    # -- current model forecast, independent of the market ------------------
+    # ``model_probability`` above is the probability FROZEN INTO THIS DECISION
+    # at decision time, and it is null whenever the decision never got a
+    # priceable quote. The three fields below are a different fact: the
+    # sport's own CURRENT published forecast for the event, which exists
+    # whether or not a sportsbook ever quoted it.
+    #
+    # They must never be substituted into a decision record or presented as
+    # what was known when that decision was taken -- that is why they carry
+    # their own timestamp and model identity, and why consumers are required
+    # to label them separately.
+    current_forecast_probability: float | None = None
+    current_forecast_generated_at: datetime | None = None
+    current_forecast_model: str | None = None
+
 
 class SportSection(BaseModel):
     """Per-sport rollup for the all-sports Today hub."""

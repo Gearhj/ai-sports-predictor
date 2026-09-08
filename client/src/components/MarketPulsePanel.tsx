@@ -5,8 +5,19 @@ import { Panel } from './ui'
 import { endpoints } from '../services/api'
 import type { MarketPulseGameDetail } from '../types/domain'
 
+/**
+ * A market probability, or an explicit absence.
+ *
+ * The shared rule: a probability is real only inside the open interval (0, 1)
+ * and only with a complete two-sided observation behind it. The backend
+ * already enforces the evidence half and sends null; this guards the domain so
+ * a stray 0 or 1 can never surface as a confident "0.0%".
+ */
 function pct(value: number | null | undefined): string {
-  return value == null ? '—' : `${(value * 100).toFixed(1)}%`
+  if (value == null || !Number.isFinite(value) || value <= 0 || value >= 1) {
+    return 'Not available'
+  }
+  return `${(value * 100).toFixed(1)}%`
 }
 
 /**
@@ -46,7 +57,14 @@ export function MarketPulsePanel({ gameId, demo = false }: { gameId: string; dem
         <div><span>Sportsbook</span><strong>{pct(row.sportsbook_home_probability)}</strong></div>
         <div><span>Polymarket</span><strong>{pct(row.polymarket_home_probability)}</strong></div>
         <div><span>Kalshi</span><strong>{pct(row.kalshi_home_probability)}</strong></div>
-        <div><span>Consensus</span><strong>{row.consensus_eligible ? pct(row.research_consensus_home_probability) : '—'}</strong></div>
+        <div>
+          <span>Consensus</span>
+          <strong>
+            {row.consensus_eligible
+              ? pct(row.research_consensus_home_probability)
+              : 'Not available'}
+          </strong>
+        </div>
       </div>
       <p className="pulse-mini-note">
         Home win probability. Cross-market 30m move {row.movement_30m == null ? '—' : `${(row.movement_30m * 100).toFixed(1)} pts`} ·

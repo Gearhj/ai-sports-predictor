@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.api.dependencies import AdminUser, AppSettings, CurrentUser, DatabaseSession
@@ -47,7 +48,17 @@ from app.services.auth_service import (
     register_user,
     revoke_user_tokens,
 )
+from app.services.labs_read_service import DEFAULT_LIMIT, LabsReadService
 from app.services.read_service import ReadService
+from app.shadow_import.mlb_v18_play_geometry import geometry_payload
+from app.shadow_import.mlb_v18_population_geometry import (
+    population_layers,
+    population_payload,
+    population_representatives,
+)
+from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
+from app.services.scenario_service import run_scenario, scenario_capabilities
+from app.services.simulation_replay_service import replay_official_simulation
 from app.services.historical_research_read_service import HistoricalResearchReadService
 
 
@@ -175,6 +186,181 @@ def game_analysis(game_id: UUID, session: DatabaseSession, settings: AppSettings
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
     return result
+
+
+@router.get("/labs/games", tags=["forecasts"])
+def labs_games(
+    session: DatabaseSession,
+    settings: AppSettings,
+    league: str = "MLB",
+    limit: int = DEFAULT_LIMIT,
+) -> dict:
+    """Games an interactive lab can actually open, with the tracks each offers.
+
+    Read-only. A game appears only when its own persisted simulation supports a
+    replay, and a V18 action appears only where a research-shadow path exists
+    for that specific game.
+    """
+
+    return LabsReadService(session, settings).eligible_games(league, limit=limit)
+
+
+@router.get("/games/{game_id}/shadow-forecasts", tags=["forecasts"])
+def game_shadow_forecasts(game_id: UUID, session: DatabaseSession) -> dict:
+    """Official Gen 1 forecast beside any registered research-shadow forecast.
+
+    Read-only. Returns both tracks with their own timestamps and model
+    identity; a comparison is only paired when both satisfy the acceptance
+    contract's pregame timing rule. Grants no wagering authority.
+    """
+
+    payload = shadow_comparison(session, game_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/geometry", tags=["forecasts"])
+def shadow_forecast_geometry(forecast_id: str, session: DatabaseSession) -> dict:
+    """Registered Play Geometry for one research-shadow forecast.
+
+    Read-only. Returns 404 when no checksum-verified supplement is registered,
+    so the consumer fails closed to the Broadcast Replay instead of drawing a
+    synthesised trajectory.
+    """
+
+    payload = geometry_payload(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified play-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/population", tags=["forecasts"])
+def shadow_forecast_population(forecast_id: str, session: DatabaseSession) -> dict:
+    """Stage one of the registered population supplement: summary and frames.
+
+    Read-only, and deliberately small: the accumulation frames and the accepted
+    population metrics only. Returns 404 when no checksum-verified population
+    supplement is registered, so the consumer falls back to the Broadcast
+    Replay rather than inventing an aggregate.
+    """
+
+    payload = population_payload(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified population-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/population/layers", tags=["forecasts"])
+def shadow_forecast_population_layers(forecast_id: str, session: DatabaseSession) -> dict:
+    """Stage two: the compact contact, ball-path and runner-traffic layers."""
+
+    payload = population_layers(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified population-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/population/representatives", tags=["forecasts"])
+def shadow_forecast_population_representatives(
+    forecast_id: str, session: DatabaseSession
+) -> dict:
+    """Stage three: the six distinct representative simulated games."""
+
+    payload = population_representatives(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No verified population-geometry supplement is registered for this forecast",
+        )
+    return payload
+
+
+@router.get("/shadow-forecasts/{forecast_id}/path", tags=["forecasts"])
+def shadow_forecast_path(forecast_id: str, session: DatabaseSession) -> dict:
+    """The persisted V18 sequential plate-appearance path for one forecast."""
+
+    payload = sequential_path(session, forecast_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No research-shadow path exists for this forecast",
+        )
+    return payload
+
+
+@router.get("/games/{game_id}/simulation", tags=["forecasts"])
+def game_simulation(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Read-only Monte Carlo evidence for one game's official forecast.
+
+    Deterministically replays the official simulation from the inputs the
+    forecast already persists and verifies the replay against the stored
+    aggregates. Performs no write, no provider call and no forecast mutation.
+    """
+
+    payload = replay_official_simulation(session, game_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast exists for this game",
+        )
+    return payload
+
+
+@router.get("/games/{game_id}/simulation/capabilities", tags=["forecasts"])
+def game_scenario_capabilities(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Which What-If controls this game can honestly support, and why not.
+
+    Read-only. A control is SUPPORTED only when changing it flows through the
+    same feature mapping, ensemble and Monte Carlo the official forecast used.
+    """
+
+    payload = scenario_capabilities(session, game_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast with a feature snapshot exists for this game",
+        )
+    return payload
+
+
+class ScenarioRequest(BaseModel):
+    """Structured hypothetical assumptions. Unsupported keys are rejected."""
+
+    overrides: dict[str, float] = Field(default_factory=dict)
+
+
+@router.post("/games/{game_id}/simulation/scenario", tags=["forecasts"])
+def game_scenario(
+    game_id: UUID,
+    request: ScenarioRequest,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> dict:
+    """Recompute a HYPOTHETICAL forecast under the supplied assumptions.
+
+    POST carries structured inputs; it is still strictly read-only. It writes
+    no row, creates no forecast, decision or position, touches no ledger, makes
+    no provider request and starts no scheduler job. The official forecast is
+    read and never modified.
+    """
+
+    payload = run_scenario(session, game_id, request.overrides, settings)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No forecast with a feature snapshot exists for this game",
+        )
+    return payload
 
 
 @router.get("/markets/board", response_model=MarketBoardData, tags=["markets"])

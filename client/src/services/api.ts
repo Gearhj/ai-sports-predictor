@@ -1,3 +1,4 @@
+import type { GameSimulationData, ScenarioCapabilities, ScenarioResult } from '../types/simulation'
 import type {
   AuthResponse,
   AuthUser,
@@ -20,6 +21,15 @@ import type {
   ShadowBoardData,
 } from '../types/domain'
 import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
+import type { LabsGames } from '../types/labs'
+import type {
+  PlayGeometryPayload,
+  PopulationLayersPayload,
+  PopulationPayload,
+  PopulationRepresentativesPayload,
+  ShadowComparison,
+  ShadowPath,
+} from '../types/shadow'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
 const TOKEN_KEY = 'asp_access_token'
@@ -95,6 +105,44 @@ export const endpoints = {
   sportsRegistry: (signal?: AbortSignal) => apiRequest<SportRegistryResponse>('/sports/registry', {}, signal),
   dashboard: (signal?: AbortSignal) => apiRequest<DashboardData>('/dashboard/today', {}, signal),
   game: (id: string, signal?: AbortSignal) => apiRequest<GameAnalysisData>(`/games/${encodeURIComponent(id)}`, {}, signal),
+  // Interactive Labs: which games a simulator can actually open.
+  labsGames: (league: string, signal?: AbortSignal) =>
+    apiRequest<LabsGames>(`/labs/games?league=${encodeURIComponent(league)}`, {}, signal),
+  // Research-shadow tracks. Read-only; they carry no wagering authority.
+  gameShadowForecasts: (id: string, signal?: AbortSignal) =>
+    apiRequest<ShadowComparison>(`/games/${encodeURIComponent(id)}/shadow-forecasts`, {}, signal),
+  shadowForecastGeometry: (forecastId: string, signal?: AbortSignal) =>
+    apiRequest<PlayGeometryPayload>(
+      `/shadow-forecasts/${encodeURIComponent(forecastId)}/geometry`, {}, signal,
+    ),
+  // Population geometry loads progressively: frames first, then the density
+  // layers, then the representative games only when one is asked for.
+  shadowForecastPopulation: (forecastId: string, signal?: AbortSignal) =>
+    apiRequest<PopulationPayload>(
+      `/shadow-forecasts/${encodeURIComponent(forecastId)}/population`, {}, signal,
+    ),
+  shadowForecastPopulationLayers: (forecastId: string, signal?: AbortSignal) =>
+    apiRequest<PopulationLayersPayload>(
+      `/shadow-forecasts/${encodeURIComponent(forecastId)}/population/layers`, {}, signal,
+    ),
+  shadowForecastPopulationRepresentatives: (forecastId: string, signal?: AbortSignal) =>
+    apiRequest<PopulationRepresentativesPayload>(
+      `/shadow-forecasts/${encodeURIComponent(forecastId)}/population/representatives`, {}, signal,
+    ),
+  shadowForecastPath: (forecastId: string, signal?: AbortSignal) =>
+    apiRequest<ShadowPath>(`/shadow-forecasts/${encodeURIComponent(forecastId)}/path`, {}, signal),
+  gameSimulation: (id: string, signal?: AbortSignal) =>
+    apiRequest<GameSimulationData>(`/games/${encodeURIComponent(id)}/simulation`, {}, signal),
+  scenarioCapabilities: (id: string, signal?: AbortSignal) =>
+    apiRequest<ScenarioCapabilities>(`/games/${encodeURIComponent(id)}/simulation/capabilities`, {}, signal),
+  // POST because the assumptions are structured input. The endpoint is still
+  // strictly read-only: it writes nothing and calls no provider.
+  runScenario: (id: string, overrides: Record<string, number>, signal?: AbortSignal) =>
+    apiRequest<ScenarioResult>(
+      `/games/${encodeURIComponent(id)}/simulation/scenario`,
+      { method: 'POST', body: JSON.stringify({ overrides }) },
+      signal,
+    ),
   markets: (signal?: AbortSignal) => apiRequest<MarketBoardData>('/markets/board', {}, signal),
   performance: (signal?: AbortSignal) => apiRequest<PerformanceData>('/performance', {}, signal),
   history: (signal?: AbortSignal) => apiRequest<HistoricalResearchData>('/research/history', {}, signal),

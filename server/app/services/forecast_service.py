@@ -528,8 +528,17 @@ def _market_snapshot_reference(odds: list[OddsSnapshot]) -> str | None:
 
 
 def _simulation_json(result: Any) -> dict[str, Any]:
+    """Serialise the simulation aggregates for the persisted forecast artifact.
+
+    ``draws`` is deliberately dropped: it is an opt-in, read-only convenience
+    for replay consumers and never belongs in the stored artifact, which must
+    stay exactly the aggregate summary it has always been.
+    """
+
     from dataclasses import asdict
-    return asdict(result)
+    payload = asdict(result)
+    payload.pop("draws", None)
+    return payload
 
 
 def _forecast_lifecycle(stage: LifecycleStage) -> ForecastLifecycle:

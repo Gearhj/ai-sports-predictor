@@ -8,9 +8,11 @@ import { SportRegistryProvider } from './hooks/useSportRegistry'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
+const LabsPage = lazy(() => import('./pages/LabsPage').then((module) => ({ default: module.LabsPage })))
 const MultiSportTodayPage = lazy(() => import('./pages/MultiSportTodayPage').then((module) => ({ default: module.MultiSportTodayPage })))
 const HistoricalResearchPage = lazy(() => import('./pages/HistoricalResearchPage').then((module) => ({ default: module.HistoricalResearchPage })))
 const GameAnalysisPage = lazy(() => import('./pages/GameAnalysisPage').then((module) => ({ default: module.GameAnalysisPage })))
+const GameSimulationPage = lazy(() => import('./pages/GameSimulationPage').then((module) => ({ default: module.GameSimulationPage })))
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
 const PerformancePage = lazy(() => import('./pages/PerformancePage').then((module) => ({ default: module.PerformancePage })))
 const BankrollPage = lazy(() => import('./pages/BankrollPage').then((module) => ({ default: module.BankrollPage })))
@@ -47,8 +49,10 @@ export default function App() {
                   <Route path="mlb" element={<TodayPage />} />
                   <Route path="research/history" element={<HistoricalResearchPage />} />
                   <Route path="games/:gameId" element={<GameAnalysisPage />} />
+                  <Route path="games/:gameId/simulation" element={<GameSimulationPage />} />
                   <Route path="markets" element={<MarketBoardPage />} />
                   <Route path="performance" element={<PerformancePage />} />
+                  <Route path="labs" element={<LabsPage />} />
                   <Route path="shadow-board" element={<ShadowBoardPage />} />
                   <Route path="market-pulse" element={<MarketPulsePage />} />
                   <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />

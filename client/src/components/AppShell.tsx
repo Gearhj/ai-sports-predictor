@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity,
   Archive,
+  Beaker,
   BarChart3,
   BookOpenText,
   ChevronDown,
@@ -28,6 +29,7 @@ import {
   type SportRegistryState,
 } from '../hooks/useSportRegistry'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
+import { resolveAllSports } from '../services/sportExperience'
 import type { SportRegistryEntry } from '../types/multisport'
 
 const primaryNav = [
@@ -37,7 +39,10 @@ const primaryNav = [
   { to: '/shadow-board', label: 'Shadow board', icon: FlaskConical },
   { to: '/market-pulse', label: 'Crowd & market pulse', icon: Radio },
   { to: '/performance', label: 'Model performance', icon: Activity },
-  { to: '/experiment', label: '$1,000 experiment', icon: FlaskConical },
+  // A permanent destination: the simulators are a product surface, not a
+  // detail buried inside one decision card.
+  { to: '/labs', label: 'Interactive labs', icon: Beaker },
+  { to: '/experiment', label: '$1,000 experiment', icon: CircleDollarSign },
   { to: '/methodology', label: 'Methodology', icon: BookOpenText },
 ]
 
@@ -56,6 +61,9 @@ export function AppShell() {
   const demoMode = location.pathname === '/demo' || location.pathname.startsWith('/demo/')
   const scopedPath = (path: string) => demoMode ? path === '/' ? '/demo' : `/demo${path}` : path
   const navigableSports = navigableRegistrySports(registry)
+  // Every registered sport, so planned ones are visible and honestly labelled
+  // instead of silently missing from the product.
+  const allSports = resolveAllSports(registry?.sports)
   const activeSport = resolveActiveSport(location.pathname, location.search, navigableSports, registryState)
 
   useEffect(() => {
@@ -82,12 +90,29 @@ export function AppShell() {
             <ChevronDown size={15} />
           </button>
           <div className={`sport-future-list ${sportOpen ? 'sport-future-list--open' : ''}`} id="sport-options" aria-label="Sport options">
-            <NavLink to="/">All sports <em>Daily hub</em></NavLink>
-            {navigableSports.map((sport) => (
-              <NavLink key={sport.league_code} to={sportNavigationHref(sport)!}>
-                {sport.short_label} <em>{registryAvailabilityLabel(sport)}</em>
-              </NavLink>
-            ))}
+            <NavLink to="/">All sports <em>Every registered sport</em></NavLink>
+            {allSports.map((sport) => {
+              const entry = navigableSports.find((item) => item.league_code === sport.leagueCode)
+              const href = entry ? sportNavigationHref(entry) : null
+              // Only a backend-navigable sport becomes a link. Everything else
+              // is shown, disabled, with the reason it cannot be opened.
+              return href ? (
+                <NavLink key={sport.leagueCode} to={href}>
+                  <span aria-hidden="true">{sport.icon}</span> {sport.shortName}{' '}
+                  <em>{sport.availabilityLabel}</em>
+                </NavLink>
+              ) : (
+                <span
+                  key={sport.leagueCode}
+                  aria-disabled="true"
+                  title={sport.statusExplanation}
+                  className="sport-future-list__planned"
+                >
+                  <span aria-hidden="true">{sport.icon}</span> {sport.shortName}{' '}
+                  <em>{sport.availabilityLabel}</em>
+                </span>
+              )
+            })}
             {registryState === 'loading' && <span aria-disabled="true">Sports <em>Registry loading</em></span>}
             {registryState === 'unavailable' && <span aria-disabled="true">Sports <em>Registry unavailable</em></span>}
           </div>

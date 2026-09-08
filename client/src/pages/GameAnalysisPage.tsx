@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { MarketPulsePanel } from '../components/MarketPulsePanel'
-import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles, ArrowRight} from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
 import { ComparisonTable } from '../components/ComparisonTable'
 import { GameLifecyclePanel } from '../components/GameLifecycle'
@@ -19,6 +19,7 @@ import {
 } from '../components/ui'
 import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { ShadowForecastPanel } from '../components/ShadowForecastPanel'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import { endpoints } from '../services/api'
 import { formatCompactTimestamp, formatTime, formatTimestamp } from '../services/format'
@@ -120,6 +121,15 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
           </div>
           <TeamHero team={game.home_team} pitcher={game.home_pitcher} side="Home" reverse />
         </div>
+        {!demo && (
+          <Link className="simulator-entry" to={`/games/${game.id}/simulation`}>
+            <span>
+              <strong>Open the Monte Carlo Diamond Simulator</strong>
+              <small>Explore the full distribution of simulated outcomes behind this forecast</small>
+            </span>
+            <ArrowRight size={16} aria-hidden="true" />
+          </Link>
+        )}
         {forecastAvailable ? <div className="game-hero__probability">
           <div style={{ width: `${awayProbability}%` }}><span>{game.away_team.abbreviation} {formatPct(awayProbability)}</span></div>
           <div style={{ width: `${homeProbability}%` }}><span>{formatPct(homeProbability)} {game.home_team.abbreviation}</span></div>
@@ -131,6 +141,13 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
       </section>
 
       <GameLifecyclePanel game={game} />
+
+      <ShadowForecastPanel gameId={gameId} />
+
+      <p className="labs-return">
+        Explore this game&rsquo;s simulations in{' '}
+        <Link className="text-link" to="/labs?league=MLB">Interactive labs</Link>.
+      </p>
 
       <nav className="analysis-tabs" aria-label="Analysis sections">
         <a href="#forecast">Forecast</a><a href="#market">Market</a><a href="#matchup">Matchup</a><a href="#simulation">Simulation</a><a href="#history">History</a><a href="#audit">Data audit</a>

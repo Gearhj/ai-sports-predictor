@@ -7,6 +7,24 @@ import numpy as np
 
 
 @dataclass(frozen=True)
+class SimulationDraws:
+    """The raw per-draw outcomes behind a :class:`SimulationResult`.
+
+    Exposed so a read-only consumer can render the *joint* score distribution
+    and pick representative outcomes from actual draws, instead of guessing a
+    joint from the marginal histograms. ``regulation_tie`` marks draws that
+    finished level in regulation and were resolved by the extra-inning
+    Bernoulli, which is the only extra-inning evidence this simulator has.
+
+    ``home``/``away`` are post-tie-break final scores, so they always disagree.
+    """
+
+    home: np.ndarray
+    away: np.ndarray
+    regulation_tie: np.ndarray
+
+
+@dataclass(frozen=True)
 class SimulationResult:
     simulations: int
     seed: int
@@ -23,6 +41,9 @@ class SimulationResult:
     away_runs_distribution: dict[str, float]
     total_runs_distribution: dict[str, float]
     run_difference_distribution: dict[str, float]
+    # Populated only when the caller opts in. Kept off the default path so the
+    # ordinary forecast write never carries 20,000 integers into JSON.
+    draws: SimulationDraws | None = None
 
 
 def simulate_game(
@@ -33,6 +54,7 @@ def simulate_game(
     seed: int = 20250601,
     run_lines: tuple[float, ...] = (-1.5, 1.5),
     totals: tuple[float, ...] = (7.5, 8.0, 8.5, 9.0, 9.5),
+    return_draws: bool = False,
 ) -> SimulationResult:
     """Seeded independent-Poisson game simulation with an explicit tie breaker.
 
@@ -49,6 +71,9 @@ def simulate_game(
     home = rng.poisson(expected_home_runs, simulations)
     away = rng.poisson(expected_away_runs, simulations)
     ties = home == away
+    # Snapshot before the tie break mutates the scores: this is the only
+    # record of which draws needed extra innings.
+    regulation_tie = ties.copy()
     tie_count = int(ties.sum())
     if tie_count:
         home_extra_probability = expected_home_runs / (expected_home_runs + expected_away_runs)
@@ -85,6 +110,10 @@ def simulate_game(
         away_runs_distribution=_histogram(away, 0, 12),
         total_runs_distribution=_histogram(total, 0, 20),
         run_difference_distribution=_histogram(difference, -10, 10),
+        draws=(
+            SimulationDraws(home=home, away=away, regulation_tie=regulation_tie)
+            if return_draws else None
+        ),
     )
 
 
