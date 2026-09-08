@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.features.lifecycle import LifecycleStage, classify_lifecycle
-from app.features.readiness import GATE2_WEIGHTS, ReadinessStatus, calculate_readiness
+from app.features.readiness import (
+    GATE2_WEIGHTS,
+    REASON_COVERAGE_BELOW_THRESHOLD,
+    REASON_EVIDENCE_MISSING,
+    REASON_EVIDENCE_STALE,
+    REASON_NO_SOURCE_EVIDENCE,
+    ReadinessStatus,
+    calculate_readiness,
+)
 from app.forecasting.ensemble import MLBForecastEnsemble
 from app.markets.odds import no_vig_probabilities
 from app.models import (
@@ -225,15 +233,20 @@ class ForecastService:
             "statcast": (
                 f"Canonical Statcast lineup/player coverage: home {statcast_coverage[0]:.0%}, "
                 f"away {statcast_coverage[1]:.0%}"
-                if statcast_present else "Optional Statcast evidence unavailable"
+                if statcast_present else
+                "No Statcast player observation is registered for this game, "
+                "so batted-ball quality cannot be scored"
             ),
             "bullpen": (
                 f"Usable reliever workload coverage: home {bullpen_coverage[0]:.0%}, "
                 f"away {bullpen_coverage[1]:.0%}"
-                if bullpen_present else "Bullpen workload evidence unavailable"
+                if bullpen_present else
+                "No bullpen availability observation is registered for either "
+                "club, so reliever workload cannot be scored"
             ),
             "feature_completeness": (
-                f"{snapshot.feature_completeness:.0%} measured coverage; "
+                f"{snapshot.feature_completeness:.0%} measured coverage "
+                f"(threshold 60%); "
                 f"{len(snapshot.missing_features)} missing, {len(snapshot.stale_features)} stale, "
                 f"{len(snapshot.provisional_features)} provisional"
             ),
@@ -241,9 +254,32 @@ class ForecastService:
         critical = {"schedule", "probable_pitchers", "team_stats", "feature_completeness"}
         if stage in {LifecycleStage.T_MINUS_10M, LifecycleStage.FINAL}:
             critical.update({"pitcher_confirmation", "lineups", "weather"})
+        # Why each of the three structurally unavailable components is not
+        # ready, read from this snapshot's own evidence. No value is invented
+        # and no status is softened: an absent observation family stays MISSING
+        # and scores zero, but it now names the family instead of being
+        # indistinguishable from evidence that merely arrived late.
+        reasons: dict[str, str] = {}
+        if statuses["bullpen"] is not ReadinessStatus.READY:
+            reasons["bullpen"] = (
+                REASON_NO_SOURCE_EVIDENCE if not snapshot.bullpen_observation_ids
+                else REASON_EVIDENCE_MISSING
+            )
+        if statuses["statcast"] is not ReadinessStatus.READY:
+            reasons["statcast"] = (
+                REASON_NO_SOURCE_EVIDENCE if not snapshot.statcast_observation_ids
+                else REASON_EVIDENCE_STALE
+            )
+        if statuses["feature_completeness"] is not ReadinessStatus.READY:
+            reasons["feature_completeness"] = (
+                REASON_COVERAGE_BELOW_THRESHOLD if snapshot.feature_completeness > 0
+                else REASON_NO_SOURCE_EVIDENCE
+            )
+
         readiness = calculate_readiness(
             statuses,
             details,
+            reasons=reasons,
             weights=GATE2_WEIGHTS,
             critical=frozenset(critical),
             minimum_publish_score=self.settings.forecast_min_readiness,
@@ -302,6 +338,7 @@ class ForecastService:
                         "weight": component.weight,
                         "detail": component.detail,
                         "critical": component.critical,
+                        "unavailable_reason": component.unavailable_reason,
                     }
                     for component in readiness.components
                 },

@@ -1585,6 +1585,7 @@ class ReadService:
             floor=self.settings.odds_quota_floor,
             probe_after_hours=self.settings.odds_quota_probe_after_hours,
             probe_cooldown_hours=self.settings.odds_quota_probe_cooldown_hours,
+            renewal_days=self.settings.odds_quota_renewal_days,
         )
         latest = _aware(self.session.scalar(select(func.max(OddsSnapshot.observed_at))))
         # "Historical" is decided by the observation's own date against the
@@ -3249,14 +3250,21 @@ class ReadService:
             if key.startswith("_"):
                 continue
             value = raw if isinstance(raw, dict) else {}
+            status = str(value.get("status", "missing"))
             details.append({
                 "key": key,
                 "label": key.replace("_", " ").title(),
-                "status": str(value.get("status", "missing")),
+                "status": status,
                 "score": _optional_float(value.get("score")),
                 "weight": _optional_float(value.get("weight")),
                 "detail": str(value.get("detail", "No readiness detail recorded")),
                 "critical": bool(value.get("critical", False)),
+                # Forecasts persisted before reasons existed carry none, so
+                # fall back to the status itself rather than claiming to know.
+                "unavailable_reason": (
+                    value.get("unavailable_reason")
+                    or _fallback_unavailable_reason(status)
+                ),
             })
         return details
 
@@ -3755,6 +3763,22 @@ def _offline_date_text(value: Any) -> str:
         return value.isoformat()
     text = str(value)
     return text[:10] if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-" else text
+
+
+def _fallback_unavailable_reason(status: str) -> str | None:
+    """Reason for a component persisted before reasons were recorded.
+
+    Says only what the stored status already proves. It never asserts that a
+    source is missing when the record cannot show that.
+    """
+
+    from app.features.readiness import REASON_EVIDENCE_MISSING, REASON_EVIDENCE_STALE
+
+    if status == "stale":
+        return REASON_EVIDENCE_STALE
+    if status == "missing":
+        return REASON_EVIDENCE_MISSING
+    return None
 
 
 def _optional_float(value: Any) -> float | None:

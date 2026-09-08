@@ -96,6 +96,10 @@ class QualificationService:
                 "zero_kelly_behavior": "non-positive edge => raw stake 0 => no position",
                 "starting_bankroll": s.shadow_virtual_bankroll,
             },
+            # Completed Model Studio policy studies, as recorded receipts. A
+            # receipt documents a conclusion; it never activates anything, so
+            # the policy above is unaffected by what appears here.
+            "recorded_policy_studies": self._recorded_policy_studies(),
             "experiment_specific_restrictions": [
                 "MONEYLINE market only (board also supports spread/total)",
                 "position only at FINAL_PREGAME within [first_pitch-15min, first_pitch)",
@@ -103,6 +107,11 @@ class QualificationService:
                 "snapshot bytes re-verified before staking (price/outcome/observed_at match)",
             ],
         }
+
+    def _recorded_policy_studies(self) -> list[dict[str, Any]]:
+        from app.shadow_import.mlb_policy_study import recorded_policy_studies
+
+        return recorded_policy_studies(self.session)
 
     # -- V2 practical-policy funnel (point-in-time, read-only) ------------
     def funnel_v2(self, event_date: date, *, now: datetime | None = None, prefetch: bool = True) -> dict[str, Any]:

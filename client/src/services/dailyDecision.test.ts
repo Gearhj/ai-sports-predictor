@@ -43,6 +43,7 @@ function selection(overrides: Partial<NormalizedSelection> = {}): NormalizedSele
     final_decision_cutoff: '2026-09-06T22:55:00Z',
     source_label: 'ASP engine',
     model_status: 'DEVELOPMENT',
+    market_evidence_state: 'QUOTE_PRESENT',
     outstanding_gates: [],
     status_note: null,
     can_ever_fund_official_position: true,
@@ -411,5 +412,34 @@ describe('counting unit: one decision per game per policy', () => {
     expect(grouped.PASSED).toHaveLength(1)
     expect(distinctGameCount(grouped.READY)).toBe(1)
     expect(distinctGameCount(grouped.PASSED)).toBe(1)
+  })
+})
+
+
+describe('an unpriceable decision is not "under review"', () => {
+  it('separates a missing quote from a stale one', () => {
+    const missing = deriveDecision(
+      selection({ decision_state: 'AWAITING_FINAL_EVIDENCE', market_evidence_state: 'QUOTE_MISSING' }),
+      NOW,
+    )
+    expect(missing.group).toBe('WATCHING')
+    expect(missing.reasonCode).toBe('WATCH_NO_MARKET_PRICE')
+    expect(missing.status).toMatch(/no sportsbook price is available/i)
+    expect(missing.status).not.toMatch(/under review/i)
+
+    const stale = deriveDecision(
+      selection({ decision_state: 'AWAITING_FINAL_EVIDENCE', market_evidence_state: 'QUOTE_STALE' }),
+      NOW,
+    )
+    expect(stale.reasonCode).toBe('WATCH_MARKET_PRICE_STALE')
+    expect(stale.status).toMatch(/too old to use/i)
+  })
+
+  it('says the slate cannot be priced when every open decision lacks a quote', () => {
+    const counts = { READY: 0, WATCHING: 3, PASSED: 0, CLOSED: 0 }
+    expect(slateMessage(counts, 0, 3)).toMatch(/cannot be evaluated against a sportsbook price/i)
+    expect(slateMessage(counts, 0, 3)).not.toMatch(/under review/i)
+    // A genuinely pending decision still reads as pending.
+    expect(slateMessage(counts, 0, 0)).toMatch(/still under review/i)
   })
 })

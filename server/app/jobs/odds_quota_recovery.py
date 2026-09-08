@@ -30,6 +30,23 @@ one reading, and the guard then applies to that reading normally.
 
 If the probe comes back at or below the floor, the guard re-latches immediately
 and the cooldown prevents another attempt.
+
+ANCHORING, AND WHY IT IS FAIL-CLOSED
+------------------------------------
+The reading is anchored to the newest successful run that actually CARRIES a
+``requests_remaining`` figure. A newer successful run without one says nothing
+about the balance, so it must not be allowed to clear a latch that a real
+reading set: absence of evidence is not evidence of quota.
+
+RENEWAL
+-------
+The provider's quota period rolls over on its own schedule. Once a latched
+reading is older than ``odds_quota_renewal_days`` it can no longer be read as a
+statement about the balance now -- the balance may well have renewed. That is
+reported as its own state so an operator is told the truth ("this may have
+renewed; one authorized probe would settle it") instead of a permanent-looking
+block. It still spends nothing automatically: only an explicitly requested
+refresh may carry the single probe.
 """
 
 from __future__ import annotations
@@ -49,6 +66,24 @@ PROVIDER = "THE_ODDS_API"
 #: are countable and auditable exactly like any other provider request.
 PROBE_ENDPOINT_KEY = "quota_recovery_probe"
 
+#: Machine-readable guard states. A consumer must be able to tell "we know the
+#: balance is below the floor" from "the persisted reading is too old to be a
+#: statement about the balance now", because they call for different actions.
+GUARD_NOT_LATCHED = "NOT_LATCHED"
+GUARD_KNOWN_BELOW_FLOOR = "KNOWN_BELOW_FLOOR"
+GUARD_MAY_HAVE_RENEWED_PROBE_REQUIRED = "MAY_HAVE_RENEWED_PROBE_REQUIRED"
+GUARD_MAY_HAVE_RENEWED_PROBE_COOLING_DOWN = "MAY_HAVE_RENEWED_PROBE_COOLING_DOWN"
+GUARD_NO_READING = "NO_QUOTA_READING_RECORDED"
+
+#: The exact operator action that refreshes the persisted reading. It is never
+#: run automatically and never by this module; it is reported so the one
+#: authorized call is unambiguous.
+AUTHORIZED_PROBE_COMMAND = (
+    "python -m scripts.odds_quota_recovery_probe  "
+    "(one bounded THE_ODDS_API request; add --dry-run to evaluate the guard "
+    "without contacting the provider)"
+)
+
 
 @dataclass(frozen=True)
 class QuotaState:
@@ -63,6 +98,11 @@ class QuotaState:
     probe_blocked_reason: str | None
     last_probe_at: datetime | None
     latest_success_at: datetime | None
+    #: One of the GUARD_* constants above.
+    guard_state: str = GUARD_NO_READING
+    #: True when the persisted reading is older than the provider's own quota
+    #: period, so it can no longer describe the balance now.
+    reading_may_have_renewed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +123,9 @@ class QuotaState:
             "latest_successful_observation_at": (
                 self.latest_success_at.isoformat() if self.latest_success_at else None
             ),
+            "guard_state": self.guard_state,
+            "reading_may_have_renewed": self.reading_may_have_renewed,
+            "authorized_probe_command": AUTHORIZED_PROBE_COMMAND,
         }
 
 
@@ -93,12 +136,29 @@ def _aware(value: datetime | None) -> datetime | None:
 
 
 def latest_successful_run(session: Session) -> IngestionRun | None:
-    return session.scalar(
+    """The newest successful run that actually carries a quota reading.
+
+    Fail-closed on purpose. A newer successful run whose metadata has no
+    ``requests_remaining`` is silent about the balance; letting it become the
+    anchor would clear a latch set by a real low reading and quietly resume
+    spending on no evidence at all.
+    """
+
+    runs = session.scalars(
         select(IngestionRun)
         .where(IngestionRun.source == PROVIDER, IngestionRun.status == RunStatus.SUCCEEDED)
         .order_by(IngestionRun.completed_at.desc())
-        .limit(1)
-    )
+        .limit(_ANCHOR_SCAN_LIMIT)
+    ).all()
+    for run in runs:
+        if (run.source_metadata or {}).get("requests_remaining") is not None:
+            return run
+    return None
+
+
+#: How far back to look for a run carrying a quota reading. Bounded so this
+#: never turns into a full-table scan.
+_ANCHOR_SCAN_LIMIT = 50
 
 
 def last_probe_at(session: Session) -> datetime | None:
@@ -122,6 +182,7 @@ def quota_state(
     floor: int,
     probe_after_hours: float,
     probe_cooldown_hours: float,
+    renewal_days: float | None = None,
     now: datetime | None = None,
 ) -> QuotaState:
     """Evaluate the guard and whether one recovery probe is currently allowed."""
@@ -138,12 +199,24 @@ def quota_state(
     )
     latched = remaining is not None and remaining <= floor
 
+    renewal_hours = (renewal_days * 24.0) if renewal_days else None
+    may_have_renewed = bool(
+        latched and renewal_hours is not None
+        and age_hours is not None and age_hours >= renewal_hours
+    )
+
     if not latched:
         return QuotaState(
             latched=False, remaining=remaining, floor=floor, observed_at=observed_at,
             reading_age_hours=age_hours, probe_allowed=False,
-            probe_blocked_reason="The quota guard is not latched; no probe is needed.",
+            probe_blocked_reason=(
+                "The quota guard is not latched; no probe is needed."
+                if remaining is not None
+                else "No quota reading has been recorded, so the guard cannot latch."
+            ),
             last_probe_at=probe_at, latest_success_at=observed_at,
+            guard_state=GUARD_NOT_LATCHED if remaining is not None else GUARD_NO_READING,
+            reading_may_have_renewed=False,
         )
 
     reason: str | None = None
@@ -161,12 +234,34 @@ def quota_state(
             f"{int(remaining_cooldown.total_seconds() // 60)} minutes before its "
             f"{probe_cooldown_hours:.0f}h cooldown expires."
         )
+    probe_allowed = reason is None
+
+    if may_have_renewed and reason is not None and probe_at is not None:
+        guard = GUARD_MAY_HAVE_RENEWED_PROBE_COOLING_DOWN
+    elif may_have_renewed:
+        guard = GUARD_MAY_HAVE_RENEWED_PROBE_REQUIRED
+    else:
+        guard = GUARD_KNOWN_BELOW_FLOOR
+
+    if may_have_renewed:
+        # Say plainly that the persisted number is no longer a statement about
+        # the balance now. This changes no spending decision by itself.
+        renewal_note = (
+            f"The reading predates the provider's {renewal_days:.0f}-day quota "
+            "period, so the balance may have renewed; only an authorized probe "
+            "can settle it."
+        )
+        reason = f"{reason} {renewal_note}".strip() if reason else renewal_note
 
     return QuotaState(
         latched=True, remaining=remaining, floor=floor, observed_at=observed_at,
-        reading_age_hours=age_hours, probe_allowed=reason is None,
+        reading_age_hours=age_hours,
+        # A probe is still never taken automatically: this only reports that
+        # the preconditions for one explicitly requested probe are satisfied.
+        probe_allowed=probe_allowed,
         probe_blocked_reason=reason, last_probe_at=probe_at,
         latest_success_at=observed_at,
+        guard_state=guard, reading_may_have_renewed=may_have_renewed,
     )
 
 

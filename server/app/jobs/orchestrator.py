@@ -1696,10 +1696,12 @@ class JobOrchestrator:
                 f"for operational day {budget_day.isoformat()}",
                 retryable=False,
             )
-        latest = self.session.scalar(select(IngestionRun).where(
-            IngestionRun.source == "THE_ODDS_API",
-            IngestionRun.status == RunStatus.SUCCEEDED,
-        ).order_by(IngestionRun.completed_at.desc()).limit(1))
+        # Anchored to the newest successful run that actually carries a quota
+        # reading. A later run without one is silent about the balance and must
+        # not be able to clear a latch a real reading set.
+        from app.jobs.odds_quota_recovery import latest_successful_run
+
+        latest = latest_successful_run(self.session)
         if not latest:
             return
         remaining = (latest.source_metadata or {}).get("requests_remaining")
@@ -1713,6 +1715,7 @@ class JobOrchestrator:
                 floor=self.settings.odds_quota_floor,
                 probe_after_hours=self.settings.odds_quota_probe_after_hours,
                 probe_cooldown_hours=self.settings.odds_quota_probe_cooldown_hours,
+                renewal_days=self.settings.odds_quota_renewal_days,
             )
             if not state.probe_allowed:
                 raise SourceError(

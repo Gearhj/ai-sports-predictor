@@ -45,6 +45,7 @@ export interface NormalizedSelection {
   final_decision_cutoff: string | null
   source_label: string | null
   model_status: string | null
+  market_evidence_state: MarketEvidenceState | null
   outstanding_gates: string[]
   status_note: string | null
   can_ever_fund_official_position: boolean
@@ -115,12 +116,30 @@ export interface OverallSportSummary {
   stale_or_degraded_sport_count: number
 }
 
+export type OddsRefreshState =
+  | 'RUNNING'
+  | 'POLLING_DISABLED'
+  | 'QUOTA_BELOW_FLOOR'
+  | 'QUOTA_MAY_HAVE_RENEWED_PROBE_REQUIRED'
+  | 'NO_QUOTA_READING'
+
 export interface MultiSportDataFreshness {
   latest_forecast_at: string | null
   latest_market_at: string | null
   scheduler_running: boolean
   provider_calls_made: number
+  /** Whether sportsbook PRICES are being refreshed — not the scheduler itself. */
+  automatic_odds_refresh_running: boolean
+  odds_refresh_state: OddsRefreshState
+  odds_refresh_detail: string | null
 }
+
+/** What sportsbook evidence stands behind one selection. */
+export type MarketEvidenceState =
+  | 'QUOTE_PRESENT'
+  | 'QUOTE_MISSING'
+  | 'QUOTE_STALE'
+  | 'MARKET_NOT_SUPPORTED'
 
 export interface SportAvailabilityEntry {
   sport_code: SportCode

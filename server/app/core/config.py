@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # app/jobs/odds_quota_recovery.py. Neither value lowers the floor.
     odds_quota_probe_after_hours: float = Field(default=24.0, ge=1.0)
     odds_quota_probe_cooldown_hours: float = Field(default=24.0, ge=1.0)
+    # The provider's own quota period. A latched reading older than this can no
+    # longer describe the balance now, so the guard reports that the quota may
+    # have renewed instead of implying a permanent block. It authorizes no
+    # request by itself and never lowers the floor.
+    odds_quota_renewal_days: float = Field(default=30.0, ge=1.0)
     odds_daily_request_budget: int = Field(default=1, ge=0, le=100)
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False

@@ -36,6 +36,11 @@ export type DecisionReasonCode =
   | 'WATCH_NOT_EVALUATED'
   | 'WATCH_MARKET_UNSUPPORTED'
   | 'WATCH_RESEARCH_ONLY'
+  // A decision with no sportsbook price cannot be evaluated at all, and a
+  // decision priced by a quote too old to use is a different problem. Neither
+  // is "under review": nothing is reviewing them.
+  | 'WATCH_NO_MARKET_PRICE'
+  | 'WATCH_MARKET_PRICE_STALE'
   | 'PASSED_NO_QUALIFYING_EDGE'
   | 'PASSED_POLICY_REJECTION'
   // Closed-for-decisions reasons. These are deliberately NOT interchangeable:
@@ -277,6 +282,24 @@ export function deriveDecision(selection: NormalizedSelection, now: number): Der
     }
   }
   if (selection.decision_state === 'AWAITING_FINAL_EVIDENCE') {
+    if (selection.market_evidence_state === 'QUOTE_MISSING') {
+      return {
+        group: 'WATCHING',
+        reasonCode: 'WATCH_NO_MARKET_PRICE',
+        status: 'Cannot be evaluated yet — no sportsbook price is available',
+        detail: 'A decision needs a complete two-sided quote before it can be priced.',
+        checkpoint,
+      }
+    }
+    if (selection.market_evidence_state === 'QUOTE_STALE') {
+      return {
+        group: 'WATCHING',
+        reasonCode: 'WATCH_MARKET_PRICE_STALE',
+        status: 'Cannot be evaluated yet — the latest sportsbook price is too old to use',
+        detail: 'A quote exists but falls outside the policy freshness window.',
+        checkpoint,
+      }
+    }
     return {
       group: 'WATCHING',
       reasonCode: 'WATCH_AWAITING_EVIDENCE',
@@ -409,6 +432,8 @@ export function slateNextCheckpoint(
 export function slateMessage(
   counts: Record<DecisionGroup, number>,
   readyFunded = 0,
+  /** Watching decisions that hold no usable sportsbook price. */
+  marketBlocked = 0,
 ): string {
   const { READY, WATCHING, PASSED, CLOSED } = counts
   const total = READY + WATCHING + PASSED + CLOSED
@@ -423,6 +448,20 @@ export function slateMessage(
     return `Nothing is left to decide today: ${parts.join(' and ')}.`
   }
   if (READY === 0) {
+    // "Under review" implies something is progressing. When a decision has no
+    // usable price, nothing is reviewing it, so say what is actually true.
+    if (marketBlocked >= WATCHING && WATCHING > 0) {
+      return (
+        `No qualified decisions yet. ${plural(WATCHING, 'decision', 'decisions')} `
+        + `${WATCHING === 1 ? 'cannot' : 'cannot'} be evaluated against a sportsbook price yet.`
+      )
+    }
+    if (marketBlocked > 0) {
+      return (
+        `No qualified decisions yet. ${plural(WATCHING, 'decision is', 'decisions are')} open, `
+        + `${marketBlocked} of them awaiting a usable sportsbook price.`
+      )
+    }
     return `No qualified decisions yet. ${plural(WATCHING, 'decision is', 'decisions are')} still under review.`
   }
   const ready = readyFunded === READY

@@ -34,6 +34,23 @@ FUNDED_MARKET_PATTERNS = ("moneyline", "money line", "h2h")
 MARKET_NOT_SUPPORTED_NOTE = "Market not supported by this experiment (moneyline only)"
 
 
+def _market_evidence_state(view: Any, market_supported: bool) -> str:
+    """What sportsbook evidence stands behind this selection.
+
+    Read straight off the priced view the board already built: a missing quote
+    and a stale quote are different operational facts and must not both render
+    as "waiting".
+    """
+
+    if not market_supported:
+        return "MARKET_NOT_SUPPORTED"
+    if view is None or getattr(view, "quote_observed_at", None) is None:
+        return "QUOTE_MISSING"
+    if bool(getattr(view, "is_stale", False)):
+        return "QUOTE_STALE"
+    return "QUOTE_PRESENT"
+
+
 def _aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -307,6 +324,7 @@ class MlbTodayAdapter:
             return [NormalizedSelection(
                 decision_state=state,
                 funding_state=funding,
+                market_evidence_state=_market_evidence_state(moneyline, True),
                 evidence_tier=getattr(v2, "tier", None),
                 adjusted_edge=getattr(v2, "adjusted_edge", None),
                 expected_value=getattr(v2, "adjusted_expected_value", None),
@@ -347,6 +365,7 @@ class MlbTodayAdapter:
         return [NormalizedSelection(
             decision_state=state,
             funding_state=funding,
+            market_evidence_state=_market_evidence_state(selection_view, market_supported),
             outstanding_gates=list(getattr(opportunity, "qualification_reasons", []) or []),
             status_note=(
                 MARKET_NOT_SUPPORTED_NOTE

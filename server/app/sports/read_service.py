@@ -273,12 +273,76 @@ class TodayAllSportsReadService:
 
         forecasts = [s.latest_forecast_at for s in sections if s.latest_forecast_at]
         markets = [s.latest_market_at for s in sections if s.latest_market_at]
+        state, detail, running = self._odds_refresh_state()
         return DataFreshness(
             latest_forecast_at=max(forecasts) if forecasts else None,
             latest_market_at=max(markets) if markets else None,
             scheduler_running=scheduler_is_running(),
             provider_calls_made=0,
+            automatic_odds_refresh_running=running,
+            odds_refresh_state=state,
+            odds_refresh_detail=detail,
         )
+
+    def _odds_refresh_state(self) -> tuple[str, str | None, bool]:
+        """Whether sportsbook prices are actually being refreshed, and why not.
+
+        Read-only: it reports the persisted guard state and configuration, and
+        contacts no provider.
+        """
+
+        from app.jobs.odds_quota_recovery import (
+            GUARD_KNOWN_BELOW_FLOOR,
+            GUARD_MAY_HAVE_RENEWED_PROBE_COOLING_DOWN,
+            GUARD_MAY_HAVE_RENEWED_PROBE_REQUIRED,
+            GUARD_NO_READING,
+            quota_state,
+        )
+        from app.jobs.scheduler import scheduler_is_running
+
+        state = quota_state(
+            self.session,
+            floor=self.settings.odds_quota_floor,
+            probe_after_hours=self.settings.odds_quota_probe_after_hours,
+            probe_cooldown_hours=self.settings.odds_quota_probe_cooldown_hours,
+            renewal_days=self.settings.odds_quota_renewal_days,
+        )
+        if state.guard_state in (
+            GUARD_MAY_HAVE_RENEWED_PROBE_REQUIRED,
+            GUARD_MAY_HAVE_RENEWED_PROBE_COOLING_DOWN,
+        ):
+            return (
+                "QUOTA_MAY_HAVE_RENEWED_PROBE_REQUIRED",
+                "Automatic odds refresh is not running. The last provider quota "
+                f"reading ({state.remaining} remaining, floor {state.floor}) is "
+                "older than the provider's quota period, so the balance may have "
+                "renewed; one authorized probe would settle it.",
+                False,
+            )
+        if state.guard_state == GUARD_KNOWN_BELOW_FLOOR:
+            return (
+                "QUOTA_BELOW_FLOOR",
+                "Automatic odds refresh is not running: the provider last "
+                f"reported {state.remaining} requests remaining, at or below the "
+                f"configured floor of {state.floor}, so AISP stopped spending "
+                "provider credit.",
+                False,
+            )
+        if not self.settings.odds_polling_enabled:
+            return (
+                "POLLING_DISABLED",
+                "Automatic odds refresh is not running: scheduled odds polling "
+                "is disabled in this environment.",
+                False,
+            )
+        if state.guard_state == GUARD_NO_READING:
+            return (
+                "NO_QUOTA_READING",
+                "No provider quota reading has been recorded, so odds refresh "
+                "cannot be confirmed as running.",
+                False,
+            )
+        return ("RUNNING", None, scheduler_is_running())
 
     @staticmethod
     def _availability() -> list[AvailabilityEntry]:

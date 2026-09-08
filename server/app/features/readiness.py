@@ -59,6 +59,12 @@ class ReadinessComponent:
     score: float
     detail: str
     critical: bool = False
+    #: Why this component is not READY, as a stable machine-readable code.
+    #: None when the component is ready. It never softens the status: a
+    #: component with no registered source stays MISSING and scores zero, but
+    #: it now says WHY instead of being indistinguishable from evidence that
+    #: merely arrived late.
+    unavailable_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,12 +79,14 @@ def calculate_readiness(
     statuses: Mapping[str, ReadinessStatus | str],
     details: Mapping[str, str] | None = None,
     *,
+    reasons: Mapping[str, str] | None = None,
     weights: Mapping[str, float] = DEFAULT_WEIGHTS,
     critical: frozenset[str] = frozenset({"schedule", "probable_pitchers", "team_stats", "feature_completeness"}),
     minimum_publish_score: float = 55.0,
     block_stale_critical: bool = False,
 ) -> ReadinessResult:
     details = details or {}
+    reasons = reasons or {}
     components: list[ReadinessComponent] = []
     numerator = denominator = 0.0
     missing: list[str] = []
@@ -94,6 +102,10 @@ def calculate_readiness(
                 score=component_score,
                 detail=details.get(key, _default_detail(key, status)),
                 critical=key in critical,
+                unavailable_reason=(
+                    None if status is ReadinessStatus.READY
+                    else reasons.get(key, _default_reason(status))
+                ),
             )
         )
         numerator += component_score
@@ -114,3 +126,19 @@ def calculate_readiness(
 
 def _default_detail(key: str, status: ReadinessStatus) -> str:
     return f"{key.replace('_', ' ').title()}: {status.value.replace('_', ' ')}"
+
+
+#: Stable reason codes. A caller that knows exactly why a component is
+#: unavailable supplies its own; these are the honest fallbacks.
+REASON_NO_SOURCE_EVIDENCE = "NO_SOURCE_EVIDENCE_REGISTERED"
+REASON_EVIDENCE_STALE = "EVIDENCE_STALE"
+REASON_EVIDENCE_MISSING = "EVIDENCE_MISSING"
+REASON_COVERAGE_BELOW_THRESHOLD = "MEASURED_COVERAGE_BELOW_THRESHOLD"
+
+
+def _default_reason(status: ReadinessStatus) -> str | None:
+    if status is ReadinessStatus.STALE:
+        return REASON_EVIDENCE_STALE
+    if status is ReadinessStatus.MISSING:
+        return REASON_EVIDENCE_MISSING
+    return None

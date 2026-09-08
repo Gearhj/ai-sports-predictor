@@ -50,6 +50,7 @@ import {
 } from '../services/sportExperience'
 import type {
   LeagueCode,
+  MultiSportDataFreshness,
   SportAvailabilityState,
   SportSection,
   TodayAllSportsReadModel,
@@ -156,6 +157,12 @@ export function MultiSportTodayPage() {
   }
   const decisionCount = counts.READY + counts.WATCHING + counts.PASSED + counts.CLOSED
   const readyFunded = grouped.READY.filter((item) => item.decision.reasonCode === 'READY_FUNDED').length
+  // Watching decisions that hold no usable sportsbook price. They are open,
+  // but nothing is reviewing them: they cannot be priced at all.
+  const marketBlocked = grouped.WATCHING.filter((item) =>
+    item.decision.reasonCode === 'WATCH_NO_MARKET_PRICE'
+    || item.decision.reasonCode === 'WATCH_MARKET_PRICE_STALE',
+  ).length
   const checkpoint = slateNextCheckpoint(grouped.WATCHING)
   const policy = dominantPolicy(selections)
 
@@ -175,7 +182,7 @@ export function MultiSportTodayPage() {
 
       <section className="today-answer" aria-labelledby="today-answer-heading">
         <h2 id="today-answer-heading" className="sr-only">Today’s decision summary</h2>
-        <p className="today-answer__message">{slateMessage(counts, readyFunded)}</p>
+        <p className="today-answer__message">{slateMessage(counts, readyFunded, marketBlocked)}</p>
         <p className="daily-summary__scope today-answer__scope">
           <strong>{gameCount}</strong> {gameCount === 1 ? 'game' : 'games'} today
           {' · '}
@@ -204,8 +211,20 @@ export function MultiSportTodayPage() {
             <dd>{relativeAge(data.overall_summary.latest_complete_refresh, now)}</dd>
           </div>
           <div>
-            <dt>Experiment policy</dt>
-            <dd>{policy ?? 'None active'}</dd>
+            <dt>Funded experiment</dt>
+            <dd>
+              {policy ?? (
+                <>None active <small>· official decisions still governed by {GOVERNING_POLICY}</small></>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Automatic odds refresh</dt>
+            <dd>
+              {data.data_freshness.automatic_odds_refresh_running
+                ? 'Running'
+                : <>Not running <small>· {oddsRefreshLabel(data.data_freshness.odds_refresh_state)}</small></>}
+            </dd>
           </div>
           <div>
             <dt>Virtual exposure</dt>
@@ -730,6 +749,28 @@ export function relativeAge(at: string | null, now: number): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ${minutes % 60}m ago`
   return `${Math.floor(hours / 24)}d ago`
+}
+
+/**
+ * The policy that governs official virtual decisions regardless of whether a
+ * funded experiment is active. "None active" alone reads as "no policy is in
+ * force", which is false: V2.1 still decides.
+ */
+const GOVERNING_POLICY = 'AISP_PRACTICAL_PREGAME_POLICY_V2_1'
+
+function oddsRefreshLabel(state: MultiSportDataFreshness['odds_refresh_state']): string {
+  switch (state) {
+    case 'POLLING_DISABLED':
+      return 'scheduled odds polling is disabled'
+    case 'QUOTA_BELOW_FLOOR':
+      return 'provider quota is at or below the configured floor'
+    case 'QUOTA_MAY_HAVE_RENEWED_PROBE_REQUIRED':
+      return 'quota reading is stale; an authorized probe is required'
+    case 'NO_QUOTA_READING':
+      return 'no provider quota reading is recorded'
+    default:
+      return 'refresh state unavailable'
+  }
 }
 
 function dominantPolicy(selections: { experiment_name: string | null; policy_version: string | null }[]): string | null {

@@ -68,6 +68,9 @@ class ReadinessComponentSummary(BaseModel):
     weight: float | None = None
     detail: str
     critical: bool = False
+    #: Stable code for WHY the component is not ready. Never softens the
+    #: status; it only stops a missing source from looking like late evidence.
+    unavailable_reason: str | None = None
 
 
 class ForecastGame(BaseModel):

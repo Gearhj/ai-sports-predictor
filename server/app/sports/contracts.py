@@ -159,6 +159,12 @@ class NormalizedSelection(BaseModel):
     final_decision_cutoff: datetime | None = None
     source_label: str | None = None
     model_status: str | None = None
+    # The market evidence behind this selection, so a consumer can separate
+    # "no sportsbook has quoted this game" from "a quote exists but is too old
+    # to price against". Both currently render as an unpriced decision, and
+    # they are not the same operational problem.
+    #: QUOTE_PRESENT | QUOTE_MISSING | QUOTE_STALE | MARKET_NOT_SUPPORTED
+    market_evidence_state: str | None = None
     # Exact outstanding gates / reason, verbatim from the sport's own authority.
     outstanding_gates: list[str] = Field(default_factory=list)
     status_note: str | None = None
@@ -279,6 +285,15 @@ class DataFreshness(BaseModel):
     latest_market_at: datetime | None = None
     scheduler_running: bool = False
     provider_calls_made: int = 0  # always 0: public reads never call a provider
+    # Whether SPORTSBOOK PRICES are being refreshed at all. The scheduler above
+    # can be running while odds ingestion is switched off or quota-guarded, and
+    # a reader who cannot tell those apart will read a missing price as a
+    # pending one.
+    automatic_odds_refresh_running: bool = False
+    #: RUNNING | POLLING_DISABLED | QUOTA_BELOW_FLOOR |
+    #: QUOTA_MAY_HAVE_RENEWED_PROBE_REQUIRED | NO_QUOTA_READING
+    odds_refresh_state: str = "RUNNING"
+    odds_refresh_detail: str | None = None
 
 
 class AvailabilityEntry(BaseModel):
