@@ -74,6 +74,11 @@ export interface ShadowForecastView {
   nontermination_count: number | null
   path_digest: string | null
   sequential_path_events: number
+  available_views?: {
+    broadcast: boolean
+    geometry: boolean
+    population: boolean
+  }
   lineup_modes: string[] | null
   sides: Record<string, Record<string, string | null>> | null
   limitations: string[] | null

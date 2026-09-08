@@ -32,6 +32,30 @@ def _aware(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _distribution_rows(value: Any) -> list[dict[str, float]]:
+    """Expose persisted histograms in the stable ordered UI shape."""
+
+    if isinstance(value, dict):
+        return [
+            {"value": float(bin_value), "probability": float(probability)}
+            for bin_value, probability in sorted(
+                value.items(), key=lambda item: float(item[0])
+            )
+        ]
+    if isinstance(value, list):
+        return [
+            {
+                "value": float(item["value"]),
+                "probability": float(item["probability"]),
+            }
+            for item in value
+            if isinstance(item, dict)
+            and "value" in item
+            and "probability" in item
+        ]
+    return []
+
+
 def _gen1(session: Session, game: Game) -> Forecast | None:
     """The newest valid current-track forecast, matching the desk's own rule."""
 
@@ -77,7 +101,10 @@ def shadow_comparison(session: Session, game_id: uuid.UUID) -> dict[str, Any] | 
             ShadowForecast.canonical_game_id == game.id,
             ShadowForecast.engine_id == ENGINE_ID,
         )
-        .order_by(ShadowForecast.created_at)
+        .order_by(
+            ShadowForecast.forecast_cutoff_utc.desc(),
+            ShadowForecast.created_at.desc(),
+        )
     ).all()
 
     start = _aware(game.starts_at)
@@ -123,6 +150,10 @@ def _shadow_payload(
     lineage = dict(row.lineage_detail or {})
     readiness = dict(row.readiness_detail or {})
     distributions = dict(row.distributions or {})
+    paths = lineage.get("sequentialPath") or []
+    path_events = len(paths[0]) if paths and isinstance(paths[0], list) else 0
+    geometry = lineage.get("playGeometry") or {}
+    population_geometry = lineage.get("populationGeometry") or {}
     forecast_at = _aware(row.forecast_cutoff_utc)
     shadow_probability = row.full_home_win_probability * 100
 
@@ -165,9 +196,12 @@ def _shadow_payload(
         "illegal_state_count": uncertainty.get("illegalStateCount"),
         "nontermination_count": uncertainty.get("nonterminationCount"),
         "path_digest": lineage.get("pathDigest"),
-        "sequential_path_events": len(
-            (lineage.get("sequentialPath") or [[]])[0]
-        ) if lineage.get("sequentialPath") else 0,
+        "sequential_path_events": path_events,
+        "available_views": {
+            "broadcast": path_events > 0,
+            "geometry": bool(geometry.get("events")),
+            "population": bool(population_geometry.get("summary")),
+        },
         # Population-level conclusions across all simulated paths. These are
         # V18's own frozen results; Gen 1's 20,000-draw figures are a different
         # engine's evidence and never appear here.
@@ -185,7 +219,9 @@ def _shadow_payload(
             "pitching_change_rate_away": distributions.get("pitchingChangeRateAway"),
             "monte_carlo_standard_error": uncertainty.get("monteCarloStandardError"),
             "monte_carlo_95_half_width": uncertainty.get("monteCarlo95HalfWidth"),
-            "total_run_distribution": distributions.get("totalRunDistribution"),
+            "total_run_distribution": _distribution_rows(
+                distributions.get("totalRunDistribution")
+            ),
         },
         "lineup_modes": readiness.get("lineupModes"),
         "sides": readiness.get("sides"),

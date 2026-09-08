@@ -69,6 +69,14 @@ export function GameSimulationPage() {
   }, [gameId])
 
   const shadow = shadowTracks?.shadows?.[0] ?? null
+  const availableV18Views = shadow?.available_views ?? {
+    broadcast: Boolean(shadow?.sequential_path_events),
+    geometry: true,
+    population: true,
+  }
+  const activeView: V18View = availableV18Views[requestedView]
+    ? requestedView
+    : 'broadcast'
   const simulation = simulationResource.data as GameSimulationData | null
   const pulse = pulseResource.data as MarketPulseGameDetail | null
   const row = pulse?.row ?? null
@@ -128,8 +136,8 @@ export function GameSimulationPage() {
         <ChevronRight size={13} aria-hidden="true" />
         <span aria-current="page">
           {track === 'v18'
-            ? (requestedView === 'geometry' ? 'V18 Play Geometry'
-              : requestedView === 'population' ? 'V18 simulation population'
+            ? (activeView === 'geometry' ? 'V18 Play Geometry'
+              : activeView === 'population' ? 'V18 simulation population'
                 : 'V18 Diamond Theater')
             : 'Gen 1 outcome distribution'}
         </span>
@@ -137,15 +145,15 @@ export function GameSimulationPage() {
 
       <PageHeader
         eyebrow={track === 'v18'
-          ? (requestedView === 'geometry'
+          ? (activeView === 'geometry'
             ? 'RESEARCH SHADOW · MODELLED BALL AND RUNNER GEOMETRY'
-            : requestedView === 'population'
+            : activeView === 'population'
               ? 'RESEARCH SHADOW · SIMULATED POPULATION'
               : 'RESEARCH-SHADOW SEQUENTIAL GAME SIMULATION')
           : 'OFFICIAL GEN 1 · FINAL-SCORE DISTRIBUTION'}
         title={track === 'v18'
-          ? (requestedView === 'geometry' ? 'V18 Play Geometry'
-            : requestedView === 'population' ? 'V18 Simulation Population'
+          ? (activeView === 'geometry' ? 'V18 Play Geometry'
+            : activeView === 'population' ? 'V18 Simulation Population'
               : 'V18 Monte Carlo Diamond Theater')
           : 'Official Gen 1 · Final-score distribution'}
         description={`${awayTeam} @ ${homeTeam}`}
@@ -208,15 +216,15 @@ export function GameSimulationPage() {
               ['broadcast', 'Broadcast Replay', 'Score, bases, outs and the game feed'],
               ['geometry', 'Play Geometry', 'Animated ball and runner paths'],
               ['population', 'Simulation Population', 'All 5,000 simulated games'],
-            ] as const).map(([key, label, hint]) => (
+            ] as const).filter(([key]) => availableV18Views[key]).map(([key, label, hint]) => (
               <button
                 key={key}
                 type="button"
                 title={hint}
                 // The hint is a tooltip; the accessible name stays the label.
                 aria-label={label}
-                aria-current={requestedView === key ? 'page' : undefined}
-                className={requestedView === key ? 'is-active' : ''}
+                aria-current={activeView === key ? 'page' : undefined}
+                className={activeView === key ? 'is-active' : ''}
                 onClick={() => setParams(
                   key === 'broadcast' ? { track: 'v18' } : { track: 'v18', view: key },
                   { replace: true },
@@ -232,7 +240,7 @@ export function GameSimulationPage() {
             awayTeam={awayTeam}
             homeTeam={homeTeam}
             gameId={gameId}
-            view={requestedView}
+            view={activeView}
           />
         </>
       )}

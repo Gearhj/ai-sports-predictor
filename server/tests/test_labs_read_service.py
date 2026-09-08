@@ -13,7 +13,10 @@ import pytest
 from sqlalchemy import select
 
 from app.jobs import seed_demo_data
-from app.models import Forecast, Game, GameStatus, GameTeam, ShadowForecast, Team
+from app.models import (
+    Forecast, Game, GameStatus, GameTeam, ShadowForecast,
+    ShadowForecastBundle, Team,
+)
 from app.services.labs_read_service import MAX_LIMIT, LabsReadService
 
 SLATE = date(2026, 8, 12)
@@ -36,6 +39,7 @@ async def test_lists_only_games_whose_simulation_can_be_replayed(session, settin
     assert payload["schema_version"] == "AISP_INTERACTIVE_LABS_V1"
     assert payload["league"] == "MLB"
     assert payload["eligible_count"] == len(payload["games"])
+    assert payload["v18_skip_count"] == 0
     assert payload["games"], "the seeded slate should offer at least one game"
     for item in payload["games"]:
         assert item["gen1_available"] is True
@@ -92,9 +96,42 @@ async def test_a_v18_action_appears_only_for_the_game_that_has_a_path(session, s
     assert target["v18_href"] == f"/games/{template.game_id}/simulation?track=v18"
     assert target["v18_path_events"] == 2
     assert target["v18_forecast_id"] == bundle_row.forecast_id
+    assert target["v18_views"] == {
+        "broadcast": True, "geometry": False, "population": False,
+    }
     # Every other game still says no.
     others = [item for item in after["games"] if item["game_id"] != str(template.game_id)]
     assert all(item["v18_available"] is False for item in others)
+
+
+@pytest.mark.asyncio
+async def test_v18_games_sort_first_and_publisher_skip_reason_remains_honest(
+    session, settings,
+):
+    await seed_demo_data(session, settings, SLATE)
+    templates = session.scalars(select(Forecast).order_by(Forecast.game_id)).all()
+    assert len(templates) >= 2
+    v18_game = templates[0].game_id
+    skipped_game = templates[1].game_id
+    evidence = {
+        "schemaVersion": "AISP_MLB_V18_DAILY_SLATE_IMPORT_EVIDENCE_V1",
+        "publisherSkips": [{
+            "gameId": str(skipped_game),
+            "category": "MISSING_REQUIRED_EVIDENCE",
+            "reason": "starter identity and timestamp are required",
+        }],
+    }
+    _register_shadow(session, v18_game, bundle_evidence=evidence)
+
+    payload = _service(session, settings).eligible_games("MLB")
+    same_slate = [
+        item for item in payload["games"] if item["slate_date"] == SLATE.isoformat()
+    ]
+    assert same_slate[0]["game_id"] == str(v18_game)
+    skipped = next(item for item in same_slate if item["game_id"] == str(skipped_game))
+    assert skipped["v18_available"] is False
+    assert skipped["v18_skip_reason"] == "starter identity and timestamp are required"
+    assert payload["v18_skip_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -135,7 +172,10 @@ async def test_the_limit_is_bounded(session, settings):
     assert len(service.eligible_games("MLB", limit=10_000)["games"]) <= MAX_LIMIT
 
 
-def _register_shadow(session, game_id, *, events: int = 2) -> ShadowForecast:
+def _register_shadow(
+    session, game_id, *, events: int = 2,
+    bundle_evidence: dict | None = None,
+) -> ShadowForecast:
     """A minimal registered V18 row, with or without a sequential path."""
 
     from app.models import ShadowForecastBundle
@@ -147,6 +187,7 @@ def _register_shadow(session, game_id, *, events: int = 2) -> ShadowForecast:
         slate_date=SLATE, league="MLB", sport="MLB", status="RESEARCH_SHADOW",
         research_shadow_only=True, generated_at=session.get(Game, game_id).starts_at,
         forecast_count=1, quote_count=0, candidate_count=0,
+        evidence=bundle_evidence or {},
         imported_at=session.get(Game, game_id).starts_at,
     )
     session.add(bundle)

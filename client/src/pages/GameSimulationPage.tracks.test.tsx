@@ -194,11 +194,23 @@ const POPULATION = {
 } as unknown as PopulationPayload
 
 
-function mount(search: string, { shadows = true, path = true, geometry = true, population = true } = {}) {
+function mount(search: string, {
+  shadows = true, path = true, geometry = true, population = true, views,
+}: {
+  shadows?: boolean
+  path?: boolean
+  geometry?: boolean
+  population?: boolean
+  views?: { broadcast: boolean; geometry: boolean; population: boolean }
+} = {}) {
   vi.spyOn(endpoints, 'gameSimulation').mockResolvedValue(GEN1)
   vi.spyOn(endpoints, 'marketPulseGame').mockRejectedValue(new Error('no pulse'))
   vi.spyOn(endpoints, 'gameShadowForecasts').mockResolvedValue(
-    shadows ? COMPARISON : { ...COMPARISON, shadows: [] },
+    shadows
+      ? (views
+          ? { ...COMPARISON, shadows: [{ ...COMPARISON.shadows[0], available_views: views }] }
+          : COMPARISON)
+      : { ...COMPARISON, shadows: [] },
   )
   vi.spyOn(endpoints, 'shadowForecastPopulation').mockImplementation(
     population
@@ -251,6 +263,18 @@ describe('simulator track routing', () => {
     await waitFor(() =>
       expect(screen.getByTestId('diamond-theater')).toBeInTheDocument())
     expect(screen.getByRole('group', { name: /scoreboard/i })).toHaveTextContent('PA 1 of 2')
+  })
+
+  it('exposes only artifact-supported V18 views', async () => {
+    mount('?track=v18', {
+      views: { broadcast: true, geometry: false, population: false },
+      geometry: false,
+      population: false,
+    })
+    expect(await screen.findByRole('button', { name: 'Broadcast Replay' }))
+      .toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Play Geometry' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Simulation Population' })).not.toBeInTheDocument()
   })
 
   it('keeps the two engines’ population figures apart', async () => {

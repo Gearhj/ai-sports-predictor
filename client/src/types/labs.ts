@@ -17,11 +17,20 @@ export interface LabsGame {
   home_score: number | null
   away_score: number | null
   gen1_available: boolean
-  gen1_href: string
+  gen1_href: string | null
   v18_available: boolean
   v18_href: string | null
   v18_forecast_id: string | null
   v18_path_events: number
+  v18_forecast_at: string | null
+  v18_object_sha256: string | null
+  v18_views: {
+    broadcast: boolean
+    geometry: boolean
+    population: boolean
+  }
+  v18_skip_category: string | null
+  v18_skip_reason: string | null
   analysis_href: string
 }
 
@@ -31,6 +40,10 @@ export interface LabsGames {
   generated_at: string
   eligible_count: number
   v18_count: number
+  v18_skip_count: number
+  featured_slate_date: string | null
+  featured_v18_count: number
+  featured_v18_skip_count: number
   games: LabsGame[]
   note: string
 }

@@ -2959,6 +2959,11 @@ class ShadowForecastBundle(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     forecast_count: Mapped[int] = mapped_column(Integer, nullable=False)
     quote_count: Mapped[int] = mapped_column(Integer, nullable=False)
     candidate_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Immutable consumer-side evidence for imported bundles. Daily V18 slates
+    # use this to retain publisher-declared skips without inventing forecasts.
+    evidence: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict, server_default="{}"
+    )
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

@@ -163,8 +163,10 @@ function LabGamePicker({ sport }: { sport: ResolvedSport }) {
         </div>
         {data && (
           <p className="lab-games__count">
-            {data.eligible_count} {data.eligible_count === 1 ? 'game' : 'games'} with a
-            replayable simulation · {data.v18_count} with a V18 path
+            {data.featured_slate_date && <>{formatDate(data.featured_slate_date)} · </>}
+            <strong>{data.featured_v18_count} V18-enabled {data.featured_v18_count === 1 ? 'game' : 'games'}</strong>
+            {' '}· {data.featured_v18_skip_count} forecast {data.featured_v18_skip_count === 1 ? 'skip' : 'skips'}
+            {' '}· Gen 1 availability shown per game
           </p>
         )}
       </div>
@@ -208,14 +210,22 @@ function LabGameCard({ game }: { game: LabsGame }) {
   const status = game.is_final
     ? `Final${game.away_score != null && game.home_score != null ? ` ${game.away_score}–${game.home_score}` : ''}`
     : game.is_pregame ? 'Pregame' : game.event_status.charAt(0) + game.event_status.slice(1).toLowerCase()
+  const availableViews = [
+    game.v18_views.broadcast && 'Broadcast Replay',
+    game.v18_views.geometry && 'Play Geometry',
+    game.v18_views.population && 'Simulation Population',
+  ].filter(Boolean) as string[]
 
   return (
-    <article className={`lab-game ${game.is_final ? 'lab-game--final' : ''}`}>
+    <article className={`lab-game ${game.is_final ? 'lab-game--final' : ''}${game.v18_available ? ' lab-game--v18' : ''}`}>
       <header>
         <h4>{game.label}</h4>
-        <span className={`lab-game__status lab-game__status--${game.is_final ? 'final' : game.is_pregame ? 'pregame' : 'live'}`}>
-          {status}
-        </span>
+        <div className="lab-game__badges">
+          {game.v18_available && <span className="lab-game__v18-badge">V18 AVAILABLE</span>}
+          <span className={`lab-game__status lab-game__status--${game.is_final ? 'final' : game.is_pregame ? 'pregame' : 'live'}`}>
+            {status}
+          </span>
+        </div>
       </header>
       <p className="lab-game__when">
         {game.starts_at ? formatTime(game.starts_at) : 'Start time not recorded'}
@@ -223,14 +233,19 @@ function LabGameCard({ game }: { game: LabsGame }) {
       </p>
 
       <div className="lab-game__actions">
-        <Link className="lab-game__action lab-game__action--gen1" to={game.gen1_href}>
-          Explore Gen 1 outcome distribution <ArrowRight size={13} aria-hidden="true" />
-        </Link>
-        {/* Only where this specific game has a registered path. */}
         {game.v18_available && game.v18_href && (
           <Link className="lab-game__action lab-game__action--v18" to={game.v18_href}>
-            Replay V18 simulated game <ArrowRight size={13} aria-hidden="true" />
-            <small>{game.v18_path_events} plate appearances</small>
+            Open V18 Simulator <ArrowRight size={14} aria-hidden="true" />
+            <small>
+              {availableViews.length === 1
+                ? `${availableViews[0]} only · ${game.v18_path_events} plate appearances`
+                : `${availableViews.join(' · ')} · ${game.v18_path_events} plate appearances`}
+            </small>
+          </Link>
+        )}
+        {game.gen1_available && game.gen1_href && (
+          <Link className="lab-game__action lab-game__action--gen1" to={game.gen1_href}>
+            Open Gen 1 Outcome Distribution <ArrowRight size={13} aria-hidden="true" />
           </Link>
         )}
         <Link className="lab-game__action lab-game__action--analysis" to={game.analysis_href}>
@@ -240,8 +255,10 @@ function LabGameCard({ game }: { game: LabsGame }) {
 
       {!game.v18_available && (
         <p className="lab-game__no-v18">
-          <Beaker size={12} aria-hidden="true" /> No V18 research-shadow path is registered
-          for this game.
+          <Beaker size={12} aria-hidden="true" />
+          {game.v18_skip_reason
+            ? `V18 forecast skipped: ${game.v18_skip_reason}`
+            : 'No V18 research-shadow forecast is registered for this game.'}
         </p>
       )}
     </article>

@@ -24,6 +24,9 @@ function game(overrides: Partial<LabsGame> & { game_id: string }): LabsGame {
     home_score: null, away_score: null,
     gen1_available: true, gen1_href: `/games/${overrides.game_id}/simulation?track=gen1`,
     v18_available: false, v18_href: null, v18_forecast_id: null, v18_path_events: 0,
+    v18_forecast_at: null, v18_object_sha256: null,
+    v18_views: { broadcast: false, geometry: false, population: false },
+    v18_skip_category: null, v18_skip_reason: null,
     analysis_href: `/games/${overrides.game_id}`,
     ...overrides,
   }
@@ -34,8 +37,14 @@ const WITH_V18 = game({
   v18_available: true,
   v18_href: '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe/simulation?track=v18',
   v18_forecast_id: 'mlb-v18-1', v18_path_events: 74,
+  v18_forecast_at: '2026-09-07T18:00:00Z', v18_object_sha256: 'a'.repeat(64),
+  v18_views: { broadcast: true, geometry: false, population: false },
 })
-const GEN1_ONLY = game({ game_id: 'game-2', label: 'CIN @ LAD' })
+const GEN1_ONLY = game({
+  game_id: 'game-2', label: 'CIN @ LAD',
+  v18_skip_category: 'MISSING_REQUIRED_EVIDENCE',
+  v18_skip_reason: 'starter identity and timestamp are required',
+})
 const FINISHED = game({
   game_id: 'game-3', label: 'ATL @ PHI', slate_date: '2026-09-06',
   event_status: 'FINAL', is_final: true, is_pregame: false,
@@ -45,7 +54,9 @@ const FINISHED = game({
 const PAYLOAD: LabsGames = {
   schema_version: 'AISP_INTERACTIVE_LABS_V1',
   league: 'MLB', generated_at: '2026-09-07T22:00:00Z',
-  eligible_count: 3, v18_count: 1,
+  eligible_count: 3, v18_count: 1, v18_skip_count: 1,
+  featured_slate_date: '2026-09-07', featured_v18_count: 1,
+  featured_v18_skip_count: 1,
   games: [WITH_V18, GEN1_ONLY, FINISHED],
   note: 'A game is listed only when its own persisted simulation can be replayed.',
 }
@@ -124,8 +135,9 @@ describe('the game picker', () => {
     expect(await screen.findByText('TOR @ ATH')).toBeInTheDocument()
     expect(screen.getByText('CIN @ LAD')).toBeInTheDocument()
     expect(screen.getByText('ATL @ PHI')).toBeInTheDocument()
-    expect(screen.getByText(/3 games with a replayable simulation · 1 with a V18 path/))
+    expect(screen.getByText(/1 V18-enabled game/))
       .toBeInTheDocument()
+    expect(screen.getByText(/1 forecast skip/)).toBeInTheDocument()
   })
 
   it('offers both tracks only where a V18 path exists', async () => {
@@ -133,19 +145,21 @@ describe('the game picker', () => {
     await screen.findByText('TOR @ ATH')
 
     const withV18 = screen.getByText('TOR @ ATH').closest('article')!
-    expect(within(withV18).getByRole('link', { name: /Explore Gen 1 outcome distribution/ }))
+    expect(within(withV18).getByText('V18 AVAILABLE')).toBeInTheDocument()
+    expect(within(withV18).getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
       .toHaveAttribute('href', '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe/simulation?track=gen1')
-    expect(within(withV18).getByRole('link', { name: /Replay V18 simulated game/ }))
+    expect(within(withV18).getByRole('link', { name: /Open V18 Simulator/ }))
       .toHaveAttribute('href', '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe/simulation?track=v18')
+    expect(withV18).toHaveTextContent(/Broadcast Replay only/)
     expect(within(withV18).getByRole('link', { name: /Open game analysis/ }))
       .toHaveAttribute('href', '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe')
 
     // A Gen 1-only game must not imply a replay it does not have.
     const gen1Only = screen.getByText('CIN @ LAD').closest('article')!
-    expect(within(gen1Only).getByRole('link', { name: /Explore Gen 1 outcome distribution/ }))
+    expect(within(gen1Only).getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
       .toBeInTheDocument()
-    expect(within(gen1Only).queryByRole('link', { name: /Replay V18/ })).not.toBeInTheDocument()
-    expect(within(gen1Only).getByText(/No V18 research-shadow path is registered/i))
+    expect(within(gen1Only).queryByRole('link', { name: /Open V18/ })).not.toBeInTheDocument()
+    expect(within(gen1Only).getByText(/V18 forecast skipped: starter identity/i))
       .toBeInTheDocument()
   })
 
@@ -156,21 +170,27 @@ describe('the game picker', () => {
     expect(within(finished).getByText('Final 2–4')).toBeInTheDocument()
     expect(finished).toHaveTextContent(/September 6, 2026|2026-09-06|Sep 6/)
     // It is still explorable, just not presented as live.
-    expect(within(finished).getByRole('link', { name: /Explore Gen 1 outcome distribution/ }))
+    expect(within(finished).getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
       .toBeInTheDocument()
   })
 
   it('does not hardcode a destination game', async () => {
     const other = game({ game_id: 'only-game', label: 'SEA @ HOU' })
-    mount('?league=MLB', { ...PAYLOAD, games: [other], eligible_count: 1, v18_count: 0 })
+    mount('?league=MLB', {
+      ...PAYLOAD, games: [other], eligible_count: 1, v18_count: 0, v18_skip_count: 0,
+      featured_v18_count: 0, featured_v18_skip_count: 0,
+    })
     await screen.findByText('SEA @ HOU')
     expect(screen.queryByText('TOR @ ATH')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Explore Gen 1 outcome distribution/ }))
+    expect(screen.getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
       .toHaveAttribute('href', '/games/only-game/simulation?track=gen1')
   })
 
   it('states an empty or unreachable list rather than substituting one', async () => {
-    mount('?league=MLB', { ...PAYLOAD, games: [], eligible_count: 0, v18_count: 0 })
+    mount('?league=MLB', {
+      ...PAYLOAD, games: [], eligible_count: 0, v18_count: 0, v18_skip_count: 0,
+      featured_slate_date: null, featured_v18_count: 0, featured_v18_skip_count: 0,
+    })
     expect(await screen.findByText(/No MLB game currently persists a simulation/i))
       .toBeInTheDocument()
 
