@@ -136,19 +136,18 @@ describe('simulator track routing', () => {
 
   it('shows the V18 replay when ?track=v18 is requested', async () => {
     mount('?track=v18')
-    expect(await screen.findByRole('heading', { level: 1, name: /V18 Research Shadow · Sequential game replay/ }))
+    expect(await screen.findByRole('heading', { level: 1, name: /V18 Monte Carlo Diamond Theater/ }))
       .toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: /plate appearance by plate appearance/i }))
-        .toBeInTheDocument())
-    expect(screen.getByText('1 of 2')).toBeInTheDocument()
+      expect(screen.getByTestId('diamond-theater')).toBeInTheDocument())
+    expect(screen.getByRole('group', { name: /scoreboard/i })).toHaveTextContent('PA 1 of 2')
   })
 
   it('keeps the two engines’ population figures apart', async () => {
     mount('?track=v18')
-    await screen.findByRole('heading', { name: /Conclusions across 5,000 V18 simulations/ })
+    await screen.findByRole('heading', { name: /Simulation population · 5,000 games/ })
     // V18's own frozen results are shown...
-    expect(screen.getByText('43.3%')).toBeInTheDocument()
+    expect(screen.getAllByText('43.3%').length).toBeGreaterThan(0)
     expect(screen.getByText('7.89')).toBeInTheDocument()
     // ...and Gen 1's 20,000-draw evidence appears nowhere on this track.
     expect(screen.queryByText(/20,000/)).not.toBeInTheDocument()
@@ -158,8 +157,8 @@ describe('simulator track routing', () => {
 
   it('offers no V18 scenario controls and explains why', async () => {
     mount('?track=v18')
-    await screen.findByRole('heading', { name: /Why there is no scenario lab here/i })
-    expect(screen.getByText(/executionAllowed = false/)).toBeInTheDocument()
+    expect(await screen.findByText(/V18 what-if scenarios require a new Model Studio simulation artifact/i))
+      .toBeInTheDocument()
     expect(screen.queryByLabelText(/temperature/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/park factor/i)).not.toBeInTheDocument()
   })
@@ -172,7 +171,7 @@ describe('simulator track routing', () => {
     expect(screen.getByText(/Switching tracks changes only which engine/i)).toBeInTheDocument()
 
     await user.click(within(selector).getByRole('button', { name: /V18 Research Shadow/ }))
-    expect(await screen.findByRole('heading', { level: 1, name: /V18 Research Shadow/ }))
+    expect(await screen.findByRole('heading', { level: 1, name: /V18 Monte Carlo Diamond Theater/ }))
       .toBeInTheDocument()
   })
 
@@ -187,9 +186,9 @@ describe('simulator track routing', () => {
 
   it('states when a shadow exists but its path does not', async () => {
     mount('?track=v18', { path: false })
-    await screen.findByRole('heading', { name: /Conclusions across 5,000 V18 simulations/ })
     expect(await screen.findByText(/No sequential path is persisted for this research-shadow forecast/i))
       .toBeInTheDocument()
+    expect(screen.queryByTestId('diamond-theater')).not.toBeInTheDocument()
   })
 
   it('hides the selector when only Gen 1 exists', async () => {

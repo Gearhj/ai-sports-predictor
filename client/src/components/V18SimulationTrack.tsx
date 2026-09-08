@@ -1,36 +1,23 @@
 /**
- * The V18 research-shadow simulator track.
+ * The V18 research-shadow track: the Monte Carlo Diamond Theater.
  *
- * Two clearly separated kinds of evidence, in this order:
+ * Order is deliberate. The theater comes first and carries the population
+ * summary as overlays around the park, so the field is the page rather than a
+ * widget beneath a wall of metrics. Analysis follows below it, and everything
+ * technical — engine identity, checksums, lineup caveats, limitations — sits
+ * in collapsed disclosures.
  *
- *   1. POPULATION SUMMARY — conclusions across all 5,000 completed V18
- *      simulations. These are V18's own frozen results. Gen 1's 20,000-draw
- *      figures belong to a different engine and never appear here.
- *   2. REPRESENTATIVE PATH — one of those simulations, replayed. It is a
- *      member of the population, not a summary of it, and not a prediction.
- *
- * There are no scenario controls in this track: AISP is not authorized to
- * execute the V18 bundle, so a recomputation would need a new Model Studio
- * artifact. That is stated rather than hidden behind a disabled button.
+ * Nothing on this page runs a simulation, mutates evidence or calls a
+ * provider, and no Gen 1 value ever appears here.
  */
 import { useEffect, useState } from 'react'
-import { FlaskConical } from 'lucide-react'
-import { SequentialReplay } from './SequentialReplay'
+import { ArrowRight } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { DiamondTheaterShell } from './theater/DiamondTheaterShell'
+import { InningLineScore, PopulationPanel } from './theater/InningLineScore'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { ShadowForecastView, ShadowPath } from '../types/shadow'
-
-function pct(value: number | null | undefined, digits = 1): string {
-  return value == null ? 'Not available' : `${value.toFixed(digits)}%`
-}
-
-function ratio(value: number | null | undefined): string {
-  return value == null ? 'Not available' : `${(value * 100).toFixed(1)}%`
-}
-
-function num(value: number | null | undefined, digits = 2): string {
-  return value == null ? 'Not available' : value.toFixed(digits)
-}
 
 export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId }: {
   shadow: ShadowForecastView
@@ -39,7 +26,7 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId }: {
   gameId: string
 }) {
   const [path, setPath] = useState<ShadowPath | null>(null)
-  const [pathState, setPathState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -51,107 +38,117 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId }: {
         const usable = payload?.schema_version === 'AISP_MLB_V18_SEQUENTIAL_PATH_V1'
           && Array.isArray(payload.paths) && (payload.paths[0]?.length ?? 0) > 0
         setPath(usable ? payload : null)
-        setPathState(usable ? 'ready' : 'unavailable')
+        setState(usable ? 'ready' : 'unavailable')
       })
-      .catch(() => { if (live) { setPath(null); setPathState('unavailable') } })
+      .catch(() => { if (live) { setPath(null); setState('unavailable') } })
     return () => { live = false; controller.abort() }
   }, [shadow.forecast_id])
 
-  const population = shadow.population
-  const interval = shadow.monte_carlo_95_half_width
+  const events = path?.paths[0] ?? []
 
   return (
     <div className="v18-track">
-      <section className="analysis-section" aria-labelledby="v18-population-heading">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">POPULATION SUMMARY · ALL SIMULATIONS</span>
-            <h2 id="v18-population-heading">
-              Conclusions across {population?.simulation_count?.toLocaleString() ?? '—'} V18 simulations
-            </h2>
-          </div>
-          <p className="v18-track__note">
-            Frozen results from the imported bundle. These are not Gen 1 values.
-          </p>
+      {state === 'loading' && (
+        <p className="theater-empty" role="status">Loading the persisted simulated path…</p>
+      )}
+      {state === 'unavailable' && (
+        <p className="theater-empty" role="status">
+          No sequential path is persisted for this research-shadow forecast, so there
+          is nothing to replay. Nothing has been reconstructed in its place.
+        </p>
+      )}
+
+      {state === 'ready' && path && (
+        <>
+          <DiamondTheaterShell
+            path={path}
+            shadow={shadow}
+            awayTeam={awayTeam}
+            homeTeam={homeTeam}
+          />
+
+          <PopulationPanel population={shadow.population} />
+          <InningLineScore events={events} awayTeam={awayTeam} homeTeam={homeTeam} />
+        </>
+      )}
+
+      <section className="analysis-section v18-footnotes" aria-labelledby="v18-footnotes-heading">
+        <h2 id="v18-footnotes-heading" className="sr-only">Provenance and limitations</h2>
+
+        <div className="v18-footnotes__row">
+          <Link className="v18-footnotes__compare" to={`/games/${gameId}`}>
+            Compare with the official Gen 1 forecast <ArrowRight size={13} aria-hidden="true" />
+          </Link>
+          <span className="v18-footnotes__scenario" aria-disabled="true">
+            V18 what-if scenarios require a new Model Studio simulation artifact.
+          </span>
         </div>
 
-        <div className="v18-population">
-          <article><span>{homeTeam} win</span><strong>{pct(population?.home_win_probability)}</strong>
-            <small>{interval != null ? `±${(interval * 100).toFixed(2)} pts (95% sampling)` : 'sampling interval not recorded'}</small></article>
-          <article><span>{awayTeam} win</span><strong>{pct(population?.away_win_probability)}</strong>
-            <small>complement of the home probability</small></article>
-          <article><span>Expected runs</span>
-            <strong>{num(population?.expected_away_runs)} – {num(population?.expected_home_runs)}</strong>
-            <small>{awayTeam} – {homeTeam}</small></article>
-          <article><span>Expected total</span><strong>{num(population?.expected_total_runs)}</strong>
-            <small>runs per game</small></article>
-          <article><span>Run differential</span><strong>{num(population?.expected_run_differential)}</strong>
-            <small>home minus away</small></article>
-          <article><span>One-run game</span><strong>{ratio(population?.one_run_probability)}</strong>
-            <small>share of simulations</small></article>
-          <article><span>Extra innings</span><strong>{ratio(population?.extra_inning_probability)}</strong>
-            <small>share of simulations</small></article>
-          <article><span>Monte Carlo error</span>
-            <strong>{population?.monte_carlo_standard_error != null
-              ? `±${(population.monte_carlo_standard_error * 100).toFixed(2)} pts` : 'Not available'}</strong>
-            <small>standard error · excludes model uncertainty</small></article>
-        </div>
-
-        <dl className="v18-identity">
-          <div><dt>Forecast time</dt>
-            <dd>{shadow.generated_at ? formatTimestamp(shadow.generated_at) : 'Not recorded'}</dd></div>
-          <div><dt>Lineup state</dt>
-            <dd>{shadow.lineup_modes?.join(' · ').replaceAll('_', ' ').toLowerCase() ?? 'Not recorded'}</dd></div>
-          <div><dt>Model &amp; bundle</dt><dd>{shadow.bundle_id ?? 'Not recorded'}</dd></div>
-          <div><dt>Bundle checksum</dt>
-            <dd>{shadow.bundle_sha256 ? `${shadow.bundle_sha256.slice(0, 16)}…` : 'Not recorded'}</dd></div>
-          <div><dt>Settlement</dt>
-            <dd>
-              {shadow.settlement_state === 'SETTLED' && shadow.settlement
-                ? `Settled ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}`
-                : 'Pending — no final outcome recorded yet'}
-              <small>{shadow.settlement_note}</small>
-            </dd></div>
-          <div><dt>Wagering authority</dt><dd>None — research shadow only</dd></div>
-        </dl>
+        <details className="v18-disclosure">
+          <summary>How this simulation was produced</summary>
+          <dl>
+            <div><dt>Engine</dt><dd>{shadow.engine_id} · research shadow</dd></div>
+            <div><dt>Bundle</dt><dd>{shadow.bundle_id ?? 'Not recorded'}</dd></div>
+            <div>
+              <dt>Bundle checksum</dt>
+              <dd className="mono">{shadow.bundle_sha256 ?? 'Not recorded'}</dd>
+            </div>
+            <div>
+              <dt>Evaluation contract</dt>
+              <dd>{shadow.evaluation_contract ?? 'Not recorded'}</dd>
+            </div>
+            <div>
+              <dt>Forecast produced</dt>
+              <dd>{shadow.generated_at ? formatTimestamp(shadow.generated_at) : 'Not recorded'}</dd>
+            </div>
+            <div>
+              <dt>Evidence cutoff</dt>
+              <dd>{shadow.evidence_cutoff ? formatTimestamp(shadow.evidence_cutoff) : 'Not recorded'}</dd>
+            </div>
+            <div><dt>Master seed</dt><dd>{shadow.master_seed}</dd></div>
+            <div>
+              <dt>Deterministic replay</dt>
+              <dd>{shadow.deterministic_replay_verified ? 'Verified' : 'Not verified'}</dd>
+            </div>
+            <div>
+              <dt>Illegal states / nonterminations</dt>
+              <dd>{shadow.illegal_state_count ?? '—'} / {shadow.nontermination_count ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Path digest</dt>
+              <dd className="mono">{shadow.path_digest ?? 'Not recorded'}</dd>
+            </div>
+            <div>
+              <dt>Lineup state</dt>
+              <dd>
+                {shadow.lineup_modes?.join(' · ').replaceAll('_', ' ').toLowerCase()
+                  ?? 'Not recorded'}
+              </dd>
+            </div>
+            <div>
+              <dt>Settlement</dt>
+              <dd>
+                {shadow.settlement_state === 'SETTLED' && shadow.settlement
+                  ? `Settled ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}`
+                  : 'Pending — no final outcome recorded yet'}
+              </dd>
+            </div>
+            <div><dt>Wagering authority</dt><dd>None — research shadow only</dd></div>
+          </dl>
+          <p className="v18-disclosure__note">{shadow.settlement_note}</p>
+        </details>
 
         {shadow.limitations && shadow.limitations.length > 0 && (
-          <details className="v18-limitations">
+          <details className="v18-disclosure">
             <summary>Known limitations ({shadow.limitations.length})</summary>
             <ul>{shadow.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+            <p className="v18-disclosure__note">
+              Runner identity, pitch sequences, batted-ball locations and defensive
+              plays are not persisted and are never drawn. Runner movement between
+              bases is inferred from the recorded before/after base state.
+            </p>
           </details>
         )}
-      </section>
-
-      <section className="analysis-section" aria-labelledby="v18-replay-heading">
-        <h2 id="v18-replay-heading" className="sr-only">Representative path replay</h2>
-        {pathState === 'loading' && <p className="muted" role="status">Loading the persisted path…</p>}
-        {pathState === 'unavailable' && (
-          <p className="replay__empty" role="status">
-            No sequential path is persisted for this research-shadow forecast, so
-            there is nothing to replay. Nothing has been reconstructed in its place.
-          </p>
-        )}
-        {pathState === 'ready' && path && (
-          <SequentialReplay path={path} shadow={shadow} awayTeam={awayTeam} homeTeam={homeTeam} />
-        )}
-      </section>
-
-      <section className="analysis-section v18-scenario-note" aria-labelledby="v18-scenario-heading">
-        <h2 id="v18-scenario-heading">
-          <FlaskConical size={16} aria-hidden="true" /> Why there is no scenario lab here
-        </h2>
-        <p>
-          Changing an assumption would require re-running the V18 model, and AISP is
-          not authorized to execute this bundle — its handoff declares
-          <code> executionAllowed = false</code>. A what-if for V18 needs a new
-          Model Studio forecast artifact, produced there and imported here. The
-          Temperature and Park Factor controls in the Gen 1 track recompute Gen 1
-          only, and never change this forecast or any official one.
-        </p>
-        <p className="muted">
-          Game id {gameId}. Nothing on this page alters either forecast.
-        </p>
       </section>
     </div>
   )

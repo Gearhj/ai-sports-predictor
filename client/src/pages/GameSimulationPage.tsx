@@ -114,23 +114,23 @@ export function GameSimulationPage() {
     : ''
 
   return (
-    <div className="page simulation-page">
+    <div className={`page simulation-page${track === 'v18' ? ' simulation-page--theater' : ''}`}>
       <nav className="breadcrumbs" aria-label="Breadcrumb">
         <Link to="/labs">Interactive labs</Link>
         <ChevronRight size={13} aria-hidden="true" />
         <Link to={`/games/${gameId}`}>{awayTeam} @ {homeTeam}</Link>
         <ChevronRight size={13} aria-hidden="true" />
         <span aria-current="page">
-          {track === 'v18' ? 'V18 sequential replay' : 'Gen 1 final-score distribution'}
+          {track === 'v18' ? 'V18 Diamond Theater' : 'Gen 1 outcome distribution'}
         </span>
       </nav>
 
       <PageHeader
         eyebrow={track === 'v18'
-          ? 'V18 RESEARCH SHADOW · SEQUENTIAL GAME REPLAY'
+          ? 'RESEARCH-SHADOW SEQUENTIAL GAME SIMULATION'
           : 'OFFICIAL GEN 1 · FINAL-SCORE DISTRIBUTION'}
         title={track === 'v18'
-          ? 'V18 Research Shadow · Sequential game replay'
+          ? 'V18 Monte Carlo Diamond Theater'
           : 'Official Gen 1 · Final-score distribution'}
         description={`${awayTeam} @ ${homeTeam}`}
         actions={(
@@ -143,8 +143,8 @@ export function GameSimulationPage() {
       {bothTracks && (
         <nav className="track-selector" aria-label="Simulation track">
           {([
-            ['gen1', 'Official Gen 1 · Final-score distribution'],
-            ['v18', 'V18 Research Shadow · Sequential game replay'],
+            ['gen1', 'Official Gen 1 · Outcome distribution'],
+            ['v18', 'V18 Research Shadow · Game simulation'],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -159,7 +159,7 @@ export function GameSimulationPage() {
         </nav>
       )}
 
-      <p className="track-note" role="note">
+      <p className={`track-note${track === 'v18' ? ' track-note--compact' : ''}`} role="note">
         Switching tracks changes only which engine's evidence is displayed. Neither
         the official forecast nor the research-shadow forecast is altered here.
       </p>
