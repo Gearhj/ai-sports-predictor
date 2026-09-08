@@ -22,8 +22,19 @@ from sqlalchemy.orm import Session
 
 from app.models import Game, ShadowForecast, ShadowForecastBundle
 from app.shadow_import.mlb_v18 import ENGINE_ID, SHADOW_STATUS, path_digest
+from app.shadow_import.mlb_v18_play_geometry import (
+    VerifiedGeometry,
+    register_geometry,
+    verify_supplement,
+)
+from app.shadow_import.mlb_v18_population_geometry import (
+    VerifiedPopulation,
+    register_population,
+    verify_population,
+)
 
 HANDOFF_SCHEMA = "AISP_MLB_V18_DAILY_SLATE_HANDOFF_V1"
+HANDOFF_SCHEMA_V2 = "AISP_MLB_V18_DAILY_SLATE_HANDOFF_V2"
 RECEIPT_SCHEMA = "MLB_V18_DAILY_SLATE_RECEIPT_V1"
 OBJECT_SCHEMA = "MLB_V18_DAILY_GAME_OBJECT_MANIFEST_V1"
 FORECAST_SCHEMA = "MLB_V18_DAILY_GAME_FORECAST_V1"
@@ -45,6 +56,8 @@ class VerifiedDailyForecast:
     forecast: dict[str, Any]
     evidence: dict[str, Any]
     representative_path: dict[str, Any]
+    play_geometry: VerifiedGeometry | None = None
+    population_geometry: VerifiedPopulation | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +80,10 @@ class DailyRegistrationOutcome:
     already_present: list[str] = field(default_factory=list)
     publisher_skips: list[dict[str, Any]] = field(default_factory=list)
     rejected: list[dict[str, str]] = field(default_factory=list)
+    play_geometry_registered: list[str] = field(default_factory=list)
+    play_geometry_already_present: list[str] = field(default_factory=list)
+    population_registered: list[str] = field(default_factory=list)
+    population_already_present: list[str] = field(default_factory=list)
     bundle_created: bool = False
 
 
@@ -137,7 +154,8 @@ def verify_daily_slate(
     handoff_path = Path(handoff_path).resolve()
     receipt_path = Path(receipt_path).resolve()
     handoff = _read_json(handoff_path)
-    if handoff.get("schemaVersion") != HANDOFF_SCHEMA:
+    handoff_schema = handoff.get("schemaVersion")
+    if handoff_schema not in {HANDOFF_SCHEMA, HANDOFF_SCHEMA_V2}:
         raise DailyV18ImportError(
             f"Unsupported handoff schema {handoff.get('schemaVersion')!r}"
         )
@@ -161,7 +179,14 @@ def verify_daily_slate(
     entries = handoff.get("forecasts")
     if not isinstance(entries, list) or not entries:
         raise DailyV18ImportError("Aggregate handoff contains no forecasts")
-    forecasts = tuple(_verify_object(output_root, entry) for entry in entries)
+    forecasts = tuple(
+        _verify_object(
+            output_root,
+            entry,
+            require_views=handoff_schema == HANDOFF_SCHEMA_V2,
+        )
+        for entry in entries
+    )
     object_shas = [item.object_sha256 for item in forecasts]
     game_ids = [str(item.forecast.get("gameId") or "") for item in forecasts]
     if len(set(object_shas)) != len(object_shas):
@@ -228,7 +253,12 @@ def _assert_research_only(document: dict[str, Any], *, execution_key: str) -> No
             )
 
 
-def _verify_object(output_root: Path, entry: Any) -> VerifiedDailyForecast:
+def _verify_object(
+    output_root: Path,
+    entry: Any,
+    *,
+    require_views: bool = False,
+) -> VerifiedDailyForecast:
     if not isinstance(entry, dict):
         raise DailyV18ImportError("Malformed forecast pointer in aggregate handoff")
     object_sha = _require_sha(entry.get("objectSha256"), "objectSha256")
@@ -278,6 +308,53 @@ def _verify_object(output_root: Path, entry: Any) -> VerifiedDailyForecast:
         _safe_child(object_root, "representative-path.json")
     )
     _validate_forecast(entry, manifest, forecast, evidence, representative_path)
+    play_geometry = None
+    population_geometry = None
+    if entry.get("playGeometry"):
+        play_root = _view_root(output_root, entry["playGeometry"], "Play Geometry")
+        try:
+            play_geometry = verify_supplement(play_root)
+        except Exception as exc:
+            raise DailyV18ImportError(f"Play Geometry verification failed: {exc}") from exc
+        if play_geometry.parent_bundle_sha256 != object_sha:
+            raise DailyV18ImportError("Play Geometry names a different daily forecast object")
+        path = next(
+            (
+                value for value in play_geometry.paths
+                if str(value.get("gameId")) == str(forecast.get("gameId"))
+            ),
+            None,
+        )
+        source_events = representative_path.get("events") or []
+        geometry_events = (path or {}).get("events") or []
+        if len(source_events) != len(geometry_events):
+            raise DailyV18ImportError("Play Geometry does not cover every representative-path PA")
+        for source, enriched in zip(source_events, geometry_events, strict=True):
+            if any(enriched.get(key) != value for key, value in source.items()):
+                raise DailyV18ImportError("Play Geometry altered persisted representative-path state")
+            geometry = enriched.get("geometry") or {}
+            if geometry.get("landingOrFieldingPoint") is not None and not enriched.get("ballTrace"):
+                raise DailyV18ImportError("A supported Play Geometry contact has no ball path")
+            if any(not move.get("anonymousRunnerId") for move in enriched.get("runnerMovements") or []):
+                raise DailyV18ImportError("Play Geometry carries a non-anonymous runner movement")
+    if entry.get("populationGeometry"):
+        population_root = _view_root(
+            output_root, entry["populationGeometry"], "Simulation Population"
+        )
+        try:
+            population_geometry = verify_population(population_root)
+        except Exception as exc:
+            raise DailyV18ImportError(f"Simulation Population verification failed: {exc}") from exc
+        if population_geometry.parent_bundle_sha256 != object_sha:
+            raise DailyV18ImportError("Simulation Population names a different daily forecast object")
+        if play_geometry is None or (
+            population_geometry.play_geometry_sha256
+            != play_geometry.supplement_sha256
+        ):
+            raise DailyV18ImportError("Simulation Population names a different Play Geometry parent")
+        _validate_population_reproduction(forecast, population_geometry.summary)
+    if require_views and (play_geometry is None or population_geometry is None):
+        raise DailyV18ImportError("Three-view daily handoff is missing a required view artifact")
     return VerifiedDailyForecast(
         object_sha256=object_sha,
         object_root=object_root,
@@ -285,7 +362,52 @@ def _verify_object(output_root: Path, entry: Any) -> VerifiedDailyForecast:
         forecast=forecast,
         evidence=evidence,
         representative_path=representative_path,
+        play_geometry=play_geometry,
+        population_geometry=population_geometry,
     )
+
+
+def _view_root(output_root: Path, reference: Any, label: str) -> Path:
+    if not isinstance(reference, dict):
+        raise DailyV18ImportError(f"Malformed {label} reference")
+    digest = _require_sha(reference.get("supplementSha256"), f"{label} supplementSha256")
+    root = _safe_child(output_root, str(reference.get("relativePath") or ""))
+    if root.name.lower() != digest or not root.is_dir():
+        raise DailyV18ImportError(f"{label} path does not match its checksum identity")
+    if reference.get("manifestFile") != "manifest.json":
+        raise DailyV18ImportError(f"{label} manifest is not explicitly named")
+    return root
+
+
+def _validate_population_reproduction(
+    forecast: dict[str, Any], summary: dict[str, Any]
+) -> None:
+    final = summary.get("finalPopulation") or {}
+    expected = {
+        "homeWinProbability": forecast["probabilities"]["homeWin"],
+        "meanAwayRuns": forecast["expectations"]["awayRuns"],
+        "meanHomeRuns": forecast["expectations"]["homeRuns"],
+        "meanTotalRuns": forecast["expectations"]["totalRuns"],
+        "meanRunDifferential": forecast["expectations"]["homeMinusAwayRuns"],
+        "oneRunRate": forecast["rates"]["oneRunGame"],
+        "extraInningRate": forecast["rates"]["extraInning"],
+        "simulationCount": forecast["simulation"]["count"],
+        "masterSeed": forecast["simulation"]["seed"],
+        "illegalStateCount": forecast["simulation"]["illegalStateCount"],
+        "nonterminationCount": forecast["simulation"]["nonterminationCount"],
+    }
+    for key, value in expected.items():
+        actual = final.get(key) if key in final else summary.get(key)
+        if actual is None or abs(float(actual) - float(value)) > 1e-12:
+            raise DailyV18ImportError(
+                f"Simulation Population does not reproduce forecast metric {key}"
+            )
+    reconstruction = summary.get("reconstruction") or {}
+    if (
+        reconstruction.get("allMetricsMatch") is not True
+        or reconstruction.get("deterministicReplay") is not True
+    ):
+        raise DailyV18ImportError("Simulation Population lacks exact deterministic reproduction")
 
 
 def _validate_forecast(
@@ -377,7 +499,7 @@ def register_daily_slate(
     if bundle is None:
         bundle = ShadowForecastBundle(
             bundle_sha256=verified.handoff_sha256,
-            contract_version=CONTRACT_VERSION,
+            contract_version=str(verified.handoff.get("schemaVersion") or CONTRACT_VERSION),
             bundle_id=str(verified.handoff.get("handoffId") or ""),
             logical_uri=str(verified.handoff_path),
             source_fixture_id=str(verified.receipt.get("receiptSha256") or ""),
@@ -407,6 +529,7 @@ def register_daily_slate(
         session.flush()
         outcome.bundle_created = True
 
+    registered_items: list[VerifiedDailyForecast] = []
     for item in verified.forecasts:
         game_id = str(item.forecast["gameId"])
         if game_id not in game_by_id:
@@ -442,11 +565,29 @@ def register_daily_slate(
                     f"Existing object-addressed forecast conflicts: {identity}"
                 )
             outcome.already_present.append(game_id)
+        else:
+            session.add(_forecast_row(item, game, bundle.id))
+            outcome.imported.append(game_id)
+        registered_items.append(item)
+
+    session.flush()
+    for item in registered_items:
+        if item.play_geometry is None and item.population_geometry is None:
             continue
-
-        session.add(_forecast_row(item, game, bundle.id))
-        outcome.imported.append(game_id)
-
+        if item.play_geometry is None or item.population_geometry is None:
+            raise DailyV18ImportError("Daily forecast carries only one of two required view artifacts")
+        play = register_geometry(session, item.play_geometry, now=now)
+        if play["skipped"]:
+            raise DailyV18ImportError(f"Play Geometry registration skipped: {play['skipped']}")
+        outcome.play_geometry_registered.extend(play["registered"])
+        outcome.play_geometry_already_present.extend(play["alreadyRegistered"])
+        population = register_population(session, item.population_geometry, now=now)
+        if population["skipped"]:
+            raise DailyV18ImportError(
+                f"Simulation Population registration skipped: {population['skipped']}"
+            )
+        outcome.population_registered.extend(population["registered"])
+        outcome.population_already_present.extend(population["alreadyRegistered"])
     session.flush()
     return outcome
 
