@@ -19,7 +19,7 @@
  */
 import {
   Activity, BarChart3, CalendarDays, Clock3, FlaskConical, LineChart,
-  RefreshCw, ShieldCheck, Sparkles, Store, Users,
+  RefreshCw, ShieldCheck, Sparkles, Store, Users, Beaker,
 } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -43,6 +43,7 @@ import {
 } from '../services/dailyDecision'
 import { formatDate, formatTimestamp } from '../services/format'
 import {
+  labIsAvailable,
   resolveAllSports,
   SPORT_ORDER,
   type ResolvedSport,
@@ -305,11 +306,18 @@ function CommandHeader({
       </div>
 
       <div className="command-header__side">
-        {onRefresh && (
-          <button className="command-header__refresh" type="button" onClick={onRefresh} disabled={refreshing}>
-            <RefreshCw size={14} className={refreshing ? 'spin' : ''} aria-hidden="true" /> Refresh persisted view
-          </button>
-        )}
+        <div className="command-header__buttons">
+          {/* The simulators are a destination in their own right, so the way in
+              sits in the header rather than inside one decision card. */}
+          <Link className="command-header__labs" to="/labs">
+            <Beaker size={14} aria-hidden="true" /> Open Interactive Labs
+          </Link>
+          {onRefresh && (
+            <button className="command-header__refresh" type="button" onClick={onRefresh} disabled={refreshing}>
+              <RefreshCw size={14} className={refreshing ? 'spin' : ''} aria-hidden="true" /> Refresh persisted view
+            </button>
+          )}
+        </div>
         {sports && (
           <nav className="league-nav" aria-label="Sports and leagues">
             {sports.map((sport) => {
@@ -441,9 +449,18 @@ function LeagueTile({ sport, section, decisionCount, href }: {
         <p className="league-tile__warning">{section.degraded_reason ?? 'Persisted evidence is degraded.'}</p>
       )}
 
-      {href && sport.navigable
-        ? <Link className="league-tile__link" to={href}>Open {sport.shortName}</Link>
-        : <span className="league-tile__link league-tile__link--disabled" aria-disabled="true">Not available yet</span>}
+      <div className="league-tile__actions">
+        {href && sport.navigable
+          ? <Link className="league-tile__link" to={href}>Open {sport.shortName}</Link>
+          : <span className="league-tile__link league-tile__link--disabled" aria-disabled="true">Not available yet</span>}
+        {/* Named for what it opens, and it lands on the picker rather than on
+            some arbitrary game. */}
+        {labIsAvailable(sport) && sport.lab && (
+          <Link className="league-tile__lab" to={`/labs?league=${sport.leagueCode}`}>
+            Open {sport.shortName} {sport.lab.name.split('— ')[1] ?? 'Interactive Lab'}
+          </Link>
+        )}
+      </div>
     </article>
   )
 }
@@ -592,6 +609,13 @@ function ExploreSection({ sports, navigationByLeague }: {
       blurb: 'A virtual research bankroll: every position recorded before the event, then settled.',
       href: '/experiment',
       icon: <Sparkles size={17} aria-hidden="true" />,
+    },
+    {
+      key: 'labs',
+      name: 'Interactive labs',
+      blurb: 'Open the simulations behind a forecast: Gen 1 outcome distributions and V18 sequential replays.',
+      href: '/labs',
+      icon: <Beaker size={17} aria-hidden="true" />,
     },
     {
       key: 'methodology',

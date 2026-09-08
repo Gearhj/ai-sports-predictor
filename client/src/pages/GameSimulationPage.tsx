@@ -8,7 +8,7 @@
  * that names its source. Nothing is generated in the browser.
  */
 import ReactECharts from 'echarts-for-react'
-import { ArrowLeft, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { DiamondTheater } from '../components/DiamondTheater'
@@ -115,6 +115,16 @@ export function GameSimulationPage() {
 
   return (
     <div className="page simulation-page">
+      <nav className="breadcrumbs" aria-label="Breadcrumb">
+        <Link to="/labs">Interactive labs</Link>
+        <ChevronRight size={13} aria-hidden="true" />
+        <Link to={`/games/${gameId}`}>{awayTeam} @ {homeTeam}</Link>
+        <ChevronRight size={13} aria-hidden="true" />
+        <span aria-current="page">
+          {track === 'v18' ? 'V18 sequential replay' : 'Gen 1 final-score distribution'}
+        </span>
+      </nav>
+
       <PageHeader
         eyebrow={track === 'v18'
           ? 'V18 RESEARCH SHADOW · SEQUENTIAL GAME REPLAY'

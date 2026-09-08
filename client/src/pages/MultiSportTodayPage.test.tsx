@@ -640,6 +640,42 @@ describe('a model forecast survives a missing sportsbook quote', () => {
 })
 
 
+describe('the homepage points at Interactive Labs', () => {
+  it('shows an Open Interactive Labs action in the command header', async () => {
+    mount(payload)
+    const header = (await screen.findByRole('heading', { level: 1, name: 'AI Sports Predictor' }))
+      .closest('header')!
+    const labs = within(header).getByRole('link', { name: /Open Interactive Labs/i })
+    expect(labs).toHaveAttribute('href', '/labs')
+  })
+
+  it('names the MLB league action after the lab it opens and lands on the picker', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: 'Sports and leagues' })
+    const mlb = screen.getByRole('heading', { name: 'Major League Baseball' }).closest('article')!
+    const action = within(mlb).getByRole('link', { name: /Open MLB Diamond Simulator/i })
+    expect(action).toHaveAttribute('href', '/labs?league=MLB')
+  })
+
+  it('gives a planned league no lab action at all', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: 'Sports and leagues' })
+    for (const league of ['National Basketball Association', 'National Hockey League']) {
+      const card = screen.getByRole('heading', { name: league }).closest('article')!
+      expect(within(card).queryByRole('link', { name: /Simulator|Lab/i })).not.toBeInTheDocument()
+    }
+  })
+
+  it('lists Interactive labs as a real destination in Explore', async () => {
+    mount(payload)
+    await screen.findByRole('heading', { name: /Beyond today’s slate/i })
+    const explore = screen.getByRole('heading', { name: /Beyond today’s slate/i }).closest('section')!
+    expect(within(explore).getByRole('link', { name: /Interactive labs/i }))
+      .toHaveAttribute('href', '/labs')
+  })
+})
+
+
 function metric(container: HTMLElement, label: string): HTMLElement {
   const node = Array.from(container.querySelectorAll('dt')).find((item) => item.textContent === label)
   if (!node?.parentElement) throw new Error(`Metric not found: ${label}`)

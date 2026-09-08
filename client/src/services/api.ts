@@ -21,6 +21,7 @@ import type {
   ShadowBoardData,
 } from '../types/domain'
 import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
+import type { LabsGames } from '../types/labs'
 import type { ShadowComparison, ShadowPath } from '../types/shadow'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
@@ -97,6 +98,9 @@ export const endpoints = {
   sportsRegistry: (signal?: AbortSignal) => apiRequest<SportRegistryResponse>('/sports/registry', {}, signal),
   dashboard: (signal?: AbortSignal) => apiRequest<DashboardData>('/dashboard/today', {}, signal),
   game: (id: string, signal?: AbortSignal) => apiRequest<GameAnalysisData>(`/games/${encodeURIComponent(id)}`, {}, signal),
+  // Interactive Labs: which games a simulator can actually open.
+  labsGames: (league: string, signal?: AbortSignal) =>
+    apiRequest<LabsGames>(`/labs/games?league=${encodeURIComponent(league)}`, {}, signal),
   // Research-shadow tracks. Read-only; they carry no wagering authority.
   gameShadowForecasts: (id: string, signal?: AbortSignal) =>
     apiRequest<ShadowComparison>(`/games/${encodeURIComponent(id)}/shadow-forecasts`, {}, signal),

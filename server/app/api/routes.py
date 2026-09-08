@@ -48,6 +48,7 @@ from app.services.auth_service import (
     register_user,
     revoke_user_tokens,
 )
+from app.services.labs_read_service import DEFAULT_LIMIT, LabsReadService
 from app.services.read_service import ReadService
 from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
 from app.services.scenario_service import run_scenario, scenario_capabilities
@@ -179,6 +180,23 @@ def game_analysis(game_id: UUID, session: DatabaseSession, settings: AppSettings
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
     return result
+
+
+@router.get("/labs/games", tags=["forecasts"])
+def labs_games(
+    session: DatabaseSession,
+    settings: AppSettings,
+    league: str = "MLB",
+    limit: int = DEFAULT_LIMIT,
+) -> dict:
+    """Games an interactive lab can actually open, with the tracks each offers.
+
+    Read-only. A game appears only when its own persisted simulation supports a
+    replay, and a V18 action appears only where a research-shadow path exists
+    for that specific game.
+    """
+
+    return LabsReadService(session, settings).eligible_games(league, limit=limit)
 
 
 @router.get("/games/{game_id}/shadow-forecasts", tags=["forecasts"])

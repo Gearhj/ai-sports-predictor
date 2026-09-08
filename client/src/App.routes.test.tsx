@@ -14,6 +14,7 @@ const routes = [
   { path: '/markets', heading: /Market Board/i, level: 1 },
   { path: '/market-pulse', heading: /Crowd & Market Pulse/i, level: 1 },
   { path: '/performance', heading: /Model Performance/i, level: 1 },
+  { path: '/labs', heading: /^Interactive labs$/i, level: 1 },
   { path: '/experiment', heading: /Can AI Beat the Sportsbooks\?/i, level: 1 },
   { path: '/methodology', heading: /^Methodology$/i, level: 1 },
   { path: '/admin', heading: /Administrator access required/i, level: 1 },

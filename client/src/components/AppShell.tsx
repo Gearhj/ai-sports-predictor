@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity,
   Archive,
+  Beaker,
   BarChart3,
   BookOpenText,
   ChevronDown,
@@ -38,7 +39,10 @@ const primaryNav = [
   { to: '/shadow-board', label: 'Shadow board', icon: FlaskConical },
   { to: '/market-pulse', label: 'Crowd & market pulse', icon: Radio },
   { to: '/performance', label: 'Model performance', icon: Activity },
-  { to: '/experiment', label: '$1,000 experiment', icon: FlaskConical },
+  // A permanent destination: the simulators are a product surface, not a
+  // detail buried inside one decision card.
+  { to: '/labs', label: 'Interactive labs', icon: Beaker },
+  { to: '/experiment', label: '$1,000 experiment', icon: CircleDollarSign },
   { to: '/methodology', label: 'Methodology', icon: BookOpenText },
 ]
 

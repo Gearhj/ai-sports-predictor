@@ -99,3 +99,24 @@ describe('AI Sports Predictor application shell', () => {
     expect(within(options).queryByRole('link', { name: /MLB|NFL|NBA|WNBA|UFC/i })).not.toBeInTheDocument()
   })
 })
+
+describe('Interactive Labs discoverability', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', '/')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')))
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  it('offers a permanent labs entry in the primary navigation', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { level: 1, name: /^AI Sports Predictor$/i })
+
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' })
+    const labs = within(nav).getByRole('link', { name: /Interactive labs/i })
+    expect(labs).toHaveAttribute('href', '/labs')
+    // Sits with the other analytical destinations, not buried at the end.
+    const items = within(nav).getAllByRole('link').map((link) => link.getAttribute('href'))
+    expect(items.indexOf('/labs')).toBeGreaterThan(items.indexOf('/performance'))
+    expect(items.indexOf('/labs')).toBeLessThan(items.indexOf('/methodology'))
+  })
+})

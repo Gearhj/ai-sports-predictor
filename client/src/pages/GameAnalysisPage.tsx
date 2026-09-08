@@ -144,6 +144,11 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
 
       <ShadowForecastPanel gameId={gameId} />
 
+      <p className="labs-return">
+        Explore this game&rsquo;s simulations in{' '}
+        <Link className="text-link" to="/labs?league=MLB">Interactive labs</Link>.
+      </p>
+
       <nav className="analysis-tabs" aria-label="Analysis sections">
         <a href="#forecast">Forecast</a><a href="#market">Market</a><a href="#matchup">Matchup</a><a href="#simulation">Simulation</a><a href="#history">History</a><a href="#audit">Data audit</a>
       </nav>

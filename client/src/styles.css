@@ -2095,3 +2095,72 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .replay__controls { justify-content: flex-start; }
   .replay__jump, .replay__jump-changes, .replay__speed { flex-wrap: wrap; }
 }
+
+/* ============================================================
+   INTERACTIVE LABS
+   A permanent destination: the lab list, then a game picker whose
+   actions are exactly the tracks each game can actually offer.
+   ============================================================ */
+.breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.breadcrumbs a { color: var(--teal-dark); font-weight: 650; text-decoration: none; }
+.breadcrumbs a:hover { text-decoration: underline; }
+.breadcrumbs [aria-current="page"] { color: var(--ink); font-weight: 650; }
+
+.command-header__buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.command-header__labs {
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 7px;
+  color: #072a26; background: #6fd3c6; border: 1px solid #6fd3c6;
+  font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap;
+}
+.command-header__labs:hover { background: #8ee2d7; }
+
+.league-tile__actions { display: flex; flex-direction: column; gap: 5px; margin-top: auto; padding-top: 10px; }
+.league-tile__actions .league-tile__link { margin-top: 0; padding-top: 0; }
+.league-tile__lab { color: var(--blue); font-size: 13px; font-weight: 700; text-decoration: none; }
+.league-tile__lab:hover { text-decoration: underline; }
+
+.labs-page { display: flex; flex-direction: column; gap: 22px; }
+.labs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: 13px; }
+.lab-card { display: flex; flex-direction: column; gap: 5px; padding: 15px 16px; background: white; border: 1px solid var(--line); border-top: 3px solid var(--sport-accent, var(--line-strong)); border-radius: 10px; box-shadow: var(--shadow); }
+.lab-card--planned { background: #f7f9fb; border-top-color: var(--line-strong); box-shadow: none; }
+.lab-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lab-card__league { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font: 700 14px "IBM Plex Mono", monospace; letter-spacing: .03em; }
+.lab-card__status { padding: 3px 8px; border-radius: 999px; font: 650 12px "IBM Plex Mono", monospace; color: #526579; background: #edf2f5; border: 1px solid var(--line); white-space: nowrap; }
+.lab-card__status--available { color: #17553f; background: var(--green-soft); border-color: #acd4c1; }
+.lab-card h3 { margin: 4px 0 0; font-size: 15px; line-height: 1.3; color: var(--ink); }
+.lab-card__sport { margin: 0; color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .06em; }
+.lab-card__blurb { margin: 4px 0 0; color: #55697c; font-size: 13px; line-height: 1.5; }
+.lab-card__open { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: auto; padding: 7px 12px 0 0; border: 0; background: transparent; color: var(--teal-dark); font-size: 13px; font-weight: 700; }
+.lab-card__open:hover { text-decoration: underline; }
+.lab-card__open[aria-pressed="true"] { color: var(--ink); }
+.lab-card__open--disabled { color: var(--muted); font-weight: 600; cursor: not-allowed; }
+
+.lab-games__count, .lab-games__note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 78ch; }
+.lab-games__note { margin-bottom: 14px; }
+.lab-games__day { margin-top: 16px; }
+.lab-games__day h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 9px; color: var(--ink); font-size: 14px; }
+.lab-games__day h3 span { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
+.lab-games__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 12px; }
+.lab-game { display: flex; flex-direction: column; gap: 5px; padding: 14px 15px; background: white; border: 1px solid var(--line); border-left: 3px solid var(--teal); border-radius: 9px; box-shadow: var(--shadow); }
+.lab-game--final { border-left-color: var(--line-strong); }
+.lab-game header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lab-game h4 { margin: 0; color: var(--ink); font-size: 15px; }
+.lab-game__status { padding: 2px 8px; border-radius: 999px; font: 650 12px "IBM Plex Mono", monospace; white-space: nowrap; color: #526579; background: #edf2f5; border: 1px solid var(--line); }
+.lab-game__status--pregame { color: #17553f; background: var(--green-soft); border-color: #acd4c1; }
+.lab-game__status--live { color: #7d5210; background: var(--amber-soft); border-color: #e5d09a; }
+.lab-game__when { margin: 0; color: var(--muted); font-size: 12.5px; }
+.lab-game__actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--line); }
+.lab-game__action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--teal-dark); font-size: 13px; font-weight: 700; text-decoration: none; }
+.lab-game__action:hover { text-decoration: underline; }
+.lab-game__action--v18 { color: var(--blue); }
+.lab-game__action--analysis { color: #55697c; font-weight: 650; }
+.lab-game__action small { flex-basis: 100%; color: var(--muted); font-size: 12px; font-weight: 500; }
+.lab-game__no-v18 { display: flex; align-items: center; gap: 5px; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.labs-empty { margin: 0; padding: 16px 18px; border-radius: 9px; color: #55697c; background: var(--soft); border: 1px dashed var(--line-strong); font-size: 13.5px; line-height: 1.55; }
+.labs-empty h2 { margin: 0 0 6px; font-size: 16px; color: var(--ink); }
+.labs-return { margin: 18px 0 0; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .command-header__buttons { justify-content: flex-start; }
+  .lab-games__grid, .labs-grid { grid-template-columns: 1fr; }
+}
