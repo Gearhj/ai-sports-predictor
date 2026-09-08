@@ -15,6 +15,8 @@
  *    simulation-indistinguishable.
  */
 import { useEffect, useState } from 'react'
+import { ArrowRight } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { ShadowComparison, ShadowForecastView } from '../types/shadow'
@@ -81,18 +83,30 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
                 <dd>{data.official.pregame ? 'Yes' : 'No'}</dd>
               </div>
             </dl>
+            <Link className="shadow-card__action" to={`/games/${data.game_id}/simulation?track=gen1`}>
+              Explore Gen 1 outcome distribution <ArrowRight size={13} aria-hidden="true" />
+            </Link>
           </article>
         )}
 
         {data.shadows.map((shadow) => (
-          <ShadowCard key={shadow.forecast_id} shadow={shadow} homeTeam={data.home_team} />
+          <ShadowCard
+            key={shadow.forecast_id}
+            shadow={shadow}
+            homeTeam={data.home_team}
+            gameId={data.game_id}
+          />
         ))}
       </div>
     </section>
   )
 }
 
-function ShadowCard({ shadow, homeTeam }: { shadow: ShadowForecastView; homeTeam: string | null }) {
+function ShadowCard({ shadow, homeTeam, gameId }: {
+  shadow: ShadowForecastView
+  homeTeam: string | null
+  gameId: string
+}) {
   const difference = shadow.difference_vs_official
   return (
     <article className="shadow-card shadow-card--shadow">
@@ -165,6 +179,21 @@ function ShadowCard({ shadow, homeTeam }: { shadow: ShadowForecastView; homeTeam
             {shadow.limitations.map((item) => <li key={item}>{item}</li>)}
           </ul>
         </details>
+      )}
+
+      {/* Settlement is stated on the card so a reader never has to infer
+          whether the result is in yet. */}
+      <p className={`shadow-card__settlement shadow-card__settlement--${shadow.settlement_state.toLowerCase()}`}>
+        {shadow.settlement_state === 'SETTLED' && shadow.settlement
+          ? `Settled: ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}${shadow.settlement.extraInnings ? ' (extra innings)' : ''}`
+          : 'Pending — no final outcome recorded yet'}
+        <em>{shadow.settlement_note}</em>
+      </p>
+
+      {shadow.sequential_path_events > 0 && (
+        <Link className="shadow-card__action" to={`/games/${gameId}/simulation?track=v18`}>
+          Replay V18 simulated game <ArrowRight size={13} aria-hidden="true" />
+        </Link>
       )}
 
       <p className="shadow-card__lineage">

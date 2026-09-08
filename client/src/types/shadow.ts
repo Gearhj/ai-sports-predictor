@@ -17,6 +17,40 @@ export interface OfficialForecastView {
   pregame: boolean
 }
 
+/** A recorded final outcome attached to a shadow forecast, never rewritten. */
+export interface ShadowSettlement {
+  settlementId: string
+  gameId: string
+  status: string
+  settledAt: string
+  immutable: true
+  homeRuns: number | null
+  awayRuns: number | null
+  extraInnings: boolean | null
+  homeWin: boolean | null
+  outcomeRevision: number
+  official: boolean
+  source: string
+  lineageSha256: string
+}
+
+export interface ShadowPopulation {
+  simulation_count: number | null
+  home_win_probability: number | null
+  away_win_probability: number | null
+  expected_home_runs: number | null
+  expected_away_runs: number | null
+  expected_total_runs: number | null
+  expected_run_differential: number | null
+  one_run_probability: number | null
+  extra_inning_probability: number | null
+  pitching_change_rate_home: number | null
+  pitching_change_rate_away: number | null
+  monte_carlo_standard_error: number | null
+  monte_carlo_95_half_width: number | null
+  total_run_distribution: Array<{ value: number; probability: number }> | null
+}
+
 export interface ShadowForecastView {
   track: 'RESEARCH_SHADOW'
   engine_id: string
@@ -45,6 +79,11 @@ export interface ShadowForecastView {
   limitations: string[] | null
   /** Always false. A shadow forecast can never fund or justify a position. */
   wagering_authority: false
+  /** V18's own frozen results across all of its simulations. Never Gen 1's. */
+  population: ShadowPopulation | null
+  settlement: ShadowSettlement | null
+  settlement_state: 'SETTLED' | 'PENDING'
+  settlement_note: string
   paired_with_official: boolean
   pairing_note: string | null
   difference_vs_official: number | null

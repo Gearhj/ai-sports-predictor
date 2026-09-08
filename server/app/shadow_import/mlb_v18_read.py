@@ -122,6 +122,7 @@ def _shadow_payload(
     uncertainty = dict(row.uncertainty or {})
     lineage = dict(row.lineage_detail or {})
     readiness = dict(row.readiness_detail or {})
+    distributions = dict(row.distributions or {})
     forecast_at = _aware(row.forecast_cutoff_utc)
     shadow_probability = row.full_home_win_probability * 100
 
@@ -167,10 +168,44 @@ def _shadow_payload(
         "sequential_path_events": len(
             (lineage.get("sequentialPath") or [[]])[0]
         ) if lineage.get("sequentialPath") else 0,
+        # Population-level conclusions across all simulated paths. These are
+        # V18's own frozen results; Gen 1's 20,000-draw figures are a different
+        # engine's evidence and never appear here.
+        "population": {
+            "simulation_count": uncertainty.get("simulationCount"),
+            "home_win_probability": shadow_probability,
+            "away_win_probability": round(100.0 - shadow_probability, 6),
+            "expected_home_runs": row.full_expected_home_score,
+            "expected_away_runs": row.full_expected_away_score,
+            "expected_total_runs": distributions.get("meanTotalRuns"),
+            "expected_run_differential": distributions.get("meanRunDifferential"),
+            "one_run_probability": distributions.get("oneRunProbability"),
+            "extra_inning_probability": distributions.get("extraInningProbability"),
+            "pitching_change_rate_home": distributions.get("pitchingChangeRateHome"),
+            "pitching_change_rate_away": distributions.get("pitchingChangeRateAway"),
+            "monte_carlo_standard_error": uncertainty.get("monteCarloStandardError"),
+            "monte_carlo_95_half_width": uncertainty.get("monteCarlo95HalfWidth"),
+            "total_run_distribution": distributions.get("totalRunDistribution"),
+        },
         "lineup_modes": readiness.get("lineupModes"),
         "sides": readiness.get("sides"),
         "limitations": readiness.get("limitations"),
         "wagering_authority": False,
+        # Settlement state, so a reader can tell a still-open prospective
+        # forecast from one whose result is recorded. A single settled game is
+        # never evidence about the model, and the payload says so.
+        "settlement": lineage.get("settlement"),
+        "settlement_state": (
+            "SETTLED" if lineage.get("settlement") else "PENDING"
+        ),
+        "settlement_note": (
+            "One settled game is not evidence about model quality. The "
+            "acceptance contract requires at least 100 paired games before any "
+            "comparative claim."
+            if lineage.get("settlement")
+            else "The event has no persisted final outcome yet, so this "
+                 "forecast remains open."
+        ),
         "paired_with_official": pairable,
         "pairing_note": (
             None

@@ -9,9 +9,10 @@
  */
 import ReactECharts from 'echarts-for-react'
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
-import { useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { DiamondTheater } from '../components/DiamondTheater'
+import { V18SimulationTrack } from '../components/V18SimulationTrack'
 import { ScenarioLab } from '../components/ScenarioLab'
 import { DataModeBanner, DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
@@ -26,6 +27,7 @@ import {
   probabilityComparison,
 } from '../services/simulationStory'
 import type { MarketPulseGameDetail } from '../types/domain'
+import type { ShadowComparison } from '../types/shadow'
 import type { GameSimulationData } from '../types/simulation'
 
 const AXIS = { color: '#6d7d91', fontSize: 11 }
@@ -39,6 +41,28 @@ export function GameSimulationPage() {
     useMemo(() => (signal?: AbortSignal) => endpoints.marketPulseGame(gameId, signal), [gameId]),
   )
 
+  // Which engine's simulation the reader asked for. Gen 1 stays the default,
+  // so an existing link keeps working exactly as before.
+  const [params, setParams] = useSearchParams()
+  const requestedTrack = params.get('track') === 'v18' ? 'v18' : 'gen1'
+  const [shadowTracks, setShadowTracks] = useState<ShadowComparison | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let live = true
+    endpoints
+      .gameShadowForecasts(gameId, controller.signal)
+      .then((payload) => {
+        if (!live) return
+        setShadowTracks(
+          payload?.schema_version === 'AISP_MLB_V18_SHADOW_COMPARISON_V1' ? payload : null,
+        )
+      })
+      .catch(() => { if (live) setShadowTracks(null) })
+    return () => { live = false; controller.abort() }
+  }, [gameId])
+
+  const shadow = shadowTracks?.shadows?.[0] ?? null
   const simulation = simulationResource.data as GameSimulationData | null
   const pulse = pulseResource.data as MarketPulseGameDetail | null
   const row = pulse?.row ?? null
@@ -48,7 +72,11 @@ export function GameSimulationPage() {
 
   const comparison = useMemo(() => probabilityComparison(simulation, row), [simulation, row])
 
-  if (!simulation || simulationResource.state === 'unavailable' || simulationResource.state === 'loading') {
+  // A V18 request must not be blocked by Gen 1's own availability.
+  const gen1Unavailable = !simulation
+    || simulationResource.state === 'unavailable'
+    || simulationResource.state === 'loading'
+  if (gen1Unavailable && !(requestedTrack === 'v18' && shadow)) {
     return (
       <div className="page simulation-page">
         <PageHeader
@@ -74,16 +102,26 @@ export function GameSimulationPage() {
     )
   }
 
-  const story = gameStory({
-    simulation, homeTeam, awayTeam,
-    decisionStatus: null, decisionReason: null,
-  })
+  // Which track can actually be shown. A v18 request without a usable shadow
+  // falls back to Gen 1 with an honest explanation rather than an empty page.
+  const bothTracks = Boolean(shadow) && Boolean(simulation)
+  const v18Requested = requestedTrack === 'v18'
+  const track: 'gen1' | 'v18' = v18Requested && shadow ? 'v18' : 'gen1'
+  const v18Refused = v18Requested && !shadow
+
+  const story = simulation
+    ? gameStory({ simulation, homeTeam, awayTeam, decisionStatus: null, decisionReason: null })
+    : ''
 
   return (
     <div className="page simulation-page">
       <PageHeader
-        eyebrow="MONTE CARLO · DIAMOND SIMULATOR"
-        title="Monte Carlo Diamond Simulator"
+        eyebrow={track === 'v18'
+          ? 'V18 RESEARCH SHADOW · SEQUENTIAL GAME REPLAY'
+          : 'OFFICIAL GEN 1 · FINAL-SCORE DISTRIBUTION'}
+        title={track === 'v18'
+          ? 'V18 Research Shadow · Sequential game replay'
+          : 'Official Gen 1 · Final-score distribution'}
         description={`${awayTeam} @ ${homeTeam}`}
         actions={(
           <Link className="secondary-button" to={`/games/${gameId}`}>
@@ -92,6 +130,30 @@ export function GameSimulationPage() {
         )}
       />
 
+      {bothTracks && (
+        <nav className="track-selector" aria-label="Simulation track">
+          {([
+            ['gen1', 'Official Gen 1 · Final-score distribution'],
+            ['v18', 'V18 Research Shadow · Sequential game replay'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-current={track === key ? 'page' : undefined}
+              className={track === key ? 'is-active' : ''}
+              onClick={() => setParams(key === 'gen1' ? {} : { track: key }, { replace: true })}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      <p className="track-note" role="note">
+        Switching tracks changes only which engine's evidence is displayed. Neither
+        the official forecast nor the research-shadow forecast is altered here.
+      </p>
+
       <DataModeBanner
         state={simulationResource.state}
         loading={simulationResource.loading}
@@ -99,6 +161,35 @@ export function GameSimulationPage() {
         onRetry={simulationResource.refresh}
       />
 
+      {v18Refused && (
+        <section className="evidence-unavailable-panel" role="status">
+          <h2>No research-shadow replay exists for this game</h2>
+          <p>
+            No V18 research-shadow forecast is registered for this game, so there is
+            no persisted path to replay. Nothing has been reconstructed from Gen 1 in
+            its place.
+          </p>
+          <Link className="secondary-button" to={`/games/${gameId}/simulation`}>
+            Show the official Gen 1 distribution
+          </Link>
+        </section>
+      )}
+
+      {track === 'v18' && shadow && (
+        <V18SimulationTrack
+          shadow={shadow}
+          awayTeam={awayTeam}
+          homeTeam={homeTeam}
+          gameId={gameId}
+        />
+      )}
+
+      {track === 'gen1' && simulation && (
+      <>
+      <p className="track-scope" role="note">
+        Gen 1 draws final scores directly. It has no innings, plate appearances,
+        runners, outs or pitching changes, so nothing on this track is a play-by-play.
+      </p>
       {!simulation.simulation_available ? (
         <section className="evidence-unavailable-panel" role="status">
           <h2>Simulation unavailable for this forecast</h2>
@@ -293,6 +384,8 @@ export function GameSimulationPage() {
             </dl>
           </section>
         </>
+      )}
+      </>
       )}
     </div>
   )

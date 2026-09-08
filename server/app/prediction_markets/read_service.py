@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.time import local_day_bounds
+from app.markets.availability import observed_probability
 from app.models import (
     Game,
     GameTeam,
@@ -1083,8 +1084,17 @@ class PredictionMarketReadService:
             ctx = ReadService(self.session, self.settings)._market_context(game.id, gt_home.team_id, gt_away.team_id)
         except Exception:
             return None
-        prob = ctx.get("home_probability") if isinstance(ctx, dict) else None
-        return round(float(prob), 6) if prob is not None else None
+        if not isinstance(ctx, dict):
+            return None
+        # The shared rule: a probability exists only with a complete two-sided
+        # observation behind it and a value strictly inside (0, 1). Without one
+        # this returns None, which keeps the sportsbook out of the displayed
+        # value, the reviewed range, the cross-market dispersion and every diff.
+        probability = observed_probability(
+            ctx.get("home_probability"),
+            has_two_sided_quote=bool(ctx.get("has_moneyline")),
+        )
+        return round(probability, 6) if probability is not None else None
 
     def _latest_consensus(self, game_id: Any) -> PredictionMarketConsensusSnapshot | None:
         return self.session.scalar(select(PredictionMarketConsensusSnapshot).where(

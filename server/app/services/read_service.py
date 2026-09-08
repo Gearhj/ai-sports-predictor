@@ -30,6 +30,7 @@ from app.features.readiness import (
     calculate_readiness,
 )
 from app.forecasting.evaluation import brier_score, calibration_bins, log_loss, mean_absolute_error
+from app.markets.availability import average_probability, model_edge, observed_probability
 from app.markets.odds import (
     american_to_decimal,
     classify_opportunity,
@@ -1146,8 +1147,12 @@ class ReadService:
         market = self._market_context(game.id, home.id, away.id)
         home_probability = forecast.home_win_probability if forecast else None
         away_probability = forecast.away_win_probability if forecast else None
-        home_edge = home_probability - market["home_probability"] if home_probability is not None and market["has_moneyline"] else None
-        away_edge = away_probability - (1 - market["home_probability"]) if away_probability is not None and market["has_moneyline"] else None
+        market_home = market["home_probability"]
+        home_edge = model_edge(home_probability, market_home)
+        away_edge = (
+            model_edge(away_probability, 1.0 - market_home)
+            if market_home is not None else None
+        )
         if home_edge is not None and away_edge is not None and max(home_edge, away_edge) > 0:
             edge_side = "home" if home_edge >= away_edge else "away"
             edge = max(home_edge, away_edge)
@@ -1218,14 +1223,17 @@ class ReadService:
             projected_total=forecast.expected_total_runs if forecast else None,
             projected_run_difference=forecast.expected_run_difference if forecast else None,
             uncertainty=forecast.uncertainty if forecast else None,
-            market_total=market["total"] if market["total"] else None,
+            market_total=market["total"],
             away_win_probability=away_probability * 100 if away_probability is not None else None,
             home_win_probability=home_probability * 100 if home_probability is not None else None,
             fair_away_moneyline=forecast.fair_away_moneyline if forecast else None,
             fair_home_moneyline=forecast.fair_home_moneyline if forecast else None,
             best_away_moneyline=market["best_away"] if market["has_moneyline"] else None,
             best_home_moneyline=market["best_home"] if market["has_moneyline"] else None,
-            market_home_probability=market["home_probability"] * 100 if market["has_moneyline"] else None,
+            market_home_probability=(
+                market["home_probability"] * 100
+                if market["home_probability"] is not None else None
+            ),
             model_edge=edge * 100 if edge is not None else None,
             edge_side=edge_side,
             opportunity=opportunity,
@@ -1386,7 +1394,7 @@ class ReadService:
                 "home": baseline_probability * 100,
                 "away": (1 - baseline_probability) * 100,
             })
-        if market["has_moneyline"]:
+        if market["home_probability"] is not None:
             probability_comparison.insert(1, {
                 "label": "No-vig market",
                 "home": market["home_probability"] * 100,
@@ -1530,14 +1538,31 @@ class ReadService:
                     selected_probability = result.probabilities.get(str(selected_outcome.id))
                     if selected_probability is not None:
                         no_vig_values.append(selected_probability)
-                implied = sum(no_vig_values) / len(no_vig_values) if no_vig_values else sum(quote.implied_probability or 0 for quote in quotes) / len(quotes)
-                consensus_price = probability_to_american(implied) if 0 < implied < 1 else decimal_to_american(sum(quote.decimal_odds for quote in quotes) / len(quotes))
+                # Consensus is the mean of the probabilities that actually
+                # qualify. A book without a usable implied probability is
+                # excluded, never counted as zero, so one missing quote cannot
+                # drag the consensus toward 0.
+                implied = average_probability(no_vig_values) or average_probability(
+                    quote.implied_probability for quote in quotes
+                )
+                consensus_price = (
+                    probability_to_american(implied) if implied is not None
+                    else decimal_to_american(
+                        sum(quote.decimal_odds for quote in quotes) / len(quotes)
+                    )
+                )
                 fair_price = decimal_to_american(1 / asp_probability) if 0 < asp_probability < 1 else None
                 rows.append(MarketBoardRow(
                     id=str(outcome.id), game_id=str(game.id), matchup=f"{away.abbreviation} @ {home.abbreviation}",
                     start_time=_aware(game.starts_at), market_type=_market_label(market.market_type), selection=_selection_label(outcome, quotes[0].point),
                     line=quotes[0].point, asp_fair=fair_price, consensus=consensus_price,
-                    edge=(asp_probability - implied) * 100 if asp_probability else None,
+                    # An edge needs both sides; with either missing there is
+                    # nothing to compare and the row reports no edge.
+                    edge=(
+                        edge_value * 100
+                        if (edge_value := model_edge(asp_probability, implied)) is not None
+                        else None
+                    ),
                     books=books, observed_at=max(_aware(quote.observed_at) for quote in quotes),
                 ))
         quota = self._odds_quota()
@@ -3462,12 +3487,18 @@ class ReadService:
         for item in prices:
             item.is_best_home = item.home == best_home
             item.is_best_away = item.away == best_away
+        # Absence is None, never 0.0. A consumer that reads the number without
+        # the flag must get "no observation", not a confident zero probability.
+        home_probability = observed_probability(
+            average_probability(market_probabilities),
+            has_two_sided_quote=bool(market_probabilities),
+        )
         return {
-            "has_moneyline": bool(market_probabilities),
-            "home_probability": sum(market_probabilities) / len(market_probabilities) if market_probabilities else 0.0,
+            "has_moneyline": home_probability is not None,
+            "home_probability": home_probability,
             "best_home": best_home, "best_away": best_away,
             "book_count": len(prices), "market_prices": prices,
-            "total": sum(total_lines) / len(total_lines) if total_lines else 0.0,
+            "total": sum(total_lines) / len(total_lines) if total_lines else None,
             "last_update": max(last_updates) if last_updates else None,
         }
 
