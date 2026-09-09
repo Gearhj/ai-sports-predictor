@@ -148,6 +148,21 @@ function Get-PortOwner {
   } catch { return $null }
 }
 
+function Test-BackendHealthy {
+  <# True only if the process holding the port answers its own readiness
+     endpoint. Deliberately short and deliberately fail-closed-to-unhealthy: a
+     backend that cannot answer in three seconds is not serving anything, and
+     the cost of being wrong is one supervised restart. #>
+  param([int]$Port)
+  try {
+    $r = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/readyz" -f $Port) `
+         -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+    return ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400)
+  } catch {
+    return $false
+  }
+}
+
 function Start-Backend {
   <# Run uvicorn to completion, streaming its merged output into the rotating
      log, and return its exit code.
@@ -205,8 +220,34 @@ try {
 
     $owner = Get-PortOwner
     if ($null -ne $owner) {
-      Write-Log "port $Port is already served by pid $owner; refusing to start a duplicate. Exiting."
-      exit 0
+      # A held port means one of two very different things, and treating them
+      # the same is what produced the long-lived orphan this guard was meant to
+      # prevent: stopping the task kills the powershell and cmd wrappers but
+      # leaves the elevated uvicorn holding 8010, after which every later run
+      # of this supervisor politely refused to start and the stale process kept
+      # serving -- and kept running its schedulers -- for days.
+      #
+      # So ask the holder whether it is actually serving. A healthy backend is
+      # a genuine duplicate and is left alone. One that will not answer its own
+      # readiness endpoint is this task's own wreckage, and this supervisor
+      # runs elevated, so it is the only thing that can clear it.
+      if (Test-BackendHealthy -Port $Port) {
+        Write-Log "port $Port is already served by a HEALTHY backend (pid $owner); refusing to start a duplicate. Exiting."
+        exit 0
+      }
+      Write-Log "port $Port is held by pid $owner but it is not answering /readyz; reclaiming it."
+      try {
+        Stop-Process -Id $owner -Force -ErrorAction Stop
+        Start-Sleep -Seconds 3
+        Write-Log "reclaimed port $Port from stale pid $owner"
+      } catch {
+        Write-Log "could not reclaim port $Port from pid $owner : $($_.Exception.Message). Exiting."
+        exit 1
+      }
+      if ($null -ne (Get-PortOwner)) {
+        Write-Log "port $Port is still held after reclaim; exiting rather than starting a second backend."
+        exit 1
+      }
     }
 
     $startedAt = Get-Date
