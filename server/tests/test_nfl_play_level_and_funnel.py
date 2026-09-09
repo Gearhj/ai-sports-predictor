@@ -315,3 +315,103 @@ def test_the_quota_floor_probe_does_not_authorise_the_refused_request() -> None:
     after = source[marker:marker + 1400]
     assert "raise SourceError" in after, (
         "the floor guard must refuse after reserving the recovery probe")
+
+
+# ---------------------------------------------------------------------------
+# activation: exactly one process may spend, and the alert fires in time
+# ---------------------------------------------------------------------------
+
+def _scheduled_odds_jobs(settings) -> list[str]:
+    from app.jobs.scheduler import build_scheduler
+
+    known = {"asp-odds-poll", "asp-odds-checkpoint", "asp-live-odds-refresh", "asp-nfl-shadow-odds"}
+    scheduler = build_scheduler(settings)
+    try:
+        return sorted(job.id for job in scheduler.get_jobs() if job.id in known)
+    finally:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:  # pragma: no cover - never started
+            pass
+
+
+def test_only_the_declared_owner_schedules_a_credit_spending_job(settings, monkeypatch) -> None:
+    """Every backend on the host reads the same .env.
+
+    Without an owner token, arming collection in the file arms it in every
+    process that happens to be running -- and this host has had four listening
+    at once. The token is exported by the supervisor and by nothing else.
+    """
+    armed = settings.model_copy(update={
+        "odds_checkpoint_collection_enabled": True,
+        "odds_collection_owner": "asp-backend-8010",
+        "scheduler_enabled": True,
+        "scheduler_core_jobs_enabled": True,
+    })
+
+    monkeypatch.setenv("ASP_ODDS_COLLECTION_OWNER", "asp-backend-8010")
+    assert _scheduled_odds_jobs(armed) == ["asp-odds-checkpoint"]
+
+    monkeypatch.setenv("ASP_ODDS_COLLECTION_OWNER", "some-other-process")
+    assert _scheduled_odds_jobs(armed) == []
+
+    monkeypatch.delenv("ASP_ODDS_COLLECTION_OWNER", raising=False)
+    assert _scheduled_odds_jobs(armed) == []
+
+
+def test_an_unset_owner_on_either_side_means_no_owner(settings, monkeypatch) -> None:
+    """Fail closed twice: a blank token must never match a blank declaration."""
+    monkeypatch.setenv("ASP_ODDS_COLLECTION_OWNER", "")
+    assert settings.model_copy(update={"odds_collection_owner": ""}).owns_odds_collection is False
+    monkeypatch.delenv("ASP_ODDS_COLLECTION_OWNER", raising=False)
+    assert settings.model_copy(update={"odds_collection_owner": "x"}).owns_odds_collection is False
+
+
+def test_the_legacy_pregame_poller_needs_its_own_explicit_flag(settings, monkeypatch) -> None:
+    """It consumed 495 of 500 credits in four days. Turning live shadow
+    operation on must never be enough to arm it again."""
+    monkeypatch.setenv("ASP_ODDS_COLLECTION_OWNER", "asp-backend-8010")
+    base = settings.model_copy(update={
+        "scheduler_enabled": True, "scheduler_core_jobs_enabled": True,
+        "live_shadow_enabled": True, "the_odds_api_key": "test-key",
+        "odds_collection_owner": "asp-backend-8010",
+    })
+    assert "asp-live-odds-refresh" not in _scheduled_odds_jobs(base)
+    revived = base.model_copy(update={"odds_legacy_pregame_refresh_enabled": True})
+    assert "asp-live-odds-refresh" in _scheduled_odds_jobs(revived)
+
+
+def test_coverage_alert_fires_inside_ninety_minutes_and_not_before() -> None:
+    """The alert exists so nobody has to notice a row in a table of fifteen.
+
+    Inside 90 minutes the scheduled cover has already had its chance, so only
+    the recovery ladder is left and after the cutoff nothing helps at all.
+    """
+    from app.services.quote_coverage import (
+        ALERT_AT_RISK, ALERT_CLEAR, ALERT_MISSED, COVERAGE_CHECK_MINUTES,
+        STATE_COMPLETE, STATE_MISSED, STATE_QUOTE_EXPECTED, EventCoverage, _alert,
+    )
+
+    cutoff = datetime(2026, 9, 9, 23, 0, tzinfo=UTC)
+
+    def event(state: str) -> EventCoverage:
+        return EventCoverage(
+            game_id="g", matchup="AAA @ BBB", starts_at=cutoff + timedelta(minutes=15),
+            cutoff=cutoff, state=state,
+            cause=None if state == STATE_COMPLETE else "QUOTA_GUARD_BLOCKED",
+            best_quote=None, qualifying=[], out_of_window=[], partial_observations=0,
+            next_action_at=None, next_action=None,
+        )
+
+    outside = cutoff - timedelta(minutes=COVERAGE_CHECK_MINUTES + 5)
+    inside = cutoff - timedelta(minutes=COVERAGE_CHECK_MINUTES - 5)
+
+    assert _alert([event(STATE_QUOTE_EXPECTED)], outside)["severity"] == ALERT_CLEAR
+    alert = _alert([event(STATE_QUOTE_EXPECTED)], inside)
+    assert alert["severity"] == ALERT_AT_RISK and alert["active"] is True
+    assert alert["games"][0]["cause"] == "QUOTA_GUARD_BLOCKED"
+    assert alert["threshold_minutes_before_cutoff"] == COVERAGE_CHECK_MINUTES
+    # A covered game never raises an alert, however close its cutoff is.
+    assert _alert([event(STATE_COMPLETE)], inside)["severity"] == ALERT_CLEAR
+    # A missed cutoff outranks an at-risk game.
+    assert _alert([event(STATE_MISSED)], inside)["severity"] == ALERT_MISSED

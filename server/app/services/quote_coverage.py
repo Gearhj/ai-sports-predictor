@@ -579,11 +579,63 @@ class QuoteCoverageService:
             "by_state": dict(by_state),
             "by_cause": dict(by_cause),
             "cause_explanations": {k: v for k, v in CAUSE_EXPLANATIONS.items() if k in by_cause},
+            "alert": _alert(events, now),
             "events": [event.as_dict() for event in events],
         }
 
 
+#: Severity of the coverage alert, worst first.
+ALERT_MISSED = "CUTOFF_MISSED"
+ALERT_AT_RISK = "NO_QUOTE_INSIDE_90_MINUTES"
+ALERT_CLEAR = "CLEAR"
+
+
+def _alert(events: list[EventCoverage], now: datetime) -> dict[str, Any]:
+    """The one thing an operator must not have to read a table to notice.
+
+    A game that is inside 90 minutes of its cutoff with no complete two-sided
+    same-book quote will not get one by accident: the scheduled cover has
+    already had its chance, so only the recovery ladder is left, and after the
+    cutoff nothing helps. That is the moment to interrupt someone, and it is
+    reported as an alert rather than as one row among fifteen.
+    """
+    deadline = timedelta(minutes=COVERAGE_CHECK_MINUTES)
+    missed = [e for e in events if e.state == STATE_MISSED]
+    at_risk = [
+        e for e in events
+        if not e.covered and e.state != STATE_MISSED and now >= e.cutoff - deadline
+    ]
+    if missed:
+        severity, headline = ALERT_MISSED, (
+            f"{len(missed)} game(s) reached their decision cutoff with no usable quote."
+        )
+    elif at_risk:
+        severity, headline = ALERT_AT_RISK, (
+            f"{len(at_risk)} game(s) are inside {COVERAGE_CHECK_MINUTES} minutes of their "
+            f"cutoff with no complete two-sided same-book quote."
+        )
+    else:
+        severity, headline = ALERT_CLEAR, "Every game is covered or still has time."
+    flagged = missed + at_risk
+    return {
+        "severity": severity,
+        "active": severity != ALERT_CLEAR,
+        "headline": headline,
+        "threshold_minutes_before_cutoff": COVERAGE_CHECK_MINUTES,
+        "games": [{
+            "game_id": str(e.game_id), "matchup": e.matchup,
+            "cutoff_utc": e.cutoff.isoformat(),
+            "minutes_to_cutoff": round((e.cutoff - now).total_seconds() / 60.0, 1),
+            "state": e.state, "cause": e.cause,
+            "cause_detail": CAUSE_EXPLANATIONS.get(e.cause or "", None),
+        } for e in flagged],
+    }
+
+
 __all__ = [
+    "ALERT_AT_RISK",
+    "ALERT_CLEAR",
+    "ALERT_MISSED",
     "CAUSE_CHECKPOINT_MISSED",
     "CAUSE_EXPLANATIONS",
     "CAUSE_IDENTITY_FAILED",

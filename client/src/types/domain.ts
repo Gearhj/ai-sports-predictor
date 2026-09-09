@@ -1459,7 +1459,20 @@ export interface QuoteCoverageEvent {
   last_successful_request_utc?: string | null
 }
 
+export interface QuoteCoverageAlert {
+  severity: 'CUTOFF_MISSED' | 'NO_QUOTE_INSIDE_90_MINUTES' | 'CLEAR'
+  active: boolean
+  headline: string
+  threshold_minutes_before_cutoff: number
+  games: Array<{
+    game_id: string; matchup: string; cutoff_utc: string
+    minutes_to_cutoff: number; state: string
+    cause: string | null; cause_detail: string | null
+  }>
+}
+
 export interface QuoteCoverageReport {
+  alert?: QuoteCoverageAlert
   schema_version: string
   league: string
   slate_date: string | null

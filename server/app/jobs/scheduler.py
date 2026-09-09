@@ -406,7 +406,7 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             next_run_time=datetime.now(UTC),
             **common,
         )
-    if settings.odds_checkpoint_collection_enabled:
+    if settings.odds_checkpoint_collection_enabled and settings.owns_odds_collection:
         # Event-aware collection. The tick is cheap and frequent; the SPEND is
         # rare, because the job itself decides from persisted rows whether a
         # checkpoint is due. A 5-minute tick bounds how late a checkpoint can be
@@ -451,7 +451,14 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "poll-availability-events", "settings": settings},
             **common,
         )
-        if settings.the_odds_api_key:
+        # SUPERSEDED. This is the ten-minute three-market poller that consumed
+        # 495 of September's 500 credits in four days while consulting no
+        # budget at all. It is now off unless explicitly re-enabled, and even
+        # then only in the process that owns collection -- so it can never
+        # again be armed as a side effect of live shadow operation.
+        if (settings.odds_legacy_pregame_refresh_enabled
+                and settings.owns_odds_collection
+                and settings.the_odds_api_key):
             scheduler.add_job(
                 execute_pregame_odds_refresh,
                 "interval",
@@ -514,7 +521,13 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "recalculate-nfl-shadow-performance", "settings": settings},
             **common,
         )
-        if settings.nfl_shadow_odds_enabled and settings.the_odds_api_key:
+        # NFL odds are optional research and must never outrank required MLB
+        # moneylines, so this legacy poller is bound to the same single owner.
+        # The event-aware collector serves NFL at priority 2 from the
+        # NFL_RESEARCH lane instead.
+        if (settings.nfl_shadow_odds_enabled
+                and settings.owns_odds_collection
+                and settings.the_odds_api_key):
             scheduler.add_job(
                 execute_nfl_shadow_odds_refresh, "interval",
                 minutes=settings.odds_pregame_refresh_minutes,

@@ -38,7 +38,8 @@ param(
   [int]   $MaxLogBytes    = 10485760,  # rotate the active log at 10 MB
   [int]   $KeepRotations  = 5,         # backend.log.1 .. .5  => <= ~60 MB total
   [int]   $HealthySeconds = 60,        # a run at least this long clears the crash counter
-  [int]   $MaxFastCrashes = 8          # give up after this many consecutive fast crashes
+  [int]   $MaxFastCrashes = 8,         # give up after this many consecutive fast crashes
+  [string]$OddsCollectionOwner = 'asp-backend-8010'  # must equal ODDS_COLLECTION_OWNER in .env
 )
 
 $ErrorActionPreference = 'Stop'
@@ -163,6 +164,14 @@ function Start-Backend {
   $psi.UseShellExecute        = $false
   $psi.CreateNoWindow         = $true
   $psi.RedirectStandardOutput = $true
+
+  # SOLE OWNER OF SPORTSBOOK CREDIT SPEND.
+  # Every backend on this host reads the same .env, and this host has
+  # repeatedly had three or four listening at once. The odds collector matches
+  # this token against ODDS_COLLECTION_OWNER in .env and refuses to schedule
+  # any credit-spending job unless they agree, so ownership follows the
+  # supervised process rather than whoever happens to be running.
+  $psi.EnvironmentVariables['ASP_ODDS_COLLECTION_OWNER'] = $OddsCollectionOwner
 
   $proc = [System.Diagnostics.Process]::Start($psi)
   Write-Log ('uvicorn launched (cmd pid={0}) on 127.0.0.1:{1}' -f $proc.Id, $Port)

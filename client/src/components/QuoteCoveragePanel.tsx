@@ -38,6 +38,32 @@ export function QuoteCoveragePanel({ coverage, lanes }: {
         </p>
       </header>
 
+      {coverage.alert?.active && (
+        <div className={`coverage-alert coverage-alert--${coverage.alert.severity === 'CUTOFF_MISSED' ? 'missed' : 'risk'}`}
+          role="alert" data-testid="coverage-alert">
+          <AlertTriangle size={19} aria-hidden="true" />
+          <div>
+            <strong>{coverage.alert.headline}</strong>
+            <p>
+              A game inside {coverage.alert.threshold_minutes_before_cutoff} minutes of its cutoff
+              will not get a quote by accident: the scheduled cover has already had its chance, so
+              only the recovery ladder is left — and after the cutoff nothing helps.
+            </p>
+            <ul>
+              {coverage.alert.games.slice(0, 8).map((game) => (
+                <li key={game.game_id}>
+                  <b>{game.matchup}</b>
+                  <span>{game.minutes_to_cutoff >= 0
+                    ? `${Math.round(game.minutes_to_cutoff)} min to cutoff`
+                    : `cutoff passed ${Math.abs(Math.round(game.minutes_to_cutoff))} min ago`}</span>
+                  <code>{game.cause ?? game.state}</code>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       <div className="coverage-totals">
         <div className={t.coverage_rate >= 1 ? 'is-good' : t.covered > 0 ? 'is-partial' : 'is-bad'}>
           <CheckCircle2 size={17} aria-hidden="true" />

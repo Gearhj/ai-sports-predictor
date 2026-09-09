@@ -93,6 +93,21 @@ class Settings(BaseSettings):
     # about four days. These settings bound spend independently of the provider
     # floor, which they never relax.
     odds_checkpoint_collection_enabled: bool = False
+    #: WHICH PROCESS MAY SPEND CREDITS.
+    #: Every backend on this host reads the same .env, so a flag in .env alone
+    #: would arm collection in every one of them -- and this host has repeatedly
+    #: had three or four backends listening at once. The owner token is
+    #: therefore matched against ASP_ODDS_COLLECTION_OWNER, which is exported by
+    #: the supervisor script and by nothing else, so a second process reading
+    #: the same .env registers no collection job. Empty on both sides means no
+    #: process owns collection and none is scheduled.
+    odds_collection_owner: str = ""
+    #: The legacy blanket pregame poller. It ran every ten minutes over three
+    #: markets, consulted no budget, and consumed 495 of September's 500 credits
+    #: in four days. It is off by default and is superseded by the event-aware
+    #: collector; the flag exists so disabling it is an explicit, auditable act
+    #: rather than a side effect of turning off live shadow operation.
+    odds_legacy_pregame_refresh_enabled: bool = False
     odds_monthly_credit_cap: int = Field(default=500, ge=0)
     #: Never spent. Kept back for a manual refresh or an unexpected slate.
     odds_monthly_credit_reserve: int = Field(default=150, ge=0)
@@ -263,6 +278,19 @@ class Settings(BaseSettings):
                 if not origin.startswith("https://"):
                     raise ValueError("Production CORS_ORIGINS entries must be explicit https:// origins")
         return self
+
+    @property
+    def owns_odds_collection(self) -> bool:
+        """True only in the single process designated to spend odds credits.
+
+        Fail-closed twice over: an unset token on either side means no owner,
+        and a mismatch means this process is not it.
+        """
+        import os
+
+        declared = os.environ.get("ASP_ODDS_COLLECTION_OWNER", "").strip()
+        configured = (self.odds_collection_owner or "").strip()
+        return bool(configured) and declared == configured
 
     @property
     def cors_origin_list(self) -> list[str]:
