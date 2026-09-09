@@ -33,6 +33,8 @@ from app.data_sources.sportsgameodds import (
 from app.models import ProviderRequestLedger
 from app.services import odds_budget
 from app.services.odds_collection_plan import (
+    CHECKPOINT_GRACE_MINUTES,
+    CHECKPOINT_TICK_SLACK_MINUTES,
     INGEST_HEADROOM_MINUTES,
     MAX_QUOTE_STALENESS_MINUTES,
     MLB_POLICY,
@@ -42,6 +44,7 @@ from app.services.odds_collection_plan import (
     decision_cutoff,
     due_checkpoint,
     plan_checkpoints,
+    planned_covers,
 )
 
 ET = ZoneInfo("America/New_York")
@@ -181,46 +184,77 @@ def test_the_zero_cost_balance_probe_never_consumes_budget(session) -> None:
 # 2. checkpoint selection
 # ---------------------------------------------------------------------------
 
-def test_the_worst_observed_slate_is_covered_by_three_requests() -> None:
+def test_the_worst_observed_slate_is_covered_by_a_handful_of_requests() -> None:
     """2026-09-06: 15 games, 12:10 to 22:10 ET - the widest span in the data."""
 
     starts = _starts("2026-09-06", ["12:10", "13:05", "16:10", "18:40", "19:10", "22:10"])
-    now = datetime(2026, 9, 6, 6, 0, tzinfo=ET)
-    checkpoints = plan_checkpoints(starts, now=now)
+    checkpoints = plan_checkpoints(starts)
     assert len(checkpoints) == 3
     for start in starts:
-        assert any(covers(c, decision_cutoff(start)) for c in checkpoints), start
-    # Three requests at one credit each: the whole slate for 3 credits.
+        assert any(planned_covers(c, decision_cutoff(start)) for c in checkpoints), start
     assert len(checkpoints) * MLB_POLICY.credit_cost == 3
+
+
+def test_the_plan_does_not_move_when_the_clock_does() -> None:
+    """The cover is a function of the slate, never of `now`.
+
+    An earlier draft derived it relative to the current instant, which made
+    every checkpoint land in the future (so a tick could never reach one) and
+    re-anchored the cover on every tick (so the request count drifted).
+    """
+
+    starts = _starts("2026-09-06", ["12:10", "16:10", "19:10", "22:10"])
+    first = plan_checkpoints(starts)
+    for hour in (0, 6, 13, 18, 23):
+        assert plan_checkpoints(starts) == first, hour
+
+
+def test_a_request_that_fires_late_still_covers_what_it_was_credited_with() -> None:
+    """A 5-minute tick cannot land on an instant, so the plan leaves slack."""
+
+    starts = _starts("2026-09-06", ["12:10", "16:10", "19:10", "22:10"])
+    for checkpoint in plan_checkpoints(starts):
+        credited = [c for c in (decision_cutoff(s) for s in starts)
+                    if planned_covers(checkpoint, c)]
+        # Fire anywhere inside the tick slack and every credited cutoff is still
+        # genuinely covered under the true contract.
+        for late in range(0, CHECKPOINT_TICK_SLACK_MINUTES + 1):
+            fired = checkpoint + timedelta(minutes=late)
+            for cutoff in credited:
+                assert covers(fired, cutoff), (checkpoint, late, cutoff)
 
 
 def test_every_covered_game_is_observed_inside_its_own_freshness_window() -> None:
     starts = _starts("2026-09-06", ["12:10", "16:10", "19:10", "22:10"])
-    now = datetime(2026, 9, 6, 6, 0, tzinfo=ET)
-    for checkpoint in plan_checkpoints(starts, now=now):
+    for checkpoint in plan_checkpoints(starts):
         for start in starts:
             cutoff = decision_cutoff(start)
-            if not covers(checkpoint, cutoff):
+            if not planned_covers(checkpoint, cutoff):
                 continue
             age = (cutoff - checkpoint).total_seconds() / 60
             assert 0 < age <= MAX_QUOTE_STALENESS_MINUTES
             assert age >= INGEST_HEADROOM_MINUTES  # time to fetch, store and be read
 
 
-def test_collection_stops_at_the_decision_cutoff() -> None:
-    """A game whose cutoff has passed is never worth another credit."""
+def test_collection_stops_after_the_decision_cutoff() -> None:
+    """Once a checkpoint is past its grace, no credit is spent on it."""
 
     starts = _starts("2026-09-06", ["13:00"])
-    after_cutoff = datetime(2026, 9, 6, 12, 50, tzinfo=ET)  # cutoff was 12:45
-    assert plan_checkpoints(starts, now=after_cutoff) == []
-    # And a cutoff too close to serve is dropped rather than paid for uselessly.
-    nearly = datetime(2026, 9, 6, 12, 30, tzinfo=ET)
-    assert plan_checkpoints(starts, now=nearly) == []
+    plan = build_sport_plan(MLB_POLICY, starts, now=_starts("2026-09-06", ["06:00"])[0])
+    checkpoint = plan.checkpoints[0]
+    assert due_checkpoint(plan, now=checkpoint, last_success_at=None) is not None
+    late = checkpoint + timedelta(minutes=CHECKPOINT_GRACE_MINUTES + 1)
+    assert due_checkpoint(plan, now=late, last_success_at=None) is None
+    # After the cutoff nothing is outstanding, so the day costs nothing more.
+    after = build_sport_plan(MLB_POLICY, starts, now=decision_cutoff(starts[0]) + timedelta(minutes=1))
+    assert after.projected_credits == 0
 
 
 def test_an_inactive_sport_plans_nothing() -> None:
     plan = build_sport_plan(NFL_POLICY, [], now=datetime(2026, 9, 6, 12, 0, tzinfo=ET))
     assert plan.checkpoints == [] and plan.projected_credits == 0
+    assert due_checkpoint(plan, now=datetime(2026, 9, 6, 12, 0, tzinfo=ET),
+                          last_success_at=None) is None
 
 
 def test_mlb_costs_one_credit_and_nfl_three() -> None:
@@ -248,6 +282,35 @@ def test_a_served_checkpoint_is_not_served_twice() -> None:
         plan, now=first + timedelta(minutes=1), last_success_at=first + timedelta(seconds=5),
     )
     assert served is None
+
+
+def test_a_five_minute_tick_actually_reaches_every_checkpoint() -> None:
+    """The regression that matters: a tick lands on a window, never an instant.
+
+    Replays a real slate through a real 5-minute scheduler at several phase
+    offsets and asserts every game ends up covered by a request that actually
+    fired. The earlier instant-equality rule fired zero times at every offset
+    but one.
+    """
+
+    starts = _starts("2026-09-06", ["12:10", "13:05", "16:10", "18:40", "19:10", "22:10"])
+    day = datetime(2026, 9, 6, 0, 0, tzinfo=ET)
+    for offset_seconds in (0, 37, 123, 271, 299):
+        plan = build_sport_plan(MLB_POLICY, starts, now=day)
+        served: list[datetime] = []
+        last_success = None
+        tick = day + timedelta(seconds=offset_seconds)
+        while tick < day + timedelta(days=1):
+            if due_checkpoint(plan, now=tick, last_success_at=last_success) is not None:
+                served.append(tick)      # the request happens AT the tick
+                last_success = tick
+            tick += timedelta(minutes=5)
+        assert served, f"no checkpoint ever fired at offset {offset_seconds}s"
+        for start in starts:
+            assert any(covers(fired, decision_cutoff(start)) for fired in served), (
+                offset_seconds, start
+            )
+        assert len(served) <= 4
 
 
 def test_a_missed_checkpoint_is_abandoned_rather_than_fired_late() -> None:

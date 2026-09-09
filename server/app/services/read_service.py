@@ -19,7 +19,10 @@ from app.bankroll.service import (
     settle_profit,
 )
 from app.core.config import Settings
-from app.data_sources.provider_registry import GOVERNED_SOURCES
+from app.data_sources.provider_registry import (
+    GOVERNED_SOURCES,
+    authorised_sources_for_mode,
+)
 from app.forecast_exchange.pricing import ShadowPricingConfig
 from app.core.time import local_date_of, local_day_bounds
 from app.sports.registry import resolve_stored_identity
@@ -1589,7 +1592,15 @@ class ReadService:
             probe_cooldown_hours=self.settings.odds_quota_probe_cooldown_hours,
             renewal_days=self.settings.odds_quota_renewal_days,
         )
-        latest = _aware(self.session.scalar(select(func.max(OddsSnapshot.observed_at))))
+        # Scoped: an unqualified MAX over the whole table would let a single
+        # research-fallback or demo row make the public feed look fresh while
+        # the governed provider is dark.
+        latest = _aware(self.session.scalar(
+            select(func.max(OddsSnapshot.observed_at)).where(
+                OddsSnapshot.source.in_(GOVERNED_SOURCES),
+                OddsSnapshot.source_mode == "LIVE",
+            )
+        ))
         # "Historical" is decided by the observation's own date against the
         # slate being viewed, not by a staleness heuristic.
         historical = bool(
@@ -3417,10 +3428,14 @@ class ReadService:
                 statement = statement.where(OddsSnapshot.source_mode == game.source_mode)
             # Governed pricing reads governed providers only. Without this a
             # research-fallback row could supply one side of a same-book
-            # two-sided quote and reach a V2.1 gate. Bookmaker namespacing
-            # already makes that structurally impossible; this is the second,
-            # independent barrier.
-            return statement.where(OddsSnapshot.source.in_(GOVERNED_SOURCES))
+            # two-sided quote and reach a V2.1 gate. The restriction applies to
+            # LIVE rows, which are the only ones that can reach a decision.
+            authorised = authorised_sources_for_mode(
+                game.source_mode if game is not None else "LIVE"
+            )
+            if authorised is not None:
+                statement = statement.where(OddsSnapshot.source.in_(authorised))
+            return statement
 
         latest_per_market_book = _scoped(
             select(

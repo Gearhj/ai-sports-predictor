@@ -325,6 +325,8 @@ def build_funnel_read_context(
         .join(Game, Game.id == Market.game_id)
         .where(Market.game_id.in_(ids), OddsSnapshot.source_mode == Game.source_mode,
                # Governed pricing reads governed providers only; see provider_registry.
+           # This path is the LIVE slate read model, so the governed set applies
+           # directly rather than through the per-mode authority helper.
                OddsSnapshot.source.in_(GOVERNED_SOURCES))
         .group_by(Market.id, OddsSnapshot.sportsbook_id).subquery("latest_market_book")
     )
@@ -341,6 +343,8 @@ def build_funnel_read_context(
         ))
         .where(Market.game_id.in_(ids), OddsSnapshot.source_mode == Game.source_mode,
                # Governed pricing reads governed providers only; see provider_registry.
+           # This path is the LIVE slate read model, so the governed set applies
+           # directly rather than through the per-mode authority helper.
                OddsSnapshot.source.in_(GOVERNED_SOURCES))
         # Same deterministic order as ReadService._latest_market_snapshots.
         .order_by(OddsSnapshot.observed_at.desc(), Market.id, MarketOutcome.id, Sportsbook.id)

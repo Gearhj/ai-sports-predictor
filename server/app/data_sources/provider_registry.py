@@ -102,8 +102,14 @@ PROVIDERS: dict[str, ProviderIdentity] = {
         key=DEMO_FIXTURE,
         display_name="AISP demo fixture",
         governed=False,
-        bookmaker_namespace="demo",
-        authority_note="Illustrative fixture data. Never governed, never LIVE.",
+        # No prefix: demo rows are already separated from live ones by
+        # source_mode, which every governed query filters on, and prefixing them
+        # would fork the demo bookmaker identities for no additional safety.
+        bookmaker_namespace="",
+        authority_note=(
+            "Illustrative fixture data. Never governed. Separated from live evidence "
+            "by source_mode, and authorised only for DEMO reads."
+        ),
     ),
 }
 
@@ -149,6 +155,24 @@ def require_governed(source: str) -> None:
         )
 
 
+def authorised_sources_for_mode(source_mode: str | None) -> frozenset[str] | None:
+    """Which providers may price a decision for rows of this mode.
+
+    Governance is a LIVE concern. Only a LIVE row can reach an official decision
+    or a virtual position, so that is where the provider restriction belongs and
+    it returns the governed set. For any other mode it returns ``None``, meaning
+    "no provider restriction": DEMO and synthetic rows are already fenced off by
+    ``source_mode``, which every one of these queries filters on, and narrowing
+    them further would break illustrative and test surfaces for no added safety.
+
+    Callers apply the predicate only when a set is returned.
+    """
+
+    if (source_mode or "LIVE").upper() == "LIVE":
+        return GOVERNED_SOURCES
+    return None
+
+
 def describe() -> list[dict[str, object]]:
     return [
         {
@@ -165,6 +189,7 @@ def describe() -> list[dict[str, object]]:
 __all__ = [
     "DEMO_FIXTURE",
     "GOVERNED_SOURCES",
+    "authorised_sources_for_mode",
     "PROVIDERS",
     "ProviderAuthorityError",
     "ProviderIdentity",

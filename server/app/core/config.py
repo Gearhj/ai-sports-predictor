@@ -96,7 +96,11 @@ class Settings(BaseSettings):
     odds_monthly_credit_cap: int = Field(default=500, ge=0)
     #: Never spent. Kept back for a manual refresh or an unexpected slate.
     odds_monthly_credit_reserve: int = Field(default=150, ge=0)
-    odds_daily_credit_budget: int = Field(default=12, ge=0, le=500)
+    #: Sized from the replayed schedule, not a guess: the worst MLB day needs 4
+    #: checkpoints (4 credits) and the worst NFL day 4 (12 credits), so an
+    #: overlapping late-September day peaks at 16. 18 leaves headroom for a
+    #: doubleheader without letting a runaway spend the month in a day.
+    odds_daily_credit_budget: int = Field(default=18, ge=0, le=500)
     #: Comma-separated per-league market overrides, e.g. "MLB=h2h;NFL=h2h,spreads,totals".
     #: Empty keeps the compiled defaults in app.services.odds_collection_plan.
     odds_market_overrides: str = ""

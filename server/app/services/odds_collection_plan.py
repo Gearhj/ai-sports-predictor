@@ -68,12 +68,27 @@ MAX_QUOTE_STALENESS_MINUTES = 240
 
 #: Minutes a request needs before a cutoff to be fetched, normalised, committed
 #: and readable by the freeze job. One full freeze cadence (5 min) plus the
-#: freeze window (15 min) plus slack.
+#: freeze window (15 min) plus slack. This is the HARD requirement.
 INGEST_HEADROOM_MINUTES = 25
 
+#: A scheduler ticking every 5 minutes cannot fire at an exact instant, so a
+#: request lands somewhere AFTER its checkpoint. Planning therefore assumes
+#: worst-case lateness on both sides of the coverage window: the checkpoint is
+#: placed this much earlier than the strict right endpoint, and the window it
+#: is credited with is shrunk by the same amount at the far end. Without this
+#: the cover is correct only for a tick that lands on the instant, and a real
+#: tick misses the very game the checkpoint existed to serve.
+CHECKPOINT_TICK_SLACK_MINUTES = 10
+
 #: How late a missed checkpoint may still be served. Past this it is abandoned
-#: rather than fired at a useless moment; the next checkpoint takes over.
+#: rather than fired at a useless moment; the next checkpoint takes over. It
+#: must exceed the scheduler tick so a tick always lands inside some window.
 CHECKPOINT_GRACE_MINUTES = 20
+
+#: A success this recently already did what the checkpoint was for. Safely
+#: below the 215-minute minimum spacing between checkpoints in a minimal
+#: cover, so it can never suppress a genuinely distinct checkpoint.
+CHECKPOINT_SATISFIED_LOOKBACK_MINUTES = 60
 
 
 @dataclass(frozen=True)
@@ -144,55 +159,72 @@ def decision_cutoff(first_pitch: datetime) -> datetime:
     return _aware(first_pitch) - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
 
 
-def coverage_window(checkpoint: datetime) -> tuple[datetime, datetime]:
-    """The cutoffs a request at ``checkpoint`` can serve, inclusive."""
+def coverage_window(observed_at: datetime) -> tuple[datetime, datetime]:
+    """The cutoffs an observation at ``observed_at`` actually serves, inclusive.
 
-    checkpoint = _aware(checkpoint)
+    This is the TRUE predicate, derived from the decision contract. Use it to
+    verify coverage after the fact, with the instant the request really happened.
+    """
+
+    observed_at = _aware(observed_at)
     return (
-        checkpoint + timedelta(minutes=INGEST_HEADROOM_MINUTES),
-        checkpoint + timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES),
+        observed_at + timedelta(minutes=INGEST_HEADROOM_MINUTES),
+        observed_at + timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES),
     )
 
 
-def covers(checkpoint: datetime, cutoff: datetime) -> bool:
-    earliest, latest = coverage_window(checkpoint)
+def covers(observed_at: datetime, cutoff: datetime) -> bool:
+    earliest, latest = coverage_window(observed_at)
     return earliest <= _aware(cutoff) <= latest
 
 
-def plan_checkpoints(
-    first_pitches: list[datetime],
-    *,
-    now: datetime,
-) -> list[datetime]:
-    """The minimum set of request instants covering every still-open game.
+def planned_coverage_window(checkpoint: datetime) -> tuple[datetime, datetime]:
+    """What a checkpoint may be CREDITED with, assuming it fires late.
 
-    Games whose cutoff has already passed are dropped: nothing collected now can
-    reach a decision that has already been made, so collection stops at the
-    cutoff exactly as required. A checkpoint that would fall in the past is
-    pulled forward to ``now`` when it can still cover its game, and abandoned
-    when it cannot -- an unreachable checkpoint is never scheduled, because
-    firing it would spend a credit that cannot change any decision.
+    Narrower than the true window by the tick slack at both ends, so a request
+    that lands anywhere in ``[checkpoint, checkpoint + slack]`` still genuinely
+    covers everything the plan credited to it.
     """
 
-    now = _aware(now)
-    cutoffs = sorted(
-        cutoff for cutoff in (decision_cutoff(start) for start in first_pitches)
-        # Strictly future cutoffs only. A cutoff inside INGEST_HEADROOM cannot be
-        # served by a request issued now, so it is already lost.
-        if cutoff >= now + timedelta(minutes=INGEST_HEADROOM_MINUTES)
+    checkpoint = _aware(checkpoint)
+    slack = timedelta(minutes=CHECKPOINT_TICK_SLACK_MINUTES)
+    return (
+        checkpoint + timedelta(minutes=INGEST_HEADROOM_MINUTES) + slack,
+        checkpoint + timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES) - slack,
     )
+
+
+def planned_covers(checkpoint: datetime, cutoff: datetime) -> bool:
+    earliest, latest = planned_coverage_window(checkpoint)
+    return earliest <= _aware(cutoff) <= latest
+
+
+def plan_checkpoints(first_pitches: list[datetime]) -> list[datetime]:
+    """The minimum set of request instants covering every game on the slate.
+
+    Deliberately a pure function of the SLATE, never of ``now``. An earlier
+    draft derived the cover relative to the current instant, which produced two
+    failures at once: every checkpoint landed strictly in the future so a tick
+    could never reach one (nothing ever fired), and the cover re-anchored on
+    every tick so the request count drifted from 1-3 a day up to 6-13. A cover
+    that is a function of the day's cutoffs alone is stable across ticks and
+    across restarts, and can be reasoned about in advance.
+    """
+
+    cutoffs = sorted(decision_cutoff(start) for start in first_pitches)
     checkpoints: list[datetime] = []
     index = 0
     while index < len(cutoffs):
-        target = cutoffs[index]
         # Place the request at the LATEST instant that still covers the earliest
         # uncovered cutoff. Any later and this game is missed; any earlier and
         # the 240-minute window is spent on time that has already elapsed, so
         # fewer later games ride along on the same credit. This right-endpoint
         # choice is what makes the cover minimal.
-        checkpoint = max(now, target - timedelta(minutes=INGEST_HEADROOM_MINUTES))
+        checkpoint = cutoffs[index] - timedelta(
+            minutes=INGEST_HEADROOM_MINUTES + CHECKPOINT_TICK_SLACK_MINUTES
+        )
         checkpoints.append(checkpoint)
-        while index < len(cutoffs) and covers(checkpoint, cutoffs[index]):
+        while index < len(cutoffs) and planned_covers(checkpoint, cutoffs[index]):
             index += 1
     return checkpoints
 
@@ -230,9 +262,17 @@ class SportPlan:
     policy: SportCollectionPolicy
     checkpoints: list[datetime] = field(default_factory=list)
     cutoffs: list[datetime] = field(default_factory=list)
+    #: Checkpoints that can still fire; the rest are already past their grace.
+    outstanding: list[datetime] = field(default_factory=list)
 
     @property
     def projected_credits(self) -> int:
+        """What the REST of today will cost, not what the whole day cost."""
+
+        return len(self.outstanding) * self.policy.credit_cost
+
+    @property
+    def day_credits(self) -> int:
         return len(self.checkpoints) * self.policy.credit_cost
 
     def as_dict(self) -> dict[str, object]:
@@ -244,6 +284,8 @@ class SportPlan:
             "credit_cost_per_request": self.policy.credit_cost,
             "open_games": len(self.cutoffs),
             "checkpoints": [c.isoformat() for c in self.checkpoints],
+            "outstanding_checkpoints": [c.isoformat() for c in self.outstanding],
+            "day_credits": self.day_credits,
             "projected_credits": self.projected_credits,
             "rationale": self.policy.rationale,
         }
@@ -255,11 +297,24 @@ def build_sport_plan(
     *,
     now: datetime,
 ) -> SportPlan:
+    """The day's stable cover, plus the cutoffs that are still reachable.
+
+    ``now`` narrows what is REPORTED as still outstanding; it never moves a
+    checkpoint. ``projected_credits`` counts only the checkpoints that can still
+    fire, so the operator sees what today will still cost, not what it cost.
+    """
+
+    now = _aware(now)
+    checkpoints = plan_checkpoints(first_pitches)
     cutoffs = sorted(decision_cutoff(start) for start in first_pitches)
     return SportPlan(
         policy=policy,
-        checkpoints=plan_checkpoints(first_pitches, now=now),
-        cutoffs=[c for c in cutoffs if c >= _aware(now) + timedelta(minutes=INGEST_HEADROOM_MINUTES)],
+        checkpoints=checkpoints,
+        cutoffs=cutoffs,
+        outstanding=[
+            checkpoint for checkpoint in checkpoints
+            if checkpoint + timedelta(minutes=CHECKPOINT_GRACE_MINUTES) >= now
+        ],
     )
 
 
@@ -271,28 +326,31 @@ def due_checkpoint(
 ) -> DueCheckpoint | None:
     """The one checkpoint this sport should serve now, if any.
 
-    A checkpoint is DUE when ``now`` has reached it, it has not been overtaken by
-    the next checkpoint, it is still inside its grace period, and no successful
-    request for this sport has already happened at or after it. Deriving
-    "already served" from the persisted ledger rather than in-memory state makes
-    this idempotent across restarts and impossible to double-spend: two ticks in
-    the same window see the same answer, and the second one sees the first one's
-    success.
+    A checkpoint is DUE when ``now`` lies inside its serving window
+    ``[checkpoint, checkpoint + grace]`` and no successful request has already
+    satisfied it. The window matters: a scheduler ticking every few minutes
+    will never land on an instant, so an instant-equality rule fires never.
+
+    "Already satisfied" is read from the persisted ledger rather than memory, so
+    two ticks in the same window cannot double-spend and a restart changes
+    nothing. The lookback is generous because consecutive checkpoints in a
+    minimal cover are at least ``MAX_QUOTE_STALENESS - INGEST_HEADROOM`` apart,
+    so it can suppress a repeat but never a genuinely different checkpoint.
     """
 
     now = _aware(now)
     last_success_at = _aware(last_success_at) if last_success_at else None
-    for index, checkpoint in enumerate(plan.checkpoints):
-        following = plan.checkpoints[index + 1] if index + 1 < len(plan.checkpoints) else None
+    for checkpoint in plan.checkpoints:
         if now < checkpoint:
-            return None  # the next checkpoint is still in the future
-        if following is not None and now >= following:
-            continue  # overtaken; the later checkpoint is the live one
+            return None  # the next checkpoint is still ahead; nothing is due yet
         if now > checkpoint + timedelta(minutes=CHECKPOINT_GRACE_MINUTES):
-            continue  # missed beyond its grace; do not spend on a stale slot
-        if last_success_at is not None and last_success_at >= checkpoint:
-            continue  # already served by a successful request
-        covered = sum(1 for cutoff in plan.cutoffs if covers(checkpoint, cutoff))
+            continue  # missed beyond its grace; the credit can no longer help
+        if (
+            last_success_at is not None
+            and last_success_at >= checkpoint - timedelta(minutes=CHECKPOINT_SATISFIED_LOOKBACK_MINUTES)
+        ):
+            continue  # a recent success already covers what this checkpoint is for
+        covered = sum(1 for cutoff in plan.cutoffs if planned_covers(checkpoint, cutoff))
         return DueCheckpoint(
             league_code=plan.policy.league_code,
             sport_key=plan.policy.sport_key,
@@ -328,6 +386,8 @@ def project_month(
 
 __all__ = [
     "CHECKPOINT_GRACE_MINUTES",
+    "CHECKPOINT_TICK_SLACK_MINUTES",
+    "CHECKPOINT_SATISFIED_LOOKBACK_MINUTES",
     "DueCheckpoint",
     "FINAL_FREEZE_WINDOW_MINUTES",
     "FINAL_PREGAME_CUTOFF_MINUTES",
@@ -340,6 +400,8 @@ __all__ = [
     "SportPlan",
     "build_sport_plan",
     "coverage_window",
+    "planned_covers",
+    "planned_coverage_window",
     "covers",
     "decision_cutoff",
     "due_checkpoint",
