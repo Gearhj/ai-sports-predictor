@@ -66,6 +66,7 @@ export interface NflMarketBlock {
   settlement_note?: string
   three_way?: { home: number; away: number; tie: number }
   model?: { a: number | null; b: number | null; push: number }
+  model_comparable?: { a: number | null; b: number | null }
   market_implied?: { a: number; b: number }
   market_no_vig?: { a: number; b: number }
   edge?: { a: number | null; b: number | null }
@@ -165,6 +166,53 @@ export interface NflResearchCandidate extends NflSupplementSummary {
   separately_calibrated_win_probabilities?: { home?: number; away?: number; tie?: number } | null
   explorer: NflExplorer
   market_comparison: NflMarketComparison
+  representative_finals?: Array<{ label?: string; homeScore: number; awayScore: number; simulationIndex?: number }>
+}
+
+/** Producer V1 drive facts. Yardline100 is distance to the opponent goal. */
+export interface NflRecordedDrive {
+  driveNumber: number
+  period: string
+  periodSecondsBefore: number
+  periodSecondsAfter: number
+  durationSeconds: number
+  possession: 'HOME' | 'AWAY'
+  offenseTeam: string
+  startYardline100: number
+  endYardline100: number | null
+  outcome: string
+  homePointsAdded: number
+  awayPointsAdded: number
+  homeScoreAfter: number
+  awayScoreAfter: number
+}
+
+export interface NflRepresentativeGame {
+  label: string
+  simulationIndex: number
+  seed: number
+  homeScore: number
+  awayScore: number
+  reachedOvertime: boolean
+  finalTie: boolean
+  drives: NflRecordedDrive[]
+}
+
+export interface NflDriveScenario {
+  scenarioId: string
+  paceDurationMultiplier?: number
+  modelInputChange?: string | boolean
+  interpretation?: string
+}
+
+export interface NflScoreSummary {
+  expectedHomeScore: number
+  expectedAwayScore: number
+  expectedMarginHomeMinusAway: number
+  expectedTotal: number
+  homeWinProbability: number
+  awayWinProbability: number
+  tieProbability: number
 }
 
 export interface NflDrive {
@@ -188,7 +236,13 @@ export interface NflDriveSupplement extends NflSupplementSummary {
     overtime?: boolean
     modelLabel?: string
   } | null
-  paths?: unknown[]
+  paths?: NflRepresentativeGame[]
+  scenario?: NflDriveScenario
+  score_summary?: NflScoreSummary
+  explorer?: NflExplorer | null
+  historical_evidence_through_date?: string | null
+  limitations?: string[]
+  explains_m1_forecast?: boolean
 }
 
 export interface NflScenarioSupplement extends NflSupplementSummary {
@@ -203,6 +257,12 @@ export interface NflScenarioSupplement extends NflSupplementSummary {
       delta?: Record<string, number>
     }>
   } | null
+}
+
+export interface NflDriveScenarioGroup {
+  engine_id: string
+  baseline: NflDriveSupplement
+  scenarios: NflDriveSupplement[]
 }
 
 export interface NflResearchStudy extends NflSupplementSummary {
@@ -313,7 +373,7 @@ export interface NflGameDetail {
   engines: NflEngine[]
   research_candidates: NflResearchCandidate[]
   drive_theater: { available: boolean; supplements: NflDriveSupplement[]; requirement: string | null }
-  scenario_comparison: { available: boolean; supplements: NflScenarioSupplement[]; requirement: string | null }
+  scenario_comparison: { available: boolean; supplements: Array<NflScenarioSupplement | NflDriveScenarioGroup>; requirement: string | null }
   research_results: NflResearchResults
   data_mode?: 'live' | 'demo' | 'empty'
 }

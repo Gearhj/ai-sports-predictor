@@ -133,6 +133,12 @@ def dashboard_today(session: DatabaseSession, settings: AppSettings, event_date:
     )
 
 
+@router.get("/games/slate", response_model=DashboardData, tags=["forecasts"])
+def games_forecast_slate(session: DatabaseSession, settings: AppSettings, event_date: date | None = Query(None, alias="date")) -> DashboardData:
+    """Recorded MLB slate by date; never generate a forecast or change Today semantics."""
+    return ReadService(session, settings).dashboard(_today(event_date, settings))
+
+
 @router.get("/today", response_model=TodayAllSportsReadModel, tags=["forecasts"])
 def today_all_sports(
     session: DatabaseSession,
@@ -422,6 +428,14 @@ def experiment_comparison(session: DatabaseSession, settings: AppSettings) -> di
 
 
 # -- NFL product -----------------------------------------------------------
+@router.get("/nfl/markets/{season}/{week}", tags=["nfl"])
+def nfl_markets(season: int, week: int, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Stored model/book/crowd evidence; no refresh, execution or decisions."""
+    from app.services.unified_market_read import nfl_market_board
+
+    return nfl_market_board(session, settings, season, week)
+
+
 @router.get("/nfl/weeks", tags=["nfl"])
 def nfl_weeks(session: DatabaseSession, settings: AppSettings) -> dict:
     """Every imported NFL week with its event count, and the current week by the runtime clock."""

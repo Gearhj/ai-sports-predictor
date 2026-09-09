@@ -21,8 +21,9 @@ import {
   Activity, BarChart3, CalendarDays, Clock3, FlaskConical, LineChart,
   RefreshCw, ShieldCheck, Sparkles, Store, Users, Beaker,
 } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import { useCallback, useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useSportSelection } from '../hooks/useSportSelection'
 import { DecisionEventCard } from '../components/DecisionEventCard'
 import { DataModeBanner, DataStatePanel } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
@@ -92,7 +93,9 @@ const GROUP_META: Record<DecisionGroup, { title: string; blurb: string; empty: s
 }
 
 export function MultiSportTodayPage() {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.today)
+  const { sport, withSport } = useSportSelection()
+  const loader = useCallback((signal: AbortSignal) => endpoints.today(signal, sport === 'NFL' || sport === 'MLB' ? sport : null), [sport])
+  const { data, state, loading, error, refresh } = useApiResource(loader)
   const { registry, state: registryState } = useSportRegistry()
   const navigable = navigableRegistrySports(registry)
   const mlbDeskHref = sportNavigationHref(navigable.find((sport) => sport.league_code === 'MLB') ?? null)
@@ -139,10 +142,10 @@ export function MultiSportTodayPage() {
     )
   }
 
-  const sports = resolveAllSports(registry.sports)
+  const sports = resolveAllSports(registry.sports).filter(item => sport === 'ALL' || item.leagueCode === sport)
   const sportByLeague = new Map<string, ResolvedSport>(sports.map((sport) => [sport.leagueCode, sport]))
   const leagueOrder = registry.sports.map((sport) => sport.league_code)
-  const navigationByLeague = new Map(navigable.map((sport) => [sport.league_code, sportNavigationHref(sport)]))
+  const navigationByLeague = new Map(navigable.map((item) => [item.league_code, withSport('/games', item.league_code)]))
 
   // A game with two active policies produces two governed decisions that may
   // legitimately disagree, so the groups count DECISIONS. The event total is
@@ -295,7 +298,7 @@ export function MultiSportTodayPage() {
  * and simulation, with no real-money wagering.
  */
 function CommandHeader({
-  operationalDate, timezone, freshness, sports, navigationByLeague, onRefresh, refreshing,
+  operationalDate, timezone, freshness, onRefresh, refreshing,
 }: {
   operationalDate?: string
   timezone?: string
@@ -305,10 +308,11 @@ function CommandHeader({
   onRefresh?: () => void
   refreshing?: boolean
 } = {}) {
+  const { sport, withSport } = useSportSelection()
   return (
     <header className="command-header">
       <div className="command-header__main">
-        <p className="command-header__eyebrow">ALL SPORTS · DAILY COMMAND CENTER</p>
+        <p className="command-header__eyebrow">{sport === 'ALL' ? 'ALL SPORTS' : sport} · DAILY COMMAND CENTER</p>
         <h1 className="command-header__title">AI Sports Predictor</h1>
         <p className="command-header__value">{VALUE_STATEMENT}</p>
         <div className="command-header__meta">
@@ -331,7 +335,7 @@ function CommandHeader({
         <div className="command-header__buttons">
           {/* The simulators are a destination in their own right, so the way in
               sits in the header rather than inside one decision card. */}
-          <Link className="command-header__labs" to="/labs">
+          <Link className="command-header__labs" to={withSport("/labs")}>
             <Beaker size={14} aria-hidden="true" /> Open Interactive Labs
           </Link>
           {onRefresh && (
@@ -340,31 +344,6 @@ function CommandHeader({
             </button>
           )}
         </div>
-        {sports && (
-          <nav className="league-nav" aria-label="Sports and leagues">
-            {sports.map((sport) => {
-              const href = navigationByLeague?.get(sport.leagueCode as LeagueCode) ?? null
-              const label = `${sport.shortName} · ${sport.sportName}`
-              return href && sport.navigable
-                ? (
-                  <Link key={sport.leagueCode} className="league-nav__chip league-nav__chip--live" to={href}>
-                    <span aria-hidden="true">{sport.icon}</span> {sport.shortName}
-                  </Link>
-                )
-                : (
-                  <span
-                    key={sport.leagueCode}
-                    className="league-nav__chip league-nav__chip--planned"
-                    aria-disabled="true"
-                    title={`${label} — ${sport.availabilityLabel}`}
-                  >
-                    <span aria-hidden="true">{sport.icon}</span> {sport.shortName}
-                    <em>{sport.availabilityLabel}</em>
-                  </span>
-                )
-            })}
-          </nav>
-        )}
       </div>
     </header>
   )
@@ -478,7 +457,7 @@ function LeagueTile({ sport, section, decisionCount, href }: {
         {/* Named for what it opens, and it lands on the picker rather than on
             some arbitrary game. */}
         {labIsAvailable(sport) && sport.lab && (
-          <Link className="league-tile__lab" to={`/labs?league=${sport.leagueCode}`}>
+          <Link className="league-tile__lab" to={`/labs?sport=${sport.leagueCode}`}>
             Open {sport.shortName} {sport.lab.name.split('— ')[1] ?? 'Interactive Lab'}
           </Link>
         )}
@@ -697,7 +676,7 @@ function ExploreSection({ sports, navigationByLeague }: {
                 <span className="lab__status">{available ? 'Available' : 'Planned'}</span>
                 <span className="lab__blurb">
                   {available
-                    ? 'Open any MLB game and choose the simulator to explore its simulated score distribution.'
+                    ? 'Choose a game in Interactive Labs to explore its saved simulations.'
                     : sport.lab.description}
                 </span>
               </li>

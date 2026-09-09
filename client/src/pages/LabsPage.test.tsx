@@ -1,222 +1,77 @@
-/**
- * Interactive Labs discoverability and honesty.
- *
- * The guarantees under test: every league's lab is listed at its real status,
- * a planned lab carries no route, the game picker comes from the read model
- * rather than a hardcoded game, and a V18 action appears only for a game that
- * actually has a registered path.
- */
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LabsPage } from './LabsPage'
 import { SportRegistryProvider } from '../hooks/useSportRegistry'
+import { SportSelectionProvider } from '../hooks/useSportSelection'
 import { endpoints } from '../services/api'
 import { sportRegistryFixture } from '../test/sportRegistryFixture'
-import type { LabsGame, LabsGames } from '../types/labs'
+import type { LabsGames } from '../types/labs'
+import type { NflWeekOverview, NflWeeks } from '../types/nfl'
 
-function game(overrides: Partial<LabsGame> & { game_id: string }): LabsGame {
-  return {
-    label: 'TOR @ ATH', home_team: 'ATH', away_team: 'TOR',
-    starts_at: '2026-09-08T02:05:00Z', slate_date: '2026-09-07',
-    event_status: 'SCHEDULED', is_final: false, is_pregame: true,
-    home_score: null, away_score: null,
-    gen1_available: true, gen1_href: `/games/${overrides.game_id}/simulation?track=gen1`,
-    v18_available: false, v18_href: null, v18_forecast_id: null, v18_path_events: 0,
-    v18_forecast_at: null, v18_object_sha256: null,
-    v18_views: { broadcast: false, geometry: false, population: false },
-    v18_skip_category: null, v18_skip_reason: null,
-    analysis_href: `/games/${overrides.game_id}`,
-    ...overrides,
-  }
-}
+const MLB = {
+  schema_version: 'AISP_INTERACTIVE_LABS_V1', league: 'MLB', featured_slate_date: '2026-09-08',
+  games: [
+    { game_id: 'cle-bal', label: 'CLE @ BAL', slate_date: '2026-09-08', starts_at: '2026-09-08T23:00:00Z', event_status: 'FINAL', is_final: true, is_pregame: false, home_score: 4, away_score: 2,
+      gen1_available: true, gen1_href: '/games/cle-bal/simulation?track=gen1', v18_available: true, v18_href: '/games/cle-bal/simulation?track=v18',
+      v18_path_events: 76, v18_views: { broadcast: true, geometry: true, population: true }, analysis_href: '/games/cle-bal',
+      v18_expected_home: 4.5, v18_expected_away: 3.9, v18_simulation_count: 5000 },
+    { game_id: 'old', label: 'TOR @ ATH', slate_date: '2026-09-07', event_status: 'FINAL', is_final: true, gen1_available: true, gen1_href: '/games/old/simulation?track=gen1', v18_available: false,
+      v18_views: { broadcast: false, geometry: false, population: false }, analysis_href: '/games/old', v18_skip_reason: 'No saved starter evidence' },
+  ],
+} as unknown as LabsGames
+const WEEKS = { current: { season: 2026, week: 1 }, weeks: [{ season: 2026, week: 1 }] } as NflWeeks
+const NFL = {
+  season: 2026, week: 1, events: [{
+    event_id: '2026_01_NE_SEA', canonical_game_id: 'ne-sea', week: 1, state: 'UPCOMING', lab_available: true,
+    home: { name: 'Seattle Seahawks', abbreviation: 'SEA' }, away: { name: 'New England Patriots', abbreviation: 'NE' },
+    kickoff_utc: '2026-09-10T00:20:00Z', supplements: { joint_engines: [], drive_engines: ['NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2'], scenario_engines: ['NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2'] },
+    engines: [{ engine_id: 'NFL_M1_XGBOOST', model_label: 'M1 research shadow', expected_home_score: 22.7, expected_away_score: 19.9, simulation: { joint_available: true, count: 10000 }, timestamps: {} }],
+    drive_previews: [{ engine_id: 'NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2', scenario_id: 'BASE', expected_home_score: 23, expected_away_score: 20, simulation_count: 1000 }],
+  }],
+} as unknown as NflWeekOverview
 
-const WITH_V18 = game({
-  game_id: 'b8c8632f-7ae1-4ad0-9404-bd51aafa78fe',
-  v18_available: true,
-  v18_href: '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe/simulation?track=v18',
-  v18_forecast_id: 'mlb-v18-1', v18_path_events: 74,
-  v18_forecast_at: '2026-09-07T18:00:00Z', v18_object_sha256: 'a'.repeat(64),
-  v18_views: { broadcast: true, geometry: false, population: false },
-})
-const GEN1_ONLY = game({
-  game_id: 'game-2', label: 'CIN @ LAD',
-  v18_skip_category: 'MISSING_REQUIRED_EVIDENCE',
-  v18_skip_reason: 'starter identity and timestamp are required',
-})
-const FINISHED = game({
-  game_id: 'game-3', label: 'ATL @ PHI', slate_date: '2026-09-06',
-  event_status: 'FINAL', is_final: true, is_pregame: false,
-  home_score: 4, away_score: 2,
-})
-
-const PAYLOAD: LabsGames = {
-  schema_version: 'AISP_INTERACTIVE_LABS_V1',
-  league: 'MLB', generated_at: '2026-09-07T22:00:00Z',
-  eligible_count: 3, v18_count: 1, v18_skip_count: 1,
-  featured_slate_date: '2026-09-07', featured_v18_count: 1,
-  featured_v18_skip_count: 1,
-  games: [WITH_V18, GEN1_ONLY, FINISHED],
-  note: 'A game is listed only when its own persisted simulation can be replayed.',
-}
-
-function mount(search = '', payload: LabsGames | null = PAYLOAD) {
+function mount(search = '?sport=ALL') {
   vi.spyOn(endpoints, 'sportsRegistry').mockResolvedValue(sportRegistryFixture)
-  vi.spyOn(endpoints, 'labsGames').mockImplementation(
-    payload ? () => Promise.resolve(payload) : () => Promise.reject(new Error('offline')),
-  )
-  render(
-    <MemoryRouter initialEntries={[`/labs${search}`]}>
-      <SportRegistryProvider>
-        <Routes><Route path="/labs" element={<LabsPage />} /></Routes>
-      </SportRegistryProvider>
-    </MemoryRouter>,
-  )
+  vi.spyOn(endpoints, 'labsGames').mockResolvedValue(MLB)
+  vi.spyOn(endpoints, 'nflWeeks').mockResolvedValue(WEEKS)
+  vi.spyOn(endpoints, 'nflWeek').mockResolvedValue(NFL)
+  render(<MemoryRouter initialEntries={['/labs' + search]}><SportSelectionProvider><SportRegistryProvider><LabsPage /></SportRegistryProvider></SportSelectionProvider></MemoryRouter>)
 }
+afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear() })
 
-beforeEach(() => {
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-  vi.setSystemTime(new Date('2026-09-07T22:00:00Z'))
-})
-
-afterEach(() => {
-  cleanup()
-  vi.useRealTimers()
-  vi.restoreAllMocks()
-})
-
-describe('the lab list', () => {
-  it('lists every league lab at its real status', async () => {
+describe('Game-first unified Labs', () => {
+  it('puts real MLB and NFL games together immediately, on explicitly different windows', async () => {
     mount()
-    await screen.findByRole('heading', { name: 'MLB Diamond Simulator' })
-
-    const expected: Array<[string, string]> = [
-      ['MLB Diamond Simulator', 'Available'],
-      ['NFL Simulation Lab', 'Available'],
-      ['NBA Court Lab', 'Planned'],
-      ['WNBA Court Lab', 'Planned'],
-      ['NHL Ice Lab', 'Planned'],
-      ['UFC Fight Lab', 'Planned'],
-    ]
-    for (const [name, status] of expected) {
-      const card = screen.getByRole('heading', { name }).closest('article')!
-      expect(within(card).getByText(status)).toBeInTheDocument()
-    }
-    expect(document.querySelectorAll('.lab-card')).toHaveLength(6)
+    const cards = await screen.findAllByRole('article')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveAttribute('aria-label', 'MLB CLE @ BAL')
+    expect(cards[1]).toHaveAttribute('aria-label', 'NFL NE @ SEA')
+    expect(screen.queryByRole('heading', { name: 'TOR @ ATH' })).not.toBeInTheDocument()
+    expect(screen.getByText(/latest saved V18 slate/)).toBeInTheDocument()
+    expect(within(cards[0]).getByText(/5,000 simulations/)).toBeInTheDocument()
+    expect(within(cards[0]).getByRole('link', { name: /Enter V18 Diamond Simulator/ })).toHaveAttribute('href', '/games/cle-bal/simulation?track=v18&sport=MLB')
+    expect(within(cards[1]).getByRole('link', { name: /Enter NFL Outcome Explorer/ })).toHaveAttribute('href', '/games/ne-sea/simulation?view=explorer&engine=NFL_M1_XGBOOST&sport=NFL')
   })
-
-  it('gives a planned lab no route, no controls and no outputs', async () => {
-    mount()
-    await screen.findByRole('heading', { name: 'NHL Ice Lab' })
-    for (const name of ['NBA Court Lab', 'WNBA Court Lab', 'NHL Ice Lab', 'UFC Fight Lab']) {
-      const card = screen.getByRole('heading', { name }).closest('article')!
-      expect(card).toHaveAttribute('aria-disabled', 'true')
-      expect(card.querySelector('a')).toBeNull()
-      expect(card.querySelector('button')).toBeNull()
-      expect(within(card as HTMLElement).getByText('Not available yet')).toBeInTheDocument()
-    }
+  it('global NFL selection excludes MLB and selecting drive changes the real engine and destination', async () => {
+    const user = userEvent.setup()
+    mount('?sport=NFL')
+    const card = await screen.findByRole('article', { name: 'NFL NE @ SEA' })
+    expect(screen.queryByRole('article', { name: /MLB/ })).not.toBeInTheDocument()
+    expect(endpoints.labsGames).not.toHaveBeenCalled()
+    await user.selectOptions(screen.getByLabelText('Engine for NE @ SEA'), 'DRIVE')
+    expect(within(card).getByText('20.0 — 23.0')).toBeInTheDocument()
+    expect(within(card).getByText(/1,000 simulations/)).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: /Enter Drive Theater/ })).toHaveAttribute('href', '/games/ne-sea/simulation?view=drives&engine=NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2&sport=NFL')
   })
-
-  it('names each lab after its own sport, never after baseball', async () => {
-    mount()
-    await screen.findByRole('heading', { name: 'NHL Ice Lab' })
-    const nhl = screen.getByRole('heading', { name: 'NHL Ice Lab' }).closest('article')!
-    expect(nhl).toHaveTextContent('Hockey')
-    expect(nhl).not.toHaveTextContent(/diamond/i)
-    const ufc = screen.getByRole('heading', { name: 'UFC Fight Lab' }).closest('article')!
-    expect(ufc).toHaveTextContent('Mixed Martial Arts')
-  })
-})
-
-describe('the game picker', () => {
-  it('lists eligible games from the read model, grouped by their own date', async () => {
-    mount('?league=MLB')
-    expect(await screen.findByText('TOR @ ATH')).toBeInTheDocument()
-    expect(screen.getByText('CIN @ LAD')).toBeInTheDocument()
-    expect(screen.getByText('ATL @ PHI')).toBeInTheDocument()
-    expect(screen.getByText(/1 V18-enabled game/))
-      .toBeInTheDocument()
-    expect(screen.getByText(/1 forecast skip/)).toBeInTheDocument()
-  })
-
-  it('offers both tracks only where a V18 path exists', async () => {
-    mount('?league=MLB')
-    await screen.findByText('TOR @ ATH')
-
-    const withV18 = screen.getByText('TOR @ ATH').closest('article')!
-    expect(within(withV18).getByText('V18 AVAILABLE')).toBeInTheDocument()
-    expect(within(withV18).getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
-      .toHaveAttribute('href', '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe/simulation?track=gen1')
-    expect(within(withV18).getByRole('link', { name: /Open V18 Simulator/ }))
-      .toHaveAttribute('href', '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe/simulation?track=v18')
-    expect(withV18).toHaveTextContent(/Broadcast Replay only/)
-    expect(within(withV18).getByRole('link', { name: /Open game analysis/ }))
-      .toHaveAttribute('href', '/games/b8c8632f-7ae1-4ad0-9404-bd51aafa78fe')
-
-    // A Gen 1-only game must not imply a replay it does not have.
-    const gen1Only = screen.getByText('CIN @ LAD').closest('article')!
-    expect(within(gen1Only).getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
-      .toBeInTheDocument()
-    expect(within(gen1Only).queryByRole('link', { name: /Open V18/ })).not.toBeInTheDocument()
-    expect(within(gen1Only).getByText(/V18 forecast skipped: starter identity/i))
-      .toBeInTheDocument()
-  })
-
-  it('labels a preserved historical replay with its date and final score', async () => {
-    mount('?league=MLB')
-    await screen.findByText('ATL @ PHI')
-    const finished = screen.getByText('ATL @ PHI').closest('article')!
-    expect(within(finished).getByText('Final 2–4')).toBeInTheDocument()
-    expect(finished).toHaveTextContent(/September 6, 2026|2026-09-06|Sep 6/)
-    // It is still explorable, just not presented as live.
-    expect(within(finished).getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
-      .toBeInTheDocument()
-  })
-
-  it('does not hardcode a destination game', async () => {
-    const other = game({ game_id: 'only-game', label: 'SEA @ HOU' })
-    mount('?league=MLB', {
-      ...PAYLOAD, games: [other], eligible_count: 1, v18_count: 0, v18_skip_count: 0,
-      featured_v18_count: 0, featured_v18_skip_count: 0,
-    })
-    await screen.findByText('SEA @ HOU')
-    expect(screen.queryByText('TOR @ ATH')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Open Gen 1 Outcome Distribution/ }))
-      .toHaveAttribute('href', '/games/only-game/simulation?track=gen1')
-  })
-
-  it('states an empty or unreachable list rather than substituting one', async () => {
-    mount('?league=MLB', {
-      ...PAYLOAD, games: [], eligible_count: 0, v18_count: 0, v18_skip_count: 0,
-      featured_slate_date: null, featured_v18_count: 0, featured_v18_skip_count: 0,
-    })
-    expect(await screen.findByText(/No MLB game currently persists a simulation/i))
-      .toBeInTheDocument()
-
-    cleanup()
-    mount('?league=MLB', null)
-    expect(await screen.findByText(/No illustrative game was substituted/i)).toBeInTheDocument()
-  })
-
-  it('selects the available lab from the league query parameter', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    mount()
-    await screen.findByText('TOR @ ATH')
-    // MLB is the only available lab, so it is preselected and choosing it again
-    // is a no-op rather than a broken state.
-    const mlb = screen.getByRole('heading', { name: 'MLB Diamond Simulator' }).closest('article')!
-    await user.click(within(mlb as HTMLElement).getByRole('button', { name: /Choose a game/i }))
-    expect(screen.getByText('TOR @ ATH')).toBeInTheDocument()
-  })
-})
-
-describe('navigation', () => {
-  it('offers a breadcrumb back to the command center', async () => {
-    mount()
-    const crumbs = await screen.findByRole('navigation', { name: /breadcrumb/i })
-    expect(within(crumbs).getByRole('link', { name: /Daily command center/i }))
-      .toHaveAttribute('href', '/')
-    expect(within(crumbs).getByText('Interactive labs')).toHaveAttribute('aria-current', 'page')
+  it('preserves an explicit older MLB date and does not offer absent V18 evidence', async () => {
+    mount('?sport=MLB&date=2026-09-07')
+    const card = await screen.findByRole('article', { name: 'MLB TOR @ ATH' })
+    expect(screen.queryByRole('article', { name: /NFL/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: 'MLB CLE @ BAL' })).not.toBeInTheDocument()
+    expect(within(card).queryByRole('option', { name: /V18/ })).not.toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: /Enter Gen 1 Outcome Distribution/ })).toHaveAttribute('href', '/games/old/simulation?track=gen1&sport=MLB')
+    expect(within(card).getByText(/V18 forecast skipped: No saved starter evidence/)).toBeInTheDocument()
   })
 })

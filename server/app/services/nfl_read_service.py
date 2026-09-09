@@ -153,7 +153,14 @@ class NflReadService:
             .order_by(ResearchSupplement.imported_at.desc())
         )
         grouped: dict[str, list[ResearchSupplement]] = defaultdict(list)
+        latest_labs: set[tuple[str, str, str, str]] = set()
         for row in rows:
+            if row.contract_version == "NFL_LABS_CONTRACT_V1":
+                artifact = (row.payload or {}).get("artifact") or {}
+                key = (row.event_id, row.engine_id, row.kind, (artifact.get("scenario") or {}).get("scenarioId", "BASE"))
+                if key in latest_labs:
+                    continue
+                latest_labs.add(key)
             grouped[row.event_id].append(row)
         return grouped
 
@@ -291,10 +298,15 @@ class NflReadService:
 
         # Freshest complete pair; ties broken by the better home/over price.
         def pair_time(pair: dict[str, Any]) -> datetime:
-            return min(pair["a"]["_observed"], pair["b"]["_observed"])
+            return min(pair["a"]["_observed"] or datetime.min.replace(tzinfo=UTC),
+                       pair["b"]["_observed"] or datetime.min.replace(tzinfo=UTC))
         selected = max(pairs, key=pair_time)
         observed = pair_time(selected)
-        fresh = observed >= freshness_floor
+        reference = freshness_floor + timedelta(minutes=QUOTE_FRESHNESS_MINUTES)
+        fresh = observed >= freshness_floor and all(
+            side["_observed"] is not None and side["_observed"] <= reference
+            for side in (selected["a"], selected["b"])
+        )
         block: dict[str, Any] = {
             "market_type": market_type,
             "book": selected["book"],
@@ -307,15 +319,21 @@ class NflReadService:
             "reason": None,
         }
         if not fresh:
-            block["reason"] = "Quote is older than the freshness window; shown for reference only"
+            block["reason"] = "Quote timestamp is missing, future-dated or outside the freshness window; reference only"
             return block
         if cells is None or outcomes is None:
             block["reason"] = "No joint score distribution to compare against"
             return block
 
         a, b = selected["a"], selected["b"]
-        implied_a = arithmetic.implied_probability(a["american"])
-        implied_b = arithmetic.implied_probability(b["american"])
+        def implied(quote: dict[str, Any]) -> float | None:
+            if quote["american"] is not None and abs(quote["american"]) >= 100:
+                return arithmetic.implied_probability(quote["american"])
+            return 1.0 / quote["decimal"] if quote["decimal"] is not None and quote["decimal"] > 1 else None
+        implied_a, implied_b = implied(a), implied(b)
+        if implied_a is None or implied_b is None:
+            block["reason"] = "Two valid prices are required for a no-vig comparison"
+            return block
         no_vig_a, no_vig_b = arithmetic.no_vig_pair(implied_a, implied_b)
         if market_type == "MONEYLINE":
             tie = outcomes["tie"]
@@ -337,15 +355,26 @@ class NflReadService:
             query = arithmetic.total_query(cells, line=float(a["point"]))
             model_a, model_b, push = query["over"], query["under"], query["push"]
             block["settlement_note"] = "Push mass is stated separately and refunded."
+        # A two-sided no-vig book probability is conditional on no push.
+        # Preserve raw win/loss/push for EV; compare like settlement outcomes.
+        comparable_a = arithmetic.conditional_non_tie(model_a, push) if model_a is not None else None
+        comparable_b = arithmetic.conditional_non_tie(model_b, push) if model_b is not None else None
         block.update({
             "comparison_available": True,
             "model": {"a": model_a, "b": model_b, "push": push},
+            "model_comparable": {"a": comparable_a, "b": comparable_b},
             "market_implied": {"a": implied_a, "b": implied_b},
             "market_no_vig": {"a": no_vig_a, "b": no_vig_b},
-            "edge": {"a": arithmetic.edge(model_a, no_vig_a), "b": arithmetic.edge(model_b, no_vig_b)},
+            "edge": {"a": arithmetic.edge(comparable_a, no_vig_a), "b": arithmetic.edge(comparable_b, no_vig_b)},
             "expected_value": {
-                "a": arithmetic.expected_value(model_a or 0.0, a["decimal"], push=push) if a["decimal"] else None,
-                "b": arithmetic.expected_value(model_b or 0.0, b["decimal"], push=push) if b["decimal"] else None,
+                "a": arithmetic.expected_value(
+                    outcomes["home"] if market_type == "MONEYLINE" else (model_a or 0.0),
+                    a["decimal"], push=outcomes["tie"] if market_type == "MONEYLINE" else push,
+                ) if a["decimal"] else None,
+                "b": arithmetic.expected_value(
+                    outcomes["away"] if market_type == "MONEYLINE" else (model_b or 0.0),
+                    b["decimal"], push=outcomes["tie"] if market_type == "MONEYLINE" else push,
+                ) if b["decimal"] else None,
             },
             "authority": "RESEARCH_SHADOW — an edge shown here grants no wagering authority",
         })
@@ -488,10 +517,18 @@ class NflReadService:
                 "home": home, "away": away,
                 "engines": engines,
                 "snapshot_history_count": len(event_rows),
+                "drive_previews": [{
+                    "engine_id": s.engine_id, "simulation_count": s.simulation_count,
+                    "scenario_id": (((s.payload or {}).get("artifact") or {}).get("scenario") or {}).get("scenarioId"),
+                    "expected_home_score": ((s.payload or {}).get("summaries") or {}).get("expectedHomeScore"),
+                    "expected_away_score": ((s.payload or {}).get("summaries") or {}).get("expectedAwayScore"),
+                } for s in event_supplements if s.kind == KIND_DRIVE],
                 "supplements": {
                     "joint_engines": sorted({s.engine_id for s in event_supplements if s.kind == KIND_JOINT and s.engine_id}),
                     "drive_engines": sorted({s.engine_id for s in event_supplements if s.kind == KIND_DRIVE and s.engine_id}),
-                    "scenario_engines": sorted({s.engine_id for s in event_supplements if s.kind == KIND_SCENARIO and s.engine_id}),
+                    "scenario_engines": sorted({s.engine_id for s in event_supplements if s.engine_id and (
+                        s.kind == KIND_SCENARIO or (s.kind == KIND_DRIVE and
+                        (((s.payload or {}).get("artifact") or {}).get("scenario") or {}).get("modelInputChange") is True))}),
                 },
                 "lab_available": any(e["simulation"]["joint_available"] for e in engines)
                                  or any(s.kind == KIND_JOINT for s in event_supplements),
@@ -561,15 +598,26 @@ class NflReadService:
                 "explorer": self._explorer_from_cells(joint_rows, cells, outcomes, {
                     "kind": row.simulation_kind, "count": row.simulation_count, "seed": row.simulation_seed,
                 }),
+                "representative_finals": ((row.payload or {}).get("artifact") or {}).get("representativeFinals") or [],
                 "market_comparison": self._market_comparison(game_id, cells, outcomes, now),
             })
 
-        drives = [{**self._supplement_summary(r), "summaries": (r.payload or {}).get("summaries"),
-                   "paths": (r.payload or {}).get("paths")}
+        drives = [self._drive_supplement(r)
                   for r in event_supplements if r.kind == KIND_DRIVE]
+        drives.sort(key=lambda r: (r["engine_id"] or "", (r.get("scenario") or {}).get("scenarioId", "BASE")))
         scenarios = [{**self._supplement_summary(r), "summaries": (r.payload or {}).get("summaries"),
                       "scenarios": (r.payload or {}).get("scenarios")}
                      for r in event_supplements if r.kind == KIND_SCENARIO]
+        for base in drives:
+            if (base.get("scenario") or {}).get("scenarioId") != "BASE":
+                continue
+            alternatives = [r for r in drives if r["engine_id"] == base["engine_id"]
+                            and r.get("related_m1_forecast_id") == base.get("related_m1_forecast_id")
+                            and r.get("model") == base.get("model")
+                            and (r.get("scenario") or {}).get("modelInputChange") is True]
+            if alternatives:
+                scenarios.append({"engine_id": base["engine_id"], "baseline": base,
+                                  "scenarios": alternatives})
 
         return {
             "schema_version": SCHEMA_VERSION, "sport": SPORT, "now_utc": now.isoformat(),
@@ -605,6 +653,24 @@ class NflReadService:
                 ),
             },
             "research_results": self.research_results(),
+        }
+
+    def _drive_supplement(self, row: ResearchSupplement) -> dict[str, Any]:
+        payload = row.payload or {}
+        artifact = payload.get("artifact") or {}
+        joint = artifact.get("jointScoreDistribution") or []
+        cells = arithmetic.cells_from_distribution(joint) if joint else None
+        return {
+            **self._supplement_summary(row), "summaries": payload.get("summaries"),
+            "paths": payload.get("paths") or [], "scenario": artifact.get("scenario"),
+            "score_summary": artifact.get("scoreSummary"), "model": artifact.get("model"),
+            "limitations": artifact.get("limitations") or [],
+            "related_m1_forecast_id": artifact.get("relatedM1ForecastId"),
+            "historical_evidence_through_date": artifact.get("historicalEvidenceThroughDate"),
+            "explains_m1_forecast": artifact.get("explainsM1Forecast", False),
+            "explorer": self._explorer_from_cells(joint, cells, arithmetic.outcome_probabilities(cells), {
+                "kind": row.simulation_kind, "count": row.simulation_count, "seed": row.simulation_seed,
+            }) if cells else None,
         }
 
     def _explorer(self, forecast: ShadowForecast, joint_rows: list[dict[str, Any]],

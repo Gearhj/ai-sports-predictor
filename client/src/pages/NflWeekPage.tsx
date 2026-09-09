@@ -32,7 +32,7 @@ export function ConsumerStatusLine({ consumer }: { consumer: NflConsumerStatus }
   )
 }
 
-export function NflWeekPage() {
+export function NflWeekPage({ embedded = false }: { embedded?: boolean }) {
   const [params, setParams] = useSearchParams()
   const weeksResource = useApiResource<NflWeeks>(useCallback((signal: AbortSignal) => endpoints.nflWeeks(signal), []))
   const weeks = weeksResource.data
@@ -45,7 +45,7 @@ export function NflWeekPage() {
 
   const loader = useCallback(
     (signal: AbortSignal) => selected
-      ? endpoints.nflWeek(selected.season, selected.week, signal)
+      ? endpoints.nflMarketWeek(selected.season, selected.week, signal)
       : Promise.reject(new Error('No NFL week is available')),
     [selected],
   )
@@ -55,7 +55,7 @@ export function NflWeekPage() {
   const index = weeks?.weeks.findIndex((w) => selected && w.season === selected.season && w.week === selected.week) ?? -1
   const previous = index > 0 ? weeks?.weeks[index - 1] : null
   const next = index >= 0 && weeks && index < weeks.weeks.length - 1 ? weeks.weeks[index + 1] : null
-  const go = (season: number, week: number) => setParams({ season: String(season), week: String(week) }, { replace: true })
+  const go = (season: number, week: number) => { const next = new URLSearchParams(params); next.set('season',String(season)); next.set('week',String(week)); setParams(next) }
 
   const grouped = useMemo(() => {
     const map = new Map<string, NflWeekOverview['events']>()
@@ -68,15 +68,15 @@ export function NflWeekPage() {
 
   return (
     <div className="page nfl-page">
-      <nav className="breadcrumbs" aria-label="Breadcrumb">
+      {!embedded && <nav className="breadcrumbs" aria-label="Breadcrumb">
         <Link to="/">Daily command center</Link>
         <ChevronRight size={13} aria-hidden="true" />
-        <span aria-current="page">NFL research</span>
-      </nav>
+        <span aria-current="page">Games & Forecasts · NFL</span>
+      </nav>}
       <PageHeader
         eyebrow="NFL · RESEARCH SHADOW"
-        title={selected ? `${selected.season} season · Week ${selected.week}` : 'NFL research forecasts'}
-        description="Imported Model Studio research forecasts for every scheduled game: win, tie and score expectations, evidence freshness, and a Simulation Lab per game. Research only — nothing here is executable or creates a position."
+        title={selected ? `NFL · ${selected.season} season · Week ${selected.week}` : 'NFL forecasts'}
+        description="Every matchup, its expected score, and the simulations behind it. Research only — no position-taking authority."
       />
 
       <div className="nfl-weeknav" role="group" aria-label="Week navigation">
@@ -96,10 +96,10 @@ export function NflWeekPage() {
         <button type="button" className="secondary-button" disabled={!next} onClick={() => next && go(next.season, next.week)}>
           Week {next?.week ?? '—'} <ChevronRight size={14} aria-hidden="true" />
         </button>
-        <Link className="command-header__labs" to="/labs?league=NFL"><Beaker size={14} aria-hidden="true" /> NFL Simulation Lab</Link>
+        <Link className="command-header__labs" to={`/labs?sport=NFL${selected ? `&season=${selected.season}&week=${selected.week}` : ''}`}><Beaker size={14} aria-hidden="true" /> NFL Simulation Lab</Link>
       </div>
 
-      {data?.consumer && <ConsumerStatusLine consumer={data.consumer} />}
+      {data?.consumer && <details className="nfl-evidence-details"><summary>Import and source evidence</summary><ConsumerStatusLine consumer={data.consumer} /></details>}
 
       {!data && (
         <DataStatePanel
@@ -115,7 +115,7 @@ export function NflWeekPage() {
       {data && (
         <>
           <p className="nfl-counts">
-            {data.counts.events} games · {data.counts.upcoming} upcoming · {data.counts.started} started · {data.counts.final} final · {data.counts.with_joint_evidence} with joint score evidence · runtime clock {formatTimestamp(data.now_utc)}
+            {data.counts.events} games · {data.counts.upcoming} upcoming · {data.counts.started} started · {data.counts.final} final · {data.counts.with_joint_evidence} with simulations
           </p>
           {grouped.map(([day, events]) => (
             <section key={day} className="nfl-day" aria-label={day}>

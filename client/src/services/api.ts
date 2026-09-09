@@ -179,6 +179,8 @@ export const endpoints = {
   nflWeeks: (signal?: AbortSignal) => apiRequest<NflWeeks>('/nfl/weeks', {}, signal),
   nflWeek: (season: number, week: number, signal?: AbortSignal) =>
     apiRequest<NflWeekOverview>(`/nfl/weeks/${season}/${week}`, {}, signal),
+  nflMarketWeek: (season: number, week: number, signal?: AbortSignal) =>
+    apiRequest<NflWeekOverview>(`/nfl/markets/${season}/${week}`, {}, signal),
   nflGame: (gameId: string, signal?: AbortSignal) =>
     apiRequest<NflGameDetail>(`/nfl/games/${encodeURIComponent(gameId)}`, {}, signal),
   nflResearch: (signal?: AbortSignal) => apiRequest<NflResearchResults>('/nfl/research', {}, signal),

@@ -47,7 +47,7 @@ export function NflGamePage() {
       <nav className="breadcrumbs" aria-label="Breadcrumb">
         <Link to="/">Daily command center</Link>
         <ChevronRight size={13} aria-hidden="true" />
-        <Link to={`/nfl?season=${event.season}&week=${event.week}`}>NFL · Week {event.week}</Link>
+        <Link to={`/games?sport=NFL&season=${event.season}&week=${event.week}`}>NFL · Week {event.week}</Link>
         <ChevronRight size={13} aria-hidden="true" />
         <span aria-current="page">{away} @ {home}</span>
       </nav>
@@ -55,7 +55,7 @@ export function NflGamePage() {
         eyebrow={`NFL · WEEK ${event.week} · ${stateLabel(event.state).toUpperCase()} · RESEARCH SHADOW`}
         title={`${event.away?.name ?? away} at ${event.home?.name ?? home}`}
         description={`Kickoff ${event.kickoff_utc ? formatTimestamp(event.kickoff_utc) : 'not scheduled'}${event.final_score ? ` · final ${home} ${event.final_score.home}–${away} ${event.final_score.away}` : ''} · research shadow — not executable, no wagering authority.`}
-        actions={<Link className="primary-button" to={`/nfl/games/${event.canonical_game_id}/lab`}><FlaskConical size={14} aria-hidden="true" /> Open Simulation Lab</Link>}
+        actions={<Link className="primary-button" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}><FlaskConical size={14} aria-hidden="true" /> Open Simulation Lab</Link>}
       />
 
       <Panel title="What does our model predict?" eyebrow="FORECAST" className="section-panel"
@@ -98,7 +98,7 @@ export function NflGamePage() {
       </Panel>
 
       {data.research_candidates.length > 0 && (
-        <Panel title="Research candidates" eyebrow="SEPARATE RESEARCH MODELS" className="section-panel">
+        <Panel title="Saved score-distribution evidence" eyebrow="VERIFIED SUPPLEMENTS" className="section-panel">
           <ul className="nfl-candidates">
             {data.research_candidates.map((candidate) => (
               <li key={candidate.supplement_sha256}>
@@ -108,7 +108,7 @@ export function NflGamePage() {
               </li>
             ))}
           </ul>
-          <p className="muted">Candidates never overwrite or promote M1; each is bound to its own supplement.</p>
+          <p className="muted">An M1 supplement describes its saved score population, not a new model. Independent engines retain their own identity and never overwrite or promote M1.</p>
         </Panel>
       )}
 
@@ -117,7 +117,7 @@ export function NflGamePage() {
       </Panel>
 
       <p className="labs-return">
-        <Link className="lab-game__action" to={`/nfl/games/${event.canonical_game_id}/lab`}>Open the NFL Simulation Lab for this game <ArrowRight size={13} aria-hidden="true" /></Link>
+        <Link className="lab-game__action" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}>Open the NFL Simulation Lab for this game <ArrowRight size={13} aria-hidden="true" /></Link>
       </p>
     </div>
   )

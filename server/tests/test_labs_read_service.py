@@ -46,6 +46,10 @@ async def test_lists_only_games_whose_simulation_can_be_replayed(session, settin
         assert item["gen1_href"] == f"/games/{item['game_id']}/simulation?track=gen1"
         assert item["analysis_href"] == f"/games/{item['game_id']}"
     assert str(template.game_id) in {item["game_id"] for item in payload["games"]}
+    card = next(item for item in payload["games"] if item["game_id"] == str(template.game_id))
+    assert card["gen1_expected_home"] == template.expected_home_runs
+    assert card["gen1_expected_away"] == template.expected_away_runs
+    assert card["gen1_simulation_count"] == template.simulation_summary["simulations"]
 
 
 @pytest.mark.asyncio

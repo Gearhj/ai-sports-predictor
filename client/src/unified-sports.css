@@ -1,0 +1,49 @@
+.workspace-toolbar { display:flex; align-items:center; gap:20px; padding:20px 34px 0; max-width:1800px; margin:auto; }
+.global-sport-selector { display:flex; align-items:center; gap:12px; color:#53616d; font-size:11px; font-weight:800; letter-spacing:.1em; }
+.global-sport-selector select { min-width:170px; border:1px solid #c8d7da; border-radius:12px; padding:11px 35px 11px 14px; color:#132e3b; background:#fff; font:700 15px inherit; letter-spacing:0; }
+.workspace-context { color:#526672; font-size:13px; margin:0; }
+.main-content { min-width:0; }
+.page { width:100%; max-width:1800px; min-width:0; }
+.page .page { padding:0; margin-top:24px; }
+.unified-games-section { min-width:0; margin-top:24px; }
+.unified-games-section .page-header { margin-bottom:20px; }
+.unified-games-section .breadcrumbs { display:none; }
+.nfl-page, .nfl-day, .nfl-grid { min-width:0; width:100%; }
+.unified-games .nfl-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; }
+.nfl-card { min-width:0; overflow-wrap:anywhere; border-radius:18px; box-shadow:0 7px 24px #17384b0a; border-top:4px solid var(--team-accent,#286f9e); }
+.nfl-card__scoreboard { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:16px 0; text-align:center; background:linear-gradient(120deg,#edf6f8,#fff); border-radius:12px; }
+.nfl-card__scoreboard strong { display:block; font-size:34px; line-height:1.2; color:#173b4b; font-variant-numeric:tabular-nums; }
+.nfl-card__scoreboard small { color:#607582; font-size:11px; }
+.nfl-card__scoreboard b { font-size:13px; }
+.nfl-card__probs { margin:10px 0; }
+.nfl-card__prob strong { font-size:20px; }
+.nfl-card__prob--tie strong { font-size:15px; }
+.nfl-card__market { font-size:12px; padding:9px 0; color:#546571; }
+.nfl-card details { margin:10px 0; font-size:12px; }
+.nfl-card details summary { cursor:pointer; font-weight:600; }
+.nfl-card__actions { margin-top:auto; }
+.nfl-counts { font-size:14px; color:#506576; }
+.nfl-evidence-details { margin:14px 0; font-size:12px; overflow-wrap:anywhere; }
+.unified-game-grid, .lab-games__grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; }
+.lab-game { min-width:0; overflow-wrap:anywhere; border-radius:18px; }
+.lab-game__preview { height:64px; margin:-2px -2px 15px; border-radius:12px; position:relative; overflow:hidden; display:grid; place-items:center; background:repeating-linear-gradient(90deg,#123c37 0px,#123c37 44px,#174b40 44px,#174b40 88px); color:#fff; }
+.lab-game__preview--NFL { background:repeating-linear-gradient(90deg,#183a4d 0px,#183a4d 38px,#22485a 38px,#22485a 39px); }
+.lab-game__preview span { font-size:25px; opacity:.9; }
+.lab-game__preview small { position:absolute; right:10px; bottom:7px; font-size:10px; letter-spacing:.08em; }
+.lab-game__forecast { display:flex; justify-content:space-between; align-items:center; margin:12px 0; font-size:22px; font-weight:800; }
+.lab-filter-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:end; padding:14px 0; }
+.lab-filter-bar label { display:grid; gap:6px; font-size:12px; font-weight:700; }
+.lab-filter-bar select, .lab-filter-bar input { border:1px solid #c8d7da; border-radius:8px; padding:9px; min-width:160px; background:white; }
+.lab-games__day { min-width:0; }
+.lab-game__sample-count { font-size:12px; color:#516678; }
+.labs-overview { display:flex; flex-wrap:wrap; gap:12px; padding:12px 0; color:#536776; }
+.labs-overview strong { color:#1d4656; }
+.sport-research-section { margin:24px 0; }
+@media(max-width:1550px) { .unified-games .nfl-grid,.unified-game-grid,.lab-games__grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media(max-width:1220px) { .unified-games .nfl-grid,.unified-game-grid,.lab-games__grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:650px) { .unified-games .nfl-grid,.unified-game-grid,.lab-games__grid { grid-template-columns:minmax(0,1fr); } .workspace-toolbar { padding:16px 14px 0; gap:8px; flex-wrap:wrap; } .workspace-context { font-size:12px; } .global-sport-selector select { min-width:155px; } .lab-filter-bar label { flex:1; min-width:0; } .lab-filter-bar select,.lab-filter-bar input { min-width:0; width:100%; } }
+@media(prefers-reduced-motion:reduce) { .nfl-card, .lab-game { transition:none; } }
+@media(max-width:650px) {
+  .nfl-weeknav label { min-width:0; width:100%; max-width:100%; flex:1 1 100%; }
+  .nfl-weeknav select { width:0; min-width:0; max-width:100%; flex:1 1 0; text-overflow:ellipsis; }
+}

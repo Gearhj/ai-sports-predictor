@@ -13,6 +13,7 @@
  */
 import { Clock3 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { sportHref } from '../hooks/useSportSelection'
 import { SportEventCard, type SportEvent } from './SportEventCard'
 import { formatMoneyline, formatPct } from './ui'
 import { edgeDisplay, fairAmericanOdds, type GroupedGame } from '../services/dailyDecision'
@@ -84,7 +85,9 @@ export function toSportEvent(item: GroupedGame, now: number): SportEvent {
     readinessLabel: meta.label,
     readinessTone: meta.tone,
     evidenceFreshness: evidenceAge(selection.decision_timestamp, now),
-    detailHref: selection.detail_href,
+    detailHref: selection.league_code === 'NFL'
+      ? sportHref(`/games/${encodeURIComponent(selection.event_id)}`, 'NFL')
+      : selection.detail_href,
   }
 }
 
@@ -101,7 +104,9 @@ export function DecisionEventCard({ item, sport, now }: {
   // so it can never read as a tip on an unevaluated game.
   const showRank = selection.sport_rank != null && decision.group === 'READY'
   const labHref = labIsAvailable(sport) && sport.lab?.routeTemplate && selection.detail_href
-    ? `${selection.detail_href}/simulation`
+    ? selection.league_code === 'NFL'
+      ? sportHref(`/games/${encodeURIComponent(selection.event_id)}/simulation`, 'NFL')
+      : sportHref(`/games/${encodeURIComponent(selection.event_id)}/simulation`, 'MLB')
     : null
 
   return (

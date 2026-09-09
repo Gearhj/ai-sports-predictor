@@ -62,7 +62,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 describe('NflWeekPage', () => {
   it('renders one card per event with separate outcomes, analysis and lab links, and the import status', async () => {
     vi.spyOn(endpoints, 'nflWeeks').mockResolvedValue(WEEKS)
-    vi.spyOn(endpoints, 'nflWeek').mockResolvedValue(OVERVIEW)
+    vi.spyOn(endpoints, 'nflMarketWeek').mockResolvedValue(OVERVIEW)
     render(<MemoryRouter initialEntries={['/nfl']}><NflWeekPage /></MemoryRouter>)
 
     const cards = await screen.findAllByRole('article')
@@ -72,8 +72,8 @@ describe('NflWeekPage', () => {
     expect(first.getByText('SEA win').nextSibling).toHaveTextContent('57.4%')
     expect(first.getByText('NE win').nextSibling).toHaveTextContent('39.7%')
     expect(first.getByText('Tie').nextSibling).toHaveTextContent('3.0%')
-    expect(first.getByRole('link', { name: /Open game analysis/ })).toHaveAttribute('href', '/nfl/games/game-2026_01_NE_SEA')
-    expect(first.getByRole('link', { name: /Open NFL Simulation Lab/ })).toHaveAttribute('href', '/nfl/games/game-2026_01_NE_SEA/lab')
+    expect(first.getByRole('link', { name: /Game Analysis/ })).toHaveAttribute('href', '/games/game-2026_01_NE_SEA?sport=NFL')
+    expect(first.getByRole('link', { name: /Open NFL Simulation Lab/ })).toHaveAttribute('href', '/games/game-2026_01_NE_SEA/simulation?sport=NFL')
     expect(first.getByText(/Evidence readiness 78 of 100/)).toBeInTheDocument()
 
     expect(screen.getByLabelText('Research import status')).toHaveTextContent(/Automatic research import on/)

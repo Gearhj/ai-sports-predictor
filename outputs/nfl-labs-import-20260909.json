@@ -1,0 +1,554 @@
+{
+  "schema_version": "AISP_NFL_LABS_V1_IMPORT_RECEIPT",
+  "created_at": "2026-09-09T15:22:35.918386+00:00",
+  "applied": true,
+  "database": "asp",
+  "database_port": 5432,
+  "pointer_sha256": "5b6791acabaa7e1669bb36988cc8b6d855a1a8a330c1f72e6bed91e42ef21bec",
+  "verified_artifacts": 48,
+  "by_engine": {
+    "NFL_M1_XGBOOST": 16,
+    "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2": 32
+  },
+  "imported": 48,
+  "reused": 0,
+  "preservation_scope": "full rows within import transaction; concurrent external jobs excluded",
+  "preserved_before": {
+    "model_versions": {
+      "rows": 2,
+      "full_row_md5": "5cd62dd4d0ce94eaef6ac54783b60991"
+    },
+    "forecasts": {
+      "rows": 434,
+      "full_row_md5": "cd2dadee3867dfa416f17c179ca2f806"
+    },
+    "forecast_components": {
+      "rows": 1302,
+      "full_row_md5": "14f9721e3cacc3eb2dcf661e6790b1cf"
+    },
+    "official_asp_positions": {
+      "rows": 11,
+      "full_row_md5": "36828d234c9f9ddab4d3a32ced5e7f27"
+    },
+    "position_results": {
+      "rows": 10,
+      "full_row_md5": "47e7313dcd84ee9f0fa6b0553f2c050d"
+    },
+    "user_virtual_bankrolls": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "shadow_experiments": {
+      "rows": 3,
+      "full_row_md5": "61c7e900d414e4ac4f85aeb2174f5efc"
+    },
+    "shadow_experiment_decisions": {
+      "rows": 22631,
+      "full_row_md5": "6d295fc0eeb524ba5074289f762be730"
+    },
+    "shadow_forecasts": {
+      "rows": 2192,
+      "full_row_md5": "3bd2a24fa8b9ffb53704bff7c0428b35"
+    },
+    "shadow_forecast_bundles": {
+      "rows": 576,
+      "full_row_md5": "90fa5479bd2aa3ab58d7fba79d4e5f29"
+    },
+    "shadow_decision_settlements": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "provider_request_ledger": {
+      "rows": 654,
+      "full_row_md5": "fcc8aa74a2c0a04fd04d4c8a2b7707cb"
+    }
+  },
+  "preserved_after": {
+    "model_versions": {
+      "rows": 2,
+      "full_row_md5": "5cd62dd4d0ce94eaef6ac54783b60991"
+    },
+    "forecasts": {
+      "rows": 434,
+      "full_row_md5": "cd2dadee3867dfa416f17c179ca2f806"
+    },
+    "forecast_components": {
+      "rows": 1302,
+      "full_row_md5": "14f9721e3cacc3eb2dcf661e6790b1cf"
+    },
+    "official_asp_positions": {
+      "rows": 11,
+      "full_row_md5": "36828d234c9f9ddab4d3a32ced5e7f27"
+    },
+    "position_results": {
+      "rows": 10,
+      "full_row_md5": "47e7313dcd84ee9f0fa6b0553f2c050d"
+    },
+    "user_virtual_bankrolls": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "shadow_experiments": {
+      "rows": 3,
+      "full_row_md5": "61c7e900d414e4ac4f85aeb2174f5efc"
+    },
+    "shadow_experiment_decisions": {
+      "rows": 22631,
+      "full_row_md5": "6d295fc0eeb524ba5074289f762be730"
+    },
+    "shadow_forecasts": {
+      "rows": 2192,
+      "full_row_md5": "3bd2a24fa8b9ffb53704bff7c0428b35"
+    },
+    "shadow_forecast_bundles": {
+      "rows": 576,
+      "full_row_md5": "90fa5479bd2aa3ab58d7fba79d4e5f29"
+    },
+    "shadow_decision_settlements": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "provider_request_ledger": {
+      "rows": 654,
+      "full_row_md5": "fcc8aa74a2c0a04fd04d4c8a2b7707cb"
+    }
+  },
+  "protected_tables_unchanged": true,
+  "model_executions": 0,
+  "provider_calls": 0,
+  "official_writes": 0,
+  "records": [
+    {
+      "supplement_sha256": "33f627136f3e7b55265555164b4900068cce3f143a3300c491e0ef04ae512e4c",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:67584a9c59b560dab16beda0eb2bfd8155ebdb4b302b87ba6e2ade956b5e4be8",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "19353381fb265d4822fbad496365a398f02f9397441816cf0bf5f43e2db1d80d",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:1c1d19f19c6c13ff3ddb549603a8288b304abfb84741078b707749478b25f233",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "73b090a01a8df9c9f8f2f38f6867f53c3a5fa240410427e3f842fb6ea4e11074",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:2d9d0197aa7ef02c15a110cf7ce5f36ad2a87d2f1c2a92601d9989d5c487aec9",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "ad271fe60a8b7020b71b3c2725b4effe78347ae8e197996bdb80a4c69093a1ce",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:2f2534673a5429135c827d8ff7e514d0a7f930e9a50479ef7b7c7665f2ba121e",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "028e2f709a27b597567a1ce8666db79bf4c2ef56e0eef07cb13935d27f3016d7",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:28bbac455e1545734d9aa8a60489f02fc3b72b5d11f1eace9ed80dafcb9df6c9",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "fa690db84963d935c364f0a8a2cd13621336eb9a2323771d4bc4e5c17539f587",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:207900b38f7c2b10a25f6a2bcdd259fc637efb18689aaefd0df01705fcf4c385",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "aaa26986a01548aa7e60fa1a719a207abba59c33dc1342184adf4ac49d490d48",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:31af9665b6cb1993e617f22fb9b445068543ab2f06fd92aff8c525a931075c43",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "afeee18711367163d67b0700610dac85f5535bb2e77dabed6347dd7a50ef0d83",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:934ee53a97a25cc02b396fdccf6f878f6e692238ed0e6bbde2ca7fd173f8ea07",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "8231f3fd62dd5184a5be8eb8061f0128aaaedbf24c8b604dbb41a179cde19ad0",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:9f9b87c41cc07e5cc18ef670eac6fb64d7b537c889119ab18eca11ad7ae2e3ee",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "423636726793bcf07e31dbabad7ea38c978d405785a6e746fb215448930bdc7e",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:f920b7e30c9daf483d5b7c41af08ce21e8ec92146f1fb1e8780084b15b46d1b8",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "a5e8215d3e182d6a543cea908c4909d4c1fa9c8e324552cc736c594a322e7888",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:ee7b61ca4e5c309833c329231f3f89ccbcb03846828ab421a39b9198fc08f771",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "7c34d8c6a1ddd48f16ed94a61987e7b7a708ced83c3a30931f9a405e887b8f47",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:f36ef6cfd0abea229311ac3d394bb5fa3dc259dbd2c7177b574cc8533718d780",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "da3d3078ab35789164b858f850c8f343df0398545799349fad45b7b51b3ba236",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:f88069a93a6b72f93e39b1d0a086604e17d8b3d7c1fb27f9b4e9d784b255ea8d",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "295f17628982dff17afdb9ac1e7106f0d41ff94e24cf44122ee407e6855b9864",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:8bef56e9353e74386c7f6278bb32fe6e95c92daa3bd74b07a27c3fc02275a5bf",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "1e5c9a21bc7304f6f03609de85728559e658f86d348471ca3c3833a4e7eaccd9",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:b7f5ce9106de5db8366121cc62d80b72d34c00042a6048b27761aee0c885407f",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "4c55f82d767e2a9d09e852a98a2b8c6802abd0db2a51bc485ae0ddf8aa3ed855",
+      "kind": "JOINT_SCORE_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_M1_XGBOOST",
+      "forecast_id": "asp-sports-game-forecast:sha256:72a09fdcadedb1b8d0c6a1a41d277b0bd1f9ab848fe7c86423027b98722bbc35",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "100a8eb2199de990b7d89c66acc58c198a8a9b710725899556c9f724e533126a",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:99f44d93a38153795805503e184db6a15e360ae473338b7c131b92bcddf56675",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "13fc0b6c17b7f8d014ac1450aa4ba6f2ec253c2fc549d760a9d9f3da499a9113",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:e2d34782d15a0b32492fc4c94528243533c2983c590c3f008dc6765fdd132331",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "12c7f1ff03a7b99b4577ae5adc825dd35859598c855190330d483e4485e17af4",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:98a145cabb04afcd944ca991ee6d909f4d4cfb6187a18eb065199ea10d43dbce",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "bb37a2091053dbfb473a94cbba599c308bfc27550009cc1d81658afd22e5119c",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:e424f7d16159d406a70ae40bc5366a04471abac34398ac6a641f274fdfa765c4",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "e374c325e063a2bfed2bc7e92e1d0e8238c89c4bcb9467e25d8b12a959cf6ba2",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:3b3e2cc6550b804670c7027dcce497c3dcda162130d075c6aa1c97ae64c724b3",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "be5077bb485a294fdae46ca7fb0ad4497f6b845604d90ac4ddea3431d1fd447f",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:17cbd13a6f65eaea74202f418448b0dab549584033737651058b49d6cbfbd2f5",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "e24b405739ab4d84fcb14595e972986bc21cd18309ba61d22a5d84efe479a587",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:fb27aa14c0d8ca1f590b7b1da53e3ad220347c34fd628675a603a6a36f140ca9",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "9b493909444fb20ee8e171c4a7fa6ffe40726284890b9a5054ac65834ec58ab2",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:7bffd4d157073aebb8863e35c7910a8e59a682f4a053f9abf67bb1486c109dcf",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "5d32d51d873c25e5cdfe03df61e9144ef76f1af7cdd53c924f786171d51703a0",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:313c0d6f205cc05dfe8f32d0eb6ff5d863be2e02bb8955c1f8720483b795d03b",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "ba63fa8eaf443f60ae942ba9018236924a7f9795ac2cca56375413bffbbc049a",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:1f6e3fc67368e8c4cc3e8b7f34a9c68b7467fe16b46e93f3b02d0fd53dba5431",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "d2df5a9bec045d53e33c016cebc5113e1d8226f95e3d4be109e27f8b1d0e5e25",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:d97e99db85fa0f8c2391a1a285a9bb4c1458c37e331b2d551cec9a54e73f2d71",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "e1d3b3121f490b59f519cf3b3050ac9319287de527b66d6219978d5543033550",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:61ea31e7492d21db70aca4fc27b7510f6aaaac30b98cb1a83008841bbb2e210f",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "ef5c4270d472401ae455d1babc464b60039ba0b9aad66689256df67f078a3bd9",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:df443242dbc01787faca051babc026fa031efe225ddcba64d2e82709e4a4e7a3",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "2d34af2fd7347c7f253b19609735863f6e261fe23bb978aafd83d71f31ba6940",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:5f91ac25e9f40c0fdec3835f1cf48c9ad8662e92f624c2e78ee5e4785fa2d01a",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "9bc6b71a288b1658dca6392effed37ef21dd83dfa44b9ba12a3bf80e603473cf",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:c382212dcd4639740b8000285c9ec607d579bb114c421efa2453a671a7a7dccf",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "84c7be2656378839a0b69fcea53abfa6e534a881ca7ecc1ce9a439bec6d1f25f",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:51c051c609609514cff38df4630f8316de64d45828ced674aab6044f30a35444",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "8f3be9130d766945327a6850b0fe4eec903f0701d6eda4f18545f86d941b154a",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:559e971b6adae2d0880d136ae6cea85cbde6a88fa41f1dff9a33c3998907f540",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "826c1c484f728ffdaff104d92e541e46106b16734abd2f9dbb94d20d072acbfc",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:e3360a1823d3599187767731fd81026ccd756199aa5aacf5233fb00f0d10300e",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "472a2fe624f1d6379ea8aa486fe603bf3c9dfbbcbc9823a8e68b40848221f3c1",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:e9ce08e4a35839c3124fb39f7f4977f9a4eb90b8539ef6d339ee317b008a4b94",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "e26fc740181f3a70c8d43312c1743d62b3ddda3c7480c66955849a6612766e6b",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:4a01ec23cbef3e461a2ba74dfda9d03e948de55aa9a1ac6b45e95aea1abaad40",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "167abe32d1caccfe4f2323cd9b93600d9415c8d3a192f9d253e34778e7949790",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:a657a76a752189fe6baa3dbc694c7a2c98c1372e79db51bbf8a85db07b725a87",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "5c10cf6a476526bd5901741e152567cd1a68eae91388af35889ead30f3eaac71",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:35762a241bc6b4ed38e2e749ea61abe6b42e5449d9d9a1fda6b500f2107ddc80",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "2392f763d4abde573878cb0fc66f7452d5eb795a97f49b58f2b2b88d05039c57",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:3ce05ba4dcd62f5b4bfd563e60f9caae0cf05f7c440d5d962339930a83256156",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "26b55d23412f8f3a01321ea96f4a1580bf42d677e226c71307eaf25f3b5fab0e",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:5259625cb816324d1236e6899b47a7894e17b0b9390dc9a5596ec89de3723e83",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "5454f2295c836110bd7bb38af0b42afd81ef4e55b6d5078bdfdd132d365479c4",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:4bc40baef8e2ba86d0b6937afab61b3ddc1068744dbaceafb5f88244bde459c0",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "06bd695422b2a3f686bc482a50cf7923dd3cb06c855c7d73e4fceb4c792ff826",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:99a87b7de1e4b430ebd244e0670ed6b5bad10dac92c0d0ca8d4cad1c86617045",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "2a4592368f4948c2b8ead74aefa99e37d09f6c8e02dbe020307659d9888432a9",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:52e2f74d6c414c0ea32c5303d8ae93f5f9e2201f5bd9f94fa714e45e2af13896",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "2855d34485732243564c32513f595b57e2e5cda3d535bffbaf3bbd96fbf3a5c4",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:8d75071ae60e938fc1b2d7ba93d1eae59e00abc4f5005ed4693ad0b33422fa2f",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "31b8fce2ce38a570ae61f6160cd431477ac141ffcfbeb9060e7b71aa566e2e33",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:22f4a678b14586305f9f3d35ade75831f4a0f3564616efcac578bedae5f765f6",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "4ce7d8c57bdf5c209ccd94f1b0f9e236287ec66136b6a5bce6b1ef874ce25404",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:4fd2c9cad539b7bcb5fbd4dbc3266af1825fb1a5a884c88ccfe717a55a516eb7",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "a55aa2108b95ed9c7e85c2ac88ba21aa95a6bfb25a12be67a704d6fa89935636",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:cab6b778c1f41d17b80f3df090c5f60fc5b95d95764eaca92ecd768650e8d210",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false
+    },
+    {
+      "supplement_sha256": "2b846a96421e19940b938c122141efe343dc5c6cbf83cd3d3cd206a8d2ead3ce",
+      "kind": "DRIVE_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2",
+      "forecast_id": "asp-nfl-drive-research:sha256:35e1c4a799045b850092b33c40c0b0461b3ece34e89fb69546a62aeb8e5ddee6",
+      "scenario_id": "PACE_DURATION_0.95",
+      "idempotent_reuse": false
+    }
+  ]
+}

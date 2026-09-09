@@ -261,8 +261,33 @@ def consume_forecast_bundles(
         already.add(address)
 
     _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run)
+    _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run)
     _consume_lab_study(session, settings, outcome, dry_run=dry_run)
     return outcome.as_dict()
+
+
+def _consume_nfl_labs_v1(session: Session, exchange_root: Path, outcome: ConsumeOutcome,
+                         *, dry_run: bool) -> None:
+    """The producer V1 artifact family, in the existing immutable supplement registry."""
+    from app.forecast_exchange.nfl_labs_v1 import ROOT_NAME, register_labs_current, verify_labs_current
+    from app.forecast_exchange.supplements import SupplementImportError
+
+    root = exchange_root.parent if exchange_root.name == "aisp-daily-forecast-bundles" else exchange_root
+    if not (root / ROOT_NAME / "current.json").is_file():
+        return
+    try:
+        verified = verify_labs_current(root)
+        outcome.supplements_scanned += len(verified)
+        # Failure of this family must not roll back earlier bundle imports.
+        with session.begin_nested():
+            records = register_labs_current(session, verified, dry_run=dry_run)
+        for record in records:
+            if record["idempotent_reuse"]:
+                outcome.supplements_skipped.append(record["supplement_sha256"])
+            else:
+                outcome.supplements_accepted.append({**record, "would_import": dry_run})
+    except (SupplementImportError, OSError, ValueError, KeyError, TypeError) as error:
+        outcome.supplements_rejected.append({"family": "NFL_LABS_CONTRACT_V1", "reason": str(error)})
 
 
 def _consume_supplements(session: Session, settings: Settings, exchange_root: Path,

@@ -46,7 +46,7 @@ function Block({ block, homeTeam, awayTeam }: { block: NflMarketBlock; homeTeam:
       <div className="table-scroll">
         <table className="data-table">
           <thead>
-            <tr><th>Side</th><th>Price</th><th>Market implied</th><th>Market no-vig</th><th>Model</th><th>Edge</th><th>Unit EV</th></tr>
+            <tr><th>Side</th><th>Price</th><th>Market implied</th><th>Market no-vig</th><th>Model (no push)</th><th>Edge</th><th>Unit EV</th></tr>
           </thead>
           <tbody>
             {[a, b].map((q, i) => {
@@ -57,7 +57,7 @@ function Block({ block, homeTeam, awayTeam }: { block: NflMarketBlock; homeTeam:
                   <td>{american(q.american)}</td>
                   <td>{block.market_implied ? pct(block.market_implied[key]) : '—'}</td>
                   <td>{block.market_no_vig ? pct(block.market_no_vig[key]) : '—'}</td>
-                  <td>{block.model ? pct(block.model[key]) : '—'}</td>
+                  <td>{block.model_comparable ? pct(block.model_comparable[key]) : block.model ? pct(block.model[key]) : '—'}</td>
                   <td>{block.edge && block.edge[key] != null ? `${(block.edge[key]! * 100) >= 0 ? '+' : ''}${(block.edge[key]! * 100).toFixed(1)} pts` : '—'}</td>
                   <td>{block.expected_value && block.expected_value[key] != null ? block.expected_value[key]!.toFixed(3) : '—'}</td>
                 </tr>
@@ -66,7 +66,7 @@ function Block({ block, homeTeam, awayTeam }: { block: NflMarketBlock; homeTeam:
           </tbody>
         </table>
       </div>
-      {block.model && block.model.push > 0 && <p className="muted">Push {pct(block.model.push)} — refunded, counted for neither side.</p>}
+      {block.model && block.model.push > 0 && <p className="muted">Push {pct(block.model.push)} — refunded, counted for neither side. No-vig comparison conditions on no push; EV retains the raw win/loss/push mass.</p>}
       {block.three_way && (
         <p className="muted">
           Three-way forecast unchanged: {homeTeam} {pct(block.three_way.home)} · {awayTeam} {pct(block.three_way.away)} · tie {pct(block.three_way.tie)}. {block.settlement_note}

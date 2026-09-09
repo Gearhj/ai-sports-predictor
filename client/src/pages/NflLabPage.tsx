@@ -6,7 +6,7 @@
  * producer supplements and say plainly what they are waiting for otherwise.
  * No model is executed here.
  */
-import { ChevronRight } from 'lucide-react'
+import { BarChart3, ChevronRight, GitCompareArrows, Play } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { DriveTheater } from '../components/nfl/DriveTheater'
@@ -17,7 +17,8 @@ import { DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
-import type { NflExplorer, NflGameDetail } from '../types/nfl'
+import type { NflExplorer, NflGameDetail, NflRepresentativeGame } from '../types/nfl'
+import '../components/nfl/nfltheater.css'
 
 type View = 'explorer' | 'drives' | 'scenarios'
 
@@ -25,7 +26,8 @@ interface EngineChoice {
   key: string
   label: string
   explorer: NflExplorer | null
-  kind: 'M1' | 'CANDIDATE'
+  kind: 'M1' | 'CANDIDATE' | 'DRIVE'
+  representatives?: Array<{ homeScore: number; awayScore: number; label?: string; simulationIndex?: number }>
 }
 
 export function NflLabPage() {
@@ -39,11 +41,12 @@ export function NflLabPage() {
   const choices = useMemo<EngineChoice[]>(() => {
     if (!data) return []
     return [
-      ...data.engines.map((e) => ({ key: e.engine_id, label: e.model_label, explorer: e.explorer ?? null, kind: 'M1' as const })),
-      ...data.research_candidates.map((c) => ({ key: c.supplement_sha256, label: `${c.model_label} (research candidate)`, explorer: c.explorer, kind: 'CANDIDATE' as const })),
+      ...data.engines.map((e) => ({ key: e.engine_id, label: e.model_label, explorer: e.explorer ?? null, kind: 'M1' as const, representatives: data.research_candidates.find(c => c.engine_id === e.engine_id && c.forecast_id === e.forecast_id)?.representative_finals })),
+      ...data.research_candidates.filter(c => !data.engines.some(e => e.engine_id === c.engine_id && e.forecast_id === c.forecast_id)).map((c) => ({ key: c.supplement_sha256, label: `${c.model_label} · saved score population`, explorer: c.explorer, kind: 'CANDIDATE' as const, representatives: c.representative_finals })),
+      ...data.drive_theater.supplements.filter((s) => s.explorer).map((s) => ({ key: s.supplement_sha256, label: `Independent drive V2 · ${s.scenario?.scenarioId === 'BASE' ? 'BASE' : 'Pace sensitivity'}`, explorer: s.explorer ?? null, kind: 'DRIVE' as const, representatives: s.paths as NflRepresentativeGame[] | undefined })),
     ]
   }, [data])
-  const [engineKey, setEngineKey] = useState<string | null>(null)
+  const [engineKey, setEngineKey] = useState<string | null>(params.get('engine'))
   const choice = choices.find((c) => c.key === engineKey) ?? choices[0] ?? null
 
   if (!data) {
@@ -64,16 +67,20 @@ export function NflLabPage() {
   const home = event.home?.abbreviation ?? 'HOME'
   const away = event.away?.abbreviation ?? 'AWAY'
   const m1 = data.engines[0]
-  const setView = (next: View) => setParams({ view: next }, { replace: true })
+  const setView = (next: View) => setParams((previous) => { const nextParams = new URLSearchParams(previous); nextParams.set('sport', 'NFL'); nextParams.set('view', next); return nextParams }, { replace: true })
+  const initialDrive = data.drive_theater.supplements.find((s) => (s.supplement_sha256 === params.get('engine') || s.engine_id === params.get('engine') || params.get('engine') === 'NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2') && (!params.get('scenario') || s.scenario?.scenarioId === params.get('scenario')))
+  const market = m1?.market_comparison?.markets
+  const marketSpread = market?.find((m) => m.market_type === 'SPREAD' && m.fresh)?.line
+  const marketTotal = market?.find((m) => m.market_type === 'TOTAL' && m.fresh)?.line
 
   return (
     <div className="page nfl-page nfl-lab">
       <nav className="breadcrumbs" aria-label="Breadcrumb">
-        <Link to="/labs?league=NFL">Interactive labs</Link>
+        <Link to="/labs?sport=NFL">Interactive labs</Link>
         <ChevronRight size={13} aria-hidden="true" />
-        <Link to={`/nfl?season=${event.season}&week=${event.week}`}>NFL · Week {event.week}</Link>
+        <Link to={`/games?sport=NFL&season=${event.season}&week=${event.week}`}>NFL · Week {event.week}</Link>
         <ChevronRight size={13} aria-hidden="true" />
-        <Link to={`/nfl/games/${event.canonical_game_id}`}>{away} @ {home}</Link>
+        <Link to={`/games/${event.canonical_game_id}?sport=NFL`}>{away} @ {home}</Link>
         <ChevronRight size={13} aria-hidden="true" />
         <span aria-current="page">Simulation Lab</span>
       </nav>
@@ -84,13 +91,13 @@ export function NflLabPage() {
       />
 
       <div className="nfl-lab__bar">
-        <div className="analysis-tabs nfl-lab__tabs" role="tablist" aria-label="Lab views">
-          <button type="button" role="tab" aria-selected={view === 'explorer'} className={view === 'explorer' ? 'is-active' : ''} onClick={() => setView('explorer')}>Outcome Explorer</button>
+        <div className="nfl-mode-cards" role="tablist" aria-label="Lab views">
+          <button type="button" role="tab" aria-selected={view === 'explorer'} className={view === 'explorer' ? 'is-active' : ''} onClick={() => setView('explorer')}><BarChart3 size={26} /><span><strong>Outcome Explorer</strong><small>Explore every score, margin and total.</small></span></button>
           <button type="button" role="tab" aria-selected={view === 'drives'} className={view === 'drives' ? 'is-active' : ''} onClick={() => setView('drives')}>
-            Drive Theater{data.drive_theater.available ? '' : ' · awaiting evidence'}
+            <Play size={26} /><span><strong>Drive Theater</strong><small>{data.drive_theater.available ? 'Watch six recorded representative games.' : 'Awaiting recorded drive evidence.'}</small></span>
           </button>
           <button type="button" role="tab" aria-selected={view === 'scenarios'} className={view === 'scenarios' ? 'is-active' : ''} onClick={() => setView('scenarios')}>
-            Scenario Comparison{data.scenario_comparison.available ? '' : ' · awaiting evidence'}
+            <GitCompareArrows size={26} /><span><strong>Scenario Comparison</strong><small>{data.scenario_comparison.available ? 'BASE versus a precomputed pace sensitivity.' : 'Awaiting a verified scenario pair.'}</small></span>
           </button>
         </div>
         {view === 'explorer' && choices.length > 0 && (
@@ -104,7 +111,7 @@ export function NflLabPage() {
 
       {view === 'explorer' && (
         choice?.explorer
-          ? <OutcomeExplorer explorer={choice.explorer} homeTeam={home} awayTeam={away} engineLabel={choice.label} />
+          ? <OutcomeExplorer key={choice.key} explorer={choice.explorer} homeTeam={home} awayTeam={away} engineLabel={choice.label} representativeFinals={choice.representatives} marketSpread={marketSpread} marketTotal={marketTotal} onReplayRepresentative={choice.kind === 'DRIVE' ? (simulationIndex) => { setParams((previous) => { const next = new URLSearchParams(previous); next.set('sport', 'NFL'); next.set('view', 'drives'); next.set('engine', choice.key); next.set('simulation', String(simulationIndex)); return next }, { replace: true }) } : undefined} />
           : (
             <section className="theater-empty">
               <h3>Outcome Explorer — no joint score evidence</h3>
@@ -118,6 +125,8 @@ export function NflLabPage() {
           requirement={data.drive_theater.requirement}
           homeTeam={home} awayTeam={away}
           m1Label={m1?.model_label ?? 'M1'}
+          initialSupplement={initialDrive?.supplement_sha256}
+          initialRepresentative={params.has('simulation') ? Number(params.get('simulation')) : undefined}
         />
       )}
       {view === 'scenarios' && (
@@ -130,7 +139,7 @@ export function NflLabPage() {
       )}
 
       <p className="labs-return">
-        <Link to={`/nfl/games/${event.canonical_game_id}`}>Back to game analysis</Link> · <Link to={`/nfl?season=${event.season}&week=${event.week}`}>Back to Week {event.week}</Link>
+        <Link to={`/games/${event.canonical_game_id}?sport=NFL`}>Back to game analysis</Link> · <Link to={`/games?sport=NFL&season=${event.season}&week=${event.week}`}>Back to Week {event.week}</Link>
       </p>
     </div>
   )

@@ -11,7 +11,7 @@
  */
 import ReactECharts from 'echarts-for-react'
 import { Dices, Info } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FootballField } from './FootballField'
 import { MetricCard } from '../ui'
 import type { NflExplorer } from '../../types/nfl'
@@ -73,34 +73,41 @@ export function simulationLabel(simulation: NflExplorer['simulation']): string {
   return 'Simulation count not stated by the producer'
 }
 
-export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
+export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, marketSpread, marketTotal, representativeFinals = [], onReplayRepresentative }: {
   explorer: NflExplorer
   homeTeam: string
   awayTeam: string
   engineLabel: string
+  marketSpread?: number | null
+  marketTotal?: number | null
+  representativeFinals?: Array<{ homeScore: number; awayScore: number; label?: string; simulationIndex?: number }>
+  onReplayRepresentative?: (simulationIndex: number) => void
 }) {
   const cells = explorer.joint_score_distribution
   const [spreadLine, setSpreadLine] = useState<number>(() => -Math.round(explorer.expected.margin_home * 2) / 2)
   const [totalLine, setTotalLine] = useState<number>(() => Math.round(explorer.expected.total * 2) / 2)
   const [sampleIndex, setSampleIndex] = useState(0)
+  const [selectedCell, setSelectedCell] = useState<NflExplorer['joint_score_distribution'][number] | null>(null)
+  useEffect(() => { setSelectedCell(null); setSampleIndex(0); setSpreadLine(-Math.round(explorer.expected.margin_home * 2) / 2); setTotalLine(Math.round(explorer.expected.total * 2) / 2) }, [explorer])
 
   const spread = useMemo(() => spreadQuery(cells, spreadLine), [cells, spreadLine])
   const total = useMemo(() => totalQuery(cells, totalLine), [cells, totalLine])
   const sample = useMemo(
-    () => sampledOutcome(cells, explorer.simulation.seed ?? 0, sampleIndex),
-    [cells, explorer.simulation.seed, sampleIndex],
+    () => selectedCell ?? sampledOutcome(cells, explorer.simulation.seed ?? 0, sampleIndex),
+    [cells, explorer.simulation.seed, sampleIndex, selectedCell],
   )
 
   const heatmap = useMemo(() => {
     const maxHome = Math.max(...cells.map((c) => c.home))
     const maxAway = Math.max(...cells.map((c) => c.away))
-    const cap = Math.min(60, Math.max(maxHome, maxAway))
+    const cap = Math.max(maxHome, maxAway)
     const data = cells.filter((c) => c.home <= cap && c.away <= cap).map((c) => [c.away, c.home, c.probability])
     return {
+      animation: false,
       grid: { left: 44, right: 16, top: 12, bottom: 40 },
       tooltip: {
         formatter: (p: { value: [number, number, number] }) =>
-          `${homeTeam} ${p.value[1]} – ${awayTeam} ${p.value[0]}<br/>${pct(p.value[2], 2)}`,
+          `${homeTeam} ${p.value[1]} – ${awayTeam} ${p.value[0]}<br/>${pct(p.value[2], 3)} · click to select`,
       },
       xAxis: { type: 'category', name: `${awayTeam} points`, nameLocation: 'middle', nameGap: 26, data: Array.from({ length: cap + 1 }, (_, i) => i), axisLabel: { ...AXIS, interval: 6 } },
       yAxis: { type: 'category', name: `${homeTeam} points`, nameLocation: 'middle', nameGap: 30, data: Array.from({ length: cap + 1 }, (_, i) => i), axisLabel: { ...AXIS, interval: 6 } },
@@ -111,7 +118,8 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
 
   const marginChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
-    tooltip: { formatter: (p: { value: number; name: string }) => `${homeTeam} by ${p.name}: ${pct(p.value, 2)}` },
+    animation: false,
+    tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `${homeTeam} by ${p.name}: ${pct(p.value, 3)}` },
     xAxis: { type: 'category', data: explorer.margin_distribution.map((m) => m.margin), axisLabel: { ...AXIS, interval: 4 }, name: `${homeTeam} minus ${awayTeam}`, nameLocation: 'middle', nameGap: 24 },
     yAxis: { type: 'value', axisLabel: { ...AXIS, formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
     series: [{ type: 'bar', data: explorer.margin_distribution.map((m) => ({ value: m.probability, itemStyle: { color: m.margin > 0 ? '#ffb454' : m.margin < 0 ? '#4fb3ff' : '#8a98a7' } })), barCategoryGap: '15%' }],
@@ -119,7 +127,8 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
 
   const totalChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
-    tooltip: { formatter: (p: { value: number; name: string }) => `Total ${p.name}: ${pct(p.value, 2)}` },
+    animation: false,
+    tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `Total ${p.name}: ${pct(p.value, 3)}` },
     xAxis: { type: 'category', data: explorer.total_distribution.map((m) => m.total), axisLabel: { ...AXIS, interval: 4 }, name: 'Combined points', nameLocation: 'middle', nameGap: 24 },
     yAxis: { type: 'value', axisLabel: { ...AXIS, formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
     series: [{ type: 'bar', data: explorer.total_distribution.map((m) => m.probability), itemStyle: { color: '#1c7c8a' }, barCategoryGap: '15%' }],
@@ -127,6 +136,10 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
 
   const q = explorer.quantiles
   const step = (value: number, delta: number) => Math.round((value + delta) * 2) / 2
+  const matching = selectedCell ? representativeFinals.find((g) => g.homeScore === selectedCell.home && g.awayScore === selectedCell.away) : null
+  const chooseCell = (p: { value?: [number, number, number] }) => {
+    if (p.value) setSelectedCell(cells.find((c) => c.away === p.value![0] && c.home === p.value![1]) ?? null)
+  }
 
   return (
     <section className="explorer" aria-label="Outcome Explorer">
@@ -147,13 +160,14 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
         <FootballField
           awayTeam={awayTeam} homeTeam={homeTeam}
           awayScore={sample.away} homeScore={sample.home}
-          caption="Sampled final outcome — no sequential path"
+          caption={selectedCell ? 'Selected final-score outcome — no sequential path' : 'Sampled final outcome — no sequential path'}
+          compact
         >
           <span>
-            A draw from the model&rsquo;s own distribution ({pct(sample.probability, 2)} of outcomes end exactly {homeTeam} {sample.home}–{awayTeam} {sample.away}).
+            {selectedCell ? 'A selected outcome in' : 'A draw from'} the model&rsquo;s own distribution ({pct(sample.probability, 3)} of outcomes end exactly {homeTeam} {sample.home}–{awayTeam} {sample.away}).
             No drive, play or route is implied.
           </span>
-          <button className="text-button" type="button" onClick={() => setSampleIndex((v) => v + 1)}>
+          <button className="text-button" type="button" onClick={() => { setSelectedCell(null); setSampleIndex((v) => v + 1) }}>
             Draw another sampled outcome
           </button>
         </FootballField>
@@ -162,8 +176,11 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
       <div className="explorer__charts">
         <article className="explorer__chart explorer__chart--wide">
           <h3>Joint final-score heatmap</h3>
-          <ReactECharts option={heatmap} style={{ height: 320 }} opts={{ renderer: 'svg' }} notMerge />
-          <p className="muted">Most likely exact scores: {explorer.most_likely_scores.slice(0, 5).map((s) => `${homeTeam} ${s.home}–${awayTeam} ${s.away} (${pct(s.probability, 2)})`).join(' · ')}</p>
+          <p className="muted">Select a cell to inspect its exact probability. Every plotted score belongs to this engine.</p>
+          <ReactECharts option={heatmap} onEvents={{ click: chooseCell }} style={{ height: 360 }} opts={{ renderer: 'svg' }} notMerge />
+          <div className="nfl-score-shortcuts" aria-label="Likely score shortcuts">{explorer.most_likely_scores.slice(0, 8).map((s) => <button type="button" key={`${s.home}-${s.away}`} aria-pressed={selectedCell?.home === s.home && selectedCell?.away === s.away} onClick={() => setSelectedCell(s)}>{homeTeam} {s.home}–{awayTeam} {s.away} · {pct(s.probability, 2)}</button>)}</div>
+          <details className="nfl-lab-evidence"><summary>Choose any exact score with the keyboard</summary><label>Exact final score <select aria-label="Exact final score" value={selectedCell ? `${selectedCell.home}:${selectedCell.away}` : ''} onChange={(e) => { const [home, away] = e.target.value.split(':').map(Number); setSelectedCell(cells.find((c) => c.home === home && c.away === away) ?? null) }}><option value="">Choose a recorded score</option>{cells.map((c) => <option key={`${c.home}:${c.away}`} value={`${c.home}:${c.away}`}>{homeTeam} {c.home}–{awayTeam} {c.away} · {pct(c.probability, 3)}</option>)}</select></label></details>
+          {selectedCell && <div className="nfl-cell-selection" role="status"><strong>{homeTeam} {selectedCell.home}–{awayTeam} {selectedCell.away} · {pct(selectedCell.probability, 3)}</strong><span>{matching ? `Matches a supplied sampled final${matching.label ? `: ${matching.label}` : ''}.` : 'No supplied representative game has this exact final.'}</span>{matching?.simulationIndex != null && onReplayRepresentative && <button className="secondary-button" type="button" onClick={() => onReplayRepresentative(matching.simulationIndex!)}>Replay this representative</button>}</div>}
         </article>
         <article className="explorer__chart">
           <h3>Margin distribution</h3>
@@ -184,6 +201,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
             <input id="spread-line" type="number" step="0.5" value={spreadLine} onChange={(e) => setSpreadLine(Number(e.target.value))} />
             <button type="button" className="secondary-button" onClick={() => setSpreadLine((v) => step(v, 0.5))} aria-label="Raise the line">+</button>
           </div>
+          <div className="nfl-key-lines" aria-label="NFL key spread lines">{[-7, -3, 3, 7].map((line) => <button key={line} type="button" aria-pressed={spreadLine === line} onClick={() => setSpreadLine(line)}>{homeTeam} {line > 0 ? '+' : ''}{line}</button>)}{marketSpread != null && <button type="button" onClick={() => setSpreadLine(marketSpread)}>Current market {marketSpread > 0 ? '+' : ''}{marketSpread}</button>}</div>
           <dl className="explorer__result">
             <div><dt>{homeTeam} {spreadLine > 0 ? `+${spreadLine}` : spreadLine} covers</dt><dd>{pct(spread.home_cover)}</dd></div>
             <div><dt>{awayTeam} {-spreadLine > 0 ? `+${-spreadLine}` : -spreadLine} covers</dt><dd>{pct(spread.away_cover)}</dd></div>
@@ -198,6 +216,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel }: {
             <input id="total-line" type="number" step="0.5" value={totalLine} onChange={(e) => setTotalLine(Number(e.target.value))} />
             <button type="button" className="secondary-button" onClick={() => setTotalLine((v) => step(v, 0.5))} aria-label="Raise the total">+</button>
           </div>
+          {marketTotal != null && <div className="nfl-key-lines"><button type="button" onClick={() => setTotalLine(marketTotal)}>Current market total {marketTotal}</button></div>}
           <dl className="explorer__result">
             <div><dt>Over {totalLine}</dt><dd>{pct(total.over)}</dd></div>
             <div><dt>Under {totalLine}</dt><dd>{pct(total.under)}</dd></div>

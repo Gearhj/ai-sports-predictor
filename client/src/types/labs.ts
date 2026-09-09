@@ -17,6 +17,12 @@ export interface LabsGame {
   home_score: number | null
   away_score: number | null
   gen1_available: boolean
+  gen1_expected_home?: number | null
+  gen1_expected_away?: number | null
+  gen1_simulation_count?: number | null
+  v18_expected_home?: number | null
+  v18_expected_away?: number | null
+  v18_simulation_count?: number | null
   gen1_href: string | null
   v18_available: boolean
   v18_href: string | null

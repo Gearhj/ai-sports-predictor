@@ -3,9 +3,11 @@
  * answers is arithmetic on that one distribution.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OutcomeExplorer, sampledOutcome, simulationLabel, spreadQuery, totalQuery } from './OutcomeExplorer'
 import type { NflExplorer } from '../../types/nfl'
+
+vi.mock('echarts-for-react', () => ({ default: ({ onEvents }: { onEvents?: { click: (p: { value: [number, number, number] }) => void } }) => onEvents ? <button type="button" aria-label="Select heatmap cell" onClick={() => onEvents.click({ value: [20, 24, .45] })}>Heatmap cell</button> : <div /> }))
 
 const CELLS = [
   { home: 24, away: 20, probability: 0.45 },
@@ -53,6 +55,22 @@ describe('OutcomeExplorer arithmetic', () => {
 })
 
 describe('OutcomeExplorer rendering', () => {
+  it('selects an exact heatmap cell, links only a real representative and preserves key-line arithmetic', () => {
+    const replay = vi.fn()
+    render(<OutcomeExplorer explorer={EXPLORER} homeTeam="SEA" awayTeam="NE" engineLabel="Drive V2" representativeFinals={[{ homeScore: 24, awayScore: 20, simulationIndex: 17, label: 'Typical' }]} onReplayRepresentative={replay} marketSpread={-2.5} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Select heatmap cell' }))
+    expect(screen.getByText(/Matches a supplied sampled final: Typical/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Replay this representative' }))
+    expect(replay).toHaveBeenCalledWith(17)
+    fireEvent.click(screen.getByRole('button', { name: /^SEA \+3$/ }))
+    expect(screen.getAllByText('Push')[0].nextSibling).toHaveTextContent('35.0%')
+    fireEvent.click(screen.getByRole('button', { name: 'Current market -2.5' }))
+    expect(screen.getByLabelText(/SEA line/)).toHaveValue(-2.5)
+    fireEvent.change(screen.getByLabelText('Exact final score'), { target: { value: '17:20' } })
+    expect(screen.queryByRole('button', { name: 'Replay this representative' })).not.toBeInTheDocument()
+    expect(screen.getByText(/No supplied representative game has this exact final/)).toBeInTheDocument()
+    expect(screen.getByText('SEA win').nextSibling).toHaveTextContent('45.0%')
+  })
   it('shows home, away and tie as separate outcomes and a sampled final outcome on the field', () => {
     render(<OutcomeExplorer explorer={EXPLORER} homeTeam="SEA" awayTeam="NE" engineLabel="M1" />)
     expect(screen.getByText('SEA win').nextSibling).toHaveTextContent('45.0%')

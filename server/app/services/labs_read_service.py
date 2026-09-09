@@ -203,6 +203,12 @@ class LabsReadService:
                 "home_score": game.home_score,
                 "away_score": game.away_score,
                 "gen1_available": official is not None,
+                "gen1_expected_home": official.expected_home_runs if official else None,
+                "gen1_expected_away": official.expected_away_runs if official else None,
+                "gen1_simulation_count": (official.simulation_summary or {}).get("simulations") if official else None,
+                "v18_expected_home": shadow.get("expected_home") if shadow else None,
+                "v18_expected_away": shadow.get("expected_away") if shadow else None,
+                "v18_simulation_count": shadow.get("simulation_count") if shadow else None,
                 "gen1_href": (
                     f"/games/{game.id}/simulation?track=gen1" if official else None
                 ),
@@ -278,6 +284,9 @@ class LabsReadService:
             population = lineage.get("populationGeometry") or {}
             found[row.canonical_game_id] = {
                 "forecast_id": row.forecast_id,
+                "expected_home": row.full_expected_home_score,
+                "expected_away": row.full_expected_away_score,
+                "simulation_count": (row.uncertainty or {}).get("simulationCount"),
                 "path_events": events,
                 "forecast_at": (
                     _aware(row.forecast_cutoff_utc).isoformat()
