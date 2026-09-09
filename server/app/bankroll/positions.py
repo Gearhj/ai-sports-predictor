@@ -86,13 +86,30 @@ def publish_official_positions(session: Session, settings: Settings, games: list
     return created
 
 
+from sqlalchemy import or_
+
+from app.data_sources.provider_registry import GOVERNED_SOURCES, require_governed
+
+
 def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]]:
     rows = list(session.execute(
         select(MarketOutcome, OddsSnapshot, Sportsbook)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
-        .where(Market.game_id == game_id, Market.market_type == MarketType.MONEYLINE)
+        .where(
+            Market.game_id == game_id,
+            Market.market_type == MarketType.MONEYLINE,
+            # An official position is the most governed artefact in the system.
+            # This selection takes the BEST price across books, so without a
+            # provider predicate a research-fallback row could become the price
+            # of a real position. The pairing below groups by sportsbook only to
+            # compute no-vig; it is not a provenance barrier.
+            or_(
+                OddsSnapshot.source_mode != "LIVE",
+                OddsSnapshot.source.in_(GOVERNED_SOURCES),
+            ),
+        )
         .order_by(OddsSnapshot.observed_at.desc())
     ))
     latest: dict[tuple[Any, Any], tuple[MarketOutcome, OddsSnapshot, Sportsbook]] = {}
@@ -122,6 +139,9 @@ def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]
         side = session.scalar(select(GameTeam).where(GameTeam.game_id == game_id, GameTeam.team_id == best[0].participant_team_id))
         if not side:
             continue
+        # Belt and braces: refuse at the point of use, not only in the query.
+        if best[1].source_mode == "LIVE":
+            require_governed(best[1].source)
         candidates.append({
             "outcome": best[0], "snapshot": best[1], "book": best[2],
             "is_home": side.is_home,

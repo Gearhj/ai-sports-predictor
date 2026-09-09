@@ -444,8 +444,10 @@ class ProspectiveShadowService:
         away_outcome = next((o for o in outcomes if o.id != (home_outcome.id if home_outcome else None)), None)
         if home_outcome is None or away_outcome is None:
             return None
-        home = self._best_snapshot(home_outcome.id, closing=closing)
-        away = self._best_snapshot(away_outcome.id, closing=closing)
+        # The game's own mode decides the provider authority: a LIVE rescore is
+        # a governed gate and reads governed providers only.
+        home = self._best_snapshot(home_outcome.id, closing=closing, source_mode=game.source_mode)
+        away = self._best_snapshot(away_outcome.id, closing=closing, source_mode=game.source_mode)
         if home is None or away is None or home.american_odds is None or away.american_odds is None:
             return None
         result = no_vig_probabilities(
@@ -460,8 +462,17 @@ class ProspectiveShadowService:
             observed_at=max(home.observed_at, away.observed_at),
         )
 
-    def _best_snapshot(self, outcome_id, *, closing: bool) -> OddsSnapshot | None:
+    def _best_snapshot(
+        self, outcome_id, *, closing: bool, source_mode: str | None = "LIVE",
+    ) -> OddsSnapshot | None:
+        from app.data_sources.provider_registry import authorised_sources_for_mode
+
         stmt = select(OddsSnapshot).where(OddsSnapshot.market_outcome_id == outcome_id)
+        # The rescore this feeds is a governed gate, so a LIVE quote must come
+        # from a governed provider.
+        authorised = authorised_sources_for_mode(source_mode)
+        if authorised is not None:
+            stmt = stmt.where(OddsSnapshot.source.in_(authorised))
         if closing:
             stmt = stmt.where(OddsSnapshot.is_closing.is_(True))
         # Best available price = highest decimal odds; ties broken by recency.

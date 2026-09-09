@@ -563,6 +563,48 @@ def source_health(
     return ReadService(session, settings).health(_today(event_date, settings))
 
 
+@router.get("/admin/odds-collection", tags=["operations"])
+def admin_odds_collection(
+    session: DatabaseSession, settings: AppSettings, user: AdminUser,
+) -> dict:
+    """Operator view of odds credit consumption and the collection strategy.
+
+    Admin-gated on purpose. Credit balances, burn rate, projected exhaustion and
+    the provider's cost structure are operational facts, not public product
+    detail; the public read model already carries only whether the market feed
+    is blocked and why, with no numbers attached to money.
+
+    Read-only: it makes no provider request and spends no credit.
+    """
+
+    from app.data_sources import provider_registry
+    from app.data_sources.sportsgameodds import SportsGameOddsAdapter
+    from app.jobs.odds_quota_recovery import quota_state
+    from app.services import odds_budget
+    from app.services.odds_collection_service import OddsCollectionService
+
+    service = OddsCollectionService(session, settings)
+    status_payload = service.status()
+    floor = quota_state(
+        session,
+        floor=settings.odds_quota_floor,
+        probe_after_hours=settings.odds_quota_probe_after_hours,
+        probe_cooldown_hours=settings.odds_quota_probe_cooldown_hours,
+        renewal_days=settings.odds_quota_renewal_days,
+    )
+    window_start = odds_budget.billing_window()[0].date()
+    return {
+        **status_payload,
+        "provider_floor_guard": floor.as_dict(),
+        "spend_by_day": odds_budget.spend_by_day(session, since=window_start),
+        "providers": provider_registry.describe(),
+        "governed_sources": sorted(provider_registry.GOVERNED_SOURCES),
+        "fallback_provider": SportsGameOddsAdapter(
+            enabled=getattr(settings, "sportsgameodds_enabled", False),
+        ).readiness(),
+    }
+
+
 @router.get("/health", tags=["operations"])
 def application_health(session: DatabaseSession, user: AdminUser) -> dict:
     # Database-reachability detail is operational; gate it behind admin and use

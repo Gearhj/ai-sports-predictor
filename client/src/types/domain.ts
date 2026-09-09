@@ -1441,3 +1441,84 @@ export interface QualificationFunnel {
   starter_evidence_reconciliation?: Record<string, number>
   evidence_reference_policy?: string
 }
+
+/** Admin-only odds credit budget and collection plan (AISP_ODDS_OPERATOR_STATUS_V1). */
+export interface OddsCollectionStatus {
+  schema_version: 'AISP_ODDS_OPERATOR_STATUS_V1'
+  generated_at_utc: string
+  collection_mode: string
+  collection_reason: string
+  collection_detail: string
+  legacy_blanket_polling_enabled: boolean
+  data_mode?: DataMode
+  budget: {
+    provider: string
+    billing_window_start_utc: string
+    billing_window_end_utc: string
+    billing_window_basis: string
+    monthly_cap: number
+    reserve: number
+    reserve_intact: boolean
+    spent: number
+    ledger_spent: number
+    budgeted_remaining: number
+    provider_used: number | null
+    provider_remaining: number | null
+    provider_reading_at_utc: string | null
+    balance_state: string
+    balance_note: string
+    daily_cap: number
+    daily_spent: number
+    daily_remaining: number
+    requests_this_window: number
+    floor: number
+    floor_latched: boolean
+  }
+  projection: {
+    rate_credits_per_day: number
+    observed_rate_credits_per_day: number
+    days_remaining?: number
+    exhaustion_date: string | null
+    window_ends?: string
+    survives_the_month: boolean
+    note: string
+  }
+  planned_credits_remaining_today: number
+  plans: Array<{
+    league_code: string
+    sport_key: string
+    markets: string[]
+    regions: string[]
+    credit_cost_per_request: number
+    open_games: number
+    checkpoints: string[]
+    projected_credits: number
+    rationale: string
+  }>
+  next_checkpoint: Record<string, unknown> | null
+  provider_floor_guard: {
+    latched: boolean
+    remaining: number | null
+    floor: number
+    probe_blocked_reason?: string | null
+  } & Record<string, unknown>
+  spend_by_day: Array<{ day: string; endpoint_key: string; status: string; requests: number; credits: number }>
+  providers: Array<{
+    provider: string
+    display_name: string
+    governed: boolean
+    bookmaker_namespace: string
+    authority: string
+  }>
+  governed_sources: string[]
+  fallback_provider: {
+    provider: string
+    governed: boolean
+    enabled: boolean
+    mapping_state: string
+    mapping_detail: string
+    ready_to_enable: boolean
+    blocked_on: string
+    unverified_assumptions: Array<{ claim: string; settled_by: string }>
+  }
+}

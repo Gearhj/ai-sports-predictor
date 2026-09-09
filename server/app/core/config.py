@@ -86,6 +86,32 @@ class Settings(BaseSettings):
     #: daily/finalize owners that another supervised process already runs.
     scheduler_core_jobs_enabled: bool = True
     odds_daily_request_budget: int = Field(default=1, ge=0, le=100)
+    # --- Event-aware, quota-budgeted collection (AISP_ODDS_CHECKPOINT_V1) -----
+    # The provider plan is 500 credits per UTC calendar month and one odds
+    # request costs (markets x regions) credits. Blanket polling at 40
+    # requests/day x 3 markets burned 120 credits/day and exhausted the month in
+    # about four days. These settings bound spend independently of the provider
+    # floor, which they never relax.
+    odds_checkpoint_collection_enabled: bool = False
+    odds_monthly_credit_cap: int = Field(default=500, ge=0)
+    #: Never spent. Kept back for a manual refresh or an unexpected slate.
+    odds_monthly_credit_reserve: int = Field(default=150, ge=0)
+    #: Sized from the replayed schedule, not a guess: the worst MLB day needs 4
+    #: checkpoints (4 credits) and the worst NFL day 4 (12 credits), so an
+    #: overlapping late-September day peaks at 16. 18 leaves headroom for a
+    #: doubleheader without letting a runaway spend the month in a day.
+    odds_daily_credit_budget: int = Field(default=18, ge=0, le=500)
+    #: Comma-separated per-league market overrides, e.g. "MLB=h2h;NFL=h2h,spreads,totals".
+    #: Empty keeps the compiled defaults in app.services.odds_collection_plan.
+    odds_market_overrides: str = ""
+    # --- Research fallback provider (disabled; no account, no credential) -----
+    # Enabling this flag alone does NOT authorise a provider request: the
+    # adapter additionally requires a field-mapping manifest bound to a real
+    # observed response, which cannot exist until a call is authorised.
+    sportsgameodds_enabled: bool = False
+    sportsgameodds_api_key: str = ""
+    sportsgameodds_base_url: str = ""
+    sportsgameodds_mapping_path: str = ""
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False
     demo_mode: bool = True

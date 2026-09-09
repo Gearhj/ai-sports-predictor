@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Activity, Database, Gauge, KeyRound, Play, RefreshCw, ServerCog, TriangleAlert } from 'lucide-react'
 import { DataModeBanner, DataStatePanel, MetricCard, PageHeader, Panel, StatusPill, TableScroll } from '../components/ui'
 import { LiveShadowStatusCard } from '../components/LiveShadowStatusCard'
+import { OddsCollectionPanel } from '../components/OddsCollectionPanel'
 import { demoHealth } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { useAuth } from '../hooks/useAuth'
@@ -88,6 +89,8 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
       </section>
 
       <HistoricalWarehousePanel warehouse={data.historical_warehouse} />
+
+      {!demo && <OddsCollectionPanel />}
 
       <div className="source-grid-cards">
         {data.sources.map((source) => (

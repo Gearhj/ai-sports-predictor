@@ -22,6 +22,7 @@ import type {
 } from '../types/domain'
 import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
 import type { LabsGames } from '../types/labs'
+import type { OddsCollectionStatus } from '../types/domain'
 import type { NflConsumerStatus, NflGameDetail, NflResearchResults, NflWeekOverview, NflWeeks } from '../types/nfl'
 import type {
   PlayGeometryPayload,
@@ -185,6 +186,9 @@ export const endpoints = {
     apiRequest<NflGameDetail>(`/nfl/games/${encodeURIComponent(gameId)}`, {}, signal),
   nflResearch: (signal?: AbortSignal) => apiRequest<NflResearchResults>('/nfl/research', {}, signal),
   nflConsumer: (signal?: AbortSignal) => apiRequest<NflConsumerStatus>('/nfl/consumer', {}, signal),
+  /** Admin-gated: credit budget, collection plan and provider governance. */
+  oddsCollectionStatus: (signal?: AbortSignal) =>
+    apiRequest<OddsCollectionStatus>('/admin/odds-collection', {}, signal),
   shadowBoard: (slateDate: string, signal?: AbortSignal, sport?: string | null) => {
     const query = new URLSearchParams({ date: slateDate })
     if (sport) query.set('sport', sport)

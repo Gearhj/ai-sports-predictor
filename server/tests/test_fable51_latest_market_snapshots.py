@@ -111,7 +111,10 @@ def _seed(session) -> tuple[Game, dict[str, Any]]:
     def snap(outcome, book, t, *, mode="LIVE", odds=1.9, point=None):
         row = OddsSnapshot(
             market_outcome_id=outcome.id, sportsbook_id=book.id, observed_at=t, available_as_of=t,
-            american_odds=-110, decimal_odds=odds, point=point, source="test", source_mode=mode,
+            american_odds=-110, decimal_odds=odds, point=point, source_mode=mode,
+            # The governed read path filters on provider, so this fixture must
+            # use the governed provider to exercise the production reducer.
+            source="THE_ODDS_API",
         )
         session.add(row)
         return row

@@ -20,6 +20,7 @@ from app.data_sources.base import (
 )
 from app.markets.odds import american_implied_probability, american_to_decimal, game_match, team_name_match
 from app.features.talent import estimate_true_talent
+from app.data_sources.provider_registry import identity as provider_identity
 from app.models import (
     Batter,
     BullpenAvailabilityObservation,
@@ -972,10 +973,22 @@ class CanonicalNormalizer:
                 select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id == game.id)
             ))
             team_by_name = {team.name: team for _, team in game_teams}
+            # Bookmaker namespacing is enforced HERE, at the only place that
+            # creates Sportsbook rows, not in an adapter that a caller could
+            # bypass. Two providers reporting "draftkings" would otherwise share
+            # one Sportsbook row, and because the governed two-sided pairing
+            # keys on sportsbook_id, one side of a "same-book" quote could then
+            # come from a research provider.
+            provider = provider_identity(source)
             for book in event.bookmakers:
-                sportsbook = self.session.scalar(select(Sportsbook).where(Sportsbook.key == book.key))
+                book_key = provider.bookmaker_key(book.key)
+                book_name = (
+                    book.title if provider.governed
+                    else f"{book.title} ({provider.display_name}, research)"
+                )
+                sportsbook = self.session.scalar(select(Sportsbook).where(Sportsbook.key == book_key))
                 if not sportsbook:
-                    sportsbook = Sportsbook(key=book.key, name=book.title, region="us", active=True)
+                    sportsbook = Sportsbook(key=book_key, name=book_name, region="us", active=True)
                     self.session.add(sportsbook)
                     self.session.flush()
                 for market_dto in book.markets:
