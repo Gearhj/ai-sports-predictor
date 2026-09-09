@@ -127,6 +127,11 @@ class Settings(BaseSettings):
     sportsgameodds_api_key: str = ""
     sportsgameodds_base_url: str = ""
     sportsgameodds_mapping_path: str = ""
+    #: The last day the research fallback may serve a mandatory MLB moneyline.
+    #: It exists so the fallback expires by construction rather than by anyone
+    #: remembering: from this date The Odds API is primary again. Empty means no
+    #: authorized window at all, not an open one.
+    sportsgameodds_fallback_until: str = ""
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False
     demo_mode: bool = True

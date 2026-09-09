@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -415,3 +415,114 @@ def test_coverage_alert_fires_inside_ninety_minutes_and_not_before() -> None:
     assert _alert([event(STATE_COMPLETE)], inside)["severity"] == ALERT_CLEAR
     # A missed cutoff outranks an at-risk game.
     assert _alert([event(STATE_MISSED)], inside)["severity"] == ALERT_MISSED
+
+
+# ---------------------------------------------------------------------------
+# the research fallback narrows in code, not in configuration
+# ---------------------------------------------------------------------------
+
+def _fallback_settings(settings, **over):
+    base = {"sportsgameodds_enabled": True,
+            "sportsgameodds_mapping_path": "C:/mapping.json",
+            "sportsgameodds_fallback_until": "2026-10-01"}
+    base.update(over)
+    return settings.model_copy(update=base)
+
+
+SEPT = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+
+
+def test_the_fallback_serves_mlb_moneyline_and_nothing_else(session, settings) -> None:
+    from app.services.sportsgameodds_fallback import (
+        REASON_ELIGIBLE, REASON_WRONG_LEAGUE, REASON_WRONG_MARKET, fallback_decision)
+
+    armed = _fallback_settings(settings)
+    ok = fallback_decision(session, armed, league_code="MLB", markets=["h2h"], now=SEPT)
+    assert ok.eligible and ok.reason == REASON_ELIGIBLE
+
+    # NFL is optional research; it waits for the primary provider.
+    nfl = fallback_decision(session, armed, league_code="NFL", markets=["h2h"], now=SEPT)
+    assert not nfl.eligible and nfl.reason == REASON_WRONG_LEAGUE
+
+    # Spreads and totals are not what a governed decision prices.
+    wide = fallback_decision(session, armed, league_code="MLB",
+                             markets=["h2h", "spreads", "totals"], now=SEPT)
+    assert not wide.eligible and wide.reason == REASON_WRONG_MARKET
+
+
+def test_the_fallback_expires_on_its_own(session, settings) -> None:
+    """From 1 October the primary is primary again, with nobody remembering."""
+    from app.services.sportsgameodds_fallback import REASON_EXPIRED, fallback_decision
+
+    armed = _fallback_settings(settings)
+    october = datetime(2026, 10, 1, 0, 1, tzinfo=UTC)
+    decision = fallback_decision(session, armed, league_code="MLB", markets=["h2h"], now=october)
+    assert not decision.eligible and decision.reason == REASON_EXPIRED
+
+
+def test_an_unconfigured_window_is_closed_not_open(session, settings) -> None:
+    from app.services.sportsgameodds_fallback import REASON_EXPIRED, fallback_decision
+
+    for value in ("", "not-a-date"):
+        armed = _fallback_settings(settings, sportsgameodds_fallback_until=value)
+        decision = fallback_decision(session, armed, league_code="MLB", markets=["h2h"], now=SEPT)
+        assert not decision.eligible and decision.reason == REASON_EXPIRED
+
+
+def test_a_guessed_mapping_can_never_serve_a_quote(session, settings) -> None:
+    from app.services.sportsgameodds_fallback import REASON_UNMAPPED, fallback_decision
+
+    armed = _fallback_settings(settings, sportsgameodds_mapping_path="")
+    decision = fallback_decision(session, armed, league_code="MLB", markets=["h2h"], now=SEPT)
+    assert not decision.eligible and decision.reason == REASON_UNMAPPED
+
+
+def test_the_flag_alone_does_not_arm_it(session, settings) -> None:
+    from app.services.sportsgameodds_fallback import REASON_DISABLED, fallback_decision
+
+    off = _fallback_settings(settings, sportsgameodds_enabled=False)
+    decision = fallback_decision(session, off, league_code="MLB", markets=["h2h"], now=SEPT)
+    assert not decision.eligible and decision.reason == REASON_DISABLED
+
+
+def test_an_uncounted_request_is_charged_the_worst_case(session, settings) -> None:
+    """Undercounting an allowance is how an allowance gets exceeded."""
+    from app.data_sources.provider_registry import SPORTSGAMEODDS
+    from app.models import ProviderRequestLedger
+    from app.services.sportsgameodds_fallback import (
+        FREE_TIER_OBJECT_ALLOWANCE, REASON_OBJECTS_EXHAUSTED, fallback_decision, objects_used)
+
+    reserved = ProviderRequestLedger(
+        provider=SPORTSGAMEODDS, endpoint_key="sgo_mlb_events", status="RESERVED",
+        requested_at=SEPT, request_fingerprint="sgo-1",
+        controlled_live_request=True, source_mode="RESEARCH_SHADOW", response_metadata={})
+    session.add(reserved)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=SPORTSGAMEODDS, endpoint_key="sgo_mlb_events", status="SUCCEEDED",
+        requested_at=SEPT, completed_at=SEPT, reservation_id=reserved.id,
+        request_fingerprint="sgo-1", records_received=None,  # provider said nothing
+        controlled_live_request=True, source_mode="RESEARCH_SHADOW", response_metadata={}))
+    session.flush()
+
+    assert objects_used(session, since=date(2026, 9, 1)) == 100  # not zero
+
+    # Enough uncounted requests and the allowance closes, fail-closed.
+    for index in range(2, 27):
+        held = ProviderRequestLedger(
+            provider=SPORTSGAMEODDS, endpoint_key="sgo_mlb_events", status="RESERVED",
+            requested_at=SEPT, request_fingerprint=f"sgo-{index}",
+            controlled_live_request=True, source_mode="RESEARCH_SHADOW", response_metadata={})
+        session.add(held)
+        session.flush()
+        session.add(ProviderRequestLedger(
+            provider=SPORTSGAMEODDS, endpoint_key="sgo_mlb_events", status="SUCCEEDED",
+            requested_at=SEPT, completed_at=SEPT, reservation_id=held.id,
+            request_fingerprint=f"sgo-{index}", records_received=None,
+            controlled_live_request=True, source_mode="RESEARCH_SHADOW", response_metadata={}))
+        session.flush()
+
+    assert objects_used(session, since=date(2026, 9, 1)) >= FREE_TIER_OBJECT_ALLOWANCE
+    decision = fallback_decision(session, _fallback_settings(settings),
+                                 league_code="MLB", markets=["h2h"], now=SEPT)
+    assert not decision.eligible and decision.reason == REASON_OBJECTS_EXHAUSTED
