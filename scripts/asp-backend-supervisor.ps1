@@ -148,6 +148,24 @@ function Get-PortOwner {
   } catch { return $null }
 }
 
+function Test-OwnDescendant {
+  <# True when the process holding the port is a descendant of THIS supervisor.
+
+     The child is launched as cmd.exe -> venv python -> uvicorn python, so the
+     holder is a grandchild, not a child; the ancestry is walked rather than
+     compared one level. A bounded walk, because a corrupted parent chain must
+     not spin. #>
+  param([int]$HolderId)
+  $id = $HolderId
+  for ($depth = 0; $depth -lt 8; $depth++) {
+    if ($id -eq $PID) { return $true }
+    $proc = Get-CimInstance Win32_Process -Filter ("ProcessId=$id") -ErrorAction SilentlyContinue
+    if (-not $proc -or -not $proc.ParentProcessId -or $proc.ParentProcessId -eq 0) { return $false }
+    $id = [int]$proc.ParentProcessId
+  }
+  return $false
+}
+
 function Test-BackendHealthy {
   <# True only if the process holding the port answers its own readiness
      endpoint. Deliberately short and deliberately fail-closed-to-unhealthy: a
@@ -231,11 +249,21 @@ try {
       # a genuine duplicate and is left alone. One that will not answer its own
       # readiness endpoint is this task's own wreckage, and this supervisor
       # runs elevated, so it is the only thing that can clear it.
+      # A HEALTHY holder is still not necessarily the right one. Stopping the
+      # task kills these wrappers but leaves the uvicorn grandchild running and
+      # answering /readyz, so "healthy" was enough to make every later run
+      # refuse -- and the machine served superseded code for days while the
+      # task reported success. This port belongs to this task, so the question
+      # is not whether the holder is alive but whether it is OURS.
       if (Test-BackendHealthy -Port $Port) {
-        Write-Log "port $Port is already served by a HEALTHY backend (pid $owner); refusing to start a duplicate. Exiting."
-        exit 0
+        if (Test-OwnDescendant -HolderId $owner) {
+          Write-Log "port $Port is served by this supervisor's own child (pid $owner); nothing to do. Exiting."
+          exit 0
+        }
+        Write-Log "port $Port is served by a healthy but FOREIGN process (pid $owner) -- a stale owner from a previous run of this task. Reclaiming it."
+      } else {
+        Write-Log "port $Port is held by pid $owner but it is not answering /readyz; reclaiming it."
       }
-      Write-Log "port $Port is held by pid $owner but it is not answering /readyz; reclaiming it."
       try {
         Stop-Process -Id $owner -Force -ErrorAction Stop
         Start-Sleep -Seconds 3
