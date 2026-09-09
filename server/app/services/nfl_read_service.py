@@ -147,9 +147,17 @@ class NflReadService:
     def _supplements(self, event_ids: set[str]) -> dict[str, list[ResearchSupplement]]:
         if not event_ids:
             return {}
+        # Play-level rows are excluded deliberately. Their payloads are large
+        # and TOASTed, nothing in game detail renders them, and the theater
+        # loads them through its own service -- so selecting them here cost
+        # half a second per game request to read a dedupe key and throw the
+        # rest away.
+        from app.forecast_exchange.nfl_play_level_v1 import KIND_PLAY
+
         rows = self.session.scalars(
             select(ResearchSupplement)
-            .where(ResearchSupplement.sport == SPORT, ResearchSupplement.event_id.in_(event_ids))
+            .where(ResearchSupplement.sport == SPORT, ResearchSupplement.event_id.in_(event_ids),
+                   ResearchSupplement.kind != KIND_PLAY)
             .order_by(ResearchSupplement.imported_at.desc())
         )
         grouped: dict[str, list[ResearchSupplement]] = defaultdict(list)
@@ -623,6 +631,12 @@ class NflReadService:
                 scenarios.append({"engine_id": base["engine_id"], "baseline": base,
                                   "scenarios": alternatives})
 
+        # Play-level scenarios are loaded for THIS event only. They are excluded
+        # from the shared supplement fetch because their payloads are large and
+        # nothing else renders them; seven targeted rows is cheap, a hundred and
+        # twelve on every request was not.
+        play_scenarios = self._play_scenario_explorers(event_id)
+
         return {
             "schema_version": SCHEMA_VERSION, "sport": SPORT, "now_utc": now.isoformat(),
             "data_mode": "live",
@@ -656,8 +670,54 @@ class NflReadService:
                     "weather input, so those controls stay disabled."
                 ),
             },
+            "play_scenarios": play_scenarios,
             "research_results": self.research_results(),
         }
+
+    def _play_scenario_explorers(self, event_id: str) -> list[dict[str, Any]]:
+        """One explorer per play-level scenario, so the same distribution tools
+        work on a sensitivity as on the base run."""
+        from app.forecast_exchange.nfl_play_level_v1 import KIND_PLAY
+        from app.services.nfl_play_theater import (
+            SCENARIO_LABELS, SCENARIO_PLAIN_ENGLISH, SCENARIO_ORDER,
+        )
+
+        rows = self.session.scalars(
+            select(ResearchSupplement).where(
+                ResearchSupplement.sport == SPORT,
+                ResearchSupplement.event_id == event_id,
+                ResearchSupplement.kind == KIND_PLAY,
+            ).order_by(ResearchSupplement.imported_at.desc())
+        )
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            scenario_id = str((row.evidence or {}).get("scenario_id") or "")
+            if not scenario_id or scenario_id in seen:
+                continue
+            seen.add(scenario_id)
+            artifact = (row.payload or {}).get("artifact") or {}
+            joint = artifact.get("jointScoreDistribution") or []
+            if not joint:
+                continue
+            cells = arithmetic.cells_from_distribution(joint)
+            out.append({
+                **self._supplement_summary(row),
+                "scenario_id": scenario_id,
+                "label": SCENARIO_LABELS.get(scenario_id, scenario_id),
+                "explanation": SCENARIO_PLAIN_ENGLISH.get(scenario_id),
+                "score_summary": artifact.get("scoreSummary"),
+                "limitations": artifact.get("limitations") or [],
+                "explains_m1_forecast": artifact.get("explainsM1Forecast", False),
+                "explorer": self._explorer_from_cells(
+                    joint, cells, arithmetic.outcome_probabilities(cells),
+                    {"kind": row.simulation_kind, "count": row.simulation_count,
+                     "seed": row.simulation_seed},
+                ),
+            })
+        order = {name: i for i, name in enumerate(SCENARIO_ORDER)}
+        out.sort(key=lambda item: (order.get(item["scenario_id"], 99), item["scenario_id"]))
+        return out
 
     def _drive_supplement(self, row: ResearchSupplement) -> dict[str, Any]:
         payload = row.payload or {}

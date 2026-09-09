@@ -142,7 +142,7 @@ class ExperimentFunnelService:
         now = now or datetime.now(UTC)
         experiment = self._experiment(experiment_id)
         if experiment is None:
-            return {"schema_version": SCHEMA_VERSION, "available": False,
+            return {"schema_version": SCHEMA_VERSION, "data_mode": "empty", "available": False,
                     "requirement": "No shadow experiment is registered."}
 
         rows = list(self.session.scalars(
@@ -224,6 +224,7 @@ class ExperimentFunnelService:
         restorable = blocked[MISSING_QUOTE] + blocked[STALE_QUOTE]
         return {
             "schema_version": SCHEMA_VERSION,
+            "data_mode": "live",
             "available": True,
             "experiment": {
                 "id": str(experiment.id), "name": experiment.name,

@@ -1443,7 +1443,74 @@ export interface QualificationFunnel {
 }
 
 /** Admin-only odds credit budget and collection plan (AISP_ODDS_OPERATOR_STATUS_V1). */
+/** One game's coverage state and, if it is not covered, the one exact reason. */
+export interface QuoteCoverageEvent {
+  game_id: string
+  matchup: string
+  starts_at_utc: string
+  cutoff_utc: string
+  state: string
+  covered: boolean
+  at_risk: boolean
+  cause: string | null
+  cause_detail: string | null
+  quote_age_minutes_at_cutoff?: number | null
+  next_checkpoint_utc?: string | null
+  last_successful_request_utc?: string | null
+}
+
+export interface QuoteCoverageReport {
+  schema_version: string
+  league: string
+  slate_date: string | null
+  generated_at_utc: string
+  contract: {
+    cutoff_minutes_before_start: number
+    freshness_window_minutes: number
+    freshness_target_minutes: number
+    quote_definition: string
+  }
+  totals: {
+    events: number; covered: number; within_freshness_target: number
+    at_risk: number; missed: number; coverage_rate: number
+  }
+  quote_age_at_cutoff_minutes: { median: number | null; max: number | null; min: number | null }
+  by_state: Record<string, number>
+  by_cause: Record<string, number>
+  cause_explanations: Record<string, string>
+  events: QuoteCoverageEvent[]
+}
+
+export interface BudgetLane {
+  lane: string
+  label: string
+  precedence: number
+  protected: boolean
+  purpose: string
+  monthly_allocation: number
+  spent: number
+  remaining: number
+  daily_cap: number
+  spent_today: number
+  remaining_today: number
+  requests: number
+}
+
+export interface BudgetLanes {
+  schema_version: string
+  lanes: BudgetLane[]
+  total_allocated: number
+  protected_unspent: number
+  unattributed_spend: number
+  reconciliation: {
+    state: string; optional_locked: boolean; detail: string
+    provider_used: number | null; lane_total: number; delta: number | null
+  }
+}
+
 export interface OddsCollectionStatus {
+  quote_coverage?: QuoteCoverageReport
+  budget_lanes?: BudgetLanes
   schema_version: 'AISP_ODDS_OPERATOR_STATUS_V1'
   generated_at_utc: string
   collection_mode: string
@@ -1521,4 +1588,48 @@ export interface OddsCollectionStatus {
     blocked_on: string
     unverified_assumptions: Array<{ claim: string; settled_by: string }>
   }
+}
+
+
+/** AISP_EXPERIMENT_FUNNEL_V1 — where the experiment's games go, and why. */
+export interface ExperimentFunnelReason {
+  reason: string
+  label: string
+  explanation: string
+  count: number
+}
+
+export interface ExperimentFunnelStage {
+  key: string
+  label: string
+  count: number
+  dropped: number
+  explanation: string
+  reasons: ExperimentFunnelReason[]
+}
+
+export interface ExperimentFunnelData extends DataProvenance {
+  schema_version: string
+  available: boolean
+  requirement?: string
+  experiment?: {
+    id: string; name: string; policy_version: string
+    recommendation_policy: string; starting_bankroll: number; start_date: string | null
+  }
+  window_days: number | null
+  generated_at_utc: string
+  cutoff_minutes: number
+  min_adjusted_edge: number
+  stages: ExperimentFunnelStage[]
+  blocked_totals: ExperimentFunnelReason[]
+  price_restoration: {
+    games_without_a_usable_price: number
+    games_with_a_usable_price: number
+    cleared_when_priced: number
+    clear_rate_when_priced: number | null
+    projected_additional_clearing: number | null
+    statement: string
+    method: string
+  }
+  thresholds_unchanged: string
 }

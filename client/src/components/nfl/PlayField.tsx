@@ -85,7 +85,12 @@ export function PlayField({
   const los = state ? fieldX(scrimmageX(state)) : null
   const gain = state ? lineToGainX(state) : null
   const walk = play && play.path.segments.length ? traverse(play.path.segments) : null
-  const ball = walk ? walk.at(progress) : null
+  // A penalty, a spike and a period boundary have no ball motion by
+  // construction. The ball still sits at the spot: dropping it entirely would
+  // make one play in twenty look like a rendering failure.
+  const ball = walk ? walk.at(progress)
+    : state && state.phase !== 'FINAL' ? { x: fieldX(scrimmageX(state)), y: fieldY(0.5) }
+    : null
   const { period, clock } = shown ? clockLabel(shown) : { period: '', clock: '' }
 
   const toneColor = (tone: string, possession: 'HOME' | 'AWAY') => {

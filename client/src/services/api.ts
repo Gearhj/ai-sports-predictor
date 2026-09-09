@@ -4,6 +4,7 @@ import type {
   AuthUser,
   BankrollData,
   ExperimentComparison,
+  ExperimentFunnelData,
   DashboardData,
   GameAnalysisData,
   HealthData,
@@ -180,6 +181,9 @@ export const endpoints = {
   },
   experimentComparison: (signal?: AbortSignal) =>
     apiRequest<ExperimentComparison>('/experiment/comparison', {}, signal),
+  experimentFunnel: (signal?: AbortSignal, days?: number) =>
+    apiRequest<ExperimentFunnelData>(
+      `/experiment/funnel${days ? `?days=${days}` : ''}`, {}, signal),
   nflWeeks: (signal?: AbortSignal) => apiRequest<NflWeeks>('/nfl/weeks', {}, signal),
   nflWeek: (season: number, week: number, signal?: AbortSignal) =>
     apiRequest<NflWeekOverview>(`/nfl/weeks/${season}/${week}`, {}, signal),

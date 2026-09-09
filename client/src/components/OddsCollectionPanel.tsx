@@ -18,6 +18,7 @@ import { Panel, MetricCard, TableScroll } from './ui'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
+import { QuoteCoveragePanel } from './QuoteCoveragePanel'
 import type { OddsCollectionStatus } from '../types/domain'
 
 const MODE_LABEL: Record<string, string> = {
@@ -60,6 +61,10 @@ export function OddsCollectionPanel() {
       <p className={`market-comparison__status ${data.collection_mode === 'EVENT_CHECKPOINT' ? 'is-available' : 'is-unavailable'}`}>
         <Gauge size={14} aria-hidden="true" /> {MODE_LABEL[data.collection_mode] ?? data.collection_mode}. {data.collection_detail}
       </p>
+
+      {/* Coverage before spend: the operator's question is whether tonight's
+          games will be priced in time, not how many credits are left. */}
+      <QuoteCoveragePanel coverage={data.quote_coverage} lanes={data.budget_lanes} />
 
       <div className="metric-grid metric-grid--four">
         <MetricCard

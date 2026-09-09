@@ -2835,3 +2835,69 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .nfl-weeknav label { flex: 1 1 100%; }
   .nfl-weeknav select { flex: 1; min-width: 0; }
 }
+
+/* -- experiment lifetime funnel ------------------------------------------
+ * Prominent and uncollapsed: it answers the question a reader arrives with,
+ * and hiding it invites the two wrong conclusions it exists to prevent.
+ */
+.experiment-lifetime-funnel header h2 { margin: 0 0 6px; }
+.experiment-lifetime-funnel header p { margin: 0 0 18px; color: #5c7183; font-size: .85rem; line-height: 1.6; max-width: 74ch; }
+.funnel-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.funnel-stages > li { padding: 14px 16px; border: 1px solid #dde6ec; border-radius: 13px; background: #fbfdfe; }
+.funnel-stage__head { display: flex; align-items: baseline; gap: 12px; }
+.funnel-stage__head strong { font-size: 1.85rem; font-weight: 850; color: #10394d; font-variant-numeric: tabular-nums; letter-spacing: -.03em; min-width: 3ch; }
+.funnel-stage__head span { font-size: .95rem; font-weight: 700; color: #21455c; }
+.funnel-bar { height: 9px; border-radius: 5px; background: #e5edf2; margin: 9px 0; overflow: hidden; }
+.funnel-bar span { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #12756f, #2fa08c); }
+.funnel-stage__explain { margin: 0; color: #647c8c; font-size: .78rem; line-height: 1.55; }
+.funnel-reasons { list-style: none; margin: 11px 0 0; padding: 0; display: grid; gap: 7px; }
+.funnel-reasons li { display: grid; grid-template-columns: 3.4rem 1fr; gap: 10px; align-items: start; padding: 9px 11px; background: #fdf3ef; border: 1px solid #efd6cb; border-radius: 9px; }
+.funnel-reasons b { font-size: 1.05rem; font-weight: 850; color: #a8492b; font-variant-numeric: tabular-nums; }
+.funnel-reasons strong { display: block; color: #7c3d24; font-size: .8rem; margin-bottom: 2px; }
+.funnel-reasons span { font-size: .76rem; color: #6d5548; line-height: 1.5; }
+.funnel-claim { margin-top: 20px; padding: 17px 19px; background: #ecf5f3; border: 1px solid #b9d9d0; border-radius: 13px; }
+.funnel-claim h3 { margin: 0 0 8px; color: #0f5347; font-size: 1rem; }
+.funnel-claim p { margin: 0 0 8px; color: #24564c; font-size: .84rem; line-height: 1.65; }
+.funnel-claim__method { color: #5b7d75 !important; font-size: .76rem !important; }
+.funnel-thresholds { margin: 14px 0 0; color: #66808f; font-size: .76rem; line-height: 1.6; }
+@media (max-width: 700px) {
+  .funnel-stage__head strong { font-size: 1.5rem; }
+  .funnel-reasons li { grid-template-columns: 2.6rem 1fr; }
+}
+
+/* -- quote coverage operator panel --------------------------------------- */
+.quote-coverage { margin: 18px 0; }
+.quote-coverage header h3 { margin: 0 0 6px; font-size: 1.02rem; color: #143a4e; }
+.quote-coverage header p { margin: 0 0 14px; color: #5f7787; font-size: .8rem; line-height: 1.6; max-width: 82ch; }
+.coverage-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 11px; margin-bottom: 16px; }
+.coverage-totals > div { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; gap: 2px 9px; align-items: center; padding: 12px 14px; border: 1px solid #dde6ec; border-radius: 11px; background: #fbfdfe; }
+.coverage-totals svg { grid-row: span 2; color: #6f8697; }
+.coverage-totals strong { font-size: 1.4rem; font-weight: 850; color: #10394d; font-variant-numeric: tabular-nums; }
+.coverage-totals span { font-size: .7rem; color: #6d8494; }
+.coverage-totals .is-good { border-color: #a7d6c4; background: #f0f9f5; }
+.coverage-totals .is-good svg, .coverage-totals .is-good strong { color: #0d6b4f; }
+.coverage-totals .is-partial { border-color: #e4cf9c; background: #fdf9ef; }
+.coverage-totals .is-warn { border-color: #e4cf9c; background: #fdf9ef; }
+.coverage-totals .is-warn svg, .coverage-totals .is-warn strong { color: #966a12; }
+.coverage-totals .is-bad { border-color: #eab9a8; background: #fdf3ef; }
+.coverage-totals .is-bad svg, .coverage-totals .is-bad strong { color: #a8452a; }
+.lane-table, .coverage-table { width: 100%; border-collapse: collapse; font-size: .78rem; margin-bottom: 16px; }
+.lane-table caption { caption-side: top; text-align: left; color: #66808f; font-size: .74rem; line-height: 1.55; padding-bottom: 9px; max-width: 86ch; }
+.lane-table th, .lane-table td, .coverage-table th, .coverage-table td { padding: 8px 10px; border-bottom: 1px solid #e4ebf0; text-align: right; font-variant-numeric: tabular-nums; }
+.lane-table th[scope=row], .coverage-table th[scope=row] { text-align: left; font-weight: 700; color: #24455a; }
+.lane-table th[scope=row] small { display: block; font-weight: 400; color: #7b909e; font-size: .68rem; line-height: 1.45; margin-top: 2px; max-width: 46ch; }
+.lane-table thead th, .coverage-table thead th { color: #5a7488; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; border-bottom: 2px solid #cfdce4; }
+.lane-table tr.is-protected { background: #f2f9f6; }
+.lane-badge { display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 20px; background: #d9efe5; color: #0d6047; font-size: .6rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; vertical-align: middle; }
+.coverage-table td:last-child { text-align: left; }
+.coverage-table td strong { color: #a8452a; font-size: .74rem; letter-spacing: .02em; }
+.coverage-table td small { display: block; color: #71858f; font-weight: 400; font-size: .7rem; line-height: 1.45; margin-top: 2px; max-width: 60ch; }
+.coverage-table tr.is-at-risk { background: #fdf9ef; }
+.coverage-table code { font-size: .68rem; color: #46627a; }
+.coverage-reconciliation { padding: 11px 14px; background: #fdf6ec; border: 1px solid #e6d1a5; border-radius: 10px; color: #7a5715; font-size: .78rem; line-height: 1.6; }
+.coverage-clear { color: #0d6b4f; font-size: .82rem; font-weight: 650; }
+@media (max-width: 700px) {
+  .lane-table, .coverage-table { font-size: .72rem; }
+  .lane-table th, .lane-table td, .coverage-table th, .coverage-table td { padding: 6px 5px; }
+  .lane-table th[scope=row] small { display: none; }
+}

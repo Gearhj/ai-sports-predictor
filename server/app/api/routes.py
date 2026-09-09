@@ -627,8 +627,28 @@ def admin_odds_collection(
         renewal_days=settings.odds_quota_renewal_days,
     )
     window_start = odds_budget.billing_window()[0].date()
+
+    # THE OPERATIONAL QUESTION IS COVERAGE, NOT SPEND.
+    # A balance and a burn rate say how much is left; they do not say whether
+    # tonight's games will have a price when the decision is made. The coverage
+    # report answers that per game, and names one exact cause for every game it
+    # cannot answer for.
+    from app.services.odds_budget_lanes import lane_budget
+    from app.services.quote_coverage import QuoteCoverageService
+
+    coverage = QuoteCoverageService(session, settings).daily_report(league_code="MLB")
+    lanes = lane_budget(
+        session,
+        monthly_cap=settings.odds_monthly_credit_cap,
+        reserve=settings.odds_monthly_credit_reserve,
+        daily_cap=settings.odds_daily_credit_budget,
+        floor=settings.odds_quota_floor,
+        display_timezone=settings.display_timezone,
+    )
     return {
         **status_payload,
+        "quote_coverage": coverage,
+        "budget_lanes": lanes.as_dict(),
         "provider_floor_guard": floor.as_dict(),
         "spend_by_day": odds_budget.spend_by_day(session, since=window_start),
         "providers": provider_registry.describe(),

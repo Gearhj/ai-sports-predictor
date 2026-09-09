@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
 import { DataModeBanner, DataStatePanel, formatCurrency, formatPct, formatSignedCurrency, formatSignedPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoBankroll } from '../data/demo'
+import { ExperimentFunnel } from '../components/ExperimentFunnel'
 import { QualificationFunnel } from '../components/QualificationFunnel'
 import { OperationalDateNav } from '../components/OperationalDateNav'
 import { operationalToday, resolveOperationalDate } from '../services/operationalDate'
@@ -556,6 +557,12 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
           <p>{todayResult.detail}</p>
         </div>
       )}
+
+      {/* H0. Why so few positions — the whole-experiment funnel, stated plainly.
+          It sits above the per-day screening funnel because it answers the
+          question a reader actually arrives with, and because leaving it
+          collapsed invites the two wrong conclusions it exists to prevent. */}
+      {!demo && <ExperimentFunnel />}
 
       {/* H. Screening funnel — compact and lower, fully auditable when expanded */}
       {!demo && (

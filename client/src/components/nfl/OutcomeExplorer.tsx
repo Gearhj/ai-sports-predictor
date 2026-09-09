@@ -96,7 +96,12 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
     () => selectedCell ?? sampledOutcome(cells, explorer.simulation.seed ?? 0, sampleIndex),
     [cells, explorer.simulation.seed, sampleIndex, selectedCell],
   )
+  // The field shows whichever outcome is current, so a representative match is
+  // reported for a drawn score too, not only for a hand-picked one.
+  const matching = representativeFinals.find(
+    (g) => g.homeScore === sample.home && g.awayScore === sample.away) ?? null
 
+  const marked = sample
   const heatmap = useMemo(() => {
     const maxHome = Math.max(...cells.map((c) => c.home))
     const maxAway = Math.max(...cells.map((c) => c.away))
@@ -112,9 +117,18 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
       xAxis: { type: 'category', name: `${awayTeam} points`, nameLocation: 'middle', nameGap: 26, data: Array.from({ length: cap + 1 }, (_, i) => i), axisLabel: { ...AXIS, interval: 6 } },
       yAxis: { type: 'category', name: `${homeTeam} points`, nameLocation: 'middle', nameGap: 30, data: Array.from({ length: cap + 1 }, (_, i) => i), axisLabel: { ...AXIS, interval: 6 } },
       visualMap: { show: false, min: 0, max: Math.max(...cells.map((c) => c.probability)), inRange: { color: ['#eef4f9', '#9cc7e8', '#2f7bb5', '#0d3e66'] } },
-      series: [{ type: 'heatmap', data, emphasis: { itemStyle: { borderColor: '#0b1729', borderWidth: 1 } } }],
+      series: [{
+        type: 'heatmap', data,
+        emphasis: { itemStyle: { borderColor: '#0b1729', borderWidth: 1 } },
+        markPoint: marked ? {
+          symbol: 'circle', symbolSize: 15, animation: false,
+          itemStyle: { color: 'transparent', borderColor: '#ff8f3c', borderWidth: 3 },
+          label: { show: false },
+          data: [{ coord: [marked.away, marked.home] }],
+        } : undefined,
+      }],
     }
-  }, [cells, homeTeam, awayTeam])
+  }, [cells, homeTeam, awayTeam, marked])
 
   const marginChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
@@ -136,16 +150,40 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
 
   const q = explorer.quantiles
   const step = (value: number, delta: number) => Math.round((value + delta) * 2) / 2
-  const matching = selectedCell ? representativeFinals.find((g) => g.homeScore === selectedCell.home && g.awayScore === selectedCell.away) : null
   const chooseCell = (p: { value?: [number, number, number] }) => {
     if (p.value) setSelectedCell(cells.find((c) => c.away === p.value![0] && c.home === p.value![1]) ?? null)
   }
 
   return (
-    <section className="explorer" aria-label="Outcome Explorer">
+    <section className="explorer explorer--dominant" aria-label="Outcome Explorer">
       <p className="explorer__basis">
         <Dices size={14} aria-hidden="true" /> {engineLabel} · {simulationLabel(explorer.simulation)} · {explorer.cells.toLocaleString()} distinct final scores
       </p>
+      <p className="explorer__guide">
+        This engine did not play one game — it produced a whole distribution of final scores.
+        The field below shows <strong>one outcome drawn from it</strong>. Draw again, or pick any
+        exact score from the heatmap, and the scoreboard, the probability and the spread and total
+        answers all follow your choice. Nothing here is a sequence of plays.
+      </p>
+
+      <div className="explorer__stage explorer__stage--hero">
+        <FootballField
+          awayTeam={awayTeam} homeTeam={homeTeam}
+          awayScore={sample.away} homeScore={sample.home}
+          caption={selectedCell ? 'Selected final score — not a sequence of plays' : 'One outcome drawn from the distribution — not a sequence of plays'}
+        >
+          <span>
+            {selectedCell ? 'You selected this final score. ' : 'This is a draw from the distribution. '}
+            <strong>{pct(sample.probability, 3)}</strong> of simulated games end exactly {homeTeam}{' '}
+            {sample.home}–{awayTeam} {sample.away}.
+            {matching ? ` It matches a supplied representative game${matching.label ? `: ${matching.label}.` : '.'}` : ''}
+          </span>
+          <button className="primary-button explorer__draw" type="button"
+            onClick={() => { setSelectedCell(null); setSampleIndex((v) => v + 1) }}>
+            <Dices size={15} aria-hidden="true" /> Draw another outcome
+          </button>
+        </FootballField>
+      </div>
 
       <div className="metric-grid metric-grid--six">
         <MetricCard label={`${homeTeam} win`} value={pct(explorer.outcomes.home)} detail={`Expected ${explorer.expected.home.toFixed(1)} points`} />
@@ -154,23 +192,6 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
         <MetricCard label="Expected margin" value={`${explorer.expected.margin_home >= 0 ? '+' : ''}${explorer.expected.margin_home.toFixed(1)}`} detail={`${homeTeam} minus ${awayTeam}`} />
         <MetricCard label="Expected total" value={explorer.expected.total.toFixed(1)} detail="Combined points" />
         <MetricCard label="Likely margin range" value={`${q.margin.p25 ?? '—'} to ${q.margin.p75 ?? '—'}`} detail={`Middle half · 90%: ${q.margin.p05 ?? '—'} to ${q.margin.p95 ?? '—'}`} />
-      </div>
-
-      <div className="explorer__stage">
-        <FootballField
-          awayTeam={awayTeam} homeTeam={homeTeam}
-          awayScore={sample.away} homeScore={sample.home}
-          caption={selectedCell ? 'Selected final-score outcome — no sequential path' : 'Sampled final outcome — no sequential path'}
-          compact
-        >
-          <span>
-            {selectedCell ? 'A selected outcome in' : 'A draw from'} the model&rsquo;s own distribution ({pct(sample.probability, 3)} of outcomes end exactly {homeTeam} {sample.home}–{awayTeam} {sample.away}).
-            No drive, play or route is implied.
-          </span>
-          <button className="text-button" type="button" onClick={() => { setSelectedCell(null); setSampleIndex((v) => v + 1) }}>
-            Draw another sampled outcome
-          </button>
-        </FootballField>
       </div>
 
       <div className="explorer__charts">

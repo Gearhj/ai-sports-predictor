@@ -374,6 +374,7 @@ export interface NflGameDetail {
   research_candidates: NflResearchCandidate[]
   drive_theater: { available: boolean; supplements: NflDriveSupplement[]; requirement: string | null }
   scenario_comparison: { available: boolean; supplements: Array<NflScenarioSupplement | NflDriveScenarioGroup>; requirement: string | null }
+  play_scenarios?: NflPlayScenarioExplorer[]
   research_results: NflResearchResults
   data_mode?: 'live' | 'demo' | 'empty'
 }
@@ -509,4 +510,16 @@ export interface NflPlayRepresentative {
   final_tie?: boolean | null
   diagnostics?: Record<string, number | Record<string, number> | null>
   plays?: import('../components/nfl/playGeometry').Play[]
+}
+
+export interface NflPlayScenarioExplorer {
+  supplement_sha256: string
+  engine_id: string | null
+  scenario_id: string
+  label: string
+  explanation: string | null
+  score_summary: Record<string, number> | null
+  limitations: string[]
+  explains_m1_forecast: boolean
+  explorer: NflExplorer
 }

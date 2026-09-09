@@ -221,3 +221,13 @@
   .nfl-delta-table th, .nfl-delta-table td { padding: 7px 8px; }
   .nfl-score-ribbon__row { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* -- outcome explorer: the field is the subject -------------------------- */
+.explorer--dominant .explorer__guide { max-width: 82ch; color: #4f6b7d; font-size: .88rem; line-height: 1.65; margin: 4px 0 16px; }
+.explorer__stage--hero { margin: 0 0 20px; }
+.explorer__stage--hero .gridiron__svg { max-height: none; height: min(46vh, 470px); }
+.explorer__stage--hero .gridiron__foot { align-items: center; }
+.explorer__draw { white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 700px) {
+  .explorer__stage--hero .gridiron__svg { height: min(28vh, 230px); }
+}
