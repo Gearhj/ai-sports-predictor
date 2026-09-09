@@ -532,13 +532,16 @@ describe('funnel presentation and today’s result', () => {
 })
 
 describe('safety', () => {
-  it('only reads the three public endpoints and issues no writes', async () => {
+  it('only reads the four public endpoints and issues no writes', async () => {
     const calls = stub()
     renderAt('/experiment')
     await screen.findByRole('region', { name: 'Complete position ledger' })
     await screen.findByText(/How today's slate was screened/)
     const paths = new Set(calls.map((u) => u.replace(/^https?:\/\/[^/]+/, '').split('?')[0]))
-    expect([...paths].sort()).toEqual(['/api/v1/bankroll', '/api/v1/experiment/comparison', '/api/v1/experiment/qualification-funnel'].sort())
+    expect([...paths].sort()).toEqual([
+      '/api/v1/bankroll', '/api/v1/experiment/comparison',
+      '/api/v1/experiment/funnel', '/api/v1/experiment/qualification-funnel',
+    ].sort())
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
     for (const call of fetchMock.mock.calls) {
       const init = call[1] as RequestInit | undefined

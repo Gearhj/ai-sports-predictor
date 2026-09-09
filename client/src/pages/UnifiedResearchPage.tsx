@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { PageHeader } from '../components/ui'
-import { ResearchResultsPanel } from '../components/nfl/ResearchResultsPanel'
+import { ModelPerformance } from '../components/nfl/ModelPerformance'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
@@ -13,7 +13,7 @@ function NflEvidence({historical}:{historical:boolean}) {
   return <section className="sport-research-section" aria-label="NFL research evidence">
     <h2>NFL {historical ? 'historical research' : 'model performance'}</h2>
     <p>Development evidence is separate from prospective performance. NFL remains research-only and cannot create a position.</p>
-    {resource.data ? <ResearchResultsPanel results={resource.data}/> : <p role="status">{resource.state==='loading' ? 'Loading imported NFL studies…' : 'NFL study evidence is unavailable.'}</p>}
+    {resource.data ? <ModelPerformance results={resource.data}/> : <p role="status">{resource.state==='loading' ? 'Loading imported NFL studies…' : 'NFL study evidence is unavailable.'}</p>}
   </section>
 }
 export function UnifiedResearchPage({historical=false}:{historical?:boolean}) {

@@ -76,7 +76,9 @@ describe('OutcomeExplorer rendering', () => {
     expect(screen.getByText('SEA win').nextSibling).toHaveTextContent('45.0%')
     expect(screen.getByText('NE win').nextSibling).toHaveTextContent('35.0%')
     expect(screen.getByText('Tie').nextSibling).toHaveTextContent('20.0%')
-    expect(screen.getByText(/Sampled final outcome — no sequential path/)).toBeInTheDocument()
+    // The field now leads the section and says the same thing in the caption
+    // a reader actually reads, rather than in a footnote under a small chart.
+    expect(screen.getByText(/not a sequence of plays/)).toBeInTheDocument()
     expect(screen.getByText(/10,000 Monte Carlo draws/)).toBeInTheDocument()
 
     // A hypothetical line changes the query answer only.
