@@ -707,10 +707,22 @@ class JobOrchestrator:
         service = OddsCollectionService(self.session, self.settings)
         decision = service.decide()
         if not decision.should_request or decision.checkpoint is None:
+            # The primary cannot supply prices on this tick -- the floor is
+            # latched, the budget is spent, or no checkpoint is due. That is
+            # exactly and only when the temporary MLB fallback may run. It
+            # never pre-empts a checkpoint the primary can serve, never
+            # requests a game past its cutoff, and refuses itself by name on
+            # cooldown, on budget, or once its dated window closes.
+            from app.services import sgo_collection
+
+            fallback = sgo_collection.collect_for_open_cutoffs(
+                self.session, self.settings, job_run_id=self._active_job_run_id,
+            )
             return {
-                "records": 0,
+                "records": int(fallback.get("quote_rows") or 0),
                 "requested": False,
                 "provider_called": False,
+                "fallback": fallback,
                 **decision.as_dict(),
             }
 

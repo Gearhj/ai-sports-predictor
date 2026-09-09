@@ -31,6 +31,7 @@ in the run's provenance, and simultaneity is never claimed.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import UTC, date, datetime, timedelta
@@ -55,6 +56,23 @@ from app.data_sources.provider_registry import (
 from app.data_sources.sgo_parser import AISP_MARKET_KEY, MoneylinePair, ParseResult, parse_events
 
 ENDPOINT_KEY = "sgo_mlb_events"
+#: The published Amateur allowance, in EVENTS returned -- the provider's own
+#: billable unit. Requests are free; events are not.
+FREE_TIER_OBJECTS = 2500
+#: Held back and never spent, so a miscount or a slate larger than expected
+#: cannot walk the allowance to zero. Conservative on purpose: the cost of
+#: refusing a fetch is one uncovered checkpoint; the cost of overrunning is a
+#: provider relationship and a bill nobody authorised.
+OBJECT_RESERVE = 400
+#: The provider refreshes free-tier prices every ten minutes, so fetching more
+#: often buys nothing and only risks a retry storm. This is also what stops a
+#: five-minute scheduler tick from re-requesting the same unchanged prices.
+MIN_SECONDS_BETWEEN_FETCHES = 600
+#: Objects are counted over a rolling window rather than a calendar month
+#: because the local count is the only count there is -- the provider returns no
+#: usage headers at all -- and a rolling window cannot under-count by sitting
+#: just after a reset.
+OBJECT_WINDOW_DAYS = 30
 #: Objects are events. Two per fetch keeps a whole September inside the 2,500
 #: free allowance many times over, and the cap is enforced here as well as asked
 #: for in the query.
@@ -208,9 +226,304 @@ def ingest(session: Session, settings: Settings, fetch: FallbackFetch,
 
 __all__ = [
     "ENDPOINT_KEY",
+    "FREE_TIER_OBJECTS",
+    "MIN_SECONDS_BETWEEN_FETCHES",
+    "OBJECT_RESERVE",
+    "ObjectBudget",
+    "collect_for_open_cutoffs",
+    "object_budget",
     "FallbackFetch",
     "eligible",
     "fetch_pregame_moneylines",
     "ingest",
     "to_event_dtos",
 ]
+
+
+# --- ledger accounting and the object budget --------------------------------
+
+
+@dataclass(frozen=True)
+class ObjectBudget:
+    """What the local count says is left.
+
+    There is no provider figure to check it against: SportsGameOdds returns no
+    usage headers at all, so this IS the number.
+    """
+
+    window_days: int
+    requests: int
+    objects_used: int
+    allowance: int
+    reserve: int
+
+    @property
+    def spendable(self) -> int:
+        return max(0, self.allowance - self.reserve - self.objects_used)
+
+    def may_spend(self, objects: int) -> tuple[bool, str | None]:
+        if objects <= 0:
+            return False, "a request must declare a positive object cost"
+        if objects > self.spendable:
+            return False, (
+                f"object budget would be exceeded: {self.objects_used} used in "
+                f"{self.window_days} days, {self.reserve} held in reserve of "
+                f"{self.allowance}, so only {self.spendable} are spendable and "
+                f"{objects} were requested"
+            )
+        return True, None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "window_days": self.window_days,
+            "requests_in_window": self.requests,
+            "objects_used_in_window": self.objects_used,
+            "allowance": self.allowance,
+            "reserve_never_spent": self.reserve,
+            "objects_spendable": self.spendable,
+            "counted_locally_because": "the provider returns no usage headers",
+        }
+
+
+def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBudget:
+    """Rolling-window request and object totals, counted from our own ledger."""
+    from sqlalchemy import func, select
+
+    from app.models import ProviderRequestLedger
+
+    moment = now or datetime.now(UTC)
+    since = moment - timedelta(days=OBJECT_WINDOW_DAYS)
+    requests, counted, with_counts = session.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(ProviderRequestLedger.records_received), 0),
+            func.count(ProviderRequestLedger.records_received),
+        ).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            ProviderRequestLedger.status.in_(("SUCCEEDED", "FAILED")),
+            ProviderRequestLedger.requested_at >= since,
+        )
+    ).one()
+    # A completed request the provider gave no count for is charged the whole
+    # per-fetch cap. Under-counting an allowance is how an allowance is exceeded.
+    unknown = int(requests) - int(with_counts)
+    return ObjectBudget(
+        window_days=OBJECT_WINDOW_DAYS,
+        requests=int(requests),
+        objects_used=int(counted) + unknown * MAX_EVENTS_PER_FETCH,
+        allowance=FREE_TIER_OBJECTS,
+        reserve=OBJECT_RESERVE,
+    )
+
+
+def seconds_since_last_fetch(session: Session, *, now: datetime | None = None) -> float | None:
+    """How long since ANY request to this provider, successful or not.
+
+    Counted from reservations, so a failing provider cannot be hammered: a
+    request that errored still starts the cooldown.
+    """
+    from sqlalchemy import func, select
+
+    from app.models import ProviderRequestLedger
+
+    moment = now or datetime.now(UTC)
+    latest = session.scalar(
+        select(func.max(ProviderRequestLedger.requested_at)).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS
+        )
+    )
+    if latest is None:
+        return None
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=UTC)
+    return (moment - latest).total_seconds()
+
+
+def record_request(
+    session: Session,
+    *,
+    requested_at: datetime,
+    params: dict[str, str],
+    budget: ObjectBudget,
+    job_run_id: Any = None,
+) -> Any:
+    """Reserve the request in the provider ledger BEFORE it is sent.
+
+    The row carries the filters and the bounded window so the request can be
+    audited without the payload, and never any credential material: the API key
+    travels in a header, is not in ``params``, and is recorded nowhere.
+    """
+    from hashlib import sha256
+
+    from app.models import ProviderRequestLedger
+
+    shape = {
+        "provider": SPORTSGAMEODDS,
+        "endpoint": "events",
+        "filters": dict(params),
+        "billable_unit": "event object",
+        "credential": "sent in header; never recorded",
+    }
+    ledger = ProviderRequestLedger(
+        provider=SPORTSGAMEODDS,
+        endpoint_key=ENDPOINT_KEY,
+        requested_at=requested_at,
+        status="RESERVED",
+        request_fingerprint=sha256(
+            json.dumps({**shape, "at": requested_at.isoformat()}, sort_keys=True).encode()
+        ).hexdigest(),
+        controlled_live_request=True,
+        source_mode="LIVE",
+        job_run_id=job_run_id,
+        response_metadata={
+            "request_shape": shape,
+            "object_budget_before": budget.as_dict(),
+        },
+    )
+    session.add(ledger)
+    session.flush()
+    return ledger
+
+
+def complete_request(
+    session: Session,
+    reservation: Any,
+    *,
+    objects: int,
+    succeeded: bool,
+    budget: ObjectBudget,
+    error: str | None = None,
+    job_run_id: Any = None,
+) -> None:
+    """Write the terminal row: outcome, objects returned, allowance remaining.
+
+    ``records_received`` is the billable count -- EVENTS, not prices and not
+    requests. One ledger row is one request; the sum of ``records_received`` is
+    the object spend. Keeping them in different columns is what makes the two
+    countable separately.
+    """
+    from app.models import ProviderRequestLedger
+
+    # Record the object count we actually know, success or failure. A transport
+    # failure returned no events and cost nothing, and writing NULL there would
+    # have it charged the worst case -- which would let an outage eat the
+    # allowance. NULL is reserved for a row whose count is genuinely unknown.
+    spent = max(0, objects)
+    remaining = max(0, budget.allowance - budget.reserve - (budget.objects_used + spent))
+    session.add(
+        ProviderRequestLedger(
+            provider=SPORTSGAMEODDS,
+            endpoint_key=ENDPOINT_KEY,
+            requested_at=reservation.requested_at,
+            completed_at=datetime.now(UTC),
+            status="SUCCEEDED" if succeeded else "FAILED",
+            request_fingerprint=reservation.request_fingerprint,
+            quota_cost=None,  # this provider bills objects, not credits
+            quota_remaining=remaining,
+            records_received=spent,
+            controlled_live_request=True,
+            source_mode="LIVE",
+            job_run_id=job_run_id,
+            reservation_id=reservation.id,
+            error_type=error,
+            response_metadata={
+                "request_shape": (reservation.response_metadata or {}).get("request_shape"),
+                "objects_returned": spent,
+                "billable_unit": "event object",
+                "objects_used_in_window_after": budget.objects_used + spent,
+                "objects_spendable_after": remaining,
+            },
+        )
+    )
+    session.flush()
+
+
+def collect_for_open_cutoffs(
+    session: Session,
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    job_run_id: Any = None,
+) -> dict[str, Any]:
+    """One bounded fallback fetch for MLB games still before their cutoff.
+
+    Everything that could turn this into a second provider is refused here and
+    named: the flag, the credential, the dated window, the cooldown, the object
+    budget, and -- first of all -- whether there is any game left to help. A
+    game past its cutoff is never requested, because a price that arrives after
+    the decision is not evidence, it is noise that costs an object.
+    """
+    from app.services.quote_coverage import QuoteCoverageService
+
+    moment = now or datetime.now(UTC)
+    ok, reason = eligible(settings, now=moment)
+    if not ok:
+        return {"attempted": False, "reason": reason, "objects": 0}
+
+    # No retry storms. The free tier refreshes every ten minutes, so a tighter
+    # cadence re-requests prices that cannot have changed -- and a failing
+    # provider must not be hammered by a five-minute scheduler tick, so the
+    # cooldown counts from the last ATTEMPT, not the last success.
+    since = seconds_since_last_fetch(session, now=moment)
+    if since is not None and since < MIN_SECONDS_BETWEEN_FETCHES:
+        return {"attempted": False, "reason": "FALLBACK_COOLDOWN", "objects": 0,
+                "seconds_since_last_fetch": round(since, 1),
+                "cooldown_seconds": MIN_SECONDS_BETWEEN_FETCHES}
+
+    coverage = QuoteCoverageService(session, settings).daily_report(league_code="MLB")
+    open_games = [
+        event for event in coverage["events"]
+        if not event["covered"] and datetime.fromisoformat(event["cutoff_utc"]) > moment
+    ]
+    if not open_games:
+        return {"attempted": False, "reason": "NO_UNCOVERED_GAME_BEFORE_CUTOFF", "objects": 0}
+
+    # Bound the request to the games that can still be helped: never earlier
+    # than now, never later than the last open cutoff.
+    last_cutoff = max(datetime.fromisoformat(event["cutoff_utc"]) for event in open_games)
+    horizon_hours = max(1, min(24, int((last_cutoff - moment).total_seconds() // 3600) + 2))
+    wanted = min(len(open_games), MAX_EVENTS_PER_FETCH)
+
+    budget = object_budget(session, now=moment)
+    allowed, refusal = budget.may_spend(wanted)
+    if not allowed:
+        return {"attempted": False, "reason": "OBJECT_BUDGET_EXHAUSTED", "objects": 0,
+                "detail": refusal, "budget": budget.as_dict()}
+
+    params = {
+        "leagueID": "MLB", "limit": str(wanted),
+        "startsAfter": moment.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsBefore": (moment + timedelta(hours=horizon_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finalized": "false", "oddsPresent": "true",
+    }
+    reservation = record_request(session, requested_at=moment, params=params,
+                                 budget=budget, job_run_id=job_run_id)
+    session.commit()
+
+    try:
+        fetch = fetch_pregame_moneylines(
+            settings, limit=wanted, now=moment, starts_within_hours=horizon_hours)
+    except Exception as error:  # one attempt; the cooldown owns the next one
+        complete_request(session, reservation, objects=0, succeeded=False, budget=budget,
+                         error=type(error).__name__, job_run_id=job_run_id)
+        session.commit()
+        return {"attempted": True, "reason": "FALLBACK_REQUEST_FAILED", "objects": 0,
+                "error_type": type(error).__name__}
+
+    ingest(session, settings, fetch)
+    complete_request(session, reservation, objects=fetch.objects, succeeded=True,
+                     budget=budget, job_run_id=job_run_id)
+    session.commit()
+    after = object_budget(session, now=moment)
+    return {
+        "attempted": True, "reason": "FALLBACK_COLLECTED",
+        "objects": fetch.objects,
+        "games_open_before_cutoff": len(open_games),
+        "events_ingested": fetch.events_ingested,
+        "quote_rows": fetch.quotes_written,
+        "pairs": len(fetch.pairs),
+        "bookmakers": sorted({pair.bookmaker_key for pair in fetch.pairs}),
+        "skew": fetch.skew_summary(),
+        "request_filters": params,
+        "budget": after.as_dict(),
+    }

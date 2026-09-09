@@ -7,6 +7,7 @@ for, or a stale price looking fresh because we happened to fetch it just now.
 """
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -255,3 +256,149 @@ def test_the_dto_conversion_keeps_both_sides_of_one_book_together() -> None:
     assert {outcome.price for outcome in book.markets[0].outcomes} == {-118, 102}
     # The market carries the pair's freshness, which becomes observed_at.
     assert book.markets[0].last_update == pairs[0].pair_freshness_at
+
+
+# -- object budget, cooldown and ledger accounting ---------------------------
+
+
+def _ledger_row(session, *, requested_at, objects, status="SUCCEEDED"):
+    """A completed request pair, exactly as the collector writes it."""
+    from app.data_sources.provider_registry import SPORTSGAMEODDS
+    from app.models import ProviderRequestLedger
+
+    reserved = ProviderRequestLedger(
+        provider=SPORTSGAMEODDS, endpoint_key="sgo_mlb_events", status="RESERVED",
+        requested_at=requested_at, request_fingerprint=f"fp-{requested_at.isoformat()}-{objects}",
+        controlled_live_request=True, source_mode="LIVE", response_metadata={})
+    session.add(reserved)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=SPORTSGAMEODDS, endpoint_key="sgo_mlb_events", status=status,
+        requested_at=requested_at, completed_at=requested_at,
+        reservation_id=reserved.id, request_fingerprint=reserved.request_fingerprint,
+        records_received=objects, controlled_live_request=True, source_mode="LIVE",
+        response_metadata={}))
+    session.flush()
+    return reserved
+
+
+def test_requests_and_billable_objects_are_counted_separately(session) -> None:
+    """One ledger row is one request. The sum of records_received is the object
+    spend. Conflating them is how a 2,500-object allowance gets misread as
+    2,500 requests."""
+    from app.services.sgo_collection import object_budget
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    _ledger_row(session, requested_at=now - timedelta(hours=2), objects=10)
+    _ledger_row(session, requested_at=now - timedelta(hours=1), objects=7)
+    budget = object_budget(session, now=now)
+    assert budget.requests == 2
+    assert budget.objects_used == 17
+
+
+def test_the_reserve_is_never_spendable(session) -> None:
+    from app.services.sgo_collection import (
+        FREE_TIER_OBJECTS, OBJECT_RESERVE, object_budget)
+
+    budget = object_budget(session, now=datetime(2026, 9, 20, 12, 0, tzinfo=UTC))
+    assert budget.spendable == FREE_TIER_OBJECTS - OBJECT_RESERVE
+    assert budget.may_spend(budget.spendable)[0] is True
+    allowed, refusal = budget.may_spend(budget.spendable + 1)
+    assert allowed is False and "reserve" in refusal
+
+
+def test_the_guard_fails_closed_before_a_request_that_would_overrun(session) -> None:
+    from app.services.sgo_collection import (
+        FREE_TIER_OBJECTS, OBJECT_RESERVE, object_budget)
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    # Spend everything except five objects of headroom.
+    _ledger_row(session, requested_at=now - timedelta(days=1),
+                objects=FREE_TIER_OBJECTS - OBJECT_RESERVE - 5)
+    budget = object_budget(session, now=now)
+    assert budget.spendable == 5
+    assert budget.may_spend(5)[0] is True
+    assert budget.may_spend(6)[0] is False
+
+
+def test_a_request_the_provider_never_counted_is_charged_the_worst_case(session) -> None:
+    """Under-counting an allowance is how an allowance gets exceeded."""
+    from app.services.sgo_collection import MAX_EVENTS_PER_FETCH, object_budget
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    _ledger_row(session, requested_at=now - timedelta(hours=1), objects=None)
+    assert object_budget(session, now=now).objects_used == MAX_EVENTS_PER_FETCH
+
+
+def test_objects_outside_the_rolling_window_are_not_counted(session) -> None:
+    from app.services.sgo_collection import OBJECT_WINDOW_DAYS, object_budget
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    _ledger_row(session, requested_at=now - timedelta(days=OBJECT_WINDOW_DAYS + 1), objects=500)
+    _ledger_row(session, requested_at=now - timedelta(days=1), objects=9)
+    assert object_budget(session, now=now).objects_used == 9
+
+
+def test_the_cooldown_counts_from_the_last_attempt_not_the_last_success(session) -> None:
+    """A failing provider must not be hammered by a five-minute scheduler tick."""
+    from app.services.sgo_collection import (
+        MIN_SECONDS_BETWEEN_FETCHES, seconds_since_last_fetch)
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    assert seconds_since_last_fetch(session, now=now) is None
+    _ledger_row(session, requested_at=now - timedelta(seconds=120), objects=0, status="FAILED")
+    since = seconds_since_last_fetch(session, now=now)
+    assert since == pytest.approx(120, abs=1)
+    assert since < MIN_SECONDS_BETWEEN_FETCHES
+
+
+def test_a_ledger_row_carries_the_filters_and_never_the_credential(session) -> None:
+    from app.services.sgo_collection import object_budget, record_request
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    params = {"leagueID": "MLB", "limit": "6", "startsAfter": "2026-09-20T12:00:00Z",
+              "startsBefore": "2026-09-20T20:00:00Z", "finalized": "false",
+              "oddsPresent": "true"}
+    row = record_request(session, requested_at=now, params=params,
+                         budget=object_budget(session, now=now))
+    shape = row.response_metadata["request_shape"]
+    assert shape["filters"] == params
+    assert shape["billable_unit"] == "event object"
+    blob = json.dumps(row.response_metadata)
+    for forbidden in ("apikey", "api_key", "x-api-key", "authorization"):
+        assert forbidden not in blob.lower()
+
+
+def test_the_terminal_row_records_objects_and_remaining_allowance(session) -> None:
+    from app.data_sources.provider_registry import SPORTSGAMEODDS
+    from app.models import ProviderRequestLedger
+    from app.services.sgo_collection import (
+        FREE_TIER_OBJECTS, OBJECT_RESERVE, complete_request, object_budget, record_request)
+    from sqlalchemy import select
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    budget = object_budget(session, now=now)
+    row = record_request(session, requested_at=now, params={"leagueID": "MLB"}, budget=budget)
+    complete_request(session, row, objects=8, succeeded=True, budget=budget)
+    terminal = session.scalars(
+        select(ProviderRequestLedger).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            ProviderRequestLedger.status == "SUCCEEDED")).all()
+    assert len(terminal) == 1
+    assert terminal[0].records_received == 8
+    # Objects, not credits: this provider has no credit concept.
+    assert terminal[0].quota_cost is None
+    assert terminal[0].quota_remaining == FREE_TIER_OBJECTS - OBJECT_RESERVE - 8
+
+
+def test_a_failed_request_spends_no_objects_but_still_starts_the_cooldown(session) -> None:
+    from app.services.sgo_collection import (
+        complete_request, object_budget, record_request, seconds_since_last_fetch)
+
+    now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    budget = object_budget(session, now=now)
+    row = record_request(session, requested_at=now, params={"leagueID": "MLB"}, budget=budget)
+    complete_request(session, row, objects=0, succeeded=False, budget=budget,
+                     error="ReadTimeout")
+    assert object_budget(session, now=now).objects_used == 0
+    assert seconds_since_last_fetch(session, now=now) == pytest.approx(0, abs=1)
