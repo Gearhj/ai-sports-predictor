@@ -82,7 +82,7 @@ export function trailsFor(plays: Play[], index: number): Trail[] {
 
 export function PlayTheater({
   index, game, scenarioId, position, loading, error,
-  onScenario, onRepresentative, homeTeam, awayTeam,
+  onScenario, onRepresentative, homeTeam, awayTeam, initialPlay = 0,
 }: {
   index: NflPlayTheaterIndex
   game: NflPlayRepresentative | null
@@ -94,12 +94,14 @@ export function PlayTheater({
   onRepresentative: (position: number) => void
   homeTeam: string
   awayTeam: string
+  /** Deep-link straight to one play, so a moment can be shared or re-opened. */
+  initialPlay?: number
 }) {
   const reduced = useReducedMotion()
   const plays = useMemo(() => game?.plays ?? [], [game])
   const scenario = index.scenarios.find((s) => s.scenario_id === scenarioId) ?? index.scenarios[0]
 
-  const [cursor, setCursor] = useState(0)
+  const [cursor, setCursor] = useState(initialPlay)
   const [progress, setProgress] = useState(1)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
@@ -110,7 +112,8 @@ export function PlayTheater({
 
   // A new game restarts the theater rather than stranding the cursor in a
   // scenario whose play count is different.
-  useEffect(() => { setCursor(0); setProgress(1); setPlaying(false) }, [game?.supplement_sha256, position])
+  useEffect(() => { setCursor(initialPlay); setProgress(1); setPlaying(false) },
+    [game?.supplement_sha256, position, initialPlay])
 
   const play: Play | null = plays[cursor] ?? null
   const total = plays.length

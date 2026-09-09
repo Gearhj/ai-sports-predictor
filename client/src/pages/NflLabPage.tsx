@@ -31,7 +31,7 @@ interface EngineChoice {
   key: string
   label: string
   explorer: NflExplorer | null
-  kind: 'M1' | 'CANDIDATE' | 'DRIVE'
+  kind: 'M1' | 'CANDIDATE' | 'DRIVE' | 'PLAY'
   representatives?: Array<{ homeScore: number; awayScore: number; label?: string; simulationIndex?: number }>
 }
 
@@ -42,6 +42,7 @@ export function NflLabPage() {
   const view: View = requested && VIEWS.includes(requested) ? requested : 'explorer'
   const scenarioId = params.get('scenario') ?? 'BASE'
   const position = Number(params.get('rep') ?? 0) || 0
+  const initialPlay = Math.max(0, Number(params.get('play') ?? 0) || 0)
   const theater = useNflPlayTheater(gameId, scenarioId, position)
   const resource = useApiResource<NflGameDetail>(
     useCallback((signal: AbortSignal) => endpoints.nflGame(gameId, signal), [gameId]),
@@ -53,6 +54,12 @@ export function NflLabPage() {
       ...data.engines.map((e) => ({ key: e.engine_id, label: e.model_label, explorer: e.explorer ?? null, kind: 'M1' as const, representatives: data.research_candidates.find(c => c.engine_id === e.engine_id && c.forecast_id === e.forecast_id)?.representative_finals })),
       ...data.research_candidates.filter(c => !data.engines.some(e => e.engine_id === c.engine_id && e.forecast_id === c.forecast_id)).map((c) => ({ key: c.supplement_sha256, label: `${c.model_label} · saved score population`, explorer: c.explorer, kind: 'CANDIDATE' as const, representatives: c.representative_finals })),
       ...data.drive_theater.supplements.filter((s) => s.explorer).map((s) => ({ key: s.supplement_sha256, label: `Independent drive V2 · ${s.scenario?.scenarioId === 'BASE' ? 'BASE' : 'Pace sensitivity'}`, explorer: s.explorer ?? null, kind: 'DRIVE' as const, representatives: s.paths as NflRepresentativeGame[] | undefined })),
+      // Each play-level scenario is its own distribution, so the same explorer
+      // tools answer the same questions of a sensitivity as of the base run.
+      ...(data.play_scenarios ?? []).map((s) => ({
+        key: s.supplement_sha256, label: `Play engine · ${s.label}`,
+        explorer: s.explorer, kind: 'PLAY' as const, representatives: undefined,
+      })),
     ]
   }, [data])
   const [engineKey, setEngineKey] = useState<string | null>(params.get('engine'))
@@ -151,6 +158,7 @@ export function NflLabPage() {
               homeTeam={home} awayTeam={away}
               onScenario={(next) => setParam('scenario', next)}
               onRepresentative={(next) => setParam('rep', String(next))}
+              initialPlay={initialPlay}
             />
           )
           : (

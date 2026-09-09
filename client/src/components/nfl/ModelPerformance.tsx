@@ -23,17 +23,30 @@ const TIMING_LABEL: Record<string, string> = {
   NONE: 'No market benchmark',
 }
 
-/** Every metric here is an error or a loss, so smaller is better. Say so. */
-const METRICS: Array<{ key: string; label: string; hint: string; digits: number }> = [
-  { key: 'multiclassLogLoss', label: 'Log loss', digits: 4,
+/**
+ * Every metric here is an error or a loss, so smaller is better. Say so.
+ *
+ * `calibratedKey` matters more than it looks. The study publishes a separate
+ * post-calibration log loss for EVERY pipeline, but only raw Brier, calibration
+ * error and score errors. Reading one side's calibrated figure against the
+ * other's raw figure would be comparing two different things -- and it happens
+ * to reverse the answer, showing the challenger as worse when the study's own
+ * paired result has it slightly better. So the log-loss row switches both sides
+ * together, and the rows that have no calibrated counterpart say they are raw.
+ */
+const METRICS: Array<{
+  key: string; calibratedKey?: string; label: string; hint: string; digits: number
+  rawOnly?: boolean; calibrationInvariant?: boolean
+}> = [
+  { key: 'multiclassLogLoss', calibratedKey: 'calibratedLogLoss', label: 'Log loss', digits: 4,
     hint: 'How surprised the model was by what actually happened, across win/loss/tie. Lower is better.' },
-  { key: 'multiclassBrier', label: 'Brier score', digits: 4,
+  { key: 'multiclassBrier', label: 'Brier score', digits: 4, rawOnly: true,
     hint: 'Average squared error of the predicted probabilities. Lower is better.' },
-  { key: 'homeWinEce', label: 'Calibration error', digits: 4,
+  { key: 'homeWinEce', label: 'Calibration error', digits: 4, rawOnly: true,
     hint: 'When the model says 70%, how often does it actually happen? This is the average gap. Lower is better.' },
-  { key: 'marginMae', label: 'Margin error', digits: 2,
+  { key: 'marginMae', label: 'Margin error', digits: 2, calibrationInvariant: true,
     hint: 'Average miss on the final margin, in points. Lower is better.' },
-  { key: 'totalMae', label: 'Total error', digits: 2,
+  { key: 'totalMae', label: 'Total error', digits: 2, calibrationInvariant: true,
     hint: 'Average miss on the combined score, in points. Lower is better.' },
 ]
 
@@ -67,7 +80,6 @@ function Study({ study }: { study: NflResearchStudy }) {
   const calibration = s.calibration as { calibrated?: Row; method?: string } | undefined
   const early = s.earlySeason as { applies?: boolean; note?: string } | undefined
 
-  const championRow = calibrated && calibration?.calibrated ? calibration.calibrated : champion
   const track = ci && paired ? intervalTrack(ci[0], ci[1], paired.candidateMinusM1LogLoss ?? 0) : null
 
   return (
@@ -147,8 +159,8 @@ function Study({ study }: { study: NflResearchStudy }) {
         </div>
         <p className="muted">
           {calibrated
-            ? `Probabilities recalibrated by ${calibration?.method ?? 'the study’s stated method'}. Score errors are unaffected by calibration.`
-            : 'Raw model output, before recalibration.'}
+            ? `Log loss is each pipeline's own post-calibration figure (${String(calibration?.method ?? 'method as stated by the study')}). Brier and calibration error are published raw only. Score errors are unchanged by calibration.`
+            : 'Raw model output, before recalibration, on both sides.'}
         </p>
         <table className="model-metric-table">
           <thead>
@@ -161,14 +173,19 @@ function Study({ study }: { study: NflResearchStudy }) {
           </thead>
           <tbody>
             {METRICS.map((metric) => {
-              const a = championRow?.[metric.key]
-              const b = challenger?.[metric.key]
+              // One key, applied to BOTH sides. Never one side's calibrated
+              // number against the other side's raw one.
+              const key = calibrated && metric.calibratedKey ? metric.calibratedKey : metric.key
+              const a = champion?.[key]
+              const b = challenger?.[key]
               const delta = typeof a === 'number' && typeof b === 'number' ? b - a : null
+              const caveat = calibrated && metric.rawOnly ? ' Raw only — no calibrated figure is published.'
+                : calibrated && metric.calibrationInvariant ? ' Unchanged by calibration.' : ''
               return (
                 <tr key={metric.key}>
                   <th scope="row">
                     {metric.label}
-                    <small>{metric.hint}</small>
+                    <small>{metric.hint}{caveat}</small>
                   </th>
                   <td>{num(a, metric.digits)}</td>
                   <td>{num(b, metric.digits)}</td>

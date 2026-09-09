@@ -151,15 +151,18 @@ export function PlayField({
         </defs>
         <rect x="0" y="0" width="1200" height="560" fill="#0b2a18" />
         <rect x={FIELD_X0} y={TOP} width={FIELD_X1 - FIELD_X0} height={BOTTOM - TOP} fill={`url(#${turfId})`} />
-        {/* HOME attacks left, so the left end zone is the one HOME scores in. */}
+        {/* HOME attacks left, so HOME scores in the LEFT end zone -- which means
+            the left end zone is the one AWAY defends, and carries AWAY's name.
+            Painting it with the scoring team's name would read as a team
+            scoring in its own end. */}
         <rect className={celebration === 'td' && shown?.possession === 'HOME' ? 'nfl-endzone-flash' : ''}
-          x="0" y={TOP} width={FIELD_X0} height={BOTTOM - TOP} fill={colors.home} fillOpacity=".5" />
+          x="0" y={TOP} width={FIELD_X0} height={BOTTOM - TOP} fill={colors.away} fillOpacity=".5" />
         <rect className={celebration === 'td' && shown?.possession === 'AWAY' ? 'nfl-endzone-flash' : ''}
-          x={FIELD_X1} y={TOP} width={FIELD_X0} height={BOTTOM - TOP} fill={colors.away} fillOpacity=".5" />
-        <text x="50" y="280" fill="#f7e5d1" fontSize="30" fontWeight="700" textAnchor="middle"
-          transform="rotate(-90 50 280)" letterSpacing="4">{homeTeam}</text>
-        <text x="1150" y="280" fill="#dfe9f5" fontSize="30" fontWeight="700" textAnchor="middle"
-          transform="rotate(90 1150 280)" letterSpacing="4">{awayTeam}</text>
+          x={FIELD_X1} y={TOP} width={FIELD_X0} height={BOTTOM - TOP} fill={colors.home} fillOpacity=".5" />
+        <text x="50" y="280" fill="#dfe9f5" fontSize="30" fontWeight="700" textAnchor="middle"
+          transform="rotate(-90 50 280)" letterSpacing="4">{awayTeam}</text>
+        <text x="1150" y="280" fill="#f7e5d1" fontSize="30" fontWeight="700" textAnchor="middle"
+          transform="rotate(90 1150 280)" letterSpacing="4">{homeTeam}</text>
 
         {Array.from({ length: 21 }, (_, i) => i * 5).map((yard) => (
           <g key={yard}>
