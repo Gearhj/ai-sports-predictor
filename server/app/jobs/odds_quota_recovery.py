@@ -38,15 +38,21 @@ The reading is anchored to the newest successful run that actually CARRIES a
 about the balance, so it must not be allowed to clear a latch that a real
 reading set: absence of evidence is not evidence of quota.
 
-RENEWAL
--------
-The provider's quota period rolls over on its own schedule. Once a latched
-reading is older than ``odds_quota_renewal_days`` it can no longer be read as a
-statement about the balance now -- the balance may well have renewed. That is
-reported as its own state so an operator is told the truth ("this may have
-renewed; one authorized probe would settle it") instead of a permanent-looking
-block. It still spends nothing automatically: only an explicitly requested
-refresh may carry the single probe.
+RENEWAL IS A CALENDAR RESET, NOT AN ELAPSED WINDOW
+--------------------------------------------------
+The provider's credits reset on the FIRST OF EACH MONTH
+(https://the-odds-api.com/manage/faqs.html). A reading taken before the most
+recent reset is therefore obsolete as a statement about the balance now --
+regardless of how many days old it is. A reading taken 40 days ago inside the
+same billing month is still current; one taken 3 days ago across a month
+boundary is not.
+
+Crossing that boundary establishes only that the old number is UNCONFIRMED. It
+does NOT establish that credits are available. The guard stays latched and
+reports ``MAY_HAVE_RENEWED_PROBE_REQUIRED`` until an actual provider response
+supplies a balance. Nothing is probed automatically: only an explicitly
+authorized check refreshes the reading, and the documented ``/v4/sports/``
+endpoint returns the quota headers without consuming a usage credit.
 """
 
 from __future__ import annotations
@@ -79,9 +85,10 @@ GUARD_NO_READING = "NO_QUOTA_READING_RECORDED"
 #: run automatically and never by this module; it is reported so the one
 #: authorized call is unambiguous.
 AUTHORIZED_PROBE_COMMAND = (
-    "python -m scripts.odds_quota_recovery_probe  "
-    "(one bounded THE_ODDS_API request; add --dry-run to evaluate the guard "
-    "without contacting the provider)"
+    "python -m scripts.odds_quota_recovery_probe --balance-only  "
+    "(one request to the documented zero-credit /v4/sports/ endpoint, which "
+    "returns the quota headers without consuming a usage credit; add "
+    "--dry-run to evaluate the guard without contacting the provider)"
 )
 
 
@@ -125,8 +132,26 @@ class QuotaState:
             ),
             "guard_state": self.guard_state,
             "reading_may_have_renewed": self.reading_may_have_renewed,
+            "renewal_basis": "PROVIDER_MONTHLY_CREDIT_RESET_ON_THE_1ST",
+            "balance_confirmed": self.remaining is not None and not self.reading_may_have_renewed,
             "authorized_probe_command": AUTHORIZED_PROBE_COMMAND,
         }
+
+
+def _last_monthly_reset(now: datetime) -> datetime:
+    """The most recent 1st-of-month boundary at or before ``now`` (UTC)."""
+
+    return now.astimezone(UTC).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+
+
+def _crossed_monthly_reset(observed_at: datetime | None, now: datetime) -> bool:
+    """Whether the reading was taken before the most recent credit reset."""
+
+    if observed_at is None:
+        return False
+    return observed_at.astimezone(UTC) < _last_monthly_reset(now)
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -182,6 +207,9 @@ def quota_state(
     floor: int,
     probe_after_hours: float,
     probe_cooldown_hours: float,
+    # Accepted for call-site compatibility and no longer used to decide
+    # obsolescence: renewal is the provider's monthly calendar reset, not an
+    # elapsed window. Retained so a caller can still record what it assumed.
     renewal_days: float | None = None,
     now: datetime | None = None,
 ) -> QuotaState:
@@ -199,11 +227,9 @@ def quota_state(
     )
     latched = remaining is not None and remaining <= floor
 
-    renewal_hours = (renewal_days * 24.0) if renewal_days else None
-    may_have_renewed = bool(
-        latched and renewal_hours is not None
-        and age_hours is not None and age_hours >= renewal_hours
-    )
+    # Obsolete when the reading predates the most recent monthly reset, not
+    # when some number of days has elapsed.
+    may_have_renewed = bool(latched and _crossed_monthly_reset(observed_at, now))
 
     if not latched:
         return QuotaState(
@@ -244,12 +270,13 @@ def quota_state(
         guard = GUARD_KNOWN_BELOW_FLOOR
 
     if may_have_renewed:
-        # Say plainly that the persisted number is no longer a statement about
-        # the balance now. This changes no spending decision by itself.
+        # The number is unconfirmed, which is not the same as available. This
+        # changes no spending decision by itself.
         renewal_note = (
-            f"The reading predates the provider's {renewal_days:.0f}-day quota "
-            "period, so the balance may have renewed; only an authorized probe "
-            "can settle it."
+            "The reading predates the provider's monthly credit reset on the "
+            f"1st ({_last_monthly_reset(now).date().isoformat()}), so it is "
+            "unconfirmed rather than current. It does not establish that "
+            "credits are available; only an authorized balance check can."
         )
         reason = f"{reason} {renewal_note}".strip() if reason else renewal_note
 

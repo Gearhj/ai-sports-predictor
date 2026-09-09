@@ -15,9 +15,19 @@ is retried afterwards:
   would be a second request.
 * The quota floor is not lowered and recurring polling is not enabled.
 
+    python -m scripts.odds_quota_recovery_probe --balance-only [--dry-run]
     python -m scripts.odds_quota_recovery_probe [--date YYYY-MM-DD] [--dry-run]
 
+``--balance-only`` reads the balance from the documented ``/v4/sports/``
+endpoint, which returns the ``x-requests-*`` headers WITHOUT consuming a usage
+credit (https://the-odds-api.com/liveapi/guides/v4/#get-sports). It fetches no
+odds and persists no price; it exists to replace an obsolete reading with a
+confirmed one. Prefer it: the full refresh above spends an odds credit.
+
 ``--dry-run`` evaluates and prints the guard decision and makes no request.
+
+The API key is passed to the provider as a request parameter and is never
+printed, logged or included in any output of this command.
 """
 
 from __future__ import annotations
@@ -36,7 +46,7 @@ from sqlalchemy import select, text  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.core.time import local_today  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
-from app.jobs.odds_quota_recovery import quota_state  # noqa: E402
+from app.jobs.odds_quota_recovery import PROBE_ENDPOINT_KEY, quota_state  # noqa: E402
 from app.jobs.orchestrator import JobOrchestrator  # noqa: E402
 from app.models import IngestionRun, OddsSnapshot, ProviderRequestLedger  # noqa: E402
 
@@ -53,10 +63,63 @@ def _state(session, settings) -> dict:
     ).as_dict()
 
 
+async def _balance_only(session, settings, before: dict) -> dict:
+    """Confirm the balance without spending a usage credit.
+
+    The request is still ledgered, so it is counted and auditable exactly like
+    any other provider contact, and the credentials never reach the output.
+    """
+
+    from app.data_sources.odds import TheOddsAPIAdapter
+
+    orchestrator = JobOrchestrator(session, settings)
+    orchestrator._reserve_provider_request(
+        "THE_ODDS_API",
+        PROBE_ENDPOINT_KEY,
+        controlled_live_request=True,
+        request_shape={"reason": "QUOTA_BALANCE_CHECK", "endpoint": "v4/sports", "credit_cost": 0},
+    )
+    adapter = TheOddsAPIAdapter(
+        api_key=settings.the_odds_api_key,
+        sport_key="baseball_mlb",
+    )
+    try:
+        response = await adapter.get_quota_balance()
+    except Exception as exc:  # noqa: BLE001 - reported once, never retried
+        session.rollback()
+        return {
+            "command": "odds_quota_recovery_probe",
+            "mode": "BALANCE_ONLY_ZERO_CREDIT",
+            "requested": True,
+            "balance_confirmed": False,
+            # Type only: a provider message could echo the key.
+            "error": type(exc).__name__,
+            "state_before": before,
+        }
+    metadata = dict(response.envelope.metadata or {})
+    session.commit()
+    return {
+        "command": "odds_quota_recovery_probe",
+        "mode": "BALANCE_ONLY_ZERO_CREDIT",
+        "requested": True,
+        "credit_cost": 0,
+        "balance_confirmed": metadata.get("requests_remaining") is not None,
+        "requests_remaining": metadata.get("requests_remaining"),
+        "requests_used": metadata.get("requests_used"),
+        "quota_floor": settings.odds_quota_floor,
+        "odds_persisted": 0,
+        "state_before": before,
+    }
+
+
 async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="odds_quota_recovery_probe")
     parser.add_argument("--date", help="Operational date (YYYY-MM-DD).")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--balance-only", action="store_true",
+        help="Read the quota balance from the zero-credit /v4/sports/ endpoint.",
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -95,9 +158,19 @@ async def main(argv: list[str] | None = None) -> int:
                     "command": "odds_quota_recovery_probe",
                     "requested": False,
                     "dry_run": True,
+                    "mode": "BALANCE_ONLY_ZERO_CREDIT" if args.balance_only
+                            else "FULL_ODDS_REFRESH_SPENDS_ONE_CREDIT",
                     "state_before": before,
                 }, indent=2))
                 return 0
+
+            if args.balance_only:
+                # One request to the documented zero-credit endpoint. It reads
+                # the quota headers only: no odds are fetched and no price is
+                # persisted, so nothing downstream can mistake it for a quote.
+                payload = await _balance_only(session, settings, before)
+                print(json.dumps(payload, indent=2))
+                return 0 if payload.get("balance_confirmed") else 4
 
             error: str | None = None
             result: dict | None = None

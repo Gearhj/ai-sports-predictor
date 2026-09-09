@@ -42,6 +42,12 @@ export type DecisionReasonCode =
   | 'WATCH_NO_MARKET_PRICE'
   | 'WATCH_MARKET_PRICE_STALE'
   | 'PASSED_NO_QUALIFYING_EDGE'
+  // A final decision is not always a price judgement. These say what the
+  // persisted reason actually recorded instead of asserting an edge test that
+  // may never have been reached.
+  | 'PASSED_NO_MARKET_PRICE'
+  | 'PASSED_MARKET_PRICE_STALE'
+  | 'PASSED_EVIDENCE_INCOMPLETE'
   | 'PASSED_POLICY_REJECTION'
   // Closed-for-decisions reasons. These are deliberately NOT interchangeable:
   // a postponed game is not a final game, and neither is a settled wager.
@@ -114,6 +120,66 @@ export function nextCheckpoint(
 export function cutoffPassed(selection: NormalizedSelection, now: number): boolean {
   const cutoff = parse(selection.final_decision_cutoff)
   return cutoff !== null && cutoff <= now
+}
+
+/**
+ * Why a FINAL_NO_BET was actually recorded.
+ *
+ * "Available price did not meet the policy threshold" is only true when a
+ * price was available and tested. A final decision can equally be blocked by a
+ * missing quote, a stale quote, or incomplete evidence, and saying otherwise
+ * misreports the persisted record. The classification is read from the
+ * persisted reason; the stored decision itself is never changed.
+ */
+function finalNoBet(selection: NormalizedSelection): {
+  group: DecisionGroup
+  reasonCode: DecisionReasonCode
+  status: string
+  detail: string | null
+} {
+  const detail = firstGate(selection)
+  const evidence = selection.market_evidence_state
+  const reasons = [
+    ...(selection.outstanding_gates ?? []),
+    selection.status_note ?? '',
+  ].join(' | ').toLowerCase()
+
+  const missingQuote = evidence === 'QUOTE_MISSING'
+    || /no complete .*quote|quote is unavailable|no governed quote/.test(reasons)
+  const staleQuote = evidence === 'QUOTE_STALE' || /quote is stale|stale quote/.test(reasons)
+  const evidenceGate = /readiness|starter|lineup|critical inputs|identity|availability event|invalid/
+    .test(reasons)
+
+  if (missingQuote) {
+    return {
+      group: 'PASSED',
+      reasonCode: 'PASSED_NO_MARKET_PRICE',
+      status: 'Closed without a decision — no sportsbook price was available',
+      detail,
+    }
+  }
+  if (staleQuote) {
+    return {
+      group: 'PASSED',
+      reasonCode: 'PASSED_MARKET_PRICE_STALE',
+      status: 'Closed without a decision — the available price was too old to use',
+      detail,
+    }
+  }
+  if (evidenceGate) {
+    return {
+      group: 'PASSED',
+      reasonCode: 'PASSED_EVIDENCE_INCOMPLETE',
+      status: 'Closed without a decision — required evidence was incomplete',
+      detail,
+    }
+  }
+  return {
+    group: 'PASSED',
+    reasonCode: 'PASSED_NO_QUALIFYING_EDGE',
+    status: 'Evaluated — available price did not meet the policy threshold',
+    detail,
+  }
 }
 
 function firstGate(selection: NormalizedSelection): string | null {
@@ -254,13 +320,7 @@ export function deriveDecision(selection: NormalizedSelection, now: number): Der
   }
 
   if (selection.decision_state === 'FINAL_NO_BET') {
-    return {
-      group: 'PASSED',
-      reasonCode: 'PASSED_NO_QUALIFYING_EDGE',
-      status: 'Evaluated — available price did not meet the policy threshold',
-      detail: firstGate(selection),
-      checkpoint: null,
-    }
+    return { ...finalNoBet(selection), checkpoint: null }
   }
   if (selection.decision_state === 'PASS') {
     return {

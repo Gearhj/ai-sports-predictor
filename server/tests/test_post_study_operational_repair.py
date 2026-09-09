@@ -184,7 +184,32 @@ def test_a_run_without_a_reading_cannot_clear_a_latched_quota(session) -> None:
     assert state.reading_may_have_renewed is False
 
 
-def test_a_reading_older_than_the_quota_period_reports_possible_renewal(session) -> None:
+def test_renewal_follows_the_monthly_reset_not_an_elapsed_window(session) -> None:
+    """The provider resets credits on the 1st, so obsolescence is calendar-based.
+
+    A reading taken inside the current billing month is still current however
+    old it is; one taken before the most recent 1st is unconfirmed, which is
+    not the same as saying credits are available.
+    """
+
+    now = datetime(2026, 9, 8, 18, 0, tzinfo=UTC)
+    # 40 days old but inside no earlier month than the reset: taken 2026-09-02,
+    # after the 2026-09-01 reset, so it is still a current statement.
+    session.add(IngestionRun(
+        source=PROVIDER, job_name="refresh-odds", status=RunStatus.SUCCEEDED,
+        started_at=datetime(2026, 9, 2, tzinfo=UTC),
+        completed_at=datetime(2026, 9, 2, tzinfo=UTC),
+        source_metadata={"requests_remaining": 5},
+    ))
+    session.flush()
+    fresh = quota_state(session, floor=10, probe_after_hours=24.0,
+                        probe_cooldown_hours=24.0, now=now)
+    assert fresh.guard_state == GUARD_KNOWN_BELOW_FLOOR
+    assert fresh.reading_may_have_renewed is False
+    assert fresh.as_dict()["balance_confirmed"] is True
+
+
+def test_a_reading_from_before_the_monthly_reset_is_unconfirmed(session) -> None:
     now = datetime.now(UTC)
     session.add(IngestionRun(
         source=PROVIDER, job_name="refresh-odds", status=RunStatus.SUCCEEDED,
@@ -200,9 +225,14 @@ def test_a_reading_older_than_the_quota_period_reports_possible_renewal(session)
     assert state.latched is True
     assert state.guard_state == GUARD_MAY_HAVE_RENEWED_PROBE_REQUIRED
     assert state.reading_may_have_renewed is True
-    assert "may have renewed" in (state.probe_blocked_reason or "")
+    reason = state.probe_blocked_reason or ""
+    assert "monthly credit reset" in reason
+    # Crossing the boundary makes the number unconfirmed, never available.
+    assert "does not establish that credits are available" in reason
+    assert state.as_dict()["balance_confirmed"] is False
     # The floor still holds and nothing is spent automatically.
     assert state.floor == 10
+    assert state.as_dict()["renewal_basis"] == "PROVIDER_MONTHLY_CREDIT_RESET_ON_THE_1ST"
     assert state.as_dict()["authorized_probe_command"].startswith(
-        "python -m scripts.odds_quota_recovery_probe"
+        "python -m scripts.odds_quota_recovery_probe --balance-only"
     )

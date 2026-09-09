@@ -903,6 +903,19 @@ export interface ShadowEngineView {
   snapshot_type?: string
   snapshot_version?: number
   forecast_cutoff_utc?: string | null
+  /** Stated separately; never folded into the two win probabilities. */
+  tie_probability?: number | null
+  expected_margin_home?: number | null
+  expected_total_score?: number | null
+  source_evidence_utc?: string | null
+  forecast_published_utc?: string | null
+  imported_at_utc?: string | null
+  evidence_basis?: {
+    missing_input_count?: number
+    treatment?: string
+    note?: string
+    excluded_evidence?: string[]
+  } | null
   uncertainty?: Record<string, unknown>
   score_margin_distribution?: Array<{ home_minus_away: number; probability: number }>
   total_score_distribution?: Array<{ total_score: number; probability: number }>

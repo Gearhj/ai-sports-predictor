@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
 import { MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { endpoints } from '../services/api'
+import { formatTimestamp } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
 import type {
   ProspectiveRescore,
@@ -155,7 +156,9 @@ export function ShadowBoardPage() {
         <Panel
           key={game.event_id}
           title={`${game.away_team_id} @ ${game.home_team_id}`}
-          eyebrow={`${!game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport} · ${game.scheduled_start_utc ?? game.event_date}`}
+          // Kickoff/first pitch in the reader's own locale, not a raw ISO string.
+          eyebrow={`${!game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport} · ${
+            game.scheduled_start_utc ? formatTimestamp(game.scheduled_start_utc) : game.event_date}`}
           className="section-panel"
           action={game.model_disagreement != null
             ? <span className="info-label">Model disagreement {pct(game.model_disagreement)}</span>
@@ -246,12 +249,57 @@ function EngineColumn({ engine }: { engine: ShadowEngineView }) {
       <section className="metric-grid metric-grid--three">
         <MetricCard label="Home win" value={pct(engine.home_win_probability)} detail={`Exp ${engine.expected_home_score.toFixed(2)}`} />
         <MetricCard label="Away win" value={pct(engine.away_win_probability)} detail={`Exp ${engine.expected_away_score.toFixed(2)}`} />
-        <MetricCard
-          label={engine.first_five_home_win_probability == null ? 'Forecast snapshot' : 'F5 home win'}
-          value={engine.first_five_home_win_probability == null ? (engine.snapshot_type ?? 'CURRENT').replaceAll('_', ' ') : pct(engine.first_five_home_win_probability)}
-          detail={`Readiness ${engine.readiness_score}/${engine.readiness_threshold}`}
-        />
+        {/* A tie is its own outcome and is never redistributed into the two
+            win probabilities, so it gets its own card wherever the model
+            publishes one. */}
+        {typeof engine.tie_probability === 'number' ? (
+          <MetricCard
+            label="Tie"
+            value={pct(engine.tie_probability)}
+            detail={
+              typeof engine.expected_margin_home === 'number'
+                ? `Home margin ${engine.expected_margin_home >= 0 ? '+' : ''}${engine.expected_margin_home.toFixed(4)}`
+                : 'Own outcome — not redistributed'
+            }
+          />
+        ) : (
+          <MetricCard
+            label={engine.first_five_home_win_probability == null ? 'Forecast snapshot' : 'F5 home win'}
+            value={engine.first_five_home_win_probability == null ? (engine.snapshot_type ?? 'CURRENT').replaceAll('_', ' ') : pct(engine.first_five_home_win_probability)}
+            detail={`Readiness ${engine.readiness_score}/${engine.readiness_threshold}`}
+          />
+        )}
       </section>
+      {(typeof engine.expected_total_score === 'number' || engine.source_evidence_utc) && (
+        <div className="rescore-quotes" aria-label="Forecast provenance">
+          <div>
+            <p className="eyebrow">SNAPSHOT</p>
+            <p>
+              {(engine.snapshot_type ?? 'CURRENT').replaceAll('_', ' ')} v{engine.snapshot_version ?? 1}
+              {typeof engine.expected_total_score === 'number'
+                ? ` · expected total ${engine.expected_total_score.toFixed(2)}`
+                : ''}
+              {' · '}readiness {engine.readiness_score}/{engine.readiness_threshold}
+            </p>
+          </div>
+          <div>
+            <p className="eyebrow">SOURCE EVIDENCE</p>
+            <p>
+              {engine.source_evidence_utc ? formatTimestamp(engine.source_evidence_utc) : 'Not recorded'}
+              {engine.forecast_published_utc
+                ? <> · published {formatTimestamp(engine.forecast_published_utc)}</> : null}
+              {engine.imported_at_utc
+                ? <> · imported by AISP {formatTimestamp(engine.imported_at_utc)}</> : null}
+            </p>
+          </div>
+          {engine.evidence_basis?.note && (
+            <div>
+              <p className="eyebrow">BASIS</p>
+              <p>{engine.evidence_basis.note}</p>
+            </div>
+          )}
+        </div>
+      )}
       {(topMargins.length > 0 || topTotals.length > 0) && (
         <div className="rescore-quotes" aria-label="NFL forecast distributions">
           <div>
@@ -287,7 +335,7 @@ function EngineColumn({ engine }: { engine: ShadowEngineView }) {
         </table>
       </TableScroll>
       <p className="muted" style={{ marginTop: '0.5rem' }}>Total virtual stake: <strong>{money(staked)}</strong> (simulation only)</p>
-      {engine.forecast_cutoff_utc && <p className="muted">Forecast cutoff: {engine.forecast_cutoff_utc} · {engine.status.replaceAll('_', ' ')}</p>}
+      {engine.forecast_cutoff_utc && <p className="muted">Forecast cutoff: {formatTimestamp(engine.forecast_cutoff_utc)} · {engine.status.replaceAll('_', ' ')}</p>}
     </div>
   )
 }

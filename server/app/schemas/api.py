@@ -922,6 +922,15 @@ class ShadowEngineView(BaseModel):
     snapshot_type: str = "HISTORICAL"
     snapshot_version: int = 1
     forecast_cutoff_utc: datetime | None = None
+    #: Stated separately; never folded into the two win probabilities.
+    tie_probability: float | None = None
+    expected_margin_home: float | None = None
+    expected_total_score: float | None = None
+    #: Source-evidence cutoff, producer publication, and the actual AISP import.
+    source_evidence_utc: datetime | None = None
+    forecast_published_utc: datetime | None = None
+    imported_at_utc: datetime | None = None
+    evidence_basis: dict | None = None
     uncertainty: dict = Field(default_factory=dict)
     score_margin_distribution: list[dict] = Field(default_factory=list)
     total_score_distribution: list[dict] = Field(default_factory=list)

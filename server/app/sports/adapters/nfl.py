@@ -177,11 +177,31 @@ class NflTodayAdapter:
             event_status=_text(self._field(game, "status")),
         )
         if engine is None or decision is None:
+            # An imported forecast with no market decision is not "nothing
+            # imported": the forecast exists and must be shown. Only the market
+            # comparison is unavailable, because no governed quote exists.
+            home_probability = self._pct(self._field(engine, "home_win_probability")) if engine else None
+            note = (
+                f"{RESEARCH_NOTE} — research forecast imported; no governed "
+                "sportsbook quote, so no market comparison is available."
+                if engine is not None
+                else f"{RESEARCH_NOTE} — no imported research forecast for this event."
+            )
             return (
                 NormalizedSelection(
                     decision_state=DState.NOT_EVALUATED,
                     funding_state=FState.RESEARCH_ONLY,
-                    status_note=f"{RESEARCH_NOTE} — no imported research decision for this event.",
+                    status_note=note,
+                    # The sport's own current published forecast, carried with
+                    # its own timestamp and model identity. It is never a
+                    # decision and never a priced model probability.
+                    current_forecast_probability=home_probability,
+                    current_forecast_generated_at=forecast_cutoff,
+                    current_forecast_model=(
+                        str(self._field(engine, "engine_id", "") or "") or None
+                        if engine is not None else None
+                    ),
+                    market_evidence_state="QUOTE_MISSING" if engine is not None else None,
                     **base,
                 ),
                 forecast_cutoff,

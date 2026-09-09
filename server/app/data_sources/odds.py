@@ -34,6 +34,62 @@ class TheOddsAPIAdapter:
         self._client = client
         self.timeout = timeout
 
+    async def get_quota_balance(self) -> AdapterResponse:
+        """Read the quota headers from the documented zero-credit endpoint.
+
+        ``GET /v4/sports/`` returns the same ``x-requests-*`` headers as a
+        priced call but does not consume a usage credit
+        (https://the-odds-api.com/liveapi/guides/v4/#get-sports). It is the
+        correct way to establish the current balance without spending any.
+
+        It returns no odds, so it can never be mistaken for a price. The key is
+        sent as a parameter and is never echoed into the envelope, metadata or
+        any error message.
+        """
+
+        if not self.api_key:
+            raise SourceError(self.source, "THE_ODDS_API_KEY is not configured", retryable=False)
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.get(
+                f"{self.base_url}/sports/",
+                params={"apiKey": self.api_key},
+            )
+            response.raise_for_status()
+            raw = response.json()
+            if not isinstance(raw, list):
+                raise SourceError(self.source, "Odds API returned an unexpected payload", retryable=False)
+            quota = {
+                "requests_remaining": _header_int(response.headers, "x-requests-remaining"),
+                "requests_used": _header_int(response.headers, "x-requests-used"),
+                "requests_last": _header_int(response.headers, "x-requests-last"),
+            }
+            return AdapterResponse(
+                envelope=SourceEnvelope(
+                    source=self.source,
+                    fetched_at=datetime.now(UTC),
+                    # Deliberately empty: this endpoint carries no odds.
+                    data=[],
+                    metadata={
+                        "endpoint": "v4/sports",
+                        "credit_cost": 0,
+                        "sport_count": len(raw),
+                        **quota,
+                    },
+                ),
+                raw_payload=None,
+            )
+        except SourceError:
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SourceError(
+                self.source, f"Quota balance request failed: {type(exc).__name__}"
+            ) from exc
+        finally:
+            if owns_client:
+                await client.aclose()
+
     async def get_market_snapshot(self) -> AdapterResponse:
         if not self.api_key:
             raise SourceError(self.source, "THE_ODDS_API_KEY is not configured", retryable=False)

@@ -443,3 +443,40 @@ describe('an unpriceable decision is not "under review"', () => {
     expect(slateMessage(counts, 0, 0)).toMatch(/still under review/i)
   })
 })
+
+
+describe('a final NO_BET states the reason that was actually recorded', () => {
+  it('does not claim a price test that never happened', () => {
+    const noQuote = deriveDecision(selection({
+      decision_state: 'FINAL_NO_BET',
+      market_evidence_state: 'QUOTE_MISSING',
+      outstanding_gates: ['No complete same-sportsbook two-sided MONEYLINE quote'],
+    }), NOW)
+    expect(noQuote.reasonCode).toBe('PASSED_NO_MARKET_PRICE')
+    expect(noQuote.status).toMatch(/no sportsbook price was available/i)
+    expect(noQuote.status).not.toMatch(/did not meet the policy threshold/i)
+
+    const stale = deriveDecision(selection({
+      decision_state: 'FINAL_NO_BET',
+      market_evidence_state: 'QUOTE_STALE',
+      outstanding_gates: ['Latest quote is stale'],
+    }), NOW)
+    expect(stale.reasonCode).toBe('PASSED_MARKET_PRICE_STALE')
+
+    const evidence = deriveDecision(selection({
+      decision_state: 'FINAL_NO_BET',
+      market_evidence_state: 'QUOTE_PRESENT',
+      outstanding_gates: ['Readiness below 70'],
+    }), NOW)
+    expect(evidence.reasonCode).toBe('PASSED_EVIDENCE_INCOMPLETE')
+
+    // A genuine edge rejection keeps the original wording.
+    const edge = deriveDecision(selection({
+      decision_state: 'FINAL_NO_BET',
+      market_evidence_state: 'QUOTE_PRESENT',
+      outstanding_gates: ['Adjusted expected value is not positive'],
+    }), NOW)
+    expect(edge.reasonCode).toBe('PASSED_NO_QUALIFYING_EDGE')
+    expect(edge.status).toMatch(/did not meet the policy threshold/i)
+  })
+})

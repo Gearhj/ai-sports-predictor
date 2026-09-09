@@ -1042,6 +1042,34 @@ class ShadowBoardService:
             "expected_away_score": forecast.full_expected_away_score,
             "first_five_home_win_probability": forecast.f5_home_win_probability,
             "first_five_away_win_probability": forecast.f5_away_win_probability,
+            # Stated separately, never redistributed into the two win
+            # probabilities: a tie is its own outcome.
+            "tie_probability": (forecast.distributions or {}).get("tie_probability"),
+            # Arithmetic on the two persisted expected scores. No new estimate.
+            "expected_margin_home": (
+                round(forecast.full_expected_home_score - forecast.full_expected_away_score, 4)
+                if forecast.full_expected_home_score is not None
+                and forecast.full_expected_away_score is not None else None
+            ),
+            "expected_total_score": (
+                round(forecast.full_expected_home_score + forecast.full_expected_away_score, 4)
+                if forecast.full_expected_home_score is not None
+                and forecast.full_expected_away_score is not None else None
+            ),
+            # Three distinct timestamps that are routinely conflated: when the
+            # underlying source evidence was cut, when the producer published
+            # the forecast, and when AISP actually imported it. The import time
+            # is recorded as it happened and is never backdated.
+            "source_evidence_utc": (
+                forecast.source_cutoff_utc.isoformat() if forecast.source_cutoff_utc else None
+            ),
+            "forecast_published_utc": (
+                forecast.available_as_of_utc.isoformat() if forecast.available_as_of_utc else None
+            ),
+            "imported_at_utc": (
+                forecast.created_at.isoformat() if forecast.created_at else None
+            ),
+            "evidence_basis": self._evidence_basis(forecast),
             "uncertainty": forecast.uncertainty,
             "score_margin_distribution": forecast.distributions.get("score_margin_distribution", []),
             "total_score_distribution": forecast.distributions.get("total_score_distribution", []),
@@ -1051,6 +1079,34 @@ class ShadowBoardService:
             "feature_vector_sha256": forecast.feature_vector_sha256,
             "lineage": forecast.lineage_detail,
             "decisions": [self._decision_view(d) for d in decisions],
+        }
+
+    @staticmethod
+    def _evidence_basis(forecast: ShadowForecast) -> dict | None:
+        """What this forecast was actually built from.
+
+        Reports the persisted missing-input count so an early-season baseline
+        is never read as a refreshed, fully-evidenced forecast. It asserts
+        nothing about quarterback, injury, weather or market evidence, because
+        none of that is in the record.
+        """
+
+        detail = forecast.readiness_detail or {}
+        missing = list(detail.get("missing_inputs") or [])
+        if not missing:
+            return None
+        return {
+            "missing_input_count": len(missing),
+            "treatment": "FROZEN_PREGAME_MISSING_VALUE_TREATMENT",
+            "note": (
+                f"Early-season baseline: {len(missing)} season-to-date inputs are "
+                "not yet observable, so the model uses its frozen preseason "
+                "missing-value treatment. A newer snapshot version does not mean "
+                "refreshed source evidence."
+            ),
+            "excluded_evidence": [
+                "quarterback status", "injury report", "weather", "market price",
+            ],
         }
 
     @staticmethod
