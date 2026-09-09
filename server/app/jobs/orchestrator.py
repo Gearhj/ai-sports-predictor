@@ -92,6 +92,7 @@ AVAILABLE_JOBS = {
     "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
     "consume-model-exchange-research-artifacts": "Consume Verified Model Exchange Research Artifacts",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
+    "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
     "evaluate-nfl-shadow-board": "Evaluate NFL Research-Shadow Board",
     "freeze-nfl-final-pregame": "Freeze NFL Final-Pregame Research Shadow",
     "finalize-nfl-shadow-games": "Finalize NFL Research-Shadow Games",
@@ -208,6 +209,7 @@ class JobOrchestrator:
             "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
             "consume-model-exchange-research-artifacts": self.consume_model_exchange_artifacts,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
+            "collect-odds-checkpoint": self.collect_odds_checkpoint,
             "evaluate-nfl-shadow-board": self.evaluate_nfl_shadow_board,
             "freeze-nfl-final-pregame": self.freeze_nfl_final_pregame,
             "finalize-nfl-shadow-games": self.finalize_nfl_shadow_games,
@@ -690,13 +692,59 @@ class JobOrchestrator:
             "import": imported,
         }
 
-    async def refresh_nfl_shadow_odds(self, event_date: date) -> dict[str, Any]:
+    async def collect_odds_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """Spend at most one credit-bearing request, only when a checkpoint is due.
+
+        This is the replacement for blanket polling. The decision is made
+        entirely from persisted rows -- the canonical schedule and the provider
+        request ledger -- so it is idempotent across restarts, cannot double
+        spend within a window, and never polls a sport with no open game. When
+        nothing is due it returns the reason and makes no request at all.
+        """
+
+        from app.services.odds_collection_service import OddsCollectionService
+
+        service = OddsCollectionService(self.session, self.settings)
+        decision = service.decide()
+        if not decision.should_request or decision.checkpoint is None:
+            return {
+                "records": 0,
+                "requested": False,
+                "provider_called": False,
+                **decision.as_dict(),
+            }
+
+        checkpoint = decision.checkpoint
+        markets = list(checkpoint.markets)
+        if checkpoint.sport_key == "americanfootball_nfl":
+            outcome = await self.refresh_nfl_shadow_odds(event_date, markets=markets)
+        else:
+            outcome = await self.refresh_odds(event_date, markets=markets)
+        return {
+            "requested": True,
+            "provider_called": True,
+            "league_code": checkpoint.league_code,
+            "checkpoint_utc": checkpoint.checkpoint.isoformat(),
+            "credit_cost": checkpoint.credit_cost,
+            "markets": markets,
+            "covered_cutoffs": checkpoint.covered_cutoffs,
+            "reason": decision.reason,
+            "detail": decision.detail,
+            **outcome,
+        }
+
+    async def refresh_nfl_shadow_odds(
+        self, event_date: date, *, markets: list[str] | None = None,
+    ) -> dict[str, Any]:
         """One quota-governed current-NFL Odds API request and exact-ID ingest."""
         if not self.settings.nfl_shadow_enabled or not self.settings.nfl_shadow_odds_enabled:
             return {"records": 0, "status": "DISABLED", "provider_called": False}
+        market_list = list(markets) if markets else list(self.settings.odds_market_list)
         if not self.settings.the_odds_api_key:
             raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
-        self._enforce_odds_quota_policy()
+        self._enforce_odds_quota_policy(
+            len(market_list) * max(1, len(self.settings.odds_regions.split(","))),
+        )
         now = datetime.now(UTC)
         ledger = self._reserve_provider_request(
             "THE_ODDS_API", "americanfootball_nfl_odds",
@@ -704,7 +752,7 @@ class JobOrchestrator:
             request_shape={
                 "sport_key": "americanfootball_nfl",
                 "regions": self.settings.odds_regions,
-                "markets": sorted(self.settings.odds_market_list),
+                "markets": sorted(market_list),
                 "request_window": int(
                     now.timestamp() // (max(1, self.settings.odds_pregame_refresh_minutes) * 60)
                 ),
@@ -714,7 +762,7 @@ class JobOrchestrator:
         try:
             response = await TheOddsAPIAdapter(
                 self.settings.the_odds_api_key,
-                self.settings.odds_market_list,
+                market_list,
                 self.settings.odds_regions,
                 sport_key="americanfootball_nfl",
             ).get_market_snapshot()
@@ -1245,7 +1293,13 @@ class JobOrchestrator:
         *,
         demo_only: bool = False,
         controlled_live_request: bool = False,
+        markets: list[str] | None = None,
     ) -> dict[str, Any]:
+        # The market set is what the request costs: The Odds API charges one
+        # credit per market per region. A caller that knows only MONEYLINE can
+        # be priced by the governing policy asks for h2h alone and pays 1
+        # instead of 3. Omitted, this keeps the configured behaviour exactly.
+        market_list = list(markets) if markets else list(self.settings.odds_market_list)
         ledger: ProviderRequestLedger | None = None
         provider_metadata: dict[str, Any] = {}
         provider_records_received: int | None = None
@@ -1257,14 +1311,16 @@ class JobOrchestrator:
                 envelope = await self.demo.get_market_snapshot(event_date)
                 raw_payload = envelope.data
             elif self.settings.the_odds_api_key:
-                self._enforce_odds_quota_policy()
+                self._enforce_odds_quota_policy(
+                    len(market_list) * max(1, len(self.settings.odds_regions.split(","))),
+                )
                 ledger = self._reserve_provider_request(
                     "THE_ODDS_API",
                     "baseball_mlb_odds",
                     controlled_live_request=controlled_live_request,
                     request_shape={
                         "regions": self.settings.odds_regions,
-                        "markets": sorted(self.settings.odds_market_list),
+                        "markets": sorted(market_list),
                         # The upstream endpoint is not date-filtered. The exactly-
                         # once reservation deduplicates concurrent/retried calls
                         # within one refresh window; the number of windows per day
@@ -1279,7 +1335,7 @@ class JobOrchestrator:
                 self.session.commit()
                 response = await TheOddsAPIAdapter(
                     self.settings.the_odds_api_key,
-                    self.settings.odds_market_list,
+                    market_list,
                     self.settings.odds_regions,
                 ).get_market_snapshot()
                 envelope = response.envelope
@@ -1687,7 +1743,7 @@ class JobOrchestrator:
     def _day_bounds(self, value: date) -> tuple[datetime, datetime]:
         return local_day_bounds(value, self.settings.display_timezone)
 
-    def _enforce_odds_quota_policy(self) -> None:
+    def _enforce_odds_quota_policy(self, credit_cost: int = 1) -> None:
         # The "daily" budget window is the operational day in the configured
         # display timezone — the same day that defines the slate it serves. A
         # UTC window resets at 20:00 ET and lets the prior evening's spend
@@ -1710,6 +1766,22 @@ class JobOrchestrator:
                 f"for operational day {budget_day.isoformat()}",
                 retryable=False,
             )
+        # Second, independent guard: AISP's own credit accounting for the UTC
+        # billing month, with a reserve that is never spent. The provider floor
+        # below can only speak after a request has been made; this speaks before.
+        from app.services import odds_budget
+
+        state = odds_budget.budget_state(
+            self.session,
+            monthly_cap=self.settings.odds_monthly_credit_cap,
+            reserve=self.settings.odds_monthly_credit_reserve,
+            daily_cap=self.settings.odds_daily_credit_budget,
+            floor=self.settings.odds_quota_floor,
+            display_timezone=self.settings.display_timezone,
+        )
+        allowed, refusal = state.may_spend(credit_cost)
+        if not allowed:
+            raise SourceError("THE_ODDS_API", refusal or "Credit budget exhausted", retryable=False)
         # Anchored to the newest successful run that actually carries a quota
         # reading. A later run without one is silent about the balance and must
         # not be able to clear a latch a real reading set.

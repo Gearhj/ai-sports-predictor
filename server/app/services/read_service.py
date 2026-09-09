@@ -19,6 +19,7 @@ from app.bankroll.service import (
     settle_profit,
 )
 from app.core.config import Settings
+from app.data_sources.provider_registry import GOVERNED_SOURCES
 from app.forecast_exchange.pricing import ShadowPricingConfig
 from app.core.time import local_date_of, local_day_bounds
 from app.sports.registry import resolve_stored_identity
@@ -3414,7 +3415,12 @@ class ReadService:
                 statement = statement.where(OddsSnapshot.available_as_of <= cutoff_aware)
             if game is not None:
                 statement = statement.where(OddsSnapshot.source_mode == game.source_mode)
-            return statement
+            # Governed pricing reads governed providers only. Without this a
+            # research-fallback row could supply one side of a same-book
+            # two-sided quote and reach a V2.1 gate. Bookmaker namespacing
+            # already makes that structurally impossible; this is the second,
+            # independent barrier.
+            return statement.where(OddsSnapshot.source.in_(GOVERNED_SOURCES))
 
         latest_per_market_book = _scoped(
             select(

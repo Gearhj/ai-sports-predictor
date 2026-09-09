@@ -406,6 +406,19 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             next_run_time=datetime.now(UTC),
             **common,
         )
+    if settings.odds_checkpoint_collection_enabled:
+        # Event-aware collection. The tick is cheap and frequent; the SPEND is
+        # rare, because the job itself decides from persisted rows whether a
+        # checkpoint is due. A 5-minute tick bounds how late a checkpoint can be
+        # served without ever making a request that is not due.
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=5,
+            id="asp-odds-checkpoint",
+            kwargs={"job_name": "collect-odds-checkpoint", "settings": settings},
+            **common,
+        )
     if settings.scheduler_enabled and settings.event_relative_scheduler_enabled:
         scheduler.add_job(
             select_event_relative_refresh_states,

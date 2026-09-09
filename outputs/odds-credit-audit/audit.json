@@ -1,0 +1,531 @@
+{
+  "by_month_endpoint_status": [
+    {
+      "billing_month": "2026-08",
+      "endpoint_key": "americanfootball_nfl_odds",
+      "status": "RESERVED",
+      "rows_": 1,
+      "credits": 0
+    },
+    {
+      "billing_month": "2026-08",
+      "endpoint_key": "americanfootball_nfl_odds",
+      "status": "SUCCEEDED",
+      "rows_": 1,
+      "credits": 3
+    },
+    {
+      "billing_month": "2026-08",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "FAILED",
+      "rows_": 4,
+      "credits": 0
+    },
+    {
+      "billing_month": "2026-08",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "RESERVED",
+      "rows_": 158,
+      "credits": 0
+    },
+    {
+      "billing_month": "2026-08",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "SUCCEEDED",
+      "rows_": 154,
+      "credits": 462
+    },
+    {
+      "billing_month": "2026-09",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "FAILED",
+      "rows_": 3,
+      "credits": 0
+    },
+    {
+      "billing_month": "2026-09",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "RESERVED",
+      "rows_": 167,
+      "credits": 0
+    },
+    {
+      "billing_month": "2026-09",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "SUCCEEDED",
+      "rows_": 164,
+      "credits": 492
+    },
+    {
+      "billing_month": "2026-09",
+      "endpoint_key": "quota_recovery_probe",
+      "status": "RESERVED",
+      "rows_": 2,
+      "credits": 0
+    }
+  ],
+  "by_local_day": [
+    {
+      "operational_day": "2026-08-13",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "credits": 3,
+      "lowest_remaining": 497
+    },
+    {
+      "operational_day": "2026-08-14",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "credits": 3,
+      "lowest_remaining": 494
+    },
+    {
+      "operational_day": "2026-08-27",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "credits": 3,
+      "lowest_remaining": 479
+    },
+    {
+      "operational_day": "2026-08-28",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 53,
+      "succeeded": 53,
+      "failed": 0,
+      "credits": 159,
+      "lowest_remaining": 320
+    },
+    {
+      "operational_day": "2026-08-29",
+      "endpoint_key": "americanfootball_nfl_odds",
+      "reserved": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "credits": 3,
+      "lowest_remaining": 230
+    },
+    {
+      "operational_day": "2026-08-29",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 29,
+      "succeeded": 29,
+      "failed": 0,
+      "credits": 87,
+      "lowest_remaining": 233
+    },
+    {
+      "operational_day": "2026-08-30",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 37,
+      "succeeded": 33,
+      "failed": 4,
+      "credits": 99,
+      "lowest_remaining": 131
+    },
+    {
+      "operational_day": "2026-08-31",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 40,
+      "succeeded": 40,
+      "failed": 0,
+      "credits": 120,
+      "lowest_remaining": 23
+    },
+    {
+      "operational_day": "2026-09-01",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 40,
+      "succeeded": 39,
+      "failed": 1,
+      "credits": 117,
+      "lowest_remaining": 371
+    },
+    {
+      "operational_day": "2026-09-02",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 40,
+      "succeeded": 40,
+      "failed": 0,
+      "credits": 120,
+      "lowest_remaining": 251
+    },
+    {
+      "operational_day": "2026-09-03",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 40,
+      "succeeded": 40,
+      "failed": 0,
+      "credits": 120,
+      "lowest_remaining": 131
+    },
+    {
+      "operational_day": "2026-09-04",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 40,
+      "succeeded": 39,
+      "failed": 1,
+      "credits": 117,
+      "lowest_remaining": 11
+    },
+    {
+      "operational_day": "2026-09-05",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "credits": 3,
+      "lowest_remaining": 8
+    },
+    {
+      "operational_day": "2026-09-07",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "credits": 3,
+      "lowest_remaining": 5
+    },
+    {
+      "operational_day": "2026-09-07",
+      "endpoint_key": "quota_recovery_probe",
+      "reserved": 1,
+      "succeeded": 0,
+      "failed": 0,
+      "credits": 0,
+      "lowest_remaining": null
+    },
+    {
+      "operational_day": "2026-09-08",
+      "endpoint_key": "baseball_mlb_odds",
+      "reserved": 1,
+      "succeeded": 0,
+      "failed": 1,
+      "credits": 0,
+      "lowest_remaining": null
+    },
+    {
+      "operational_day": "2026-09-08",
+      "endpoint_key": "quota_recovery_probe",
+      "reserved": 1,
+      "succeeded": 0,
+      "failed": 0,
+      "credits": 0,
+      "lowest_remaining": null
+    }
+  ],
+  "by_job": [
+    {
+      "job_name": "refresh-odds",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "SUCCEEDED",
+      "rows_": 315,
+      "credits": 945
+    },
+    {
+      "job_name": "controlled-live-validation",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "SUCCEEDED",
+      "rows_": 2,
+      "credits": 6
+    },
+    {
+      "job_name": "(no job row)",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "SUCCEEDED",
+      "rows_": 1,
+      "credits": 3
+    },
+    {
+      "job_name": "refresh-nfl-shadow-odds",
+      "endpoint_key": "americanfootball_nfl_odds",
+      "status": "SUCCEEDED",
+      "rows_": 1,
+      "credits": 3
+    },
+    {
+      "job_name": "(no job row)",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "RESERVED",
+      "rows_": 1,
+      "credits": 0
+    },
+    {
+      "job_name": "(no job row)",
+      "endpoint_key": "quota_recovery_probe",
+      "status": "RESERVED",
+      "rows_": 1,
+      "credits": 0
+    },
+    {
+      "job_name": "controlled-live-validation",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "RESERVED",
+      "rows_": 2,
+      "credits": 0
+    },
+    {
+      "job_name": "refresh-nfl-shadow-odds",
+      "endpoint_key": "americanfootball_nfl_odds",
+      "status": "RESERVED",
+      "rows_": 1,
+      "credits": 0
+    },
+    {
+      "job_name": "refresh-odds",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "FAILED",
+      "rows_": 7,
+      "credits": 0
+    },
+    {
+      "job_name": "refresh-odds",
+      "endpoint_key": "quota_recovery_probe",
+      "status": "RESERVED",
+      "rows_": 1,
+      "credits": 0
+    },
+    {
+      "job_name": "refresh-odds",
+      "endpoint_key": "baseball_mlb_odds",
+      "status": "RESERVED",
+      "rows_": 322,
+      "credits": 0
+    }
+  ],
+  "failures": [
+    {
+      "requested_at": "2026-08-30 11:13:01.322136-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    },
+    {
+      "requested_at": "2026-08-30 12:13:03.083478-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    },
+    {
+      "requested_at": "2026-08-30 12:43:01.856258-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    },
+    {
+      "requested_at": "2026-08-30 14:13:09.467351-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    },
+    {
+      "requested_at": "2026-09-01 16:12:57.959364-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    },
+    {
+      "requested_at": "2026-09-04 13:04:06.107478-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    },
+    {
+      "requested_at": "2026-09-08 20:48:16.453799-04:00",
+      "endpoint_key": "baseball_mlb_odds",
+      "error_type": "SourceError",
+      "quota_cost": null,
+      "quota_remaining": null,
+      "response_received": "false"
+    }
+  ],
+  "request_shape": [
+    {
+      "markets": "[\"h2h\", \"spreads\", \"totals\"]",
+      "regions": "us",
+      "reservations": 326
+    },
+    {
+      "markets": null,
+      "regions": null,
+      "reservations": 2
+    }
+  ],
+  "orphan_reservations": [
+    {
+      "orphans": 2
+    }
+  ],
+  "calls_that_bought_nothing": [
+    {
+      "total_calls": 318,
+      "calls_with_zero_new_rows": 4,
+      "credits_bought_nothing": 12
+    }
+  ],
+  "snapshots_by_market": [
+    {
+      "league": "MLB",
+      "market_type": "MONEYLINE",
+      "snapshots": 72840,
+      "books": 9
+    },
+    {
+      "league": "MLB",
+      "market_type": "SPREAD",
+      "snapshots": 73158,
+      "books": 9
+    },
+    {
+      "league": "MLB",
+      "market_type": "TOTAL",
+      "snapshots": 73432,
+      "books": 9
+    },
+    {
+      "league": "NFL",
+      "market_type": "MONEYLINE",
+      "snapshots": 790,
+      "books": 9
+    },
+    {
+      "league": "NFL",
+      "market_type": "SPREAD",
+      "snapshots": 1048,
+      "books": 9
+    },
+    {
+      "league": "NFL",
+      "market_type": "TOTAL",
+      "snapshots": 1050,
+      "books": 9
+    }
+  ],
+  "two_sided_moneyline_books": [
+    {
+      "book": "DraftKings",
+      "paired_observations": 4482
+    },
+    {
+      "book": "BetMGM",
+      "paired_observations": 4273
+    },
+    {
+      "book": "FanDuel",
+      "paired_observations": 4266
+    },
+    {
+      "book": "Bovada",
+      "paired_observations": 4203
+    },
+    {
+      "book": "MyBookie.ag",
+      "paired_observations": 4183
+    },
+    {
+      "book": "BetRivers",
+      "paired_observations": 4173
+    },
+    {
+      "book": "BetUS",
+      "paired_observations": 3769
+    },
+    {
+      "book": "BetOnline.ag",
+      "paired_observations": 3733
+    },
+    {
+      "book": "LowVig.ag",
+      "paired_observations": 3733
+    }
+  ],
+  "requests_vs_games_per_day": [
+    {
+      "d": "2026-08-13",
+      "requests": 1,
+      "mlb_games": 9
+    },
+    {
+      "d": "2026-08-14",
+      "requests": 1,
+      "mlb_games": 14
+    },
+    {
+      "d": "2026-08-27",
+      "requests": 1,
+      "mlb_games": 7
+    },
+    {
+      "d": "2026-08-28",
+      "requests": 53,
+      "mlb_games": 15
+    },
+    {
+      "d": "2026-08-29",
+      "requests": 29,
+      "mlb_games": 17
+    },
+    {
+      "d": "2026-08-30",
+      "requests": 37,
+      "mlb_games": 14
+    },
+    {
+      "d": "2026-08-31",
+      "requests": 40,
+      "mlb_games": 12
+    },
+    {
+      "d": "2026-09-01",
+      "requests": 40,
+      "mlb_games": 15
+    },
+    {
+      "d": "2026-09-02",
+      "requests": 40,
+      "mlb_games": 15
+    },
+    {
+      "d": "2026-09-03",
+      "requests": 40,
+      "mlb_games": 9
+    },
+    {
+      "d": "2026-09-04",
+      "requests": 40,
+      "mlb_games": 16
+    },
+    {
+      "d": "2026-09-05",
+      "requests": 1,
+      "mlb_games": 15
+    },
+    {
+      "d": "2026-09-07",
+      "requests": 1,
+      "mlb_games": 11
+    },
+    {
+      "d": "2026-09-08",
+      "requests": 1,
+      "mlb_games": 15
+    }
+  ]
+}
