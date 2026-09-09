@@ -1,0 +1,291 @@
+{
+  "schema_version": "AISP_SGO_VALIDATION_SUMMARY_V1",
+  "requests_made": 1,
+  "response_sha256": "b5b16a580fb657acd687908eac4d1796c685f396a69583d2a35668d80f13b582",
+  "response_bytes": 2843414,
+  "http_status": 200,
+  "objects_consumed": 2,
+  "object_definition": "provider pricing page: one object per item returned by /events, i.e. one per EVENT regardless of markets or bookmakers",
+  "free_tier": {
+    "plan": "Amateur",
+    "objects_per_month": 2500,
+    "requests_per_minute": 10,
+    "update_frequency_minutes": 10
+  },
+  "usage_headers_returned": false,
+  "provider_notice": "Response is missing 11468 bookmaker odds. Upgrade your API key to access all data from this query.",
+  "pagination": {
+    "next_cursor_present": true,
+    "second_page_fetched": false
+  },
+  "events": [
+    {
+      "event_id": "eDWGjWWVmAYJif2tMkoz",
+      "league_id": "MLB",
+      "sport_id": "BASEBALL",
+      "type": "match",
+      "home": {
+        "team_id": "DETROIT_TIGERS_MLB",
+        "short": "DET"
+      },
+      "away": {
+        "team_id": "MINNESOTA_TWINS_MLB",
+        "short": "MIN"
+      },
+      "starts_at": "2026-09-09T17:10:00.000Z",
+      "status": {
+        "started": true,
+        "live": true,
+        "completed": false,
+        "ended": false,
+        "cancelled": false,
+        "delayed": false
+      },
+      "moneyline_odd_ids": {
+        "home": "points-home-game-ml-home",
+        "away": "points-away-game-ml-away"
+      },
+      "market_name": "Moneyline",
+      "bet_type_id": "ml",
+      "period_id": "game",
+      "odd_keys_total": 1192,
+      "books_with_both_sides": [
+        "betmgm",
+        "bovada",
+        "caesars",
+        "draftkings",
+        "espnbet",
+        "fanduel",
+        "pointsbet",
+        "unibet",
+        "williamhill"
+      ],
+      "per_book": [
+        {
+          "book": "betmgm",
+          "home_american": "-10000",
+          "away_american": "+3300",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:14.454Z",
+          "away_last_updated": "2026-09-09T21:31:14.454Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "bovada",
+          "home_american": "-2800",
+          "away_american": "+1100",
+          "home_available": false,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T21:11:26.858Z",
+          "away_last_updated": "2026-09-09T21:11:26.858Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "caesars",
+          "home_american": "-10000",
+          "away_american": "+2200",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:32:15.301Z",
+          "away_last_updated": "2026-09-09T21:32:15.301Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "draftkings",
+          "home_american": "-10000",
+          "away_american": "+4400",
+          "home_available": false,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:32:28.801Z",
+          "away_last_updated": "2026-09-09T21:31:25.047Z",
+          "side_timestamp_skew_seconds": 63.754
+        },
+        {
+          "book": "espnbet",
+          "home_american": "-10000",
+          "away_american": "+2500",
+          "home_available": false,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T21:32:28.801Z",
+          "away_last_updated": "2026-09-09T21:32:28.801Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "fanduel",
+          "home_american": "-100000",
+          "away_american": "+7000",
+          "home_available": false,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:43.308Z",
+          "away_last_updated": "2026-09-09T21:31:43.308Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "pointsbet",
+          "home_american": "-100000",
+          "away_american": "+9000",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:37.954Z",
+          "away_last_updated": "2026-09-09T21:31:37.954Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "unibet",
+          "home_american": "-10000",
+          "away_american": "+1500",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:25:07.954Z",
+          "away_last_updated": "2026-09-09T21:25:07.954Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "williamhill",
+          "home_american": "-125",
+          "away_american": "+100",
+          "home_available": false,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T17:17:58.922Z",
+          "away_last_updated": "2026-09-09T17:17:58.922Z",
+          "side_timestamp_skew_seconds": 0.0
+        }
+      ]
+    },
+    {
+      "event_id": "xh1LbWdEJsMqB66ANU4b",
+      "league_id": "MLB",
+      "sport_id": "BASEBALL",
+      "type": "match",
+      "home": {
+        "team_id": "SAN_FRANCISCO_GIANTS_MLB",
+        "short": "SF"
+      },
+      "away": {
+        "team_id": "STLOUIS_CARDINALS_MLB",
+        "short": "STL"
+      },
+      "starts_at": "2026-09-09T19:45:00.000Z",
+      "status": {
+        "started": true,
+        "live": true,
+        "completed": false,
+        "ended": false,
+        "cancelled": false,
+        "delayed": false
+      },
+      "moneyline_odd_ids": {
+        "home": "points-home-game-ml-home",
+        "away": "points-away-game-ml-away"
+      },
+      "market_name": "Moneyline",
+      "bet_type_id": "ml",
+      "period_id": "game",
+      "odd_keys_total": 1423,
+      "books_with_both_sides": [
+        "betmgm",
+        "bovada",
+        "caesars",
+        "draftkings",
+        "espnbet",
+        "fanduel",
+        "pointsbet",
+        "unibet",
+        "williamhill"
+      ],
+      "per_book": [
+        {
+          "book": "betmgm",
+          "home_american": "+2500",
+          "away_american": "-10000",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:14.454Z",
+          "away_last_updated": "2026-09-09T21:31:14.454Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "bovada",
+          "home_american": "+1600",
+          "away_american": "-3300",
+          "home_available": true,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T21:30:14.971Z",
+          "away_last_updated": "2026-09-09T21:26:47.059Z",
+          "side_timestamp_skew_seconds": 207.912
+        },
+        {
+          "book": "caesars",
+          "home_american": "+2200",
+          "away_american": "-10000",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:18.954Z",
+          "away_last_updated": "2026-09-09T21:31:18.954Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "draftkings",
+          "home_american": "+2400",
+          "away_american": "-10000",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:25.047Z",
+          "away_last_updated": "2026-09-09T21:32:28.801Z",
+          "side_timestamp_skew_seconds": 63.754
+        },
+        {
+          "book": "espnbet",
+          "home_american": "+2500",
+          "away_american": "-10000",
+          "home_available": true,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T21:30:14.971Z",
+          "away_last_updated": "2026-09-09T21:32:28.801Z",
+          "side_timestamp_skew_seconds": 133.83
+        },
+        {
+          "book": "fanduel",
+          "home_american": "+3000",
+          "away_american": "-50000",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:31:43.308Z",
+          "away_last_updated": "2026-09-09T21:31:43.308Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "pointsbet",
+          "home_american": "+1000",
+          "away_american": "-2000",
+          "home_available": false,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T21:26:56.059Z",
+          "away_last_updated": "2026-09-09T21:26:56.059Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "unibet",
+          "home_american": "+2000",
+          "away_american": "-10000",
+          "home_available": true,
+          "away_available": true,
+          "home_last_updated": "2026-09-09T21:30:40.454Z",
+          "away_last_updated": "2026-09-09T21:30:40.454Z",
+          "side_timestamp_skew_seconds": 0.0
+        },
+        {
+          "book": "williamhill",
+          "home_american": "+100",
+          "away_american": "-125",
+          "home_available": false,
+          "away_available": false,
+          "home_last_updated": "2026-09-09T19:52:33.385Z",
+          "away_last_updated": "2026-09-09T19:52:33.385Z",
+          "side_timestamp_skew_seconds": 0.0
+        }
+      ]
+    }
+  ]
+}

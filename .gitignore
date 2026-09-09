@@ -80,3 +80,10 @@ Thumbs.db
 # Research study cohort exports (immutable, but too large to track; the
 # compressed copy and its SHA-256 manifest are committed alongside).
 outputs/**/cohort.json
+
+# SportsGameOdds raw payloads. Their terms forbid redistribution, republication
+# and bulk export of Data; a captured response is licensed provider data and
+# stays local. The derived validation record (structure, counts, findings) is
+# committed instead.
+outputs/sportsgameodds-validation/response.json
+outputs/sportsgameodds-validation/validation.json

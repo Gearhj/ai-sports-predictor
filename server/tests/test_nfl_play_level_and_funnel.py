@@ -526,3 +526,78 @@ def test_an_uncounted_request_is_charged_the_worst_case(session, settings) -> No
     decision = fallback_decision(session, _fallback_settings(settings),
                                  league_code="MLB", markets=["h2h"], now=SEPT)
     assert not decision.eligible and decision.reason == REASON_OBJECTS_EXHAUSTED
+
+
+# ---------------------------------------------------------------------------
+# what the one authorized SportsGameOdds request actually established
+# ---------------------------------------------------------------------------
+
+SGO_SUMMARY = Path(r"C:\Users\james\ai-sports-predictor\outputs\sportsgameodds-validation"
+                   r"\validation-summary.json")
+requires_sgo = pytest.mark.skipif(
+    not SGO_SUMMARY.is_file(), reason="no SportsGameOdds validation record on this host")
+
+
+@requires_sgo
+def test_one_object_is_one_event_not_one_price() -> None:
+    """The whole viability question turned on this.
+
+    2,843,414 bytes carrying 7,354 bookmaker prices could have been 7,354
+    objects against a 2,500 allowance, which would have made the free tier
+    unusable. The provider's published definition is one object per item
+    returned by /events, so the request cost 2.
+    """
+    record = json.loads(SGO_SUMMARY.read_text(encoding="utf-8"))
+    assert record["requests_made"] == 1
+    assert record["objects_consumed"] == len(record["events"]) == 2
+    assert record["free_tier"]["objects_per_month"] == 2500
+
+
+@requires_sgo
+def test_the_provider_reports_no_usage_headers() -> None:
+    """So consumption cannot be read back from a response: AISP must count its
+    own objects, and an uncounted request must be charged, not ignored."""
+    record = json.loads(SGO_SUMMARY.read_text(encoding="utf-8"))
+    assert record["usage_headers_returned"] is False
+
+
+@requires_sgo
+def test_both_moneyline_sides_are_present_at_every_bookmaker() -> None:
+    record = json.loads(SGO_SUMMARY.read_text(encoding="utf-8"))
+    for event in record["events"]:
+        assert "draftkings" in event["books_with_both_sides"]
+        assert "fanduel" in event["books_with_both_sides"]
+        assert len(event["books_with_both_sides"]) == 9
+        assert event["market_name"] == "Moneyline" and event["bet_type_id"] == "ml"
+
+
+@requires_sgo
+def test_side_timestamps_do_not_always_agree() -> None:
+    """AISP's quote rule requires both sides observed at the same instant.
+
+    SportsGameOdds timestamps each SIDE independently, and in 4 of 18
+    event-book pairs the two sides disagree by 60 to 208 seconds. Mapping the
+    per-side stamp straight onto observed_at would therefore fail AISP's own
+    completeness rule for those books -- which is a mapping decision that needs
+    evidence, not a detail to paper over.
+    """
+    record = json.loads(SGO_SUMMARY.read_text(encoding="utf-8"))
+    skews = [pair["side_timestamp_skew_seconds"]
+             for event in record["events"] for pair in event["per_book"]]
+    assert any(s and s > 0 for s in skews), "expected at least one skewed pair"
+    assert max(s for s in skews if s is not None) > 60
+
+
+@requires_sgo
+def test_the_free_tier_withholds_bookmaker_odds_and_says_so() -> None:
+    record = json.loads(SGO_SUMMARY.read_text(encoding="utf-8"))
+    assert "missing" in (record["provider_notice"] or "").lower()
+    assert record["pagination"]["next_cursor_present"] is True
+    assert record["pagination"]["second_page_fetched"] is False
+
+
+def test_the_validation_harness_cannot_exceed_its_authorization() -> None:
+    from scripts.sportsgameodds_validation import main
+
+    # More than two events is refused before any network work.
+    assert main(["--base-url", "https://example.invalid/v2", "--limit", "5"]) == 2
