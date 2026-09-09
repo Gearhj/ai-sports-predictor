@@ -87,3 +87,5 @@ outputs/**/cohort.json
 # committed instead.
 outputs/sportsgameodds-validation/response.json
 outputs/sportsgameodds-validation/validation.json
+outputs/sportsgameodds-validation/pregame/
+outputs/sportsgameodds-validation/slate/
