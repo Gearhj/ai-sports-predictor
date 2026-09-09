@@ -490,12 +490,20 @@ def test_incomplete_evidence_is_dropped_rather_than_guessed(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_a_research_provider_row_never_reaches_the_governed_pricing_path(session, settings) -> None:
-    """The read path that feeds V2.1 must return governed rows only.
+    """Governed pricing prefers the primary -- but only when it can actually price.
 
-    Seeded side by side on the SAME market outcome: one governed row and one
-    research row that is NEWER. Without the filter the research row would win
-    the latest-per-book reduction and could become one side of a "same-book
-    two-sided quote".
+    Two directions, because getting one right and the other wrong is how a
+    fallback either becomes a ninth bookmaker or becomes useless:
+
+    * a USABLE governed pair suppresses a newer research row, which would
+      otherwise win the latest-per-book reduction and supply one side of a
+      "same-book two-sided quote";
+    * a governed pair that is too old to price stops suppressing anything,
+      because a price that cannot be used must not cost a game the only price
+      that can.
+
+    Snapshots are append-only, so freshness is arranged by adding rows rather
+    than editing them.
     """
 
     from tests.test_fable51_latest_market_snapshots import _seed
@@ -503,27 +511,47 @@ def test_a_research_provider_row_never_reaches_the_governed_pricing_path(session
     from app.services.read_service import ReadService
 
     game, fixture = _seed(session)
-    governed_rows = ReadService(session, settings)._latest_market_snapshots(game.id)
-    assert governed_rows, "the governed fixture must produce rows to begin with"
+    seeded = ReadService(session, settings)._latest_market_snapshots(game.id)
+    assert seeded, "the governed fixture must produce rows to begin with"
+    book_a = fixture["book_a"]
 
+    # A complete two-sided research pair, newer than anything governed.
     research_book = Sportsbook(key="sgo:book-a", name="Book A via SportsGameOdds",
                                region="us", active=True)
     session.add(research_book)
     session.flush()
-    later = max(_aware(s.observed_at) for _, _, s, _ in governed_rows) + timedelta(hours=1)
-    session.add(OddsSnapshot(
-        market_outcome_id=fixture["o_home"].id, sportsbook_id=research_book.id,
-        observed_at=later, available_as_of=later, american_odds=+150, decimal_odds=2.5,
-        source="SPORTSGAMEODDS", source_mode="LIVE",
-    ))
+    recent = datetime.now(UTC) - timedelta(minutes=5)
+    for outcome, price in ((fixture["o_home"], +150), (fixture["o_away"], -170)):
+        session.add(OddsSnapshot(
+            market_outcome_id=outcome.id, sportsbook_id=research_book.id,
+            observed_at=recent, available_as_of=recent,
+            american_odds=price, decimal_odds=2.5 if price > 0 else 1.59,
+            source="SPORTSGAMEODDS", source_mode="LIVE",
+        ))
+    session.commit()
+
+    # The fixture's governed rows are dated to a fixed day, so against a real
+    # clock they are long past the freshness window: the fallback is allowed.
+    stale = ReadService(session, settings)._latest_market_snapshots(game.id)
+    assert "SPORTSGAMEODDS" in {snapshot.source for _, _, snapshot, _ in stale}, (
+        "a governed pair too old to price must not suppress a usable fallback"
+    )
+
+    # Now give the governed provider a usable pair by APPENDING fresh rows.
+    fresh = datetime.now(UTC) - timedelta(minutes=2)
+    for outcome, price in ((fixture["o_home"], -105), (fixture["o_away"], -115)):
+        session.add(OddsSnapshot(
+            market_outcome_id=outcome.id, sportsbook_id=book_a.id,
+            observed_at=fresh, available_as_of=fresh,
+            american_odds=price, decimal_odds=1.95 if price == -105 else 1.87,
+            source="THE_ODDS_API", source_mode="LIVE",
+        ))
     session.commit()
 
     after = ReadService(session, settings)._latest_market_snapshots(game.id)
     sources = {snapshot.source for _, _, snapshot, _ in after}
     assert sources == {"THE_ODDS_API"}
     assert "SPORTSGAMEODDS" not in sources
-    # The newer research row changed nothing about what the policy can see.
-    assert len(after) == len(governed_rows)
 
 
 def _aware(value):

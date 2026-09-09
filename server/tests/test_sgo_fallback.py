@@ -402,3 +402,217 @@ def test_a_failed_request_spends_no_objects_but_still_starts_the_cooldown(sessio
                      error="ReadTimeout")
     assert object_budget(session, now=now).objects_used == 0
     assert seconds_since_last_fetch(session, now=now) == pytest.approx(0, abs=1)
+
+
+# -- cutoff coverage: presence is not usability ------------------------------
+
+
+class _Snap:
+    def __init__(self, source, observed_at):
+        self.source = source
+        self.observed_at = observed_at
+
+
+class _Ident:
+    def __init__(self, value):
+        self.id = value
+
+
+def _row(source, minutes_old, outcome, book):
+    """A (market, outcome, snapshot, sportsbook) row as the read path shapes it."""
+    return (_Ident("m1"), _Ident(outcome),
+            _Snap(source, datetime.now(UTC) - timedelta(minutes=minutes_old)),
+            _Ident(book))
+
+
+def test_a_one_sided_primary_row_does_not_suppress_a_fallback_pair() -> None:
+    """One side prices nothing, so it must not cost a game its coverage."""
+    from app.services.read_service import _prefer_primary_per_market
+
+    rows = [
+        _row("THE_ODDS_API", 5, "home", "dk"),           # one side only
+        _row("SPORTSGAMEODDS", 3, "home", "sgo:dk"),
+        _row("SPORTSGAMEODDS", 3, "away", "sgo:dk"),
+    ]
+    kept = _prefer_primary_per_market(rows)
+    assert {row[2].source for row in kept} == {"THE_ODDS_API", "SPORTSGAMEODDS"}
+
+
+def test_a_stale_two_sided_primary_does_not_suppress_a_fresh_fallback_pair() -> None:
+    from app.services.quote_coverage import MAX_QUOTE_STALENESS_MINUTES
+    from app.services.read_service import _prefer_primary_per_market
+
+    stale = MAX_QUOTE_STALENESS_MINUTES + 30
+    rows = [
+        _row("THE_ODDS_API", stale, "home", "dk"),
+        _row("THE_ODDS_API", stale, "away", "dk"),
+        _row("SPORTSGAMEODDS", 3, "home", "sgo:dk"),
+        _row("SPORTSGAMEODDS", 3, "away", "sgo:dk"),
+    ]
+    kept = _prefer_primary_per_market(rows)
+    assert "SPORTSGAMEODDS" in {row[2].source for row in kept}
+
+
+def test_a_usable_primary_pair_still_suppresses_the_fallback() -> None:
+    """The fallback must not become a ninth bookmaker when the primary works."""
+    from app.services.read_service import _prefer_primary_per_market
+
+    rows = [
+        _row("THE_ODDS_API", 10, "home", "dk"),
+        _row("THE_ODDS_API", 10, "away", "dk"),
+        _row("SPORTSGAMEODDS", 3, "home", "sgo:dk"),
+        _row("SPORTSGAMEODDS", 3, "away", "sgo:dk"),
+    ]
+    kept = _prefer_primary_per_market(rows)
+    assert {row[2].source for row in kept} == {"THE_ODDS_API"}
+
+
+def test_two_primary_books_with_one_side_each_are_not_a_usable_pair() -> None:
+    """A pair is one book's two sides. Two halves from two books is neither."""
+    from app.services.read_service import _prefer_primary_per_market
+
+    rows = [
+        _row("THE_ODDS_API", 5, "home", "dk"),
+        _row("THE_ODDS_API", 5, "away", "fd"),
+        _row("SPORTSGAMEODDS", 3, "home", "sgo:dk"),
+        _row("SPORTSGAMEODDS", 3, "away", "sgo:dk"),
+    ]
+    kept = _prefer_primary_per_market(rows)
+    assert "SPORTSGAMEODDS" in {row[2].source for row in kept}
+
+
+def test_prefer_primary_without_a_usability_test_keeps_its_old_behaviour() -> None:
+    from app.data_sources import provider_registry as reg
+
+    rows = [("THE_ODDS_API", 1), ("SPORTSGAMEODDS", 2)]
+    assert reg.prefer_primary(rows, lambda r: r[0]) == [("THE_ODDS_API", 1)]
+    assert reg.prefer_primary(
+        rows, lambda r: r[0], primary_usable=lambda _: False) == rows
+
+
+def _coverage(age_at_cutoff_minutes):
+    """An EventCoverage whose best quote is this old AT the cutoff."""
+    from app.services.quote_coverage import (
+        STATE_COMPLETE, EventCoverage, QuoteObservation)
+
+    cutoff = datetime(2026, 9, 9, 23, 0, tzinfo=UTC)
+    quote = QuoteObservation(
+        observed_at=cutoff - timedelta(minutes=age_at_cutoff_minutes),
+        sportsbook_id="sb-1", book="dk", home_american=-110, away_american=-110)
+    return EventCoverage(
+        game_id="g", matchup="AAA @ BBB", starts_at=cutoff + timedelta(minutes=15),
+        cutoff=cutoff, state=STATE_COMPLETE, cause=None, best_quote=quote,
+        qualifying=[quote], out_of_window=[], partial_observations=0,
+        next_action_at=None, next_action=None)
+
+
+def test_a_quote_that_expires_before_the_decision_is_not_coverage() -> None:
+    """The gate reads the clock when the freeze job runs, not at the cutoff.
+
+    236.8 minutes old at a cutoff is inside the 240-minute window and outside it
+    four minutes later -- which is how a game reads as covered right up until it
+    silently is not.
+    """
+    from app.services.quote_coverage import (
+        DECISION_LATENCY_MINUTES, MAX_QUOTE_STALENESS_MINUTES)
+
+    edge = MAX_QUOTE_STALENESS_MINUTES - DECISION_LATENCY_MINUTES
+    safe = _coverage(edge)
+    assert safe.covered and safe.usable_through_cutoff and not safe.needs_refresh
+
+    expiring = _coverage(edge + 1)
+    assert expiring.covered, "still inside the window at the cutoff"
+    assert not expiring.usable_through_cutoff
+    assert expiring.needs_refresh, "and therefore still worth refreshing"
+
+
+def test_the_staleness_threshold_itself_is_untouched() -> None:
+    from app.services.quote_coverage import (
+        FINAL_PREGAME_CUTOFF_MINUTES, MAX_QUOTE_STALENESS_MINUTES)
+
+    assert MAX_QUOTE_STALENESS_MINUTES == 240
+    assert FINAL_PREGAME_CUTOFF_MINUTES == 15
+
+
+# -- opening adjustment ------------------------------------------------------
+
+
+def _apply_opening(session, objects=24, day=None):
+    from app.services.sgo_collection import apply_opening_adjustment
+
+    return apply_opening_adjustment(
+        session,
+        objects=objects,
+        occurred_at=day or datetime(2026, 9, 9, 12, 0, tzinfo=UTC),
+        evidence={"total_objects": objects, "fetches": [{"objects": objects}]},
+    )
+
+
+def test_the_opening_adjustment_is_counted_as_objects(session) -> None:
+    from app.services.sgo_collection import object_budget
+
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+    assert object_budget(session, now=now).objects_used == 0
+    _apply_opening(session)
+    budget = object_budget(session, now=now)
+    assert budget.objects_used == 24
+    assert budget.spendable == budget.allowance - budget.reserve - 24
+
+
+def test_the_opening_adjustment_is_not_counted_as_a_request(session) -> None:
+    """It records objects spent, not a call anyone made."""
+    from app.services.sgo_collection import object_budget
+
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+    _apply_opening(session)
+    assert object_budget(session, now=now).requests == 0
+
+
+def test_the_opening_adjustment_does_not_hold_off_the_next_fetch(session) -> None:
+    """A cooldown exists to space out real requests. An adjustment is not one."""
+    from app.services.sgo_collection import seconds_since_last_fetch
+
+    _apply_opening(session)
+    assert seconds_since_last_fetch(
+        session, now=datetime(2026, 9, 9, 12, 30, tzinfo=UTC)) is None
+
+
+def test_applying_the_opening_adjustment_twice_changes_nothing(session) -> None:
+    from app.services.sgo_collection import object_budget
+
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+    first = _apply_opening(session)
+    assert first["applied"] is True
+    second = _apply_opening(session)
+    assert second["applied"] is False and second["reason"] == "ALREADY_RECORDED"
+    assert second["ledger_id"] == first["ledger_id"]
+    assert object_budget(session, now=now).objects_used == 24
+
+
+def test_an_adjustment_never_subtracts_from_the_objects_used(session) -> None:
+    """The regression this pins actually happened.
+
+    Excluding adjustments from the request count while still counting them in
+    the with-counts total made the unknown-object term negative, and a negative
+    unknown SUBTRACTS: 24 recorded objects were reported as 4, and the guard
+    would have permitted twenty objects that were already spent.
+    """
+    from app.services.sgo_collection import object_budget
+
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+    _apply_opening(session)
+    budget = object_budget(session, now=now)
+    assert budget.objects_used == 24, "an adjustment must add, never subtract"
+    assert budget.objects_used >= 0 and budget.spendable <= budget.allowance
+
+
+def test_the_adjustment_ages_out_of_the_rolling_window(session) -> None:
+    """Dated to the day the objects were spent, so it expires like a request."""
+    from app.services.sgo_collection import OBJECT_WINDOW_DAYS, object_budget
+
+    day = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
+    _apply_opening(session, day=day)
+    inside = day + timedelta(days=OBJECT_WINDOW_DAYS - 1)
+    outside = day + timedelta(days=OBJECT_WINDOW_DAYS + 1)
+    assert object_budget(session, now=inside).objects_used == 24
+    assert object_budget(session, now=outside).objects_used == 0

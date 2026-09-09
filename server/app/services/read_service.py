@@ -3835,10 +3835,37 @@ def _duration(started: datetime | None, completed: datetime | None) -> str:
     return f"{seconds // 60}m {seconds % 60}s" if seconds >= 60 else f"{seconds}s"
 
 
+def _primary_can_price(primary_rows: list[tuple[Any, Any, Any, Any]]) -> bool:
+    """Could these governed rows form a quote a decision could actually use?
+
+    Two conditions, both from the decision contract rather than invented here:
+    some single bookmaker must carry BOTH outcomes, and that pair must still be
+    inside the freshness window. A one-sided or long-stale governed row prices
+    nothing, so it must not be allowed to suppress a fallback pair that does.
+    """
+    from app.services.quote_coverage import MAX_QUOTE_STALENESS_MINUTES
+
+    now = datetime.now(UTC)
+    by_book: dict[Any, set[Any]] = defaultdict(set)
+    freshest: dict[Any, datetime] = {}
+    for _market, outcome, snapshot, book in primary_rows:
+        by_book[book.id].add(outcome.id)
+        observed = _aware(snapshot.observed_at)
+        if book.id not in freshest or observed > freshest[book.id]:
+            freshest[book.id] = observed
+    for book_id, outcomes in by_book.items():
+        if len(outcomes) < 2:
+            continue
+        age = (now - freshest[book_id]).total_seconds() / 60.0
+        if age <= MAX_QUOTE_STALENESS_MINUTES:
+            return True
+    return False
+
+
 def _prefer_primary_per_market(
     rows: list[tuple[Any, Any, Any, Any]],
 ) -> list[tuple[Any, Any, Any, Any]]:
-    """Drop fallback rows for any market the governed primary already priced."""
+    """Drop fallback rows for any market the governed primary can actually price."""
     from app.data_sources.provider_registry import prefer_primary
 
     by_market: dict[Any, list[tuple[Any, Any, Any, Any]]] = defaultdict(list)
@@ -3846,7 +3873,9 @@ def _prefer_primary_per_market(
         by_market[row[0].id].append(row)
     kept: list[tuple[Any, Any, Any, Any]] = []
     for market_rows in by_market.values():
-        kept.extend(prefer_primary(market_rows, lambda row: row[2].source))
+        kept.extend(prefer_primary(
+            market_rows, lambda row: row[2].source, primary_usable=_primary_can_price,
+        ))
     # Preserve the deterministic order the query established.
     order = {id(row): index for index, row in enumerate(rows)}
     return sorted(kept, key=lambda row: order[id(row)])

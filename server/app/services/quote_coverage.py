@@ -76,6 +76,14 @@ FRESH_TARGET_MINUTES = 60
 #: Coverage is re-checked this far before the cutoff. If nothing usable exists
 #: by then there is still time for two more attempts.
 COVERAGE_CHECK_MINUTES = 90
+#: How late the FINAL_PREGAME decision can be taken relative to the cutoff.
+#: The freeze job runs on a five-minute interval, so the decision is evaluated
+#: at the first run AT OR AFTER the cutoff -- never before it. A quote that is
+#: inside the window at the cutoff but outside it a few minutes later is not
+#: coverage: the gate that matters reads the clock at evaluation time, not at
+#: the cutoff. This does not move the 240-minute threshold; it decides when a
+#: game is still worth refreshing.
+DECISION_LATENCY_MINUTES = 5
 #: A priority recovery request is reserved here.
 RECOVERY_PRIMARY_MINUTES = 45
 #: One last controlled attempt, safely ahead of the 15-minute cutoff.
@@ -196,6 +204,26 @@ class EventCoverage:
     def age_at_cutoff(self) -> float | None:
         return self.best_quote.age_minutes_at(self.cutoff) if self.best_quote else None
 
+    @property
+    def usable_through_cutoff(self) -> bool:
+        """Will the best quote still price a decision when one is taken?
+
+        A quote inside the window AT the cutoff can still be outside it when the
+        freeze job actually runs, a few minutes later. Answering "is it covered"
+        with the cutoff alone marks such a game safe and stops anyone refreshing
+        it, which is precisely how a game ends up with a price that is
+        technically present and formally unusable.
+        """
+        age = self.age_at_cutoff()
+        if age is None:
+            return False
+        return age + DECISION_LATENCY_MINUTES <= MAX_QUOTE_STALENESS_MINUTES
+
+    @property
+    def needs_refresh(self) -> bool:
+        """Refresh-eligible: not covered, or covered by a quote that will not last."""
+        return not self.covered or not self.usable_through_cutoff
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "game_id": str(self.game_id),
@@ -218,6 +246,8 @@ class EventCoverage:
                 }
                 if self.best_quote else None
             ),
+            "usable_through_cutoff": self.usable_through_cutoff if self.best_quote else False,
+            "needs_refresh": self.needs_refresh,
             "qualifying_quotes": len(self.qualifying),
             "out_of_window_quotes": len(self.out_of_window),
             "partial_observations_in_window": self.partial_observations,
@@ -566,6 +596,9 @@ class QuoteCoverageService:
             "totals": {
                 "events": len(events),
                 "covered": len(covered),
+                "covered_but_expiring": len(
+                    [event for event in covered if not event.usable_through_cutoff]),
+                "needs_refresh": len([event for event in events if event.needs_refresh]),
                 "within_freshness_target": len(within_target),
                 "at_risk": len([e for e in events if e.at_risk]),
                 "missed": by_state.get(STATE_MISSED, 0),

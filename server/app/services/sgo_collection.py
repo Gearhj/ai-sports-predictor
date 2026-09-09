@@ -56,6 +56,14 @@ from app.data_sources.provider_registry import (
 from app.data_sources.sgo_parser import AISP_MARKET_KEY, MoneylinePair, ParseResult, parse_events
 
 ENDPOINT_KEY = "sgo_mlb_events"
+#: An explicit opening balance, NOT a request. Objects were consumed by
+#: authorised validation fetches made before this ledger existed, and that
+#: consumption is real whether or not anything recorded it. Inventing four
+#: historical request rows to represent it would put four fabrications in an
+#: audit trail; one adjustment that declares itself an adjustment does not.
+#: It is excluded from the request count and included in the object count,
+#: because it describes objects spent, not a call anyone made.
+OPENING_ADJUSTMENT_KEY = "sgo_opening_adjustment"
 #: The published Amateur allowance, in EVENTS returned -- the provider's own
 #: billable unit. Requests are free; events are not.
 FREE_TIER_OBJECTS = 2500
@@ -229,7 +237,9 @@ __all__ = [
     "FREE_TIER_OBJECTS",
     "MIN_SECONDS_BETWEEN_FETCHES",
     "OBJECT_RESERVE",
+    "OPENING_ADJUSTMENT_KEY",
     "ObjectBudget",
+    "apply_opening_adjustment",
     "collect_for_open_cutoffs",
     "object_budget",
     "FallbackFetch",
@@ -293,7 +303,7 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
 
     moment = now or datetime.now(UTC)
     since = moment - timedelta(days=OBJECT_WINDOW_DAYS)
-    requests, counted, with_counts = session.execute(
+    completed, counted, with_counts = session.execute(
         select(
             func.count(),
             func.coalesce(func.sum(ProviderRequestLedger.records_received), 0),
@@ -304,9 +314,24 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
             ProviderRequestLedger.requested_at >= since,
         )
     ).one()
+    # Requests and objects are different quantities. An opening adjustment
+    # carries objects but is not a call anyone made, so it is left out of the
+    # request count and kept in the object count.
+    requests = session.scalar(
+        select(func.count()).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            ProviderRequestLedger.status.in_(("SUCCEEDED", "FAILED")),
+            ProviderRequestLedger.requested_at >= since,
+            ProviderRequestLedger.endpoint_key != OPENING_ADJUSTMENT_KEY,
+        )
+    ) or 0
     # A completed request the provider gave no count for is charged the whole
     # per-fetch cap. Under-counting an allowance is how an allowance is exceeded.
-    unknown = int(requests) - int(with_counts)
+    # Count the unknowns against the SAME population that produced with_counts:
+    # every completed row, adjustments included. Using the request count here
+    # made this negative the moment adjustments were excluded from it, which
+    # quietly SUBTRACTED from the objects used.
+    unknown = max(0, int(completed) - int(with_counts))
     return ObjectBudget(
         window_days=OBJECT_WINDOW_DAYS,
         requests=int(requests),
@@ -329,7 +354,10 @@ def seconds_since_last_fetch(session: Session, *, now: datetime | None = None) -
     moment = now or datetime.now(UTC)
     latest = session.scalar(
         select(func.max(ProviderRequestLedger.requested_at)).where(
-            ProviderRequestLedger.provider == SPORTSGAMEODDS
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            # An adjustment is not an attempt, so it must not hold off the next
+            # real fetch.
+            ProviderRequestLedger.endpoint_key != OPENING_ADJUSTMENT_KEY,
         )
     )
     if latest is None:
@@ -471,9 +499,14 @@ def collect_for_open_cutoffs(
                 "cooldown_seconds": MIN_SECONDS_BETWEEN_FETCHES}
 
     coverage = QuoteCoverageService(session, settings).daily_report(league_code="MLB")
+    # "Has a quote" is not coverage. A game whose quote will be outside the
+    # freshness window by the time the decision is taken is refresh-eligible,
+    # because the alternative is a price that is present and unusable -- which
+    # reads as covered right up until it silently is not.
     open_games = [
         event for event in coverage["events"]
-        if not event["covered"] and datetime.fromisoformat(event["cutoff_utc"]) > moment
+        if event.get("needs_refresh", not event["covered"])
+        and datetime.fromisoformat(event["cutoff_utc"]) > moment
     ]
     if not open_games:
         return {"attempted": False, "reason": "NO_UNCOVERED_GAME_BEFORE_CUTOFF", "objects": 0}
@@ -527,3 +560,72 @@ def collect_for_open_cutoffs(
         "request_filters": params,
         "budget": after.as_dict(),
     }
+
+
+def apply_opening_adjustment(
+    session: Session,
+    *,
+    objects: int,
+    occurred_at: datetime,
+    evidence: dict[str, Any],
+) -> dict[str, Any]:
+    """Record consumption that predates this ledger, exactly once.
+
+    Idempotent by construction rather than by checking first: the fingerprint is
+    derived from the adjustment's own content, and the ledger holds a unique
+    constraint on (provider, endpoint_key, fingerprint, status). Running this
+    twice is a no-op, which is what makes it safe to put in a runbook.
+
+    It is dated to the day the objects were actually spent, so it ages out of
+    the rolling window on the same schedule as a real request would.
+    """
+    from hashlib import sha256
+
+    from sqlalchemy import select
+
+    from app.models import ProviderRequestLedger
+
+    payload = {
+        "kind": "OPENING_BALANCE_ADJUSTMENT",
+        "objects": int(objects),
+        "occurred_at": occurred_at.date().isoformat(),
+        "evidence": evidence,
+        "not_a_request": (
+            "Objects consumed by authorised validation fetches made before "
+            "ledger accounting existed. Recorded as one adjustment rather than "
+            "as reconstructed request rows, which would be fabrications."
+        ),
+    }
+    fingerprint = sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+    existing = session.scalar(
+        select(ProviderRequestLedger).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            ProviderRequestLedger.endpoint_key == OPENING_ADJUSTMENT_KEY,
+            ProviderRequestLedger.request_fingerprint == fingerprint,
+        )
+    )
+    if existing is not None:
+        return {"applied": False, "reason": "ALREADY_RECORDED",
+                "objects": int(objects), "ledger_id": str(existing.id)}
+
+    reserved = ProviderRequestLedger(
+        provider=SPORTSGAMEODDS, endpoint_key=OPENING_ADJUSTMENT_KEY,
+        requested_at=occurred_at, status="RESERVED",
+        request_fingerprint=fingerprint, controlled_live_request=False,
+        source_mode="LIVE", response_metadata={"request_shape": payload},
+    )
+    session.add(reserved)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=SPORTSGAMEODDS, endpoint_key=OPENING_ADJUSTMENT_KEY,
+        requested_at=occurred_at, completed_at=occurred_at, status="SUCCEEDED",
+        request_fingerprint=fingerprint, reservation_id=reserved.id,
+        quota_cost=None, records_received=int(objects),
+        controlled_live_request=False, source_mode="LIVE",
+        response_metadata={"request_shape": payload},
+    ))
+    session.flush()
+    return {"applied": True, "reason": "RECORDED", "objects": int(objects),
+            "ledger_id": str(reserved.id)}

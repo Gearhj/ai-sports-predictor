@@ -171,16 +171,32 @@ def governed_sources(
     return GOVERNED_SOURCES
 
 
-def prefer_primary(rows: "list[Any]", source_of: "Callable[[Any], str]") -> "list[Any]":
-    """Drop fallback rows whenever the primary can answer at all.
+def prefer_primary(
+    rows: "list[Any]",
+    source_of: "Callable[[Any], str]",
+    *,
+    primary_usable: "Callable[[list[Any]], bool] | None" = None,
+) -> "list[Any]":
+    """Drop fallback rows whenever the primary can actually answer.
 
-    This is what makes the fallback a fallback rather than a ninth bookmaker.
-    The selection downstream takes the BEST price across books, so without this
-    a fallback price could outbid the governed provider on a game the governed
-    provider had already covered.
+    This is what makes the fallback a fallback rather than a ninth bookmaker:
+    the selection downstream takes the BEST price across books, so without it a
+    fallback price could outbid the governed provider on a game that provider
+    had already covered.
+
+    But PRESENCE is not the same as USABILITY. A single leftover row -- one side
+    of a market, or a price from yesterday -- cannot price anything, and letting
+    it suppress a complete, fresh fallback pair would turn a recoverable game
+    into an uncovered one for no gain. ``primary_usable`` decides that question
+    for the caller's row shape; without it, presence is taken as sufficient, so
+    existing callers keep their old behaviour.
     """
     primary = [row for row in rows if source_of(row) in GOVERNED_SOURCES]
-    return primary if primary else list(rows)
+    if not primary:
+        return list(rows)
+    if primary_usable is not None and not primary_usable(primary):
+        return list(rows)
+    return primary
 
 
 class ProviderAuthorityError(RuntimeError):
