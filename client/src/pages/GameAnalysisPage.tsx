@@ -11,12 +11,14 @@ import {
   formatMoneyline,
   formatNumber,
   formatPct,
+  PageHeader,
   Panel,
   ScoreBar,
   StatusPill,
   TableScroll,
   TeamLogo,
 } from '../components/ui'
+import { NflResearchAnalysis } from '../components/NflResearchAnalysis'
 import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { ShadowForecastPanel } from '../components/ShadowForecastPanel'
@@ -52,6 +54,33 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
     )
   }
   const { game } = data
+  // A non-baseball research-shadow event has no pitchers, bullpen or Statcast.
+  // Rendering the MLB scaffolding for one reported "forecast unavailable" while
+  // a verified forecast existed, so it gets its own honest analysis view.
+  if (game.league_code && game.league_code.toUpperCase() !== 'MLB') {
+    // The slate is the event's LOCAL calendar day. Converting to UTC first
+    // pushes a night kickoff onto the next date and finds no slate at all.
+    const kickoff = new Date(game.start_time)
+    const slateDate = [
+      kickoff.getFullYear(),
+      String(kickoff.getMonth() + 1).padStart(2, '0'),
+      String(kickoff.getDate()).padStart(2, '0'),
+    ].join('-')
+    return (
+      <div className="page game-page">
+        <Link className="back-link" to="/shadow-board?sport=NFL">
+          <ArrowLeft size={15} /> Research slate
+        </Link>
+        <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+        <PageHeader
+          eyebrow="RESEARCH SHADOW · GAME ANALYSIS"
+          title={`${game.away_team.name} at ${game.home_team.name}`}
+          description={`${game.league_code.toUpperCase()} · research shadow — not executable`}
+        />
+        <NflResearchAnalysis game={game} slateDate={slateDate} />
+      </div>
+    )
+  }
   const forecastAvailable = game.forecast_available ?? (!game.status.toUpperCase().includes('FORECAST UNAVAILABLE') && game.home_win_probability != null && game.away_win_probability != null)
   const marketAvailable = game.market_available ?? game.books_reporting > 0
   const homeProbability = game.home_win_probability ?? 0

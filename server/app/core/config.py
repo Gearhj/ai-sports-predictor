@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # have renewed instead of implying a permanent block. It authorizes no
     # request by itself and never lowers the floor.
     odds_quota_renewal_days: float = Field(default=30.0, ge=1.0)
+    # Model Exchange forecast-bundle consumption. The location is read-only to
+    # AISP; automatic consumption stays OFF until it is explicitly enabled, so
+    # a scheduler can be wired up without importing anything by surprise.
+    model_exchange_forecast_bundle_dir: str = Field(
+        default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
+    )
+    model_exchange_auto_import_enabled: bool = False
     odds_daily_request_budget: int = Field(default=1, ge=0, le=100)
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False

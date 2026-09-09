@@ -996,6 +996,9 @@ class ShadowBoardService:
                 "event_id": forecast.event_id,
                 "event_date": forecast.event_date.isoformat(),
                 "sport": forecast_sport,
+                "canonical_game_id": (
+                    str(forecast.canonical_game_id) if forecast.canonical_game_id else None
+                ),
                 "scheduled_start_utc": forecast.scheduled_start_utc.isoformat() if forecast.scheduled_start_utc else None,
                 "home_team_id": forecast.home_team_id,
                 "away_team_id": forecast.away_team_id,

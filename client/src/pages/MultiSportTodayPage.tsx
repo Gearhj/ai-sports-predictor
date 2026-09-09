@@ -164,7 +164,7 @@ export function MultiSportTodayPage() {
     || item.decision.reasonCode === 'WATCH_MARKET_PRICE_STALE',
   ).length
   const checkpoint = slateNextCheckpoint(grouped.WATCHING)
-  const policy = dominantPolicy(selections)
+  const scopes = experimentScopes(selections)
 
   return (
     <div className="page command-center">
@@ -213,8 +213,11 @@ export function MultiSportTodayPage() {
           <div>
             <dt>Funded experiment</dt>
             <dd>
-              {policy ?? (
+              {scopes.funded ?? (
                 <>None active <small>· official decisions still governed by {GOVERNING_POLICY}</small></>
+              )}
+              {scopes.comparisons.length > 0 && (
+                <small>· strict comparison: {scopes.comparisons.join(' · ')}</small>
               )}
             </dd>
           </div>
@@ -773,15 +776,32 @@ function oddsRefreshLabel(state: MultiSportDataFreshness['odds_refresh_state']):
   }
 }
 
-function dominantPolicy(selections: { experiment_name: string | null; policy_version: string | null }[]): string | null {
-  const tally = new Map<string, number>()
+/**
+ * The active experiment scopes, kept apart.
+ *
+ * More than one experiment runs at once and they are legitimately different
+ * scopes: V2.1 is what funds official virtual positions, and V1 is retained as
+ * its strict comparison. Picking whichever produced more rows today presented
+ * the comparison as if it were the funded experiment, which is wrong. This
+ * labels each scope from the persisted identities and invents neither.
+ */
+export function experimentScopes(
+  selections: { experiment_name: string | null; policy_version: string | null }[],
+): { funded: string | null; comparisons: string[] } {
+  const labels = new Map<string, string>()
   selections.forEach((item) => {
     if (!item.policy_version) return
-    const label = item.experiment_name ? `${item.experiment_name} · ${item.policy_version}` : item.policy_version
-    tally.set(label, (tally.get(label) ?? 0) + 1)
+    const label = item.experiment_name
+      ? `${item.experiment_name} · ${item.policy_version}`
+      : item.policy_version
+    labels.set(item.policy_version, label)
   })
-  if (tally.size === 0) return null
-  return [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0]
+  const funded = labels.get(GOVERNING_POLICY) ?? null
+  const comparisons = [...labels.entries()]
+    .filter(([policy]) => policy !== GOVERNING_POLICY)
+    .map(([, label]) => label)
+    .sort()
+  return { funded, comparisons }
 }
 
 export function hasNoCrossSportRanking(data: TodayAllSportsReadModel): boolean {

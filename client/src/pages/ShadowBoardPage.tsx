@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
+import { Activity, ArrowRight, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
@@ -160,9 +161,19 @@ export function ShadowBoardPage() {
           eyebrow={`${!game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport} · ${
             game.scheduled_start_utc ? formatTimestamp(game.scheduled_start_utc) : game.event_date}`}
           className="section-panel"
-          action={game.model_disagreement != null
-            ? <span className="info-label">Model disagreement {pct(game.model_disagreement)}</span>
-            : undefined}
+          action={
+            <span className="lab-game__badges">
+              {game.model_disagreement != null && (
+                <span className="info-label">Model disagreement {pct(game.model_disagreement)}</span>
+              )}
+              {/* Straight into this event's own analysis, from the card. */}
+              {game.canonical_game_id && (
+                <Link className="lab-game__action" to={`/games/${game.canonical_game_id}`}>
+                  Open game analysis <ArrowRight size={13} aria-hidden="true" />
+                </Link>
+              )}
+            </span>
+          }
         >
           <span id={`event-${game.event_id}`} className="event-anchor" aria-hidden="true" />
           <div className="analysis-grid">

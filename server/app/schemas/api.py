@@ -75,6 +75,9 @@ class ReadinessComponentSummary(BaseModel):
 
 class ForecastGame(BaseModel):
     id: str
+    #: Which league this event belongs to. A consumer must not infer the sport
+    #: from team names: an NFL event is not a baseball event with gaps in it.
+    league_code: str | None = None
     start_time: datetime
     status: str
     venue: str
@@ -946,6 +949,8 @@ class ShadowGameView(BaseModel):
     event_id: str
     event_date: date
     sport: str = "BASEBALL"
+    #: The canonical AISP game, so a card can link straight to its analysis.
+    canonical_game_id: str | None = None
     scheduled_start_utc: datetime | None = None
     home_team_id: str
     away_team_id: str

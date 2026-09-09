@@ -62,6 +62,7 @@ export interface ReadinessComponentSummary {
 
 export interface ForecastGame {
   id: string
+  league_code?: string | null
   start_time: string
   status: string
   venue: string
@@ -931,6 +932,8 @@ export interface ShadowGameView {
   event_id: string
   event_date: string
   sport?: string
+  /** Canonical AISP game, so a card can link straight to its analysis. */
+  canonical_game_id?: string | null
   scheduled_start_utc?: string | null
   home_team_id: string
   away_team_id: string

@@ -1173,6 +1173,7 @@ class ReadService:
             status = f"{status} · FORECAST UNAVAILABLE"
         return ForecastGame(
             id=str(game.id),
+            league_code=_league_code_for(self.session, game),
             start_time=_aware(game.starts_at),
             status=status,
             venue=venue.name if venue else "Venue unavailable",
@@ -3763,6 +3764,18 @@ def _offline_date_text(value: Any) -> str:
         return value.isoformat()
     text = str(value)
     return text[:10] if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-" else text
+
+
+def _league_code_for(session: Any, game: Any) -> str | None:
+    """The persisted league code for one game, or None when not recorded."""
+
+    from app.models import League
+
+    league_id = getattr(game, "league_id", None)
+    if league_id is None:
+        return None
+    league = session.get(League, league_id)
+    return getattr(league, "code", None)
 
 
 def _fallback_unavailable_reason(status: str) -> str | None:
