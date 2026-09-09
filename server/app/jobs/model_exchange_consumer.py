@@ -72,11 +72,24 @@ class ConsumeOutcome:
     rejected: list[dict[str, Any]] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
 
+    supplements_scanned: int = 0
+    supplements_accepted: list[dict[str, Any]] = field(default_factory=list)
+    supplements_skipped: list[str] = field(default_factory=list)
+    supplements_rejected: list[dict[str, Any]] = field(default_factory=list)
+    studies: list[dict[str, Any]] = field(default_factory=list)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "root": self.root,
             "dry_run": self.dry_run,
             "scanned": self.scanned,
+            "supplements_scanned": self.supplements_scanned,
+            "supplements_accepted": len(self.supplements_accepted),
+            "supplements_skipped": len(self.supplements_skipped),
+            "supplements_rejected": len(self.supplements_rejected),
+            "supplement_records": self.supplements_accepted,
+            "supplement_rejections": self.supplements_rejected,
+            "studies": self.studies,
             "accepted_count": len(self.accepted),
             "reused_count": len(self.reused),
             "rejected_count": len(self.rejected),
@@ -247,7 +260,98 @@ def consume_forecast_bundles(
             outcome.accepted.append(record)
         already.add(address)
 
+    _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run)
+    _consume_lab_study(session, settings, outcome, dry_run=dry_run)
     return outcome.as_dict()
+
+
+def _consume_supplements(session: Session, settings: Settings, exchange_root: Path,
+                         outcome: ConsumeOutcome, *, dry_run: bool) -> None:
+    """Research supplements (AISP_RESEARCH_SUPPLEMENT_V1): separate container, same rules.
+
+    Only supplements the exchange declares CURRENT are considered; each is
+    verified file-by-file before any content is read, registered idempotently
+    by content address, and refused when it does not bind to a forecast AISP
+    already holds.
+    """
+
+    from app.forecast_exchange.supplements import (
+        SupplementImportError,
+        current_supplement_addresses,
+        discover_supplements,
+        register_supplement,
+        verify_supplement,
+    )
+    from app.models import ResearchSupplement
+
+    # The supplement tree lives beside the bundle tree in the exchange.
+    supplement_root = exchange_root.parent if exchange_root.name == "aisp-daily-forecast-bundles" else exchange_root
+    current = current_supplement_addresses(supplement_root)
+    if current is None:
+        return  # no index => nothing is declared current => nothing imported
+    registered = {
+        str(value).lower()
+        for value in session.scalars(select(ResearchSupplement.supplement_sha256)).all()
+    }
+    for directory in discover_supplements(supplement_root):
+        address = directory.name.lower()
+        if address not in current:
+            continue
+        outcome.supplements_scanned += 1
+        if address in registered:
+            outcome.supplements_skipped.append(address)
+            continue
+        try:
+            verified = verify_supplement(directory)
+            if dry_run:
+                outcome.supplements_accepted.append({
+                    "supplement_sha256": address, "kind": verified.kind,
+                    "binding": verified.binding, "would_import": True,
+                })
+                continue
+            record = register_supplement(session, verified)
+        except SupplementImportError as error:
+            session.rollback()
+            outcome.supplements_rejected.append({"supplement_sha256": address, "reason": str(error)})
+            continue
+        except (OSError, ValueError) as error:
+            session.rollback()
+            outcome.supplements_rejected.append({
+                "supplement_sha256": address, "reason": f"{type(error).__name__}: {error}",
+            })
+            continue
+        record["imported_at_utc"] = datetime.now(UTC).isoformat()
+        outcome.supplements_accepted.append(record)
+        registered.add(address)
+
+
+def _consume_lab_study(session: Session, settings: Settings, outcome: ConsumeOutcome,
+                       *, dry_run: bool) -> None:
+    """Model Studio's overnight model laboratory, as one benchmark-study supplement."""
+
+    from app.shadow_import.nfl_model_lab_study import (
+        LabStudyImportError,
+        register_lab_study,
+        verify_lab_study,
+    )
+
+    lab_root = Path(settings.model_exchange_lab_study_dir)
+    if not lab_root.is_dir():
+        return
+    try:
+        if dry_run:
+            verified = verify_lab_study(lab_root)
+            outcome.studies.append({
+                "handoff_sha256": verified["handoff_sha256"], "would_import": True,
+            })
+            return
+        outcome.studies.append(register_lab_study(session, lab_root))
+    except LabStudyImportError as error:
+        session.rollback()
+        outcome.studies.append({"rejected": True, "reason": str(error)})
+    except (OSError, ValueError) as error:
+        session.rollback()
+        outcome.studies.append({"rejected": True, "reason": f"{type(error).__name__}: {error}"})
 
 
 def _verify_eligible(bundle_dir: Path) -> dict[str, Any]:
@@ -316,7 +420,9 @@ def run_scheduled_import(session: Session, settings: Settings) -> dict[str, Any]
             "rejected_count": 0,
             "skipped_count": 0,
         }
-    return {"enabled": True, **consume_forecast_bundles(session, settings)}
+    payload = consume_forecast_bundles(session, settings)
+    session.commit()
+    return {"enabled": True, **payload}
 
 
 __all__ = [

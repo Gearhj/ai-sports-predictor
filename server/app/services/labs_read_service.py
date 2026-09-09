@@ -67,6 +67,58 @@ class LabsReadService:
         self.session = session
         self.settings = settings
 
+    def _nfl_games(self, limit: int) -> dict[str, Any]:
+        """NFL lab picker: every event whose imported forecast carries joint score evidence."""
+
+        from datetime import UTC, datetime
+
+        from app.services.nfl_read_service import NflReadService
+
+        service = NflReadService(self.session, self.settings)
+        weeks = service.weeks()
+        current = weeks.get("current")
+        games: list[dict[str, Any]] = []
+        featured = None
+        if current:
+            overview = service.week_overview(current["season"], current["week"])
+            featured = overview["events"][0]["kickoff_utc"][:10] if overview["events"] and overview["events"][0]["kickoff_utc"] else None
+            for event in overview["events"][:limit]:
+                games.append({
+                    "game_id": event["canonical_game_id"],
+                    "label": f"{event['away']['abbreviation']} @ {event['home']['abbreviation']}",
+                    "home_team": event["home"]["abbreviation"],
+                    "away_team": event["away"]["abbreviation"],
+                    "starts_at": event["kickoff_utc"],
+                    "slate_date": event["kickoff_utc"][:10] if event["kickoff_utc"] else None,
+                    "event_status": event["state"],
+                    "is_final": event["state"] == "FINAL",
+                    "is_pregame": event["state"] == "UPCOMING",
+                    "home_score": (event["final_score"] or {}).get("home"),
+                    "away_score": (event["final_score"] or {}).get("away"),
+                    "gen1_available": False, "gen1_href": None,
+                    "v18_available": False, "v18_href": None, "v18_forecast_id": None,
+                    "v18_path_events": 0, "v18_forecast_at": None, "v18_object_sha256": None,
+                    "v18_views": {"broadcast": False, "geometry": False, "population": False},
+                    "v18_skip_category": None, "v18_skip_reason": None,
+                    "analysis_href": event["analysis_href"],
+                    "lab_href": event["lab_href"] if event["lab_available"] else None,
+                    "lab_label": "NFL Simulation Lab — Outcome Explorer" if event["lab_available"] else None,
+                    "lab_engines": [e["engine_id"] for e in event["engines"] if e["simulation"]["joint_available"]],
+                })
+        return {
+            "schema_version": "AISP_INTERACTIVE_LABS_V1",
+            "league": "NFL",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "eligible_count": len(games),
+            "v18_count": 0, "v18_skip_count": 0,
+            "featured_slate_date": featured,
+            "featured_v18_count": 0, "featured_v18_skip_count": 0,
+            "games": games,
+            "note": ("Each NFL game opens the Outcome Explorer on its imported forecast's own "
+                     "joint score distribution. Drive Theater and Scenario Comparison appear "
+                     "per game only when producer evidence has been imported."),
+        }
+
     def eligible_games(
         self,
         league: str = "MLB",
@@ -74,6 +126,8 @@ class LabsReadService:
         limit: int = DEFAULT_LIMIT,
     ) -> dict[str, Any]:
         limit = max(1, min(int(limit), MAX_LIMIT))
+        if league.upper() == "NFL":
+            return self._nfl_games(limit)
 
         league_game_ids = (
             select(GameTeam.game_id)

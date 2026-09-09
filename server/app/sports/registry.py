@@ -60,7 +60,7 @@ NFL = SportDefinition(
     stored_sport_aliases=("NFL", "FOOTBALL"),
     stored_league_aliases=("NFL",),
     navigable=True,
-    navigation_href="/shadow-board?sport=NFL",
+    navigation_href="/nfl",
 )
 
 NBA = SportDefinition(

@@ -365,6 +365,20 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     catch_up_at = daily_pipeline_catch_up_time(settings)
     if catch_up_at is not None:
         daily_kwargs["next_run_time"] = catch_up_at
+    if settings.model_exchange_auto_import_enabled:
+        # Recurring consumption of COMPLETED local research artifacts (verified
+        # forecast bundles, research supplements, benchmark studies). Never a
+        # provider request and never a model execution.
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=settings.model_exchange_import_interval_minutes,
+            id="asp-model-exchange-consumer",
+            kwargs={"job_name": "consume-model-exchange-research-artifacts", "settings": settings},
+            next_run_time=datetime.now(UTC),
+            **common,
+        )
+    if not settings.scheduler_core_jobs_enabled:
+        return scheduler
     scheduler.add_job(
         execute_scheduled_job,
         "cron",

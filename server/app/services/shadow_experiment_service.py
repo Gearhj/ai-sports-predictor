@@ -92,6 +92,38 @@ SUPERSEDED_POLICIES: dict[str, str] = {
 }
 
 
+#: The decision row persists a decimal price in the canonical four-place
+#: representation while the odds snapshot keeps full precision, so an exact
+#: float comparison rejected a quote that was the same price.
+PRICE_CANONICAL_PLACES = 4
+
+
+def same_quoted_price(snapshot: Any, decision: Any) -> bool:
+    """Whether the frozen decision names the snapshot's own price.
+
+    Identity is decided elsewhere (snapshot id, market outcome, observation
+    time); this compares only the PRICE, in the canonical representation the
+    decision was written with. The American price must agree exactly and the
+    decimal price must agree once both are expressed at the contract's four
+    places. A different quote still fails: it carries a different American
+    price or a decimal that differs beyond rounding.
+    """
+
+    snapshot_decimal = snapshot.decimal_odds
+    decision_decimal = decision.decimal_odds
+    if snapshot_decimal is None or decision_decimal is None:
+        return False
+    snapshot_american = getattr(snapshot, "american_odds", None)
+    decision_american = getattr(decision, "american_odds", None)
+    if snapshot_american is not None and decision_american is not None:
+        if int(snapshot_american) != int(decision_american):
+            return False
+    return (
+        round(float(snapshot_decimal), PRICE_CANONICAL_PLACES)
+        == round(float(decision_decimal), PRICE_CANONICAL_PLACES)
+    )
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
@@ -662,7 +694,7 @@ class ShadowExperimentService:
             or forecast is None
             or snapshot.market_outcome_id != decision.market_outcome_id
             or snapshot.decimal_odds is None
-            or abs(float(snapshot.decimal_odds) - float(decision.decimal_odds)) > 1e-9
+            or not same_quoted_price(snapshot, decision)
             or _aware(snapshot.observed_at) != _aware(decision.quote_observed_at)
             or _aware(forecast.available_as_of) > cutoff
             or _aware(forecast.generated_at) > cutoff

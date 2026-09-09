@@ -60,7 +60,7 @@ describe('AI Sports Predictor application shell', () => {
     expect(selector).toHaveAttribute('aria-expanded', 'true')
     const options = screen.getByLabelText('Sport options')
     expect(within(options).getByRole('link', { name: /MLB Active/i })).toHaveAttribute('href', '/mlb')
-    expect(within(options).getByRole('link', { name: /NFL Research foundation/i })).toHaveAttribute('href', '/shadow-board?sport=NFL')
+    expect(within(options).getByRole('link', { name: /NFL Research foundation/i })).toHaveAttribute('href', '/nfl')
 
     // Planned sports are now visible so the product reads as multi-sport, but
     // the guarantee that matters is unchanged: a sport the backend has not made

@@ -421,6 +421,59 @@ def experiment_comparison(session: DatabaseSession, settings: AppSettings) -> di
     return ReadService(session, settings).experiment_comparison()
 
 
+# -- NFL product -----------------------------------------------------------
+@router.get("/nfl/weeks", tags=["nfl"])
+def nfl_weeks(session: DatabaseSession, settings: AppSettings) -> dict:
+    """Every imported NFL week with its event count, and the current week by the runtime clock."""
+
+    from app.services.nfl_read_service import NflReadService
+
+    return NflReadService(session, settings).weeks()
+
+
+@router.get("/nfl/weeks/{season}/{week}", tags=["nfl"])
+def nfl_week(season: int, week: int, session: DatabaseSession, settings: AppSettings) -> dict:
+    """One card per event: latest valid snapshot per engine, kickoff, state, lab availability.
+
+    Read-only research shadow. A started game keeps its last published pregame
+    forecast; nothing is generated after kickoff.
+    """
+
+    from app.services.nfl_read_service import NflReadService
+
+    return NflReadService(session, settings).week_overview(season, week)
+
+
+@router.get("/nfl/games/{game_id}", tags=["nfl"])
+def nfl_game(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Full NFL game detail: engines, joint-score explorer, market comparison, supplements."""
+
+    from app.services.nfl_read_service import NflReadService
+
+    payload = NflReadService(session, settings).game_detail(game_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No NFL research forecast for this game")
+    return payload
+
+
+@router.get("/nfl/research", tags=["nfl"])
+def nfl_research(session: DatabaseSession, settings: AppSettings) -> dict:
+    """Imported machine-readable model benchmark studies (never a hand-typed table)."""
+
+    from app.services.nfl_read_service import NflReadService
+
+    return NflReadService(session, settings).research_results()
+
+
+@router.get("/nfl/consumer", tags=["nfl"])
+def nfl_consumer(session: DatabaseSession, settings: AppSettings) -> dict:
+    """Last successful/failed research-artifact import and registered counts."""
+
+    from app.services.nfl_read_service import NflReadService
+
+    return NflReadService(session, settings).consumer_status()
+
+
 @router.get("/shadow-board", response_model=ShadowBoardData, tags=["transparency"])
 def shadow_board(
     session: DatabaseSession,

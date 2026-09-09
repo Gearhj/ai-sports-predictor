@@ -90,6 +90,7 @@ AVAILABLE_JOBS = {
     "generate-nfl-shadow-forecasts": "Generate NFL M1 Early/Current Research-Shadow Forecasts",
     "generate-nfl-final-pregame-forecasts": "Generate NFL M1 Final-Pregame Research-Shadow Forecasts",
     "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
+    "consume-model-exchange-research-artifacts": "Consume Verified Model Exchange Research Artifacts",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "evaluate-nfl-shadow-board": "Evaluate NFL Research-Shadow Board",
     "freeze-nfl-final-pregame": "Freeze NFL Final-Pregame Research Shadow",
@@ -205,6 +206,7 @@ class JobOrchestrator:
             "generate-nfl-shadow-forecasts": self.generate_nfl_shadow_forecasts,
             "generate-nfl-final-pregame-forecasts": self.generate_nfl_final_pregame_forecasts,
             "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
+            "consume-model-exchange-research-artifacts": self.consume_model_exchange_artifacts,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "evaluate-nfl-shadow-board": self.evaluate_nfl_shadow_board,
             "freeze-nfl-final-pregame": self.freeze_nfl_final_pregame,
@@ -493,6 +495,18 @@ class JobOrchestrator:
             return {"records": 0, "note": "SHADOW_BUNDLE_IMPORT_DIR is not configured"}
         result = ShadowBoardService(self.session, self.settings).import_bundle(Path(directory))
         return {"records": int(result.get("forecasts", 0)), **result}
+
+    async def consume_model_exchange_artifacts(self, event_date: date) -> dict[str, Any]:
+        """Scheduler entry for the research consumer; imports nothing unless enabled."""
+
+        from app.jobs.model_exchange_consumer import run_scheduled_import
+
+        payload = run_scheduled_import(self.session, self.settings)
+        self.session.commit()
+        return {
+            "records": int(payload.get("accepted_count", 0)) + int(payload.get("supplements_accepted", 0)),
+            **payload,
+        }
 
     async def import_nfl_shadow_bundle(self, event_date: date) -> dict[str, Any]:
         """Import the configured verified NFL bundle family; no provider call.

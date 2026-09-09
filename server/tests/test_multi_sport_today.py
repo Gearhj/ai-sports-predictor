@@ -65,7 +65,7 @@ def test_registry_contains_mlb_and_nfl_and_keeps_planned_sports_inactive():
     # NFL may never fund an official position in this phase.
     assert nfl.official_positions_supported is False
     assert nfl.navigable is True
-    assert nfl.navigation_href == "/shadow-board?sport=NFL"
+    assert nfl.navigation_href == "/nfl"
 
     planned = {str(e.league_code) for e in planned_leagues()}
     assert planned == {"NBA", "WNBA", "UFC"}
@@ -297,7 +297,7 @@ def test_sports_registry_route_exposes_planned_sports_as_non_navigable(client, m
     assert by_league["UFC"]["participant_type"] == "INDIVIDUAL"
     assert by_league["MLB"]["navigation_href"] == "/mlb"
     assert attempts == []
-    assert by_league["NFL"]["navigation_href"] == "/shadow-board?sport=NFL"
+    assert by_league["NFL"]["navigation_href"] == "/nfl"
 
 
 # -- 8. a missing adapter fails closed ---------------------------------------

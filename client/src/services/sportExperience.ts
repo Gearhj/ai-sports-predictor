@@ -129,8 +129,10 @@ export const SPORTS: Record<SportCode, SportDefinition> = {
     marketFamilies: ['WINNER', 'HANDICAP', 'TOTAL'],
     marketLabels: { WINNER: 'Moneyline', HANDICAP: 'Point spread', TOTAL: 'Total points' },
     labFamily: {
-      key: 'gridiron', name: 'Gridiron Lab',
-      description: 'Planned: drive-level and scoring-path exploration once a governed engine exists.',
+      key: 'gridiron', name: 'Simulation Lab',
+      description:
+        'Explore the joint final-score distribution behind an NFL research forecast, query spreads and totals '
+        + 'against it, and replay drive-level simulations as producer evidence arrives.',
     },
   },
   BASKETBALL: {
@@ -204,7 +206,7 @@ const LEAGUE_SEEDS: LeagueSeed[] = [
     displayName: 'National Football League', shortName: 'NFL',
     accent: { base: '#286f9e', soft: '#e8f2f9', ink: '#1f5271' },
     forecastOutputs: ['Research win probability', 'Expected points', 'Point spread', 'Total points'],
-    labAvailable: false, labRoute: null,
+    labAvailable: true, labRoute: '/nfl/games/:eventId/lab',
     plannedStatus: 'RESEARCH_SHADOW',
     emptyStateGuidance:
       'NFL runs as an unfunded research foundation. Forecasts are research output and never '

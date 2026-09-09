@@ -21,6 +21,9 @@ const HealthPage = lazy(() => import('./pages/HealthPage').then((module) => ({ d
 const ShadowBoardPage = lazy(() => import('./pages/ShadowBoardPage').then((module) => ({ default: module.ShadowBoardPage })))
 const MarketPulsePage = lazy(() => import('./pages/MarketPulsePage').then((module) => ({ default: module.MarketPulsePage })))
 const MarketPulseGamePage = lazy(() => import('./pages/MarketPulseGamePage').then((module) => ({ default: module.MarketPulseGamePage })))
+const NflWeekPage = lazy(() => import('./pages/NflWeekPage').then((module) => ({ default: module.NflWeekPage })))
+const NflGamePage = lazy(() => import('./pages/NflGamePage').then((module) => ({ default: module.NflGamePage })))
+const NflLabPage = lazy(() => import('./pages/NflLabPage').then((module) => ({ default: module.NflLabPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 
 function ScrollToTop() {
@@ -47,6 +50,9 @@ export default function App() {
                 <Route element={<AppShell />}>
                   <Route index element={<MultiSportTodayPage />} />
                   <Route path="mlb" element={<TodayPage />} />
+                  <Route path="nfl" element={<NflWeekPage />} />
+                  <Route path="nfl/games/:gameId" element={<NflGamePage />} />
+                  <Route path="nfl/games/:gameId/lab" element={<NflLabPage />} />
                   <Route path="research/history" element={<HistoricalResearchPage />} />
                   <Route path="games/:gameId" element={<GameAnalysisPage />} />
                   <Route path="games/:gameId/simulation" element={<GameSimulationPage />} />

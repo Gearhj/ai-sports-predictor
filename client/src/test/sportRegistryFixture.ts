@@ -35,7 +35,7 @@ export const sportRegistryFixture: SportRegistryResponse = {
       availability: 'RESEARCH_SHADOW',
       engine_label: 'MODEL_STUDIO_NFL_M1',
       navigable: true,
-      navigation_href: '/shadow-board?sport=NFL',
+      navigation_href: '/nfl',
     }),
     entry({ sport_code: 'BASKETBALL', league_code: 'NBA' }),
     entry({ sport_code: 'BASKETBALL', league_code: 'WNBA' }),

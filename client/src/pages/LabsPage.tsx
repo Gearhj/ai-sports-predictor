@@ -161,12 +161,17 @@ function LabGamePicker({ sport }: { sport: ResolvedSport }) {
           <span className="eyebrow">{sport.shortName} · {labName(sport)}</span>
           <h2 id="lab-games-heading">Choose a game</h2>
         </div>
-        {data && (
+        {data && data.league !== 'NFL' && (
           <p className="lab-games__count">
             {data.featured_slate_date && <>{formatDate(data.featured_slate_date)} · </>}
             <strong>{data.featured_v18_count} V18-enabled {data.featured_v18_count === 1 ? 'game' : 'games'}</strong>
             {' '}· {data.featured_v18_skip_count} forecast {data.featured_v18_skip_count === 1 ? 'skip' : 'skips'}
             {' '}· Gen 1 availability shown per game
+          </p>
+        )}
+        {data && data.league === 'NFL' && (
+          <p className="lab-games__count">
+            <strong>{data.eligible_count} {data.eligible_count === 1 ? 'game' : 'games'} with joint score evidence</strong>
           </p>
         )}
       </div>
@@ -248,12 +253,19 @@ function LabGameCard({ game }: { game: LabsGame }) {
             Open Gen 1 Outcome Distribution <ArrowRight size={13} aria-hidden="true" />
           </Link>
         )}
+        {game.lab_href && (
+          <Link className="lab-game__action lab-game__action--v18" to={game.lab_href}>
+            Open {game.lab_label ?? 'Simulation Lab'} <ArrowRight size={13} aria-hidden="true" />
+            {game.lab_engines?.length ? <small>Engines: {game.lab_engines.join(', ')}</small> : null}
+          </Link>
+        )}
         <Link className="lab-game__action lab-game__action--analysis" to={game.analysis_href}>
           Open game analysis <ArrowRight size={13} aria-hidden="true" />
         </Link>
       </div>
 
-      {!game.v18_available && (
+      {/* The V18 note is baseball-specific; a football card says nothing about it. */}
+      {!game.v18_available && !game.lab_href && (
         <p className="lab-game__no-v18">
           <Beaker size={12} aria-hidden="true" />
           {game.v18_skip_reason

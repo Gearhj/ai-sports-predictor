@@ -83,7 +83,7 @@ const SELECTORS = Object.fromEntries(
       target: { kind: selector },
     },
   ]),
-) as PopulationPayload['selectors']
+) as unknown as PopulationPayload['selectors']
 
 const IDENTITY = {
   supplement_id: 'mlb-v18-population-geometry-d2586fba829c059fb20b4251',

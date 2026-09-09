@@ -22,6 +22,7 @@ import type {
 } from '../types/domain'
 import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
 import type { LabsGames } from '../types/labs'
+import type { NflConsumerStatus, NflGameDetail, NflResearchResults, NflWeekOverview, NflWeeks } from '../types/nfl'
 import type {
   PlayGeometryPayload,
   PopulationLayersPayload,
@@ -175,6 +176,13 @@ export const endpoints = {
   },
   experimentComparison: (signal?: AbortSignal) =>
     apiRequest<ExperimentComparison>('/experiment/comparison', {}, signal),
+  nflWeeks: (signal?: AbortSignal) => apiRequest<NflWeeks>('/nfl/weeks', {}, signal),
+  nflWeek: (season: number, week: number, signal?: AbortSignal) =>
+    apiRequest<NflWeekOverview>(`/nfl/weeks/${season}/${week}`, {}, signal),
+  nflGame: (gameId: string, signal?: AbortSignal) =>
+    apiRequest<NflGameDetail>(`/nfl/games/${encodeURIComponent(gameId)}`, {}, signal),
+  nflResearch: (signal?: AbortSignal) => apiRequest<NflResearchResults>('/nfl/research', {}, signal),
+  nflConsumer: (signal?: AbortSignal) => apiRequest<NflConsumerStatus>('/nfl/consumer', {}, signal),
   shadowBoard: (slateDate: string, signal?: AbortSignal, sport?: string | null) => {
     const query = new URLSearchParams({ date: slateDate })
     if (sport) query.set('sport', sport)

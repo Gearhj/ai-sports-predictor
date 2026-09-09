@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { MarketPulsePanel } from '../components/MarketPulsePanel'
 import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles, ArrowRight} from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
@@ -57,6 +57,10 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   // A non-baseball research-shadow event has no pitchers, bullpen or Statcast.
   // Rendering the MLB scaffolding for one reported "forecast unavailable" while
   // a verified forecast existed, so it gets its own honest analysis view.
+  if (game.league_code && game.league_code.toUpperCase() === 'NFL') {
+    // The NFL product has its own analysis surface; keep the old link working.
+    return <Navigate to={`/nfl/games/${game.id}`} replace />
+  }
   if (game.league_code && game.league_code.toUpperCase() !== 'MLB') {
     // The slate is the event's LOCAL calendar day. Converting to UTC first
     // pushes a night kickoff onto the next date and finds no slate at all.

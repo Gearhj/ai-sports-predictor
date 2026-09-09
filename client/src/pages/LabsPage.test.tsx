@@ -93,7 +93,7 @@ describe('the lab list', () => {
 
     const expected: Array<[string, string]> = [
       ['MLB Diamond Simulator', 'Available'],
-      ['NFL Gridiron Lab', 'Planned'],
+      ['NFL Simulation Lab', 'Available'],
       ['NBA Court Lab', 'Planned'],
       ['WNBA Court Lab', 'Planned'],
       ['NHL Ice Lab', 'Planned'],
@@ -109,7 +109,7 @@ describe('the lab list', () => {
   it('gives a planned lab no route, no controls and no outputs', async () => {
     mount()
     await screen.findByRole('heading', { name: 'NHL Ice Lab' })
-    for (const name of ['NFL Gridiron Lab', 'NBA Court Lab', 'WNBA Court Lab', 'NHL Ice Lab', 'UFC Fight Lab']) {
+    for (const name of ['NBA Court Lab', 'WNBA Court Lab', 'NHL Ice Lab', 'UFC Fight Lab']) {
       const card = screen.getByRole('heading', { name }).closest('article')!
       expect(card).toHaveAttribute('aria-disabled', 'true')
       expect(card.querySelector('a')).toBeNull()

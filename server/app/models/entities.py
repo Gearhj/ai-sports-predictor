@@ -3269,3 +3269,44 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
     )
+
+
+class ResearchSupplement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One immutable, checksum-verified research supplement (AISP_RESEARCH_SUPPLEMENT_V1).
+
+    A supplement is evidence that arrives SEPARATELY from a forecast bundle:
+    a joint score simulation, a drive-level simulation, a precomputed scenario
+    comparison, or a machine-readable model benchmark study. It is bound to its
+    event/engine/forecast by declared identifiers, never by inference, and
+    carries no execution, promotion or wagering authority. Rows are append-only.
+    """
+
+    __tablename__ = "research_supplements"
+    supplement_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    supplement_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    contract_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: JOINT_SCORE_SIMULATION | DRIVE_SIMULATION | SCENARIO_COMPARISON | MODEL_BENCHMARK_STUDY
+    kind: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    #: Null only for a study that is not bound to one event.
+    event_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    engine_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    forecast_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    shadow_forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("shadow_forecasts.id"), index=True)
+    artifact_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: EXACT_DISTRIBUTION | MONTE_CARLO | DETERMINISTIC | NONE
+    simulation_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    simulation_count: Mapped[int | None] = mapped_column(Integer)
+    simulation_seed: Mapped[int | None] = mapped_column(BigInteger)
+    source_cutoff_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    status: Mapped[str] = mapped_column(String(48), nullable=False, default="RESEARCH_SHADOW", server_default="RESEARCH_SHADOW")
+    research_shadow_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Summaries and small paths the pages render. Verified before it is read.
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    #: Importer-side verification evidence: which files, which digests, which bindings.
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    __table_args__ = (
+        Index("ix_research_supplements_event_kind", "event_id", "kind"),
+    )

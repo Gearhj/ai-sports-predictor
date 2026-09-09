@@ -34,6 +34,7 @@ import type { SportRegistryEntry } from '../types/multisport'
 
 const primaryNav = [
   { to: '/', label: 'Daily command center', icon: LayoutDashboard, end: true, demoScoped: false },
+  { to: '/nfl', label: 'NFL research', icon: Trophy, demoScoped: false },
   { to: '/research/history', label: 'Historical research', icon: Archive, demoScoped: false },
   { to: '/markets', label: 'Market board', icon: BarChart3 },
   { to: '/shadow-board', label: 'Shadow board', icon: FlaskConical },

@@ -75,6 +75,16 @@ class Settings(BaseSettings):
         default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
     )
     model_exchange_auto_import_enabled: bool = False
+    #: Cadence for the recurring research-artifact consumer once it is enabled.
+    model_exchange_import_interval_minutes: int = Field(default=15, ge=5, le=240)
+    #: Model Studio NFL overnight model laboratory (machine-readable study).
+    model_exchange_lab_study_dir: str = Field(
+        default=str(Path.home() / 'asp-model-studio' / 'outputs' / 'nfl-overnight-model-laboratory-v1')
+    )
+    #: When false, this process registers ONLY the flag-gated research consumer,
+    #: so a second process can own that one job without duplicating the core
+    #: daily/finalize owners that another supervised process already runs.
+    scheduler_core_jobs_enabled: bool = True
     odds_daily_request_budget: int = Field(default=1, ge=0, le=100)
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False

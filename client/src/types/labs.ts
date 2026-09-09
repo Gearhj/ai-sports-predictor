@@ -32,6 +32,10 @@ export interface LabsGame {
   v18_skip_category: string | null
   v18_skip_reason: string | null
   analysis_href: string
+  /** Non-MLB lab entry point (NFL Simulation Lab). Present only when joint evidence exists. */
+  lab_href?: string | null
+  lab_label?: string | null
+  lab_engines?: string[]
 }
 
 export interface LabsGames {

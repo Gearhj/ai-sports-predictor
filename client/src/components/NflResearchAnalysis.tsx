@@ -18,7 +18,7 @@ import { MetricCard, Panel } from './ui'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
-import type { ForecastGame, ShadowBoardData, ShadowEngineView } from '../types/domain'
+import type { DataProvenance, ForecastGame, ShadowBoardData, ShadowEngineView } from '../types/domain'
 
 function pct(value: number | null | undefined): string {
   return value == null ? '—' : `${(value * 100).toFixed(1)}%`
@@ -36,7 +36,7 @@ export function NflResearchAnalysis({ game, slateDate }: {
     (signal: AbortSignal) => endpoints.shadowBoard(slateDate, signal, 'NFL'),
     [slateDate],
   )
-  const { data, loading } = useApiResource<ShadowBoardData>(loader, {})
+  const { data, loading } = useApiResource(loader as (signal: AbortSignal) => Promise<ShadowBoardData & DataProvenance>, {})
   const event = data?.games?.find((item) => item.canonical_game_id === game.id)
   const engine: ShadowEngineView | undefined = event?.engines?.[0]
 

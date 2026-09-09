@@ -22,7 +22,7 @@ const baseRow: MarketPulseRow = {
   mapping_status: 'EXACT', semantics_status: 'SEMANTICS_REVIEW_REQUIRED', best_quality_tier: null, alert_count: 0,
 } as MarketPulseRow
 
-const kalshiNone = { provider: 'KALSHI', state: 'NO_MAPPED_MARKET', reason: 'No KALSHI market is mapped to this game', contracts_listed: 0, mapping_status: null, semantics_status: null, quality_tier: null, last_snapshot_at: null } as MarketPulseRow['provider_coverage'][number]
+const kalshiNone = { provider: 'KALSHI', state: 'NO_MAPPED_MARKET', reason: 'No KALSHI market is mapped to this game', contracts_listed: 0, mapping_status: null, semantics_status: null, quality_tier: null, last_snapshot_at: null } as NonNullable<MarketPulseRow['provider_coverage']>[number]
 
 const rows: MarketPulseRow[] = [
   {

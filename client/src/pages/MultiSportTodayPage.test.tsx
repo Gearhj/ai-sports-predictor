@@ -8,6 +8,7 @@ import type { NormalizedSelection, SportSection, TodayAllSportsReadModel } from 
 import { hasNoCrossSportRanking, MultiSportTodayPage } from './MultiSportTodayPage'
 
 const baseSelection: NormalizedSelection = {
+  market_evidence_state: null,
   sport_code: 'BASEBALL',
   league_code: 'MLB',
   event_id: 'mlb-1',
@@ -105,6 +106,7 @@ function model(sections: SportSection[]): TodayAllSportsReadModel {
     data_freshness: {
       latest_forecast_at: '2026-08-31T15:00:00Z', latest_market_at: '2026-08-31T15:00:00Z',
       scheduler_running: false, provider_calls_made: 0,
+      automatic_odds_refresh_running: false, odds_refresh_state: 'POLLING_DISABLED', odds_refresh_detail: null,
     },
     availability: [
       { sport_code: 'BASEBALL', league_code: 'MLB', display_name: 'Major League Baseball', availability: 'LIVE', navigable: true, note: null },
@@ -542,9 +544,10 @@ describe('All Sports homepage — the redesigned public experience', () => {
     }
     const labs = document.querySelector('.explore__labs')!
     expect(within(labs as HTMLElement).getByText(/MLB Diamond Simulator/)).toBeInTheDocument()
-    expect(labs.querySelectorAll('.lab--available')).toHaveLength(1)
+    expect(within(labs as HTMLElement).getByText(/NFL Simulation Lab/)).toBeInTheDocument()
+    expect(labs.querySelectorAll('.lab--available')).toHaveLength(2)
     // Planned labs are named honestly and carry no route.
-    expect(labs.querySelectorAll('.lab--planned')).toHaveLength(5)
+    expect(labs.querySelectorAll('.lab--planned')).toHaveLength(4)
     expect(labs.querySelectorAll('a')).toHaveLength(0)
   })
 
