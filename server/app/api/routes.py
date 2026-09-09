@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
@@ -653,8 +654,15 @@ def admin_odds_collection(
         "spend_by_day": odds_budget.spend_by_day(session, since=window_start),
         "providers": provider_registry.describe(),
         "governed_sources": sorted(provider_registry.GOVERNED_SOURCES),
+        # Pass the real configuration: readiness that reports a configured
+        # credential as absent tells an operator the opposite of the truth about
+        # what still blocks the fallback.
         "fallback_provider": SportsGameOddsAdapter(
             enabled=getattr(settings, "sportsgameodds_enabled", False),
+            api_key=getattr(settings, "sportsgameodds_api_key", ""),
+            base_url=getattr(settings, "sportsgameodds_base_url", ""),
+            mapping_path=(Path(settings.sportsgameodds_mapping_path)
+                          if getattr(settings, "sportsgameodds_mapping_path", "") else None),
         ).readiness(),
     }
 
