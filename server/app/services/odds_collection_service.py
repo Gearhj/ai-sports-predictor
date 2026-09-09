@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models import Game, GameStatus, League, ProviderRequestLedger
 from app.services import odds_budget
+from app.services.odds_budget_lanes import LANE_MLB_RECOVERY, lane_for_request
 from app.services.odds_collection_plan import (
     MAX_QUOTE_STALENESS_MINUTES,
     SPORT_POLICIES,
@@ -49,6 +50,7 @@ REASON_BUDGET = "BUDGET_EXHAUSTED"
 REASON_NO_GAMES = "NO_ELIGIBLE_GAMES"
 REASON_NOT_DUE = "NO_CHECKPOINT_DUE"
 REASON_DUE = "CHECKPOINT_DUE"
+REASON_RECOVERY = "RECOVERY_REQUIRED"
 
 #: Ledger endpoint keys, per sport key, used both to record and to detect a
 #: checkpoint that has already been served.
@@ -103,7 +105,7 @@ class CollectionDecision:
 
     @property
     def should_request(self) -> bool:
-        return self.reason == REASON_DUE and self.checkpoint is not None
+        return self.reason in (REASON_DUE, REASON_RECOVERY) and self.checkpoint is not None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -175,6 +177,19 @@ class OddsCollectionService:
         built.sort(key=lambda plan: plan.policy.priority)
         return built
 
+    def lane_budget(self, *, now: datetime | None = None):
+        from app.services.odds_budget_lanes import lane_budget
+
+        return lane_budget(
+            self.session,
+            monthly_cap=self.settings.odds_monthly_credit_cap,
+            reserve=self.settings.odds_monthly_credit_reserve,
+            daily_cap=self.settings.odds_daily_credit_budget,
+            floor=self.settings.odds_quota_floor,
+            now=now,
+            display_timezone=self.settings.display_timezone,
+        )
+
     def budget(self, *, now: datetime | None = None) -> odds_budget.BudgetState:
         return odds_budget.budget_state(
             self.session,
@@ -184,6 +199,81 @@ class OddsCollectionService:
             floor=self.settings.odds_quota_floor,
             now=now,
             display_timezone=self.settings.display_timezone,
+        )
+
+    # -- recovery ---------------------------------------------------------
+    def recovery_request(self, *, now: datetime) -> DueCheckpoint | None:
+        """A decision-critical MLB game that still has no usable quote.
+
+        The scheduled cover is sized for the normal case: one observation inside
+        each game's freshness window. It cannot answer for a book that went
+        quiet, a payload that omitted an event, or a one-sided market. The
+        ladder does: coverage is re-checked 90 minutes out, a priority attempt
+        is reserved at 45, and one last controlled attempt at 25 -- all safely
+        ahead of the 15-minute cutoff, after which nothing can help.
+
+        Recovery draws on its own protected lane, so optional collection cannot
+        crowd it out, and it is only requested for a game actually diagnosed
+        RECOVERY_REQUIRED.
+        """
+
+        from app.services.quote_coverage import (
+            RECOVERY_FINAL_MINUTES,
+            RECOVERY_PRIMARY_MINUTES,
+            STATE_RECOVERY,
+            QuoteCoverageService,
+        )
+
+        events = QuoteCoverageService(self.session, self.settings).coverage(
+            league_code="MLB", now=now,
+        )
+        # A game is only worth a RECOVERY credit once the scheduled cover has
+        # actually had its chance. For the earliest game of a slate the 45-minute
+        # rung opens BEFORE its own checkpoint, and firing then would spend the
+        # protected reserve doing the scheduled request's job.
+        from app.services.odds_collection_plan import (
+            CHECKPOINT_GRACE_MINUTES,
+            planned_covers,
+        )
+
+        mlb_plan = next((p for p in self.plans(now=now) if p.policy.league_code == "MLB"), None)
+        pending = list(mlb_plan.checkpoints) if mlb_plan else []
+
+        def scheduled_cover_exhausted(cutoff: datetime) -> bool:
+            covering = [c for c in pending if planned_covers(c, cutoff)]
+            if not covering:
+                return True  # nothing scheduled will serve this game
+            return all(
+                now > c + timedelta(minutes=CHECKPOINT_GRACE_MINUTES) for c in covering
+            )
+
+        at_risk = [
+            event for event in events
+            if event.state == STATE_RECOVERY
+            and event.cutoff - timedelta(minutes=RECOVERY_PRIMARY_MINUTES) <= now < event.cutoff
+            and scheduled_cover_exhausted(event.cutoff)
+        ]
+        if not at_risk:
+            return None
+        # One league-level request serves every at-risk game at once.
+        soonest = min(at_risk, key=lambda event: event.cutoff)
+        last_success = self._last_success_at("baseball_mlb")
+        rung = (
+            RECOVERY_FINAL_MINUTES
+            if soonest.cutoff - timedelta(minutes=RECOVERY_FINAL_MINUTES) <= now
+            else RECOVERY_PRIMARY_MINUTES
+        )
+        rung_opens = soonest.cutoff - timedelta(minutes=rung)
+        if last_success is not None and last_success >= rung_opens:
+            return None  # this rung has already been attempted
+        policy = effective_policy("MLB", self.settings)
+        if policy is None:
+            return None
+        return DueCheckpoint(
+            league_code="MLB", sport_key=policy.sport_key, checkpoint=rung_opens,
+            markets=policy.markets, regions=policy.regions,
+            credit_cost=policy.credit_cost, covered_cutoffs=len(at_risk),
+            priority=0,  # ahead of every scheduled checkpoint
         )
 
     def decide(self, *, now: datetime | None = None) -> CollectionDecision:
@@ -216,6 +306,23 @@ class OddsCollectionService:
                 "never polled.",
             )
 
+        lanes = self.lane_budget(now=now)
+
+        # A game already diagnosed RECOVERY_REQUIRED outranks every scheduled
+        # checkpoint and spends from the protected recovery lane.
+        recovery = self.recovery_request(now=now)
+        if recovery is not None:
+            allowed, refusal = lanes.may_spend(LANE_MLB_RECOVERY, recovery.credit_cost)
+            if allowed:
+                return decision(
+                    REASON_RECOVERY,
+                    f"{recovery.covered_cutoffs} MLB game(s) have no usable quote and their "
+                    f"cutoff is near; recovery attempt at {recovery.checkpoint.isoformat()} "
+                    f"for {recovery.credit_cost} credit(s) from the protected reserve.",
+                    recovery,
+                )
+            return decision(REASON_BUDGET, refusal or "Recovery reserve exhausted.", recovery)
+
         for plan in plans:
             if not plan.checkpoints:
                 continue
@@ -226,15 +333,20 @@ class OddsCollectionService:
             )
             if due is None:
                 continue
-            allowed, refusal = state.may_spend(due.credit_cost)
+            lane = lane_for_request(
+                league_code=plan.policy.league_code, markets=plan.policy.markets,
+            )
+            allowed, refusal = lanes.may_spend(lane, due.credit_cost)
             if not allowed:
-                # A lower-priority sport must not slip past a budget that the
-                # higher-priority sport could not clear.
-                return decision(REASON_BUDGET, refusal or "Budget exhausted.", due)
+                if plan.policy.priority == 1:
+                    # MLB could not be served; nothing lower may slip past it.
+                    return decision(REASON_BUDGET, refusal or "Budget exhausted.", due)
+                continue  # an optional lane yields quietly and the loop moves on
             return decision(
                 REASON_DUE,
                 f"{plan.policy.league_code} checkpoint {due.checkpoint.isoformat()} covers "
-                f"{due.covered_cutoffs} decision cutoff(s) for {due.credit_cost} credit(s).",
+                f"{due.covered_cutoffs} decision cutoff(s) for {due.credit_cost} credit(s) "
+                f"from the {lane} lane.",
                 due,
             )
         return decision(
@@ -278,6 +390,7 @@ __all__ = [
     "REASON_NOT_DUE",
     "REASON_NO_CREDENTIAL",
     "REASON_NO_GAMES",
+    "REASON_RECOVERY",
     "CollectionDecision",
     "OddsCollectionService",
     "effective_policy",

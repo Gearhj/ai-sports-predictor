@@ -1,0 +1,1009 @@
+{
+  "schema_version": "AISP_MLB_OPERATIONAL_SELECTION_AUDIT_V1",
+  "generated_at": "2026-09-08T20:37:34.354451+00:00",
+  "repository_commit": "eae5c197cdbd8547e38a3cdd0ebd19270c5cbb57",
+  "access_mode": "READ_ONLY_NO_PROVIDER_CALLS_NO_WRITES",
+  "time_range": {
+    "historical_decision_period": {
+      "first_slate_date": "2026-08-28",
+      "last_slate_date": "2026-09-08",
+      "slate_dates": 12,
+      "distinct_games": 169,
+      "decision_rows": 20679,
+      "last_decision_recorded_at": "2026-09-08 16:33:18.062969-04:00"
+    },
+    "current_slate": "2026-09-08",
+    "historical_window_excluding_current_slate": [
+      "2026-08-28",
+      "2026-09-07"
+    ]
+  },
+  "forecast_engine": {
+    "engine_driving_official_decisions": "GEN_1",
+    "gen1_model_versions_behind_decisions": [
+      {
+        "name": "asp_mlb_ensemble",
+        "version": "2.0.0-gate2-08cca634c81b",
+        "decision_rows": 20245
+      }
+    ],
+    "decision_rows_joined_to_gen1_forecast": 20245,
+    "decision_rows_total": 20679,
+    "v18_role": "DISPLAY_ONLY_RESEARCH_SHADOW",
+    "v18_shadow_forecast_rows_mlb": 14,
+    "v18_daily_imported_rows_mlb": 13,
+    "v18_mlb_rows_evaluated_on_shadow_board": 0,
+    "shadow_board_decisions_by_engine": {
+      "NFL_M1_XGBOOST": 12
+    },
+    "official_positions_linked_to_v18": 0,
+    "evidence": "shadow_experiment_decisions.forecast_id is a foreign key into forecasts (Gen 1). Every one of the non-null rows resolves to the Gen 1 ensemble asp_mlb_ensemble. No MLB_V18_WHOLE_GAME shadow forecast has ever produced a shadow_board_decisions row or an official_asp_positions row."
+  },
+  "funnel": {
+    "method": "Each game's final recorded evaluation row (most advanced phase, latest recommended_at) in shadow_experiment_decisions; first_blocking_stage is the earliest failing gate in policy order, any_blocking_stage counts every gate that failed for that game.",
+    "historical_2026-08-28_to_2026-09-07": {
+      "games_evaluated": 154,
+      "final_recommendation_counts": {
+        "PROVISIONAL_EDGE": 22,
+        "WATCH": 25,
+        "NO_BET": 95,
+        "QUALIFIED_BET": 12
+      },
+      "final_phase_counts": {
+        "FINAL_PREGAME": 154
+      },
+      "first_blocking_stage": {
+        "no_valid_forecast": 2,
+        "no_complete_two_sided_quote": 24,
+        "stale_quote": 25,
+        "readiness_below_threshold": 46,
+        "starter_not_confirmed": 9,
+        "edge_below_threshold": 36
+      },
+      "any_blocking_stage": {
+        "no_valid_forecast": 2,
+        "no_complete_two_sided_quote": 24,
+        "stale_quote": 25,
+        "readiness_below_threshold": 49,
+        "starter_not_confirmed": 58,
+        "lineup_not_confirmed": 48,
+        "edge_below_threshold": 70,
+        "other_operational": 58
+      },
+      "games_reaching_qualified": 12
+    },
+    "current_slate_2026-09-08": {
+      "games_evaluated": 15,
+      "final_recommendation_counts": {
+        "NO_BET": 15
+      },
+      "final_phase_counts": {
+        "MORNING": 15
+      },
+      "first_blocking_stage": {
+        "no_complete_two_sided_quote": 15
+      },
+      "any_blocking_stage": {
+        "no_complete_two_sided_quote": 15,
+        "other_operational": 15
+      },
+      "games_reaching_qualified": 0
+    },
+    "full_period": {
+      "games_evaluated": 169,
+      "final_recommendation_counts": {
+        "PROVISIONAL_EDGE": 22,
+        "WATCH": 25,
+        "NO_BET": 110,
+        "QUALIFIED_BET": 12
+      },
+      "final_phase_counts": {
+        "FINAL_PREGAME": 154,
+        "MORNING": 15
+      },
+      "first_blocking_stage": {
+        "no_valid_forecast": 2,
+        "no_complete_two_sided_quote": 39,
+        "stale_quote": 25,
+        "readiness_below_threshold": 46,
+        "starter_not_confirmed": 9,
+        "edge_below_threshold": 36
+      },
+      "any_blocking_stage": {
+        "no_valid_forecast": 2,
+        "no_complete_two_sided_quote": 39,
+        "stale_quote": 25,
+        "readiness_below_threshold": 49,
+        "starter_not_confirmed": 58,
+        "lineup_not_confirmed": 48,
+        "edge_below_threshold": 70,
+        "other_operational": 73
+      },
+      "games_reaching_qualified": 12
+    },
+    "live_policy_funnel_current_slate": {
+      "source": "QualificationService.funnel (read-only, same code path as the UI)",
+      "steps": {
+        "scheduled_games": 15,
+        "supported_selections": 15,
+        "valid_forecast": 15,
+        "complete_quote": 0,
+        "fresh_quote": 0,
+        "readiness": 0,
+        "starter": 0,
+        "lineup": 0,
+        "lineup_confirmed": 0,
+        "availability": 0,
+        "not_extreme": 0,
+        "critical_inputs": 0,
+        "qualified": 0,
+        "positions_created": 0
+      },
+      "top_rejection_reasons": [
+        {
+          "reason": "No complete two-sided governed quote",
+          "count": 15
+        }
+      ],
+      "qualified_selections": 0,
+      "positions_created": 0,
+      "exposure_cap_exclusions": 0
+    }
+  },
+  "blockers": {
+    "stage_definitions": {
+      "no_valid_forecast": [
+        "forecast unavailable",
+        "no valid current forecast"
+      ],
+      "forecast_after_cutoff": [
+        "forecast generated after",
+        "after the decision cutoff",
+        "forecast predates the stable"
+      ],
+      "no_complete_two_sided_quote": [
+        "no complete same-sportsbook two-sided",
+        "no complete two-sided governed"
+      ],
+      "stale_quote": [
+        "latest quote is stale",
+        "quote is stale"
+      ],
+      "readiness_below_threshold": [
+        "readiness below"
+      ],
+      "starter_not_confirmed": [
+        "starting pitcher probable",
+        "starter evidence not confirmed"
+      ],
+      "lineup_not_confirmed": [
+        "lineup missing",
+        "lineup not confirmed",
+        "material lineup change"
+      ],
+      "edge_below_threshold": [
+        "adjusted edge",
+        "expected value is not positive",
+        "kelly"
+      ],
+      "exposure_or_risk_restriction": [
+        "exposure",
+        "portfolio cap",
+        "bankroll cap"
+      ],
+      "duplicate_or_closed_decision": [
+        "duplicate",
+        "already recorded",
+        "closed"
+      ],
+      "other_operational": [
+        "critical inputs incomplete",
+        "extreme model-market disagreement",
+        "not_yet_evaluated",
+        "identity unavailable",
+        "unsupported",
+        "awaiting first forecast",
+        "pending_final_evidence"
+      ]
+    },
+    "note": "exposure_or_risk_restriction and duplicate_or_closed_decision have zero recorded occurrences in this period: no decision row and no funnel run reports an exposure cap or a duplicate/closed rejection."
+  },
+  "readiness_components": {
+    "threshold": 70.0,
+    "publish_floor": 55.0,
+    "source": "forecasts.readiness_components (newest forecast per game)",
+    "hard_stop_rule": "A component is a hard stop for a game only when that game's forecast marks it critical=true; otherwise it only contributes its weight to the readiness score, which is itself gated at readiness >= 70.",
+    "historical_2026-08-28_to_2026-09-07": {
+      "_gate2": {
+        "games": 152,
+        "ready": 0,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 152,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 152,
+        "weight": null,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "bullpen": {
+        "games": 152,
+        "ready": 0,
+        "stale": 0,
+        "missing": 152,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 152,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "feature_completeness": {
+        "games": 152,
+        "ready": 0,
+        "stale": 152,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 152,
+        "weight": 10.0,
+        "critical_in_games": 152,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "lineups": {
+        "games": 152,
+        "ready": 29,
+        "stale": 0,
+        "missing": 123,
+        "other_status": 0,
+        "availability_rate_pct": 19.1,
+        "games_blocked_not_ready": 123,
+        "weight": 10.0,
+        "critical_in_games": 7,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "odds": {
+        "games": 152,
+        "ready": 89,
+        "stale": 35,
+        "missing": 28,
+        "other_status": 0,
+        "availability_rate_pct": 58.6,
+        "games_blocked_not_ready": 63,
+        "weight": 10.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "pitcher_confirmation": {
+        "games": 152,
+        "ready": 0,
+        "stale": 151,
+        "missing": 1,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 152,
+        "weight": 5.0,
+        "critical_in_games": 7,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "probable_pitchers": {
+        "games": 152,
+        "ready": 151,
+        "stale": 0,
+        "missing": 1,
+        "other_status": 0,
+        "availability_rate_pct": 99.3,
+        "games_blocked_not_ready": 1,
+        "weight": 10.0,
+        "critical_in_games": 152,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "roster": {
+        "games": 152,
+        "ready": 152,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 100.0,
+        "games_blocked_not_ready": 0,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "schedule": {
+        "games": 152,
+        "ready": 150,
+        "stale": 2,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 98.7,
+        "games_blocked_not_ready": 2,
+        "weight": 10.0,
+        "critical_in_games": 152,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "sportsbook_count": {
+        "games": 152,
+        "ready": 124,
+        "stale": 0,
+        "missing": 28,
+        "other_status": 0,
+        "availability_rate_pct": 81.6,
+        "games_blocked_not_ready": 28,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "statcast": {
+        "games": 152,
+        "ready": 0,
+        "stale": 0,
+        "missing": 152,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 152,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "team_stats": {
+        "games": 152,
+        "ready": 152,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 100.0,
+        "games_blocked_not_ready": 0,
+        "weight": 15.0,
+        "critical_in_games": 152,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "weather": {
+        "games": 152,
+        "ready": 5,
+        "stale": 139,
+        "missing": 8,
+        "other_status": 0,
+        "availability_rate_pct": 3.3,
+        "games_blocked_not_ready": 147,
+        "weight": 10.0,
+        "critical_in_games": 7,
+        "gate_type": "hard_stop_when_critical"
+      }
+    },
+    "current_slate_2026-09-08": {
+      "_gate2": {
+        "games": 15,
+        "ready": 0,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 15,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": null,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "bullpen": {
+        "games": 15,
+        "ready": 0,
+        "stale": 0,
+        "missing": 15,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "feature_completeness": {
+        "games": 15,
+        "ready": 0,
+        "stale": 15,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 10.0,
+        "critical_in_games": 15,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "lineups": {
+        "games": 15,
+        "ready": 0,
+        "stale": 0,
+        "missing": 15,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 10.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "odds": {
+        "games": 15,
+        "ready": 0,
+        "stale": 0,
+        "missing": 15,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 10.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "pitcher_confirmation": {
+        "games": 15,
+        "ready": 0,
+        "stale": 14,
+        "missing": 1,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "probable_pitchers": {
+        "games": 15,
+        "ready": 14,
+        "stale": 0,
+        "missing": 1,
+        "other_status": 0,
+        "availability_rate_pct": 93.3,
+        "games_blocked_not_ready": 1,
+        "weight": 10.0,
+        "critical_in_games": 15,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "roster": {
+        "games": 15,
+        "ready": 15,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 100.0,
+        "games_blocked_not_ready": 0,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "schedule": {
+        "games": 15,
+        "ready": 15,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 100.0,
+        "games_blocked_not_ready": 0,
+        "weight": 10.0,
+        "critical_in_games": 15,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "sportsbook_count": {
+        "games": 15,
+        "ready": 0,
+        "stale": 0,
+        "missing": 15,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "statcast": {
+        "games": 15,
+        "ready": 0,
+        "stale": 0,
+        "missing": 15,
+        "other_status": 0,
+        "availability_rate_pct": 0.0,
+        "games_blocked_not_ready": 15,
+        "weight": 5.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      },
+      "team_stats": {
+        "games": 15,
+        "ready": 15,
+        "stale": 0,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 100.0,
+        "games_blocked_not_ready": 0,
+        "weight": 15.0,
+        "critical_in_games": 15,
+        "gate_type": "hard_stop_when_critical"
+      },
+      "weather": {
+        "games": 15,
+        "ready": 4,
+        "stale": 11,
+        "missing": 0,
+        "other_status": 0,
+        "availability_rate_pct": 26.7,
+        "games_blocked_not_ready": 11,
+        "weight": 10.0,
+        "critical_in_games": 0,
+        "gate_type": "score_contribution_only"
+      }
+    }
+  },
+  "quote_availability": {
+    "policy": {
+      "max_quote_staleness_minutes_board": 240,
+      "experiment_rule": "quote_observed_at <= first_pitch - 15 min (cutoff anchored)",
+      "complete_two_sided_same_book_required": true,
+      "supported_markets_experiment": [
+        "MONEYLINE"
+      ]
+    },
+    "current_slate": {
+      "decision_rows": 2022,
+      "rows_with_odds_snapshot": 0,
+      "rows_with_quote_timestamp": 0,
+      "games_with_moneyline_market_row": 0,
+      "missing_quote_games": 15,
+      "stale_quote_games": 0,
+      "classification": "MISSING_NOT_STALE"
+    },
+    "historical": {
+      "decision_rows": 18657,
+      "rows_with_odds_snapshot": 12688,
+      "rows_mentioning_stale": 748,
+      "missing_quote_games_first_blocker": 24,
+      "stale_quote_games_first_blocker": 25
+    },
+    "most_recent_quote_observed_at": "2026-09-07 20:44:23-04",
+    "books_represented_in_odds_snapshots": [
+      {
+        "book": "DraftKings",
+        "snapshots": 27102,
+        "last_observed_at": "2026-09-07 20:43:59-04"
+      },
+      {
+        "book": "FanDuel",
+        "snapshots": 25708,
+        "last_observed_at": "2026-09-07 20:44:23-04"
+      },
+      {
+        "book": "Bovada",
+        "snapshots": 25510,
+        "last_observed_at": "2026-09-07 20:43:40-04"
+      },
+      {
+        "book": "BetRivers",
+        "snapshots": 25416,
+        "last_observed_at": "2026-09-07 20:43:58-04"
+      },
+      {
+        "book": "BetMGM",
+        "snapshots": 25400,
+        "last_observed_at": "2026-09-07 20:43:36-04"
+      },
+      {
+        "book": "MyBookie.ag",
+        "snapshots": 25250,
+        "last_observed_at": "2026-09-07 20:43:35-04"
+      },
+      {
+        "book": "BetUS",
+        "snapshots": 23120,
+        "last_observed_at": "2026-09-07 20:43:35-04"
+      },
+      {
+        "book": "BetOnline.ag",
+        "snapshots": 22406,
+        "last_observed_at": "2026-09-07 20:43:59-04"
+      },
+      {
+        "book": "LowVig.ag",
+        "snapshots": 22406,
+        "last_observed_at": "2026-09-07 20:44:23-04"
+      }
+    ],
+    "books_represented_in_decisions": [
+      {
+        "book": "LowVig.ag",
+        "decision_rows": 3161,
+        "last_quote_observed_at": "2026-09-07 20:44:23-04"
+      },
+      {
+        "book": "BetOnline.ag",
+        "decision_rows": 2222,
+        "last_quote_observed_at": "2026-09-05 12:16:28-04"
+      },
+      {
+        "book": "BetUS",
+        "decision_rows": 1941,
+        "last_quote_observed_at": "2026-09-05 12:16:26-04"
+      },
+      {
+        "book": "BetRivers",
+        "decision_rows": 1916,
+        "last_quote_observed_at": "2026-09-05 12:16:27-04"
+      },
+      {
+        "book": "DraftKings",
+        "decision_rows": 1701,
+        "last_quote_observed_at": "2026-09-04 15:29:22-04"
+      },
+      {
+        "book": "FanDuel",
+        "decision_rows": 1496,
+        "last_quote_observed_at": "2026-09-07 20:44:23-04"
+      },
+      {
+        "book": "BetMGM",
+        "decision_rows": 152,
+        "last_quote_observed_at": "2026-09-04 11:13:50-04"
+      },
+      {
+        "book": "MyBookie.ag",
+        "decision_rows": 75,
+        "last_quote_observed_at": "2026-09-04 16:58:32-04"
+      },
+      {
+        "book": "Bovada",
+        "decision_rows": 24,
+        "last_quote_observed_at": "2026-09-03 17:14:36-04"
+      }
+    ],
+    "market_coverage_by_slate": [
+      {
+        "slate_date": "2026-08-28",
+        "games": 15,
+        "games_with_moneyline_market": 15,
+        "moneyline_snapshots": 12232,
+        "last_snapshot": "2026-08-28 22:10:34-04"
+      },
+      {
+        "slate_date": "2026-08-29",
+        "games": 17,
+        "games_with_moneyline_market": 17,
+        "moneyline_snapshots": 7774,
+        "last_snapshot": "2026-08-29 20:21:14-04"
+      },
+      {
+        "slate_date": "2026-08-30",
+        "games": 14,
+        "games_with_moneyline_market": 14,
+        "moneyline_snapshots": 7946,
+        "last_snapshot": "2026-08-30 14:03:04-04"
+      },
+      {
+        "slate_date": "2026-08-31",
+        "games": 12,
+        "games_with_moneyline_market": 12,
+        "moneyline_snapshots": 8190,
+        "last_snapshot": "2026-08-31 20:33:24-04"
+      },
+      {
+        "slate_date": "2026-09-01",
+        "games": 15,
+        "games_with_moneyline_market": 15,
+        "moneyline_snapshots": 9472,
+        "last_snapshot": "2026-09-01 21:13:08-04"
+      },
+      {
+        "slate_date": "2026-09-02",
+        "games": 15,
+        "games_with_moneyline_market": 15,
+        "moneyline_snapshots": 10456,
+        "last_snapshot": "2026-09-02 15:18:22-04"
+      },
+      {
+        "slate_date": "2026-09-03",
+        "games": 9,
+        "games_with_moneyline_market": 9,
+        "moneyline_snapshots": 4866,
+        "last_snapshot": "2026-09-03 20:14:43-04"
+      },
+      {
+        "slate_date": "2026-09-04",
+        "games": 16,
+        "games_with_moneyline_market": 16,
+        "moneyline_snapshots": 11164,
+        "last_snapshot": "2026-09-04 16:58:37-04"
+      },
+      {
+        "slate_date": "2026-09-05",
+        "games": 15,
+        "games_with_moneyline_market": 15,
+        "moneyline_snapshots": 270,
+        "last_snapshot": "2026-09-05 12:16:59-04"
+      },
+      {
+        "slate_date": "2026-09-06",
+        "games": 15,
+        "games_with_moneyline_market": 0,
+        "moneyline_snapshots": 0,
+        "last_snapshot": null
+      },
+      {
+        "slate_date": "2026-09-07",
+        "games": 11,
+        "games_with_moneyline_market": 3,
+        "moneyline_snapshots": 48,
+        "last_snapshot": "2026-09-07 20:44:23-04"
+      },
+      {
+        "slate_date": "2026-09-08",
+        "games": 15,
+        "games_with_moneyline_market": 0,
+        "moneyline_snapshots": 0,
+        "last_snapshot": null
+      }
+    ],
+    "failure_origin": {
+      "disabled_polling": true,
+      "exhausted_quota": true,
+      "ingestion": true,
+      "normalization": false,
+      "policy_logic": false,
+      "explanation": "ODDS_POLLING_ENABLED=false and the last successful provider call (2026-09-07T20:44 ET) returned quota_remaining=5, below ODDS_QUOTA_FLOOR=10, so the quota guard refuses further requests. No MLB odds have been ingested since, and no MONEYLINE market row exists for any 2026-09-08 game, so there is nothing for the policy to price. Normalization and policy logic are not implicated: rows that do have quotes normalize and price correctly.",
+      "provider_ledger_recent": [
+        {
+          "endpoint": "baseball_mlb_odds",
+          "requested_at": "2026-09-07 20:44:25.727242-04",
+          "status": "SUCCEEDED",
+          "quota_remaining": 5,
+          "quota_cost": 3
+        },
+        {
+          "endpoint": "baseball_mlb_odds",
+          "requested_at": "2026-09-05 12:15:23.214804-04",
+          "status": "SUCCEEDED",
+          "quota_remaining": 8,
+          "quota_cost": 3
+        },
+        {
+          "endpoint": "baseball_mlb_odds",
+          "requested_at": "2026-09-04 16:58:43.750806-04",
+          "status": "SUCCEEDED",
+          "quota_remaining": 11,
+          "quota_cost": 3
+        },
+        {
+          "endpoint": "baseball_mlb_odds",
+          "requested_at": "2026-09-04 16:48:44.665776-04",
+          "status": "SUCCEEDED",
+          "quota_remaining": 14,
+          "quota_cost": 3
+        },
+        {
+          "endpoint": "baseball_mlb_odds",
+          "requested_at": "2026-09-04 16:38:44.130005-04",
+          "status": "SUCCEEDED",
+          "quota_remaining": 17,
+          "quota_cost": 3
+        }
+      ],
+      "odds_quota_floor": 10,
+      "odds_daily_request_budget": 40,
+      "odds_polling_enabled": false
+    }
+  },
+  "policy_values": {
+    "policy_version_v1": "AISP_OPPORTUNITY_POLICY_V1",
+    "policy_version_v2": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+    "staking_policy_version": "AISP_QUARTER_KELLY_1_2_5_V1",
+    "readiness_threshold": 70.0,
+    "forecast_min_readiness_publish_floor": 55.0,
+    "qualified_edge_uncertainty_adjusted": 0.02,
+    "min_adjusted_edge_v2": 0.02,
+    "watch_edge": 0.02,
+    "extreme_disagreement_threshold": 0.15,
+    "ev_threshold": "EV > 0 (strict)",
+    "final_pregame_cutoff_minutes": 15,
+    "max_quote_staleness_minutes": 240,
+    "supported_markets_experiment": [
+      "MONEYLINE"
+    ],
+    "kelly_fraction": 0.25,
+    "unit_percentage": 0.005,
+    "max_position_percentage": 0.01,
+    "max_same_game_percentage": 0.02,
+    "max_daily_percentage": 0.05,
+    "virtual_bankroll": 1000.0,
+    "starter_requirement": "both probable pitchers CONFIRMED (V1) / CONFIRMED or PROBABLE_STABLE (V2.1)",
+    "lineup_requirement": "lineup adequate (not MISSING) for full-game moneyline"
+  },
+  "positions": {
+    "official_positions_by_status": {
+      "SETTLED": 10,
+      "OPEN": 1
+    },
+    "positions_in_period": 11,
+    "recommendation_policy_version": "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
+  },
+  "decision_rows": {
+    "table": "shadow_experiment_decisions",
+    "rows_total": 20679,
+    "by_recommendation": {
+      "EXTREME_DISAGREEMENT": 77,
+      "PROVISIONAL_EDGE": 3142,
+      "NO_BET": 14342,
+      "QUALIFIED_BET": 748,
+      "WATCH": 2370
+    },
+    "by_phase": {
+      "FINAL_PREGAME": 6188,
+      "LINEUP_CONFIRMED": 263,
+      "MORNING": 14228
+    },
+    "by_slate_date": [
+      {
+        "slate_date": "2026-08-28",
+        "rows": 1128,
+        "games": 15,
+        "rows_with_odds_snapshot": 1072,
+        "qualified_bet_rows": 0
+      },
+      {
+        "slate_date": "2026-08-29",
+        "rows": 930,
+        "games": 17,
+        "rows_with_odds_snapshot": 862,
+        "qualified_bet_rows": 0
+      },
+      {
+        "slate_date": "2026-08-30",
+        "rows": 854,
+        "games": 14,
+        "rows_with_odds_snapshot": 798,
+        "qualified_bet_rows": 0
+      },
+      {
+        "slate_date": "2026-08-31",
+        "rows": 801,
+        "games": 12,
+        "rows_with_odds_snapshot": 777,
+        "qualified_bet_rows": 0
+      },
+      {
+        "slate_date": "2026-09-01",
+        "rows": 2400,
+        "games": 15,
+        "rows_with_odds_snapshot": 1768,
+        "qualified_bet_rows": 140
+      },
+      {
+        "slate_date": "2026-09-02",
+        "rows": 2398,
+        "games": 15,
+        "rows_with_odds_snapshot": 2108,
+        "qualified_bet_rows": 68
+      },
+      {
+        "slate_date": "2026-09-03",
+        "rows": 818,
+        "games": 9,
+        "rows_with_odds_snapshot": 778,
+        "qualified_bet_rows": 109
+      },
+      {
+        "slate_date": "2026-09-04",
+        "rows": 3505,
+        "games": 16,
+        "rows_with_odds_snapshot": 3069,
+        "qualified_bet_rows": 170
+      },
+      {
+        "slate_date": "2026-09-05",
+        "rows": 2616,
+        "games": 15,
+        "rows_with_odds_snapshot": 1429,
+        "qualified_bet_rows": 244
+      },
+      {
+        "slate_date": "2026-09-06",
+        "rows": 1918,
+        "games": 15,
+        "rows_with_odds_snapshot": 0,
+        "qualified_bet_rows": 0
+      },
+      {
+        "slate_date": "2026-09-07",
+        "rows": 1289,
+        "games": 11,
+        "rows_with_odds_snapshot": 27,
+        "qualified_bet_rows": 17
+      },
+      {
+        "slate_date": "2026-09-08",
+        "rows": 2022,
+        "games": 15,
+        "rows_with_odds_snapshot": 0,
+        "qualified_bet_rows": 0
+      }
+    ]
+  },
+  "ui_vs_evidence": {
+    "checked_surfaces": [
+      "GET /api/v1/dashboard/today (Daily Command Center)",
+      "GET /api/v1/experiment/qualification-funnel?date=2026-09-08",
+      "client/src/services/dailyDecision.ts grouping"
+    ],
+    "findings": [
+      {
+        "id": "watching_vs_no_bet",
+        "ui_states": "Daily Command Center groups all 15 games as WATCHING and says 'decisions are still under review'.",
+        "persisted_evidence": "Every 2026-09-08 game's latest row is recommendation=NO_BET with 'No complete same-sportsbook two-sided MONEYLINE quote'; opportunity_summary.no_bet=15, watch=0.",
+        "why": "dailyDecision.ts assigns WATCHING/WATCH_AWAITING_EVIDENCE until the final-pregame cutoff passes; the row is already a negative decision, but not yet the FINAL_PREGAME one.",
+        "materiality": "Wording only. The blocker (no market) cannot resolve while odds ingestion is stopped, so 'under review' overstates the chance of a later selection."
+      },
+      {
+        "id": "funnel_replay_marks_history_stale",
+        "ui_states": "Re-running the qualification funnel for a past slate today shows fresh_quote=0 for every historical date, including dates that produced positions.",
+        "persisted_evidence": "11 official positions were created 2026-09-01..2026-09-07 from quotes that were fresh at their decision cutoff.",
+        "why": "funnel() is a point-in-time read anchored to min(now, cutoff); replayed later, historical quotes are older than the 240-minute staleness window.",
+        "materiality": "Do not use a replayed funnel for historical stage counts. This audit uses persisted decision rows for history."
+      },
+      {
+        "id": "readiness_health_53",
+        "ui_states": "summary.overall_data_health = 53.0 and complete_forecasts = 15 for 2026-09-08.",
+        "persisted_evidence": "Newest forecast per game scores 40.0-57.5 readiness; 10 of 15 are DRAFT (below the 55.0 publish floor), all 15 below the 70.0 qualification threshold.",
+        "why": "'Complete forecast' counts a forecast existing, not one that clears the readiness gate.",
+        "materiality": "A reader can conclude forecasts are decision-ready when none of them clears readiness."
+      }
+    ]
+  },
+  "root_cause": {
+    "primary": "OPERATIONAL_CONFIGURATION_AND_MARKET_DATA",
+    "ranked": [
+      {
+        "cause": "missing_market_data",
+        "weight": "primary",
+        "evidence": "0 of 15 2026-09-08 games have a MONEYLINE market row; last MLB odds snapshot 2026-09-07T20:44 ET."
+      },
+      {
+        "cause": "operational_configuration",
+        "weight": "primary_upstream",
+        "evidence": "ODDS_POLLING_ENABLED=false and quota_remaining=5 < ODDS_QUOTA_FLOOR=10 block any refresh."
+      },
+      {
+        "cause": "readiness_gates",
+        "weight": "secondary_binding_if_quotes_returned",
+        "evidence": "All 15 current forecasts score 40.0-57.5 vs a 70.0 threshold; historically readiness was the first blocker for 46 of 154 games."
+      },
+      {
+        "cause": "edge_thresholds",
+        "weight": "tertiary",
+        "evidence": "Edge/EV was the first blocker for 36 of 154 historical games, and 70 games failed it at some phase."
+      },
+      {
+        "cause": "forecast_availability",
+        "weight": "minor",
+        "evidence": "Only 2 of 154 historical games and 0 of 15 current games lack a forecast."
+      }
+    ]
+  },
+  "sources": {
+    "tables": [
+      "shadow_experiment_decisions (phase, recommendation, qualification_reasons, recommendation_reason, odds_snapshot_id, quote_observed_at, readiness, sportsbook, forecast_id)",
+      "forecasts (status, readiness_score, readiness_components, generated_at, model_version_id)",
+      "shadow_forecasts (engine_id, forecast_id, lineage_detail)",
+      "shadow_board_decisions (engine_id, shadow_forecast_id, recommendation)",
+      "official_asp_positions (status, result, shadow_decision_id, recommendation_policy_version)",
+      "markets / market_outcomes / odds_snapshots / sportsbooks",
+      "provider_request_ledger (endpoint_key, status, quota_remaining, quota_cost)",
+      "games, leagues, model_versions"
+    ],
+    "services": [
+      "app/services/qualification_service.py (FUNNEL_GATES, policy_report, funnel, funnel_v2)",
+      "app/services/practical_policy.py (MIN_ADJUSTED_EDGE, POLICY_VERSION)",
+      "app/services/opportunity_service.py (MAX_QUOTE_STALENESS_MINUTES)",
+      "app/services/shadow_experiment_service.py (FINAL_PREGAME_CUTOFF_MINUTES, SUPPORTED_MARKETS)"
+    ]
+  },
+  "data_quality_caveats": [
+    "The pre-merge backend on port 8010 is still running with SCHEDULER_ENABLED=true and continues to append MORNING decision rows; row totals grew from 20,648 to 20,679 during this audit. Counts are a snapshot at generated_at.",
+    "Stage classification is string-matching over qualification_reasons and recommendation_reason; the reason vocabulary is stable but not an enumerated column.",
+    "Historical stage counts come from persisted decision rows, not from a replayed funnel, because a replay re-evaluates quote freshness against the replay time.",
+    "2026-09-08 games are still pregame: their latest rows are MORNING phase, so no FINAL_PREGAME decision exists yet for the current slate.",
+    "'games_reaching_qualified' counts each game's final row; a game may have carried a QUALIFIED_BET at an earlier phase (23 historical games did) that its final row no longer shows.",
+    "readiness_components criticality is per forecast row, so the same component can be a hard stop for some games and score-only for others."
+  ]
+}

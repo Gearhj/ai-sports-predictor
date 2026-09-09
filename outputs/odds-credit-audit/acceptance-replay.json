@@ -1,0 +1,1425 @@
+{
+  "schema_version": "AISP_ODDS_ACCEPTANCE_REPLAY_V1",
+  "provider_requests_made": 0,
+  "note": "No provider was contacted. The provider's responses are injected so that missing, incomplete and failed cases can be demonstrated deliberately; every scheduling, budget and coverage decision is the shipped code.",
+  "criteria": {
+    "1_historical_day_replayed": {
+      "pass": true,
+      "detail": "2026-09-06: 15 games, first pitch 2026-09-06T12:10:00-04:00 to 2026-09-06T22:10:00-04:00"
+    },
+    "2_checkpoints_cover_every_window": {
+      "pass": true,
+      "detail": "15/15 covered using 3 requests and 3 credits"
+    },
+    "3_recovery_for_missing_incomplete_failed": {
+      "pass": true,
+      "detail": {
+        "missing_event": "15/15 covered, 4 requests",
+        "incomplete_market": "15/15 covered, 4 requests",
+        "failed_response": "15/15 covered, 4 requests",
+        "unrecoverable_is_named": "PROVIDER_RETURNED_NO_EVENT"
+      }
+    },
+    "4_optional_cannot_exhaust_mlb_reserve": {
+      "pass": true,
+      "detail": {
+        "optional_refused": "Optional spreads and totals has 0 credits left",
+        "nfl_refused": "NFL research moneylines has 0 credits left",
+        "mlb_required_still_allowed": true,
+        "mlb_recovery_still_allowed": true,
+        "mlb_coverage_after_optional_exhausted": "15/15"
+      }
+    },
+    "5_idempotent_persistence": {
+      "dedup_key": "market_outcome_id, sportsbook_id, observed_at, american_odds, point, source, source_mode \u2014 Normalizer.ingest_odds checks this exact tuple before inserting",
+      "snapshots": 222318,
+      "duplicate_groups": 0,
+      "idempotent": true,
+      "pass": true
+    },
+    "6_month_fits_in_500": {
+      "planned": {
+        "MLB_REQUIRED": 124,
+        "MLB_RECOVERY": 62,
+        "NFL_RESEARCH": 60,
+        "OPTIONAL_MARKETS": 90
+      },
+      "total_planned": 336,
+      "total_allocated": 400,
+      "plan_ceiling": 500,
+      "fits_in_allocation": true,
+      "fits_in_plan": true,
+      "protected_reserve": 100,
+      "lane_breaches": [],
+      "mlb_checkpoints_per_day": {
+        "mean": 2.31,
+        "worst": 4,
+        "days_measured": 200
+      },
+      "nfl_checkpoints_per_day": {
+        "worst": 4,
+        "days_measured": 57
+      },
+      "basis": "MLB required = worst observed checkpoints/day x 31 x 1 credit. Recovery = 2 extra requests/day x 31. NFL research capped at its lane. Optional at its lane.",
+      "pass": true
+    },
+    "7_experiment_receives_quote_in_time": {
+      "cutoff_minutes_before_first_pitch": 15,
+      "freeze_window_minutes_before_cutoff": 15,
+      "latest_recovery_capture_minutes_before_cutoff": 25,
+      "margin_minutes": 10,
+      "chain": [
+        "Normalizer.ingest_odds persists the OddsSnapshot",
+        "ReadService._latest_market_snapshots reduces to the latest per (market, book)",
+        "ReadService._market_inputs pairs the two sides of one book",
+        "opportunity_service.price_side prices it and marks is_stale against the 240-minute window",
+        "PracticalPolicyEvaluator gates complete_two_sided_moneyline_quote and fresh_quote",
+        "ShadowExperimentService.freeze writes the FINAL_PREGAME decision inside [cutoff - 15min, cutoff]",
+        "_create_canonical_position binds the last decision at or before the cutoff"
+      ],
+      "usable_in_time": true,
+      "note": "The last recovery attempt lands 25 minutes before the cutoff and the freeze window opens 15 minutes before it, leaving 10 minutes for ingestion. The quote is then 25 minutes old at the cutoff, well inside the unchanged 240-minute freshness bar.",
+      "pass": true
+    }
+  },
+  "all_pass": true,
+  "replays": {
+    "healthy": {
+      "slate_date": "2026-09-06",
+      "behaviour": "healthy",
+      "tick_offset_seconds": 37,
+      "games": 15,
+      "scheduled_checkpoints": [
+        "2026-09-06T11:20:00-04:00",
+        "2026-09-06T15:20:00-04:00",
+        "2026-09-06T21:20:00-04:00"
+      ],
+      "requests": [
+        {
+          "at": "2026-09-06T11:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 15,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T15:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 4,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T21:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 1,
+          "one_sided_for": 0
+        }
+      ],
+      "request_count": 3,
+      "credits_spent": 3,
+      "credits_by_lane": {
+        "MLB_REQUIRED": 3
+      },
+      "covered": 15,
+      "uncovered": 0,
+      "within_target": 4,
+      "coverage_complete": true,
+      "per_game": [
+        {
+          "game_id": "a54b05ed-6dd9-4d66-8d8c-aa9c8b017ae3",
+          "matchup": "MIL @ CIN",
+          "first_pitch": "2026-09-06T12:10:00-04:00",
+          "cutoff": "2026-09-06T11:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "f5192356-562b-4aca-b599-1eb7a10d4095",
+          "matchup": "ATL @ PHI",
+          "first_pitch": "2026-09-06T13:10:00-04:00",
+          "cutoff": "2026-09-06T12:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 94.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f49f007b-2e3e-4d6c-aac4-c3a27e44c30b",
+          "matchup": "LAA @ PIT",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "a35940b5-0a9d-4924-898c-9d881339dee0",
+          "matchup": "BOS @ BAL",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "489a37f9-44c4-4b6d-8b91-dd674cbc5396",
+          "matchup": "SF @ NYM",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 124.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "4d727d7d-8c4f-4964-99eb-7f95df495367",
+          "matchup": "CHC @ MIA",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 124.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "e4436b8a-43cb-4faa-a0d6-47aeff11f9b2",
+          "matchup": "DET @ CLE",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 124.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "27962abb-4e01-4f45-9bdf-f27bac7e091a",
+          "matchup": "AZ @ HOU",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 154.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "40669e1e-f461-48f2-b8fc-682175037e86",
+          "matchup": "TOR @ KC",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 154.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dfa07d37-91ec-4e28-b3df-ad8b83d23b11",
+          "matchup": "TB @ TEX",
+          "first_pitch": "2026-09-06T14:35:00-04:00",
+          "cutoff": "2026-09-06T14:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 179.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dd49e613-d38b-4a3a-a830-033b47c3be2f",
+          "matchup": "STL @ COL",
+          "first_pitch": "2026-09-06T15:10:00-04:00",
+          "cutoff": "2026-09-06T14:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 214.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "427405ad-aeb3-498d-80c2-49113162f1a4",
+          "matchup": "ATH @ SEA",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e777a10c-8cfe-4b7f-a08a-446532226bc3",
+          "matchup": "NYY @ SD",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "b7fce0e7-2cdf-4fdf-aea2-2704e22521d2",
+          "matchup": "MIN @ CWS",
+          "first_pitch": "2026-09-06T18:20:00-04:00",
+          "cutoff": "2026-09-06T18:05:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 164.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f23c82f2-3dd2-4192-ba4d-7001e083680e",
+          "matchup": "WSH @ LAD",
+          "first_pitch": "2026-09-06T22:10:00-04:00",
+          "cutoff": "2026-09-06T21:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        }
+      ]
+    },
+    "missing_event": {
+      "slate_date": "2026-09-06",
+      "behaviour": "event absent from the first payload; recovered on the next attempt",
+      "tick_offset_seconds": 37,
+      "games": 15,
+      "scheduled_checkpoints": [
+        "2026-09-06T11:20:00-04:00",
+        "2026-09-06T15:20:00-04:00",
+        "2026-09-06T21:20:00-04:00"
+      ],
+      "requests": [
+        {
+          "at": "2026-09-06T11:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 13,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T11:40:37-04:00",
+          "lane": "MLB_RECOVERY",
+          "kind": "RECOVERY",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 15,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T15:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 4,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T21:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 1,
+          "one_sided_for": 0
+        }
+      ],
+      "request_count": 4,
+      "credits_spent": 4,
+      "credits_by_lane": {
+        "MLB_REQUIRED": 3,
+        "MLB_RECOVERY": 1
+      },
+      "covered": 15,
+      "uncovered": 0,
+      "within_target": 4,
+      "coverage_complete": true,
+      "per_game": [
+        {
+          "game_id": "a54b05ed-6dd9-4d66-8d8c-aa9c8b017ae3",
+          "matchup": "MIL @ CIN",
+          "first_pitch": "2026-09-06T12:10:00-04:00",
+          "cutoff": "2026-09-06T11:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 14.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "f5192356-562b-4aca-b599-1eb7a10d4095",
+          "matchup": "ATL @ PHI",
+          "first_pitch": "2026-09-06T13:10:00-04:00",
+          "cutoff": "2026-09-06T12:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 74.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f49f007b-2e3e-4d6c-aac4-c3a27e44c30b",
+          "matchup": "LAA @ PIT",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 99.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "a35940b5-0a9d-4924-898c-9d881339dee0",
+          "matchup": "BOS @ BAL",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 99.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "489a37f9-44c4-4b6d-8b91-dd674cbc5396",
+          "matchup": "SF @ NYM",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "4d727d7d-8c4f-4964-99eb-7f95df495367",
+          "matchup": "CHC @ MIA",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "e4436b8a-43cb-4faa-a0d6-47aeff11f9b2",
+          "matchup": "DET @ CLE",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "27962abb-4e01-4f45-9bdf-f27bac7e091a",
+          "matchup": "AZ @ HOU",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 134.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "40669e1e-f461-48f2-b8fc-682175037e86",
+          "matchup": "TOR @ KC",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 134.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dfa07d37-91ec-4e28-b3df-ad8b83d23b11",
+          "matchup": "TB @ TEX",
+          "first_pitch": "2026-09-06T14:35:00-04:00",
+          "cutoff": "2026-09-06T14:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 159.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dd49e613-d38b-4a3a-a830-033b47c3be2f",
+          "matchup": "STL @ COL",
+          "first_pitch": "2026-09-06T15:10:00-04:00",
+          "cutoff": "2026-09-06T14:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 194.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "427405ad-aeb3-498d-80c2-49113162f1a4",
+          "matchup": "ATH @ SEA",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e777a10c-8cfe-4b7f-a08a-446532226bc3",
+          "matchup": "NYY @ SD",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "b7fce0e7-2cdf-4fdf-aea2-2704e22521d2",
+          "matchup": "MIN @ CWS",
+          "first_pitch": "2026-09-06T18:20:00-04:00",
+          "cutoff": "2026-09-06T18:05:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 164.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f23c82f2-3dd2-4192-ba4d-7001e083680e",
+          "matchup": "WSH @ LAD",
+          "first_pitch": "2026-09-06T22:10:00-04:00",
+          "cutoff": "2026-09-06T21:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        }
+      ]
+    },
+    "incomplete_market": {
+      "slate_date": "2026-09-06",
+      "behaviour": "one-sided market on the first payload; recovered on the next attempt",
+      "tick_offset_seconds": 37,
+      "games": 15,
+      "scheduled_checkpoints": [
+        "2026-09-06T11:20:00-04:00",
+        "2026-09-06T15:20:00-04:00",
+        "2026-09-06T21:20:00-04:00"
+      ],
+      "requests": [
+        {
+          "at": "2026-09-06T11:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 13,
+          "one_sided_for": 2
+        },
+        {
+          "at": "2026-09-06T12:35:37-04:00",
+          "lane": "MLB_RECOVERY",
+          "kind": "RECOVERY",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 14,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T15:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 4,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T21:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 1,
+          "one_sided_for": 0
+        }
+      ],
+      "request_count": 4,
+      "credits_spent": 4,
+      "credits_by_lane": {
+        "MLB_REQUIRED": 3,
+        "MLB_RECOVERY": 1
+      },
+      "covered": 15,
+      "uncovered": 0,
+      "within_target": 10,
+      "coverage_complete": true,
+      "per_game": [
+        {
+          "game_id": "a54b05ed-6dd9-4d66-8d8c-aa9c8b017ae3",
+          "matchup": "MIL @ CIN",
+          "first_pitch": "2026-09-06T12:10:00-04:00",
+          "cutoff": "2026-09-06T11:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "f5192356-562b-4aca-b599-1eb7a10d4095",
+          "matchup": "ATL @ PHI",
+          "first_pitch": "2026-09-06T13:10:00-04:00",
+          "cutoff": "2026-09-06T12:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 19.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "f49f007b-2e3e-4d6c-aac4-c3a27e44c30b",
+          "matchup": "LAA @ PIT",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 44.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "a35940b5-0a9d-4924-898c-9d881339dee0",
+          "matchup": "BOS @ BAL",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 44.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "489a37f9-44c4-4b6d-8b91-dd674cbc5396",
+          "matchup": "SF @ NYM",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 49.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "4d727d7d-8c4f-4964-99eb-7f95df495367",
+          "matchup": "CHC @ MIA",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 49.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e4436b8a-43cb-4faa-a0d6-47aeff11f9b2",
+          "matchup": "DET @ CLE",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 49.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "27962abb-4e01-4f45-9bdf-f27bac7e091a",
+          "matchup": "AZ @ HOU",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 79.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "40669e1e-f461-48f2-b8fc-682175037e86",
+          "matchup": "TOR @ KC",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 79.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dfa07d37-91ec-4e28-b3df-ad8b83d23b11",
+          "matchup": "TB @ TEX",
+          "first_pitch": "2026-09-06T14:35:00-04:00",
+          "cutoff": "2026-09-06T14:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dd49e613-d38b-4a3a-a830-033b47c3be2f",
+          "matchup": "STL @ COL",
+          "first_pitch": "2026-09-06T15:10:00-04:00",
+          "cutoff": "2026-09-06T14:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 139.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "427405ad-aeb3-498d-80c2-49113162f1a4",
+          "matchup": "ATH @ SEA",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e777a10c-8cfe-4b7f-a08a-446532226bc3",
+          "matchup": "NYY @ SD",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "b7fce0e7-2cdf-4fdf-aea2-2704e22521d2",
+          "matchup": "MIN @ CWS",
+          "first_pitch": "2026-09-06T18:20:00-04:00",
+          "cutoff": "2026-09-06T18:05:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 164.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f23c82f2-3dd2-4192-ba4d-7001e083680e",
+          "matchup": "WSH @ LAD",
+          "first_pitch": "2026-09-06T22:10:00-04:00",
+          "cutoff": "2026-09-06T21:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        }
+      ]
+    },
+    "failed_response": {
+      "slate_date": "2026-09-06",
+      "behaviour": "first request fails outright; recovered on the next attempt",
+      "tick_offset_seconds": 37,
+      "games": 15,
+      "scheduled_checkpoints": [
+        "2026-09-06T11:20:00-04:00",
+        "2026-09-06T15:20:00-04:00",
+        "2026-09-06T21:20:00-04:00"
+      ],
+      "requests": [
+        {
+          "at": "2026-09-06T11:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": false,
+          "complete_quotes_for": 0,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T11:25:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 15,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T15:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 4,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T21:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 1,
+          "one_sided_for": 0
+        }
+      ],
+      "request_count": 4,
+      "credits_spent": 4,
+      "credits_by_lane": {
+        "MLB_REQUIRED": 4
+      },
+      "covered": 15,
+      "uncovered": 0,
+      "within_target": 4,
+      "coverage_complete": true,
+      "per_game": [
+        {
+          "game_id": "a54b05ed-6dd9-4d66-8d8c-aa9c8b017ae3",
+          "matchup": "MIL @ CIN",
+          "first_pitch": "2026-09-06T12:10:00-04:00",
+          "cutoff": "2026-09-06T11:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 29.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "f5192356-562b-4aca-b599-1eb7a10d4095",
+          "matchup": "ATL @ PHI",
+          "first_pitch": "2026-09-06T13:10:00-04:00",
+          "cutoff": "2026-09-06T12:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 89.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f49f007b-2e3e-4d6c-aac4-c3a27e44c30b",
+          "matchup": "LAA @ PIT",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 114.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "a35940b5-0a9d-4924-898c-9d881339dee0",
+          "matchup": "BOS @ BAL",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 114.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "489a37f9-44c4-4b6d-8b91-dd674cbc5396",
+          "matchup": "SF @ NYM",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "4d727d7d-8c4f-4964-99eb-7f95df495367",
+          "matchup": "CHC @ MIA",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "e4436b8a-43cb-4faa-a0d6-47aeff11f9b2",
+          "matchup": "DET @ CLE",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "27962abb-4e01-4f45-9bdf-f27bac7e091a",
+          "matchup": "AZ @ HOU",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 149.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "40669e1e-f461-48f2-b8fc-682175037e86",
+          "matchup": "TOR @ KC",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 149.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dfa07d37-91ec-4e28-b3df-ad8b83d23b11",
+          "matchup": "TB @ TEX",
+          "first_pitch": "2026-09-06T14:35:00-04:00",
+          "cutoff": "2026-09-06T14:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 174.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dd49e613-d38b-4a3a-a830-033b47c3be2f",
+          "matchup": "STL @ COL",
+          "first_pitch": "2026-09-06T15:10:00-04:00",
+          "cutoff": "2026-09-06T14:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 209.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "427405ad-aeb3-498d-80c2-49113162f1a4",
+          "matchup": "ATH @ SEA",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e777a10c-8cfe-4b7f-a08a-446532226bc3",
+          "matchup": "NYY @ SD",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "b7fce0e7-2cdf-4fdf-aea2-2704e22521d2",
+          "matchup": "MIN @ CWS",
+          "first_pitch": "2026-09-06T18:20:00-04:00",
+          "cutoff": "2026-09-06T18:05:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 164.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f23c82f2-3dd2-4192-ba4d-7001e083680e",
+          "matchup": "WSH @ LAD",
+          "first_pitch": "2026-09-06T22:10:00-04:00",
+          "cutoff": "2026-09-06T21:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        }
+      ]
+    },
+    "unrecoverable": {
+      "slate_date": "2026-09-06",
+      "behaviour": "event never returned; unrecoverable, cause must be named",
+      "tick_offset_seconds": 37,
+      "games": 15,
+      "scheduled_checkpoints": [
+        "2026-09-06T11:20:00-04:00",
+        "2026-09-06T15:20:00-04:00",
+        "2026-09-06T21:20:00-04:00"
+      ],
+      "requests": [
+        {
+          "at": "2026-09-06T11:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 14,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T11:40:37-04:00",
+          "lane": "MLB_RECOVERY",
+          "kind": "RECOVERY",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 14,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T15:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 4,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T21:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 1,
+          "one_sided_for": 0
+        }
+      ],
+      "request_count": 4,
+      "credits_spent": 4,
+      "credits_by_lane": {
+        "MLB_REQUIRED": 3,
+        "MLB_RECOVERY": 1
+      },
+      "covered": 14,
+      "uncovered": 1,
+      "within_target": 3,
+      "coverage_complete": false,
+      "per_game": [
+        {
+          "game_id": "a54b05ed-6dd9-4d66-8d8c-aa9c8b017ae3",
+          "matchup": "MIL @ CIN",
+          "first_pitch": "2026-09-06T12:10:00-04:00",
+          "cutoff": "2026-09-06T11:55:00-04:00",
+          "state": "CUTOFF_MISSED",
+          "covered": false,
+          "quote_age_at_cutoff_minutes": null,
+          "within_60_minute_target": false,
+          "cause": "PROVIDER_RETURNED_NO_EVENT"
+        },
+        {
+          "game_id": "f5192356-562b-4aca-b599-1eb7a10d4095",
+          "matchup": "ATL @ PHI",
+          "first_pitch": "2026-09-06T13:10:00-04:00",
+          "cutoff": "2026-09-06T12:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 74.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f49f007b-2e3e-4d6c-aac4-c3a27e44c30b",
+          "matchup": "LAA @ PIT",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 99.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "a35940b5-0a9d-4924-898c-9d881339dee0",
+          "matchup": "BOS @ BAL",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 99.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "489a37f9-44c4-4b6d-8b91-dd674cbc5396",
+          "matchup": "SF @ NYM",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "4d727d7d-8c4f-4964-99eb-7f95df495367",
+          "matchup": "CHC @ MIA",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "e4436b8a-43cb-4faa-a0d6-47aeff11f9b2",
+          "matchup": "DET @ CLE",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 104.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "27962abb-4e01-4f45-9bdf-f27bac7e091a",
+          "matchup": "AZ @ HOU",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 134.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "40669e1e-f461-48f2-b8fc-682175037e86",
+          "matchup": "TOR @ KC",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 134.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dfa07d37-91ec-4e28-b3df-ad8b83d23b11",
+          "matchup": "TB @ TEX",
+          "first_pitch": "2026-09-06T14:35:00-04:00",
+          "cutoff": "2026-09-06T14:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 159.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dd49e613-d38b-4a3a-a830-033b47c3be2f",
+          "matchup": "STL @ COL",
+          "first_pitch": "2026-09-06T15:10:00-04:00",
+          "cutoff": "2026-09-06T14:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 194.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "427405ad-aeb3-498d-80c2-49113162f1a4",
+          "matchup": "ATH @ SEA",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e777a10c-8cfe-4b7f-a08a-446532226bc3",
+          "matchup": "NYY @ SD",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "b7fce0e7-2cdf-4fdf-aea2-2704e22521d2",
+          "matchup": "MIN @ CWS",
+          "first_pitch": "2026-09-06T18:20:00-04:00",
+          "cutoff": "2026-09-06T18:05:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 164.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f23c82f2-3dd2-4192-ba4d-7001e083680e",
+          "matchup": "WSH @ LAD",
+          "first_pitch": "2026-09-06T22:10:00-04:00",
+          "cutoff": "2026-09-06T21:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        }
+      ]
+    },
+    "optional_lanes_exhausted": {
+      "slate_date": "2026-09-06",
+      "behaviour": "healthy",
+      "tick_offset_seconds": 37,
+      "games": 15,
+      "scheduled_checkpoints": [
+        "2026-09-06T11:20:00-04:00",
+        "2026-09-06T15:20:00-04:00",
+        "2026-09-06T21:20:00-04:00"
+      ],
+      "requests": [
+        {
+          "at": "2026-09-06T11:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 15,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T15:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 4,
+          "one_sided_for": 0
+        },
+        {
+          "at": "2026-09-06T21:20:37-04:00",
+          "lane": "MLB_REQUIRED",
+          "kind": "SCHEDULED",
+          "credits": 1,
+          "succeeded": true,
+          "complete_quotes_for": 1,
+          "one_sided_for": 0
+        }
+      ],
+      "request_count": 3,
+      "credits_spent": 3,
+      "credits_by_lane": {
+        "MLB_REQUIRED": 3,
+        "NFL_RESEARCH": 60,
+        "OPTIONAL_MARKETS": 90
+      },
+      "covered": 15,
+      "uncovered": 0,
+      "within_target": 4,
+      "coverage_complete": true,
+      "per_game": [
+        {
+          "game_id": "a54b05ed-6dd9-4d66-8d8c-aa9c8b017ae3",
+          "matchup": "MIL @ CIN",
+          "first_pitch": "2026-09-06T12:10:00-04:00",
+          "cutoff": "2026-09-06T11:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "f5192356-562b-4aca-b599-1eb7a10d4095",
+          "matchup": "ATL @ PHI",
+          "first_pitch": "2026-09-06T13:10:00-04:00",
+          "cutoff": "2026-09-06T12:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 94.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f49f007b-2e3e-4d6c-aac4-c3a27e44c30b",
+          "matchup": "LAA @ PIT",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "a35940b5-0a9d-4924-898c-9d881339dee0",
+          "matchup": "BOS @ BAL",
+          "first_pitch": "2026-09-06T13:35:00-04:00",
+          "cutoff": "2026-09-06T13:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 119.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "489a37f9-44c4-4b6d-8b91-dd674cbc5396",
+          "matchup": "SF @ NYM",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 124.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "4d727d7d-8c4f-4964-99eb-7f95df495367",
+          "matchup": "CHC @ MIA",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 124.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "e4436b8a-43cb-4faa-a0d6-47aeff11f9b2",
+          "matchup": "DET @ CLE",
+          "first_pitch": "2026-09-06T13:40:00-04:00",
+          "cutoff": "2026-09-06T13:25:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 124.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "27962abb-4e01-4f45-9bdf-f27bac7e091a",
+          "matchup": "AZ @ HOU",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 154.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "40669e1e-f461-48f2-b8fc-682175037e86",
+          "matchup": "TOR @ KC",
+          "first_pitch": "2026-09-06T14:10:00-04:00",
+          "cutoff": "2026-09-06T13:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 154.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dfa07d37-91ec-4e28-b3df-ad8b83d23b11",
+          "matchup": "TB @ TEX",
+          "first_pitch": "2026-09-06T14:35:00-04:00",
+          "cutoff": "2026-09-06T14:20:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 179.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "dd49e613-d38b-4a3a-a830-033b47c3be2f",
+          "matchup": "STL @ COL",
+          "first_pitch": "2026-09-06T15:10:00-04:00",
+          "cutoff": "2026-09-06T14:55:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 214.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "427405ad-aeb3-498d-80c2-49113162f1a4",
+          "matchup": "ATH @ SEA",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "e777a10c-8cfe-4b7f-a08a-446532226bc3",
+          "matchup": "NYY @ SD",
+          "first_pitch": "2026-09-06T16:10:00-04:00",
+          "cutoff": "2026-09-06T15:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        },
+        {
+          "game_id": "b7fce0e7-2cdf-4fdf-aea2-2704e22521d2",
+          "matchup": "MIN @ CWS",
+          "first_pitch": "2026-09-06T18:20:00-04:00",
+          "cutoff": "2026-09-06T18:05:00-04:00",
+          "state": "COMPLETE_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 164.4,
+          "within_60_minute_target": false,
+          "cause": null
+        },
+        {
+          "game_id": "f23c82f2-3dd2-4192-ba4d-7001e083680e",
+          "matchup": "WSH @ LAD",
+          "first_pitch": "2026-09-06T22:10:00-04:00",
+          "cutoff": "2026-09-06T21:55:00-04:00",
+          "state": "FINAL_FRESH_QUOTE_CAPTURED",
+          "covered": true,
+          "quote_age_at_cutoff_minutes": 34.4,
+          "within_60_minute_target": true,
+          "cause": null
+        }
+      ]
+    }
+  }
+}
