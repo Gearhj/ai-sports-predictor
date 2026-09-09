@@ -1,0 +1,164 @@
+{
+  "control_policy": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+  "control_unchanged": true,
+  "evidence_limits": {
+    "chronological_split_available": false,
+    "chronological_split_basis": "The control's whole operating window is 2026-09-01..2026-09-08 and the earlier retained-policy study already examined it. No genuinely unexamined later period exists, so every result here is EXPLORATORY. No selection/evaluation split is claimed.",
+    "control_selections": 12,
+    "control_settled_selections": 11,
+    "distinct_events": 111,
+    "known_gaps": [
+      "No cohort event has a certified game_final_outcomes row; the operational score of record is used and is verified against every settled position.",
+      "No odds snapshot carries the is_closing flag; CLV uses the settlement engine's last-same-book-before-first-pitch definition and covers about half of the selections.",
+      "final_at is null for every cohort game, so intraday settlement sequencing is not recorded; the staking replay advances bankroll at slate-date boundaries.",
+      "Odds collection stopped at 2026-09-07 20:44, so the 2026-09-08 slate has no usable quote at any cutoff and contributes to availability counts only."
+    ],
+    "live_settled_positions": 10,
+    "operating_window": {
+      "first": "2026-09-01",
+      "last": "2026-09-08",
+      "slate_dates": 8
+    },
+    "settled_events": 89,
+    "weekly_block_basis": "One week of slates cannot support a weekly-block inference at any number of bootstrap repetitions. None was run.",
+    "weekly_block_inference": false
+  },
+  "position_creation_defect": {
+    "affected": [
+      {
+        "absolute_difference": 3.478260869571592e-05,
+        "american_odds": -115,
+        "decision_decimal_odds": 1.8696,
+        "exceeds_binding_tolerance_1e_9": true,
+        "matchup": "SEA @ BOS",
+        "selection": "BOS ML",
+        "settled": true,
+        "slate_date": "2026-09-01",
+        "snapshot_decimal_odds": 1.8695652173913042,
+        "sportsbook": "BetOnline.ag",
+        "won": false
+      }
+    ],
+    "location": "app/services/shadow_experiment_service.py::_create_canonical_position",
+    "not_fixed_here": "Changing this check would create positions, which this assignment does not authorise. It is reported for an explicit later decision.",
+    "summary": "1 qualifying control selection(s) never became an official position because the decision's four-decimal price does not equal the snapshot's full-precision price within the 1e-9 identity tolerance in _create_canonical_position. This is an arithmetic binding defect, not a policy rejection."
+  },
+  "preserves_prior_verdict": "MLB_STRICT_POLICY_RETAINED",
+  "prospective_protocol": {
+    "collection_requirements": [
+      "Restore odds ingestion so a fresh two-sided moneyline quote exists at the cutoff for the majority of events. This is the binding constraint: 63 of 99 non-selections are price availability, not policy.",
+      "Capture a genuine closing price for every selection (a snapshot inside the final minutes, flagged is_closing) so CLV coverage stops being partial.",
+      "Persist final_at on every settled game so bankroll sequencing is exact.",
+      "Backfill certified game_final_outcomes rows for the live window so the outcome join no longer depends on the operational score."
+    ],
+    "frozen_before_collection": {
+      "candidate": "R0@0.0175 (adjusted-edge floor 0.0175; every other rule unchanged)",
+      "control": "R0@0.0200 (the live policy, unchanged and still governing)",
+      "decision_rule": "The candidate is nominated for activation only if it leads on the primary metric over at least the minimum sample AND does not worsen Brier or log loss.",
+      "primary_metric": "unit-stake profit per settled selection",
+      "secondary_metrics": [
+        "hit rate",
+        "Brier",
+        "log loss",
+        "CLV where covered"
+      ]
+    },
+    "minimum_sample": {
+      "current_marginal_settlements": 1,
+      "reasoning": "The candidate differs from the control on roughly one selection per three slate days at the current rate, so 30 marginal settlements is about 90 slate days -- a full extension of the season, not a week.",
+      "settled_marginal_selections": 30
+    },
+    "purpose": "Accumulate enough independent settled selections to separate a 1.75 pt floor from the 2.0 pt control at all.",
+    "stop_rules": [
+      "Stop and report if the candidate and control still differ on fewer than 10 settled selections after 45 slate days -- the floor is then not the binding constraint and the study should not continue.",
+      "Never re-run the same window with more configurations; more cells do not create more evidence."
+    ],
+    "unit_of_observation": "one distinct event, one final-pregame decision of record"
+  },
+  "sensitivity": {
+    "cells": {
+      "R0@0.0150": {
+        "differing_events": [
+          {
+            "american_odds": 194,
+            "matchup": "ATH @ TEX",
+            "selection": "ATH ML",
+            "slate_date": "2026-09-01",
+            "won": false
+          },
+          {
+            "american_odds": 145,
+            "matchup": "SF @ NYM",
+            "selection": "SF ML",
+            "slate_date": "2026-09-05",
+            "won": true
+          }
+        ],
+        "events_that_differ": 2,
+        "ranking_reverses_if_this_many_results_flip": 1,
+        "settled_events_that_differ": 2,
+        "unit_profit_delta_vs_control": 0.45
+      },
+      "R0@0.0175": {
+        "differing_events": [
+          {
+            "american_odds": 145,
+            "matchup": "SF @ NYM",
+            "selection": "SF ML",
+            "slate_date": "2026-09-05",
+            "won": true
+          }
+        ],
+        "events_that_differ": 1,
+        "ranking_reverses_if_this_many_results_flip": 1,
+        "settled_events_that_differ": 1,
+        "unit_profit_delta_vs_control": 1.45
+      },
+      "R0@0.0250": {
+        "differing_events": [
+          {
+            "american_odds": 188,
+            "matchup": "ATH @ SEA",
+            "selection": "ATH ML",
+            "slate_date": "2026-09-03",
+            "won": true
+          }
+        ],
+        "events_that_differ": 1,
+        "ranking_reverses_if_this_many_results_flip": 1,
+        "settled_events_that_differ": 1,
+        "unit_profit_delta_vs_control": -1.88
+      }
+    },
+    "verdict": "The entire matrix separates on three settled events. One of them (SF @ NYM, 2026-09-05, +145) alone decides whether the 0.0175 floor outranks the control. No threshold can be nominated from this."
+  },
+  "strict_comparison": {
+    "distinct_events": 169,
+    "final_pregame_rows": 3654,
+    "note": "V1 never produces a QUALIFIED_BET in this window and owns no position; its readiness>=70 gate and CONFIRMED-starter requirement are both unsatisfiable in this configuration.",
+    "official_positions": 0,
+    "policy": "AISP_OPPORTUNITY_POLICY_V1",
+    "recommendations": {
+      "EXTREME_DISAGREEMENT": 36,
+      "NO_BET": 931,
+      "PROVISIONAL_EDGE": 1529,
+      "WATCH": 1158
+    },
+    "relationship": "separate historical strict comparison; not pooled with the control",
+    "slate_dates": [
+      "2026-08-28",
+      "2026-08-29",
+      "2026-08-30",
+      "2026-08-31",
+      "2026-09-01",
+      "2026-09-02",
+      "2026-09-03",
+      "2026-09-04",
+      "2026-09-05",
+      "2026-09-06",
+      "2026-09-07",
+      "2026-09-08"
+    ]
+  },
+  "study_id": "AISP_MLB_ACCEPTANCE_POLICY_STUDY_V2"
+}

@@ -1,0 +1,149 @@
+{
+  "collapse_basis": "R0..R4 differ only in a total-readiness threshold and a feature-completeness critical veto. The control contract measurably contains neither, so the five profiles are operationally identical and the 20 declared cells reduce to 4 distinct edge-floor cells. No new candidate was added in their place.",
+  "control_cell": "R0@0.0200",
+  "declared_cells": 20,
+  "distinct_cells": 4,
+  "edge_floors": [
+    0.015,
+    0.0175,
+    0.02,
+    0.025
+  ],
+  "evaluated_cells": [
+    "R0@0.0150",
+    "R0@0.0175",
+    "R0@0.0200",
+    "R0@0.0250"
+  ],
+  "leaderboard": [
+    {
+      "added_vs_control": 1,
+      "brier": 0.274051,
+      "cell": "R0@0.0175",
+      "edge_floor": 0.0175,
+      "ending_bankroll": 992.89,
+      "hit_rate": 0.4167,
+      "is_control": false,
+      "log_loss": 0.741459,
+      "max_drawdown": 16.19,
+      "readiness_profiles_represented": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "removed_vs_control": 0,
+      "settled_selections": 12,
+      "staked_profit": -7.11,
+      "unique_games": 13,
+      "unique_selections": 13,
+      "unit_stake_profit": 1.2,
+      "unit_stake_return": 0.1
+    },
+    {
+      "added_vs_control": 2,
+      "brier": 0.266894,
+      "cell": "R0@0.0150",
+      "edge_floor": 0.015,
+      "ending_bankroll": 991.36,
+      "hit_rate": 0.3846,
+      "is_control": false,
+      "log_loss": 0.727054,
+      "max_drawdown": 17.71,
+      "readiness_profiles_represented": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "removed_vs_control": 0,
+      "settled_selections": 13,
+      "staked_profit": -8.64,
+      "unique_games": 14,
+      "unique_selections": 14,
+      "unit_stake_profit": 0.2,
+      "unit_stake_return": 0.0154
+    },
+    {
+      "added_vs_control": 0,
+      "brier": 0.272534,
+      "cell": "R0@0.0200",
+      "edge_floor": 0.02,
+      "ending_bankroll": 992.86,
+      "hit_rate": 0.3636,
+      "is_control": true,
+      "log_loss": 0.73843,
+      "max_drawdown": 16.19,
+      "readiness_profiles_represented": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "removed_vs_control": 0,
+      "settled_selections": 11,
+      "staked_profit": -7.14,
+      "unique_games": 12,
+      "unique_selections": 12,
+      "unit_stake_profit": -0.25,
+      "unit_stake_return": -0.0227
+    },
+    {
+      "added_vs_control": 0,
+      "brier": 0.268562,
+      "cell": "R0@0.0250",
+      "edge_floor": 0.025,
+      "ending_bankroll": 987.77,
+      "hit_rate": 0.3,
+      "is_control": false,
+      "log_loss": 0.730447,
+      "max_drawdown": 21.23,
+      "readiness_profiles_represented": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "removed_vs_control": 1,
+      "settled_selections": 10,
+      "staked_profit": -12.23,
+      "unique_games": 11,
+      "unique_selections": 11,
+      "unit_stake_profit": -2.13,
+      "unit_stake_return": -0.213
+    }
+  ],
+  "note": "Every cell replays the SAME persisted decision of record. Only the adjusted-edge floor moves; side, book, price and timestamp are the ones the live contract froze.",
+  "profiles_collapse": true,
+  "readiness_profiles": {
+    "R0": {
+      "note": "Exact current V2.1 readiness behaviour (the control profile).",
+      "threshold": 70.0,
+      "veto_exception": false
+    },
+    "R1": {
+      "note": "Total readiness threshold 65; every other readiness rule unchanged.",
+      "threshold": 65.0,
+      "veto_exception": false
+    },
+    "R2": {
+      "note": "Total readiness threshold 60; every other readiness rule unchanged.",
+      "threshold": 60.0,
+      "veto_exception": false
+    },
+    "R3": {
+      "note": "Threshold 70 with a diagnostic exception to the measured feature-completeness critical veto, if one exists.",
+      "threshold": 70.0,
+      "veto_exception": true
+    },
+    "R4": {
+      "note": "Threshold 60 with the same diagnostic exception.",
+      "threshold": 60.0,
+      "veto_exception": true
+    }
+  }
+}

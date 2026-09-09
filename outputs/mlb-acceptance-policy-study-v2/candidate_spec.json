@@ -1,0 +1,63 @@
+{
+  "spec_id": "AISP_MLB_ACCEPTANCE_EDGE_FLOOR_0_0175_RESEARCH_CANDIDATE",
+  "status": "INERT -- PENDING ACTIVATION",
+  "activation": {
+    "activated": false,
+    "requires": "an explicit later policy decision by James; nothing here activates it",
+    "overnight_activation_permitted": false,
+    "control_verdict_overwritten": false,
+    "preserves": "MLB_STRICT_POLICY_RETAINED"
+  },
+  "purpose": "Prospective observation only. This is NOT a nomination for deployment. The retrospective evidence cannot separate this candidate from the control, so it is registered so that a forward sample can be collected against a frozen definition.",
+  "definition": {
+    "derived_from": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+    "single_change": "MIN_ADJUSTED_EDGE 0.0200 -> 0.0175",
+    "unchanged": [
+      "forecast identity and validity",
+      "the 15-minute final-pregame cutoff and decision timing",
+      "event and team identity binding",
+      "complete same-book two-sided moneyline quote requirement",
+      "quote freshness (240 minutes)",
+      "confirmed / probable-stable starter rules and the 2.0 pt starter penalty",
+      "lineup treatment and the 0.5 pt lineup penalty",
+      "the uncertainty penalty",
+      "positive adjusted expected value",
+      "the 0.15 extreme-disagreement stop",
+      "quarter-Kelly staking, the tier position caps, the 50% penalised-evidence multiplier",
+      "same-game 2% and daily 5% exposure caps",
+      "one position per market outcome"
+    ]
+  },
+  "exclusions": {
+    "readiness_threshold_change": "NOT part of this candidate. The control applies no composite readiness threshold, so there is nothing to lower.",
+    "feature_completeness_veto_exception": "NOT part of this candidate. No such veto exists; R3/R4 were diagnostics only and are not deployable settings.",
+    "market_scope_change": "NOT part of this candidate. Moneyline only, as today."
+  },
+  "comparison_metrics": {
+    "primary": "unit-stake profit per settled marginal selection",
+    "secondary": ["hit rate", "Brier score", "log loss", "closing line value where covered"],
+    "guardrail": "the candidate must not worsen Brier or log loss versus the control"
+  },
+  "evidence_requirements": {
+    "minimum_settled_marginal_selections": 30,
+    "current_settled_marginal_selections": 1,
+    "current_marginal_events": [
+      {
+        "slate_date": "2026-09-05",
+        "matchup": "SF @ NYM",
+        "selection": "SF ML",
+        "sportsbook": "BetRivers",
+        "american_odds": 145,
+        "adjusted_edge": 0.0185,
+        "won": true
+      }
+    ],
+    "blocking_prerequisite": "Odds ingestion must be restored. 63 of 99 control non-selections are price availability, so at the current data rate the required sample would take roughly a full additional season to accumulate.",
+    "must_not": [
+      "re-run the same 2026-09-01..2026-09-08 window with more configurations",
+      "treat repeated evaluations of one event as independent observations",
+      "declare an optimum from fewer than the minimum sample"
+    ]
+  },
+  "risk_note": "Every difference between this candidate and the control in the retrospective cohort rests on a single settled event. Activating on that basis would be curve-fitting to one baseball game."
+}

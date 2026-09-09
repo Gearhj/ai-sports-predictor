@@ -76,3 +76,7 @@ id_rsa*
 Thumbs.db
 .idea/
 .vscode/
+
+# Research study cohort exports (immutable, but too large to track; the
+# compressed copy and its SHA-256 manifest are committed alongside).
+outputs/**/cohort.json

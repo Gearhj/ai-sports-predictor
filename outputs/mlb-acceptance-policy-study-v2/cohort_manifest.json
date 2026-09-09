@@ -1,0 +1,28 @@
+{
+  "bytes": 128502765,
+  "counts": {
+    "decisions": 21373,
+    "experiments": 3,
+    "forecasts": 237,
+    "games": 111,
+    "market_outcomes": 138,
+    "moneyline_snapshots": 39473,
+    "positions": 11,
+    "quote_coverage_rows": 1308
+  },
+  "exported_at_utc": "2026-09-09T02:00:43.662783+00:00",
+  "extraction_watermark": {
+    "decisions_count": 21373,
+    "decisions_max_created_at": "2026-09-08T21:53:19.472903-04:00",
+    "forecasts_count": 416,
+    "odds_snapshots_count": 222318,
+    "odds_snapshots_max_observed_at": "2026-09-07T20:44:23-04:00",
+    "position_results_count": 10,
+    "positions_count": 11,
+    "positions_max_created_at": "2026-09-07T21:51:12.156512-04:00"
+  },
+  "file": "cohort.json",
+  "sha256": "40b6e7a29fbd3798002c23b6cecaa86afa080c4695feff8942db42fa4e7fb667",
+  "stage": "export",
+  "study_id": "AISP_MLB_ACCEPTANCE_POLICY_STUDY_V2"
+}

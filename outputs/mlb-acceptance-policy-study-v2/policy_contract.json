@@ -1,0 +1,68 @@
+{
+  "composite_readiness_threshold_in_contract": false,
+  "control_policy": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+  "evaluations_blocked_by_model_required_missing": 0,
+  "feature_completeness": {
+    "coverage_fraction": 0.361111,
+    "coverage_fraction_exact": "13/36 = 0.361111",
+    "diagnostic_list_entries": 27,
+    "excluded_structural_placeholders": 4,
+    "measured_missing_slots": 23,
+    "measured_present_slots": 13,
+    "measured_total_slots": 36,
+    "score_only_effect": {
+      "basis": "The control applies no total-readiness threshold, so a 15-point readiness deficit changes no acceptance decision.",
+      "readiness_points_lost": 15,
+      "selections_changed": 0
+    },
+    "scoring_contract": {
+      "bullpen_points_available": 5,
+      "bullpen_points_earned": 0,
+      "feature_completeness_basis": "stale factor -- half credit, not zero",
+      "feature_completeness_points_available": 10,
+      "feature_completeness_points_earned": 5,
+      "statcast_points_available": 5,
+      "statcast_points_earned": 0,
+      "total_points_lost": 15,
+      "verification": "5/10 + 0/5 + 0/5 leaves 15 of 20 available points unearned, not 20. A 20-point loss would require feature_completeness to score zero, which the stale factor does not do."
+    },
+    "veto_effect": {
+      "basis": "feature_completeness is classified DUPLICATE_DERIVED_GATE (class E) in V2_FEATURE_COMPLETENESS_DECOMPOSITION_V1 and is excluded from the atomic hard-block whitelist. Only a MODEL_REQUIRED_NO_VALID_FALLBACK or DECISION_REQUIRED component blocks, and no persisted evaluation carries one.",
+      "invokes_separate_critical_veto": false
+    }
+  },
+  "feature_completeness_classification": {
+    "class": "DUPLICATE_DERIVED_GATE",
+    "derived_from": "composite"
+  },
+  "finding": "MEASURED: the control contract contains no composite total-readiness threshold and no feature-completeness critical veto. feature_completeness is classified DUPLICATE_DERIVED_GATE and never hard-blocks; the readiness score is recorded on every decision but gates nothing. 609 of 748 qualified evaluations carry readiness below 70, which is only possible if no 70 threshold is applied.",
+  "hard_block_whitelist": [
+    "no_valid_current_forecast",
+    "forecast_identity_invalid",
+    "exact_game_identity_unavailable",
+    "unsupported_market",
+    "incomplete_two_sided_moneyline_quote",
+    "stale_quote",
+    "game_already_started",
+    "decision_after_final_pregame_cutoff",
+    "starter_identity_missing",
+    "starter_identity_conflicting",
+    "starter_probable_unstable_at_final",
+    "unresolved_material_starter_change",
+    "unresolved_scratch_or_availability_event",
+    "model_required_input_no_valid_fallback",
+    "extreme_disagreement",
+    "adjusted_edge_below_minimum",
+    "adjusted_ev_not_positive",
+    "adjusted_kelly_not_positive",
+    "exposure_cap_exceeded"
+  ],
+  "model_required_missing_features": {},
+  "policy_config_checksum": "7e439d4bed6ec67e261dfc272e3b1ced93f01f0d59a8813b867dc1b39620a8d2",
+  "qualified_below_readiness_60": 298,
+  "qualified_below_readiness_70": 609,
+  "qualified_evaluations": 748,
+  "qualified_readiness_max": 82.5,
+  "qualified_readiness_median": 67.5,
+  "qualified_readiness_min": 52.5
+}

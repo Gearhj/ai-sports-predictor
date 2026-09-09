@@ -1,0 +1,534 @@
+{
+  "cells": {
+    "R0@0.0150": {
+      "brier": 0.266894,
+      "edge_floor": 0.015,
+      "ending_bankroll": 991.36,
+      "equity_curve": [
+        [
+          "2026-09-01",
+          989.05
+        ],
+        [
+          "2026-09-02",
+          997.14
+        ],
+        [
+          "2026-09-03",
+          987.23
+        ],
+        [
+          "2026-09-04",
+          982.29
+        ],
+        [
+          "2026-09-05",
+          982.32
+        ],
+        [
+          "2026-09-07",
+          991.36
+        ]
+      ],
+      "hit_rate": 0.3846,
+      "log_loss": 0.727054,
+      "max_drawdown": 17.71,
+      "mean_model_probability": 0.4793,
+      "realised_win_rate": 0.3846,
+      "settled_selections": 13,
+      "staked_profit": -8.64,
+      "staked_total": 56.93,
+      "temporal_stability": {
+        "2026-09-01": {
+          "selections": 3,
+          "unit_profit": -3.0,
+          "wins": 0
+        },
+        "2026-09-02": {
+          "selections": 3,
+          "unit_profit": 2.03,
+          "wins": 2
+        },
+        "2026-09-03": {
+          "selections": 4,
+          "unit_profit": -1.12,
+          "wins": 1
+        },
+        "2026-09-04": {
+          "selections": 1,
+          "unit_profit": -1.0,
+          "wins": 0
+        },
+        "2026-09-05": {
+          "selections": 1,
+          "unit_profit": 1.45,
+          "wins": 1
+        },
+        "2026-09-07": {
+          "selections": 1,
+          "unit_profit": 1.84,
+          "wins": 1
+        }
+      },
+      "unique_games": 14,
+      "unique_selections": 14,
+      "unit_stake_profit": 0.2,
+      "unit_stake_return": 0.0154,
+      "unsettled_selections": 1
+    },
+    "R0@0.0175": {
+      "brier": 0.274051,
+      "edge_floor": 0.0175,
+      "ending_bankroll": 992.89,
+      "equity_curve": [
+        [
+          "2026-09-01",
+          990.55
+        ],
+        [
+          "2026-09-02",
+          998.66
+        ],
+        [
+          "2026-09-03",
+          988.75
+        ],
+        [
+          "2026-09-04",
+          983.81
+        ],
+        [
+          "2026-09-05",
+          983.84
+        ],
+        [
+          "2026-09-07",
+          992.89
+        ]
+      ],
+      "hit_rate": 0.4167,
+      "log_loss": 0.741459,
+      "max_drawdown": 16.19,
+      "mean_model_probability": 0.4838,
+      "realised_win_rate": 0.4167,
+      "settled_selections": 12,
+      "staked_profit": -7.11,
+      "staked_total": 55.45,
+      "temporal_stability": {
+        "2026-09-01": {
+          "selections": 2,
+          "unit_profit": -2.0,
+          "wins": 0
+        },
+        "2026-09-02": {
+          "selections": 3,
+          "unit_profit": 2.03,
+          "wins": 2
+        },
+        "2026-09-03": {
+          "selections": 4,
+          "unit_profit": -1.12,
+          "wins": 1
+        },
+        "2026-09-04": {
+          "selections": 1,
+          "unit_profit": -1.0,
+          "wins": 0
+        },
+        "2026-09-05": {
+          "selections": 1,
+          "unit_profit": 1.45,
+          "wins": 1
+        },
+        "2026-09-07": {
+          "selections": 1,
+          "unit_profit": 1.84,
+          "wins": 1
+        }
+      },
+      "unique_games": 13,
+      "unique_selections": 13,
+      "unit_stake_profit": 1.2,
+      "unit_stake_return": 0.1,
+      "unsettled_selections": 1
+    },
+    "R0@0.0200": {
+      "brier": 0.272534,
+      "edge_floor": 0.02,
+      "ending_bankroll": 992.86,
+      "equity_curve": [
+        [
+          "2026-09-01",
+          990.55
+        ],
+        [
+          "2026-09-02",
+          998.66
+        ],
+        [
+          "2026-09-03",
+          988.75
+        ],
+        [
+          "2026-09-04",
+          983.81
+        ],
+        [
+          "2026-09-07",
+          992.86
+        ]
+      ],
+      "hit_rate": 0.3636,
+      "log_loss": 0.73843,
+      "max_drawdown": 16.19,
+      "mean_model_probability": 0.4859,
+      "realised_win_rate": 0.3636,
+      "settled_selections": 11,
+      "staked_profit": -7.14,
+      "staked_total": 55.43,
+      "temporal_stability": {
+        "2026-09-01": {
+          "selections": 2,
+          "unit_profit": -2.0,
+          "wins": 0
+        },
+        "2026-09-02": {
+          "selections": 3,
+          "unit_profit": 2.03,
+          "wins": 2
+        },
+        "2026-09-03": {
+          "selections": 4,
+          "unit_profit": -1.12,
+          "wins": 1
+        },
+        "2026-09-04": {
+          "selections": 1,
+          "unit_profit": -1.0,
+          "wins": 0
+        },
+        "2026-09-07": {
+          "selections": 1,
+          "unit_profit": 1.84,
+          "wins": 1
+        }
+      },
+      "unique_games": 12,
+      "unique_selections": 12,
+      "unit_stake_profit": -0.25,
+      "unit_stake_return": -0.0227,
+      "unsettled_selections": 1
+    },
+    "R0@0.0250": {
+      "brier": 0.268562,
+      "edge_floor": 0.025,
+      "ending_bankroll": 987.77,
+      "equity_curve": [
+        [
+          "2026-09-01",
+          990.55
+        ],
+        [
+          "2026-09-02",
+          998.66
+        ],
+        [
+          "2026-09-03",
+          983.69
+        ],
+        [
+          "2026-09-04",
+          978.77
+        ],
+        [
+          "2026-09-07",
+          987.77
+        ]
+      ],
+      "hit_rate": 0.3,
+      "log_loss": 0.730447,
+      "max_drawdown": 21.23,
+      "mean_model_probability": 0.4904,
+      "realised_win_rate": 0.3,
+      "settled_selections": 10,
+      "staked_profit": -12.23,
+      "staked_total": 52.67,
+      "temporal_stability": {
+        "2026-09-01": {
+          "selections": 2,
+          "unit_profit": -2.0,
+          "wins": 0
+        },
+        "2026-09-02": {
+          "selections": 3,
+          "unit_profit": 2.03,
+          "wins": 2
+        },
+        "2026-09-03": {
+          "selections": 3,
+          "unit_profit": -3.0,
+          "wins": 0
+        },
+        "2026-09-04": {
+          "selections": 1,
+          "unit_profit": -1.0,
+          "wins": 0
+        },
+        "2026-09-07": {
+          "selections": 1,
+          "unit_profit": 1.84,
+          "wins": 1
+        }
+      },
+      "unique_games": 11,
+      "unique_selections": 11,
+      "unit_stake_profit": -2.13,
+      "unit_stake_return": -0.213,
+      "unsettled_selections": 1
+    }
+  },
+  "closing_line_value": {
+    "definition": "Last price on the same book, strictly after the recommendation and at or before first pitch -- the live settlement engine's definition, applied unchanged to live and hypothetical selections alike.",
+    "is_closing_flagged_snapshots_in_cohort": 0,
+    "limitation": "Coverage is partial because odds collection stopped well before first pitch for many events. CLV is reported only where a legitimate later same-book price exists; it is never imputed.",
+    "live_coverage": 0.4545,
+    "live_mean_clv_pct": -0.153,
+    "live_positions": 11,
+    "live_positions_with_a_recorded_closing_price": 5,
+    "per_cell": {
+      "R0@0.0150": {
+        "beat_close": 2,
+        "coverage": 0.5,
+        "detail": [
+          {
+            "closing_decimal": 2.54,
+            "clv_pct": 0.0,
+            "matchup": "TOR @ CLE",
+            "selection": "TOR ML",
+            "taken_decimal": 2.54
+          },
+          {
+            "closing_decimal": 1.8928571428571428,
+            "clv_pct": -1.229,
+            "matchup": "SEA @ BOS",
+            "selection": "BOS ML",
+            "taken_decimal": 1.8696
+          },
+          {
+            "closing_decimal": 2.8899999999999997,
+            "clv_pct": 1.73,
+            "matchup": "ATH @ TEX",
+            "selection": "ATH ML",
+            "taken_decimal": 2.94
+          },
+          {
+            "closing_decimal": 2.45,
+            "clv_pct": -0.816,
+            "matchup": "SD @ CIN",
+            "selection": "CIN ML",
+            "taken_decimal": 2.43
+          },
+          {
+            "closing_decimal": 2.6,
+            "clv_pct": 0.0,
+            "matchup": "BAL @ COL",
+            "selection": "COL ML",
+            "taken_decimal": 2.6
+          },
+          {
+            "closing_decimal": 2.46,
+            "clv_pct": -2.846,
+            "matchup": "CWS @ HOU",
+            "selection": "CWS ML",
+            "taken_decimal": 2.39
+          },
+          {
+            "closing_decimal": 2.0700000000000003,
+            "clv_pct": 2.899,
+            "matchup": "MIA @ KC",
+            "selection": "MIA ML",
+            "taken_decimal": 2.13
+          }
+        ],
+        "mean_clv_pct": -0.037,
+        "selections": 14,
+        "with_a_closing_quote": 7
+      },
+      "R0@0.0175": {
+        "beat_close": 1,
+        "coverage": 0.4615,
+        "detail": [
+          {
+            "closing_decimal": 2.54,
+            "clv_pct": 0.0,
+            "matchup": "TOR @ CLE",
+            "selection": "TOR ML",
+            "taken_decimal": 2.54
+          },
+          {
+            "closing_decimal": 1.8928571428571428,
+            "clv_pct": -1.229,
+            "matchup": "SEA @ BOS",
+            "selection": "BOS ML",
+            "taken_decimal": 1.8696
+          },
+          {
+            "closing_decimal": 2.45,
+            "clv_pct": -0.816,
+            "matchup": "SD @ CIN",
+            "selection": "CIN ML",
+            "taken_decimal": 2.43
+          },
+          {
+            "closing_decimal": 2.6,
+            "clv_pct": 0.0,
+            "matchup": "BAL @ COL",
+            "selection": "COL ML",
+            "taken_decimal": 2.6
+          },
+          {
+            "closing_decimal": 2.46,
+            "clv_pct": -2.846,
+            "matchup": "CWS @ HOU",
+            "selection": "CWS ML",
+            "taken_decimal": 2.39
+          },
+          {
+            "closing_decimal": 2.0700000000000003,
+            "clv_pct": 2.899,
+            "matchup": "MIA @ KC",
+            "selection": "MIA ML",
+            "taken_decimal": 2.13
+          }
+        ],
+        "mean_clv_pct": -0.332,
+        "selections": 13,
+        "with_a_closing_quote": 6
+      },
+      "R0@0.0200": {
+        "beat_close": 1,
+        "coverage": 0.5,
+        "detail": [
+          {
+            "closing_decimal": 2.54,
+            "clv_pct": 0.0,
+            "matchup": "TOR @ CLE",
+            "selection": "TOR ML",
+            "taken_decimal": 2.54
+          },
+          {
+            "closing_decimal": 1.8928571428571428,
+            "clv_pct": -1.229,
+            "matchup": "SEA @ BOS",
+            "selection": "BOS ML",
+            "taken_decimal": 1.8696
+          },
+          {
+            "closing_decimal": 2.45,
+            "clv_pct": -0.816,
+            "matchup": "SD @ CIN",
+            "selection": "CIN ML",
+            "taken_decimal": 2.43
+          },
+          {
+            "closing_decimal": 2.6,
+            "clv_pct": 0.0,
+            "matchup": "BAL @ COL",
+            "selection": "COL ML",
+            "taken_decimal": 2.6
+          },
+          {
+            "closing_decimal": 2.46,
+            "clv_pct": -2.846,
+            "matchup": "CWS @ HOU",
+            "selection": "CWS ML",
+            "taken_decimal": 2.39
+          },
+          {
+            "closing_decimal": 2.0700000000000003,
+            "clv_pct": 2.899,
+            "matchup": "MIA @ KC",
+            "selection": "MIA ML",
+            "taken_decimal": 2.13
+          }
+        ],
+        "mean_clv_pct": -0.332,
+        "selections": 12,
+        "with_a_closing_quote": 6
+      },
+      "R0@0.0250": {
+        "beat_close": 1,
+        "coverage": 0.5455,
+        "detail": [
+          {
+            "closing_decimal": 2.54,
+            "clv_pct": 0.0,
+            "matchup": "TOR @ CLE",
+            "selection": "TOR ML",
+            "taken_decimal": 2.54
+          },
+          {
+            "closing_decimal": 1.8928571428571428,
+            "clv_pct": -1.229,
+            "matchup": "SEA @ BOS",
+            "selection": "BOS ML",
+            "taken_decimal": 1.8696
+          },
+          {
+            "closing_decimal": 2.45,
+            "clv_pct": -0.816,
+            "matchup": "SD @ CIN",
+            "selection": "CIN ML",
+            "taken_decimal": 2.43
+          },
+          {
+            "closing_decimal": 2.6,
+            "clv_pct": 0.0,
+            "matchup": "BAL @ COL",
+            "selection": "COL ML",
+            "taken_decimal": 2.6
+          },
+          {
+            "closing_decimal": 2.46,
+            "clv_pct": -2.846,
+            "matchup": "CWS @ HOU",
+            "selection": "CWS ML",
+            "taken_decimal": 2.39
+          },
+          {
+            "closing_decimal": 2.0700000000000003,
+            "clv_pct": 2.899,
+            "matchup": "MIA @ KC",
+            "selection": "MIA ML",
+            "taken_decimal": 2.13
+          }
+        ],
+        "mean_clv_pct": -0.332,
+        "selections": 11,
+        "with_a_closing_quote": 6
+      }
+    }
+  },
+  "control_cell": "R0@0.0200",
+  "control_reconciliation": {
+    "control_replay_selections": 12,
+    "live_losses": 6,
+    "live_open": 1,
+    "live_positions": 11,
+    "live_positions_missing_from_replay": [],
+    "live_realised_profit": 1.88,
+    "live_settled": 10,
+    "live_staked": 27.5,
+    "live_wins": 4,
+    "note": "The replay evaluates every event that reached a decision of record. The live ledger additionally requires an at-cutoff quote/forecast binding, exposure headroom and a non-duplicate market outcome, so the replay is a superset by construction. Every live position must appear in it; none may be missing.",
+    "outcome_join_result_mismatches": [],
+    "outcome_join_score_mismatches": [],
+    "outcome_join_verified": true,
+    "replay_reproduces_every_live_position": true,
+    "replay_selections_without_a_live_position": [
+      "ea8c1bb6-9311-41bf-91a7-4edc5141d470"
+    ]
+  },
+  "hypothetical_only": true,
+  "note": "Hypothetical replay results are never added to the live ledger."
+}
