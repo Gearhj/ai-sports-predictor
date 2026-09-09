@@ -155,7 +155,7 @@ class NflReadService:
         grouped: dict[str, list[ResearchSupplement]] = defaultdict(list)
         latest_labs: set[tuple[str, str, str, str]] = set()
         for row in rows:
-            if row.contract_version == "NFL_LABS_CONTRACT_V1":
+            if row.contract_version in ("NFL_LABS_CONTRACT_V1", "NFL_LABS_PLAY_LEVEL_CONTRACT_V1"):
                 artifact = (row.payload or {}).get("artifact") or {}
                 key = (row.event_id, row.engine_id, row.kind, (artifact.get("scenario") or {}).get("scenarioId", "BASE"))
                 if key in latest_labs:
@@ -552,6 +552,10 @@ class NflReadService:
         }
 
     # -- public: game detail -------------------------------------------------
+    def event_id_for_game(self, game_id: UUID) -> str | None:
+        rows = self._forecast_rows(game_id=game_id)
+        return rows[0].event_id if rows else None
+
     def game_detail(self, game_id: UUID) -> dict[str, Any] | None:
         now = datetime.now(UTC)
         rows = self._forecast_rows(game_id=game_id)

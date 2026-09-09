@@ -377,3 +377,136 @@ export interface NflGameDetail {
   research_results: NflResearchResults
   data_mode?: 'live' | 'demo' | 'empty'
 }
+
+
+/* -- play-level simulation (AISP_NFL_PLAY_THEATER_READ_V1) ----------------
+ *
+ * A third, independent research engine. It does not explain M1 and does not
+ * supersede the drive engine; it is the only family that carries plays, which
+ * is what makes an animated theater honest rather than invented.
+ */
+
+export interface NflPlayRepresentativeIndex {
+  position: number
+  label: string
+  simulationIndex: number
+  seed: number
+  homeScore: number
+  awayScore: number
+  regulationHomeScore: number | null
+  regulationAwayScore: number | null
+  reachedOvertime: boolean | null
+  finalTie: boolean | null
+  playCount: number
+  driveCount: number | null
+  turnovers: number | null
+  sacks: number | null
+  playTypeCounts: Record<string, number> | null
+}
+
+export interface NflPlayPopulationStats {
+  draws: number
+  mean_home_score: number
+  mean_away_score: number
+  mean_total: number
+  mean_drives: number | null
+  mean_plays: number | null
+  plays_per_drive: number | null
+  points_per_drive: number | null
+  reached_overtime: number
+}
+
+export interface NflPlayScenario {
+  scenario_id: string
+  label: string
+  explanation: string | null
+  parameters: Record<string, unknown> | null
+  interpretation: string | null
+  turnover_sensitivity_meaning: string | null
+  model_input_change: boolean | null
+  score_summary: {
+    homeWinProbability: number; awayWinProbability: number; tieProbability: number
+    expectedHomeScore: number; expectedAwayScore: number
+    expectedTotal: number; expectedMarginHomeMinusAway: number
+  }
+  scenario_delta: Record<string, number> | null
+  quantiles: Record<string, Record<string, number>> | null
+  reaching_overtime_probability: number | null
+  final_tie_probability: number | null
+  draw_count: number | null
+  seed: number | null
+  population_accounting: Record<string, unknown> | null
+  representatives: NflPlayRepresentativeIndex[]
+  supplement_sha256: string
+  play_count: number | null
+  population_drive_stats: NflPlayPopulationStats | null
+}
+
+export interface NflSeedPairedGame {
+  simulation_index: number
+  seed: number
+  base: { label: string; position: number; home_score: number; away_score: number }
+  challenger: { label: string; position: number; home_score: number; away_score: number }
+}
+
+export interface NflPlayTheaterIndex {
+  schema_version: string
+  event_id: string
+  engine: {
+    engine_id: string | null
+    label: string
+    version: string | null
+    training_cutoff: string | null
+    generating_law: Record<string, string> | null
+    historical_evidence_through_date: string | null
+    historical_evidence_precision: string | null
+    input_treatment: Record<string, unknown> | null
+    explains_m1_forecast: boolean
+    related_m1_forecast_id: string | null
+  }
+  governance: {
+    status: string | null; promotion_status: string | null
+    execution_allowed_in_aisp: boolean | null; wagering_authority: boolean | null
+  }
+  limitations: string[]
+  m1_comparison: {
+    interpretation?: string
+    m1ScoreSummary?: Record<string, number>
+    playEngineMinusM1?: Record<string, number>
+  } | null
+  home_team: { teamId: string; abbreviation: string; displayName: string } | null
+  away_team: { teamId: string; abbreviation: string; displayName: string } | null
+  scenarios: NflPlayScenario[]
+  pairing: {
+    population_is_seed_paired: boolean
+    population_note: string
+    representatives_are_seed_paired: boolean
+    representative_note: string
+    seed_paired_games: Record<string, NflSeedPairedGame[]>
+  }
+  geometry_notice: string
+}
+
+export interface NflPlayRepresentative {
+  schema_version: string
+  event_id: string
+  scenario_id: string
+  position: number
+  available: boolean
+  cause?: string
+  detail?: string
+  supplement_sha256?: string
+  label?: string
+  simulation_index?: number
+  seed?: number
+  home_team?: string
+  away_team?: string
+  home_score?: number
+  away_score?: number
+  regulation_home_score?: number | null
+  regulation_away_score?: number | null
+  reached_overtime?: boolean | null
+  final_tie?: boolean | null
+  diagnostics?: Record<string, number | Record<string, number> | null>
+  plays?: import('../components/nfl/playGeometry').Play[]
+}

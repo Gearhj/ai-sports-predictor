@@ -6,21 +6,26 @@
  * producer supplements and say plainly what they are waiting for otherwise.
  * No model is executed here.
  */
-import { BarChart3, ChevronRight, GitCompareArrows, Play } from 'lucide-react'
+import { BarChart3, ChevronRight, Clapperboard, GitCompareArrows, Play } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { DriveTheater } from '../components/nfl/DriveTheater'
 import { OutcomeExplorer } from '../components/nfl/OutcomeExplorer'
+import { PlayTheater } from '../components/nfl/PlayTheater'
 import { ScenarioComparison } from '../components/nfl/ScenarioComparison'
+import { ScenarioLaboratory } from '../components/nfl/ScenarioLaboratory'
 import { stateLabel } from '../components/nfl/NflEventCard'
 import { DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { useNflPlayTheater } from '../hooks/useNflPlayTheater'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { NflExplorer, NflGameDetail, NflRepresentativeGame } from '../types/nfl'
 import '../components/nfl/nfltheater.css'
 
-type View = 'explorer' | 'drives' | 'scenarios'
+type View = 'explorer' | 'theater' | 'scenarios' | 'drives'
+
+const VIEWS: View[] = ['explorer', 'theater', 'scenarios', 'drives']
 
 interface EngineChoice {
   key: string
@@ -33,7 +38,11 @@ interface EngineChoice {
 export function NflLabPage() {
   const { gameId = '' } = useParams()
   const [params, setParams] = useSearchParams()
-  const view: View = params.get('view') === 'drives' ? 'drives' : params.get('view') === 'scenarios' ? 'scenarios' : 'explorer'
+  const requested = params.get('view') as View | null
+  const view: View = requested && VIEWS.includes(requested) ? requested : 'explorer'
+  const scenarioId = params.get('scenario') ?? 'BASE'
+  const position = Number(params.get('rep') ?? 0) || 0
+  const theater = useNflPlayTheater(gameId, scenarioId, position)
   const resource = useApiResource<NflGameDetail>(
     useCallback((signal: AbortSignal) => endpoints.nflGame(gameId, signal), [gameId]),
   )
@@ -67,6 +76,13 @@ export function NflLabPage() {
   const home = event.home?.abbreviation ?? 'HOME'
   const away = event.away?.abbreviation ?? 'AWAY'
   const m1 = data.engines[0]
+  const setParam = (name: string, value: string) => setParams((previous) => {
+    const next = new URLSearchParams(previous)
+    next.set('sport', 'NFL')
+    next.set(name, value)
+    if (name === 'scenario') next.set('rep', '0')
+    return next
+  }, { replace: true })
   const setView = (next: View) => setParams((previous) => { const nextParams = new URLSearchParams(previous); nextParams.set('sport', 'NFL'); nextParams.set('view', next); return nextParams }, { replace: true })
   const initialDrive = data.drive_theater.supplements.find((s) => (s.supplement_sha256 === params.get('engine') || s.engine_id === params.get('engine') || params.get('engine') === 'NFL_DEVELOPMENT_CONDITIONAL_DRIVE_V2') && (!params.get('scenario') || s.scenario?.scenarioId === params.get('scenario')))
   const market = m1?.market_comparison?.markets
@@ -93,11 +109,14 @@ export function NflLabPage() {
       <div className="nfl-lab__bar">
         <div className="nfl-mode-cards" role="tablist" aria-label="Lab views">
           <button type="button" role="tab" aria-selected={view === 'explorer'} className={view === 'explorer' ? 'is-active' : ''} onClick={() => setView('explorer')}><BarChart3 size={26} /><span><strong>Outcome Explorer</strong><small>Explore every score, margin and total.</small></span></button>
-          <button type="button" role="tab" aria-selected={view === 'drives'} className={view === 'drives' ? 'is-active' : ''} onClick={() => setView('drives')}>
-            <Play size={26} /><span><strong>Drive Theater</strong><small>{data.drive_theater.available ? 'Watch six recorded representative games.' : 'Awaiting recorded drive evidence.'}</small></span>
+          <button type="button" role="tab" aria-selected={view === 'theater'} className={view === 'theater' ? 'is-active' : ''} onClick={() => setView('theater')}>
+            <Clapperboard size={26} /><span><strong>Play Theater</strong><small>{theater.index ? 'Watch a simulated game play by play.' : 'Awaiting play-level evidence.'}</small></span>
           </button>
           <button type="button" role="tab" aria-selected={view === 'scenarios'} className={view === 'scenarios' ? 'is-active' : ''} onClick={() => setView('scenarios')}>
-            <GitCompareArrows size={26} /><span><strong>Scenario Comparison</strong><small>{data.scenario_comparison.available ? 'BASE versus a precomputed pace sensitivity.' : 'Awaiting a verified scenario pair.'}</small></span>
+            <GitCompareArrows size={26} /><span><strong>Scenario Comparison</strong><small>{theater.index ? `Compare ${theater.index.scenarios.length - 1} sensitivities against base.` : 'Awaiting a verified scenario pair.'}</small></span>
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'drives'} className={view === 'drives' ? 'is-active' : ''} onClick={() => setView('drives')}>
+            <Play size={26} /><span><strong>Drive engine</strong><small>{data.drive_theater.available ? 'The separate drive-level research artifact.' : 'Awaiting recorded drive evidence.'}</small></span>
           </button>
         </div>
         {view === 'explorer' && choices.length > 0 && (
@@ -119,6 +138,39 @@ export function NflLabPage() {
             </section>
           )
       )}
+      {view === 'theater' && (
+        theater.index
+          ? (
+            <PlayTheater
+              index={theater.index}
+              game={theater.game}
+              scenarioId={scenarioId}
+              position={position}
+              loading={theater.gameLoading}
+              error={theater.gameError}
+              homeTeam={home} awayTeam={away}
+              onScenario={(next) => setParam('scenario', next)}
+              onRepresentative={(next) => setParam('rep', String(next))}
+            />
+          )
+          : (
+            <section className="theater-empty">
+              <h3>Play Theater — {theater.indexLoading ? 'loading' : 'no play-level evidence'}</h3>
+              <p>
+                {theater.indexLoading
+                  ? 'Reading the imported play-level simulations for this game.'
+                  : theater.indexError
+                    ?? 'No PLAY_LEVEL_SIMULATION supplement is registered for this event, so there are no plays to animate. Drive-level evidence records where possessions started and ended, not what happened inside them, and this page will not invent the difference.'}
+              </p>
+            </section>
+          )
+      )}
+      {view === 'scenarios' && theater.index && (
+        <ScenarioLaboratory
+          index={theater.index} gameId={gameId} homeTeam={home} awayTeam={away}
+          load={theater.load}
+        />
+      )}
       {view === 'drives' && (
         <DriveTheater
           supplements={data.drive_theater.supplements}
@@ -129,7 +181,7 @@ export function NflLabPage() {
           initialRepresentative={params.has('simulation') ? Number(params.get('simulation')) : undefined}
         />
       )}
-      {view === 'scenarios' && (
+      {view === 'scenarios' && !theater.index && (
         <ScenarioComparison
           supplements={data.scenario_comparison.supplements}
           requirement={data.scenario_comparison.requirement}

@@ -23,7 +23,10 @@ import type {
 import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/multisport'
 import type { LabsGames } from '../types/labs'
 import type { OddsCollectionStatus } from '../types/domain'
-import type { NflConsumerStatus, NflGameDetail, NflResearchResults, NflWeekOverview, NflWeeks } from '../types/nfl'
+import type {
+  NflConsumerStatus, NflGameDetail, NflPlayRepresentative, NflPlayTheaterIndex,
+  NflResearchResults, NflWeekOverview, NflWeeks,
+} from '../types/nfl'
 import type {
   PlayGeometryPayload,
   PopulationLayersPayload,
@@ -184,6 +187,12 @@ export const endpoints = {
     apiRequest<NflWeekOverview>(`/nfl/markets/${season}/${week}`, {}, signal),
   nflGame: (gameId: string, signal?: AbortSignal) =>
     apiRequest<NflGameDetail>(`/nfl/games/${encodeURIComponent(gameId)}`, {}, signal),
+  nflPlayTheater: (gameId: string, signal?: AbortSignal) =>
+    apiRequest<NflPlayTheaterIndex>(`/nfl/games/${encodeURIComponent(gameId)}/play-theater`, {}, signal),
+  nflPlayRepresentative: (gameId: string, scenarioId: string, position: number, signal?: AbortSignal) =>
+    apiRequest<NflPlayRepresentative>(
+      `/nfl/games/${encodeURIComponent(gameId)}/play-theater/${encodeURIComponent(scenarioId)}/${position}`,
+      {}, signal),
   nflResearch: (signal?: AbortSignal) => apiRequest<NflResearchResults>('/nfl/research', {}, signal),
   nflConsumer: (signal?: AbortSignal) => apiRequest<NflConsumerStatus>('/nfl/consumer', {}, signal),
   /** Admin-gated: credit budget, collection plan and provider governance. */

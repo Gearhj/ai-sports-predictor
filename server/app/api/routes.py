@@ -470,6 +470,40 @@ def nfl_game(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> 
     return payload
 
 
+@router.get("/nfl/games/{game_id}/play-theater", tags=["nfl"])
+def nfl_play_theater(game_id: UUID, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Play-level scenarios, representative index and pairing. Carries no plays."""
+
+    from app.services.nfl_play_theater import NflPlayTheaterService
+    from app.services.nfl_read_service import NflReadService
+
+    event_id = NflReadService(session, settings).event_id_for_game(game_id)
+    payload = NflPlayTheaterService(session, settings).theater_index(event_id) if event_id else None
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No play-level simulation evidence for this game")
+    return payload
+
+
+@router.get("/nfl/games/{game_id}/play-theater/{scenario_id}/{position}", tags=["nfl"])
+def nfl_play_theater_game(
+    game_id: UUID, scenario_id: str, position: int,
+    session: DatabaseSession, settings: AppSettings,
+) -> dict:
+    """ONE representative game with its plays and modeled geometry."""
+
+    from app.services.nfl_play_theater import NflPlayTheaterService
+    from app.services.nfl_read_service import NflReadService
+
+    event_id = NflReadService(session, settings).event_id_for_game(game_id)
+    payload = (NflPlayTheaterService(session, settings).representative(event_id, scenario_id, position)
+               if event_id else None)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No such play-level scenario for this game")
+    return payload
+
+
 @router.get("/nfl/research", tags=["nfl"])
 def nfl_research(session: DatabaseSession, settings: AppSettings) -> dict:
     """Imported machine-readable model benchmark studies (never a hand-typed table)."""
@@ -869,6 +903,18 @@ def experiment_policy(session: DatabaseSession, settings: AppSettings):
     from app.services.qualification_service import QualificationService
 
     return QualificationService(session, settings).policy_report()
+
+
+@router.get("/experiment/funnel", tags=["experiment"])
+def experiment_funnel(
+    session: DatabaseSession, settings: AppSettings,
+    days: int | None = Query(None, ge=1, le=365),
+) -> dict:
+    """Where the experiment's games go, and the one reason each dropped out."""
+
+    from app.services.experiment_funnel import ExperimentFunnelService
+
+    return ExperimentFunnelService(session, settings).funnel(days=days)
 
 
 @router.get("/experiment/qualification-funnel", tags=["experiment"])

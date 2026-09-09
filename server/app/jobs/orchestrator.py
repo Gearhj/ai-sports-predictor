@@ -783,7 +783,10 @@ class JobOrchestrator:
                 records_received=len(events), controlled_live_request=False,
                 source_mode="LIVE", job_run_id=self._active_job_run_id,
                 reservation_id=ledger.id,
-                response_metadata={"sport_key": "americanfootball_nfl", **result},
+                response_metadata={
+                    "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                    "sport_key": "americanfootball_nfl", **result,
+                },
             ))
             self.session.commit()
             return {"records": result["quotes"], "provider_called": True, "quota": metadata, **result}
@@ -797,7 +800,10 @@ class JobOrchestrator:
                 controlled_live_request=False, source_mode="LIVE",
                 job_run_id=self._active_job_run_id, reservation_id=ledger.id,
                 error_type=type(exc).__name__,
-                response_metadata={"sport_key": "americanfootball_nfl", "response_received": False},
+                response_metadata={
+                    "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                    "sport_key": "americanfootball_nfl", "response_received": False,
+                },
             ))
             self.session.commit()
             raise
@@ -886,7 +892,10 @@ class JobOrchestrator:
                     records_received=len(events), controlled_live_request=False,
                     source_mode="LIVE", job_run_id=self._active_job_run_id,
                     reservation_id=ledger.id,
-                    response_metadata={"sport_key": "americanfootball_nfl", **ingested},
+                    response_metadata={
+                        "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                        "sport_key": "americanfootball_nfl", **ingested,
+                    },
                 ))
                 self.session.commit()
                 provider_result = {
@@ -906,6 +915,7 @@ class JobOrchestrator:
                     job_run_id=self._active_job_run_id, reservation_id=ledger.id,
                     error_type=type(exc).__name__,
                     response_metadata={
+                        "request_shape": (ledger.response_metadata or {}).get("request_shape"),
                         "sport_key": "americanfootball_nfl", "response_received": False,
                     },
                 ))
@@ -1370,6 +1380,7 @@ class JobOrchestrator:
                     job_run_id=self._active_job_run_id,
                     reservation_id=ledger.id,
                     response_metadata={
+                        "request_shape": (ledger.response_metadata or {}).get("request_shape"),
                         "reservation_id": str(ledger.id),
                         "event_count": len(events),
                         "requests_used": _int_or_none(provider_metadata.get("requests_used")),
@@ -1404,6 +1415,7 @@ class JobOrchestrator:
                     reservation_id=ledger.id,
                     error_type=type(exc).__name__,
                     response_metadata={
+                        "request_shape": (ledger.response_metadata or {}).get("request_shape"),
                         "reservation_id": str(ledger.id),
                         "requests_used": _int_or_none(provider_metadata.get("requests_used")),
                         "response_received": response_received,
@@ -1822,12 +1834,63 @@ class JobOrchestrator:
                     "reading_age_hours": round(state.reading_age_hours or 0.0, 2),
                 },
             )
+            # ...and then the floor still refuses THIS request. Reserving the
+            # probe used to fall through, which let a caller that had just been
+            # told the balance was too low to read spend its full three credits
+            # anyway. That happened on 2026-09-08 (8 remaining, then 5) and
+            # again on 2026-09-09. The probe exists to refresh the reading, not
+            # to license the request whose refusal justified it: the next run
+            # sees a fresh number and either proceeds or stays latched.
+            raise SourceError(
+                "THE_ODDS_API",
+                f"Odds quota floor reached ({remaining} remaining, reading "
+                f"{round(state.reading_age_hours or 0.0, 1)}h old). A bounded recovery "
+                f"probe has been reserved to refresh the balance; this request is refused.",
+                retryable=False,
+            )
         if latest.completed_at:
             elapsed = datetime.now(UTC) - _aware(latest.completed_at)
             cooldown = timedelta(minutes=self.settings.odds_manual_cooldown_minutes)
             if elapsed < cooldown:
                 seconds = int((cooldown - elapsed).total_seconds())
                 raise SourceError("THE_ODDS_API", f"Odds refresh cooldown active for {seconds} more seconds", retryable=False)
+
+    def _enforce_lane_budget(self, endpoint_key: str, request_shape: dict[str, Any]) -> None:
+        """Refuse a request whose lane cannot pay for it.
+
+        A lane refusal is not a failure to be retried -- it is the budget
+        working -- so it is raised non-retryable with the lane named, and the
+        protected MLB lanes keep their allocation whatever else is asking.
+        """
+        from app.services.odds_budget_lanes import lane_budget, lane_for_request
+
+        markets = list(request_shape.get("markets") or [])
+        regions = request_shape.get("regions") or []
+        league = ("MLB" if "baseball" in endpoint_key
+                  else "NFL" if "americanfootball" in endpoint_key else "")
+        if not league or not markets:
+            return  # nothing declared to price; the monthly guard still applies
+        cost = max(1, len(markets) * max(1, len(regions) if isinstance(regions, list) else 1))
+        lane = lane_for_request(
+            league_code=league, markets=markets,
+            recovery=bool(request_shape.get("recovery")),
+        )
+        budget = lane_budget(
+            self.session,
+            monthly_cap=self.settings.odds_monthly_credit_cap,
+            reserve=self.settings.odds_monthly_credit_reserve,
+            daily_cap=self.settings.odds_daily_credit_budget,
+            floor=self.settings.odds_quota_floor,
+            display_timezone=self.settings.display_timezone,
+        )
+        allowed, refusal = budget.may_spend(lane, cost)
+        if not allowed:
+            raise SourceError(
+                "THE_ODDS_API",
+                f"{lane} lane cannot fund this {cost}-credit request: "
+                f"{refusal or 'lane allocation exhausted'}",
+                retryable=False,
+            )
 
     def _reserve_provider_request(
         self,
@@ -1837,6 +1900,19 @@ class JobOrchestrator:
         controlled_live_request: bool,
         request_shape: dict[str, Any],
     ) -> ProviderRequestLedger:
+        # THE ONE PLACE A CREDIT CAN BE COMMITTED.
+        # Every call to the odds provider in this codebase is immediately
+        # preceded by a reservation written here, so this is where a budget can
+        # be made to mean something. Enforcing in each caller instead would
+        # leave whichever caller was forgotten free to spend the reserve --
+        # which is exactly what happened in September, when a ten-minute
+        # three-market poller that consulted no budget at all consumed 495 of
+        # the month's 500 credits in four days and left five slate-days with no
+        # prices for any decision.
+        from app.services import odds_budget
+
+        if provider == "THE_ODDS_API" and endpoint_key not in odds_budget.ZERO_COST_ENDPOINTS:
+            self._enforce_lane_budget(endpoint_key, request_shape)
         now = datetime.now(UTC)
         fingerprint = sha256(
             json.dumps(request_shape, sort_keys=True, separators=(",", ":")).encode("utf-8")

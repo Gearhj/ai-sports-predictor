@@ -147,10 +147,27 @@ def lane_for_request(
     return LANE_OTHER_RESEARCH
 
 
-def lane_of_ledger_row(row: ProviderRequestLedger) -> str:
-    """Attribute a persisted request to a lane, from its recorded shape."""
+def lane_of_ledger_row(
+    row: ProviderRequestLedger, *, group: list[ProviderRequestLedger] | None = None,
+) -> str:
+    """Attribute a persisted request to a lane, from its recorded shape.
 
-    shape = (row.response_metadata or {}).get("request_shape") or {}
+    The shape is written on the RESERVED row. Terminal rows now copy it, but
+    every row written before that change carries only the response summary, so
+    the whole reservation group is searched rather than the terminal row alone.
+    Without this, a completed request is indistinguishable from a shapeless one
+    and lands in the optional lane by default -- which would quietly report the
+    protected lanes as unspent no matter how much they had actually spent.
+    """
+
+    shape: dict[str, Any] = {}
+    for candidate in (group or [row]):
+        found = (candidate.response_metadata or {}).get("request_shape") or {}
+        if found:
+            shape = found
+            break
+    if not shape:
+        shape = (row.response_metadata or {}).get("request_shape") or {}
     markets = shape.get("markets") or []
     recovery = bool(shape.get(RECOVERY_MARKER))
     league = "MLB" if "baseball" in (row.endpoint_key or "") else (
@@ -385,7 +402,7 @@ def lane_budget(
         if chosen.endpoint_key in odds_budget.ZERO_COST_ENDPOINTS:
             continue
         cost = odds_budget._policy_cost(chosen)
-        key = lane_of_ledger_row(chosen)
+        key = lane_of_ledger_row(chosen, group=group)
         state = states.get(key)
         if state is None:
             unattributed += cost
