@@ -3476,6 +3476,12 @@ class ReadService:
                 continue
             seen.add(outcome_key)
             latest.append(row)
+        # The temporary fallback is a fallback, not a ninth bookmaker. Applied
+        # PER MARKET so a fallback price can serve a market the primary never
+        # covered while never displacing one the primary did -- including when
+        # the fallback row is newer, which is exactly when it would otherwise
+        # win the latest-per-book reduction.
+        latest = _prefer_primary_per_market(latest)
         self._market_snapshot_cache[cache_key] = list(latest)
         return latest
 
@@ -3827,3 +3833,20 @@ def _duration(started: datetime | None, completed: datetime | None) -> str:
         return "0s"
     seconds = int((_aware(completed or datetime.now(UTC)) - _aware(started)).total_seconds())
     return f"{seconds // 60}m {seconds % 60}s" if seconds >= 60 else f"{seconds}s"
+
+
+def _prefer_primary_per_market(
+    rows: list[tuple[Any, Any, Any, Any]],
+) -> list[tuple[Any, Any, Any, Any]]:
+    """Drop fallback rows for any market the governed primary already priced."""
+    from app.data_sources.provider_registry import prefer_primary
+
+    by_market: dict[Any, list[tuple[Any, Any, Any, Any]]] = defaultdict(list)
+    for row in rows:
+        by_market[row[0].id].append(row)
+    kept: list[tuple[Any, Any, Any, Any]] = []
+    for market_rows in by_market.values():
+        kept.extend(prefer_primary(market_rows, lambda row: row[2].source))
+    # Preserve the deterministic order the query established.
+    order = {id(row): index for index, row in enumerate(rows)}
+    return sorted(kept, key=lambda row: order[id(row)])

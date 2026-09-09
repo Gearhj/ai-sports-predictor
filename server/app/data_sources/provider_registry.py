@@ -43,6 +43,10 @@ toggle, so ``governed`` is a property of this registry and not of a setting.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import UTC, date, datetime
+from typing import Any
+
 from dataclasses import dataclass
 
 #: The single provider whose prices may reach a governed V2.1 decision.
@@ -113,10 +117,70 @@ PROVIDERS: dict[str, ProviderIdentity] = {
     ),
 }
 
-#: The source values a governed read path may consider.
+#: The source values a governed read path may consider by permanent authority.
+#: SportsGameOdds is NOT in here and never becomes so by being enabled: it is a
+#: dated, scoped exception handled below.
 GOVERNED_SOURCES: frozenset[str] = frozenset(
     identity.key for identity in PROVIDERS.values() if identity.governed
 )
+
+# --- the temporary governed fallback -----------------------------------------
+# SportsGameOdds may price a governed MLB moneyline ONLY while the primary
+# provider's September credits are exhausted. Three things bound it, and all
+# three are here rather than in configuration, because a fallback that can be
+# widened by editing a setting is a fallback that will be widened:
+#
+#   * it expires on a fixed date, so October needs no one to remember;
+#   * it covers one league and one market, the only market a governed decision
+#     can price;
+#   * it is still never the preferred source -- see prefer_primary below.
+#
+# It also never stops being itself. Its rows keep source = SPORTSGAMEODDS and
+# its bookmakers keep the "sgo:" namespace, so a two-sided pair can never mix
+# providers and nothing is ever relabelled as THE_ODDS_API.
+GOVERNED_FALLBACK = SPORTSGAMEODDS
+GOVERNED_FALLBACK_UNTIL = date(2026, 9, 30)
+GOVERNED_FALLBACK_LEAGUES: frozenset[str] = frozenset({"MLB"})
+GOVERNED_FALLBACK_MARKETS: frozenset[str] = frozenset({"MONEYLINE", "h2h"})
+
+
+def fallback_window_open(now: datetime | None = None) -> bool:
+    """True only on or before the last authorized day, in UTC."""
+    moment = now or datetime.now(UTC)
+    return moment.date() <= GOVERNED_FALLBACK_UNTIL
+
+
+def governed_sources(
+    *, now: datetime | None = None, fallback_enabled: bool | None = None,
+) -> frozenset[str]:
+    """Which sources may price a governed MLB moneyline at this moment.
+
+    Fail-closed: the fallback is included only when it is switched on AND the
+    dated window is still open. Either condition alone is not enough, and the
+    caller never has to know the date.
+    """
+    if fallback_enabled is None:
+        try:
+            from app.core.config import get_settings
+
+            fallback_enabled = bool(getattr(get_settings(), "sportsgameodds_enabled", False))
+        except Exception:  # configuration unavailable -> primary only
+            fallback_enabled = False
+    if fallback_enabled and fallback_window_open(now):
+        return GOVERNED_SOURCES | {GOVERNED_FALLBACK}
+    return GOVERNED_SOURCES
+
+
+def prefer_primary(rows: "list[Any]", source_of: "Callable[[Any], str]") -> "list[Any]":
+    """Drop fallback rows whenever the primary can answer at all.
+
+    This is what makes the fallback a fallback rather than a ninth bookmaker.
+    The selection downstream takes the BEST price across books, so without this
+    a fallback price could outbid the governed provider on a game the governed
+    provider had already covered.
+    """
+    primary = [row for row in rows if source_of(row) in GOVERNED_SOURCES]
+    return primary if primary else list(rows)
 
 
 class ProviderAuthorityError(RuntimeError):
@@ -169,7 +233,9 @@ def authorised_sources_for_mode(source_mode: str | None) -> frozenset[str] | Non
     """
 
     if (source_mode or "LIVE").upper() == "LIVE":
-        return GOVERNED_SOURCES
+        # Includes the dated MLB-moneyline fallback while it is open, and
+        # collapses back to the primary alone the moment it is not.
+        return governed_sources()
     return None
 
 

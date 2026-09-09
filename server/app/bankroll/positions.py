@@ -88,7 +88,9 @@ def publish_official_positions(session: Session, settings: Settings, games: list
 
 from sqlalchemy import or_
 
-from app.data_sources.provider_registry import GOVERNED_SOURCES, require_governed
+from app.data_sources.provider_registry import (
+    GOVERNED_SOURCES, governed_sources, prefer_primary, require_governed,
+)
 
 
 def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]]:
@@ -107,7 +109,7 @@ def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]
             # compute no-vig; it is not a provenance barrier.
             or_(
                 OddsSnapshot.source_mode != "LIVE",
-                OddsSnapshot.source.in_(GOVERNED_SOURCES),
+                OddsSnapshot.source.in_(governed_sources()),
             ),
         )
         .order_by(OddsSnapshot.observed_at.desc())
@@ -115,8 +117,11 @@ def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]
     latest: dict[tuple[Any, Any], tuple[MarketOutcome, OddsSnapshot, Sportsbook]] = {}
     for outcome, snapshot, book in rows:
         latest.setdefault((outcome.id, book.id), (outcome, snapshot, book))
+    # The fallback is a fallback, not a ninth bookmaker: if the governed primary
+    # priced this market at all, the fallback's rows are dropped before the best
+    # price is chosen.
     by_book: dict[Any, list[tuple[MarketOutcome, OddsSnapshot, Sportsbook]]] = {}
-    for row in latest.values():
+    for row in prefer_primary(list(latest.values()), lambda item: item[1].source):
         by_book.setdefault(row[2].id, []).append(row)
     from app.markets.odds import no_vig_probabilities
     no_vig: dict[Any, list[float]] = {}

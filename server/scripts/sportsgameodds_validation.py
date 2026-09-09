@@ -109,7 +109,12 @@ def _decimal_from_american(american: int) -> float:
 
 
 def build_request(base_url: str, league: str, limit: int, extra: list[str]) -> tuple[str, dict[str, str]]:
-    params = {"leagueID": league, "limit": str(limit), "oddsAvailable": "true"}
+    # Only leagueID and limit are assumed. Every other filter is passed in
+    # explicitly with --param, so the request is exactly what was reviewed in
+    # the dry run rather than whatever this file happened to default to. The
+    # first validation used "oddsAvailable", which is not a documented
+    # parameter name and was silently ignored.
+    params = {"leagueID": league, "limit": str(limit)}
     for item in extra:
         if "=" in item:
             key, value = item.split("=", 1)

@@ -37,7 +37,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.data_sources.provider_registry import GOVERNED_SOURCES
+from app.data_sources.provider_registry import GOVERNED_SOURCES, governed_sources
 from app.models import (
     AvailabilityEvent,
     ExperimentDecisionPhase,
@@ -327,7 +327,7 @@ def build_funnel_read_context(
                # Governed pricing reads governed providers only; see provider_registry.
            # This path is the LIVE slate read model, so the governed set applies
            # directly rather than through the per-mode authority helper.
-               OddsSnapshot.source.in_(GOVERNED_SOURCES))
+               OddsSnapshot.source.in_(governed_sources()))
         .group_by(Market.id, OddsSnapshot.sportsbook_id).subquery("latest_market_book")
     )
     query = (
@@ -345,7 +345,7 @@ def build_funnel_read_context(
                # Governed pricing reads governed providers only; see provider_registry.
            # This path is the LIVE slate read model, so the governed set applies
            # directly rather than through the per-mode authority helper.
-               OddsSnapshot.source.in_(GOVERNED_SOURCES))
+               OddsSnapshot.source.in_(governed_sources()))
         # Same deterministic order as ReadService._latest_market_snapshots.
         .order_by(OddsSnapshot.observed_at.desc(), Market.id, MarketOutcome.id, Sportsbook.id)
     )
