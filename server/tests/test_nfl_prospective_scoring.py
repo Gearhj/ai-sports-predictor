@@ -111,9 +111,10 @@ def forecast(
 
 
 def record_final(world, *, home: int = FINAL_HOME, away: int = FINAL_AWAY,
-                 checksum: str = "final-a", source: str = "OPERATOR_ENTERED") -> None:
+                 checksum: str = "final-a", source: str = "OPERATOR_ENTERED",
+                 observed: datetime | None = None) -> None:
     session, game = world["session"], world["game"]
-    observed = KICKOFF + timedelta(hours=3)
+    observed = observed or KICKOFF + timedelta(hours=3)
     session.add(GameStateObservation(
         game_id=game.id, home_team_id=world["home"].id, away_team_id=world["away"].id,
         scheduled_at=KICKOFF, status=GameStatus.FINAL.value,
@@ -250,8 +251,11 @@ def test_a_corrected_final_scores_beside_the_original_rather_than_erasing_it(wor
     service = ForecastEvaluationService(world["session"])
     service.evaluate_game(canonical_game_id=world["game"].id)
 
-    # A correction: same game, different score, different observation identity.
-    record_final(world, home=14, away=10, checksum="final-b")
+    # A correction: same game, different score, known to us LATER. The
+    # knowledge time is what makes it a correction rather than a second
+    # contradictory claim about the same instant.
+    record_final(world, home=14, away=10, checksum="final-b",
+                 observed=KICKOFF + timedelta(days=2))
     service.evaluate_game(canonical_game_id=world["game"].id)
 
     rows = list(world["session"].scalars(
@@ -259,6 +263,13 @@ def test_a_corrected_final_scores_beside_the_original_rather_than_erasing_it(wor
     assert len(rows) == 2, "the first verdict is still what we said at the time"
     assert [row.home_score for row in rows] == [13, 14]
     assert len({row.result_identity for row in rows}) == 2
+    # ...but only the corrected one counts, and the original says why it does not.
+    original, corrected = rows
+    assert corrected.is_current is True
+    assert original.is_current is False
+    assert original.supersede_reason == "RESULT_CORRECTED"
+    assert original.superseded_by_id == corrected.id
+    assert original.superseded_at is not None
 
 
 def test_a_score_with_no_observation_behind_it_is_not_scoreable(world):

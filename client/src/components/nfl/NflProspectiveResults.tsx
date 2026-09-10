@@ -27,7 +27,7 @@
  *    reconstructing a price from a model probability.
  */
 import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, Target, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, Radio, Target, XCircle } from 'lucide-react'
 import type { NflProspectiveResults, ProspectiveGame, ProspectiveModel } from '../../types/nflProspective'
 
 const number = (value: number | null | undefined, digits = 2): string =>
@@ -103,6 +103,10 @@ export function NflProspectiveSection({ data }: { data: NflProspectiveResults })
         {data.review_checkpoint_games} settled selections per sport; these are shown from the
         first game because hiding evidence until then would be its own distortion.
       </p>
+
+      {data.superseded_evaluations > 0 && (
+        <p className="np__note">{data.provenance_note}</p>
+      )}
 
       <div className="np__scoreboard">
         <Stat label="Scored games" value={String(board.scored_games)} />
@@ -184,11 +188,7 @@ function GameCard({ game }: { game: ProspectiveGame }) {
         {game.forecast.hours_before_kickoff != null
           ? ` · ${game.forecast.hours_before_kickoff}h before kickoff` : ''}
         {' · '}{game.forecast.engine_id} {game.forecast.snapshot_type} v{game.forecast.snapshot_version}
-        {!game.result.provider_verified && (
-          <span className="np-game__provenance">
-            <AlertTriangle size={12} aria-hidden="true" /> final {game.result.source.toLowerCase().replace('_', ' ')}, not provider-verified
-          </span>
-        )}
+        {' '}<ResultProvenance result={game.result} />
       </p>
 
       <div className="np-game__errors">
@@ -252,6 +252,7 @@ function GameCard({ game }: { game: ProspectiveGame }) {
             <strong>imported</strong> {stamp(game.forecast.imported_utc)}</p>
           <p><strong>Result identity</strong> <code>{game.result.identity}</code> ·{' '}
             observed {stamp(game.result.observed_utc)}</p>
+          <p><strong>Result provenance</strong> {game.result.label} — {game.result.note}</p>
           {game.distribution.available && (
             <p><strong>Distribution</strong> {game.distribution.draws?.toLocaleString()} saved draws ·
               {' '}CRPS home {number(game.distribution.crps_home, 3)} · away {number(game.distribution.crps_away, 3)} ·
@@ -286,6 +287,31 @@ function GameCard({ game }: { game: ProspectiveGame }) {
         </div>
       </details>
     </article>
+  )
+}
+
+/**
+ * Where the final came from, in the words that fit it.
+ *
+ * Three states, and the middle one is the reason this is a component rather
+ * than a boolean. A human typing a box score is unverified and gets a warning.
+ * The governed provider is verified and needs no badge at all. The free
+ * automatic feed is neither: it is trustworthy and hands-off, but it is not
+ * the governed provider, and stamping "verified" on it would launder a
+ * community mirror into a guarantee we have not earned.
+ */
+function ResultProvenance({ result }: { result: ProspectiveGame['result'] }) {
+  if (result.provider_verified) return null
+  const source = result.source.toLowerCase().replace(/_/g, ' ')
+  return (
+    <span className={`np-game__provenance${result.automated ? ' is-automated' : ' is-manual'}`}
+      title={result.note}>
+      {result.automated
+        ? <Radio size={12} aria-hidden="true" />
+        : <AlertTriangle size={12} aria-hidden="true" />}
+      final from {source} — {result.automated ? 'automatic, not provider-verified' : 'operator entered, not verified'}
+      {result.superseded_count > 0 && ` · replaced ${result.superseded_count} earlier evaluation${result.superseded_count === 1 ? '' : 's'}`}
+    </span>
   )
 }
 

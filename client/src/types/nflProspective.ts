@@ -36,8 +36,17 @@ export interface ProspectiveGame {
     identity: string
     source: string
     observed_utc: string | null
-    /** False for an operator-entered final; the page must say so. */
+    /** Provenance rank; 1 governed provider, 2 automated feed, 3 operator. */
+    tier: number
+    /** "Provider-verified" / "Automated source" / "Operator-entered". */
+    label: string
+    note: string
+    /** True only for the governed provider. An automated feed is not this. */
     provider_verified: boolean
+    /** False when a human keyed the score in; the page must say so. */
+    automated: boolean
+    /** Earlier evaluations this one replaced. Usually zero. */
+    superseded_count: number
   }
   outcome: {
     actual: 'HOME' | 'AWAY' | 'TIE'
@@ -128,6 +137,9 @@ export interface NflProspectiveResults {
   scoring_version: string
   models: ProspectiveModel[]
   total_scored_games: number
+  /** Retained for audit and excluded from every metric. */
+  superseded_evaluations: number
+  provenance_note: string
   review_checkpoint_games: number
   sample_note: string
   inventory: {

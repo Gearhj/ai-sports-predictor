@@ -47,7 +47,10 @@ function game(over: Partial<ProspectiveGame> = {}): ProspectiveGame {
     },
     result: {
       identity: 'OPERATOR_ENTERED:6e454379', source: 'OPERATOR_ENTERED',
-      observed_utc: '2026-09-10T03:30:00+00:00', provider_verified: false,
+      observed_utc: '2026-09-10T03:30:00+00:00',
+      tier: 3, label: 'Operator-entered',
+      note: 'A person read a box score and entered it.',
+      provider_verified: false, automated: false, superseded_count: 0,
     },
     outcome: {
       actual: 'HOME', predicted: 'HOME', winner_correct: true,
@@ -130,6 +133,8 @@ function results(over: Partial<NflProspectiveResults> = {}): NflProspectiveResul
     scoring_version: 'AISP_NFL_PROSPECTIVE_SCORING_V1',
     models: [model()],
     total_scored_games: 1,
+    superseded_evaluations: 0,
+    provenance_note: 'Exactly one evaluation per game is current.',
     review_checkpoint_games: 50,
     sample_note: 'One game is a description of one game and cannot establish that a model works.',
     inventory: {
@@ -226,20 +231,61 @@ describe('honest unavailability', () => {
     expect(screen.getByText('no comparable quote')).toBeTruthy()
   })
 
-  it('labels an operator-entered final as not provider-verified', () => {
+  it('labels an operator-entered final as unverified', () => {
     render(<NflProspectiveSection data={results()} />)
     const card = screen.getByLabelText('NE at SEA result')
-    expect(card.textContent).toContain('not provider-verified')
     expect(card.textContent).toContain('operator entered')
+    expect(card.textContent).toContain('not verified')
   })
 
-  it('drops the provenance warning when a provider supplied the final', () => {
+  it('calls an automated free feed automatic, and refuses to call it verified', () => {
+    /* The middle case. Trustworthy and hands-off, but not the governed
+       provider, so "verified" would be a claim we have not earned. */
+    const automated = game({
+      result: { identity: 'NFLVERSE:abc', source: 'NFLVERSE',
+        observed_utc: '2026-09-10T21:07:00+00:00',
+        tier: 2, label: 'Automated source',
+        note: 'Recorded automatically from the nflverse schedules release.',
+        provider_verified: false, automated: true, superseded_count: 1 },
+    })
+    render(<NflProspectiveSection data={results({ models: [model({ games: [automated] })] })} />)
+    const card = screen.getByLabelText('NE at SEA result')
+    expect(card.textContent).toContain('final from nflverse')
+    expect(card.textContent).toContain('automatic, not provider-verified')
+    expect(card.textContent).not.toContain('operator entered')
+    expect(card.textContent).toContain('replaced 1 earlier evaluation')
+  })
+
+  it('counts a game once when its result gains better provenance', () => {
+    /* An upgraded result adds an audit row; it must not add a game. */
+    const upgraded = game({
+      result: { identity: 'NFLVERSE:abc', source: 'NFLVERSE',
+        observed_utc: '2026-09-10T21:07:00+00:00',
+        tier: 2, label: 'Automated source', note: 'nflverse schedules release.',
+        provider_verified: false, automated: true, superseded_count: 1 },
+    })
+    const { container } = render(<NflProspectiveSection data={results({
+      models: [model({ games: [upgraded] })],
+      total_scored_games: 1, superseded_evaluations: 1,
+      provenance_note: '1 superseded evaluation(s) are held for audit.',
+    })} />)
+    expect(stat(container, 'Scored games')).toContain('1')
+    expect(container.querySelector('.np__sample')!.textContent).toContain('n = 1')
+    expect(container.textContent).toContain('held for audit')
+    expect(screen.getAllByLabelText('NE at SEA result')).toHaveLength(1)
+  })
+
+  it('drops the provenance badge entirely when the governed provider supplied the final', () => {
     const verified = game({
       result: { identity: 'THE_ODDS_API:abc', source: 'THE_ODDS_API',
-        observed_utc: '2026-09-10T03:30:00+00:00', provider_verified: true },
+        observed_utc: '2026-09-10T03:30:00+00:00',
+        tier: 1, label: 'Provider-verified', note: 'From the governed provider.',
+        provider_verified: true, automated: true, superseded_count: 0 },
     })
     render(<NflProspectiveSection data={results({ models: [model({ games: [verified] })] })} />)
-    expect(screen.getByLabelText('NE at SEA result').textContent).not.toContain('not provider-verified')
+    const card = screen.getByLabelText('NE at SEA result')
+    expect(card.textContent).not.toContain('not provider-verified')
+    expect(card.querySelector('.np-game__provenance')).toBeNull()
   })
 
   it('reports distribution scoring as unavailable with its reason', () => {

@@ -11,6 +11,17 @@ n travels with every aggregate. A mean over one game is a fact about one game;
 the page cannot describe it honestly without knowing how many games are behind
 it, so the count is part of the payload rather than something the client is
 trusted to remember.
+
+AND ONE RULE ABOUT WHICH ROWS EXIST AT ALL
+------------------------------------------
+``research_forecast_evaluations`` is append-only, so one game can hold several
+honest evaluations of the same forecast: the one scored against a human's
+box-score entry, and the one scored against the automatic feed that later
+confirmed it. Both are true and both are kept. Only the CURRENT one is read.
+
+Reading all of them would report two scored games where one was played -- a
+count inflated purely by provenance improving, which is the most misleading
+possible direction for a number to move.
 """
 from __future__ import annotations
 
@@ -26,6 +37,7 @@ from app.models import (
     Game, GameTeam, League, ResearchForecastEvaluation, ResearchSupplement,
     Season, ShadowForecast, Team,
 )
+from app.services import result_provenance as provenance
 from app.services.forecast_evaluation import LEAGUE, NON_NUMERICAL_KINDS, SCORING_VERSION
 
 SCHEMA_VERSION = "AISP_NFL_PROSPECTIVE_RESULTS_V1"
@@ -58,9 +70,15 @@ class ForecastEvaluationReadService:
         now = now or datetime.now(UTC)
         rows = list(self.session.scalars(
             select(ResearchForecastEvaluation)
-            .where(ResearchForecastEvaluation.league_code == LEAGUE)
+            .where(ResearchForecastEvaluation.league_code == LEAGUE,
+                   ResearchForecastEvaluation.is_current.is_(True))
             .order_by(ResearchForecastEvaluation.kickoff_utc.desc())
         ))
+        superseded = self.session.scalar(
+            select(func.count()).select_from(ResearchForecastEvaluation)
+            .where(ResearchForecastEvaluation.league_code == LEAGUE,
+                   ResearchForecastEvaluation.is_current.is_(False))
+        ) or 0
         by_model: dict[tuple[str, str], list[ResearchForecastEvaluation]] = defaultdict(list)
         for row in rows:
             by_model[(row.engine_id, row.engine_version)].append(row)
@@ -80,6 +98,14 @@ class ForecastEvaluationReadService:
             "scoring_version": SCORING_VERSION,
             "models": models,
             "total_scored_games": len({row.event_id for row in rows}),
+            # Kept for audit, deliberately excluded from every metric above.
+            "superseded_evaluations": superseded,
+            "provenance_note": (
+                "One game can hold several evaluations as its result gains better provenance. "
+                "Every one is retained, and exactly one is current; counts and averages read "
+                f"only the current row, so n cannot rise because a source improved. "
+                f"{superseded} superseded evaluation(s) are held for audit."
+            ),
             "review_checkpoint_games": REVIEW_CHECKPOINT_GAMES,
             "sample_note": SAMPLE_NOTE,
             "inventory": self._inventory(),
@@ -154,6 +180,14 @@ class ForecastEvaluationReadService:
             "games": [self._game(row, teams) for row in entries],
         }
 
+    def _superseded_count(self, row: ResearchForecastEvaluation) -> int:
+        """How many earlier evaluations this one replaced. Usually zero."""
+
+        return self.session.scalar(
+            select(func.count()).select_from(ResearchForecastEvaluation)
+            .where(ResearchForecastEvaluation.superseded_by_id == row.id)
+        ) or 0
+
     @staticmethod
     def _coverage(entries: list[ResearchForecastEvaluation]) -> dict[str, Any] | None:
         """Containment RATE across games, with its own n stated."""
@@ -205,7 +239,8 @@ class ForecastEvaluationReadService:
             "result": {
                 "identity": row.result_identity, "source": row.result_source,
                 "observed_utc": _iso(row.result_observed_utc),
-                "provider_verified": row.result_source not in ("OPERATOR_ENTERED",),
+                **provenance.describe(row.result_source),
+                "superseded_count": self._superseded_count(row),
             },
             "outcome": {
                 "actual": row.actual_outcome, "predicted": row.predicted_outcome,

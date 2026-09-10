@@ -192,6 +192,13 @@ class Settings(BaseSettings):
     nfl_shadow_enabled: bool = False
     nfl_shadow_bundle_import_dir: str = ""
     nfl_shadow_odds_enabled: bool = False
+    # Automatic NFL final ingestion from the free nflverse schedules release.
+    # This is the kill switch: off means completed games stop entering AISP by
+    # themselves and prospective scoring waits for an operator again. It spends
+    # nothing -- a public GitHub asset, no key, no metered allowance -- so it
+    # defaults on, unlike every credit-spending path in this file.
+    nfl_final_ingest_enabled: bool = True
+    nfl_final_ingest_interval_minutes: int = Field(default=60, ge=15, le=1440)
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports
@@ -296,6 +303,22 @@ class Settings(BaseSettings):
         declared = os.environ.get("ASP_ODDS_COLLECTION_OWNER", "").strip()
         configured = (self.odds_collection_owner or "").strip()
         return bool(configured) and declared == configured
+
+    @property
+    def owns_nfl_final_ingest(self) -> bool:
+        """True only in the single supervised process, and only when armed.
+
+        Bound to the SAME process-identity token as odds collection. That token
+        is not really about odds -- it is how this host names the one backend
+        the supervisor started, and this machine has repeatedly had three or
+        four listening at once. Two of them ingesting finals would race on the
+        same append-only rows for no benefit.
+
+        Fail-closed twice over, exactly like the odds owner: an unset token on
+        either side means no owner, and a mismatch means this process is not it.
+        """
+
+        return self.nfl_final_ingest_enabled and self.owns_odds_collection
 
     @property
     def cors_origin_list(self) -> list[str]:

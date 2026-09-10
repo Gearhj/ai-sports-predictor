@@ -135,3 +135,9 @@
   .np-game { padding: 15px 14px; }
   .np-game__errors { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Result provenance. An automated free feed is not a warning and not a
+ * guarantee, so it reads in the same neutral grey as the rest of the frozen
+ * line; only a human-entered score gets the amber. */
+.np-game__provenance.is-automated { color: var(--muted); background: var(--soft); }
+.np-game__provenance.is-manual { color: #8b511f; background: var(--orange-soft); }

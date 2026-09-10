@@ -47,6 +47,7 @@ from app.models import (
     OddsSnapshot, ResearchForecastEvaluation, Season, ShadowForecast, Sportsbook, Team,
 )
 from app.services import forecast_scoring as scoring
+from app.services import result_provenance as provenance
 from app.services.forecast_scoring import (
     HOME, AWAY, TIE, JointMass, MassFunction, OutcomeProbabilities, PointErrors,
 )
@@ -66,6 +67,12 @@ PUBLISHED_AFTER_KICKOFF = "PUBLISHED_AFTER_KICKOFF"
 NO_KICKOFF = "NO_SCHEDULED_KICKOFF"
 NO_PROBABILITIES = "NO_OUTCOME_PROBABILITIES"
 SUPERSEDED = "SUPERSEDED_BY_A_LATER_PRE_KICKOFF_SNAPSHOT"
+
+#: Why an evaluation stopped being the current one. The distinction is the
+#: point: the first says our verdict was right and is now better evidenced,
+#: the second says the result we scored against was wrong.
+SUPERSEDED_BY_PROVENANCE = "PROVENANCE_UPGRADE"
+SUPERSEDED_BY_CORRECTION = "RESULT_CORRECTED"
 
 
 #: The provider vocabulary and ours name the same three markets. Matching on
@@ -122,6 +129,11 @@ class GameResult:
     identity: str
     source: str
     observed_at: datetime | None
+    tier: int = provenance.UNCLASSIFIED_TIER
+
+    @property
+    def scores(self) -> tuple[int, int]:
+        return (self.home_score, self.away_score)
 
 
 class ForecastEvaluationService:
@@ -204,36 +216,51 @@ class ForecastEvaluationService:
 
     # -- results ----------------------------------------------------------
     def result_for(self, game: Game) -> GameResult | None:
-        """The final, identified by the observation that recorded it.
+        """The best-provenanced final recorded for a game.
 
-        The game row carries the current score, but its identity does not
-        change when a correction lands; the observation's checksum does, which
-        is what makes a corrected final a NEW evaluation rather than a silent
-        overwrite of the old one.
+        Identity is the OBSERVATION, not the game row. The game row carries a
+        convenience copy of the current score and its identity does not change
+        when a correction lands; the observation's checksum does, which is what
+        makes a corrected final a new evaluation rather than a silent overwrite
+        of the old one.
+
+        Which observation wins is decided by provenance rank, then recency.
+        That ordering is the whole reason an operator entry can be replaced by
+        an automatic one without the operator entry ever being deleted -- and
+        the reason a late operator entry can never displace a provider-verified
+        score.
+
+        A score sitting on the game row with no observation behind it has no
+        provenance and no stable identity, so it is not scoreable evidence.
         """
 
-        if game.status != GameStatus.FINAL or game.home_score is None or game.away_score is None:
-            return None
-        observation = self.session.scalars(
-            select(GameStateObservation)
-            .where(
-                GameStateObservation.game_id == game.id,
-                GameStateObservation.status == GameStatus.FINAL.value,
-                GameStateObservation.home_score == game.home_score,
-                GameStateObservation.away_score == game.away_score,
+        observations = [
+            row for row in self.session.scalars(
+                select(GameStateObservation).where(
+                    GameStateObservation.game_id == game.id,
+                    GameStateObservation.status == GameStatus.FINAL.value,
+                )
             )
-            .order_by(GameStateObservation.available_as_of.desc())
-            .limit(1)
-        ).first()
-        if observation is None:
-            # A score with no observation behind it has no provenance and no
-            # stable identity, so it is not scoreable evidence.
+            if row.home_score is not None and row.away_score is not None
+        ]
+        if not observations:
             return None
+        chosen = min(observations, key=lambda row: (
+            provenance.result_tier(row.source),
+            -((_aware(row.available_as_of) or datetime.min.replace(tzinfo=UTC)).timestamp()),
+            # Two records of one game at the same rank AND the same knowledge
+            # time are contradictory evidence, not a correction -- there is no
+            # principled winner. Break the tie on the checksum so the choice is
+            # at least STABLE: a current evaluation that flapped between runs
+            # would be worse than an arbitrary one that holds still.
+            str(row.payload_checksum or ""),
+        ))
         return GameResult(
-            game=game, home_score=int(game.home_score), away_score=int(game.away_score),
-            identity=f"{observation.source}:{observation.payload_checksum}",
-            source=str(observation.source),
-            observed_at=_aware(observation.observed_at),
+            game=game, home_score=int(chosen.home_score), away_score=int(chosen.away_score),
+            identity=f"{chosen.source}:{chosen.payload_checksum}",
+            source=str(chosen.source),
+            observed_at=_aware(chosen.observed_at),
+            tier=provenance.result_tier(chosen.source),
         )
 
     # -- scoring ----------------------------------------------------------
@@ -253,7 +280,7 @@ class ForecastEvaluationService:
             }
 
         frozen = self.freeze_eligible(canonical_game_id=canonical_game_id)
-        written, reused, records = 0, 0, []
+        written, reused, superseded, records = 0, 0, 0, []
         for identity, selection in frozen.items():
             payload = self._score(selection, result, now=now)
             existing = self.session.scalar(select(ResearchForecastEvaluation).where(
@@ -263,26 +290,114 @@ class ForecastEvaluationService:
                 ResearchForecastEvaluation.forecast_identity == payload["forecast_identity"],
                 ResearchForecastEvaluation.result_identity == payload["result_identity"],
             ))
-            if existing is not None:
-                reused += 1
-                records.append({"identity": identity, "written": False, "evaluation_id": str(existing.id)})
-                continue
             if dry_run:
                 records.append({"identity": identity, "written": False, "dry_run": True,
+                                "reused": existing is not None,
                                 "log_loss": payload["log_loss"]})
                 continue
-            row = ResearchForecastEvaluation(**payload)
-            self.session.add(row)
-            self.session.flush()
-            written += 1
-            records.append({"identity": identity, "written": True, "evaluation_id": str(row.id)})
+            if existing is not None:
+                reused += 1
+                record = {"identity": identity, "written": False, "evaluation_id": str(existing.id)}
+            else:
+                # Stand the incumbent down before inserting. Only one row per
+                # forecast identity may be current, and the database enforces
+                # that with a partial unique index -- so the new row cannot be
+                # inserted as current while the old one still is. Which of the
+                # two ends up current is decided immediately below, by
+                # provenance rather than by insertion order.
+                self._demote_current(payload, now=now)
+                row = ResearchForecastEvaluation(**payload)
+                self.session.add(row)
+                self.session.flush()
+                written += 1
+                record = {"identity": identity, "written": True, "evaluation_id": str(row.id)}
+            # Runs on every pass, not just after a write: an earlier version of
+            # this table had no notion of "current", so the first reconciliation
+            # is what promotes the rows that already exist.
+            reconciliation = self._reconcile_current(payload)
+            superseded += len(reconciliation["superseded"])
+            records.append({**record, **reconciliation})
         return {
             "game_id": str(canonical_game_id),
             "event_id": next(iter(frozen.values())).row.event_id if frozen else None,
             "models_considered": len(frozen),
-            "scored": written, "reused": reused, "records": records,
+            "scored": written, "reused": reused, "superseded": superseded, "records": records,
+            "result_source": result.source, "result_tier": result.tier,
             "excluded": [entry for selection in frozen.values() for entry in selection.excluded],
         }
+
+    def _siblings(self, payload: dict[str, Any]) -> list[ResearchForecastEvaluation]:
+        """Every evaluation ever written for this forecast identity."""
+
+        return list(self.session.scalars(select(ResearchForecastEvaluation).where(
+            ResearchForecastEvaluation.event_id == payload["event_id"],
+            ResearchForecastEvaluation.engine_id == payload["engine_id"],
+            ResearchForecastEvaluation.engine_version == payload["engine_version"],
+            ResearchForecastEvaluation.forecast_identity == payload["forecast_identity"],
+        )))
+
+    def _demote_current(self, payload: dict[str, Any], *, now: datetime) -> None:
+        """Temporarily clear the current flag so a new row can be inserted."""
+
+        for row in self._siblings(payload):
+            if row.is_current:
+                row.is_current = False
+                row.superseded_at = now
+        self.session.flush()
+
+    def _reconcile_current(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Leave exactly one current evaluation for this forecast identity.
+
+        Every historical row survives -- the verdict we published on Wednesday
+        is a fact about Wednesday and deleting it would destroy the audit
+        trail. But only one of them is the answer, and it is the one scored
+        against the best-provenanced result, latest breaking ties.
+
+        This is the mechanism that keeps ``n`` honest. A provider confirming a
+        score we already had adds a row and changes nothing else: the new row
+        becomes current, the old one is marked ``PROVENANCE_UPGRADE``, and the
+        count of scored games does not move.
+        """
+
+        siblings = self._siblings(payload)
+        if not siblings:
+            return {"current_evaluation_id": None, "superseded": []}
+
+        def rank(row: ResearchForecastEvaluation) -> tuple[Any, ...]:
+            observed = _aware(row.result_observed_utc) or datetime.min.replace(tzinfo=UTC)
+            evaluated = _aware(row.evaluated_at) or datetime.min.replace(tzinfo=UTC)
+            return (row.result_tier, -observed.timestamp(), -evaluated.timestamp())
+
+        current = min(siblings, key=rank)
+        # Clear the old flag first so the partial unique index never sees two
+        # current rows mid-statement.
+        superseded: list[dict[str, Any]] = []
+        for row in siblings:
+            if row.id == current.id:
+                continue
+            reason = (SUPERSEDED_BY_CORRECTION
+                      if (row.home_score, row.away_score) != (current.home_score, current.away_score)
+                      else SUPERSEDED_BY_PROVENANCE)
+            if row.is_current or row.superseded_by_id != current.id:
+                row.is_current = False
+                row.superseded_at = row.superseded_at or datetime.now(UTC)
+                row.superseded_by_id = current.id
+                row.supersede_reason = reason
+                superseded.append({
+                    "evaluation_id": str(row.id), "reason": reason,
+                    "result_source": row.result_source,
+                    "score": f"{row.home_score}-{row.away_score}",
+                })
+        self.session.flush()
+        if not current.is_current:
+            current.is_current = True
+            current.superseded_at = None
+            current.superseded_by_id = None
+            current.supersede_reason = None
+        self.session.flush()
+        return {"current_evaluation_id": str(current.id),
+                "current_result_source": current.result_source,
+                "superseded": superseded}
 
     def _score(
         self, selection: FrozenForecast, result: GameResult, *, now: datetime,
@@ -325,6 +440,7 @@ class ForecastEvaluationService:
             "kickoff_utc": selection.kickoff,
             "published_before_kickoff_seconds": selection.lead_seconds,
             "result_identity": result.identity, "result_source": result.source,
+            "result_tier": result.tier,
             "result_observed_utc": result.observed_at,
             "home_score": result.home_score, "away_score": result.away_score,
             "actual_outcome": outcome,
@@ -610,16 +726,25 @@ class ForecastEvaluationService:
         """Score every final game in one league. Safe to rerun."""
 
         now = now or datetime.now(UTC)
+        # Driven by the EVIDENCE, not by the projection. A game is scoreable
+        # once an observation records it final; the ``games`` row is a
+        # convenience copy of that, and keying off it would let one failed
+        # projection write silently stop the whole workflow.
+        has_final = (
+            select(GameStateObservation.id)
+            .where(
+                GameStateObservation.game_id == Game.id,
+                GameStateObservation.status == GameStatus.FINAL.value,
+                GameStateObservation.home_score.is_not(None),
+                GameStateObservation.away_score.is_not(None),
+            )
+            .exists()
+        )
         game_ids = list(self.session.scalars(
             select(Game.id)
             .join(Season, Season.id == Game.season_id)
             .join(League, League.id == Season.league_id)
-            .where(
-                League.code == league_code,
-                Game.status == GameStatus.FINAL,
-                Game.home_score.is_not(None),
-                Game.away_score.is_not(None),
-            )
+            .where(League.code == league_code, has_final)
             .order_by(Game.starts_at)
         ))
         results = [self.evaluate_game(canonical_game_id=game_id, dry_run=dry_run, now=now)
@@ -629,6 +754,7 @@ class ForecastEvaluationService:
             "final_games": len(game_ids),
             "scored": sum(entry.get("scored", 0) for entry in results),
             "reused": sum(entry.get("reused", 0) for entry in results),
+            "superseded": sum(entry.get("superseded", 0) for entry in results),
             "skipped": [entry for entry in results if entry.get("skipped")],
             "games": results,
             "provider_calls": 0, "models_executed": 0,
@@ -640,5 +766,6 @@ class ForecastEvaluationService:
 __all__ = [
     "ForecastEvaluationService", "FrozenForecast", "GameResult", "LEAGUE",
     "NON_NUMERICAL_KINDS", "NO_KICKOFF", "NO_PROBABILITIES", "PUBLISHED_AFTER_KICKOFF",
-    "SCORING_VERSION", "SPORT", "SUPERSEDED",
+    "SCORING_VERSION", "SPORT", "SUPERSEDED", "SUPERSEDED_BY_CORRECTION",
+    "SUPERSEDED_BY_PROVENANCE",
 ]

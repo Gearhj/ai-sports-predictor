@@ -515,6 +515,21 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "settle-nfl-shadow-decisions", "settings": settings},
             **common,
         )
+        # Free automatic finals, ordered BEFORE the evaluator so a game that
+        # ended in the last hour is detected and scored on the same pass. It
+        # spends no sportsbook credit -- a public CC-BY-4.0 GitHub asset, probed
+        # through a 43-byte timestamp file -- but it is still bound to the one
+        # supervised process, because two backends racing on the same
+        # append-only result rows would be pointless duplication.
+        if settings.owns_nfl_final_ingest:
+            scheduler.add_job(
+                execute_scheduled_job, "interval",
+                minutes=settings.nfl_final_ingest_interval_minutes, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+                id="asp-nfl-final-ingest",
+                kwargs={"job_name": "ingest-nfl-finals", "settings": settings},
+                **common,
+            )
         # Research scoring runs on the same hour as finalization but offset, so
         # it reads the finals that pass already persisted rather than racing it.
         # It spends no quota and creates no decision, so it is not bound to the

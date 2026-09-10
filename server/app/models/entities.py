@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum as SAEnum, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, false, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum as SAEnum, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
 
@@ -3371,8 +3371,33 @@ class ResearchForecastEvaluation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     result_identity: Mapped[str] = mapped_column(String(200), nullable=False)
     result_source: Mapped[str] = mapped_column(String(64), nullable=False)
     result_observed_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Provenance rank of ``result_source``; lower is stronger. See
+    #: ``app.services.result_provenance``.
+    result_tier: Mapped[int] = mapped_column(Integer, nullable=False, default=9, server_default="9")
     home_score: Mapped[int] = mapped_column(Integer, nullable=False)
     away_score: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    #: EXACTLY ONE row per (event, engine, version, forecast identity) is
+    #: current, and only current rows are counted or displayed.
+    #:
+    #: Rows are never deleted or rewritten, because the verdict we published on
+    #: Wednesday is a fact about Wednesday. But when the same game's result
+    #: arrives again from a better-provenanced source, or arrives corrected,
+    #: the older evaluation stops being the answer -- it becomes history. A
+    #: product that counted both would report two games where one was played,
+    #: which is the specific failure this column exists to make impossible.
+    is_current: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true", index=True
+    )
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("research_forecast_evaluations.id")
+    )
+    #: PROVENANCE_UPGRADE (same score, better source) or RESULT_CORRECTED
+    #: (the score itself changed). The distinction matters: the first says our
+    #: verdict was right and is now better evidenced, the second says the thing
+    #: we scored against was wrong.
+    supersede_reason: Mapped[str | None] = mapped_column(String(48))
 
     #: Outcome scoring.
     actual_outcome: Mapped[str] = mapped_column(String(8), nullable=False)
@@ -3426,8 +3451,79 @@ class ResearchForecastEvaluation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="uq_research_forecast_evaluation_identity",
         ),
         Index("ix_research_forecast_eval_league_engine", "league_code", "engine_id"),
+        # The structural guarantee behind "n cannot be inflated by provenance".
+        # Audit rows may pile up for one game; only one of them can be current,
+        # and the database refuses the alternative rather than trusting the
+        # reconciliation code to be correct forever.
+        Index(
+            "uq_research_forecast_eval_current",
+            "event_id", "engine_id", "engine_version", "forecast_identity",
+            unique=True, postgresql_where=text("is_current"), sqlite_where=text("is_current"),
+        ),
         CheckConstraint(
             "published_before_kickoff_seconds IS NULL OR published_before_kickoff_seconds >= 0",
             name="ck_research_forecast_eval_prospective",
         ),
+        CheckConstraint(
+            "(is_current AND superseded_at IS NULL AND superseded_by_id IS NULL)"
+            " OR (NOT is_current AND superseded_at IS NOT NULL)",
+            name="ck_research_forecast_eval_supersession",
+        ),
+    )
+
+
+class NflFinalObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One retrieval of one NFL game's final, with its football-specific facts.
+
+    WHY A SEPARATE TABLE FROM ``game_state_observations``
+    ------------------------------------------------------
+    ``GameStateObservation`` stays the canonical, sport-neutral result identity
+    -- every evaluation still keys on its checksum, and this table points at
+    the row that carries it. But football has facts baseball's shape cannot
+    hold: overtime, week, game type. Bolting ``overtime`` onto the shared
+    observation table would put football vocabulary in the one place this
+    codebase has been careful to keep sport-neutral, and would leave a column
+    that is NULL for every MLB row ever written.
+
+    Append-only, one row per (game, source, result checksum). The checksum
+    covers the RESULT FACTS ONLY -- never the retrieval time and never the
+    feed's own last-updated stamp -- so refetching an unchanged game reuses
+    this row instead of minting a new "correction" every hour.
+    """
+
+    __tablename__ = "nfl_final_observations"
+
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
+    #: The nflverse game id, which is also AISP's own NFL event id.
+    source_event_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    #: The sport-neutral observation this record elaborates.
+    game_state_observation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_state_observations.id"), index=True
+    )
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="RESEARCH_SHADOW")
+    result_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    home_score: Mapped[int | None] = mapped_column(Integer)
+    away_score: Mapped[int | None] = mapped_column(Integer)
+    overtime: Mapped[bool | None] = mapped_column(Boolean)
+    season: Mapped[int | None] = mapped_column(Integer)
+    game_type: Mapped[str | None] = mapped_column(String(16))
+    week: Mapped[int | None] = mapped_column(Integer)
+    #: When the source says it last refreshed, and when we asked. Both are
+    #: outside the checksum on purpose.
+    source_last_updated: Mapped[str | None] = mapped_column(String(64))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Checksum of the result facts. This IS the result identity suffix.
+    payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Checksum of the whole downloaded payload, for archive cross-reference.
+    feed_checksum: Mapped[str | None] = mapped_column(String(64))
+    raw_file_reference: Mapped[str | None] = mapped_column(String(500))
+    raw_row: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "source", "payload_checksum", name="uq_nfl_final_observation_identity",
+        ),
+        Index("ix_nfl_final_obs_source_event", "source", "source_event_id"),
     )

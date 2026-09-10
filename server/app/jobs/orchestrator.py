@@ -98,6 +98,7 @@ AVAILABLE_JOBS = {
     "finalize-nfl-shadow-games": "Finalize NFL Research-Shadow Games",
     "settle-nfl-shadow-decisions": "Settle NFL Research-Shadow Decisions",
     "recalculate-nfl-shadow-performance": "Recalculate NFL Prospective Performance",
+    "ingest-nfl-finals": "Ingest NFL Final Scores (nflverse, no cost)",
     "evaluate-nfl-research-forecasts": "Score NFL Research Forecasts Against Finals",
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
     "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
@@ -216,6 +217,7 @@ class JobOrchestrator:
             "finalize-nfl-shadow-games": self.finalize_nfl_shadow_games,
             "settle-nfl-shadow-decisions": self.settle_nfl_shadow_decisions,
             "recalculate-nfl-shadow-performance": self.recalculate_nfl_shadow_performance,
+            "ingest-nfl-finals": self.ingest_nfl_finals,
             "evaluate-nfl-research-forecasts": self.evaluate_nfl_research_forecasts,
             "poll-availability-events": self.poll_availability_events,
             "discover-prediction-markets": self._pm_discover,
@@ -979,6 +981,58 @@ class JobOrchestrator:
         result = ShadowBoardService(self.session, self.settings).settle_decisions(event_date, outcomes)
         return {"records": int(result.get("settled", 0)), **result}
 
+    async def ingest_nfl_finals(self, event_date: date) -> dict[str, Any]:
+        """Bring completed NFL games into AISP automatically, at zero cost.
+
+        Reads the nflverse schedules release -- a public CC-BY-4.0 GitHub asset
+        with no key and no metered allowance -- and asks its 43-byte timestamp
+        file whether anything changed before downloading the schedule at all.
+        It deliberately does NOT call The Odds API scores endpoint, which would
+        answer the same question out of the paid allowance reserved for
+        sportsbook prices.
+
+        Runs BEFORE ``evaluate-nfl-research-forecasts`` so a game that finished
+        in the last hour is scored on the same pass it is detected. Bound to
+        the single supervised process, and off entirely when
+        ``NFL_FINAL_INGEST_ENABLED`` is false.
+        """
+
+        from app.services.nfl_final_ingest import NflFinalIngestService
+
+        if not self.settings.nfl_final_ingest_enabled:
+            return {"records": 0, "skipped": "NFL_FINAL_INGEST_DISABLED",
+                    "detail": "The kill switch NFL_FINAL_INGEST_ENABLED is off.",
+                    "provider_calls": 0, "models_executed": 0,
+                    "positions_created": 0, "official_decisions_created": 0,
+                    "event_date": event_date.isoformat()}
+        if not self.settings.owns_nfl_final_ingest:
+            return {"records": 0, "skipped": "NOT_THE_FINAL_INGEST_OWNER",
+                    "detail": "This process is not the supervised owner, so it does not ingest.",
+                    "provider_calls": 0, "models_executed": 0,
+                    "positions_created": 0, "official_decisions_created": 0,
+                    "event_date": event_date.isoformat()}
+
+        summary = await NflFinalIngestService(self.session).ingest(archive=self.archive)
+        self.session.flush()
+        return {
+            "records": summary.get("observations_written", 0),
+            "status": summary.get("status"),
+            "source": summary.get("source"),
+            "games_pending": summary.get("games_pending", 0),
+            "finals_detected": summary.get("finals_detected", 0),
+            "observations_written": summary.get("observations_written", 0),
+            "observations_reused": summary.get("observations_reused", 0),
+            "projections_updated": summary.get("projections_updated", 0),
+            "requests": summary.get("requests", 0),
+            "feed_last_updated": summary.get("feed_last_updated"),
+            "skip_reasons": sorted({entry.get("skipped") for entry in summary.get("skipped", [])
+                                    if entry.get("skipped")}),
+            "sportsbook_quote_credits_spent": 0,
+            "provider_calls": 0, "models_executed": 0,
+            "positions_created": 0, "official_decisions_created": 0,
+            "event_date": event_date.isoformat(),
+        }
+
     async def evaluate_nfl_research_forecasts(self, event_date: date) -> dict[str, Any]:
         """Score every final NFL game's frozen pre-kickoff forecast. Safe to rerun.
 
@@ -1000,6 +1054,7 @@ class JobOrchestrator:
             "final_games": summary["final_games"],
             "evaluations_written": summary["scored"],
             "evaluations_reused": summary["reused"],
+            "evaluations_superseded": summary.get("superseded", 0),
             "games_skipped": len(summary["skipped"]),
             "skip_reasons": sorted({entry.get("skipped") for entry in summary["skipped"]
                                     if entry.get("skipped")}),
