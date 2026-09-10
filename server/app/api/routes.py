@@ -422,6 +422,106 @@ def bankroll(
     return ReadService(session, settings).bankroll(experiment)
 
 
+# -- Market intelligence: the tape, the RFF research index, information events --
+#
+# All three are read models over evidence AISP already stores. None calls a
+# provider, spends quota, writes a row, or is an input to any forecast,
+# threshold, decision or position.
+def _games_on(session, day: date, league: str | None, timezone_name: str) -> list[UUID]:
+    """Games whose local start date is ``day``.
+
+    The local date, not the UTC one: a 20:20 Eastern kickoff is tomorrow in UTC,
+    and putting it on tomorrow's board would silently disagree with every other
+    surface in the product.
+    """
+
+    from app.models import League, Season
+
+    query = (
+        select(Game.id)
+        .join(Season, Season.id == Game.season_id)
+        .join(League, League.id == Season.league_id)
+        .where(func.date(func.timezone(timezone_name, Game.starts_at)) == day)
+        .order_by(Game.starts_at)
+    )
+    if league:
+        query = query.where(func.upper(League.code) == league.upper())
+    return list(session.scalars(query))
+
+
+@router.get("/markets/tape/{game_id}", tags=["markets"])
+def market_tape(
+    session: DatabaseSession,
+    game_id: UUID,
+    market: Literal["MONEYLINE", "SPREAD", "TOTAL"] = Query("MONEYLINE"),
+) -> dict:
+    """One game's price movement, reconstructed from persisted snapshots."""
+
+    from app.services.market_tape import MarketTapeService
+
+    return MarketTapeService(session).tape(game_id=game_id, market_type=market)
+
+
+@router.get("/markets/rff/{game_id}", tags=["markets"])
+def rff_for_game(
+    session: DatabaseSession,
+    game_id: UUID,
+    market: Literal["MONEYLINE", "SPREAD", "TOTAL"] = Query("MONEYLINE"),
+    include_tape: bool = Query(False),
+) -> dict:
+    """Provisional RFF for one game. Research index; affects no decision."""
+
+    from app.services.rff_index import RffService
+
+    return RffService(session).for_game(
+        game_id=game_id, market_type=market, include_tape=include_tape,
+    )
+
+
+@router.get("/markets/rff", tags=["markets"])
+def rff_board(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+    league: Literal["MLB", "NFL"] | None = Query(None),
+    market: Literal["MONEYLINE", "SPREAD", "TOTAL"] = Query("MONEYLINE"),
+    limit: int = Query(12, ge=1, le=40),
+) -> dict:
+    """Provisional RFF across a day's games, most unsettled first."""
+
+    from app.services.rff_index import RffService
+
+    day = _today(event_date, settings)
+    game_ids = _games_on(session, day, league, settings.display_timezone)
+    board = RffService(session).board(game_ids=game_ids, market_type=market, limit=limit)
+    board["date"] = day.isoformat()
+    board["league"] = league
+    board["games_considered"] = len(game_ids)
+    return board
+
+
+@router.get("/information-events/contract", tags=["markets"])
+def information_event_contract(session: DatabaseSession) -> dict:
+    """The versioned contract an information-event producer must satisfy."""
+
+    from app.information_events import InformationEventReadService
+
+    return InformationEventReadService(session).contract()
+
+
+@router.get("/information-events/{game_id}", tags=["markets"])
+def information_events_for_game(
+    session: DatabaseSession,
+    game_id: UUID,
+    market: Literal["MONEYLINE", "SPREAD", "TOTAL"] = Query("MONEYLINE"),
+) -> dict:
+    """Information events for one game, projected into the versioned contract."""
+
+    from app.information_events import InformationEventReadService
+
+    return InformationEventReadService(session).for_game(game_id=game_id, market_type=market)
+
+
 @router.get("/experiment/comparison", tags=["experiment"])
 def experiment_comparison(session: DatabaseSession, settings: AppSettings) -> dict:
     """Read-only V1-vs-V2 aggregates. Ledgers are never pooled."""
