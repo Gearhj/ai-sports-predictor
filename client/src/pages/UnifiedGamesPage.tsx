@@ -29,7 +29,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  ArrowRight, Beaker, CalendarDays, ChevronLeft, ChevronRight, LineChart,
+  ArrowRight, Beaker, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, LineChart,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { useSportSelection } from '../hooks/useSportSelection'
@@ -352,12 +352,18 @@ function GameRow({
             <Beaker size={13} aria-hidden="true" /> Simulate
           </Link>
         )}
+        {/* The evidence drawer is an affordance on the row, not a strip under
+            it: as a strip it added a line to all twenty-one games so that a
+            reader could open one. */}
+        <button type="button" className="bx-mkt__toggle" aria-expanded={open}
+          aria-label={`${open ? 'Hide' : 'Show'} model and evidence for ${game.away.abbreviation} at ${game.home.abbreviation}`}
+          onClick={() => setOpen((value) => !value)}>
+          <ChevronDown size={15} style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform .18s' }} />
+        </button>
       </div>
 
-      <details className="bx-details" style={{ gridColumn: '1 / -1' }} open={open}
-        onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
-        <summary>Model &amp; evidence</summary>
-        <div className="bx-details__body">
+      {open && (
+        <div className="bx-details__body" style={{ gridColumn: '1 / -1', paddingTop: 10, borderTop: '1px solid var(--bx-line)' }}>
           <p><strong>Model</strong> {game.modelLabel ?? 'not published'}</p>
           <p><strong>Source evidence</strong> {agoOf(game.evidenceAt) ?? 'not recorded'}
             {game.priceObservedAt ? ` · price observed ${agoOf(game.priceObservedAt)}` : ''}
@@ -379,7 +385,7 @@ function GameRow({
             ? 'Research shadow. This forecast creates no decision and no position.'
             : 'A displayed price is persisted evidence, not a wagering eligibility decision.'}</p>
         </div>
-      </details>
+      )}
     </article>
   )
 }
