@@ -486,6 +486,19 @@ def nfl_play_theater(game_id: UUID, session: DatabaseSession, settings: AppSetti
     return payload
 
 
+@router.get("/home/featured", tags=["home"])
+def home_featured(session: DatabaseSession, settings: AppSettings) -> dict:
+    """The matchup the home page leads with, and the rule that chose it.
+
+    The rule travels with the answer in `selection_criteria` so the page can
+    state it. Nothing about a game's result takes part in the choice.
+    """
+
+    from app.services.home_featured import HomeFeaturedService
+
+    return HomeFeaturedService(session, settings).featured()
+
+
 @router.get("/nfl/games/{game_id}/play-population/{scenario_id}", tags=["nfl"])
 def nfl_play_population(
     game_id: UUID, scenario_id: str,

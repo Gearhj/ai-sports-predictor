@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X } from 'lucide-react'
+import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { useSportSelection, type SelectedSport } from '../hooks/useSportSelection'
@@ -9,8 +9,9 @@ import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
 import '../unified-sports.css'
 
 const primaryNav = [
-  { to: '/', label: 'Daily Command Center', icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/games', label: 'Games & Forecasts', icon: Trophy },
+  { to: '/decisions', label: 'Daily Decisions', icon: ClipboardCheck },
   { to: '/markets', label: 'Markets & Crowd', icon: Radio },
   { to: '/labs', label: 'Interactive Labs', icon: Beaker },
   { to: '/performance', label: 'Model Performance', icon: Activity },

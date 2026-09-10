@@ -116,24 +116,31 @@ export function SimulationPopulation({
   useEffect(() => {
     if (!running || selected.length === 0) return
     let last = performance.now()
+    let done = false
     const timer = window.setInterval(() => {
+      if (done) return
       const now = performance.now()
       const elapsed = Math.min(0.25, (now - last) / 1000)
       last = now
       carry.current += elapsed * PLAYS_PER_SECOND * speed
       const whole = Math.floor(carry.current)
-      if (whole > 0) {
-        carry.current -= whole
-        setRevealed((current) => Math.min(selected.length, current + whole))
-      }
+      if (whole <= 0) return
+      carry.current -= whole
+      setRevealed((current) => {
+        const next = Math.min(selected.length, current + whole)
+        // Stop the timer the moment the population is fully drawn, rather than
+        // spinning on a no-op sixty times a second for as long as the page is
+        // open -- and so nothing is still scheduled when the view unmounts.
+        if (next >= selected.length) {
+          done = true
+          window.clearInterval(timer)
+          carry.current = 0
+        }
+        return next
+      })
     }, 16)
-    return () => window.clearInterval(timer)
+    return () => { done = true; window.clearInterval(timer) }
   }, [running, selected, speed])
-
-  // Stop the loop once everything is on screen rather than spinning on it.
-  useEffect(() => {
-    if (revealed >= selected.length && selected.length > 0) carry.current = 0
-  }, [revealed, selected.length])
 
   const stats = useMemo(() => drawnStats(selected.slice(0, revealed)), [selected, revealed])
   const population_ = population?.population_accounting ?? null
@@ -249,7 +256,7 @@ export function SimulationPopulation({
 
           <label className="pop-ctl">
             <span>Speed</span>
-            <div className="pop-seg">
+            <div className="pop-seg" role="group" aria-label="Speed">
               {SPEEDS.map((value) => (
                 <button
                   key={value} type="button"
@@ -270,7 +277,7 @@ export function SimulationPopulation({
 
           <label className="pop-ctl">
             <span>Play type</span>
-            <div className="pop-seg">
+            <div className="pop-seg" role="group" aria-label="Play type">
               {(['BOTH', 'PASS', 'RUN'] as FamilyFilter[]).map((value) => (
                 <button
                   key={value} type="button"
@@ -283,7 +290,7 @@ export function SimulationPopulation({
 
           <label className="pop-ctl">
             <span>Offense</span>
-            <div className="pop-seg">
+            <div className="pop-seg" role="group" aria-label="Offense">
               {(['BOTH', 'AWAY', 'HOME'] as TeamFilter[]).map((value) => (
                 <button
                   key={value} type="button"
@@ -296,7 +303,7 @@ export function SimulationPopulation({
 
           <label className="pop-ctl">
             <span>Scenario</span>
-            <select value={scenarioId} onChange={(event) => onScenarioChange(event.target.value)}>
+            <select aria-label="Scenario" value={scenarioId} onChange={(event) => onScenarioChange(event.target.value)}>
               {scenarios.map((scenario) => (
                 <option key={scenario.scenario_id} value={scenario.scenario_id}>{scenario.label}</option>
               ))}
@@ -305,7 +312,7 @@ export function SimulationPopulation({
 
           <label className="pop-ctl">
             <span>Down</span>
-            <select value={filters.down} onChange={(event) => patch({ down: event.target.value as DownGroup })}>
+            <select aria-label="Down" value={filters.down} onChange={(event) => patch({ down: event.target.value as DownGroup })}>
               {DOWN_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -314,7 +321,7 @@ export function SimulationPopulation({
 
           <label className="pop-ctl">
             <span>Field position</span>
-            <select value={filters.zone} onChange={(event) => patch({ zone: event.target.value as FieldZone })}>
+            <select aria-label="Field position" value={filters.zone} onChange={(event) => patch({ zone: event.target.value as FieldZone })}>
               {ZONE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}

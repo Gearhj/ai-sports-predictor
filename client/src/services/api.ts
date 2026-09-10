@@ -25,7 +25,7 @@ import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/mu
 import type { LabsGames } from '../types/labs'
 import type { OddsCollectionStatus } from '../types/domain'
 import type {
-  NflConsumerStatus, NflGameDetail, NflPlayPopulation,
+  HomeFeatured, NflConsumerStatus, NflGameDetail, NflPlayPopulation,
   NflPlayRepresentative, NflPlayTheaterIndex,
   NflResearchResults, NflWeekOverview, NflWeeks,
 } from '../types/nfl'
@@ -202,6 +202,7 @@ export const endpoints = {
     apiRequest<NflPlayPopulation>(
       `/nfl/games/${encodeURIComponent(gameId)}/play-population/${encodeURIComponent(scenarioId)}`,
       {}, signal),
+  homeFeatured: (signal?: AbortSignal) => apiRequest<HomeFeatured>('/home/featured', {}, signal),
   nflResearch: (signal?: AbortSignal) => apiRequest<NflResearchResults>('/nfl/research', {}, signal),
   nflConsumer: (signal?: AbortSignal) => apiRequest<NflConsumerStatus>('/nfl/consumer', {}, signal),
   /** Admin-gated: credit budget, collection plan and provider governance. */

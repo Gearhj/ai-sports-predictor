@@ -11,6 +11,7 @@ import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
 const LabsPage = lazy(() => import('./pages/LabsPage').then((module) => ({ default: module.LabsPage })))
 const MultiSportTodayPage = lazy(() => import('./pages/MultiSportTodayPage').then((module) => ({ default: module.MultiSportTodayPage })))
+const HomePage = lazy(() => import('./pages/HomePage').then((module) => ({ default: module.HomePage })))
 const GameAnalysisPage = lazy(() => import('./pages/GameAnalysisPage').then((module) => ({ default: module.GameAnalysisPage })))
 const GameSimulationPage = lazy(() => import('./pages/GameSimulationPage').then((module) => ({ default: module.GameSimulationPage })))
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
@@ -72,7 +73,11 @@ export default function App() {
             <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
               <Routes>
                 <Route element={<AppShell />}>
-                  <Route index element={<MultiSportTodayPage />} />
+                  <Route index element={<HomePage />} />
+                  {/* The decision board keeps its own page. It is operator
+                      content, not a front door, so it is no longer what a
+                      first-time visitor lands on. */}
+                  <Route path="decisions" element={<MultiSportTodayPage />} />
                   <Route path="mlb" element={<LegacySportRoute />} />
                   <Route path="nfl" element={<LegacySportRoute />} />
                   <Route path="nfl/games/:gameId" element={<LegacySportRoute />} />

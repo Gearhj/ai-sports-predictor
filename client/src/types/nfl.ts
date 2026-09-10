@@ -1,3 +1,4 @@
+import type { DataMode } from './domain'
 import type { PopulationPlay } from '../components/nfl/populationGeometry'
 /**
  * NFL product read model (AISP_NFL_PRODUCT_READ_V1).
@@ -590,4 +591,41 @@ export interface NflPopulationAccounting {
   drivesPerGame?: { count?: number; mean?: number; standardDeviation?: number; quantiles?: Record<string, number> }
   yardsPerScrimmagePlay?: { count?: number; mean?: number; standardDeviation?: number; quantiles?: Record<string, number> }
   denominatorNotes?: string
+}
+
+/** The home page's featured matchup, and the rule that chose it. */
+export interface HomeFeatured {
+  schema_version: string
+  data_mode: DataMode
+  generated_at_utc: string
+  selection_criteria: { ordering: string[]; excluded: string }
+  featured: HomeCandidate | null
+  candidates: HomeCandidate[]
+  counts: { upcoming_games: number; with_simulation_evidence: number }
+  next_slate_date: string | null
+}
+
+export interface HomeCandidate {
+  game_id: string
+  event_id: string | null
+  league_code: string
+  starts_at_utc: string
+  status: string
+  home: { abbreviation: string; name: string; city: string | null }
+  away: { abbreviation: string; name: string; city: string | null }
+  matchup: string
+  simulation: { kind: string | null; scenarios: string[]; explorable: boolean }
+  forecast: {
+    engine_id: string
+    status: string
+    home_win_probability: number
+    away_win_probability: number
+    expected_home_score: number
+    expected_away_score: number
+    expected_total: number
+    expected_margin_home: number
+    available_as_of_utc: string | null
+  } | null
+  research_only: boolean
+  explore_href: string
 }

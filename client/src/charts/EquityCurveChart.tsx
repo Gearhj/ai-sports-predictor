@@ -64,12 +64,15 @@ export function EquityCurveChart({
   curve,
   height = 400,
   labels = DEFAULT_LABELS,
+  compact = false,
   formatCurrency,
   formatSignedCurrency,
 }: {
   curve: EquityCurvePoint[]
   height?: number
   labels?: EquityCurveLabels
+  /** Thin the axis and drop the legend, for a small panel beside other content. */
+  compact?: boolean
   formatCurrency: (value: number) => string
   formatSignedCurrency: (value: number) => string
 }) {
@@ -89,7 +92,7 @@ export function EquityCurveChart({
     const pad = Math.max(2, (high - low) * 0.12)
 
     return {
-      grid: { top: 22, left: 68, right: 26, bottom: 74 },
+      grid: { top: 18, left: 62, right: 20, bottom: compact ? 34 : 74 },
       tooltip: {
         trigger: 'axis' as const,
         axisPointer: { type: 'line' as const, lineStyle: { color: 'rgba(24,59,101,.28)' } },
@@ -123,7 +126,9 @@ export function EquityCurveChart({
           return rows.join('<br/>')
         },
       },
-      legend: {
+      // In a compact panel the legend costs more height than it repays; the
+      // series are distinguishable and the tooltip names them.
+      legend: compact ? { show: false } : {
         bottom: 0,
         data: [labels.bankroll, labels.drawdown, labels.benchmark, labels.highWater],
         textStyle: { color: chartTheme.muted, fontSize: 11 },
@@ -133,10 +138,18 @@ export function EquityCurveChart({
         type: 'category' as const,
         boundaryGap: false,
         data: axisLabels,
-        axisLabel: {
-          color: chartTheme.muted, interval: 0,
-          rotate: axisLabels.length > 12 ? 45 : 0, fontSize: 10,
-        },
+        axisLabel: compact
+          // Only the ends, so a narrow panel keeps a readable axis instead of
+          // a smear of overlapping dates.
+          ? {
+            color: chartTheme.muted, fontSize: 10, showMinLabel: true, showMaxLabel: true,
+            interval: Math.max(1, Math.ceil(axisLabels.length / 4)),
+            formatter: (value: string) => value.split(' · ').pop() ?? value,
+          }
+          : {
+            color: chartTheme.muted, interval: 0,
+            rotate: axisLabels.length > 12 ? 45 : 0, fontSize: 10,
+          },
         axisLine: { lineStyle: { color: chartTheme.grid } },
         axisTick: { show: false },
       },
@@ -207,7 +220,7 @@ export function EquityCurveChart({
         },
       ] as Record<string, unknown>[]),
     }
-  }, [curve, labels, formatCurrency, formatSignedCurrency])
+  }, [curve, labels, compact, formatCurrency, formatSignedCurrency])
 
   return (
     <AnalyticsChart
