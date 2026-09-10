@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from math import isfinite
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.bankroll.service import (
@@ -2651,10 +2651,29 @@ class ReadService:
             for row, status in service.superseded_experiments()
         ]}
         for experiment in service.active_experiments():
-            decisions = list(self.session.scalars(select(ShadowExperimentDecision).where(
-                ShadowExperimentDecision.experiment_id == experiment.id,
-            )))
-            qualified = [d for d in decisions if d.recommendation == "QUALIFIED_BET"]
+            # Everything this page needs from the decision history is an
+            # aggregate: five numbers over what is now ~24,000 rows, each
+            # carrying a ~2 KB `evidence` blob. Loading the rows to reduce them
+            # in Python meant decoding roughly 45,000 JSON documents per
+            # request. `adjusted_edge` is the one value read out of `evidence`,
+            # and JSON extraction in SQL treats a JSON null the same way the
+            # Python did -- as absent, not as zero.
+            adjusted_edge = ShadowExperimentDecision.evidence["adjusted_edge"].as_float()
+            decision_count, games_evaluated, qualified_count, raw_edge_sum, raw_edge_n, adjusted_sum, adjusted_n = (
+                self.session.execute(
+                    select(
+                        func.count(),
+                        func.count(distinct(ShadowExperimentDecision.game_id)),
+                        func.sum(case(
+                            (ShadowExperimentDecision.recommendation == "QUALIFIED_BET", 1), else_=0,
+                        )),
+                        func.sum(ShadowExperimentDecision.edge),
+                        func.count(ShadowExperimentDecision.edge),
+                        func.sum(adjusted_edge),
+                        func.count(adjusted_edge),
+                    ).where(ShadowExperimentDecision.experiment_id == experiment.id)
+                ).one()
+            )
             positions = list(self.session.scalars(select(OfficialAspPosition).where(
                 OfficialAspPosition.shadow_experiment_id == experiment.id,
             )))
@@ -2663,12 +2682,6 @@ class ReadService:
                 .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
                 .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
             ))
-            raw_edges = [float(d.edge) for d in decisions if d.edge is not None]
-            adjusted_edges = [
-                float((d.evidence or {}).get("adjusted_edge"))
-                for d in decisions
-                if d.evidence and (d.evidence or {}).get("adjusted_edge") is not None
-            ]
             clvs = [float(s.closing_line_value) for s in settlements if s.closing_line_value is not None]
             profit = sum(float(s.profit_loss) for s in settlements)
             wins = sum(1 for s in settlements if s.result.value.upper() == "WIN")
@@ -2692,13 +2705,15 @@ class ReadService:
                 "effective_date": experiment.start_date.isoformat(),
                 "starting_bankroll": float(experiment.starting_bankroll),
                 "current_bankroll": round(service.current_bankroll(experiment), 2),
-                "games_evaluated": len({d.game_id for d in decisions}),
-                "decisions": len(decisions),
-                "qualified_decisions": len(qualified),
+                "games_evaluated": int(games_evaluated or 0),
+                "decisions": int(decision_count or 0),
+                "qualified_decisions": int(qualified_count or 0),
                 "positions": len(positions),
-                "average_raw_edge": round(sum(raw_edges) / len(raw_edges) * 100, 2) if raw_edges else None,
+                "average_raw_edge": (
+                    round(float(raw_edge_sum) / int(raw_edge_n) * 100, 2) if raw_edge_n else None
+                ),
                 "average_adjusted_edge": (
-                    round(sum(adjusted_edges) / len(adjusted_edges) * 100, 2) if adjusted_edges else None
+                    round(float(adjusted_sum) / int(adjusted_n) * 100, 2) if adjusted_n else None
                 ),
                 "average_stake": (
                     round(sum(float(p.stake) for p in positions) / len(positions), 2) if positions else None

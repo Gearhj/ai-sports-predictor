@@ -1077,10 +1077,47 @@ class ShadowExperimentService:
         }
 
     def _daily_rows(self, experiment, position_rows, settlements) -> list[dict[str, Any]]:
-        decisions = list(self.session.scalars(select(ShadowExperimentDecision).where(
-            ShadowExperimentDecision.experiment_id == experiment.id
-        ).order_by(ShadowExperimentDecision.slate_date, ShadowExperimentDecision.recommended_at)))
-        dates = {experiment.start_date, *(decision.slate_date for decision in decisions)}
+        # This table needs three columns off the decision row, and the row also
+        # carries a ~2 KB `evidence` JSONB that none of them touch. Loading whole
+        # ORM decisions meant decoding tens of megabytes of JSON on every read to
+        # print a few sentences of explanation -- the single reason /bankroll
+        # took ~20 seconds. Ask for the columns, not the objects.
+        slate_dates = set(self.session.scalars(
+            select(ShadowExperimentDecision.slate_date)
+            .where(ShadowExperimentDecision.experiment_id == experiment.id)
+            .distinct()
+        ))
+        dates = {experiment.start_date, *slate_dates}
+        # Reasons are only ever rendered for a day that placed nothing, so only
+        # those days' reasons are worth reading.
+        quiet_dates = dates - {decision.slate_date for _, decision in position_rows}
+        reasons_by_date: dict[date, list[str]] = {}
+        if quiet_dates:
+            for slate_date, qualification_reasons, recommendation_reason in self.session.execute(
+                select(
+                    ShadowExperimentDecision.slate_date,
+                    ShadowExperimentDecision.qualification_reasons,
+                    ShadowExperimentDecision.recommendation_reason,
+                )
+                .where(
+                    ShadowExperimentDecision.experiment_id == experiment.id,
+                    ShadowExperimentDecision.slate_date.in_(quiet_dates),
+                )
+                # `recommended_at` is not unique -- a slate can stamp fifteen
+                # decisions on the same instant -- and the list is truncated to
+                # eight, so without a total order which reasons an operator sees
+                # depends on the query plan. It was stable only by luck. Break
+                # the tie on the primary key so it is stable by construction.
+                .order_by(
+                    ShadowExperimentDecision.slate_date,
+                    ShadowExperimentDecision.recommended_at,
+                    ShadowExperimentDecision.id,
+                )
+            ):
+                bucket = reasons_by_date.setdefault(slate_date, [])
+                bucket.extend(str(value) for value in (qualification_reasons or []))
+                if recommendation_reason:
+                    bucket.append(recommendation_reason)
         balance = float(experiment.starting_bankroll)
         rows: list[dict[str, Any]] = []
         for slate_date in sorted(dates):
@@ -1090,12 +1127,7 @@ class ShadowExperimentService:
             balance += profit
             reasons: list[str] = []
             if not day_positions:
-                for decision in decisions:
-                    if decision.slate_date != slate_date:
-                        continue
-                    reasons.extend(str(value) for value in (decision.qualification_reasons or []))
-                    if decision.recommendation_reason:
-                        reasons.append(decision.recommendation_reason)
+                reasons = list(reasons_by_date.get(slate_date, ()))
                 if not reasons:
                     reasons.append("No live game had complete cutoff-safe qualified evidence.")
             rows.append({
