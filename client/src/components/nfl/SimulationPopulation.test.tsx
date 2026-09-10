@@ -183,6 +183,43 @@ describe('SimulationPopulation', () => {
     }, { timeout: 4000 })
   })
 
+  it('says plainly when a population has no whole-population summary', () => {
+    // A carried-forward V1 artifact has none, because its event kicked off and
+    // cannot be regenerated. Silence would read as "no plays out there".
+    mount()
+    const note = document.querySelector('.pop-note--density')
+    expect(note?.textContent).toMatch(/no whole-population summary/i)
+    expect(screen.queryByLabelText(/whole-population density/i)).toBeNull()
+  })
+
+  it('offers the density and states what it covers when the summary exists', async () => {
+    mount({
+      population: {
+        ...POPULATION,
+        population_spatial: {
+          schemaVersion: 'NFL_POPULATION_SPATIAL_V1',
+          basis: 'ALL_SIMULATED_PLAYS_IN_POPULATION',
+          games: 1000,
+          playCount: 152149,
+          reconciliation: {
+            populationAccountingPlays: 152149, binnedPlayCount: 152149, reconciles: true,
+            excludedPlayTypes: ['PERIOD_END'], excludedPlayCount: 4048, statement: '',
+          },
+          fieldDirection: { convention: 'OFFENSE_RELATIVE_YARDLINE100_NO_MIRRORING_REQUIRED', statement: '' },
+          bins: {}, byPlayType: {},
+          cells: [{ playType: 'RUSH', start: 50, yards: 0, count: 152149 }],
+          cellCount: 1, limitations: [],
+        },
+      },
+    })
+    const note = document.querySelector('.pop-note--density')!
+    // The band's count and the paths' count are different numbers and the view
+    // must show both, or the band reads as more paths.
+    expect(note.textContent).toContain('152,149')
+    expect(note.textContent).toContain('12')
+    expect(screen.getByLabelText(/whole-population density/i)).toBeChecked()
+  })
+
   it('offers every scenario and reports the choice upward', async () => {
     const user = userEvent.setup()
     const onScenarioChange = vi.fn()
