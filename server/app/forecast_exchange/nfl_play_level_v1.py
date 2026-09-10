@@ -521,7 +521,12 @@ def _payload(doc: dict[str, Any]) -> dict[str, Any]:
         "jointScoreDistribution", "scoreMarginDistribution", "totalScoreDistribution",
         "populationFinals", "reachingOvertimeProbability", "finalTieProbability",
         "limitations", "m1Comparison", "relatedM1ForecastId", "explainsM1Forecast",
-        "populationAccounting", "populationSpatial",
+        "populationAccounting",
+        # populationSpatial is deliberately NOT stored here. It is ~57 KB per
+        # artifact and `_rows()` loads whole ResearchSupplement rows to build
+        # the cheap scenario index, so keeping it would put 5.7 MB of JSONB in
+        # the path of a page that never reads it. The population endpoint reads
+        # it from the verified artifact file, where it already lives.
         "historicalEvidencePrecision", "historicalEvidenceThroughDate",
         "inputTreatment", "sourceRights", "drawCount", "seed", "schemaVersion",
         "status", "promotionStatus", "executionAllowedInAISP", "wageringAuthority",
