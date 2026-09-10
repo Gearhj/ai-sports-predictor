@@ -221,3 +221,82 @@
 @media (max-width: 900px) {
   .decision-flow__key { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* -- page headers -------------------------------------------------------- */
+
+/*
+ * The command centre has a designed hero; every other page opened with bare
+ * text on the page background, which is most of why those pages read as
+ * documents rather than as parts of the same product. This gives them a
+ * masthead without borrowing the dark hero, which would fight light content.
+ *
+ * Deliberately not a card: these headers sit above content that is itself made
+ * of cards, and another panel would just add a box. An accent rule and a
+ * hairline are enough to say "this is where the page starts".
+ */
+.page-header {
+  position: relative;
+  align-items: flex-end;
+  margin-bottom: 22px;
+  padding: 4px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* A short accent rule above the eyebrow, in the product's teal. */
+.page-header::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -4px;
+  width: 34px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--teal), rgba(8, 127, 122, 0));
+}
+
+.page-header h1 {
+  /* Tighter optical alignment now that a rule sits above it. */
+  margin-top: 9px;
+}
+
+.page-description { max-width: 74ch; line-height: 1.55; }
+
+/* -- calibration readout ------------------------------------------------- */
+
+/*
+ * A reliability diagram must be square, which leaves a wide panel half empty.
+ * Rather than stretch the plot -- which would put the 45-degree diagonal at
+ * some other angle and destroy the only thing the chart is for -- the space
+ * beside it carries the evidence each bucket rests on.
+ */
+.calibration-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 18px;
+  align-items: start;
+  padding: 4px 16px 8px;
+}
+
+.calibration-readout h3 {
+  margin: 14px 0 8px;
+  color: #1a3047;
+  font-size: 13px;
+  letter-spacing: -.01em;
+}
+
+.calibration-table { width: 100%; font-variant-numeric: tabular-nums; }
+.calibration-table th { font-size: 11px; }
+.calibration-table td { font-size: 12px; }
+
+/* The interval is the column that carries the verdict, so it is the column
+   that gets the colour -- green where the bucket is consistent with its own
+   forecast, amber where it is not. Never red: a bucket outside its interval is
+   information, not a failure. */
+.calibration-table__ok { color: var(--green); font-weight: 650; }
+.calibration-table__off { color: var(--amber); font-weight: 650; }
+
+.calibration-readout .chart-footnote { margin: 10px 0 0; }
+
+@media (max-width: 1180px) {
+  .calibration-layout { grid-template-columns: minmax(0, 1fr); }
+}

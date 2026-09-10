@@ -1,6 +1,6 @@
 import { Award, CalendarRange, CircleHelp, Scale } from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
-import { coversDiagonal, ReliabilityDiagram } from '../charts/ReliabilityDiagram'
+import { coversDiagonal, ReliabilityDiagram, wilsonInterval } from '../charts/ReliabilityDiagram'
 import { DataModeBanner, DataStatePanel, formatPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoPerformance } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
@@ -87,27 +87,59 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
         action={<span className="info-label"><CircleHelp size={13} /> Marker area is sample size</span>}
       >
         {hasEvaluation && data.calibration.length ? (
-          <>
-            <ReliabilityDiagram buckets={data.calibration} height={420} />
-            <p className="chart-footnote">
-              {(() => {
-                const total = data.calibration.reduce((sum, bucket) => sum + bucket.count, 0)
-                const thin = data.calibration.filter((bucket) => bucket.count < 10).length
-                const consistent = data.calibration.filter(coversDiagonal).length
-                return (
-                  <>
-                    {consistent} of {data.calibration.length} buckets are consistent with perfect
-                    calibration at 95%, across {total} evaluated {total === 1 ? 'game' : 'games'}.
-                    {thin > 0 && (
-                      <> {thin} {thin === 1 ? 'bucket has' : 'buckets have'} fewer than ten games —
-                      distance from the diagonal there is mostly sampling noise, which is why the
-                      intervals are drawn.</>
-                    )}
-                  </>
-                )
-              })()}
-            </p>
-          </>
+          <div className="calibration-layout">
+            <ReliabilityDiagram buckets={data.calibration} height={430} />
+            <div className="calibration-readout">
+              <h3>What each bucket rests on</h3>
+              <table className="data-table calibration-table">
+                <caption className="visually-hidden">
+                  Predicted and observed win probability per calibration bucket, with its
+                  sample size and 95% Wilson interval
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Predicted</th>
+                    <th scope="col">Observed</th>
+                    <th scope="col">Games</th>
+                    <th scope="col">95% interval</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.calibration.map((bucket) => {
+                    const [low, high] = wilsonInterval(bucket.observed, bucket.count)
+                    return (
+                      <tr key={bucket.predicted}>
+                        <td>{bucket.predicted.toFixed(1)}%</td>
+                        <td>{bucket.observed.toFixed(1)}%</td>
+                        <td>{bucket.count}</td>
+                        <td className={coversDiagonal(bucket) ? 'calibration-table__ok' : 'calibration-table__off'}>
+                          {low.toFixed(0)}–{high.toFixed(0)}%
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <p className="chart-footnote">
+                {(() => {
+                  const total = data.calibration.reduce((sum, bucket) => sum + bucket.count, 0)
+                  const thin = data.calibration.filter((bucket) => bucket.count < 10).length
+                  const consistent = data.calibration.filter(coversDiagonal).length
+                  return (
+                    <>
+                      {consistent} of {data.calibration.length} buckets are consistent with perfect
+                      calibration at 95%, across {total} evaluated {total === 1 ? 'game' : 'games'}.
+                      {thin > 0 && (
+                        <> {thin} {thin === 1 ? 'bucket has' : 'buckets have'} fewer than ten games —
+                        distance from the diagonal there is mostly sampling noise, which is why the
+                        intervals are drawn.</>
+                      )}
+                    </>
+                  )
+                })()}
+              </p>
+            </div>
+          </div>
         ) : <EmptyEvaluation />}
       </Panel>
 
