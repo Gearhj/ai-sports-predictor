@@ -25,7 +25,7 @@
  */
 import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Beaker, CalendarClock, LineChart, Radio, TrendingUp } from 'lucide-react'
+import { ArrowRight, Beaker, CalendarClock, Flame, LineChart, Radio, TrendingUp } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
@@ -39,6 +39,8 @@ import {
 import type { BankrollData, DashboardData } from '../types/domain'
 import type { NflEvent, NflWeeks } from '../types/nfl'
 import type { TodayAllSportsReadModel } from '../types/multisport'
+import type { RffBoard } from '../types/marketIntelligence'
+import { RffGauge, bandTone } from '../components/broadcast/RffLab'
 import '../broadcast.css'
 
 interface HomeBoard {
@@ -47,6 +49,7 @@ interface HomeBoard {
   mlb: DashboardData | null
   nfl: { season: number; week: number; events: NflEvent[] } | null
   bankroll: BankrollData | null
+  rff: RffBoard | null
   warnings: string[]
 }
 
@@ -67,17 +70,20 @@ export function HomePage() {
     }
     const wantsMlb = sport === 'ALL' || sport === 'MLB'
     const wantsNfl = sport === 'ALL' || sport === 'NFL'
-    const [today, mlb, weeks, bankroll] = await Promise.all([
+    const [today, mlb, weeks, bankroll, rff] = await Promise.all([
       safe('Slate summary', () => endpoints.today(signal)),
       wantsMlb ? safe('MLB slate', () => apiRequest<DashboardData>('/games/slate', {}, signal)) : null,
       wantsNfl ? safe('NFL schedule', () => endpoints.nflWeeks(signal)) : null,
       safe('Experiment bankroll', () => endpoints.bankroll(signal, 'v2')),
+      // One card's worth. RFF is a research index and the home page is not its
+      // home; the board it comes from lives inside Markets & Crowd.
+      safe('RFF index', () => apiRequest<RffBoard>('/markets/rff?limit=1', {}, signal)),
     ])
     const current = (weeks as NflWeeks | null)?.current
     const nfl = current
       ? await safe('NFL markets', () => apiRequest<NflMarketsBoard>(`/nfl/markets/${current.season}/${current.week}`, {}, signal))
       : null
-    return { data_mode: 'live', today, mlb, nfl, bankroll, warnings }
+    return { data_mode: 'live', today, mlb, nfl, bankroll, rff, warnings }
   }, [sport])
 
   const resource = useApiResource(loader)
@@ -222,7 +228,13 @@ export function HomePage() {
           </Panel>
         </div>
 
-        <div className="bx-home__grid" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)' }}>
+        <div className="bx-home__grid" style={{ gridTemplateColumns: 'minmax(0,1.25fr) minmax(0,1fr)' }}>
+          <Panel eyebrow="Spiciest market tonight" title="RFF Index — Ripe For Fuckery"
+            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/markets?view=RFF')}>
+              Open the RFF Lab <ArrowRight size={14} /></Link>}>
+            <SpiciestMarket board={board?.rff ?? null} withSport={withSport} />
+          </Panel>
+
           <Panel eyebrow="Explore" title="Interactive Labs">
             <div style={{ display: 'grid', gap: 10 }}>
               <Link className="bx-lab-link" to={withSport('/labs', 'MLB')}>
@@ -378,6 +390,48 @@ function BankrollSnapshot({ bankroll }: { bankroll: BankrollData }) {
         <Stat label="Open" value={String(bankroll.open_positions ?? 0)} />
       </div>
       <p className="bx-dim"><TrendingUp size={12} aria-hidden="true" /> {bankroll.virtual_label ?? 'Virtual research experiment'}.</p>
+    </div>
+  )
+}
+
+
+/**
+ * One game, one line of explanation, and a link out. RFF is a provisional
+ * research index; giving it a hero on an all-sports home page would say it
+ * matters more than the forecasts and the prices it is derived from.
+ */
+function SpiciestMarket({
+  board, withSport,
+}: { board: RffBoard | null; withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
+  const game = board?.games?.[0] ?? null
+  if (!game) {
+    return (
+      <p className="bx-dim">
+        {board
+          ? 'No game on the board has enough persisted evidence for any RFF component to score.'
+          : 'The RFF index is unavailable.'}
+      </p>
+    )
+  }
+  const away = game.event.away?.abbreviation
+  const home = game.event.home?.abbreviation
+  return (
+    <div className="bx-home__rff">
+      <RffGauge game={game} size={124} />
+      <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+        <Link to={withSport(`/markets?view=RFF&rff=${game.game_id}`)}
+          style={{ color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <Flame size={14} aria-hidden="true" style={{ color: bandTone(game.band.key) }} />
+          <strong style={{ fontSize: 16 }}>{away} @ {home}</strong>
+        </Link>
+        <p className="bx-muted">
+          Provisional RFF {game.score?.toFixed(0)} · {pct(game.evidence_coverage, 0)} evidence
+          coverage. {game.share_card.triggers.length > 0
+            ? `Driven by ${game.share_card.triggers.map((t) => t.label.toLowerCase()).join(', ')}.`
+            : 'No component is scoring high.'}
+        </p>
+        <p className="bx-dim">{game.share_card.disclaimer}</p>
+      </div>
     </div>
   )
 }

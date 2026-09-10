@@ -30,7 +30,7 @@
  */
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, ChevronDown, RefreshCw, Radio } from 'lucide-react'
+import { ArrowRight, ChevronDown, Flame, History, RefreshCw, Radio } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
@@ -41,6 +41,7 @@ import {
   LeagueTag, Panel, SourceBadge, agoOf, american, clockOf, decimals, pct,
   signedPoints, useBroadcastTheme,
 } from '../components/broadcast/primitives'
+import { ReplayView, RffView, type ReplayChoice } from '../components/broadcast/MarketViews'
 import { conditionalHomeWin } from '../services/broadcastSlate'
 import type {
   MarketBoardData, MarketBoardRow, MarketPulseBoard, MarketPulseRow,
@@ -50,6 +51,17 @@ import type { NflEvent, NflMarketBlock, NflWeeks } from '../types/nfl'
 import '../broadcast.css'
 
 type Family = 'MONEYLINE' | 'SPREAD' | 'TOTAL'
+type View = 'PRICES' | 'REPLAY' | 'RFF'
+function readView(value: string | null): View {
+  const upper = (value ?? '').toUpperCase()
+  return upper === 'REPLAY' || upper === 'RFF' ? upper : 'PRICES'
+}
+
+const VIEWS: { key: View; label: string; hint: string }[] = [
+  { key: 'PRICES', label: 'Prices', hint: 'One row per game: model, best price, consensus, book spread.' },
+  { key: 'REPLAY', label: 'Replay', hint: 'Watch one market move from its first observation to the cutoff.' },
+  { key: 'RFF', label: 'RFF Lab', hint: 'Ripe For Fuckery: a provisional research index of market unrest.' },
+]
 const FAMILIES: Family[] = ['MONEYLINE', 'SPREAD', 'TOTAL']
 const FAMILY_LABEL: Record<'MLB' | 'NFL', Record<Family, string>> = {
   MLB: { MONEYLINE: 'Moneyline', SPREAD: 'Run line', TOTAL: 'Total runs' },
@@ -85,6 +97,25 @@ export function UnifiedMarketsPage() {
   const [params, setParams] = useSearchParams()
   const [family, setFamily] = useState<Family>('MONEYLINE')
   const [query, setQuery] = useState('')
+  // Replay and the RFF Lab are views of THIS page, not new destinations: the
+  // sidebar already has ten entries and neither is a place you go, it is
+  // something you do to the board you are already looking at.
+  //
+  // The view and the game it is looking at live in the URL, so a replay of one
+  // market is a link someone can send rather than a set of clicks to describe.
+  const view = readView(params.get('view'))
+  const replayGame = params.get('game')
+  const rffGame = params.get('rff')
+  const [replayBook, setReplayBook] = useState<string | null>(null)
+  const setParam = useCallback((key: string, value: string | null) => {
+    setParams((old) => {
+      const next = new URLSearchParams(old)
+      if (value === null) next.delete(key)
+      else next.set(key, value)
+      return next
+    }, { replace: true })
+  }, [setParams])
+  const setView = useCallback((next: View) => setParam('view', next === 'PRICES' ? null : next), [setParam])
   const day = params.get('date') ?? new Date().toISOString().slice(0, 10)
 
   const loader = useCallback(async (signal: AbortSignal): Promise<MarketsBoard> => {
@@ -136,6 +167,21 @@ export function UnifiedMarketsPage() {
 
   const total = (sport === 'NFL' ? 0 : mlbRows.length) + (sport === 'MLB' ? 0 : nflRows.length)
 
+  /** Replay can only open a game the board is already showing. */
+  const replayChoices = useMemo<ReplayChoice[]>(() => [
+    ...(sport === 'NFL' ? [] : mlbRows.map(({ row }) => ({
+      gameId: row.game_id, league: 'MLB' as const,
+      label: `${row.away_abbrev} @ ${row.home_abbrev}`, startsAt: row.starts_at ?? '',
+    }))),
+    ...(sport === 'MLB' ? [] : nflRows
+      .filter((event) => event.canonical_game_id)
+      .map((event) => ({
+        gameId: event.canonical_game_id as string, league: 'NFL' as const,
+        label: `${event.away.abbreviation} @ ${event.home.abbreviation}`,
+        startsAt: event.kickoff_utc ?? '',
+      }))),
+  ].sort((a, b) => a.startsAt.localeCompare(b.startsAt)), [mlbRows, nflRows, sport])
+
   return (
     <div className="bx bx-markets">
       <div className="bx__inner">
@@ -181,6 +227,17 @@ export function UnifiedMarketsPage() {
           </div>
         </header>
 
+        <div className="bx-segment bx-segment--views" role="group" aria-label="Market view">
+          {VIEWS.map((entry) => (
+            <button key={entry.key} type="button" aria-pressed={view === entry.key}
+              title={entry.hint} onClick={() => setView(entry.key)}>
+              {entry.key === 'REPLAY' && <History size={13} aria-hidden="true" />}
+              {entry.key === 'RFF' && <Flame size={13} aria-hidden="true" />}
+              {entry.label}
+            </button>
+          ))}
+        </div>
+
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="bx-segment" role="group" aria-label="Market">
             {FAMILIES.map((value) => (
@@ -208,7 +265,7 @@ export function UnifiedMarketsPage() {
         {resource.loading && !board && <p className="bx-empty" role="status">Loading persisted market evidence…</p>}
         {resource.error && <p className="bx-empty" role="alert">{resource.error}</p>}
 
-        {sport !== 'NFL' && (
+        {view === 'PRICES' && sport !== 'NFL' && (
           <Panel eyebrow={`MLB · ${FAMILY_LABEL.MLB[family]}`} title="Baseball prices"
             action={<span className="bx-dim">{mlbRows.length} game{mlbRows.length === 1 ? '' : 's'}</span>}>
             {mlbRows.length === 0
@@ -216,23 +273,40 @@ export function UnifiedMarketsPage() {
               : <div className="bx-mkt">
                 {mlbRows.map(({ row, books }) => (
                   <MlbMarketRow key={row.game_id} row={row} books={books} family={family}
-                    now={now} withSport={withSport} />
+                    now={now} withSport={withSport} onReplay={(id) => { setParam('game', id); setView('REPLAY') }} />
                 ))}
               </div>}
           </Panel>
         )}
 
-        {sport !== 'MLB' && (
+        {view === 'PRICES' && sport !== 'MLB' && (
           <Panel eyebrow={`NFL · ${FAMILY_LABEL.NFL[family]}`} title="Football prices"
             action={<span className="bx-dim">{nflRows.length} game{nflRows.length === 1 ? '' : 's'} · research shadow</span>}>
             {nflRows.length === 0
               ? <p className="bx-empty">No NFL game with persisted evidence matches this week and filter.</p>
               : <div className="bx-mkt">
                 {nflRows.map((event) => (
-                  <NflMarketRow key={event.event_id} event={event} family={family} now={now} withSport={withSport} />
+                  <NflMarketRow key={event.event_id} event={event} family={family} now={now}
+                    withSport={withSport} onReplay={(id) => { setParam('game', id); setView('REPLAY') }} />
                 ))}
               </div>}
           </Panel>
+        )}
+
+        {view === 'REPLAY' && (
+          <ReplayView
+            family={family}
+            games={replayChoices}
+            gameId={replayGame ?? replayChoices[0]?.gameId ?? null}
+            onSelectGame={(id) => { setParam('game', id); setReplayBook(null) }}
+            selectedBook={replayBook}
+            onSelectBook={setReplayBook}
+          />
+        )}
+
+        {view === 'RFF' && (
+          <RffView day={day} league={sport === 'MLB' || sport === 'NFL' ? sport : null} family={family}
+            selected={rffGame} onSelect={(id) => setParam('rff', id)} />
         )}
       </div>
     </div>
@@ -253,10 +327,11 @@ function matches(...values: (string | null | undefined)[]): boolean {
 /* -- MLB ------------------------------------------------------------------ */
 
 function MlbMarketRow({
-  row, books, family, now, withSport,
+  row, books, family, now, withSport, onReplay,
 }: {
   row: MarketPulseRow; books: MarketBoardRow[]; family: Family; now: number
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  onReplay: (gameId: string) => void
 }) {
   const [open, setOpen] = useState(false)
   // The home selection is the one whose price is comparable to a home-win
@@ -409,6 +484,9 @@ function MlbMarketRow({
                 {row.display_note ?? ''}
               </p>
               <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <button type="button" className="bx-btn bx-btn--primary" onClick={() => onReplay(row.game_id)}>
+                  <History size={13} aria-hidden="true" /> Replay this market
+                </button>
                 <Link className="bx-btn" to={withSport(`/games/${row.game_id}`, 'MLB')}>Game analysis <ArrowRight size={13} /></Link>
                 <Link className="bx-btn" to={withSport(`/games/${row.game_id}/simulation`, 'MLB')}>Diamond Simulator <ArrowRight size={13} /></Link>
               </div>
@@ -423,10 +501,11 @@ function MlbMarketRow({
 /* -- NFL ------------------------------------------------------------------ */
 
 function NflMarketRow({
-  event, family, now, withSport,
+  event, family, now, withSport, onReplay,
 }: {
   event: NflEvent; family: Family; now: number
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  onReplay: (gameId: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const engine = event.engines.find((entry) => entry.engine_id === 'NFL_M1_XGBOOST') ?? event.engines[0]
@@ -588,6 +667,10 @@ function NflMarketRow({
               </p>
               {event.canonical_game_id && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button type="button" className="bx-btn bx-btn--primary"
+                    onClick={() => onReplay(event.canonical_game_id as string)}>
+                    <History size={13} aria-hidden="true" /> Replay this market
+                  </button>
                   <Link className="bx-btn" to={withSport(`/games/${event.canonical_game_id}`, 'NFL')}>Game analysis <ArrowRight size={13} /></Link>
                   {event.lab_available && (
                     <Link className="bx-btn" to={withSport(`/games/${event.canonical_game_id}/simulation`, 'NFL')}>Simulation Lab <ArrowRight size={13} /></Link>
