@@ -3310,3 +3310,124 @@ class ResearchSupplement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         Index("ix_research_supplements_event_kind", "event_id", "kind"),
     )
+
+
+class ResearchForecastEvaluation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One prospective forecast, scored against one final result. Append-only.
+
+    WHY THIS IS NOT A POSITION SETTLEMENT
+    -------------------------------------
+    A settlement answers "what happened to money we staked". This answers
+    "how good was the forecast", for every game -- including the overwhelming
+    majority where nothing was staked and no decision was ever taken. Sharing
+    the settlement table would make a research metric look like a financial
+    record and would tie evaluation coverage to wagering activity, which is
+    exactly backwards: the forecasts we never bet on are the ones the sample
+    most needs.
+
+    THE IDENTITY, AND WHY EACH PART OF IT IS THERE
+    ----------------------------------------------
+    ``(event_id, engine_id, engine_version, forecast_identity, result_identity)``
+
+      event + engine + version   one score per model per game, so ten stored
+                                 snapshots of one forecast are one row
+      forecast_identity          the exact snapshot that was frozen, so a
+                                 re-freeze against a different eligible
+                                 forecast is a NEW row rather than a silent
+                                 overwrite of the old verdict
+      result_identity            a corrected final produces a new evaluation
+                                 beside the old one; the first score is still
+                                 what we said at the time
+
+    Re-running the job writes nothing when all five match.
+    """
+
+    __tablename__ = "research_forecast_evaluations"
+
+    sport: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    league_code: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    canonical_game_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("games.id"), index=True)
+    engine_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(120), nullable=False)
+    model_label: Mapped[str | None] = mapped_column(String(160))
+
+    #: The frozen forecast. `forecast_identity` is the producer's own id.
+    forecast_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    shadow_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_forecasts.id"), index=True
+    )
+    snapshot_type: Mapped[str | None] = mapped_column(String(32))
+    snapshot_version: Mapped[int | None] = mapped_column(Integer)
+    forecast_published_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_evidence_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_imported_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kickoff_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Seconds between publication and kickoff. Negative is impossible here and
+    #: is what the eligibility filter exists to prevent.
+    published_before_kickoff_seconds: Mapped[int | None] = mapped_column(Integer)
+
+    #: The result this was scored against, and where it came from.
+    result_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    result_source: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_observed_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    home_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_score: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    #: Outcome scoring.
+    actual_outcome: Mapped[str] = mapped_column(String(8), nullable=False)
+    predicted_outcome: Mapped[str] = mapped_column(String(8), nullable=False)
+    winner_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    probability_of_actual: Mapped[float] = mapped_column(Float, nullable=False)
+    log_loss: Mapped[float] = mapped_column(Float, nullable=False)
+    brier_score: Mapped[float] = mapped_column(Float, nullable=False)
+
+    #: Point scoring. Signed errors are predicted minus actual throughout.
+    predicted_home_score: Mapped[float | None] = mapped_column(Float)
+    predicted_away_score: Mapped[float | None] = mapped_column(Float)
+    home_score_error: Mapped[float | None] = mapped_column(Float)
+    away_score_error: Mapped[float | None] = mapped_column(Float)
+    team_score_mae: Mapped[float | None] = mapped_column(Float)
+    predicted_margin: Mapped[float | None] = mapped_column(Float)
+    actual_margin: Mapped[int] = mapped_column(Integer, nullable=False)
+    margin_error: Mapped[float | None] = mapped_column(Float)
+    predicted_total: Mapped[float | None] = mapped_column(Float)
+    actual_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_error: Mapped[float | None] = mapped_column(Float)
+
+    #: Distribution scoring. Null with a stated reason when no authentic
+    #: saved draws exist; never estimated from a summary.
+    distribution_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    distribution_unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    distribution_draws: Mapped[int | None] = mapped_column(Integer)
+    crps_home: Mapped[float | None] = mapped_column(Float)
+    crps_away: Mapped[float | None] = mapped_column(Float)
+    crps_margin: Mapped[float | None] = mapped_column(Float)
+    crps_total: Mapped[float | None] = mapped_column(Float)
+    energy_score: Mapped[float | None] = mapped_column(Float)
+    interval_coverage: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    #: Market comparison. Null with a stated reason when no eligible
+    #: pre-kickoff two-sided quote exists.
+    market_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    market_unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    market_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    #: The full computation, kept so a number on the page can be traced.
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    scoring_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "engine_id", "engine_version", "forecast_identity", "result_identity",
+            name="uq_research_forecast_evaluation_identity",
+        ),
+        Index("ix_research_forecast_eval_league_engine", "league_code", "engine_id"),
+        CheckConstraint(
+            "published_before_kickoff_seconds IS NULL OR published_before_kickoff_seconds >= 0",
+            name="ck_research_forecast_eval_prospective",
+        ),
+    )

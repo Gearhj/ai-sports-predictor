@@ -29,6 +29,7 @@ from app.models.entities import (
     ProspectiveEvaluationGameAssignment, ProspectiveEvaluationLabelAccess,
     ProspectiveEvaluationPlan,
     RosterAvailabilityObservation, RunStatus, Season, SourceFreshnessPolicy, Sport,
+    ResearchForecastEvaluation,
     ResearchSupplement,
     ShadowBoardDecision, ShadowDecisionSettlement, ShadowForecast, ShadowForecastBundle,
     ShadowExperiment, ShadowExperimentDecision,
