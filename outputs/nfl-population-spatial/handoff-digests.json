@@ -1,0 +1,38 @@
+{
+  "index": {
+    "path": "C:\\Users\\james\\asp-model-exchange\\nfl-labs-play-level-supplements\\current.json",
+    "sha256": "a2bab5d273589d87c42a6fc1a3a870225c7ef20a41a85b8a928e8da7cc53cc67",
+    "byteCount": 89771
+  },
+  "index_schema": "NFL_LABS_PLAY_LEVEL_CURRENT_V2",
+  "contract": {
+    "path": "C:\\Users\\james\\asp-model-exchange\\contracts\\NFL_LABS_PLAY_LEVEL_CONTRACT_V2.json",
+    "sha256": "1e008bf3c666a7ae983182be84427a3e7ff0c116707d847e8ef5d212c1b883ab",
+    "byteCount": 18996
+  },
+  "handoff": {
+    "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-play-level-engine-v1\\sha256\\7bbeb6d27fc60d6b520925dbfccc6b62ec7dca279edd03a32b20f3f91e53d37f\\handoff.json",
+    "sha256": "7bbeb6d27fc60d6b520925dbfccc6b62ec7dca279edd03a32b20f3f91e53d37f",
+    "byteCount": 149528
+  },
+  "handoff_schema": "NFL_PLAY_LEVEL_HANDOFF_V1",
+  "counts": {
+    "indexed": 112,
+    "publishedThisRun": 105,
+    "carriedForward": 7,
+    "events": 16
+  },
+  "runtimeSeconds": 3552.8,
+  "gameSimulationStarts": 105000,
+  "representativeReplays": 630,
+  "impossibleStateCount": 0,
+  "artifactVersions": {
+    "NFL_LABS_PLAY_LEVEL_SIMULATION_V2": 105,
+    "NFL_LABS_PLAY_LEVEL_SIMULATION_V1": 7
+  },
+  "artifactBytes": {
+    "total": 321509082,
+    "min": 2553860,
+    "max": 3282796
+  }
+}

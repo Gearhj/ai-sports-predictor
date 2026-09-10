@@ -1,0 +1,1247 @@
+{
+  "schema_version": "AISP_NFL_PLAY_LEVEL_IMPORT_RECEIPT_V2",
+  "created_at": "2026-09-10T14:06:51.158724+00:00",
+  "applied": true,
+  "database": "asp",
+  "database_port": 5432,
+  "contract": "NFL_LABS_PLAY_LEVEL_CONTRACT_V2",
+  "newest_artifact_schema": "NFL_LABS_PLAY_LEVEL_SIMULATION_V2",
+  "pointer_sha256": "a2bab5d273589d87c42a6fc1a3a870225c7ef20a41a85b8a928e8da7cc53cc67",
+  "verified_artifacts": 112,
+  "artifact_schema_versions": {
+    "NFL_LABS_PLAY_LEVEL_SIMULATION_V2": 105,
+    "NFL_LABS_PLAY_LEVEL_SIMULATION_V1": 7
+  },
+  "artifacts_with_population_spatial": 105,
+  "artifacts_without_population_spatial": 7,
+  "plays_summarised_by_population_spatial": 15979439,
+  "imported": 105,
+  "reused": 7,
+  "preservation_scope": "full rows within import transaction; concurrent external jobs excluded",
+  "preserved_before": {
+    "model_versions": {
+      "rows": 2,
+      "full_row_md5": "ce8a688776aed70e866bd81f7e1148ba"
+    },
+    "forecasts": {
+      "rows": 457,
+      "full_row_md5": "26492b405ffd3aa976b463f767c78191"
+    },
+    "forecast_components": {
+      "rows": 1371,
+      "full_row_md5": "2f7ef6e12f65fbe1bb9da15fc8a509d2"
+    },
+    "official_asp_positions": {
+      "rows": 12,
+      "full_row_md5": "a74d122b6a3205812c2a94900a359c87"
+    },
+    "position_results": {
+      "rows": 11,
+      "full_row_md5": "79ec958a554c510f5b8f410379720895"
+    },
+    "user_virtual_bankrolls": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "shadow_experiments": {
+      "rows": 3,
+      "full_row_md5": "61c7e900d414e4ac4f85aeb2174f5efc"
+    },
+    "shadow_experiment_decisions": {
+      "rows": 24705,
+      "full_row_md5": "7bc1767d41f66a4b529a344308357544"
+    },
+    "shadow_forecasts": {
+      "rows": 2192,
+      "full_row_md5": "3bd2a24fa8b9ffb53704bff7c0428b35"
+    },
+    "shadow_forecast_bundles": {
+      "rows": 576,
+      "full_row_md5": "90fa5479bd2aa3ab58d7fba79d4e5f29"
+    },
+    "shadow_decision_settlements": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "provider_request_ledger": {
+      "rows": 760,
+      "full_row_md5": "de85c6aded4ee6337ff08de661921989"
+    }
+  },
+  "preserved_after": {
+    "model_versions": {
+      "rows": 2,
+      "full_row_md5": "ce8a688776aed70e866bd81f7e1148ba"
+    },
+    "forecasts": {
+      "rows": 457,
+      "full_row_md5": "26492b405ffd3aa976b463f767c78191"
+    },
+    "forecast_components": {
+      "rows": 1371,
+      "full_row_md5": "2f7ef6e12f65fbe1bb9da15fc8a509d2"
+    },
+    "official_asp_positions": {
+      "rows": 12,
+      "full_row_md5": "a74d122b6a3205812c2a94900a359c87"
+    },
+    "position_results": {
+      "rows": 11,
+      "full_row_md5": "79ec958a554c510f5b8f410379720895"
+    },
+    "user_virtual_bankrolls": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "shadow_experiments": {
+      "rows": 3,
+      "full_row_md5": "61c7e900d414e4ac4f85aeb2174f5efc"
+    },
+    "shadow_experiment_decisions": {
+      "rows": 24705,
+      "full_row_md5": "7bc1767d41f66a4b529a344308357544"
+    },
+    "shadow_forecasts": {
+      "rows": 2192,
+      "full_row_md5": "3bd2a24fa8b9ffb53704bff7c0428b35"
+    },
+    "shadow_forecast_bundles": {
+      "rows": 576,
+      "full_row_md5": "90fa5479bd2aa3ab58d7fba79d4e5f29"
+    },
+    "shadow_decision_settlements": {
+      "rows": 0,
+      "full_row_md5": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "provider_request_ledger": {
+      "rows": 760,
+      "full_row_md5": "de85c6aded4ee6337ff08de661921989"
+    }
+  },
+  "protected_tables_unchanged": true,
+  "model_executions": 0,
+  "provider_calls": 0,
+  "official_writes": 0,
+  "records": [
+    {
+      "supplement_sha256": "64d1c85eed6de2f8c767b577dce6094f40be795834216be1dea3bf49696821f8",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:cafb169c633db8534f8b56977151db014ff494305d29903fdf980e84e43ceeac",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 949
+    },
+    {
+      "supplement_sha256": "b704c021ab694246aecbeb8f8b0895ea8e77d8fabbb54dcf91f183a274a38571",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:e010ade29de803170efc38a4d3ac4b7260a9f120afe542d27fbf7cfdf4e43d58",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1035
+    },
+    {
+      "supplement_sha256": "d93ab4a9846d093a75f1014a6a712e3531260f148c438f40743f422eb24096e1",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:752213ce9d2065263b2f6a92f7599e6c8b206f4b75e9924e67a035225450161d",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 894
+    },
+    {
+      "supplement_sha256": "90f6f2318d26d54c8becefccf052096ffe90d625c84536b33830d58a7a1fb09c",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:3d6b89ccf646945aa060f96f82f6ba96de754ab9ed611bc9b6470ee7a699dd37",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 959
+    },
+    {
+      "supplement_sha256": "51448be41483f0aa492fd7ee2af8b39166ee6dd4dc116630b2962e242af998bb",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:2e27c456246281f5f107e73c2ed45f42d80fdc81b3c13ca47d1bf9fe041a0d97",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 959
+    },
+    {
+      "supplement_sha256": "89580a15791fcf832d6285a8f92d1233ded4c769d1894cbe76505b869a675b4f",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:76bd98c3ff5af67f26f43f4c45f473792e2f6980e006de15d0cd73409525fa09",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 926
+    },
+    {
+      "supplement_sha256": "99277d6450b8319b4fcbe59241e34a0a2f723f3fa3e22fef0c82cd2c08d598d4",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_SF_LA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:d96c8fcda329f4aea9866dc90d89cb934935c5373a4ad741b38aa3e475809f78",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 1001
+    },
+    {
+      "supplement_sha256": "4241eb926b272e969dbaeea0bb51e880eeb457f0f7c1ba32a9da5a3c102082b5",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:0102f9c58540b8df697bd0636310307583c6eb57ecf63cb1e108a6739e9f5e9c",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 944
+    },
+    {
+      "supplement_sha256": "557cf02c4842051f3dbc029a4e96dd3318424e45af031a8f1dc92bcd6b882c97",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:1cbb05769cec67af84a6ad8888eae0e0188eaae53a0503e9eb970c509c02019d",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1080
+    },
+    {
+      "supplement_sha256": "d4245b9d8610d6a99c5ab315b27e72b72566daade2649a8579161355eeaaeff3",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:f57db2070140425386052cced1f53099e574a10aa1c51511846f085839d499ce",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 869
+    },
+    {
+      "supplement_sha256": "976b28f58513ca9d46772f3615c61dc1107d3db5730e3b6680297c862132238c",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:df64c1e2330f992ddea4c3ed3a7ea4e2fc30abff0e4857d8eeeafe9565846187",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 978
+    },
+    {
+      "supplement_sha256": "7a0d9440bba14053baaf6f25288c48a25169c990edc1864c179c2c0e73097b9a",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:e3c61f798f24f1047771d657ff5733dea34422ac0056bec5f4d4330f26901556",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 987
+    },
+    {
+      "supplement_sha256": "e9f37ae667fc45e98a1d46a55bd0cfe2698113913edbfb9bb5ad3d2a1bf91e67",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:09f64203808541123b4d7e1614da93f309461160301feff81e0f15382ef0c2ea",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 983
+    },
+    {
+      "supplement_sha256": "255df07bfc88f1f1779c97a3cea5fcd0b6fa283f0ff4aa8506e6c6497d32e7c7",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ATL_PIT",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:c21454bf0eed673514d88507f0e462634e106006eb14489b1e63d8f43e0abb04",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 962
+    },
+    {
+      "supplement_sha256": "6c84eef32bef0a1fafa7ff3b36f30c3921691c2704a345e9f9bb8f4a7f4c41fb",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:45d8cb16b889bf7c21cf12a0c849d365f4b086c7b062dc4b2754f66c18d4c50f",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 920
+    },
+    {
+      "supplement_sha256": "2423f4cb864ead359fea6d644db8ea67fe6143dfae10e60776e8e774c7be6281",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:db58a0589026167c2bd4190252b947ac1d8f60bd1930e7a9d7871d13dcc5ac82",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1062
+    },
+    {
+      "supplement_sha256": "5dd845742c347321c38ddf59272d1955a287518585b92c2046300bdde85a51e1",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:c213272dd1d631b2aaf488cb314660799c3bbe52f4e4b097de96068a0a4c80d2",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 850
+    },
+    {
+      "supplement_sha256": "caa60f0fb96380c1cccb12a8265b9d1fb368709cc0e2cee9ec488fe9467c8735",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:beb36574a7186ed67be13cb622999ab856f8f517fdc17f07886294f6255522dc",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 984
+    },
+    {
+      "supplement_sha256": "e0ea068c17a628d820714a13898849ec03f9e71c9212e234b34631bc3bb7501b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:91aa19250475dec89d275d29ed09844faa49b17a74f4a0ab6e16f81d1ee1734f",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 923
+    },
+    {
+      "supplement_sha256": "b0bde8c95472bef2ea19360b7a35c8f425b60272e10b63947c49959f2d406a4b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:aac5a5297e216583ede1c283e1814d3920a0749b404b841316756574cc0e579c",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 941
+    },
+    {
+      "supplement_sha256": "1cf83b77f94cb918329c77edd26d66563a36cfd4e17ba9c56b16b5823a2100c0",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BAL_IND",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:d7a4739d3404c93fbcdcab078a95d0310a0227b3a8580af0032878c8d8a843a8",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 938
+    },
+    {
+      "supplement_sha256": "9003c0d69df77ca327a48dc51d478e8d6a23ab861eca846b5bdd82d088e4d196",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:4691ad10dac406ec017e3fb0fa7457d9ac0edcbe9c25d82c09c111f389ab97be",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 988
+    },
+    {
+      "supplement_sha256": "1d9b11364a027e3fa38a8d47946f5636c801db9843c4c7c0f9efdf740ba575cc",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:12f6d26e8109211ee9b56887101ad975d79097fe72cbce83c3e17b75068fad67",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1030
+    },
+    {
+      "supplement_sha256": "5399f0a70ad8f990fbdad4c92c2eb66a99467700ebe2907073646b5d950278e6",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:97653130acd6c73601b80a56695a2288f9e728428b560e4072914565b2deabe9",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 859
+    },
+    {
+      "supplement_sha256": "93f206ec7f72490582d923bf519f7cb5b659696613c199c6333cf4f2609026a3",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:702fb969cbe3db0f36798a8fc6c9199e57c7391225fdcad7b619a3f97f014571",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 949
+    },
+    {
+      "supplement_sha256": "1cd983a4fe89d33a3540dafbe32f87097933ee70c230f47ecba49d107e8c8a2e",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:97733ba82e9099e454856f2fb0e7e28855a5ae66516a8d811800bbcf3218022f",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 992
+    },
+    {
+      "supplement_sha256": "df7572705426c3d1ec1d586760bf9c2eeab7f5d10bacdf51562f5442300daff2",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:06ae8e8537a90db724f4e35320862dafb1a78dc454308f8f6a2b2ddcf22cb556",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 979
+    },
+    {
+      "supplement_sha256": "f5c81df554ad5f2bf9c83b637754ead3ef874fb0d399c89bd805b80e07a5e9cc",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_BUF_HOU",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:5c001eb6273c74de397cefa2b4014a09af9a6e06cb9bb934e19ffcbf2af4e94c",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 988
+    },
+    {
+      "supplement_sha256": "f7740b418ecb73b9c3d8734deaef4f1cc3e848736927dca7b607b7c138131d5f",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:4f57178b5fa9450cea6245a80177b7509641f2030c338c10faf944adc26d0228",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 943
+    },
+    {
+      "supplement_sha256": "cab97d12e85fc5489f16a79bee3bed560fca95933ff44e6def85f15e8198a4bf",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:bfcca3a5e68d459ab2f96ebfff0c541a46fcd8b620774d0501519129bef774ae",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1052
+    },
+    {
+      "supplement_sha256": "a248cbd167f6fe77f468d6a09b493d1ea02deea94c057290535eba6e89146fe1",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:43ac9ecb0b268bb22ce21d6d49458c5a860709617ae60c53cc89c5a9b588b33d",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 857
+    },
+    {
+      "supplement_sha256": "77dec3f0f7de1c794e2bdb995458a023f6a3ebef13e6be1090dc4705784ff495",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:f2bb99374961a36685a959be48edcda503e31986060f757c975a187605fbbc2e",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 1005
+    },
+    {
+      "supplement_sha256": "80af448328183f62a72c18273e0b1f1eed6e1fd55f882bc3cb9a755c9a399a04",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:f78e4095a24bf4cb22caea76b83bdfb1e1a547ed8f6da4677efe88d1586392f8",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 934
+    },
+    {
+      "supplement_sha256": "b7e62ae0f4db8f77eb52968f36488dd6f46d62d3f6d79e291ec0b3fc8248a850",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:a7b7d30eb0decdd31bb5df7a2c2d64a90da18f908716e2d3d58302e33a161e56",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 923
+    },
+    {
+      "supplement_sha256": "1a8b554f4376b5572613e98ead93a3f3e12834c2a1fe2c399cc69016ca987b56",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CHI_CAR",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:2c41e63c27794da87dfa9fb4a301c37564b2d5dc20cc13250c50ec2015648d39",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 929
+    },
+    {
+      "supplement_sha256": "dc4b00b18abdeb2278b0757027a22dad564bde83ca1de827ead9b11ca287274e",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:b6c94ff6bdc4403735e5b2b3a809edd4b62cab87b72bc8778a9ec1f82a088e83",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 940
+    },
+    {
+      "supplement_sha256": "98f7a4c10f545704179409ee442b6afea6dfa197bff2ef1b0ad4649024ca34b6",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:fec7d9a2a8aa406127a82a37084c8677c18c6b486cf6ba748addfe8c75c0f566",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1057
+    },
+    {
+      "supplement_sha256": "1351a8871328dabc231f7361c2c090ad367f9c19be92aedd10b9c59558b91a48",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:c2d88b46fa824b5a05ce267fd10bb28b72b20a9715d62c6e6e8d428d49d5aaab",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 846
+    },
+    {
+      "supplement_sha256": "fd1786e272cc6bba9709981fbb6a08bd61806ad5cbade3c1598b329797a7ec7b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:f0368aab82ad023986ee0010d906a4c275fcfc1407fcbc4284607d936a77c837",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 991
+    },
+    {
+      "supplement_sha256": "d7779e06379d38f1626835110ad74664c06e5a0e5162d7179c3bc4b512eb700b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:c8c9d591f15fa78d3ab30e750b639e36b21349f4a7fae9876b7329ea37a7021b",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 951
+    },
+    {
+      "supplement_sha256": "865379539dae56367f45034f76a1c8454b6ad7b7d314d00185f131194949ce52",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:73fdbe62458c9b88e3e0f2d4ba13ddbfa5d2d5a143ba1157ff811e7be5a9b041",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 969
+    },
+    {
+      "supplement_sha256": "6495c843b918f5f84ed273854251632b3bf873ec72502b93ab418ef1c06021f8",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_CLE_JAX",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:23229bfc88310ca82bb9ee45fafdf96e1b58d02df46ac91d25620cf9684ed979",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 950
+    },
+    {
+      "supplement_sha256": "48cb0d4b1029660c850bba715ec9c4800fcfa7c310f400e195abec6ca278e9a3",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:190d15e89e6786ee09057a484f5b07342bada388be2445bc3afa9751a236f56e",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 989
+    },
+    {
+      "supplement_sha256": "f1b0e2bb5935b0b37234b6de4062a22fd366b65f434af9f3a340d063015e4acf",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:8cb047bfa5e1613b56ca2e863fc9bd31ee722f0c8bb866bc7292c77e3bd2484a",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1116
+    },
+    {
+      "supplement_sha256": "56d08a1912315f900631f6aa48278418b54e419957941af113df528ffe399355",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:ef85e952a32783e6aebb2cde32c8d5fdb7a594c59f44311a3ca8764fef2a5ecd",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 918
+    },
+    {
+      "supplement_sha256": "f24d23abe88fb796b285a86699ffccf16b3a7c128fe4b2de9e8de1a5af35db7b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:98e995a0435be18da001423b61593614ee6b9fef90e97ef4155f5688f0b3f6f9",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 972
+    },
+    {
+      "supplement_sha256": "a31f792e3d3690c770c50c1b2d0f0088969b680603e11d77bbb3ed21f30ca9ed",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:ed044806d7667e387e4cc4863ccfe2ce6248a977ac880edb50d65852ebce7ac0",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 1032
+    },
+    {
+      "supplement_sha256": "fdd129874d9c3ac9064705295c5a92d27ce897d197b1a038d0a97f3cdcd3893d",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:e3de6bb6d19b7c9e08aa0671a749db7d7f7b4a640d01ad16fed80c9c6697265c",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 1015
+    },
+    {
+      "supplement_sha256": "8d9fa6c9905afafb77eb90aa42f8caa0fee33dddf35e66e2e3de2372b3900be1",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NO_DET",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:3f5f0a1a423443d8323475aab12201b7c62aa36f2f4310646e6c525499468ea1",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 981
+    },
+    {
+      "supplement_sha256": "b798fe504ab2f5fa618d9621135f96d341b302d31ab22686ac2dca5875cfae1b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:4163a688c57431f9b10539ae5c224cce875118deaeaedab1b8daec0cc9b26026",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 982
+    },
+    {
+      "supplement_sha256": "c2e6d67da2ae95984fde85cf9ce65053c47c9b3f90c47690aa2faf03d0c448de",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:5351bf983dccde36e90be714f01c65cadd24beab0c47cfbc15f92ed1e177126c",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1096
+    },
+    {
+      "supplement_sha256": "3762efdb3f4b4406b65b5fd9f0229ef372f4ee8db036cb029bb53fc5dd767abd",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:28527614256c3c55ceef356e77605d892541949eea2bef8a3196708c5798bb2f",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 882
+    },
+    {
+      "supplement_sha256": "d98e4e15bba5ce2425ee94c0686bf2dd5085722c10ed9fda790221db936ac68b",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:1533df36f566c1cf076c1ae053f3290971478897542ee81085351d1f269299ef",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 996
+    },
+    {
+      "supplement_sha256": "ad180dbaee16e6627783101318fc83a29bd8f352d3038700e77effdcc1343c7e",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:493b15106b1795e7ea7dfb505afb9bd0fc4a0992e1c78afdfc9d502b9f0eab6d",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 926
+    },
+    {
+      "supplement_sha256": "2a2aec2012952d02401cefd2803b3299881c09a24f3ea4d6e235c25eedb266b7",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:8761e7d79049e9ca2f123a10f4011f3c9b554720ff428dd4ac012af463873cc8",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 991
+    },
+    {
+      "supplement_sha256": "70d51847f7ab15359eb8fafa9c18bfc815d847c5e2f328cda7dfc2c57cb459aa",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NYJ_TEN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:82f1593b766f23911fbd8c9dac53cd5f96131faf2aef3143acd3a7462559dc5d",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 960
+    },
+    {
+      "supplement_sha256": "b0fa63c265113b2a0164d184b5650413cd94b558f4388b1d9d6ef02d534741b5",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:8e0ec2f146e34d9aebb138977573247e6fcf1bddac3c93bb0a75a372e3a79cc6",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 919
+    },
+    {
+      "supplement_sha256": "d0997f6cd941b4cee06394f3ca674c3d682af7b117b46d4c49cf3669661824a2",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:080ffdb4896df5e82f3c5166280d4d452f3d213ec2b002fedbd35ae4b879db7d",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1043
+    },
+    {
+      "supplement_sha256": "a2393700dd308316c571cfd0d8ed4e15f1e25c91b81b8484dfaabf2e69b9c9f3",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:38b2aefd17bd08c45efdb9499b1447854c6d8f4726313f08836ae5979658a2eb",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 864
+    },
+    {
+      "supplement_sha256": "d47f1750e68c04102e601820cf17bb41df3c08fb4475bfbdb7d4edd5303cdfaf",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:2908cd7f6ccd95d5eb0ea04fad2cd565cfed5e39ab16daea633df6e36d9b86ab",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 971
+    },
+    {
+      "supplement_sha256": "22e2823de4111a701d19b8ba096ea7c8f3493df15fab6fb463384d0438975484",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:4fb777fa9bda2d959dade161e8e68ebddaca510e67728d50e027ff8532e51b3e",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 967
+    },
+    {
+      "supplement_sha256": "acd5e0f7f2df85d8db5b041693acca2ca79cf1d0d1b561e4932dc88118f6acc0",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:09c395f4e070b0d9791379c14537cdf3236140ef89e7f9619a434247baaeb63c",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 1003
+    },
+    {
+      "supplement_sha256": "158ddfcf656b034e7df6e0589a9c9779abf2bc0eb2ab3d58af61ee1d97144e14",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_TB_CIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:006fef53d4dff43693934c9ed6e911f0ce9bfe841534be9b61a4fd7e600ea577",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 1024
+    },
+    {
+      "supplement_sha256": "06ee0a771d8a4f01938c3092416ee6821c688a6dd29b2f8456069abd3d6bef5d",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:4c6266f957dbb9c25d95ebd7819e7d8c668f548c24ce474a971f2ae663c1e370",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 974
+    },
+    {
+      "supplement_sha256": "09801785a2a48bb6408754fe0143f34b430f828e84985e4df5478143a221866a",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:8d3159b0ec1996d35090f6bca39428020aacd1d290f06539f7caeabb8520a4a9",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1101
+    },
+    {
+      "supplement_sha256": "27e012258142977fe92dd8647d1ff27afde0044e3f818271481e7ed01914e2e2",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:56024f4d6cce90c763728fa32366ee99ad80cb2509c566a7803dd9054e33b0dc",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 870
+    },
+    {
+      "supplement_sha256": "284ccd6a31b12344b09ec7a800c22e9232965d5e5adabfc36bd1386ef59c65f8",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:43b0c0ac83e54125a2fd2437c00098fbfd5857845cae7e8d44b46a19c49c184a",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 975
+    },
+    {
+      "supplement_sha256": "1b6b402e0b8a2963002bfb6f205e1209f0720dbe58d5ba13da7117ef18b2244a",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:86b8b72e0c2150976d222f258268fa83ee4de33f7acb2fb3edefcc4e78404116",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 910
+    },
+    {
+      "supplement_sha256": "3b11990932c13a1281d105771e4632b97030288c529b77dcad2221f81da92c25",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:be572bdf07f9ba51154398d49439b5d79e7e36f018f92ab631e6261d588298ab",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 975
+    },
+    {
+      "supplement_sha256": "3dcf57e4e0e3fa34a5059325e7feedf783ac45d10a695f84ad6baf6a7ba5ebc6",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_ARI_LAC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:e542436b2a8f377488abb72b4e2d8ea70df74464225f962af63f6c2cdb68e9e5",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 944
+    },
+    {
+      "supplement_sha256": "9359cdc34517eef39bfa4cfac384424e746216c226c3e819a49df90cbc4651a6",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:ccfb7b82832452f8145f5ff2db31afaf8d7c42ece8603079db34af361734b365",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 938
+    },
+    {
+      "supplement_sha256": "c48327f8b7249083195a26e7d64165f8bbee1829db9b6fbb1de410575360fa62",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:93d1ccb90221bf77b328a8f3fda704d5cfdd779b1a1432cd3f4c280e443b9c95",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1035
+    },
+    {
+      "supplement_sha256": "d23763d7c379acc05d92f711ec4e10dd6168ba796d8b0259ecf9cfaf2a1e6379",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:0c932ab9169b7b6c6d6eba2248a929a7dc67398e8e17dffc4ad6020a1d772eea",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 877
+    },
+    {
+      "supplement_sha256": "9f847527c14946a3cd7724244471f76ff050ce69188dd7e943fe93cb54479da9",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:ba548e8d4de2f45f0e106579cae02f8b93735bc38c88c6d4ef3853be86f46f32",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 948
+    },
+    {
+      "supplement_sha256": "1d99b11a247c602927e40b15e523edcd69dcf179ef2f8fa1de98d8f6eef12a1e",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:cdea6d1b8bb71b984a728368236dcbf3fa1385abc52391ba7ed6fbead46867d3",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 968
+    },
+    {
+      "supplement_sha256": "0b4fd56a3b99dbe2fba96dfc203072d267b7feae4f5db754b27715088bff9afa",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:062a18e09bc67ef109d804336d649d213bb6d0ebcf930193e1c026b18a0d0bd7",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 932
+    },
+    {
+      "supplement_sha256": "04b4f7cbee40b9a8e9cf8f74621976c97a829b9fe8fd7863f3e8c2eb0a7896ad",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_GB_MIN",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:695baf8afd64cba55361f8fe90287d991e8a3292a5dbcbdc50d05d640c4275c5",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 968
+    },
+    {
+      "supplement_sha256": "396e0912b032b6b3b631eca7dbbd71b7da08d063110fab884d72d28f6bfdbee0",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:b9b031fd0a2737f9463201fc51ca8c71f4901a342af71abe90948c396201babe",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 1000
+    },
+    {
+      "supplement_sha256": "41018c1fcfb77983de48da9a485680c3381a0bc4f4f2aaaa7d7af8dc5428a6e4",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:5e18026f33daf8c7185525d593a712ba9fd7ac8d60e1e2f18f733c19525b8ca5",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1094
+    },
+    {
+      "supplement_sha256": "2051bc41eda92fefbbe7e5868de9051dbd0a5c14b6d9864f596ae6b26524678f",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:0568021f80d49cfb49a84a4b799787f1a4dc6f5c2d85a79a955dac3e6c0fb8bc",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 881
+    },
+    {
+      "supplement_sha256": "8aeb79f543d001efc7667cf0a2f1ec6eedf7ed2e06110816d115bfb9b2c7f2e5",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:432b67687f2940ce38980d65ab2351a7bd88e238dc61c8f53ec7cf1c9893db42",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 973
+    },
+    {
+      "supplement_sha256": "6a4f1fdb5ff7b7b067b91df04bfa5398dbb464f0f1f6d6aa6f2a94f5e7e702f5",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:591e3b495d7aae92ed8dfd017a8c7cdd1d16dd9271e047fc58aa3706459565a7",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 946
+    },
+    {
+      "supplement_sha256": "5b94861652baf3daca08848f91abde0b84c67980f6f7be4f31a6f5f711d8bd1c",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:a4dff38be78edd605d14b38ff15308046d9a6cc2d4358af807ee2aab5d12f086",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 952
+    },
+    {
+      "supplement_sha256": "1d3e6f424aebe6ef631210799a4319fa2ffb6bbb4f473740ce2063cffab52973",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_MIA_LV",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:eb14de4f3b85e0314228484bb94b9e38d77726968bcc538e6f515169633799d8",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 999
+    },
+    {
+      "supplement_sha256": "621bf4058923f3156c8f1aa611fc42eae0ea284b34433908c291202bad65a4b0",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:31ffcde79070b1a99036f518044a39028d5b0f72d5c89bb121cb2d629d1c6081",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 991
+    },
+    {
+      "supplement_sha256": "789034b922ed3fb2c4b23f29bbdce44660a42521de9289a46d3760d5c4452dc4",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:6dade87cb2ddcc9ae658fedd22f346e06af61bb70f34feab89110516036d45de",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1045
+    },
+    {
+      "supplement_sha256": "a261dd34d3b7ed35783b462c3ac5f181c1ff7b849a27873b8a3f3a5e0241b148",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:130ccbe59e60ff9bf13ce6c35a67260024af4c6836e52ee199ade13378fbf82e",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 858
+    },
+    {
+      "supplement_sha256": "938ff0c9d4c8a04428e4c77d10cd443ead7d365518d377f2695aeec11c2e58a7",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:4f0ee16ac31827e80667ac93c77b1fc3224acf83094529ed7c4a1f5abe6a8cf7",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 963
+    },
+    {
+      "supplement_sha256": "02541f80d6e659e5112a9ee0f06def49e46595910599fd51f2bf96daf4eaee1d",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:84d1ee36f404d740b4fc9a64e7fa31c788bf450e37f083d7f128fe6ad56dd27f",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 1004
+    },
+    {
+      "supplement_sha256": "353700b15cb152a5edfde883a5a063917c3015eb20b5620fa004425e29d9242a",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:2765d593260ebc14364c9c86a5ec0a2d403211bcfd6cec90eddec5288e3601b6",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 989
+    },
+    {
+      "supplement_sha256": "11d35c0c26f9e27ee568155287b3aa5bdcaf3c82d4fea595916ec19fc9fec557",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_WAS_PHI",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:bf05f4d69f6b9fcc722d9c4a0fb0cd55c1c9ad83c28c78e26762d5643538fc75",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 987
+    },
+    {
+      "supplement_sha256": "bea905c476a703e8f0c8c2111ec9ca20d43d0515813679be91160ac5229a24ea",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:30d129ba3bc73295c05846e6794e8e003a0d0e2324c7d9a4b33ee4ea4ca2dbc9",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 982
+    },
+    {
+      "supplement_sha256": "71f2603d3885566a4b0e0418993f50695cffd43b84e7324b90bf1d0caef703fa",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:b6f8e425c59b35b01a9a9f9a92e7df025edd66391afd07bacf8cde48e9567db3",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1090
+    },
+    {
+      "supplement_sha256": "42f587374b770fe97e175a6a69e358dbe1dce50322439574878689611f4bf4bb",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:a41e023f611f505d5ceb02a57cea8d297c1139fc717188b4c11e4712f49a2fc7",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 841
+    },
+    {
+      "supplement_sha256": "1e98e4ac466d997e086937bf77eb2c8b05631071c59bcfd091beb34622cc762a",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:746764d3df6ebfa6eb4a30bbbaeeb2410580a593ebf7754ed3428476295e4a90",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 981
+    },
+    {
+      "supplement_sha256": "bfcdc30dfb18e7f906763d018f6176c98c631af29c92543ae9d5f7b0c94f7c3f",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:28ee244ada355c5a197c67a5e831dbed51e1df114e0ad72efccb8446ccf1ce61",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 919
+    },
+    {
+      "supplement_sha256": "4545af0895bf7a144f4e9f161a6f61387cadc2432d1124c297b905a6a61770fb",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:2f2556d845d132e6ef7892a33bbbc8b6275864b2c873b876f958d4064ea224c3",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 940
+    },
+    {
+      "supplement_sha256": "a562a1e712770f205d27eba5bbb7367750fecce0f3c63a4a844a5f757f62d991",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DAL_NYG",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:76d866f56e06b11b8692b86b19662df231639f04ffe367756596bc9597cb88ac",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 995
+    },
+    {
+      "supplement_sha256": "a1615540e990f4d2d2819734e68d234470e82a5f6a7f690bd239a02b102c6f88",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:45b53bfe7d2dd78f7417bdbdbd3b6ae18b48f59868c3ea0c0ed46817ba04d720",
+      "scenario_id": "BASE",
+      "idempotent_reuse": false,
+      "plays": 972
+    },
+    {
+      "supplement_sha256": "f7a9b3196271f51d73a910febf7f318fb554d25fe0dcc771439530d88e426298",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:bfe37908ca7268993e8e871b381f53431de38a543af2dfc772fa29c2354cb904",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": false,
+      "plays": 1057
+    },
+    {
+      "supplement_sha256": "25630da2bc5dcb4136abea959d7e81f61d067f116349dae0ff8fde7be45268bb",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:597d334f36f08ce08c5d31787bcc93efb6431cb1ebbc6522c38128e075192913",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": false,
+      "plays": 936
+    },
+    {
+      "supplement_sha256": "77a36879ce43f02f1241e85604806fc06fb95a72bccd48f0843455cd37a24e3d",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:0641c3c8e7b5a9ea370c10f42a6a0e84c3060ed7740697baac7b031bf7eefcfb",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 976
+    },
+    {
+      "supplement_sha256": "cde289071a3314d188329537bb861fbf47db0bec8a4305ed50e10e88719911d1",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:22bec892298e68926ba89a82e92d06b125814e792c5cd0844238d312750e6e87",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": false,
+      "plays": 922
+    },
+    {
+      "supplement_sha256": "bd96b19fc9913c06fb5281de20818b5f6504c29c9ec9f33ab5b645d5b54f8cf3",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:184153f226d57cd6e1bdb7942dba257c16586433eec29b15204bd6970db17d6c",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": false,
+      "plays": 975
+    },
+    {
+      "supplement_sha256": "1e9608ee2d85a293ead5adaefc936c74ca795ebc989dbee3321cf09475fc8499",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_DEN_KC",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:f6a637a538c692821e4baaf8c34c423b4f497c3d5e2dbb7341acceea9f4973f1",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": false,
+      "plays": 983
+    },
+    {
+      "supplement_sha256": "9a4a95c4237a0fb0cd6ffbbdfd9d070d65f05e776c07eb337776a9219b09802c",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:62904a4efe5e0a11a52bc736d8a6c889b29bf46b461ea94b133134c115e52dd7",
+      "scenario_id": "BASE",
+      "idempotent_reuse": true,
+      "plays": 1030
+    },
+    {
+      "supplement_sha256": "b1cff6e03723e3bab45986be0682b1981cfeecfd5350aaeef0c3de9fe9d93c31",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:7721b714907cb5701fea8e1e8054150810458689ca3ab04bbe835c2bdb944d36",
+      "scenario_id": "FASTER_PACE",
+      "idempotent_reuse": true,
+      "plays": 1066
+    },
+    {
+      "supplement_sha256": "386d22d823b037e1c07760f92b80f2910ee18a74a59b82e8333bd1ea53e3d344",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:debf6d0c10281b7251c6ba2d113282cef6f077caeb4ebc52da717b9f1d0fc228",
+      "scenario_id": "SLOWER_PACE",
+      "idempotent_reuse": true,
+      "plays": 889
+    },
+    {
+      "supplement_sha256": "e7841ca4635f996c01fb9fe7bab37a7e5f96aac0e58b258cd5c8f195498397a8",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:f0ae83c407a2571c4238170bb6f8807f7bcbb930f1657f6f534f040d560ec210",
+      "scenario_id": "PASS_HEAVY",
+      "idempotent_reuse": true,
+      "plays": 999
+    },
+    {
+      "supplement_sha256": "ccff147cb6ab3d56b025e37d371f013c2dce15f1aff9c37a46d16d4dbacffb92",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:bb44f22cbcbeed8ed75df113619802cd07adecb5a22f93b70729e7670e67d729",
+      "scenario_id": "RUN_HEAVY",
+      "idempotent_reuse": true,
+      "plays": 963
+    },
+    {
+      "supplement_sha256": "7d7b69cd2aff6c59ccfb1ef16dd084a2b3c3862a8a0896c37c6ba47ddd8364e4",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:b63e24a650b8162cdc5af112fa4a2a01557513b08d46214ddd4ffc3bf357473e",
+      "scenario_id": "AGGRESSIVE_FOURTH",
+      "idempotent_reuse": true,
+      "plays": 933
+    },
+    {
+      "supplement_sha256": "a9ae4549e521cd2b73c9e1bd5068b6f907e1c08ca9387aa0f0bb074365938c0c",
+      "kind": "PLAY_LEVEL_SIMULATION",
+      "event_id": "2026_01_NE_SEA",
+      "engine_id": "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1",
+      "forecast_id": "asp-nfl-play-level:sha256:27adaffcb092a5ae943c65f941eceedf910357834ab4d02435c9470c4ed6f778",
+      "scenario_id": "ELEVATED_TURNOVER",
+      "idempotent_reuse": true,
+      "plays": 997
+    }
+  ]
+}
