@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Beaker, BookOpenText, CalendarClock, ChevronDown, ChevronRight, ShieldAlert, TrendingDown } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
+import { EquityCurveChart, runningHighWater } from '../charts/EquityCurveChart'
 import { DataModeBanner, DataStatePanel, formatCurrency, formatPct, formatSignedCurrency, formatSignedPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoBankroll } from '../data/demo'
 import { ExperimentFunnel } from '../components/ExperimentFunnel'
@@ -240,40 +240,16 @@ function EquityCurve({ curve, experimentKey, hasSettled }: { curve: EquityCurveP
       </p>
     )
   }
-  const labels = curve.map((point) => (point.sequence == null ? point.date : point.sequence === 0 ? `Open · ${point.date}` : `#${point.sequence} · ${point.date}`))
-  const highWater = curve.map((point, index) => point.high_water ?? Math.max(...curve.slice(0, index + 1).map((p) => p.bankroll)))
-  const option = {
-    color: [chartTheme.teal, chartTheme.muted, '#e0a52a'],
-    tooltip: {
-      trigger: 'axis' as const,
-      formatter: (params: unknown) => {
-        const list = Array.isArray(params) ? params : [params]
-        const first = list[0] as { dataIndex: number } | undefined
-        if (!first) return ''
-        const point = curve[first.dataIndex]
-        if (!point) return ''
-        const head = point.sequence === 0 || point.sequence == null
-          ? `Opening bankroll · ${point.date}`
-          : `Settlement #${point.sequence} · ${point.date}${point.selection ? ` · ${point.selection}` : ''}${point.result ? ` · ${point.result}` : ''}`
-        const pl = point.profit_loss == null || point.sequence === 0 ? '' : `<br/>P/L ${formatSignedCurrency(point.profit_loss)}`
-        const hw = point.high_water == null ? '' : `<br/>High-water mark ${formatCurrency(point.high_water)}`
-        const dd = point.drawdown == null ? '' : `<br/>Drawdown ${formatCurrency(point.drawdown)}`
-        return `${head}<br/>Bankroll ${formatCurrency(point.bankroll)}${pl}${hw}${dd}`
-      },
-    },
-    legend: { bottom: 0, data: ['Virtual bankroll after each settlement', 'Opening bankroll', 'High-water mark'], textStyle: { color: chartTheme.muted } },
-    grid: { top: 20, left: 62, right: 20, bottom: 48 },
-    xAxis: { type: 'category' as const, boundaryGap: false, data: labels, axisLabel: { color: chartTheme.muted, interval: 0, rotate: labels.length > 12 ? 45 : 0, fontSize: 10 }, axisLine: { lineStyle: { color: chartTheme.grid } } },
-    yAxis: { type: 'value' as const, min: Math.floor(Math.min(...curve.map((point) => point.bankroll)) - 5), max: Math.ceil(Math.max(...highWater) + 5), axisLabel: { formatter: '${value}', color: chartTheme.muted }, splitLine: { lineStyle: { color: chartTheme.grid } } },
-    series: [
-      { name: 'Virtual bankroll after each settlement', type: 'line' as const, step: 'end' as const, data: curve.map((point) => point.bankroll), symbolSize: 7, lineStyle: { width: 3 }, areaStyle: { opacity: .08 } },
-      { name: 'Opening bankroll', type: 'line' as const, data: curve.map((point) => point.benchmark), symbol: 'none', lineStyle: { type: 'dashed' as const, width: 1.5 } },
-      { name: 'High-water mark', type: 'line' as const, step: 'end' as const, data: highWater, symbol: 'none', lineStyle: { type: 'dotted' as const, width: 1.5 } },
-    ],
-  }
+  // The table below still reports the peak per row; the chart derives its own.
+  const highWater = runningHighWater(curve)
   return (
     <>
-      <AnalyticsChart option={option} height={360} ariaLabel="Virtual bankroll after each settlement, in settlement order, with the opening bankroll and the high-water mark" />
+      <EquityCurveChart
+        curve={curve}
+        height={400}
+        formatCurrency={formatCurrency}
+        formatSignedCurrency={formatSignedCurrency}
+      />
       <TableScroll ariaLabel="Settlement path">
         <table className="data-table equity-path-table">
           <caption className="visually-hidden">Bankroll after each settlement in chronological settlement order</caption>

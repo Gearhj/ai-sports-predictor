@@ -1,0 +1,223 @@
+/**
+ * Visual layer.
+ *
+ * The information design of these pages was already right; what they lacked was
+ * any sense of material. Everything sat on the same plane in the same flat
+ * rectangle, so a headline result and a footnote read as equally important, and
+ * nothing on the page told the eye where to go first.
+ *
+ * This file adds depth, hierarchy and a small amount of motion WITHOUT touching
+ * the information architecture or any number. Three rules govern it:
+ *
+ *   1. Motion is for orientation, never decoration. Things move to show they
+ *      arrived, or to respond to a pointer. Nothing loops, nothing pulses for
+ *      attention, and every animation here is disabled under
+ *      `prefers-reduced-motion` -- including the entrance, which otherwise
+ *      leaves content invisible for anyone who opted out of animation.
+ *   2. Colour still means what it meant. The teal/amber/red tones already carry
+ *      governance meaning; this file makes them more legible, never reassigns
+ *      them.
+ *   3. Nothing here may change what a number says. A styling layer that can
+ *      alter a reported figure is not a styling layer.
+ *
+ * Loaded after `styles.css`, so its specificity is deliberately kept low and
+ * ordering does the work.
+ */
+
+:root {
+  /* One elevation scale, so "raised" means the same thing everywhere. */
+  --lift-1: 0 1px 2px rgba(11, 23, 41, .05), 0 2px 6px rgba(11, 23, 41, .04);
+  --lift-2: 0 2px 4px rgba(11, 23, 41, .06), 0 12px 28px -8px rgba(11, 23, 41, .14);
+  --lift-3: 0 4px 10px rgba(11, 23, 41, .08), 0 24px 48px -16px rgba(11, 23, 41, .22);
+  --ease-out: cubic-bezier(.22, .81, .32, 1);
+  --surface-sheen: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+}
+
+/* -- surfaces ------------------------------------------------------------ */
+
+.panel,
+.metric-card {
+  background: var(--surface-sheen);
+  box-shadow: var(--lift-1);
+  transition: box-shadow .22s var(--ease-out), transform .22s var(--ease-out), border-color .22s var(--ease-out);
+}
+
+.panel:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--lift-2);
+}
+
+/* The accent rail already exists on a metric card; give it a gradient so the
+   card has a light source, and let the card rise a little on hover. */
+.metric-card::before {
+  width: 3px;
+  background: linear-gradient(180deg, var(--metric-accent, #b8c4cf), color-mix(in srgb, var(--metric-accent, #b8c4cf) 35%, transparent));
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: var(--lift-2);
+}
+
+/* Tabular figures stop numbers from jittering as they change, which matters on
+   a page whose values refresh underneath the reader. */
+.metric-card strong,
+.metric-card .metric-card__value,
+.data-table td,
+.stat-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- entrance ------------------------------------------------------------ */
+
+/*
+ * Sections arrive in reading order rather than all at once. The stagger is
+ * short on purpose: it should register as the page settling, not as a sequence
+ * the reader has to wait through. Total budget is under a third of a second.
+ */
+@keyframes asp-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.page > * {
+  animation: asp-rise .34s var(--ease-out) both;
+}
+
+.page > *:nth-child(1) { animation-delay: 0ms; }
+.page > *:nth-child(2) { animation-delay: 24ms; }
+.page > *:nth-child(3) { animation-delay: 48ms; }
+.page > *:nth-child(4) { animation-delay: 72ms; }
+.page > *:nth-child(5) { animation-delay: 96ms; }
+.page > *:nth-child(n+6) { animation-delay: 110ms; }
+
+/* -- charts -------------------------------------------------------------- */
+
+.chart-footnote {
+  margin: 6px 16px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.analysis-grid--single { grid-template-columns: minmax(0, 1fr); }
+
+/* The reliability diagram sizes its own square plotting box, so the panel just
+   has to give it room and get out of the way. */
+.calibration-panel { margin-bottom: 12px; }
+
+/* -- accessibility ------------------------------------------------------- */
+
+/*
+ * Everything above is opt-out. The entrance animation in particular MUST be
+ * neutralised rather than merely shortened: `both` fill mode means a disabled
+ * animation would otherwise strand every section at `opacity: 0`.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .page > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .panel,
+  .metric-card,
+  .metric-card:hover,
+  .panel:hover {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* -- decision flow ------------------------------------------------------- */
+
+/*
+ * Replaces four flat count tiles on the command centre. The bar carries the
+ * shape of the day; the key carries the numbers. Segment widths are raw
+ * proportions -- a one-in-a-hundred group really does render as a sliver,
+ * because widening it to be noticeable would misstate the slate.
+ */
+.decision-flow { margin: 14px 0 4px; }
+
+.decision-flow__bar {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+  box-shadow: inset 0 1px 2px rgba(11, 23, 41, .12);
+}
+
+.decision-flow__segment {
+  flex-basis: 0;
+  min-width: 0;
+  transition: filter .18s var(--ease-out);
+}
+.decision-flow__bar:hover .decision-flow__segment { filter: saturate(1.15); }
+
+.decision-flow__segment--ready { background: linear-gradient(180deg, #2f8e6c, var(--green)); }
+.decision-flow__segment--watching { background: linear-gradient(180deg, #c58a2a, var(--amber)); }
+.decision-flow__segment--passed { background: linear-gradient(180deg, #8695a6, var(--muted)); }
+.decision-flow__segment--closed { background: linear-gradient(180deg, #3b83b2, var(--blue)); }
+
+.decision-flow__key {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decision-flow__item {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 11px;
+  background: var(--surface-sheen);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: var(--lift-1);
+}
+
+/* A group with nothing in it stays legible rather than disappearing: a
+   zero-position day is a valid outcome and must be visible as one. */
+.decision-flow__item--empty { background: var(--soft); box-shadow: none; }
+.decision-flow__item--empty .decision-flow__count { color: var(--muted); }
+
+.decision-flow__swatch {
+  align-self: center;
+  width: 9px; height: 9px;
+  border-radius: 3px;
+}
+.decision-flow__item--ready .decision-flow__swatch { background: var(--green); }
+.decision-flow__item--watching .decision-flow__swatch { background: var(--amber); }
+.decision-flow__item--passed .decision-flow__swatch { background: var(--muted); }
+.decision-flow__item--closed .decision-flow__swatch { background: var(--blue); }
+
+.decision-flow__count {
+  color: var(--ink);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.decision-flow__label {
+  color: #4b5d70;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.decision-flow__share {
+  color: var(--muted);
+  font: 600 11px "IBM Plex Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .decision-flow__key { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

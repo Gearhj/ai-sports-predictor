@@ -1,5 +1,6 @@
 import { Award, CalendarRange, CircleHelp, Scale } from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
+import { coversDiagonal, ReliabilityDiagram } from '../charts/ReliabilityDiagram'
 import { DataModeBanner, DataStatePanel, formatPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoPerformance } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
@@ -26,19 +27,6 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
   const hasSettledBetting = data.betting?.has_settled === true
   const hasLegitimateClv = hasSettledBetting && data.betting?.closing_line_value != null
   const metric = (value: number | null, digits: number) => hasEvaluation && value != null ? value.toFixed(digits) : 'N/A'
-
-  const calibrationOption = {
-    color: [chartTheme.teal, chartTheme.muted],
-    tooltip: { trigger: 'axis' as const },
-    legend: { bottom: 0, data: ['Observed frequency', 'Perfect calibration'], textStyle: { color: chartTheme.muted } },
-    grid: { top: 20, left: 48, right: 18, bottom: 52 },
-    xAxis: { type: 'category' as const, name: 'Predicted win probability', data: data.calibration.map((point) => `${point.predicted}%`), axisLine: { lineStyle: { color: chartTheme.grid } }, axisLabel: { color: chartTheme.muted } },
-    yAxis: { type: 'value' as const, name: 'Observed %', axisLabel: { formatter: '{value}%', color: chartTheme.muted }, splitLine: { lineStyle: { color: chartTheme.grid } } },
-    series: [
-      { name: 'Observed frequency', type: 'line' as const, data: data.calibration.map((point) => point.observed), symbolSize: 9, lineStyle: { width: 3 } },
-      { name: 'Perfect calibration', type: 'line' as const, data: data.calibration.map((point) => point.predicted), symbol: 'none', lineStyle: { type: 'dashed' as const, width: 1.5 } },
-    ],
-  }
 
   const rollingOption = {
     color: [chartTheme.teal, chartTheme.orange],
@@ -92,10 +80,38 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
 
       <div className="principle-strip"><Scale size={18} /><div><strong>Calibration before bravado.</strong><span>A well-calibrated 60% forecast should win about 60% of the time. Accuracy alone cannot tell us whether probabilities are trustworthy.</span></div></div>
 
-      <div className="analysis-grid">
-        <Panel title="Forecast calibration" eyebrow="PREDICTED VS OBSERVED" action={<span className="info-label"><CircleHelp size={13} /> Nearer the diagonal is better</span>}>
-          {hasEvaluation && data.calibration.length ? <AnalyticsChart option={calibrationOption} height={330} ariaLabel="Calibration curve comparing predicted and observed win probability" /> : <EmptyEvaluation />}
-        </Panel>
+      <Panel
+        title="Forecast calibration"
+        eyebrow="PREDICTED VS OBSERVED"
+        className="calibration-panel"
+        action={<span className="info-label"><CircleHelp size={13} /> Marker area is sample size</span>}
+      >
+        {hasEvaluation && data.calibration.length ? (
+          <>
+            <ReliabilityDiagram buckets={data.calibration} height={420} />
+            <p className="chart-footnote">
+              {(() => {
+                const total = data.calibration.reduce((sum, bucket) => sum + bucket.count, 0)
+                const thin = data.calibration.filter((bucket) => bucket.count < 10).length
+                const consistent = data.calibration.filter(coversDiagonal).length
+                return (
+                  <>
+                    {consistent} of {data.calibration.length} buckets are consistent with perfect
+                    calibration at 95%, across {total} evaluated {total === 1 ? 'game' : 'games'}.
+                    {thin > 0 && (
+                      <> {thin} {thin === 1 ? 'bucket has' : 'buckets have'} fewer than ten games —
+                      distance from the diagonal there is mostly sampling noise, which is why the
+                      intervals are drawn.</>
+                    )}
+                  </>
+                )
+              })()}
+            </p>
+          </>
+        ) : <EmptyEvaluation />}
+      </Panel>
+
+      <div className="analysis-grid analysis-grid--single">
         <Panel title="Rolling probability error" eyebrow="MONTHLY BRIER SCORE" action={<span className="info-label"><CalendarRange size={13} /> Season to date</span>}>
           {hasEvaluation && data.rolling.length ? <AnalyticsChart option={rollingOption} height={330} ariaLabel="ASP and market Brier score by month" /> : <EmptyEvaluation />}
         </Panel>

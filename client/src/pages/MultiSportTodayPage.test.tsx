@@ -367,10 +367,11 @@ describe('Daily Command Center — count units and in-progress games', () => {
     mount(model([mlbSection(twoPolicies)]))
     await screen.findAllByText('BOS @ NYY')
 
-    // The tile row is labelled as a breakdown of decisions, and the scope line
-    // states games and decisions separately.
+    // The breakdown is labelled as one of decisions, and the scope line states
+    // games and decisions separately. (The tile row became a proportional flow
+    // bar; the guarantee it has to keep is unchanged, so only the selector moves.)
     const tiles = screen.getByRole('group', { name: /Breakdown of 3 governed decisions/i })
-    const tileTotal = [...tiles.querySelectorAll('.summary-count__value')]
+    const tileTotal = [...tiles.querySelectorAll('.decision-flow__count')]
       .reduce((sum, node) => sum + Number(node.textContent), 0)
     expect(tileTotal).toBe(3)
     expect(within(tiles).queryByText('Games')).not.toBeInTheDocument()
@@ -482,7 +483,7 @@ describe('All Sports homepage — the redesigned public experience', () => {
     await screen.findAllByText('BOS @ NYY')
 
     const tiles = screen.getByRole('group', { name: /Breakdown of (\d+) governed decisions/i })
-    const total = [...tiles.querySelectorAll('.summary-count__value')]
+    const total = [...tiles.querySelectorAll('.decision-flow__count')]
       .reduce((sum, node) => sum + Number(node.textContent), 0)
     const stated = Number(/Breakdown of (\d+)/.exec(tiles.getAttribute('aria-label')!)![1])
     expect(total).toBe(stated)

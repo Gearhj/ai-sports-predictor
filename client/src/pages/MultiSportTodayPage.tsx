@@ -25,6 +25,7 @@ import { useCallback, useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { DecisionEventCard } from '../components/DecisionEventCard'
+import { DecisionFlow } from '../components/DecisionFlow'
 import { DataModeBanner, DataStatePanel } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
 import {
@@ -191,15 +192,14 @@ export function MultiSportTodayPage() {
           {' · '}
           <strong>{decisionCount}</strong> governed {decisionCount === 1 ? 'decision' : 'decisions'}
         </p>
-        <div
-          className="daily-summary__counts today-answer__counts"
-          role="group"
-          aria-label={`Breakdown of ${decisionCount} governed decisions`}
-        >
-          {GROUP_ORDER.map((group) => (
-            <SummaryCount key={group} label={GROUP_META[group].title} value={counts[group]} tone={group} />
-          ))}
-        </div>
+        <DecisionFlow
+          total={decisionCount}
+          groups={GROUP_ORDER.map((group) => ({
+            group,
+            label: GROUP_META[group].title,
+            count: counts[group],
+          }))}
+        />
         <dl className="today-answer__meta">
           <div>
             <dt>Next checkpoint</dt>
@@ -346,15 +346,6 @@ function CommandHeader({
         </div>
       </div>
     </header>
-  )
-}
-
-function SummaryCount({ label, value, tone }: { label: string; value: number; tone?: DecisionGroup }) {
-  return (
-    <div className={`summary-count${tone ? ` summary-count--${tone.toLowerCase()}` : ''}`}>
-      <span className="summary-count__value">{value}</span>
-      <span className="summary-count__label">{label}</span>
-    </div>
   )
 }
 
