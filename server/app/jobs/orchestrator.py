@@ -98,6 +98,7 @@ AVAILABLE_JOBS = {
     "finalize-nfl-shadow-games": "Finalize NFL Research-Shadow Games",
     "settle-nfl-shadow-decisions": "Settle NFL Research-Shadow Decisions",
     "recalculate-nfl-shadow-performance": "Recalculate NFL Prospective Performance",
+    "evaluate-nfl-research-forecasts": "Score NFL Research Forecasts Against Finals",
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
     "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
     "settle-shadow-experiment": "Settle $1,000 Shadow Experiment Positions",
@@ -215,6 +216,7 @@ class JobOrchestrator:
             "finalize-nfl-shadow-games": self.finalize_nfl_shadow_games,
             "settle-nfl-shadow-decisions": self.settle_nfl_shadow_decisions,
             "recalculate-nfl-shadow-performance": self.recalculate_nfl_shadow_performance,
+            "evaluate-nfl-research-forecasts": self.evaluate_nfl_research_forecasts,
             "poll-availability-events": self.poll_availability_events,
             "discover-prediction-markets": self._pm_discover,
             "refresh-prediction-market-snapshots": self._pm_refresh,
@@ -976,6 +978,36 @@ class JobOrchestrator:
             ))
         result = ShadowBoardService(self.session, self.settings).settle_decisions(event_date, outcomes)
         return {"records": int(result.get("settled", 0)), **result}
+
+    async def evaluate_nfl_research_forecasts(self, event_date: date) -> dict[str, Any]:
+        """Score every final NFL game's frozen pre-kickoff forecast. Safe to rerun.
+
+        Runs AFTER the result refresh, and reads only what that refresh already
+        persisted: no provider is called, no model is executed, no decision or
+        position is created, and MLB settlement and odds collection are not
+        touched. A game with no authoritative final is skipped with that reason
+        rather than scored against a guess, and a forecast published after
+        kickoff is excluded by the evaluator itself -- this job cannot opt out
+        of that rule because it never chooses a forecast.
+        """
+
+        from app.services.forecast_evaluation import ForecastEvaluationService
+
+        summary = ForecastEvaluationService(self.session).evaluate_league(league_code="NFL")
+        self.session.flush()
+        return {
+            "records": summary["scored"],
+            "final_games": summary["final_games"],
+            "evaluations_written": summary["scored"],
+            "evaluations_reused": summary["reused"],
+            "games_skipped": len(summary["skipped"]),
+            "skip_reasons": sorted({entry.get("skipped") for entry in summary["skipped"]
+                                    if entry.get("skipped")}),
+            "scoring_version": summary["scoring_version"],
+            "provider_calls": 0, "models_executed": 0,
+            "positions_created": 0, "official_decisions_created": 0,
+            "event_date": event_date.isoformat(),
+        }
 
     async def recalculate_nfl_shadow_performance(self, event_date: date) -> dict[str, Any]:
         from app.models import ShadowDecisionSettlement

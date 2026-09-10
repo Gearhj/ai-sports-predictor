@@ -68,6 +68,24 @@ NO_PROBABILITIES = "NO_OUTCOME_PROBABILITIES"
 SUPERSEDED = "SUPERSEDED_BY_A_LATER_PRE_KICKOFF_SNAPSHOT"
 
 
+#: The provider vocabulary and ours name the same three markets. Matching on
+#: the enum's VALUE alone silently discards every quote, because MarketType
+#: stores The Odds API's keys ("h2h") rather than our own labels.
+_MARKET_FAMILIES = {
+    "MONEYLINE": "MONEYLINE", "H2H": "MONEYLINE",
+    "SPREAD": "SPREAD", "SPREADS": "SPREAD",
+    "TOTAL": "TOTAL", "TOTALS": "TOTAL", "OVER_UNDER": "TOTAL",
+}
+
+
+def _market_family(market_type: Any) -> str | None:
+    for token in (getattr(market_type, "name", None), getattr(market_type, "value", None), market_type):
+        family = _MARKET_FAMILIES.get(str(token or "").upper())
+        if family is not None:
+            return family
+    return None
+
+
 def _aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -425,7 +443,6 @@ class ForecastEvaluationService:
         about the market.
         """
 
-        families = {"MONEYLINE": {}, "SPREAD": {}, "TOTAL": {}}
         rows = list(self.session.execute(
             select(OddsSnapshot, MarketOutcome, Market, Sportsbook)
             .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
@@ -449,8 +466,8 @@ class ForecastEvaluationService:
         # kickoff, then paired within one book and one line.
         latest: dict[tuple[Any, str, str, Any], tuple[OddsSnapshot, MarketOutcome]] = {}
         for snapshot, outcome_row, market, book in rows:
-            family = str(getattr(market.market_type, "value", market.market_type)).upper()
-            if family not in families:
+            family = _market_family(market.market_type)
+            if family is None:
                 continue
             line = "" if family == "MONEYLINE" else f"{abs(float(snapshot.point)):.2f}" if snapshot.point is not None else ""
             latest[(book.id, family, line, outcome_row.id)] = (snapshot, outcome_row)

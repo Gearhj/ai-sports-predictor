@@ -1,0 +1,137 @@
+/* NFL prospective results.
+ *
+ * The research pages are documents, and this section stays a document: light
+ * ground, real typographic hierarchy, colour reserved for the two things that
+ * carry meaning here -- whether the winner was right, and how big an error is.
+ * A 0.19-point margin miss and a 19.69-point total miss must never look alike,
+ * so every error bar shares one scale and the large ones are coloured.
+ */
+
+.np { display: grid; gap: 18px; margin-top: 26px; }
+.np__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; flex-wrap: wrap; }
+.np__head h3 { margin: 4px 0 6px; font-size: 22px; letter-spacing: -.02em; color: var(--ink); }
+.np__lede { max-width: 66ch; margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+.np__selector {
+  display: inline-flex; align-items: center; gap: 9px; padding: 8px 12px;
+  border: 1px solid var(--line-strong); border-radius: 8px; background: white;
+  color: var(--muted); font: 600 11px "IBM Plex Mono", monospace;
+  letter-spacing: .07em; text-transform: uppercase;
+}
+.np__selector select {
+  border: 0; background: transparent; color: var(--ink);
+  font: 600 13px inherit; letter-spacing: normal; text-transform: none;
+}
+
+.np__sample {
+  margin: 0; padding: 12px 15px; border-left: 3px solid var(--amber);
+  border-radius: 0 7px 7px 0; background: var(--amber-soft);
+  color: #6b4715; font-size: 13px; line-height: 1.55;
+}
+.np__sample strong { color: #4d3210; }
+.np__note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.np__empty {
+  padding: 22px; border: 1px dashed var(--line-strong); border-radius: 9px;
+  color: var(--muted); text-align: center; font-size: 13px;
+}
+
+.np__scoreboard { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); }
+.np__scoreboard--compact { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+.np-stat {
+  display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: 9px; background: white; box-shadow: var(--shadow);
+}
+.np-stat small { color: var(--muted); font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.np-stat strong { color: var(--ink); font-size: 21px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.np-stat span { color: var(--muted); font-size: 12px; }
+.np-stat em { color: #8a99a8; font-style: normal; font-size: 11px; }
+
+.np__distribution h4 { margin: 0 0 9px; display: flex; align-items: baseline; gap: 10px; font-size: 15px; color: var(--ink); }
+.np__distribution h4 small { color: var(--muted); font-size: 12px; font-weight: 500; }
+
+.np__games { display: grid; gap: 16px; }
+.np-game {
+  display: grid; gap: 13px; padding: 18px 20px; border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong); border-radius: 11px;
+  background: white; box-shadow: var(--shadow);
+}
+.np-game--correct { border-left-color: var(--green); }
+.np-game--wrong { border-left-color: var(--red); }
+.np-game__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.np-game__matchup { display: grid; gap: 4px; }
+.np-game__teams { color: var(--ink); font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
+.np-game__teams i { font-style: normal; color: var(--muted); font-weight: 500; }
+.np-game__final { color: var(--muted); font: 600 13px "IBM Plex Mono", monospace; }
+.np-game__final b { color: var(--ink); font-size: 17px; }
+.np-game__verdict {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  font: 700 11px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase;
+}
+.np-game__verdict.is-correct { color: var(--green); background: var(--green-soft); }
+.np-game__verdict.is-wrong { color: var(--red); background: var(--red-soft); }
+.np-game__frozen { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.np-game__provenance {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 2px 7px;
+  border-radius: 5px; color: #8b511f; background: var(--orange-soft); font-weight: 600;
+}
+
+.np-game__errors { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.np-error { display: grid; gap: 5px; }
+.np-error__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.np-error__head small { color: var(--muted); font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .09em; text-transform: uppercase; }
+.np-error__head span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.np-error__head b { color: var(--ink); font-weight: 700; }
+.np-error__track { position: relative; height: 9px; border-radius: 99px; background: #eef2f5; overflow: hidden; }
+.np-error__zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line-strong); }
+.np-error__bar { position: absolute; top: 0; bottom: 0; border-radius: 99px; }
+.np-error__bar.is-over { background: linear-gradient(90deg, #e0a45a, var(--orange)); }
+.np-error__bar.is-under { background: linear-gradient(90deg, var(--blue), #7fb3d5); }
+.np-error__clip { position: absolute; right: 2px; top: -3px; color: var(--orange); font-size: 11px; }
+.np-error__value { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.np-error__value.is-large { color: var(--orange); font-weight: 700; }
+
+.np-game__outcome {
+  display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.np-game__outcome > div { display: grid; gap: 3px; }
+.np-game__outcome small { color: var(--muted); font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .09em; text-transform: uppercase; }
+.np-game__outcome strong { color: var(--ink); font-size: 16px; font-variant-numeric: tabular-nums; }
+.np-game__triple { grid-column: 1 / -1; }
+.np-game__triple strong { font-size: 13px; font-weight: 600; }
+
+.np-game__intervals { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.np-interval { display: grid; gap: 5px; }
+.np-interval small { color: var(--muted); font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .09em; text-transform: uppercase; }
+.np-interval__track { position: relative; height: 16px; border-radius: 5px; background: #f2f5f8; }
+.np-interval__band { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.np-interval__band.is-90 { background: #dbe8f2; }
+.np-interval__band.is-80 { background: #bcd7ea; }
+.np-interval__band.is-50 { background: #8fbcda; }
+.np-interval__actual { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+.np-interval__legend { display: flex; gap: 9px; }
+.np-interval__legend em { font-style: normal; font: 600 11px "IBM Plex Mono", monospace; }
+.np-interval__legend em.is-in { color: var(--green); }
+.np-interval__legend em.is-out { color: var(--red); }
+
+.np-game__unavailable, .np-game__market {
+  display: flex; align-items: flex-start; gap: 7px; margin: 0;
+  color: var(--muted); font-size: 12.5px; line-height: 1.55;
+}
+.np-game__market.is-unavailable { color: #8b511f; }
+.np-game__unavailable svg, .np-game__market svg { flex: 0 0 auto; margin-top: 2px; }
+
+.np-game__evidence, .np__inventory { border-top: 1px solid var(--line); }
+.np-game__evidence > summary, .np__inventory > summary {
+  display: flex; align-items: center; gap: 7px; padding: 10px 0 4px; cursor: pointer;
+  color: var(--teal); font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase;
+}
+.np-game__evidence-body, .np__inventory-body {
+  display: grid; gap: 9px; padding: 6px 0 12px; color: var(--muted); font-size: 12.5px; line-height: 1.6;
+}
+.np-game__evidence-body code { padding: 1px 5px; border-radius: 4px; background: var(--soft); font-size: 11px; word-break: break-all; }
+.np-game__evidence-body strong, .np__inventory-body strong { color: var(--ink); }
+
+@media (max-width: 620px) {
+  .np-game { padding: 15px 14px; }
+  .np-game__errors { grid-template-columns: minmax(0, 1fr); }
+}

@@ -500,6 +500,19 @@ def rff_board(
     return board
 
 
+@router.get("/research/nfl-prospective", tags=["transparency"])
+def nfl_prospective_results(session: DatabaseSession) -> dict:
+    """Prospective NFL research forecasts scored against final results.
+
+    Read-only outcome evaluation. It calls no provider, executes no model and
+    creates no decision or position; NFL holds no wagering authority.
+    """
+
+    from app.services.forecast_evaluation_read import ForecastEvaluationReadService
+
+    return ForecastEvaluationReadService(session).nfl_prospective()
+
+
 @router.get("/information-events/contract", tags=["markets"])
 def information_event_contract(session: DatabaseSession) -> dict:
     """The versioned contract an information-event producer must satisfy."""

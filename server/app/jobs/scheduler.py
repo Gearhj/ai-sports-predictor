@@ -515,6 +515,17 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "settle-nfl-shadow-decisions", "settings": settings},
             **common,
         )
+        # Research scoring runs on the same hour as finalization but offset, so
+        # it reads the finals that pass already persisted rather than racing it.
+        # It spends no quota and creates no decision, so it is not bound to the
+        # odds-collection owner -- only to this single scheduler process.
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=60, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=6),
+            id="asp-nfl-research-evaluate",
+            kwargs={"job_name": "evaluate-nfl-research-forecasts", "settings": settings},
+            **common,
+        )
         scheduler.add_job(
             execute_scheduled_job, "interval", minutes=60,
             id="asp-nfl-shadow-performance",
