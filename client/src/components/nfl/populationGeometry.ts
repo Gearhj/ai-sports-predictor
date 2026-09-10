@@ -300,3 +300,42 @@ export function laneOffset(play: PopulationPlay): number {
   // has room to read.
   return (unit - 0.5) * 0.72
 }
+
+/* -- field-geometry validation -------------------------------------------- */
+
+/** The producer's `x` is the field of play: 0 and 100 are the two goal lines. */
+export const FIELD_OF_PLAY: readonly [number, number] = [0, 100]
+
+/**
+ * Points the producer placed outside the field of play.
+ *
+ * The renderer clips to the goal lines, which is the right thing to draw and
+ * the wrong thing to do silently: a path that had to be moved to be drawn is
+ * evidence about the artifact, and hiding it is how a geometry defect survives
+ * a redesign. The count is reported so the view can state it.
+ */
+export function outOfFieldPoints(plays: PopulationPlay[]): { plays: number; points: number } {
+  const [min, max] = FIELD_OF_PLAY
+  let offending = 0
+  let points = 0
+  for (const play of plays) {
+    let hit = 0
+    for (const segment of play.segs) {
+      for (const [x] of [segment.s, segment.e, ...segment.c]) {
+        if (x < min || x > max) hit += 1
+      }
+    }
+    for (const marker of play.mk) {
+      if (marker.p[0] < min || marker.p[0] > max) hit += 1
+    }
+    if (hit > 0) { offending += 1; points += hit }
+  }
+  return { plays: offending, points }
+}
+
+/** True when every drawn point of this play sits inside the field of play. */
+export function startsInsideField(play: PopulationPlay): boolean {
+  const [min, max] = FIELD_OF_PLAY
+  const first = play.segs[0]?.s
+  return first != null && first[0] >= min && first[0] <= max
+}

@@ -22,8 +22,31 @@ import {
 } from './populationGeometry'
 import type { DensityLayer } from './populationDensity'
 
+/**
+ * THE FIELD IS 120 YARDS, NOT 100.
+ *
+ * The producer's `x` runs 0..100 from goal line to goal line: it is the FIELD
+ * OF PLAY and it does not include either end zone. This surface used to draw
+ * the end zones inside that same 0..100 span, over x 0..10 and x 90..100 -- so
+ * a snap taken two yards from the goal line, a perfectly ordinary play, was
+ * painted behind the end line. Nothing was wrong with the data; the picture
+ * was drawn on the wrong ruler, and the result read as a model that did not
+ * know where a football field ends.
+ *
+ * The rectangle is now 120 yards: end zone, 100 yards of play, end zone. The
+ * producer's 0..100 maps onto the middle 100, so there is no coordinate a
+ * normal play can hold that lands behind an end line.
+ */
 const FIELD_LENGTH = 100
+const END_ZONE = 10
+const TOTAL_LENGTH = FIELD_LENGTH + 2 * END_ZONE
 const ASPECT = 0.52
+
+/** Screen x for a play coordinate, clipped to the field of play. */
+function playX(g: { left: number; width: number }, x: number): number {
+  const yard = g.width / TOTAL_LENGTH
+  return g.left + (END_ZONE + Math.max(0, Math.min(FIELD_LENGTH, x))) * yard
+}
 
 export interface PopulationFieldProps {
   plays: PopulationPlay[]
@@ -57,28 +80,41 @@ function drawField(ctx: CanvasRenderingContext2D, g: Geometry, home: string, awa
   ctx.fillStyle = turf
   ctx.fillRect(left, top, width, height)
 
-  const yard = width / FIELD_LENGTH
+  const yard = width / TOTAL_LENGTH
   ctx.lineWidth = 1
+  // Yard lines belong to the field of play only, so they start at the goal
+  // line rather than at the back of an end zone.
   for (let x = 0; x <= FIELD_LENGTH; x += 5) {
     const isTen = x % 10 === 0
     ctx.strokeStyle = isTen ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.09)'
     ctx.beginPath()
-    ctx.moveTo(left + x * yard, top)
-    ctx.lineTo(left + x * yard, top + height)
+    ctx.moveTo(playX(g, x), top)
+    ctx.lineTo(playX(g, x), top + height)
     ctx.stroke()
   }
 
-  // End zones. HOME attacks left, so the LEFT end zone is the one AWAY defends
-  // — it is AWAY's own end zone and carries AWAY's label.
+  // End zones sit OUTSIDE the play coordinate space. HOME attacks left, so the
+  // LEFT end zone is the one AWAY defends — it is AWAY's own end zone and
+  // carries AWAY's label.
   ctx.fillStyle = 'rgba(8,45,80,.55)'
-  ctx.fillRect(left, top, 10 * yard, height)
-  ctx.fillRect(left + 90 * yard, top, 10 * yard, height)
+  ctx.fillRect(left, top, END_ZONE * yard, height)
+  ctx.fillRect(left + (END_ZONE + FIELD_LENGTH) * yard, top, END_ZONE * yard, height)
+  // The goal lines are the boundary a path may reach and may not cross.
+  ctx.strokeStyle = 'rgba(255,255,255,.45)'
+  ctx.lineWidth = 1.6
+  for (const line of [0, FIELD_LENGTH]) {
+    ctx.beginPath()
+    ctx.moveTo(playX(g, line), top)
+    ctx.lineTo(playX(g, line), top + height)
+    ctx.stroke()
+  }
+  ctx.lineWidth = 1
   ctx.save()
   ctx.fillStyle = 'rgba(255,255,255,.5)'
   ctx.font = `600 ${Math.max(10, height * 0.085)}px "IBM Plex Mono", monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.translate(left + 5 * yard, top + height / 2)
+  ctx.translate(left + (END_ZONE / 2) * yard, top + height / 2)
   ctx.rotate(-Math.PI / 2)
   ctx.fillText(away, 0, 0)
   ctx.restore()
@@ -87,7 +123,7 @@ function drawField(ctx: CanvasRenderingContext2D, g: Geometry, home: string, awa
   ctx.font = `600 ${Math.max(10, height * 0.085)}px "IBM Plex Mono", monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.translate(left + 95 * yard, top + height / 2)
+  ctx.translate(left + (END_ZONE + FIELD_LENGTH + END_ZONE / 2) * yard, top + height / 2)
   ctx.rotate(Math.PI / 2)
   ctx.fillText(home, 0, 0)
   ctx.restore()
@@ -106,7 +142,7 @@ function drawField(ctx: CanvasRenderingContext2D, g: Geometry, home: string, awa
  * follows from the producer's normalisation rather than being assumed here.
  */
 function drawDensity(ctx: CanvasRenderingContext2D, g: Geometry, density: DensityLayer) {
-  const yard = g.width / FIELD_LENGTH
+  const yard = g.width / TOTAL_LENGTH
   ctx.save()
   for (const cell of density.cells) {
     const weight = cell.count / density.peak
@@ -115,8 +151,10 @@ function drawDensity(ctx: CanvasRenderingContext2D, g: Geometry, density: Densit
     const alpha = 0.05 + 0.3 * Math.sqrt(weight)
     ctx.fillStyle = POPULATION_PALETTE[cell.family]
     ctx.globalAlpha = alpha
-    for (const x of [cell.x, 100 - cell.x - cell.width]) {
-      ctx.fillRect(g.left + x * yard, g.top, cell.width * yard, g.height)
+    for (const x of [cell.x, FIELD_LENGTH - cell.x - cell.width]) {
+      const from = playX(g, x)
+      const to = playX(g, x + cell.width)
+      ctx.fillRect(from, g.top, Math.max(1, to - from), g.height)
     }
   }
   ctx.restore()
@@ -130,7 +168,10 @@ function paintPlay(
   // Lateral lane, so a population reads as a spread rather than one thick band.
   // See `laneOffset`: y carries no cross-play meaning, so this adds no claim.
   const lane = laneOffset(play)
-  const toX = (x: number) => g.left + (Math.max(0, Math.min(100, x)) / 100) * g.width
+  // Clipped to the field of play. A path may reach a goal line and may not
+  // pass it: a touchdown terminates there rather than being extended into the
+  // end zone with coordinates nothing measured.
+  const toX = (x: number) => playX(g, x)
   const toY = (y: number) => g.top + Math.max(0.02, Math.min(0.98, y + lane)) * g.height
   const sampled = samplePlay(play)
 

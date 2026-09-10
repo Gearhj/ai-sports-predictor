@@ -22,7 +22,7 @@ import {
 import { PopulationField } from './PopulationField'
 import { buildDensity } from './populationDensity'
 import {
-  DEFAULT_FILTERS, drawnStats, matches, POPULATION_PALETTE,
+  DEFAULT_FILTERS, drawnStats, matches, outOfFieldPoints, POPULATION_PALETTE,
   type DownGroup, type FamilyFilter, type FieldZone, type PopulationFilters,
   type PopulationPlay, type TeamFilter,
 } from './populationGeometry'
@@ -150,6 +150,10 @@ export function SimulationPopulation({
   }, [running, selected, speed, repaintKey])
 
   const stats = useMemo(() => drawnStats(selected.slice(0, revealed)), [selected, revealed])
+  // The field clips to the goal lines. If the artifact ever places a point
+  // outside the field of play, the reader is told rather than shown a picture
+  // quietly moved to fit.
+  const offField = useMemo(() => outOfFieldPoints(selected), [selected])
 
   /*
    * The whole population's shape, filtered by the SAME play-type choice as the
@@ -278,8 +282,16 @@ export function SimulationPopulation({
           )}
           <p className="pop-note">
             {population.geometry_notice}{' '}
-            Plays are spread across lanes for legibility: the producer re-centres every play
-            laterally, so vertical position carries no cross-play meaning.
+            The rectangle is 120 yards: an end zone, the 100-yard field of play the producer's
+            coordinates describe, and an end zone. A path may reach a goal line and never crosses
+            it — a touchdown terminates there rather than being extended with coordinates nothing
+            measured. Plays are spread across lanes for legibility: the producer re-centres every
+            play laterally, so vertical position carries no cross-play meaning.
+            {offField.plays > 0 && (
+              <> <b>{offField.plays.toLocaleString()}</b> of the drawn plays carry{' '}
+              {offField.points.toLocaleString()} point(s) outside the field of play; those points
+              are clipped to the nearest goal line.</>
+            )}
           </p>
         </div>
 

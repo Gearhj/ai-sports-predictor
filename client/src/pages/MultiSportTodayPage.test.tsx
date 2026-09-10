@@ -1,103 +1,84 @@
+/**
+ * Daily Decisions — the guarantees the redesign had to carry forward.
+ *
+ * The visual language changed completely; the things this page is not allowed
+ * to say did not. Each test below is one of those: a missing price is never a
+ * zero, a research-shadow league is never a declined decision, blockers never
+ * outnumber the games they are drawn from, an empty slate is stated rather
+ * than filled in, and a failed read substitutes nothing.
+ */
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SportRegistryProvider } from '../hooks/useSportRegistry'
-import { endpoints } from '../services/api'
+import { apiRequest, endpoints } from '../services/api'
 import { sportRegistryFixture } from '../test/sportRegistryFixture'
 import type { NormalizedSelection, SportSection, TodayAllSportsReadModel } from '../types/multisport'
-import { hasNoCrossSportRanking, MultiSportTodayPage } from './MultiSportTodayPage'
+import { firstBlocker, hasNoCrossSportRanking, MultiSportTodayPage } from './MultiSportTodayPage'
+
+vi.mock('../services/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/api')>()
+  return { ...actual, apiRequest: vi.fn() }
+})
+
+const funnel = {
+  schema_version: 'AISP_EXPERIMENT_FUNNEL_V1', data_mode: 'live', available: true,
+  experiment: { id: 'e1', name: 'ASP PRACTICAL PREGAME BANKROLL', policy_version: 'V2_1', starting_bankroll: 1000, start_date: '2026-09-01' },
+  generated_at_utc: '2026-08-31T16:00:00Z', cutoff_minutes: 15, min_adjusted_edge: 0.02,
+  stages: [], blocked_totals: [], price_restoration: null,
+}
 
 const baseSelection: NormalizedSelection = {
-  market_evidence_state: null,
-  sport_code: 'BASEBALL',
-  league_code: 'MLB',
-  event_id: 'mlb-1',
-  event_label: 'BOS @ NYY',
-  starts_at: '2026-08-31T23:00:00Z',
-  decision_state: 'AWAITING_FINAL_EVIDENCE',
-  funding_state: 'ELIGIBLE_NOT_FUNDED',
-  market_label: 'Moneyline',
-  selection_label: 'NYY',
-  line: null,
-  price_american: -120,
-  sportsbook: 'governed-book',
-  model_probability: 56,
-  no_vig_probability: 53,
-  adjusted_edge: 3,
-  expected_value: 4,
-  evidence_tier: 'TIER_1',
-  virtual_stake: null,
-  experiment_id: null,
-  experiment_name: null,
-  policy_version: 'POLICY_V1',
-  official_position_id: null,
-  decision_timestamp: '2026-08-31T15:00:00Z',
-  final_decision_cutoff: '2026-08-31T22:45:00Z',
-  source_label: 'AISP_BASELINE',
-  model_status: 'DEVELOPMENT',
-  outstanding_gates: ['LINEUP_NOT_CONFIRMED'],
-  status_note: 'Awaiting final evidence.',
-  can_ever_fund_official_position: true,
-  sport_rank: 1,
-  detail_href: '/games/mlb-1',
-}
+  market_evidence_state: 'QUOTE_PRESENT',
+  sport_code: 'BASEBALL', league_code: 'MLB', event_id: 'mlb-1', event_label: 'BOS @ NYY',
+  starts_at: '2026-08-31T23:00:00Z', decision_state: 'AWAITING_FINAL_EVIDENCE',
+  funding_state: 'ELIGIBLE_NOT_FUNDED', market_label: 'Moneyline', selection_label: 'NYY',
+  line: null, price_american: -120, sportsbook: 'governed-book',
+  model_probability: 56, no_vig_probability: 53, adjusted_edge: 3, expected_value: 4,
+  evidence_tier: 'TIER_1', virtual_stake: null, experiment_id: null, experiment_name: null,
+  policy_version: 'POLICY_V1', official_position_id: null,
+  decision_timestamp: '2026-08-31T15:00:00Z', final_decision_cutoff: '2026-08-31T22:45:00Z',
+  source_label: 'AISP_BASELINE', model_status: 'DEVELOPMENT', outstanding_gates: [],
+  status_note: 'Awaiting final evidence.', can_ever_fund_official_position: true,
+  sport_rank: 1, detail_href: '/games/mlb-1',
+} as NormalizedSelection
 
 const nflSelection: NormalizedSelection = {
   ...baseSelection,
-  sport_code: 'FOOTBALL',
-  league_code: 'NFL',
-  event_id: 'nfl-1',
-  event_label: 'DAL @ PHI',
-  decision_state: 'PROVISIONAL_EDGE',
-  funding_state: 'RESEARCH_ONLY',
-  can_ever_fund_official_position: false,
-  source_label: 'NFL_M1_XGBOOST',
+  sport_code: 'FOOTBALL', league_code: 'NFL', event_id: 'nfl-1', event_label: 'DAL @ PHI',
+  decision_state: 'PROVISIONAL_EDGE', funding_state: 'RESEARCH_ONLY',
+  can_ever_fund_official_position: false, source_label: 'NFL_M1_XGBOOST',
+  market_evidence_state: null, price_american: null, adjusted_edge: null,
+  outstanding_gates: ['Awaiting final pregame research snapshot'],
   status_note: 'NFL research shadow — no official bankroll',
-  detail_href: '/shadow-board?date=2026-08-31&sport=NFL#event-nfl-1',
+  detail_href: '/shadow-board?date=2026-08-31&sport=NFL',
 }
 
-function mlbSection(selections: NormalizedSelection[]): SportSection {
+function section(over: Partial<SportSection> & { selections: NormalizedSelection[] }): SportSection {
   return {
-    sport_code: 'BASEBALL', league_code: 'MLB', display_name: 'Major League Baseball', availability_state: 'LIVE',
-    scheduled_event_count: selections.length, valid_forecast_count: selections.length,
+    sport_code: 'BASEBALL', league_code: 'MLB', display_name: 'MLB', availability_state: 'LIVE',
+    scheduled_event_count: over.selections.length, valid_forecast_count: over.selections.length,
     final_qualified_decision_count: 0, official_position_count: 0, final_qualified_count: 0,
-    awaiting_final_evidence_count: selections.length, provisional_count: 0, watch_count: 0, pass_count: 0,
-    open_position_count: 0, settled_today_count: 0, virtual_stake: 0, data_health: 91,
-    latest_forecast_at: '2026-08-31T15:00:00Z', latest_market_at: '2026-08-31T15:00:00Z',
-    engine_label: 'AISP_BASELINE', can_create_official_positions: true, official_positions_blocked_reason: null,
-    degraded: false, degraded_reason: null, selections,
-  }
-}
-
-function nflSection(selections: NormalizedSelection[]): SportSection {
-  return {
-    sport_code: 'FOOTBALL', league_code: 'NFL', display_name: 'National Football League', availability_state: 'RESEARCH_SHADOW',
-    scheduled_event_count: selections.length, valid_forecast_count: selections.length,
-    final_qualified_decision_count: 0, official_position_count: 0, final_qualified_count: 0,
-    awaiting_final_evidence_count: 0, provisional_count: selections.length, watch_count: 0, pass_count: 0,
-    open_position_count: 0, settled_today_count: 0, virtual_stake: 0, data_health: null,
-    latest_forecast_at: '2026-08-31T14:00:00Z', latest_market_at: null,
-    engine_label: 'NFL_M1_XGBOOST', can_create_official_positions: false,
-    official_positions_blocked_reason: 'Research shadow only.',
-    degraded: true, degraded_reason: 'No governed NFL market observation is persisted for this slate.',
-    selections,
-  }
+    awaiting_final_evidence_count: over.selections.length, provisional_count: 0, watch_count: 0,
+    pass_count: 0, open_position_count: 0, settled_today_count: 0, virtual_stake: 0,
+    data_health: 91, latest_forecast_at: '2026-08-31T15:00:00Z', latest_market_at: '2026-08-31T15:00:00Z',
+    engine_label: 'AISP_BASELINE', can_create_official_positions: true,
+    official_positions_blocked_reason: null, degraded: false, degraded_reason: null,
+    ...over,
+  } as SportSection
 }
 
 function model(sections: SportSection[]): TodayAllSportsReadModel {
-  const selections = sections.flatMap((section) => section.selections)
+  const selections = sections.flatMap((entry) => entry.selections)
   return {
-    data_mode: 'live',
-    schema_version: 'TODAY_ALL_SPORTS_READ_MODEL_V1',
-    registry_version: 'SPORT_REGISTRY_V1',
-    operational_date: '2026-08-31',
-    display_timezone: 'America/New_York',
-    generated_at: '2026-08-31T16:00:00Z',
+    data_mode: 'live', schema_version: 'TODAY_ALL_SPORTS_READ_MODEL_V1',
+    registry_version: 'SPORT_REGISTRY_V1', operational_date: '2026-08-31',
+    display_timezone: 'America/New_York', generated_at: '2026-08-31T16:00:00Z',
     overall_summary: {
       final_qualified_decision_count: 0, official_position_count: 0, final_qualified_position_count: 0,
       total_virtual_stake: 0, open_position_count: 0, settled_today_count: 0,
-      sports_with_official_positions: [], sports_with_events: ['MLB', 'NFL'],
-      latest_complete_refresh: '2026-08-31T15:00:00Z', stale_or_degraded_sport_count: 1,
+      sports_with_official_positions: [], sports_with_events: ['MLB'],
+      latest_complete_refresh: '2026-08-31T15:00:00Z', stale_or_degraded_sport_count: 0,
     },
     qualified_positions: selections.filter((item) => item.decision_state === 'FINAL_QUALIFIED'),
     awaiting_final_evidence: selections.filter((item) => item.decision_state === 'AWAITING_FINAL_EVIDENCE'),
@@ -105,27 +86,17 @@ function model(sections: SportSection[]): TodayAllSportsReadModel {
     sport_sections: sections,
     data_freshness: {
       latest_forecast_at: '2026-08-31T15:00:00Z', latest_market_at: '2026-08-31T15:00:00Z',
-      scheduler_running: false, provider_calls_made: 0,
+      scheduler_running: true, provider_calls_made: 0,
       automatic_odds_refresh_running: false, odds_refresh_state: 'POLLING_DISABLED', odds_refresh_detail: null,
     },
-    availability: [
-      { sport_code: 'BASEBALL', league_code: 'MLB', display_name: 'Major League Baseball', availability: 'LIVE', navigable: true, note: null },
-      { sport_code: 'FOOTBALL', league_code: 'NFL', display_name: 'National Football League', availability: 'RESEARCH_SHADOW', navigable: true, note: null },
-      { sport_code: 'BASKETBALL', league_code: 'NBA', display_name: 'National Basketball Association', availability: 'PLANNED', navigable: false, note: null },
-    ],
-    cross_sport_ranking: 'NOT_APPLICABLE_PHASE_1',
-    notes: {},
-  }
+    availability: [], cross_sport_ranking: 'NOT_APPLICABLE_PHASE_1', notes: {},
+  } as unknown as TodayAllSportsReadModel
 }
 
-const payload = model([mlbSection([baseSelection]), nflSection([nflSelection])])
-
-// The page groups against the current clock, so pin it. Without this the
-// fixture's cutoffs drift into the past and every "watching" case silently
-// reclassifies as a closed decision window.
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(new Date('2026-08-31T16:00:00Z'))
+  vi.mocked(apiRequest).mockResolvedValue(funnel as never)
 })
 
 afterEach(() => {
@@ -147,547 +118,181 @@ function mount(data: TodayAllSportsReadModel, registryOk = true) {
   )
 }
 
-function group(name: string): HTMLElement {
-  return screen.getByRole('heading', { name: new RegExp(`^${name}`) }).closest('section')!
-}
+const panel = (name: RegExp | string) => screen.getByRole('region', { name })
 
-describe('Daily Command Center — grouping', () => {
-  it('scenario 1: no qualified positions, multiple games watching', async () => {
-    const watching = [
-      baseSelection,
-      { ...baseSelection, event_id: 'mlb-2', event_label: 'TB @ TOR' },
-      { ...baseSelection, event_id: 'mlb-3', event_label: 'SEA @ LAA' },
-    ]
-    mount(model([mlbSection(watching)]))
-
-    expect(await screen.findByText(/No qualified decisions yet\. 3 decisions are still under review\./)).toBeInTheDocument()
-    expect(within(group('Ready')).getByText(/A zero-position day is valid/i)).toBeInTheDocument()
-    expect(within(group('Watching')).getByText('TB @ TOR')).toBeInTheDocument()
+describe('Daily Decisions — the funnel', () => {
+  it('counts games, not decisions, and shows what dropped at each stage', async () => {
+    mount(model([section({
+      selections: [baseSelection, { ...baseSelection, event_id: 'mlb-2', event_label: 'LAD @ SF' }],
+      scheduled_event_count: 4, valid_forecast_count: 3,
+      final_qualified_count: 1, official_position_count: 1,
+    })]))
+    const funnelPanel = await screen.findByRole('region', { name: /recorded position/i })
+    expect(within(funnelPanel).getByText('Scheduled').parentElement).toHaveTextContent('4')
+    expect(within(funnelPanel).getByText('Forecasted').parentElement).toHaveTextContent('3')
+    // Two distinct events carry a persisted quote.
+    expect(within(funnelPanel).getByText('Priced').parentElement).toHaveTextContent('2')
+    expect(within(funnelPanel).getByText('Qualified').parentElement).toHaveTextContent('1')
+    expect(within(funnelPanel).getByText('Positioned').parentElement).toHaveTextContent('1')
   })
 
-  it('scenario 2: a ready virtual position is separated from watching games', async () => {
-    const ready: NormalizedSelection = {
+  it('counts one game once even when it was evaluated at several phases', async () => {
+    // The same event at MORNING and FINAL_PREGAME is one game, not two.
+    mount(model([section({
+      selections: [
+        baseSelection,
+        { ...baseSelection, decision_state: 'FINAL_QUALIFIED', decision_timestamp: '2026-08-31T15:30:00Z' },
+      ],
+      scheduled_event_count: 1, valid_forecast_count: 1,
+    })]))
+    const funnelPanel = await screen.findByRole('region', { name: /recorded position/i })
+    expect(within(funnelPanel).getByText('Priced').parentElement).toHaveTextContent('1')
+  })
+
+  it('says a research-shadow league is not a declined decision', async () => {
+    mount(model([
+      section({ selections: [baseSelection] }),
+      section({
+        sport_code: 'FOOTBALL', league_code: 'NFL', display_name: 'NFL',
+        availability_state: 'RESEARCH_SHADOW', can_create_official_positions: false,
+        official_positions_blocked_reason: 'Research shadow only.', selections: [nflSelection],
+      }),
+    ]))
+    const funnelPanel = await screen.findByRole('region', { name: /recorded position/i })
+    expect(funnelPanel).toHaveTextContent(/NFL is research shadow in this phase and cannot create an official position/i)
+    expect(funnelPanel).toHaveTextContent(/not counted as decisions the policy declined/i)
+  })
+})
+
+describe('Daily Decisions — opportunities and the threshold', () => {
+  it('separates a qualified selection from one that is merely close', async () => {
+    mount(model([section({
+      selections: [
+        { ...baseSelection, decision_state: 'FINAL_QUALIFIED', adjusted_edge: 3.4 },
+        { ...baseSelection, event_id: 'mlb-2', event_label: 'LAD @ SF', adjusted_edge: 1.9 },
+      ],
+    })]))
+    const best = await screen.findByRole('region', { name: /Ranked by adjusted edge/i })
+    const rows = within(best).getAllByRole('article')
+    expect(rows[0].className).toContain('bx-op--qualified')
+    expect(rows[0]).toHaveTextContent(/Qualified/)
+    expect(rows[1].className).toContain('bx-op--near')
+    expect(rows[1]).toHaveTextContent(/Near threshold/)
+  })
+
+  it('states the exact distance from the minimum in both directions', async () => {
+    mount(model([section({
+      selections: [
+        { ...baseSelection, decision_state: 'FINAL_QUALIFIED', adjusted_edge: 2.96 },
+        { ...baseSelection, event_id: 'mlb-2', event_label: 'LAD @ SF', adjusted_edge: 1.9 },
+      ],
+    })]))
+    const best = await screen.findByRole('region', { name: /Ranked by adjusted edge/i })
+    expect(best).toHaveTextContent(/\+0\.96 pts above the minimum/)
+    expect(best).toHaveTextContent(/0\.10 pts short of the minimum/)
+  })
+
+  it('reads the 2.0-point minimum from the policy rather than restating it', async () => {
+    vi.mocked(apiRequest).mockResolvedValue({ ...funnel, min_adjusted_edge: 0.03 } as never)
+    mount(model([section({ selections: [{ ...baseSelection, adjusted_edge: 2.5 }] })]))
+    const best = await screen.findByRole('region', { name: /Ranked by adjusted edge/i })
+    // With a 3.0 minimum the same 2.5-point edge is short, not clear.
+    expect(best).toHaveTextContent(/0\.50 pts short of the minimum/)
+  })
+
+  it('says plainly that a zero-selection day is a valid outcome', async () => {
+    mount(model([section({ selections: [] as NormalizedSelection[], scheduled_event_count: 0, valid_forecast_count: 0 })]))
+    const best = await screen.findByRole('region', { name: /Ranked by adjusted edge/i })
+    expect(best).toHaveTextContent(/A zero-selection day is a valid outcome, not a missing result/i)
+  })
+
+  it('keeps a game with no recorded edge out of the ranking entirely', async () => {
+    mount(model([section({ selections: [{ ...baseSelection, adjusted_edge: null }] })]))
+    const best = await screen.findByRole('region', { name: /Ranked by adjusted edge/i })
+    expect(within(best).queryAllByRole('article')).toHaveLength(0)
+  })
+})
+
+describe('Daily Decisions — blockers', () => {
+  it('charges each game to the first gate it failed, so counts never double', () => {
+    // No price AND no edge is a pricing problem. Counting it twice would make
+    // the blockers add to more games than the slate holds.
+    expect(firstBlocker({
+      ...baseSelection, market_evidence_state: null, price_american: null,
+      outstanding_gates: ['Adjusted edge -1.9 pts below the 2.0 pt minimum'],
+    })).toBe('MISSING_QUOTE')
+    expect(firstBlocker({
       ...baseSelection,
-      event_id: 'mlb-ready', event_label: 'TOR @ BAL',
-      decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION',
-      official_position_id: 'position-1', virtual_stake: 12, outstanding_gates: [],
-    }
-    mount(model([mlbSection([ready, baseSelection])]))
-
-    expect(await screen.findByText(/1 virtual position is ready\. 1 decision remains under review\./)).toBeInTheDocument()
-    const readyGroup = group('Ready')
-    expect(within(readyGroup).getByText('TOR @ BAL')).toBeInTheDocument()
-    expect(within(readyGroup).getByText(/Qualified virtual position recorded before the cutoff/)).toBeInTheDocument()
-    expect(within(readyGroup).getByText('$12.00')).toBeInTheDocument()
-    expect(within(group('Watching')).getByText('BOS @ NYY')).toBeInTheDocument()
+      outstanding_gates: ['Adjusted edge -1.9 pts below the 2.0 pt minimum'],
+    })).toBe('INSUFFICIENT_EDGE')
+    expect(firstBlocker({ ...baseSelection, model_probability: null })).toBe('MISSING_FORECAST')
+    expect(firstBlocker(nflSelection)).toBe('RESEARCH_ONLY')
+    expect(firstBlocker(baseSelection)).toBeNull()
   })
 
-  it('scenario 3: an evaluated pass is distinguished from a game never evaluated', async () => {
-    const passed: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'mlb-pass', event_label: 'CHC @ STL',
-      decision_state: 'FINAL_NO_BET', outstanding_gates: ['EDGE_BELOW_THRESHOLD'],
-    }
-    const unevaluated: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'mlb-none', event_label: 'SD @ SF',
-      decision_state: 'NOT_EVALUATED', outstanding_gates: [],
-    }
-    mount(model([mlbSection([passed, unevaluated])]))
-
-    const passedGroup = await screen.findByRole('heading', { name: /^Passed/ })
-      .then((heading) => heading.closest('section')!)
-    expect(within(passedGroup).getByText('CHC @ STL')).toBeInTheDocument()
-    // The same sentence is both the status and the humanised gate, so scope to the status line.
-    const passedCard = within(passedGroup).getByText('CHC @ STL').closest('article')!
-    expect(passedCard.querySelector('.sport-event-card__status')).toHaveTextContent(/did not meet the policy threshold/i)
-    expect(within(passedGroup).queryByText('SD @ SF')).not.toBeInTheDocument()
-
-    const watchingGroup = group('Watching')
-    expect(within(watchingGroup).getByText('SD @ SF')).toBeInTheDocument()
-    expect(within(watchingGroup).getByText(/Not yet evaluated/i)).toBeInTheDocument()
+  it('never renders a missing sportsbook price as a zero', async () => {
+    mount(model([section({
+      selections: [{ ...baseSelection, market_evidence_state: null, price_american: null, adjusted_edge: null }],
+    })]))
+    const blockers = await screen.findByRole('region', { name: /Blockers/i })
+    expect(blockers).toHaveTextContent(/No usable price/)
+    expect(blockers).not.toHaveTextContent(/\$0|0 pts|0%/)
   })
 
-  it('scenario 4: missing sportsbook evidence never renders as zero', async () => {
-    const noMarket: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'mlb-nomarket', event_label: 'MIN @ CLE',
-      price_american: null, sportsbook: null, no_vig_probability: null, adjusted_edge: null,
-      outstanding_gates: ['NO_TWO_SIDED_QUOTE'],
-    }
-    mount(model([mlbSection([noMarket])]))
+  it('counts distinct games, and says so', async () => {
+    mount(model([section({
+      selections: [
+        { ...baseSelection, outstanding_gates: ['Adjusted edge -1.9 pts below the 2.0 pt minimum'] },
+        { ...baseSelection, outstanding_gates: ['Adjusted edge -0.4 pts below the 2.0 pt minimum'] },
+      ],
+      scheduled_event_count: 1, valid_forecast_count: 1,
+    })]))
+    const blockers = await screen.findByRole('region', { name: /Blockers/i })
+    // Two rows, one event: one blocked game.
+    expect(within(blockers).getByText('Edge below the threshold').parentElement).toHaveTextContent('1')
+    expect(blockers).toHaveTextContent(/never exceed the games on the slate/i)
+  })
+})
 
-    const card = (await screen.findByText('MIN @ CLE')).closest('article')!
-    expect(within(card).getByText(/Waiting for a complete two-sided sportsbook quote/i)).toBeInTheDocument()
-    expect(within(card).getAllByText('Not available').length).toBeGreaterThanOrEqual(2)
-    expect(within(card).queryByText('0%')).not.toBeInTheDocument()
-    expect(within(card).queryByText('+0.0%')).not.toBeInTheDocument()
+describe('Daily Decisions — preserved governance guarantees', () => {
+  it('fails closed when registry authority is unavailable', async () => {
+    mount(model([section({ selections: [baseSelection] })]), false)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/fails closed rather than guessing/i)
+    expect(screen.queryByRole('region', { name: /Ranked by adjusted edge/i })).toBeNull()
   })
 
-  it('scenario 5: a settled position is reported as final, not ready', async () => {
-    const settled: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'mlb-settled', event_label: 'HOU @ TEX',
-      decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION',
-      official_position_id: 'position-9', virtual_stake: 20,
-      position_status: 'SETTLED', position_result: 'WIN', event_status: 'FINAL', outstanding_gates: [],
-    }
-    mount(model([mlbSection([settled])]))
-
-    const closedGroup = await screen.findByRole('heading', { name: /^Closed for decisions/ })
-      .then((heading) => heading.closest('section')!)
-    expect(within(closedGroup).getByText('HOU @ TEX')).toBeInTheDocument()
-    expect(within(closedGroup).getByText('Final — virtual position settled, won')).toBeInTheDocument()
-    expect(within(group('Ready')).queryByText('HOU @ TEX')).not.toBeInTheDocument()
-  })
-
-  it('scenario 6: an NFL research-shadow entry is never presented as fundable', async () => {
-    mount(payload)
-
-    const watching = await screen.findByRole('heading', { name: /^Watching/ })
-      .then((heading) => heading.closest('section')!)
-    const card = within(watching).getByText('DAL @ PHI').closest('article')!
-    expect(within(card).getByText(/Research shadow — no funded decision is possible/i)).toBeInTheDocument()
-    // No stake: research shadow can never fund a position.
-    expect(stake(card)).toHaveTextContent('No position')
-    expect(within(group('Ready')).queryByText('DAL @ PHI')).not.toBeInTheDocument()
-    expect(screen.getByText(/No governed NFL market observation/i)).toBeInTheDocument()
-  })
-
-  it('scenario 7: a completely empty slate is stated honestly', async () => {
-    mount(model([mlbSection([]), nflSection([])]))
-
-    expect(await screen.findByText(/No governed slate is persisted for this date\./)).toBeInTheDocument()
-    expect(screen.getByText(/A zero-position day is valid/i)).toBeInTheDocument()
-    expect(screen.queryByRole('article', { name: /@/ })).not.toBeInTheDocument()
-  })
-
-  it('scenario 8: an unavailable backend substitutes nothing', async () => {
+  it('substitutes nothing when the read fails', async () => {
     vi.spyOn(endpoints, 'today').mockRejectedValue(new Error('backend offline'))
     vi.spyOn(endpoints, 'sportsRegistry').mockResolvedValue(sportRegistryFixture)
     render(
-      <MemoryRouter>
-        <SportRegistryProvider>
-          <MultiSportTodayPage />
-        </SportRegistryProvider>
-      </MemoryRouter>,
+      <MemoryRouter><SportRegistryProvider><MultiSportTodayPage /></SportRegistryProvider></MemoryRouter>,
     )
-
-    expect(await screen.findByText(/The daily command center is unavailable/i)).toBeInTheDocument()
-    expect(screen.getByText(/No historical or illustrative result was substituted/i)).toBeInTheDocument()
-  })
-})
-
-describe('Daily Command Center — preserved governance guarantees', () => {
-  it('keeps ranking within a sport and shows no cross-sport score', async () => {
-    mount(payload)
-    expect(await screen.findByText(/ranked only within MLB/i)).toBeInTheDocument()
-    expect(screen.getByText(/ranked only within NFL/i)).toBeInTheDocument()
-    expect(screen.queryByText(/opportunity score/i)).not.toBeInTheDocument()
-    expect(hasNoCrossSportRanking(payload)).toBe(true)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No decision, count or price is substituted/i)
   })
 
-  it('states that the read made no provider calls', async () => {
-    mount(payload)
-    expect(await screen.findByText(/Provider calls made by this read: 0/i)).toBeInTheDocument()
-  })
-
-  it('summarises the slate once instead of repeating a warning on every card', async () => {
-    const watching = Array.from({ length: 4 }, (_, index) => ({
-      ...baseSelection, event_id: `mlb-${index}`, event_label: `Game ${index}`,
-    }))
-    mount(model([mlbSection(watching)]))
-    await screen.findByText('Game 0')
-    expect(screen.queryAllByText(/AWAITING FINAL EVIDENCE/)).toHaveLength(0)
-  })
-
-  it('keeps official-position and final-qualified counts semantically distinct', async () => {
-    const sections = [
-      { ...mlbSection([baseSelection]), official_position_count: 1, final_qualified_decision_count: 2, final_qualified_count: 99 },
-      nflSection([nflSelection]),
-    ]
-    mount(model(sections))
-
-    const mlbCard = (await screen.findByRole('heading', { name: 'Major League Baseball' })).closest('article')!
-    expect(metric(mlbCard, 'Official positions')).toHaveTextContent('1')
-    expect(metric(mlbCard, 'Final qualified decisions')).toHaveTextContent('2')
-    const nflCard = screen.getByRole('heading', { name: 'National Football League' }).closest('article')!
-    expect(metric(nflCard, 'Official positions')).toHaveTextContent('0')
-  })
-
-  it('fails the command center closed when registry authority is unavailable', async () => {
-    mount(payload, false)
-
-    expect(await screen.findByText(/authoritative sport registry is unavailable/i)).toBeInTheDocument()
-    expect(screen.getByText(/closed rather than inventing active sports/i)).toBeInTheDocument()
-    expect(screen.queryByText('BOS @ NYY')).not.toBeInTheDocument()
-    expect(screen.queryByText('DAL @ PHI')).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Major League Baseball' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Planned sports' })).not.toBeInTheDocument()
-  })
-
-  it('renders one card per governed policy without duplicate React keys', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const v1 = { ...baseSelection, experiment_id: 'experiment-v1', experiment_name: 'V1 strict control', policy_version: 'AISP_V1' }
-    const v21 = { ...baseSelection, experiment_id: 'experiment-v2-1', experiment_name: 'V2.1 challenger', policy_version: 'AISP_V2_1' }
-    mount(model([mlbSection([v1, v21])]))
-
-    await screen.findAllByText('BOS @ NYY')
-    const leagueHeading = document.querySelector('.decision-group__league h3 span')!
-    expect(leagueHeading).toHaveTextContent('2 decisions · 1 game · ranked only within MLB')
-    expect(screen.getAllByText('BOS @ NYY')).toHaveLength(2)
-    expect(screen.getByText(/break down 2 governed decisions, not 1 game/i)).toBeInTheDocument()
-    expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/same key|encountered two children/i)
-  })
-
-  it('shows a within-sport rank only for an evaluated, qualified game', async () => {
-    const ready: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'mlb-ready', event_label: 'TOR @ BAL', sport_rank: 1,
-      decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION',
-      official_position_id: 'position-1', virtual_stake: 12, outstanding_gates: [],
-    }
-    const watching = { ...baseSelection, sport_rank: 2 }
-    mount(model([mlbSection([ready, watching])]))
-
-    const readyCard = (await screen.findByText('TOR @ BAL')).closest('article')!
-    expect(within(readyCard).getByText(/#1 in MLB/)).toBeInTheDocument()
-    const watchingCard = screen.getByText('BOS @ NYY').closest('article')!
-    expect(within(watchingCard).queryByText(/#2 in MLB/)).not.toBeInTheDocument()
-  })
-})
-
-describe('Daily Command Center — count units and in-progress games', () => {
-  it('never presents four counts that look like a partition of the games', async () => {
-    const twoPolicies = [
-      { ...baseSelection, event_id: 'g1', policy_version: 'V1' },
-      { ...baseSelection, event_id: 'g1', policy_version: 'V2' },
-      { ...baseSelection, event_id: 'g2', policy_version: 'V1' },
-    ]
-    mount(model([mlbSection(twoPolicies)]))
-    await screen.findAllByText('BOS @ NYY')
-
-    // The breakdown is labelled as one of decisions, and the scope line states
-    // games and decisions separately. (The tile row became a proportional flow
-    // bar; the guarantee it has to keep is unchanged, so only the selector moves.)
-    const tiles = screen.getByRole('group', { name: /Breakdown of 3 governed decisions/i })
-    const tileTotal = [...tiles.querySelectorAll('.decision-flow__count')]
-      .reduce((sum, node) => sum + Number(node.textContent), 0)
-    expect(tileTotal).toBe(3)
-    expect(within(tiles).queryByText('Games')).not.toBeInTheDocument()
-    // The <strong> counts split the sentence into several text nodes, so assert
-    // on the element itself rather than on a single text node.
-    expect(document.querySelector('.daily-summary__scope'))
-      .toHaveTextContent('2 games today · 3 governed decisions')
-  })
-
-  it('states decisions and distinct games per group', async () => {
-    const twoPolicies = [
-      { ...baseSelection, event_id: 'g1', policy_version: 'V1' },
-      { ...baseSelection, event_id: 'g1', policy_version: 'V2' },
-    ]
-    mount(model([mlbSection(twoPolicies)]))
-    await screen.findAllByText('BOS @ NYY')
-    expect(screen.getByText(/2 decisions across 1 event\./)).toBeInTheDocument()
-  })
-
-  it('moves a live game out of Ready and Watching into Closed for decisions', async () => {
-    const liveReady: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'live-1', event_label: 'BOS @ NYY',
-      decision_state: 'FINAL_QUALIFIED', funding_state: 'OFFICIAL_VIRTUAL_POSITION',
-      official_position_id: 'pos-live', virtual_stake: 15, event_status: 'LIVE',
-      outstanding_gates: [],
-    }
-    const liveWatching: NormalizedSelection = {
-      ...baseSelection,
-      event_id: 'live-2', event_label: 'TB @ TOR', event_status: 'LIVE',
-    }
-    mount(model([mlbSection([liveReady, liveWatching])]))
-
-    const closed = await screen.findByRole('heading', { name: /^Closed for decisions/ })
-      .then((heading) => heading.closest('section')!)
-    expect(within(closed).getByText('BOS @ NYY')).toBeInTheDocument()
-    expect(within(closed).getByText('TB @ TOR')).toBeInTheDocument()
-    expect(within(closed).getAllByText('In progress — pregame decision window closed')).toHaveLength(2)
-
-    expect(within(group('Ready')).queryByText('BOS @ NYY')).not.toBeInTheDocument()
-    expect(within(group('Watching')).queryByText('TB @ TOR')).not.toBeInTheDocument()
-    expect(within(group('Watching')).queryByText(/Starting lineup/i)).not.toBeInTheDocument()
-  })
-
-  it('keeps postponed and canceled games out of "final" and "settled" language', async () => {
-    const postponed: NormalizedSelection = {
-      ...baseSelection, event_id: 'pp', event_label: 'MIA @ NYM',
-      event_status: 'POSTPONED', official_position_id: 'pos-pp', outstanding_gates: [],
-    }
-    const canceled: NormalizedSelection = {
-      ...baseSelection, event_id: 'cc', event_label: 'SD @ SF',
-      event_status: 'CANCELED', outstanding_gates: [],
-    }
-    mount(model([mlbSection([postponed, canceled])]))
-
-    const closed = await screen.findByRole('heading', { name: /^Closed for decisions/ })
-      .then((heading) => heading.closest('section')!)
-    const postponedCard = within(closed).getByText('MIA @ NYM').closest('article')!
-    expect(postponedCard.querySelector('.sport-event-card__status-line')).toHaveTextContent('Postponed')
-    expect(postponedCard.querySelector('.sport-event-card__status-line')).not.toHaveTextContent(/final|settled/i)
-
-    const canceledCard = within(closed).getByText('SD @ SF').closest('article')!
-    expect(canceledCard.querySelector('.sport-event-card__status-line')).toHaveTextContent('Canceled')
-  })
-
-  it('distinguishes a final game with a position from one without', async () => {
-    const withPosition: NormalizedSelection = {
-      ...baseSelection, event_id: 'f1', event_label: 'HOU @ TEX',
-      event_status: 'FINAL', official_position_id: 'pos-f1', virtual_stake: 18, outstanding_gates: [],
-    }
-    const withoutPosition: NormalizedSelection = {
-      ...baseSelection, event_id: 'f2', event_label: 'CHC @ STL',
-      event_status: 'FINAL', official_position_id: null, outstanding_gates: [],
-    }
-    mount(model([mlbSection([withPosition, withoutPosition])]))
-
-    await screen.findByText('HOU @ TEX')
-    expect(screen.getByText('Final — settlement pending')).toBeInTheDocument()
-    expect(screen.getByText('Final — no position was taken')).toBeInTheDocument()
-  })
-})
-
-describe('All Sports homepage — the redesigned public experience', () => {
-  it('leads with the product, its value and its research-only boundary', async () => {
-    mount(payload)
-
-    const heading = await screen.findByRole('heading', { level: 1, name: 'AI Sports Predictor' })
-    expect(heading).toBeInTheDocument()
-    expect(screen.getByText(/Model forecasts, market prices and governed decisions/)).toBeInTheDocument()
-    expect(screen.getByText('Research and simulation only · No real-money wagering')).toBeInTheDocument()
-    // Date and freshness are both stated, so the reader knows how current this is.
-    expect(document.querySelector('.command-header__date')).toHaveTextContent('America/New_York')
-    expect(document.querySelector('.command-header__fresh')).toHaveTextContent(/Forecasts refreshed/i)
-    // Internal governance vocabulary is not the headline.
-    expect(heading.textContent).not.toMatch(/governed|command center|persisted/i)
-  })
-
-  it('answers the day in one plain sentence above the counts', async () => {
-    mount(payload)
-    const answer = await screen.findByText(/No qualified decisions yet/i)
-    expect(answer).toHaveClass('today-answer__message')
-    const counts = screen.getByRole('group', { name: /Breakdown of 2 governed decisions/i })
-    // The answer precedes the tiles in document order.
-    expect(answer.compareDocumentPosition(counts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  })
-
-  it('keeps the four decision groups summing to the governed-decision total', async () => {
-    mount(payload)
-    await screen.findAllByText('BOS @ NYY')
-
-    const tiles = screen.getByRole('group', { name: /Breakdown of (\d+) governed decisions/i })
-    const total = [...tiles.querySelectorAll('.decision-flow__count')]
-      .reduce((sum, node) => sum + Number(node.textContent), 0)
-    const stated = Number(/Breakdown of (\d+)/.exec(tiles.getAttribute('aria-label')!)![1])
-    expect(total).toBe(stated)
-    // And the group headings account for the same decisions.
-    const headingTotal = ['Ready', 'Watching', 'Passed', 'Closed for decisions']
-      .map((title) => screen.getByRole('heading', { name: new RegExp(`^${title}`) }))
-      .reduce((sum, heading) => sum + Number(heading.querySelector('.decision-group__count')!.textContent), 0)
-    expect(headingTotal).toBe(stated)
-  })
-
-  it('shows every league with its parent sport and truthful status', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: 'Sports and leagues' })
-
-    const strip = screen.getByRole('heading', { name: 'Sports and leagues' }).closest('section')!
-    const tiles = [...strip.querySelectorAll('.league-tile')]
-    expect(tiles.map((tile) => tile.querySelector('.league-tile__code')!.textContent!.trim()))
-      .toEqual(['⚾ MLB', '🏈 NFL', '🏀 NBA', '🏀 WNBA', '🏒 NHL', '🥊 UFC'])
-
-    const byCode = (code: string) => tiles.find((tile) => tile.textContent!.includes(code))!
-    expect(byCode('MLB')).toHaveTextContent('Active forecasting')
-    expect(byCode('MLB')).toHaveTextContent('Baseball')
-    expect(byCode('NFL')).toHaveTextContent('Research foundation')
-    expect(byCode('WNBA')).toHaveTextContent('Basketball')
-    for (const planned of ['NBA', 'WNBA', 'NHL', 'UFC']) {
-      expect(byCode(planned)).toHaveTextContent('Planned')
-      expect(byCode(planned).querySelector('a')).toBeNull()
-      expect(within(byCode(planned) as HTMLElement).getByText('Not available yet')).toBeInTheDocument()
-    }
-  })
-
-  it('states the real slate size on a supported league and no counts on an unsupported one', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: 'Sports and leagues' })
-
-    const mlb = screen.getByRole('heading', { name: 'Major League Baseball' }).closest('article')!
-    expect(mlb.querySelector('.league-tile__counts')).toHaveTextContent('1 scheduled game · 1 governed decision')
-    // NHL is not in the backend registry at all, so it claims nothing.
-    const nhl = screen.getByRole('heading', { name: 'National Hockey League' }).closest('article')!
-    expect(nhl.querySelector('.league-tile__counts')).toHaveTextContent(/not in the sport registry/i)
-    expect(nhl.querySelector('.league-tile__metrics')).toBeNull()
-  })
-
-  it('never lets a planned league become a link in the header nav', async () => {
-    mount(payload)
-    await screen.findByRole('navigation', { name: 'Sports and leagues' })
-    const nav = screen.getByRole('navigation', { name: 'Sports and leagues' })
-    expect(within(nav).getAllByRole('link').map((link) => link.textContent!.trim()))
-      .toEqual(['⚾ MLB', '🏈 NFL'])
-    expect(nav.querySelectorAll('[aria-disabled="true"]')).toHaveLength(4)
-  })
-
-  it('offers the rest of the platform without implying a lab that does not exist', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: /Beyond today’s slate/i })
-
-    for (const name of ['Market board', 'Crowd & market pulse', 'Model performance', '$1,000 Experiment']) {
-      expect(screen.getByRole('link', { name: new RegExp(name.replace('$', '\\$'), 'i') })).toBeInTheDocument()
-    }
-    const labs = document.querySelector('.explore__labs')!
-    expect(within(labs as HTMLElement).getByText(/MLB Diamond Simulator/)).toBeInTheDocument()
-    expect(within(labs as HTMLElement).getByText(/NFL Simulation Lab/)).toBeInTheDocument()
-    expect(labs.querySelectorAll('.lab--available')).toHaveLength(2)
-    // Planned labs are named honestly and carry no route.
-    expect(labs.querySelectorAll('.lab--planned')).toHaveLength(4)
-    expect(labs.querySelectorAll('a')).toHaveLength(0)
-  })
-
-  it('states how the record is kept honest without becoming a governance report', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: /How this record is kept honest/i })
-    expect(screen.getByText(/Decisions are recorded before the event/i)).toBeInTheDocument()
-    expect(screen.getByText(/Kalshi and Polymarket are comparisons only/i)).toBeInTheDocument()
-    expect(screen.getByText(/uses virtual research positions/i)).toBeInTheDocument()
-    expect(document.querySelectorAll('.trust__grid li')).toHaveLength(6)
-  })
-
-  it('offers the MLB Diamond Simulator from an MLB decision card', async () => {
-    mount(model([mlbSection([baseSelection])]))
-    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
-    expect(within(card).getByRole('link', { name: /Diamond Simulator/i }))
-      .toHaveAttribute('href', '/games/mlb-1/simulation')
-    expect(within(card).getByRole('link', { name: /Full analysis/i }))
-      .toHaveAttribute('href', '/games/mlb-1')
-  })
-
-  it('uses each sport’s own vocabulary on its cards rather than baseball’s', async () => {
-    mount(payload)
-    await screen.findByText('DAL @ PHI')
-    const mlbCard = screen.getByText('BOS @ NYY').closest('article')!
-    const nflCard = screen.getByText('DAL @ PHI').closest('article')!
-    expect(within(mlbCard).getByText(/First pitch:/)).toBeInTheDocument()
-    expect(within(nflCard).getByText(/Kickoff:/)).toBeInTheDocument()
-    expect(within(nflCard).queryByText(/First pitch/)).not.toBeInTheDocument()
-    // Market vocabulary follows the sport too.
-    expect(within(mlbCard).getAllByText('Moneyline').length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('keeps technical evidence behind a disclosure instead of in the summary', async () => {
-    mount(model([mlbSection([baseSelection])]))
-    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
-    const evidence = card.querySelector('.sport-event-card__evidence')!
-    expect(evidence.tagName).toBe('DETAILS')
-    expect(evidence).not.toHaveAttribute('open')
-    expect(within(evidence as HTMLElement).getByText('AWAITING_FINAL_EVIDENCE')).toBeInTheDocument()
-    // The raw state token is not part of the visible summary.
-    expect(card.querySelector('.sport-event-card__status-line'))
-      .not.toHaveTextContent('AWAITING_FINAL_EVIDENCE')
-  })
-})
-
-describe('a model forecast survives a missing sportsbook quote', () => {
-  const withCurrentForecast = {
-    ...baseSelection,
-    // The decision never got a priceable quote, so nothing was frozen into it.
-    model_probability: null,
-    no_vig_probability: null,
-    price_american: null,
-    adjusted_edge: null,
-    sportsbook: null,
-    // ...but the model's own current forecast is persisted and published.
-    current_forecast_probability: 61.0,
-    current_forecast_generated_at: '2026-08-31T15:30:00Z',
-    current_forecast_model: 'asp_mlb_ensemble 2.0.0',
-  }
-
-  it('shows the current forecast with its own time and model identity', async () => {
-    mount(model([mlbSection([withCurrentForecast])]))
-    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
-
-    expect(within(card).getByText('61.0%')).toBeInTheDocument()
-    expect(within(card).getByText(/asp_mlb_ensemble 2\.0\.0/)).toBeInTheDocument()
-    // The decision-frozen value stays honestly absent, and the two are labelled
-    // as different facts rather than one being substituted for the other.
-    const decision = Array.from(card.querySelectorAll('dt'))
-      .find((node) => node.textContent === 'AISP forecast')!.parentElement!
-    expect(decision).toHaveTextContent('Not available')
-    expect(within(card).getByText(/not the forecast frozen into this decision/i))
+  it('states that the read made no provider call', async () => {
+    mount(model([section({ selections: [baseSelection] })]))
+    expect(await screen.findByText(/made no provider call and created no decision, position or settlement/i))
       .toBeInTheDocument()
   })
 
-  it('never renders a missing market as a zero price or a zero edge', async () => {
-    mount(model([mlbSection([withCurrentForecast])]))
-    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
-    expect(within(card).queryByText('0.0%')).not.toBeInTheDocument()
-    expect(within(card).queryByText('+0.0%')).not.toBeInTheDocument()
-    const edge = Array.from(card.querySelectorAll('dt'))
-      .find((node) => node.textContent === 'Edge')!.parentElement!
-    expect(edge).toHaveTextContent('Not available')
+  it('ranks within a sport only and never publishes a cross-sport score', async () => {
+    const payload = model([section({ selections: [baseSelection] })])
+    expect(hasNoCrossSportRanking(payload)).toBe(true)
+    mount(payload)
+    expect(await screen.findByText(/ranked within a sport only; no cross-sport score exists/i))
+      .toBeInTheDocument()
   })
 
-  it('shows no current-forecast row when the decision already froze one', async () => {
-    mount(model([mlbSection([{ ...withCurrentForecast, model_probability: 56 }])]))
-    const card = (await screen.findByText('BOS @ NYY')).closest('article')!
-    expect(within(card).getByText('56.0%')).toBeInTheDocument()
-    expect(within(card).queryByText(/Current model forecast/i)).not.toBeInTheDocument()
+  it('shows a cutoff timeline that separates locked from upcoming', async () => {
+    mount(model([section({
+      selections: [
+        { ...baseSelection, final_decision_cutoff: '2026-08-31T15:00:00Z' },
+        { ...baseSelection, event_id: 'mlb-2', event_label: 'LAD @ SF', final_decision_cutoff: '2026-08-31T23:00:00Z' },
+      ],
+    })]))
+    const timeline = await screen.findByRole('region', { name: /When decisions lock/i })
+    expect(timeline).toHaveTextContent(/locked/)
+    expect(timeline).toHaveTextContent(/upcoming/)
   })
 })
-
-
-describe('the homepage points at Interactive Labs', () => {
-  it('shows an Open Interactive Labs action in the command header', async () => {
-    mount(payload)
-    const header = (await screen.findByRole('heading', { level: 1, name: 'AI Sports Predictor' }))
-      .closest('header')!
-    const labs = within(header).getByRole('link', { name: /Open Interactive Labs/i })
-    expect(labs).toHaveAttribute('href', '/labs')
-  })
-
-  it('names the MLB league action after the lab it opens and lands on the picker', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: 'Sports and leagues' })
-    const mlb = screen.getByRole('heading', { name: 'Major League Baseball' }).closest('article')!
-    const action = within(mlb).getByRole('link', { name: /Open MLB Diamond Simulator/i })
-    expect(action).toHaveAttribute('href', '/labs?league=MLB')
-  })
-
-  it('gives a planned league no lab action at all', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: 'Sports and leagues' })
-    for (const league of ['National Basketball Association', 'National Hockey League']) {
-      const card = screen.getByRole('heading', { name: league }).closest('article')!
-      expect(within(card).queryByRole('link', { name: /Simulator|Lab/i })).not.toBeInTheDocument()
-    }
-  })
-
-  it('lists Interactive labs as a real destination in Explore', async () => {
-    mount(payload)
-    await screen.findByRole('heading', { name: /Beyond today’s slate/i })
-    const explore = screen.getByRole('heading', { name: /Beyond today’s slate/i }).closest('section')!
-    expect(within(explore).getByRole('link', { name: /Interactive labs/i }))
-      .toHaveAttribute('href', '/labs')
-  })
-})
-
-
-function metric(container: HTMLElement, label: string): HTMLElement {
-  const node = Array.from(container.querySelectorAll('dt')).find((item) => item.textContent === label)
-  if (!node?.parentElement) throw new Error(`Metric not found: ${label}`)
-  return node.parentElement
-}
-
-function stake(card: HTMLElement): HTMLElement {
-  const node = Array.from(card.querySelectorAll('dt')).find((item) => item.textContent === 'Virtual stake')
-  if (!node?.parentElement) throw new Error('Virtual stake not found')
-  return node.parentElement
-}
