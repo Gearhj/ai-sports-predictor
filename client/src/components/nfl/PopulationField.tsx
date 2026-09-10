@@ -15,7 +15,7 @@
  * Nothing here decides which plays exist. It draws the ones handed to it, in
  * the order handed to it, and stops when they run out.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   familyOf, isAirborne, laneOffset, POPULATION_PALETTE, samplePlay,
   type PopulationPlay,
@@ -154,7 +154,20 @@ export function PopulationField({
   const baseRef = useRef<HTMLCanvasElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const paintedTo = useRef(0)
+  const paintedKey = useRef(-1)
   const sizeRef = useRef({ width: 0, height: 0, dpr: 1 })
+  /*
+   * Bumped by every resize.
+   *
+   * Resizing a canvas clears it, and the trail layer is painted incrementally --
+   * only the plays newly revealed since the last pass. So without this, any
+   * resize wiped every trail already drawn and `paintedTo` stopped them being
+   * drawn again: the field went black and stayed black. It also meant a field
+   * whose first layout landed after the first plays were revealed never painted
+   * them at all, which is exactly what happens when the reveal outruns the
+   * ResizeObserver.
+   */
+  const [sized, setSized] = useState(0)
 
   /** Field box in CSS pixels, with a small inset so strokes are not clipped. */
   const geometry = (): Geometry => {
@@ -170,6 +183,10 @@ export function PopulationField({
     if (!wrap || !trail || !base) return
     const dpr = Math.min(2, window.devicePixelRatio || 1)
     const width = wrap.clientWidth
+    // Nothing to do when the box has not actually changed: re-sizing a canvas
+    // clears it, so a no-op resize would throw away every trail.
+    if (width === sizeRef.current.width && height === sizeRef.current.height
+      && dpr === sizeRef.current.dpr) return
     sizeRef.current = { width, height, dpr }
     for (const canvas of [trail, base]) {
       canvas.width = Math.max(1, Math.floor(width * dpr))
@@ -180,14 +197,35 @@ export function PopulationField({
       if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr) }
     }
     paintedTo.current = 0
+    setSized((count) => count + 1)
   }
 
   useEffect(() => {
     resize()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => resize())
-    if (wrapRef.current) observer.observe(wrapRef.current)
-    return () => observer.disconnect()
+    /*
+     * Do not rely on ResizeObserver for the FIRST measurement.
+     *
+     * On mount the wrapper can still report a zero width, and a canvas sized to
+     * zero paints nothing. ResizeObserver normally corrects that on the next
+     * frame -- but it does not fire in every environment (headless captures
+     * under a virtual clock are the case that caught this), and when it does
+     * not, the field stays black forever with no error anywhere.
+     *
+     * So the first layout is picked up by two cheap follow-ups regardless, and
+     * the observer is left to handle genuine resizes afterwards.
+     */
+    const raf = requestAnimationFrame(() => resize())
+    const settle = window.setTimeout(() => resize(), 120)
+    let observer: ResizeObserver | undefined
+    if (typeof ResizeObserver !== 'undefined' && wrapRef.current) {
+      observer = new ResizeObserver(() => resize())
+      observer.observe(wrapRef.current)
+    }
+    return () => {
+      cancelAnimationFrame(raf)
+      window.clearTimeout(settle)
+      observer?.disconnect()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height])
 
@@ -200,7 +238,7 @@ export function PopulationField({
     ctx.clearRect(0, 0, sizeRef.current.width, height)
     drawField(ctx, g, homeAbbr, awayAbbr)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeAbbr, awayAbbr, height, repaintKey, plays])
+  }, [homeAbbr, awayAbbr, height, repaintKey, plays, sized])
 
   // Trails: paint only what is newly revealed, so cost is per new play rather
   // than per frame. A repaintKey change or a rewind starts the layer over.
@@ -209,7 +247,12 @@ export function PopulationField({
     const ctx = canvas?.getContext('2d')
     if (!ctx) return
     const g = geometry()
-    const restart = revealed < paintedTo.current || !persistTrails
+    // Repaint from scratch on a rewind, on a caller-requested repaint, or when
+    // trails are off. `repaintKey` is handled HERE rather than in an effect of
+    // its own: a separate wipe would run after this one (React runs effects in
+    // declaration order) and erase what this just drew.
+    const restart = revealed < paintedTo.current || !persistTrails || repaintKey !== paintedKey.current
+    paintedKey.current = repaintKey
     if (restart) {
       ctx.clearRect(0, 0, sizeRef.current.width, height)
       paintedTo.current = 0
@@ -222,15 +265,8 @@ export function PopulationField({
       paintPlay(ctx, g, plays[index], persistTrails ? 0.28 + 0.5 * (1 - age) : 0.85)
     }
     paintedTo.current = revealed
-  }, [plays, revealed, persistTrails, repaintKey, height])
+  }, [plays, revealed, persistTrails, repaintKey, height, sized])
 
-  // A full repaint request wipes the trail layer outright.
-  useEffect(() => {
-    const ctx = trailRef.current?.getContext('2d')
-    if (!ctx) return
-    ctx.clearRect(0, 0, sizeRef.current.width, height)
-    paintedTo.current = 0
-  }, [repaintKey, height])
 
   return (
     <div className="pop-field" ref={wrapRef} style={{ height }}>

@@ -15,6 +15,7 @@ import { PlayTheater } from '../components/nfl/PlayTheater'
 import { SimulationPopulation } from '../components/nfl/SimulationPopulation'
 import { ScenarioComparison } from '../components/nfl/ScenarioComparison'
 import { ScenarioLaboratory } from '../components/nfl/ScenarioLaboratory'
+import { ScenarioPopulationCompare } from '../components/nfl/ScenarioPopulationCompare'
 import { stateLabel } from '../components/nfl/NflEventCard'
 import { DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
@@ -207,6 +208,16 @@ export function NflLabPage() {
               </p>
             </section>
           )
+      )}
+      {view === 'scenarios' && theater.index && (
+        <ScenarioPopulationCompare
+          gameId={gameId}
+          scenarios={theater.index.scenarios}
+          scenarioId={scenarioId}
+          onScenarioChange={(next) => setParam('scenario', next)}
+          homeAbbr={home}
+          awayAbbr={away}
+        />
       )}
       {view === 'scenarios' && theater.index && (
         <ScenarioLaboratory

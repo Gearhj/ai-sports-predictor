@@ -22,8 +22,9 @@
  * the unit interval and stays honest at small n, which is the regime this
  * experiment is actually in.
  *
- * A point whose interval crosses the diagonal is not evidence of miscalibration.
- * The chart says so rather than leaving the reader to assume the worst.
+ * A point whose interval crosses the diagonal is not evidence of miscalibration
+ * -- and it is not evidence of calibration either. It means this sample cannot
+ * tell the two apart, which is what the chart says.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnalyticsChart, chartTheme } from './AnalyticsChart'
@@ -48,7 +49,15 @@ export function wilsonInterval(observedPct: number, count: number, z = 1.959964)
   return [Math.max(0, low) * 100, Math.min(1, high) * 100]
 }
 
-/** True when the bucket's interval covers its own predicted probability. */
+/**
+ * True when the bucket's interval covers its own predicted probability.
+ *
+ * Named for the geometry, not for a verdict: covering the diagonal means the
+ * sample is too small to distinguish the observed rate from the forecast. It is
+ * emphatically NOT evidence that the forecast is well calibrated -- a
+ * three-game bucket covers nearly the whole unit interval and would "pass" any
+ * forecast at all.
+ */
 export function coversDiagonal(bucket: CalibrationBucket): boolean {
   const [low, high] = wilsonInterval(bucket.observed, bucket.count)
   return bucket.predicted >= low && bucket.predicted <= high
@@ -128,9 +137,12 @@ export function ReliabilityDiagram({ buckets, height = 380 }: { buckets: Calibra
           const entry = (Array.isArray(params) ? params[0] : params) as { dataIndex?: number } | undefined
           const bucket = entry?.dataIndex == null ? undefined : intervals[entry.dataIndex]
           if (!bucket) return ''
+          // Wording matters here. An interval that covers the forecast does not
+          // establish calibration -- at n=3 the interval covers almost
+          // everything. It reports what this sample can and cannot separate.
           const verdict = bucket.predicted >= bucket.low && bucket.predicted <= bucket.high
-            ? 'Consistent with perfect calibration at this sample size.'
-            : 'Predicted probability falls outside the 95% interval.'
+            ? 'This sample does not separate the observed rate from the forecast.'
+            : 'The forecast lies outside the interval this sample supports.'
           return [
             `<strong>Predicted ${bucket.predicted.toFixed(1)}%</strong>`,
             `Observed ${bucket.observed.toFixed(1)}%`,

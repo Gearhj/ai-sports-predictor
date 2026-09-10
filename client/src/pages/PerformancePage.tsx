@@ -127,12 +127,14 @@ export function PerformancePage({ demo = false }: { demo?: boolean }) {
                   const consistent = data.calibration.filter(coversDiagonal).length
                   return (
                     <>
-                      {consistent} of {data.calibration.length} buckets are consistent with perfect
-                      calibration at 95%, across {total} evaluated {total === 1 ? 'game' : 'games'}.
+                      Across {total} evaluated {total === 1 ? 'game' : 'games'}, the observed rate
+                      differs measurably from the forecast in{' '}
+                      {data.calibration.length - consistent} of {data.calibration.length} buckets
+                      at 95%. The remaining {consistent} are estimates this sample cannot separate
+                      from their forecast — which is not the same as showing them well calibrated.
                       {thin > 0 && (
-                        <> {thin} {thin === 1 ? 'bucket has' : 'buckets have'} fewer than ten games —
-                        distance from the diagonal there is mostly sampling noise, which is why the
-                        intervals are drawn.</>
+                        <> {thin} {thin === 1 ? 'bucket rests' : 'buckets rest'} on fewer than ten
+                        games, where the interval is wide enough to cover almost any forecast.</>
                       )}
                     </>
                   )

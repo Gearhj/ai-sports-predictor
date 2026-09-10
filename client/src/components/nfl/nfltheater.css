@@ -418,3 +418,63 @@
 .advanced-analysis > div { padding: 0 0 14px; }
 .advanced-analysis p { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 78ch; }
 .advanced-analysis strong { color: var(--ink); }
+
+/* == scenario population comparison ======================================= */
+
+.scencmp { display: grid; gap: 13px; margin-bottom: 18px; }
+.scencmp__head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px;
+}
+.scencmp__head h3 { margin: 4px 0 0; color: var(--ink); font-size: 18px; letter-spacing: -.02em; }
+.scencmp__controls { display: flex; flex-wrap: wrap; gap: 7px; }
+.scencmp__controls select {
+  padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: white; font-size: 12px;
+}
+
+.scencmp__param {
+  margin: 0; padding: 10px 13px; border-radius: 8px;
+  color: #46596c; background: var(--teal-soft); border: 1px solid #b6ded7;
+  font-size: 12px; line-height: 1.6;
+}
+.scencmp__param b { color: var(--ink); }
+.scencmp__param code {
+  display: inline-block; margin-left: 8px; padding: 1px 6px;
+  color: var(--teal-dark); background: white; border-radius: 4px;
+  font: 600 11px "IBM Plex Mono", monospace;
+}
+
+/* Both fields share a column width, so a difference in the drawn shape is a
+   difference in the runs and never in the layout. */
+.scencmp__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.scencmp__fields figure {
+  margin: 0; padding: 9px;
+  background: #08151f; border: 1px solid rgba(255,255,255,.08); border-radius: 11px;
+}
+.scencmp__fields figcaption {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin-bottom: 7px; color: #cfe0ee; font-size: 13px; font-weight: 700;
+}
+.scencmp__fields figcaption small {
+  color: #7f95a9; font: 500 11px "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums;
+}
+.scencmp__empty { display: grid; place-items: center; height: 250px; color: #7f95a9; font-size: 13px; }
+
+.scencmp__table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.scencmp__table caption {
+  margin-bottom: 8px; color: var(--muted); font-size: 11px; line-height: 1.55; text-align: left;
+}
+.scencmp__table th, .scencmp__table td {
+  padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12px; text-align: right;
+}
+.scencmp__table thead th { color: var(--muted); font-size: 11px; }
+.scencmp__table th[scope="row"], .scencmp__table thead th:first-child { text-align: left; color: #46596c; }
+.scencmp__up { color: var(--green); font-weight: 700; }
+.scencmp__down { color: var(--red); font-weight: 700; }
+.scencmp__flat { color: var(--muted); }
+
+.scencmp__note { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.65; max-width: 92ch; }
+
+@media (max-width: 950px) {
+  .scencmp__fields { grid-template-columns: minmax(0, 1fr); }
+}
