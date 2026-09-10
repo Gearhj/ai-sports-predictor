@@ -239,3 +239,52 @@
   .home-split { grid-template-columns: minmax(0, 1fr); }
   .feature__legend { margin-left: 0; }
 }
+
+/* == model versus market ================================================== */
+
+.mvm {
+  padding: 14px 16px 16px;
+  background: var(--surface-sheen); border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: var(--lift-1);
+}
+.mvm__list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+
+.mvm__row {
+  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr) auto;
+  align-items: center; gap: 12px; width: 100%;
+  padding: 8px 10px; text-align: left;
+  background: white; border: 1px solid var(--line); border-radius: 8px;
+  transition: border-color .16s var(--ease-out), background .16s var(--ease-out);
+}
+.mvm__row:hover { border-color: var(--line-strong); }
+.mvm__row--on { border-color: var(--teal); background: var(--teal-soft); }
+
+.mvm__who { display: grid; min-width: 0; }
+.mvm__who b { color: var(--ink); font-size: 13px; font-weight: 700; }
+.mvm__who small { color: var(--muted); font-size: 11px; }
+
+.mvm__scale { display: block; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.mvm__scale i { display: block; height: 100%; background: linear-gradient(90deg, #35a99f, var(--teal)); }
+
+.mvm__gap {
+  color: var(--teal-dark); font-size: 15px; font-weight: 700;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.mvm__gap small { margin-left: 3px; color: var(--muted); font-size: 10px; font-weight: 600; }
+
+.mvm__detail {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin: 11px 0 0; padding: 11px 12px;
+  background: var(--soft); border: 1px solid var(--line); border-radius: 8px;
+}
+.mvm__detail dt {
+  color: var(--muted); font: 600 10px "IBM Plex Mono", monospace;
+  letter-spacing: .09em; text-transform: uppercase;
+}
+.mvm__detail dd {
+  margin: 3px 0 0; color: var(--ink); font-size: 17px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.mvm__detail dd small { display: block; color: var(--muted); font-size: 11px; font-weight: 500; }
+
+.mvm__note { margin: 11px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.6; max-width: 92ch; }

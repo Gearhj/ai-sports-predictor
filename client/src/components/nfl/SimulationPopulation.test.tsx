@@ -163,6 +163,25 @@ describe('SimulationPopulation', () => {
     })
   })
 
+  it('restarts the accumulation after it has finished', async () => {
+    // The reveal timer stops itself once everything is drawn. Restart therefore
+    // has to recreate it; when it did not, the button reset the counter to zero
+    // and the field stayed empty for good.
+    const user = userEvent.setup()
+    mount()
+    await vi.waitFor(() => {
+      expect(document.querySelector('.pop__coverage')!.textContent)
+        .toContain(`${PLAYS.length} drawn`)
+    }, { timeout: 4000 })
+
+    await user.click(screen.getByRole('button', { name: /restart/i }))
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('.pop__coverage')!.textContent)
+        .toContain(`${PLAYS.length} drawn`)
+    }, { timeout: 4000 })
+  })
+
   it('offers every scenario and reports the choice upward', async () => {
     const user = userEvent.setup()
     const onScenarioChange = vi.fn()

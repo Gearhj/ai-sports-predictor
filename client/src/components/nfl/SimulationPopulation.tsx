@@ -140,7 +140,12 @@ export function SimulationPopulation({
       })
     }, 16)
     return () => { done = true; window.clearInterval(timer) }
-  }, [running, selected, speed])
+    // `repaintKey` belongs in these dependencies even though the timer never
+    // reads it. The timer clears ITSELF once the population is fully drawn, so
+    // without a dependency that changes on Restart, pressing Restart set the
+    // counter back to zero and then nothing ever advanced it again -- the
+    // button looked broken while the state behind it was correct.
+  }, [running, selected, speed, repaintKey])
 
   const stats = useMemo(() => drawnStats(selected.slice(0, revealed)), [selected, revealed])
   const population_ = population?.population_accounting ?? null

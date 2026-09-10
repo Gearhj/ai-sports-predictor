@@ -169,12 +169,21 @@ export function PopulationField({
    */
   const [sized, setSized] = useState(0)
 
-  /** Field box in CSS pixels, with a small inset so strokes are not clipped. */
-  const geometry = (): Geometry => {
+  /**
+   * Field box in CSS pixels, with a small inset so strokes are not clipped.
+   *
+   * A football field is much wider than it is tall, so on a narrow screen the
+   * box that fits is far shorter than the height requested. The canvas is sized
+   * to what the field actually needs rather than to the request, so a phone does
+   * not reserve a hundred wasted pixels above and below the turf.
+   */
+  const boxHeight = () => {
     const { width } = sizeRef.current
-    const boxHeight = Math.min(height, width * ASPECT)
-    return { left: 6, top: (height - boxHeight) / 2, width: width - 12, height: boxHeight }
+    return width > 0 ? Math.min(height, Math.max(120, width * ASPECT)) : height
   }
+  const geometry = (): Geometry => ({
+    left: 6, top: 0, width: sizeRef.current.width - 12, height: boxHeight(),
+  })
 
   const resize = () => {
     const wrap = wrapRef.current
@@ -182,17 +191,18 @@ export function PopulationField({
     const base = baseRef.current
     if (!wrap || !trail || !base) return
     const dpr = Math.min(2, window.devicePixelRatio || 1)
-    const width = wrap.clientWidth
+    const width = wrap.offsetWidth
     // Nothing to do when the box has not actually changed: re-sizing a canvas
     // clears it, so a no-op resize would throw away every trail.
     if (width === sizeRef.current.width && height === sizeRef.current.height
       && dpr === sizeRef.current.dpr) return
     sizeRef.current = { width, height, dpr }
+    const drawn = boxHeight()
     for (const canvas of [trail, base]) {
       canvas.width = Math.max(1, Math.floor(width * dpr))
-      canvas.height = Math.max(1, Math.floor(height * dpr))
+      canvas.height = Math.max(1, Math.floor(drawn * dpr))
       canvas.style.width = `${width}px`
-      canvas.style.height = `${height}px`
+      canvas.style.height = `${drawn}px`
       const ctx = canvas.getContext('2d')
       if (ctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr) }
     }
@@ -235,7 +245,7 @@ export function PopulationField({
     const ctx = baseRef.current?.getContext('2d')
     if (!ctx) return
     const g = geometry()
-    ctx.clearRect(0, 0, sizeRef.current.width, height)
+    ctx.clearRect(0, 0, sizeRef.current.width, boxHeight())
     drawField(ctx, g, homeAbbr, awayAbbr)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [homeAbbr, awayAbbr, height, repaintKey, plays, sized])
@@ -254,7 +264,7 @@ export function PopulationField({
     const restart = revealed < paintedTo.current || !persistTrails || repaintKey !== paintedKey.current
     paintedKey.current = repaintKey
     if (restart) {
-      ctx.clearRect(0, 0, sizeRef.current.width, height)
+      ctx.clearRect(0, 0, sizeRef.current.width, boxHeight())
       paintedTo.current = 0
     }
     const from = persistTrails ? paintedTo.current : Math.max(0, revealed - 40)
@@ -269,7 +279,7 @@ export function PopulationField({
 
 
   return (
-    <div className="pop-field" ref={wrapRef} style={{ height }}>
+    <div className="pop-field" ref={wrapRef} style={{ height: sized ? boxHeight() : height }}>
       <canvas ref={baseRef} className="pop-field__canvas" aria-hidden="true" />
       <canvas
         ref={trailRef}

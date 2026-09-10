@@ -28,12 +28,13 @@ import { useCallback } from 'react'
 import { ArrowRight, Beaker, LineChart, Radio } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { FeaturedMatchup } from '../components/home/FeaturedMatchup'
+import { ModelVersusMarket } from '../components/home/ModelVersusMarket'
 import { EquityCurveChart } from '../charts/EquityCurveChart'
 import { DataStatePanel, formatCurrency, formatSignedCurrency } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { useSportSelection } from '../hooks/useSportSelection'
-import type { BankrollData } from '../types/domain'
+import type { BankrollData, MarketBoardData } from '../types/domain'
 import type { HomeCandidate, HomeFeatured } from '../types/nfl'
 import '../components/home/home.css'
 
@@ -49,6 +50,9 @@ export function HomePage() {
   )
   const bankrollResource = useApiResource<BankrollData>(
     useCallback((signal: AbortSignal) => endpoints.bankroll(signal, 'v2'), []),
+  )
+  const marketsResource = useApiResource<MarketBoardData>(
+    useCallback((signal: AbortSignal) => endpoints.markets(signal), []),
   )
   const data = featuredResource.data
   const featured = data?.featured ?? null
@@ -89,6 +93,13 @@ export function HomePage() {
             ))}
           </div>
         </section>
+      )}
+
+      {marketsResource.data && (
+        <ModelVersusMarket
+          rows={marketsResource.data.rows}
+          observedAt={marketsResource.data.rows[0]?.observed_at ?? null}
+        />
       )}
 
       <section className="home-split">

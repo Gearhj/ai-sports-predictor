@@ -265,7 +265,7 @@
   box-shadow: 0 18px 40px rgba(4,12,20,.32);
 }
 
-.pop-field { position: relative; width: 100%; }
+.pop-field { position: relative; width: 100%; overflow: hidden; }
 .pop-field__canvas { position: absolute; inset: 0; display: block; }
 .pop-field__canvas--trail { pointer-events: none; }
 
