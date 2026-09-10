@@ -1,4 +1,4 @@
-"""Read-only verification and append-only registration of NFL_LABS_PLAY_LEVEL_CONTRACT_V1.
+"""Read-only verification and append-only registration of NFL_LABS_PLAY_LEVEL_CONTRACT_V2.
 
 WHY THIS IS A SEPARATE FAMILY
 -----------------------------
@@ -59,10 +59,20 @@ from app.forecast_exchange.nfl_labs_v1 import _integer, _verified_file, _verify_
 from app.forecast_exchange.supplements import SupplementImportError, _iso, _load_canonical
 from app.models import ResearchSupplement, ShadowForecast
 
-CONTRACT = "NFL_LABS_PLAY_LEVEL_CONTRACT_V1"
-CURRENT = "NFL_LABS_PLAY_LEVEL_CURRENT_V1"
+#: The producer bumped the contract to V2 to add `populationSpatial`. An event
+#: past kickoff cannot be regenerated -- the producer refuses inference after
+#: kickoff -- so its V1 artifacts are carried forward unchanged and the index
+#: legitimately lists both versions. Both are accepted; the newer contract is
+#: required, because it is the one that describes what the index now contains.
+CONTRACT = "NFL_LABS_PLAY_LEVEL_CONTRACT_V2"
+SUPPORTED_CURRENT = ("NFL_LABS_PLAY_LEVEL_CURRENT_V2", "NFL_LABS_PLAY_LEVEL_CURRENT_V1")
+CURRENT = SUPPORTED_CURRENT[0]
 MANIFEST = "NFL_LABS_ARTIFACT_MANIFEST_V1"
-ARTIFACT = "NFL_LABS_PLAY_LEVEL_SIMULATION_V1"
+ARTIFACT = "NFL_LABS_PLAY_LEVEL_SIMULATION_V2"
+#: Ordered newest first. A V1 artifact carries no populationSpatial and must
+#: never be rendered as though it did.
+SUPPORTED_ARTIFACTS = ("NFL_LABS_PLAY_LEVEL_SIMULATION_V2", "NFL_LABS_PLAY_LEVEL_SIMULATION_V1")
+SPATIAL = "NFL_POPULATION_SPATIAL_V1"
 GAME = "NFL_PLAY_LEVEL_GAME_V1"
 GEOMETRY = "NFL_MODELED_PLAY_GEOMETRY_V1"
 PLAY_ENGINE = "NFL_DEVELOPMENT_HIERARCHICAL_PLAY_V1"
@@ -318,12 +328,62 @@ def _verify_population(doc: dict[str, Any]) -> list[dict[str, Any]]:
     return population
 
 
+def _verify_population_spatial(doc: dict, schema: str) -> None:
+    """Re-derive the producer's own reconciliation rather than trusting it.
+
+    `populationSpatial` summarises 1,000 games, of which only six ship play
+    paths -- so nothing downstream can check it against the plays themselves.
+    The one check available is the one the producer states: its play count is
+    defined exactly as `populationAccounting.plays`, and its cells must sum to
+    that. Both are recomputed here.
+    """
+    spatial = doc.get("populationSpatial")
+    if schema == "NFL_LABS_PLAY_LEVEL_SIMULATION_V1":
+        if spatial is not None:
+            raise SupplementImportError("a V1 play-level artifact must not carry populationSpatial")
+        return
+    if not isinstance(spatial, dict):
+        raise SupplementImportError("play-level artifact is missing populationSpatial")
+    if spatial.get("schemaVersion") != SPATIAL:
+        raise SupplementImportError("unsupported populationSpatial schema")
+    if spatial.get("basis") != "ALL_SIMULATED_PLAYS_IN_POPULATION":
+        raise SupplementImportError("populationSpatial does not claim the whole population")
+
+    accounting_plays = _integer((doc.get("populationAccounting") or {}).get("plays"),
+                                "populationAccounting.plays")
+    stated = _integer(spatial.get("playCount"), "populationSpatial.playCount")
+    if accounting_plays < 1 or stated < 1:
+        raise SupplementImportError("play counts must be positive")
+    if stated != accounting_plays:
+        raise SupplementImportError(
+            f"populationSpatial.playCount {stated} does not equal populationAccounting.plays {accounting_plays}")
+
+    cells = spatial.get("cells")
+    if not isinstance(cells, list) or not cells:
+        raise SupplementImportError("populationSpatial carries no cells")
+    seen: set[tuple] = set()
+    binned = 0
+    for cell in cells:
+        key = (cell.get("playType"), cell.get("start"), cell.get("yards"))
+        if None in key[:1] or key in seen:
+            raise SupplementImportError("populationSpatial has a duplicate or unlabelled cell")
+        seen.add(key)
+        if cell.get("playType") not in PLAY_TYPES:
+            raise SupplementImportError(f"populationSpatial names an unknown play type {cell.get('playType')!r}")
+        count = _integer(cell.get("count"), "populationSpatial.cells[].count")
+        if count < 1:
+            raise SupplementImportError("populationSpatial cell count must be positive")
+        binned += count
+    if binned != stated:
+        raise SupplementImportError(f"populationSpatial cells sum to {binned}, not playCount {stated}")
+
+
 def verify_play_level_current(exchange_root: Path) -> list[VerifiedPlayArtifact]:
     """Verify the pointer, the contract, the handoff and every byte of every artifact."""
     root = Path(exchange_root).resolve()
     directory = root / ROOT_NAME
     pointer = _load_canonical(directory / "current.json", label="play-level current.json")
-    if pointer.get("schemaVersion") != CURRENT:
+    if pointer.get("schemaVersion") not in SUPPORTED_CURRENT:
         raise SupplementImportError("unsupported play-level pointer schema")
     _governance(pointer, label="play-level pointer")
 
@@ -369,8 +429,14 @@ def verify_play_level_current(exchange_root: Path) -> list[VerifiedPlayArtifact]
         _governance(doc, label="play-level artifact")
 
         schema = doc.get("schemaVersion")
-        if schema != ARTIFACT or schema != entry.get("artifactSchemaVersion") or schema != manifest.get("artifactSchemaVersion"):
+        if schema not in SUPPORTED_ARTIFACTS:
+            raise SupplementImportError("unsupported play-level artifact schema")
+        # The version must agree in all three places. A pointer that advertises
+        # V2 for a document that is V1 would let a consumer expect a field the
+        # artifact does not carry.
+        if schema != entry.get("artifactSchemaVersion") or schema != manifest.get("artifactSchemaVersion"):
             raise SupplementImportError("play-level schema binding mismatch")
+        _verify_population_spatial(doc, schema)
         if doc.get("sport") != "NFL":
             raise SupplementImportError("play-level artifact is not NFL")
         if doc.get("eventId") != entry.get("eventId") or doc.get("forecastId") != entry.get("forecastId"):
@@ -455,7 +521,8 @@ def _payload(doc: dict[str, Any]) -> dict[str, Any]:
         "jointScoreDistribution", "scoreMarginDistribution", "totalScoreDistribution",
         "populationFinals", "reachingOvertimeProbability", "finalTieProbability",
         "limitations", "m1Comparison", "relatedM1ForecastId", "explainsM1Forecast",
-        "populationAccounting", "historicalEvidencePrecision", "historicalEvidenceThroughDate",
+        "populationAccounting", "populationSpatial",
+        "historicalEvidencePrecision", "historicalEvidenceThroughDate",
         "inputTreatment", "sourceRights", "drawCount", "seed", "schemaVersion",
         "status", "promotionStatus", "executionAllowedInAISP", "wageringAuthority",
     )

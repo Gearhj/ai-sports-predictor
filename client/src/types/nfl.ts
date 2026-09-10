@@ -552,6 +552,13 @@ export interface NflPlayPopulation {
     statement: string | null
   }
   population_accounting: NflPopulationAccounting | null
+  /**
+   * Binned counts over EVERY simulated play, added by contract V2.
+   * Null on an artifact still at V1: an event past kickoff cannot be
+   * regenerated, so its V1 artifact is carried forward unchanged.
+   */
+  population_spatial: NflPopulationSpatial | null
+  artifact_schema_version?: string
   population_finals?: Array<{ homeScore: number; awayScore: number }> | null
   score_summary?: Record<string, number> | null
   games: Array<{
@@ -628,4 +635,26 @@ export interface HomeCandidate {
   } | null
   research_only: boolean
   explore_href: string
+}
+
+/** The producer's binned summary of every simulated play in the population. */
+export interface NflPopulationSpatial {
+  schemaVersion: string
+  basis: string
+  games: number
+  playCount: number
+  reconciliation: {
+    populationAccountingPlays: number
+    binnedPlayCount: number
+    reconciles: boolean
+    excludedPlayTypes: string[]
+    excludedPlayCount: number
+    statement: string
+  }
+  fieldDirection: { convention: string; statement: string }
+  bins: Record<string, unknown>
+  byPlayType: Record<string, { plays: number; netYards: { count: number; mean: number | null } }>
+  cells: Array<{ playType: string; start: number | string; yards: number | string; count: number }>
+  cellCount: number
+  limitations: string[]
 }

@@ -76,6 +76,7 @@ const POPULATION: NflPlayPopulation = {
     { position: 0, label: 'Typical', simulation_index: 125, seed: 1, home_score: 20, away_score: 20, reached_overtime: false, play_count: PLAYS.length },
   ],
   plays: PLAYS,
+  population_spatial: null,
   drawn_accounting: {},
   geometry_notice: 'Modeled schematic geometry, not measured tracking.',
 }

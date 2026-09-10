@@ -20,6 +20,7 @@ import {
   familyOf, isAirborne, laneOffset, POPULATION_PALETTE, samplePlay,
   type PopulationPlay,
 } from './populationGeometry'
+import type { DensityLayer } from './populationDensity'
 
 const FIELD_LENGTH = 100
 const ASPECT = 0.52
@@ -35,6 +36,12 @@ export interface PopulationFieldProps {
   homeAbbr: string
   awayAbbr: string
   height?: number
+  /**
+   * The whole population's shape, painted under the individual paths. Null
+   * when the artifact carries no spatial summary -- an event past kickoff
+   * keeps its older artifact, which has none.
+   */
+  density?: DensityLayer | null
 }
 
 interface Geometry { left: number; top: number; width: number; height: number }
@@ -88,6 +95,31 @@ function drawField(ctx: CanvasRenderingContext2D, g: Geometry, home: string, awa
   ctx.strokeStyle = 'rgba(255,255,255,.28)'
   ctx.lineWidth = 1.5
   ctx.strokeRect(left + 0.5, top + 0.5, width - 1, height - 1)
+}
+
+/**
+ * The population's distribution, as a band under the paths.
+ *
+ * Deliberately unlike a path: a soft filled column, not a stroke, so it never
+ * reads as "more plays were drawn". `start` is offense-relative, so each bin
+ * describes two absolute field positions and is mirrored onto both -- that
+ * follows from the producer's normalisation rather than being assumed here.
+ */
+function drawDensity(ctx: CanvasRenderingContext2D, g: Geometry, density: DensityLayer) {
+  const yard = g.width / FIELD_LENGTH
+  ctx.save()
+  for (const cell of density.cells) {
+    const weight = cell.count / density.peak
+    // Square-root, because a linear ramp makes everything but the mode
+    // invisible on a distribution this peaked.
+    const alpha = 0.05 + 0.3 * Math.sqrt(weight)
+    ctx.fillStyle = POPULATION_PALETTE[cell.family]
+    ctx.globalAlpha = alpha
+    for (const x of [cell.x, 100 - cell.x - cell.width]) {
+      ctx.fillRect(g.left + x * yard, g.top, cell.width * yard, g.height)
+    }
+  }
+  ctx.restore()
 }
 
 function paintPlay(
@@ -149,6 +181,7 @@ function paintPlay(
 
 export function PopulationField({
   plays, revealed, persistTrails, repaintKey, homeAbbr, awayAbbr, height = 380,
+  density = null,
 }: PopulationFieldProps) {
   const trailRef = useRef<HTMLCanvasElement | null>(null)
   const baseRef = useRef<HTMLCanvasElement | null>(null)
@@ -247,8 +280,9 @@ export function PopulationField({
     const g = geometry()
     ctx.clearRect(0, 0, sizeRef.current.width, boxHeight())
     drawField(ctx, g, homeAbbr, awayAbbr)
+    if (density) drawDensity(ctx, g, density)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeAbbr, awayAbbr, height, repaintKey, plays, sized])
+  }, [homeAbbr, awayAbbr, height, repaintKey, plays, sized, density])
 
   // Trails: paint only what is newly revealed, so cost is per new play rather
   // than per frame. A repaintKey change or a rewind starts the layer over.

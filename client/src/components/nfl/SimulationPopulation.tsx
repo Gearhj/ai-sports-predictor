@@ -20,6 +20,7 @@ import {
   Eraser, Expand, Maximize2, Pause, Play, RotateCcw,
 } from 'lucide-react'
 import { PopulationField } from './PopulationField'
+import { buildDensity } from './populationDensity'
 import {
   DEFAULT_FILTERS, drawnStats, matches, POPULATION_PALETTE,
   type DownGroup, type FamilyFilter, type FieldZone, type PopulationFilters,
@@ -75,6 +76,7 @@ export function SimulationPopulation({
   const [revealed, setRevealed] = useState(0)
   const [repaintKey, setRepaintKey] = useState(0)
   const [fullscreen, setFullscreen] = useState(false)
+  const [showDensity, setShowDensity] = useState(true)
   const wrapRef = useRef<HTMLDivElement | null>(null)
 
   const allPlays = useMemo<PopulationPlay[]>(() => population?.plays ?? [], [population])
@@ -148,6 +150,20 @@ export function SimulationPopulation({
   }, [running, selected, speed, repaintKey])
 
   const stats = useMemo(() => drawnStats(selected.slice(0, revealed)), [selected, revealed])
+
+  /*
+   * The whole population's shape, filtered by the SAME play-type choice as the
+   * paths so the two layers always describe the same selection. Team, down,
+   * zone and game filters are deliberately NOT applied: the producer's cells
+   * are binned by play type and field position only, so narrowing on anything
+   * else would silently leave the density describing a wider population than
+   * the paths drawn over it.
+   */
+  const density = useMemo(() => {
+    if (!showDensity) return null
+    const families = filters.family === 'BOTH' ? null : new Set([filters.family])
+    return buildDensity(population?.population_spatial ?? null, families)
+  }, [population, filters.family, showDensity])
   const population_ = population?.population_accounting ?? null
   const coverage = population?.coverage ?? null
 
@@ -231,6 +247,7 @@ export function SimulationPopulation({
             homeAbbr={home}
             awayAbbr={away}
             height={fullscreen ? 560 : 380}
+            density={density}
           />
           <ul className="pop-legend" aria-label="What the colours on the field mean">
             <li><i style={{ background: POPULATION_PALETTE.PASS }} /> Pass <small>dashed while airborne</small></li>
@@ -238,7 +255,27 @@ export function SimulationPopulation({
             <li><i style={{ background: POPULATION_PALETTE.KICK }} /> Kick, punt, try</li>
             <li><i style={{ background: POPULATION_PALETTE.TURNOVER }} /> Turnover <small>at the modeled spot</small></li>
             <li><i className="pop-legend__ring" style={{ borderColor: POPULATION_PALETTE.SCORE }} /> Score</li>
+            {density && (
+              <li><i className="pop-legend__band" /> Shaded band <small>all {density.plays.toLocaleString()} simulated plays</small></li>
+            )}
           </ul>
+          {density ? (
+            <p className="pop-note pop-note--density">
+              The shaded band is every play in the population — all{' '}
+              <b>{density.plays.toLocaleString()}</b> of them, binned by play type and field
+              position by the producer. The lines are the{' '}
+              <b>{(coverage?.plays_drawable ?? 0).toLocaleString()}</b> plays that have paths.
+              {density.unplaced > 0 && (
+                <> {density.unplaced.toLocaleString()} plays carry no placeable field position and
+                are not in the band.</>
+              )}
+            </p>
+          ) : population.population_spatial ? null : (
+            <p className="pop-note pop-note--density">
+              This scenario has no whole-population summary: its artifact predates the addition and
+              cannot be regenerated, because the game has already kicked off.
+            </p>
+          )}
           <p className="pop-note">
             {population.geometry_notice}{' '}
             Plays are spread across lanes for legibility: the producer re-centres every play
@@ -352,6 +389,14 @@ export function SimulationPopulation({
                 onChange={(event) => setPersistTrails(event.target.checked)}
               /> Keep trails
             </label>
+            {population.population_spatial && (
+              <label>
+                <input
+                  type="checkbox" checked={showDensity}
+                  onChange={(event) => setShowDensity(event.target.checked)}
+                /> Whole-population density
+              </label>
+            )}
           </div>
 
           <fieldset className="pop-ctl pop-ctl--games">

@@ -506,3 +506,15 @@
   margin: 14px 0 4px; padding: 12px;
   background: var(--soft); border: 1px solid var(--line); border-radius: 10px;
 }
+
+/* -- whole-population density -------------------------------------------- */
+/*
+ * The band and the paths answer different questions, so the legend key for the
+ * band is a soft block rather than a line: a stroke would read as "more paths".
+ */
+.pop-legend__band {
+  width: 14px; height: 9px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(90,212,230,.5), rgba(232,180,74,.5));
+}
+.pop-note--density { color: #9fb8cb; }
+.pop-note--density b { color: #dceaf5; font-variant-numeric: tabular-nums; }

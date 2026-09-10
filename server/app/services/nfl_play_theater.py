@@ -361,6 +361,13 @@ class NflPlayTheaterService:
             },
             # The producer's aggregates over all 1,000 draws. Untouched.
             "population_accounting": accounting,
+            # Binned counts over EVERY simulated play, added by contract V2.
+            # Absent on an artifact still at V1 -- an event past kickoff cannot
+            # be regenerated, so its V1 artifact is carried forward unchanged.
+            # `None` here means "this population has no spatial summary", never
+            # "it has an empty one".
+            "population_spatial": artifact.get("populationSpatial"),
+            "artifact_schema_version": artifact.get("schemaVersion"),
             "population_finals": artifact.get("populationFinals"),
             "score_summary": artifact.get("scoreSummary"),
             "games": summaries,
