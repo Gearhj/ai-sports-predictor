@@ -1,269 +1,383 @@
 /**
- * The AI Sports Predictor home page.
+ * Tonight in Sports — the AI Sports Predictor front door.
  *
- * WHAT THIS PAGE LEADS WITH, AND WHY IT CHANGED
- * ---------------------------------------------
- * It used to open with a masthead, a green "LIVE DATA · Connected to the ASP
- * API" banner, and a headline counting how many decisions were left. Every one
- * of those is a statement about the SYSTEM. A first-time visitor learned that a
- * server was reachable, which is not evidence about sports and certainly not a
- * reason to stay.
+ * WHAT THIS PAGE USED TO BE, AND WHY IT IS NOT THAT ANY MORE
+ * ----------------------------------------------------------
+ * The fold was a full-width animated football field with a thousand simulated
+ * play paths drawn over it. Three things were wrong with it and none were
+ * cosmetic. It made an all-sports product look like an NFL product. A thousand
+ * overlapping paths is not a picture of a distribution, it is a grey smear.
+ * And some paths appeared to start behind the end line, which tells a visitor
+ * -- correctly -- that nobody checked the geometry. The play visualisation is
+ * real work and it still exists, in the NFL Simulation Lab, where a reader has
+ * asked for exactly that and one path at a time can be told apart.
  *
- * Now the fold is a real matchup with its forecast and its saved simulation
- * already moving, chosen by a published rule (soonest kickoff among games that
- * have simulation evidence -- never by result). Everything about the system's
- * own health moved into a drawer at the foot of the page, where an operator can
- * still reach it in one click and a visitor is not asked to read it first.
+ * The fold is now the thing the product actually knows: tonight's games across
+ * every active sport, each with its forecast, the price it can be compared
+ * against, and what the policy decided.
  *
- * TWO CLAIMS THIS PAGE IS CAREFUL NOT TO MAKE
- * -------------------------------------------
- *  - API connectivity is not freshness. "Connected" says nothing about whether
- *    the odds or forecasts behind a number are current, so the freshness that
- *    matters is stated beside the content it affects, not as a banner.
- *  - A research-only league has not failed anything. NFL carries no execution
- *    authority, so "0 official positions" is not a result; it is the absence of
- *    a policy. It is labelled as research, not as a zero.
+ * HOW THE TWO FEATURED MATCHUPS ARE CHOSEN
+ * ----------------------------------------
+ * One per league, soonest upcoming start first, among games that have a
+ * published forecast. Never by richest artifact -- that is what made an NFL
+ * game the front door before -- and never by result, which is not knowable at
+ * selection time and would make the page a highlight reel of its own hindsight.
  */
-import { useCallback } from 'react'
-import { ArrowRight, Beaker, LineChart, Radio } from 'lucide-react'
+import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { FeaturedMatchup } from '../components/home/FeaturedMatchup'
-import { ModelVersusMarket } from '../components/home/ModelVersusMarket'
-import { EquityCurveChart } from '../charts/EquityCurveChart'
-import { DataStatePanel, formatCurrency, formatSignedCurrency } from '../components/ui'
+import { ArrowRight, Beaker, CalendarClock, LineChart, Radio, TrendingUp } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
-import { endpoints } from '../services/api'
 import { useSportSelection } from '../hooks/useSportSelection'
-import type { BankrollData, MarketBoardData } from '../types/domain'
-import type { HomeCandidate, HomeFeatured } from '../types/nfl'
-import '../components/home/home.css'
+import { apiRequest, endpoints } from '../services/api'
+import {
+  byDisagreement, byStartTime, isUpcoming, mlbSlate, nflSlate, type SlateGame,
+} from '../services/broadcastSlate'
+import {
+  ActionLink, LeagueTag, Panel, ProbabilityArc, SplitBar, Stat,
+  agoOf, american, clockOf, dayOf, decimals, pct, signedPoints, useBroadcastTheme,
+} from '../components/broadcast/primitives'
+import type { BankrollData, DashboardData } from '../types/domain'
+import type { NflEvent, NflWeeks } from '../types/nfl'
+import type { TodayAllSportsReadModel } from '../types/multisport'
+import '../broadcast.css'
 
-function kickoffShort(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short', hour: 'numeric', minute: '2-digit',
-  })
+interface HomeBoard {
+  data_mode: 'live'
+  today: TodayAllSportsReadModel | null
+  mlb: DashboardData | null
+  nfl: { season: number; week: number; events: NflEvent[] } | null
+  bankroll: BankrollData | null
+  warnings: string[]
 }
 
+type NflMarketsBoard = { season: number; week: number; events: NflEvent[] }
+
 export function HomePage() {
-  const featuredResource = useApiResource<HomeFeatured>(
-    useCallback((signal: AbortSignal) => endpoints.homeFeatured(signal), []),
+  useBroadcastTheme()
+  const { sport, withSport } = useSportSelection()
+
+  const loader = useCallback(async (signal: AbortSignal): Promise<HomeBoard> => {
+    const warnings: string[] = []
+    const safe = async <T,>(name: string, run: () => Promise<T>): Promise<T | null> => {
+      try { return await run() } catch (error) {
+        if (signal.aborted) throw error
+        warnings.push(`${name} unavailable`)
+        return null
+      }
+    }
+    const wantsMlb = sport === 'ALL' || sport === 'MLB'
+    const wantsNfl = sport === 'ALL' || sport === 'NFL'
+    const [today, mlb, weeks, bankroll] = await Promise.all([
+      safe('Slate summary', () => endpoints.today(signal)),
+      wantsMlb ? safe('MLB slate', () => apiRequest<DashboardData>('/games/slate', {}, signal)) : null,
+      wantsNfl ? safe('NFL schedule', () => endpoints.nflWeeks(signal)) : null,
+      safe('Experiment bankroll', () => endpoints.bankroll(signal, 'v2')),
+    ])
+    const current = (weeks as NflWeeks | null)?.current
+    const nfl = current
+      ? await safe('NFL markets', () => apiRequest<NflMarketsBoard>(`/nfl/markets/${current.season}/${current.week}`, {}, signal))
+      : null
+    return { data_mode: 'live', today, mlb, nfl, bankroll, warnings }
+  }, [sport])
+
+  const resource = useApiResource(loader)
+  const board = resource.data
+
+  const games = useMemo(() => {
+    const rows = [...mlbSlate(board?.mlb ?? null), ...nflSlate(board?.nfl?.events ?? [])]
+    return rows.sort(byStartTime)
+  }, [board])
+
+  const upcoming = useMemo(() => games.filter(isUpcoming), [games])
+  const featured = useMemo(() => {
+    // A game already under way is not "tonight in sports" -- it is a game you
+    // missed. Prefer one that has not started; fall back to a started one only
+    // when a league has nothing ahead of it, so a league never disappears.
+    const pick = (league: 'MLB' | 'NFL') => {
+      const forLeague = upcoming.filter((game) => game.league === league && game.homeWin != null)
+      const notStarted = forLeague.filter((game) => !['STARTED', 'IN_PROGRESS', 'LIVE'].includes(game.status.toUpperCase()))
+      return notStarted[0] ?? forLeague[0] ?? null
+    }
+    return [pick('MLB'), pick('NFL')].filter((game): game is SlateGame => game != null)
+  }, [upcoming])
+
+  const disagreements = useMemo(
+    () => games.filter((game) => game.edgePoints != null).sort(byDisagreement).slice(0, 5),
+    [games],
   )
-  const bankrollResource = useApiResource<BankrollData>(
-    useCallback((signal: AbortSignal) => endpoints.bankroll(signal, 'v2'), []),
-  )
-  const marketsResource = useApiResource<MarketBoardData>(
-    useCallback((signal: AbortSignal) => endpoints.markets(signal), []),
-  )
-  const data = featuredResource.data
-  const featured = data?.featured ?? null
+
+  const sections = board?.today?.sport_sections ?? []
+  const activeSports = sections.filter((s) => s.availability_state === 'LIVE' || s.scheduled_event_count > 0)
+  const freshness = board?.today?.data_freshness
+  const zone = board?.today?.display_timezone
 
   return (
-    <div className="page home-page">
-      {featured ? (
-        <FeaturedMatchup candidate={featured} criteria={data!.selection_criteria} />
-      ) : (
-        <DataStatePanel
-          state={featuredResource.state}
-          emptyTitle="No upcoming matchup is scheduled"
-          emptyDetail="Every game in the registry has already started. The next dated slate will appear here as soon as one is scheduled."
-          unavailableTitle="The featured matchup could not be loaded"
-          unavailableDetail={featuredResource.error ?? 'The read model could not be reached.'}
-        />
-      )}
-
-      {data && data.candidates.length > 1 && (
-        <section className="upnext" aria-labelledby="upnext-heading">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">UP NEXT</span>
-              <h2 id="upnext-heading">More matchups</h2>
-            </div>
-            <p className="upnext__note">
-              {data.counts.with_simulation_evidence} of the next {data.counts.upcoming_games} scheduled
-              games carry saved simulation evidence.
+    <div className="bx bx-home">
+      <div className="bx__inner">
+        <header className="bx-head">
+          <div>
+            <span className="bx-eyebrow"><Radio size={13} aria-hidden="true" /> AI Sports Predictor</span>
+            <h1>Tonight <em>in Sports</em></h1>
+            <p className="bx-muted" style={{ marginTop: 8, maxWidth: '52ch' }}>
+              Every game the models cover, with the forecast, the price it can be measured
+              against, and what the policy decided. Research and simulation only — no wagering.
             </p>
           </div>
-          <div className="upnext__rail">
-            {data.candidates.map((candidate) => (
-              <MatchupCard
-                key={candidate.game_id}
-                candidate={candidate}
-                current={candidate.game_id === featured?.game_id}
-              />
-            ))}
+          <div className="bx-head__meta">
+            <span className="bx-chip"><CalendarClock size={12} aria-hidden="true" />
+              {board?.today?.operational_date ? dayOf(`${board.today.operational_date}T12:00:00Z`) : 'Loading slate'}</span>
+            <span className="bx-chip">{upcoming.length} upcoming</span>
+            <span className="bx-chip">{activeSports.length || '—'} active {activeSports.length === 1 ? 'sport' : 'sports'}</span>
           </div>
-        </section>
-      )}
+        </header>
 
-      {marketsResource.data && (
-        <ModelVersusMarket
-          rows={marketsResource.data.rows}
-          observedAt={marketsResource.data.rows[0]?.observed_at ?? null}
-        />
-      )}
+        {resource.loading && !board && <p className="bx-empty" role="status">Loading tonight's slate…</p>}
+        {resource.error && <p className="bx-empty" role="alert">{resource.error}</p>}
 
-      <section className="home-split">
-        <ExperimentPanel resource={bankrollResource} />
-        <LabEntries />
-      </section>
+        {featured.length > 0 && (
+          <div className="bx-home__features">
+            {featured.map((game) => <FeatureCard key={game.key} game={game} zone={zone} withSport={withSport} />)}
+          </div>
+        )}
 
-      <StatusDrawer />
+        {upcoming.length > 0 && (
+          <Panel eyebrow="Tonight's slate" title="Next up"
+            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/games')}>See full schedule <ArrowRight size={14} /></Link>}>
+            <div className="bx-rail-wrap"><div className="bx-rail bx-scroll">
+              {upcoming.slice(0, 10).map((game) => (
+                <Link key={game.key} className="bx-rail__item" to={withSport(game.analysisHref, game.league)}>
+                  <header>
+                    <LeagueTag league={game.league} />
+                    <time>{clockOf(game.startsAt, zone)}</time>
+                  </header>
+                  <b>{game.away.abbreviation} <span className="bx-dim">@</span> {game.home.abbreviation}</b>
+                  <SplitBar away={game.awayWin} home={game.homeWin} tie={game.tie}
+                    awayLabel={game.away.abbreviation} homeLabel={game.home.abbreviation}
+                    awayColor={game.away.color ?? 'var(--bx-nfl)'} homeColor={game.home.color ?? 'var(--bx-accent)'} />
+                </Link>
+              ))}
+            </div></div>
+          </Panel>
+        )}
+
+        <div className="bx-home__grid">
+          <Panel eyebrow="Model vs market" title="Biggest disagreements"
+            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/markets')}>Open markets <ArrowRight size={14} /></Link>}>
+            {disagreements.length === 0
+              ? <p className="bx-empty">No game currently has both a forecast and a comparable market price.</p>
+              : <>
+                {disagreements.map((game) => {
+                  const gap = Math.abs(game.edgePoints ?? 0)
+                  const widest = Math.abs(disagreements[0].edgePoints ?? 1) || 1
+                  return (
+                    <div className="bx-gap-row" key={game.key}>
+                      <Link to={withSport(game.analysisHref, game.league)} style={{ color: 'inherit' }}>
+                        <LeagueTag league={game.league} /> {game.away.abbreviation} @ {game.home.abbreviation}
+                      </Link>
+                      <span className="bx-gap-row__track" style={{ width: 120 }} aria-hidden="true">
+                        <span style={{ width: `${Math.max(8, (gap / widest) * 100)}%` }} />
+                      </span>
+                      <b className="bx-gap-row__value">{signedPoints(game.edgePoints, 1)} pp</b>
+                    </div>
+                  )
+                })}
+                <p className="bx-dim" style={{ marginTop: 12 }}>
+                  Model home-win probability minus the no-vig market probability, in percentage
+                  points. A gap is a disagreement to look at, not a selection.
+                </p>
+              </>}
+          </Panel>
+
+          <Panel eyebrow="Decisions" title="What the policy says">
+            {sections.length === 0
+              ? <p className="bx-empty">No sport is reporting a slate right now.</p>
+              : <div style={{ display: 'grid', gap: 12 }}>
+                {sections.map((section) => (
+                  <div key={section.league_code} style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <LeagueTag league={section.league_code} />
+                      <span className="bx-muted">{section.scheduled_event_count} scheduled</span>
+                      <span style={{ marginLeft: 'auto' }} className={`bx-chip ${(section.final_qualified_count ?? 0) > 0 ? 'bx-chip--good' : ''}`}>
+                        {section.can_create_official_positions
+                          ? `${section.final_qualified_count ?? 0} qualified`
+                          : 'Research only'}
+                      </span>
+                    </div>
+                    <p className="bx-dim">
+                      {section.valid_forecast_count} forecast{section.valid_forecast_count === 1 ? '' : 's'} ·{' '}
+                      {section.awaiting_final_evidence_count} awaiting final evidence ·{' '}
+                      {section.open_position_count} open position{section.open_position_count === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                ))}
+                <Link className="bx-btn" to={withSport('/decisions')}>Open Daily Decisions <ArrowRight size={14} /></Link>
+              </div>}
+          </Panel>
+
+          <Panel eyebrow="$1,000 experiment" title="Virtual bankroll"
+            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/experiment')}>Details <ArrowRight size={14} /></Link>}>
+            {!board?.bankroll
+              ? <p className="bx-empty">The experiment ledger is unavailable.</p>
+              : <BankrollSnapshot bankroll={board.bankroll} />}
+          </Panel>
+        </div>
+
+        <div className="bx-home__grid" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)' }}>
+          <Panel eyebrow="Explore" title="Interactive Labs">
+            <div style={{ display: 'grid', gap: 10 }}>
+              <Link className="bx-lab-link" to={withSport('/labs', 'MLB')}>
+                <strong><span><Beaker size={15} aria-hidden="true" /> MLB Diamond Simulator</span><ArrowRight size={15} /></strong>
+                <span className="bx-dim">Replay a simulated game pitch by pitch and change the assumptions behind it.</span>
+              </Link>
+              <Link className="bx-lab-link" to={withSport('/labs', 'NFL')}>
+                <strong><span><Beaker size={15} aria-hidden="true" /> NFL Simulation Lab</span><ArrowRight size={15} /></strong>
+                <span className="bx-dim">Play-level simulations, drive outcomes and the whole-population density behind them.</span>
+              </Link>
+              <Link className="bx-lab-link" to={withSport('/performance')}>
+                <strong><span><LineChart size={15} aria-hidden="true" /> Model performance</span><ArrowRight size={15} /></strong>
+                <span className="bx-dim">Which model is retained, what challenged it, and whether the difference was real.</span>
+              </Link>
+            </div>
+          </Panel>
+
+          <Panel eyebrow="System" title="Data freshness">
+            {!freshness
+              ? <p className="bx-empty">Freshness is unavailable.</p>
+              : <div className="bx-feature__stats">
+                <Stat label="Forecasts" value={agoOf(freshness.latest_forecast_at) ?? 'not recorded'} />
+                <Stat label="Market evidence" value={agoOf(freshness.latest_market_at) ?? 'not recorded'} />
+                <Stat label="Scheduler" value={freshness.scheduler_running ? 'running' : 'stopped'}
+                  tone={freshness.scheduler_running ? 'good' : 'bad'} />
+                <Stat label="Odds refresh" value={freshness.automatic_odds_refresh_running ? 'running' : 'paused'}
+                  tone={freshness.automatic_odds_refresh_running ? 'good' : 'warn'} />
+              </div>}
+            {freshness?.odds_refresh_detail && (
+              <details className="bx-details" style={{ marginTop: 14 }}>
+                <summary>Why odds refresh is paused</summary>
+                <div className="bx-details__body"><p>{freshness.odds_refresh_detail}</p></div>
+              </details>
+            )}
+            {board?.warnings?.length ? (
+              <p className="bx-dim" style={{ marginTop: 10 }} role="status">{board.warnings.join(' · ')}</p>
+            ) : null}
+          </Panel>
+        </div>
+      </div>
     </div>
   )
 }
 
-/** One compact upcoming game. Never shows a result — these have not happened. */
-function MatchupCard({ candidate, current }: { candidate: HomeCandidate; current: boolean }) {
-  const forecast = candidate.forecast
+function FeatureCard({
+  game, zone, withSport,
+}: { game: SlateGame; zone?: string; withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
+  const leadHome = (game.homeWin ?? 0) >= (game.awayWin ?? 0)
+  const leader = leadHome ? game.home : game.away
+  const leadProbability = leadHome ? game.homeWin : game.awayWin
+  const unit = game.scoreUnit === 'runs' ? 'Projected runs' : 'Projected points'
   return (
-    <Link
-      to={candidate.explore_href}
-      className={`matchup-card${current ? ' matchup-card--current' : ''}`}
-      aria-current={current ? 'true' : undefined}
-    >
-      <span className="matchup-card__when">
-        {candidate.league_code} · {kickoffShort(candidate.starts_at_utc)}
-      </span>
-      <span className="matchup-card__teams">
-        <b>{candidate.away.abbreviation}</b> at <b>{candidate.home.abbreviation}</b>
-      </span>
-      {forecast ? (
-        <span className="matchup-card__bar" role="img" aria-label={
-          `${candidate.away.abbreviation} ${(forecast.away_win_probability * 100).toFixed(0)}%, ` +
-          `${candidate.home.abbreviation} ${(forecast.home_win_probability * 100).toFixed(0)}%`
-        }>
-          <i style={{ flexGrow: forecast.away_win_probability * 100 }} />
-          <em style={{ flexGrow: forecast.home_win_probability * 100 }} />
+    <article className="bx-feature" aria-label={`${game.away.name} at ${game.home.name}`}
+      style={{
+        ['--bx-home' as string]: game.home.color ?? '#2f4a70',
+        ['--bx-away' as string]: game.away.color ?? '#2f4a70',
+      }}>
+      <div className="bx-feature__top">
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <LeagueTag league={game.league} />
+          <span className="bx-dim">{dayOf(game.startsAt, zone)} · {clockOf(game.startsAt, zone)}</span>
         </span>
-      ) : <span className="matchup-card__bar matchup-card__bar--none" />}
-      <span className="matchup-card__meta">
-        {forecast
-          ? `${(forecast.away_win_probability * 100).toFixed(0)}% · ${(forecast.home_win_probability * 100).toFixed(0)}%`
-          : 'No forecast yet'}
-        {candidate.simulation.explorable && <b> · simulation</b>}
-      </span>
-    </Link>
+        <Link className="bx-btn bx-btn--ghost" to={withSport(game.analysisHref, game.league)}>
+          View game <ArrowRight size={14} />
+        </Link>
+      </div>
+
+      <div className="bx-feature__body">
+        <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>
+          <div className="bx-feature__teams">
+            <div className="bx-feature__team bx-feature__team--away">
+              <small>{game.away.abbreviation}</small>
+              <strong>{game.away.name}</strong>
+            </div>
+            <span className="bx-feature__vs">VS</span>
+            <div className="bx-feature__team bx-feature__team--home">
+              <small>{game.home.abbreviation}</small>
+              <strong>{game.home.name}</strong>
+            </div>
+          </div>
+          <SplitBar away={game.awayWin} home={game.homeWin} tie={game.tie}
+            awayLabel={game.away.abbreviation} homeLabel={game.home.abbreviation}
+            awayColor={game.away.color ?? 'var(--bx-nfl)'} homeColor={game.home.color ?? 'var(--bx-accent)'} />
+        </div>
+        <ProbabilityArc value={leadProbability} label={leader.abbreviation}
+          sublabel="model win probability" color={leader.color ?? 'var(--bx-accent)'} />
+      </div>
+
+      <div className="bx-feature__stats">
+        <Stat label={unit} value={`${decimals(game.expAway, 1)} – ${decimals(game.expHome, 1)}`} />
+        <Stat label="Market home" value={pct(game.marketHome, 1)} />
+        <Stat label="Model − market"
+          value={game.edgePoints == null ? '—' : `${signedPoints(game.edgePoints, 1)} pp`}
+          tone={game.edgePoints == null ? undefined : Math.abs(game.edgePoints) >= 2 ? 'good' : 'warn'} />
+        <Stat label="Best price"
+          value={game.bestHomePrice == null && game.bestAwayPrice == null
+            ? 'none' : `${american(game.bestAwayPrice)} / ${american(game.bestHomePrice)}`} />
+      </div>
+
+      <div className="bx-feature__foot">
+        {game.researchOnly
+          ? <span className="bx-chip">Research shadow · no position</span>
+          : <span className={`bx-chip ${game.decisionState === 'QUALIFIED BET' ? 'bx-chip--good' : ''}`}>
+            {game.decisionState ?? 'No decision recorded'}
+          </span>}
+        {game.marketHome == null && <span className="bx-chip bx-chip--warn">No comparable price</span>}
+        <span className="bx-dim" style={{ marginLeft: 'auto' }}>
+          Evidence {agoOf(game.evidenceAt) ?? 'not recorded'}
+        </span>
+        {game.simulationHref && (
+          <ActionLink to={withSport(game.simulationHref, game.league)}>
+            <Beaker size={14} aria-hidden="true" /> Simulation
+          </ActionLink>
+        )}
+      </div>
+    </article>
   )
 }
 
-/**
- * The $1,000 experiment, chart first.
- *
- * Sample size and research status sit BESIDE the curve rather than in front of
- * it. Ten settlements is far too few to claim anything and the panel says so —
- * but a reader who cannot see the curve cannot judge that for themselves.
- */
-function ExperimentPanel({ resource }: { resource: ReturnType<typeof useApiResource<BankrollData>> }) {
-  const data = resource.data
-  const settled = data?.equity_curve?.filter((point) => point.sequence !== 0).length ?? 0
+function BankrollSnapshot({ bankroll }: { bankroll: BankrollData }) {
+  const curve = bankroll.equity_curve ?? []
+  const values = curve.map((point) => point.bankroll)
+  const min = Math.min(bankroll.starting_bankroll, ...values)
+  const max = Math.max(bankroll.starting_bankroll, ...values)
+  const span = max - min || 1
+  const width = 240
+  const height = 62
+  const points = values.map((value, index) => {
+    const x = values.length === 1 ? width : (index / (values.length - 1)) * width
+    return `${x.toFixed(1)},${(height - ((value - min) / span) * height).toFixed(1)}`
+  }).join(' ')
+  const ahead = bankroll.total_return >= 0
   return (
-    <section className="home-panel" aria-labelledby="experiment-heading">
-      <div className="home-panel__head">
-        <div>
-          <span className="eyebrow">THE $1,000 EXPERIMENT</span>
-          <h2 id="experiment-heading">Every settlement, in order</h2>
-        </div>
-        <Link to="/experiment?sport=MLB" className="home-panel__more">
-          Open <ArrowRight size={14} aria-hidden="true" />
-        </Link>
-      </div>
-      {data && settled > 0 ? (
-        <>
-          <EquityCurveChart
-            curve={data.equity_curve}
-            height={220}
-            compact
-            formatCurrency={formatCurrency}
-            formatSignedCurrency={formatSignedCurrency}
-          />
-          <dl className="home-panel__facts">
-            <div><dt>Settled positions</dt><dd>{settled}</dd></div>
-            <div><dt>Bankroll</dt><dd>{formatCurrency(data.current_bankroll)}</dd></div>
-            <div><dt>Realised</dt><dd>{formatSignedCurrency(data.total_return)}</dd></div>
-            <div><dt>Status</dt><dd className="home-panel__status">Virtual research · no real-money wagering</dd></div>
-          </dl>
-          <p className="home-panel__caveat">
-            {settled} settled positions is far too small a sample to separate skill from luck.
-            The curve is a record of what the policy did, not evidence that it works.
-          </p>
-        </>
-      ) : (
-        <p className="home-panel__caveat">
-          No positions have settled yet. The opening bankroll is not a performance result.
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div>
+        <strong style={{ fontSize: 30, letterSpacing: '-.04em' }} className="bx-num">
+          ${bankroll.current_bankroll.toFixed(2)}
+        </strong>
+        <p className="bx-dim">
+          from ${bankroll.starting_bankroll.toFixed(0)} · {bankroll.record} · {bankroll.settled_positions ?? 0} settled
         </p>
+      </div>
+      {values.length > 1 && (
+        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"
+          role="img" aria-label={`Virtual bankroll ${ahead ? 'up' : 'down'} $${Math.abs(bankroll.total_return).toFixed(2)}`}>
+          <polyline points={points} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
+            stroke={ahead ? 'var(--bx-good)' : 'var(--bx-bad)'} />
+        </svg>
       )}
-    </section>
-  )
-}
-
-/** Direct entry into each sport's lab. */
-function LabEntries() {
-  return (
-    <section className="home-panel" aria-labelledby="labs-heading">
-      <div className="home-panel__head">
-        <div>
-          <span className="eyebrow">INTERACTIVE LABS</span>
-          <h2 id="labs-heading">Run the evidence yourself</h2>
-        </div>
+      <div className="bx-feature__stats">
+        <Stat label="Return" value={`${ahead ? '+' : ''}$${bankroll.total_return.toFixed(2)}`} tone={ahead ? 'good' : 'bad'} />
+        <Stat label="ROI" value={`${bankroll.roi >= 0 ? '+' : ''}${bankroll.roi.toFixed(2)}%`} tone={ahead ? 'good' : 'bad'} />
+        <Stat label="Open" value={String(bankroll.open_positions ?? 0)} />
       </div>
-      <div className="lab-entries">
-        <Link to="/labs?sport=NFL" className="lab-entry">
-          <Radio size={22} aria-hidden="true" />
-          <span>
-            <strong>NFL Simulation Lab</strong>
-            <small>Watch a modeled play population accumulate, replay one game, compare scenarios.</small>
-          </span>
-          <ArrowRight size={16} aria-hidden="true" />
-        </Link>
-        <Link to="/labs?sport=MLB" className="lab-entry">
-          <Beaker size={22} aria-hidden="true" />
-          <small className="lab-entry__hidden" />
-          <span>
-            <strong>MLB Diamond Simulator</strong>
-            <small>Explore the saved score population and the simulated game paths behind a forecast.</small>
-          </span>
-          <ArrowRight size={16} aria-hidden="true" />
-        </Link>
-        <Link to="/performance?sport=MLB" className="lab-entry">
-          <LineChart size={22} aria-hidden="true" />
-          <span>
-            <strong>Model Performance</strong>
-            <small>Calibration, Brier score and the sample each rests on.</small>
-          </span>
-          <ArrowRight size={16} aria-hidden="true" />
-        </Link>
-      </div>
-    </section>
-  )
-}
-
-/**
- * Scheduler, quota, import and governance diagnostics — collapsed.
- *
- * These matter, and an operator reaches them in one click. They are not what a
- * visitor should read first, and "the API answered" was never evidence that the
- * sports data behind a number was fresh.
- */
-function StatusDrawer() {
-  const { sport } = useSportSelection()
-  return (
-    <details className="status-drawer">
-      <summary>
-        System status, data sources and governance
-        <small>Scheduler, provider quota, imports and policy authority</small>
-      </summary>
-      <div className="status-drawer__body">
-        <p>
-          Freshness is reported beside the content it affects, because a reachable API says
-          nothing about whether the forecast or price behind a number is current.
-        </p>
-        <ul>
-          <li><Link to={`/decisions?sport=${sport}`}>Daily decision board</Link> — every governed decision on the operational date, with its outstanding gates.</li>
-          <li><Link to={`/markets?sport=${sport}`}>Markets and crowd</Link> — quote coverage, provider state and the collection ledger.</li>
-          <li><Link to="/methodology">Methodology</Link> — policies, thresholds and what each engine is authorised to do.</li>
-          <li><Link to="/shadow-board?sport=MLB">Shadow board</Link> — the point-in-time decision record.</li>
-        </ul>
-      </div>
-    </details>
+      <p className="bx-dim"><TrendingUp size={12} aria-hidden="true" /> {bankroll.virtual_label ?? 'Virtual research experiment'}.</p>
+    </div>
   )
 }

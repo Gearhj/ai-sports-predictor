@@ -1,791 +1,508 @@
 /**
- * The public home of AI Sports Predictor — the All Sports Daily Command Center.
+ * Daily Decisions — the decision desk.
  *
- * The page answers six questions in order, and its layout is that order:
+ * WHAT THIS PAGE IS FOR
+ * ---------------------
+ * Five questions, in this order, and nothing else:
+ *   What qualifies now?  What is close?  What is blocked, and why?
+ *   What has already resolved?  When does the next decision lock?
  *
- *   1. What is this product, and what is it not?      -> command header
- *   2. What is the answer today, in one sentence?     -> today's answer
- *   3. Which leagues does it actually cover?          -> league strip
- *   4. What are the individual decisions?             -> decision board
- *   5. Where else can I go?                           -> explore
- *   6. Why should I believe any of it?                -> verified performance
+ * THE FAILURE IT IS BUILT TO AVOID
+ * --------------------------------
+ * The page this replaces rendered every state as the same beige card. A game
+ * that cleared the 2% threshold, a game 0.1 points short of it, and a game
+ * with no sportsbook price at all were three identical rectangles that
+ * differed only in a sentence of small type. That is not a decision product;
+ * it is a list that happens to contain a decision. Here a qualified selection
+ * is the loudest thing on the screen, a near miss is amber with its exact
+ * distance from the threshold drawn against it, and a game with no price is
+ * grey and in the blockers list -- because "no edge" and "no price" are
+ * different facts with different fixes.
  *
- * Every number is derived from persisted authority: the read model for the
- * slate, `services/dailyDecision` for grouping, and the backend sport registry
- * for what a league is allowed to claim. This page renders that derivation; it
- * never decides, and it never fabricates a league, forecast, price or result.
- *
- * A day with no qualified position is a valid, honestly-stated outcome.
+ * WHAT IT MAY NOT DO
+ * ------------------
+ * It reads persisted decisions and counts them. It does not re-run the policy,
+ * re-price anything, lower a threshold or call a provider. The 2.0-point
+ * minimum shown here is read from the funnel service so this page cannot drift
+ * from the code that enforced it. NFL cannot fund an official position in this
+ * phase, so an NFL row reports research status and is never counted as a
+ * decision the policy declined to make.
  */
-import {
-  Activity, BarChart3, CalendarDays, Clock3, FlaskConical, LineChart,
-  RefreshCw, ShieldCheck, Sparkles, Store, Users, Beaker,
-} from 'lucide-react'
-import { useCallback, useMemo, type ReactNode } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { useSportSelection } from '../hooks/useSportSelection'
-import { DecisionEventCard } from '../components/DecisionEventCard'
-import { DecisionFlow } from '../components/DecisionFlow'
-import { DataModeBanner, DataStatePanel } from '../components/ui'
+import {
+  AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Clock, Timer,
+} from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { useSportRegistry } from '../hooks/useSportRegistry'
+import { useSportSelection } from '../hooks/useSportSelection'
+import { apiRequest, endpoints } from '../services/api'
 import {
-  navigableRegistrySports,
-  sportNavigationHref,
-  useSportRegistry,
-} from '../hooks/useSportRegistry'
-import { endpoints } from '../services/api'
-import {
-  distinctGameCount,
-  GROUP_ORDER,
-  groupSelections,
-  slateMessage,
-  slateNextCheckpoint,
-  type DecisionGroup,
-  type GroupedGame,
-} from '../services/dailyDecision'
-import { formatDate, formatTimestamp } from '../services/format'
-import {
-  labIsAvailable,
-  resolveAllSports,
-  SPORT_ORDER,
-  type ResolvedSport,
-} from '../services/sportExperience'
+  LeagueTag, Panel, agoOf, american, clockOf, dayOf, pctPoints, signedPoints, useBroadcastTheme,
+} from '../components/broadcast/primitives'
 import type {
-  LeagueCode,
-  MultiSportDataFreshness,
-  SportAvailabilityState,
-  SportSection,
-  TodayAllSportsReadModel,
+  NormalizedSelection, SportSection, TodayAllSportsReadModel,
 } from '../types/multisport'
+import type { ExperimentFunnelData } from '../types/domain'
+import '../broadcast.css'
 
-const VALUE_STATEMENT =
-  'Model forecasts, market prices and governed decisions—updated as game evidence develops.'
-const RESEARCH_NOTE = 'Research and simulation only · No real-money wagering'
+/** The page never ranks across sports; the read model says so and this asserts it. */
+export function hasNoCrossSportRanking(model: TodayAllSportsReadModel | null): boolean {
+  return model?.cross_sport_ranking === 'NOT_APPLICABLE_PHASE_1'
+}
 
-const GROUP_META: Record<DecisionGroup, { title: string; blurb: string; empty: string; collapsed: string }> = {
-  READY: {
-    title: 'Ready',
-    collapsed: 'ready decisions',
-    blurb: 'A final qualified decision or a recorded virtual position exists.',
-    empty: 'No game has produced a final qualified decision today. A zero-position day is valid.',
-  },
-  WATCHING: {
-    title: 'Watching',
-    collapsed: 'watching decisions',
-    blurb: 'Forecast or decision window still open, or required evidence is incomplete.',
-    empty: 'No game is currently under review.',
-  },
-  PASSED: {
-    title: 'Passed',
-    collapsed: 'passed decisions',
-    blurb: 'Evaluated with sufficient evidence, but did not qualify under the policy.',
-    empty: 'No game has been evaluated and passed today.',
-  },
-  // Deliberately not "Final and settled": this group also holds in-progress,
-  // postponed and canceled games, which are neither final games nor settled
-  // wagers. The umbrella states only what every member shares — no pregame
-  // decision is possible any more — and each card names its own situation.
-  CLOSED: {
-    title: 'Closed for decisions',
-    collapsed: 'closed decisions',
-    blurb: 'The pregame window has closed: in progress, final, postponed, canceled, or settled.',
-    empty: 'No game has closed for decisions yet today.',
-  },
+interface DecisionsBoard {
+  data_mode: 'live'
+  today: TodayAllSportsReadModel | null
+  funnel: ExperimentFunnelData | null
+  warnings: string[]
+}
+
+type BlockerKey =
+  | 'MISSING_FORECAST' | 'MISSING_QUOTE' | 'STALE_QUOTE'
+  | 'INCOMPLETE_EVIDENCE' | 'INSUFFICIENT_EDGE' | 'RESEARCH_ONLY' | 'AWAITING_WINDOW'
+
+/**
+ * First blocking reason, in the order the policy evaluates them. A game that
+ * has neither a price nor an edge is a pricing problem, not an edge problem,
+ * and counting it in both would make the blockers add to more than the games.
+ */
+export function firstBlocker(selection: NormalizedSelection): BlockerKey | null {
+  const gates = (selection.outstanding_gates ?? []).join(' | ').toLowerCase()
+  if (!selection.can_ever_fund_official_position) return 'RESEARCH_ONLY'
+  if (selection.model_probability == null || gates.includes('no valid current forecast')
+    || gates.includes('awaiting first forecast')) return 'MISSING_FORECAST'
+  if (selection.market_evidence_state && selection.market_evidence_state !== 'QUOTE_PRESENT') {
+    return selection.market_evidence_state.toUpperCase().includes('STALE') ? 'STALE_QUOTE' : 'MISSING_QUOTE'
+  }
+  if (selection.price_american == null) return 'MISSING_QUOTE'
+  if (gates.includes('stale')) return 'STALE_QUOTE'
+  if (gates.includes('below the') && gates.includes('minimum')) return 'INSUFFICIENT_EDGE'
+  if (gates.length > 0) return 'INCOMPLETE_EVIDENCE'
+  return null
+}
+
+const BLOCKER_LABEL: Record<BlockerKey, string> = {
+  MISSING_FORECAST: 'No current forecast',
+  MISSING_QUOTE: 'No usable price',
+  STALE_QUOTE: 'Price too old',
+  INCOMPLETE_EVIDENCE: 'Required evidence incomplete',
+  INSUFFICIENT_EDGE: 'Edge below the threshold',
+  RESEARCH_ONLY: 'Research only — cannot fund',
+  AWAITING_WINDOW: 'Decision window still open',
+}
+const BLOCKER_COLOR: Record<BlockerKey, string> = {
+  MISSING_FORECAST: '#8b7bff',
+  MISSING_QUOTE: '#ff6f6f',
+  STALE_QUOTE: '#f5b944',
+  INCOMPLETE_EVIDENCE: '#4a90ff',
+  INSUFFICIENT_EDGE: '#35d6c2',
+  RESEARCH_ONLY: '#63788f',
+  AWAITING_WINDOW: '#63788f',
+}
+
+/** One row per event, so a game evaluated at three phases is counted once. */
+function distinctSelections(sections: SportSection[]): NormalizedSelection[] {
+  const byEvent = new Map<string, NormalizedSelection>()
+  for (const section of sections) {
+    for (const selection of section.selections ?? []) {
+      const key = `${selection.league_code}:${selection.event_id}`
+      const existing = byEvent.get(key)
+      // Keep the most advanced decision recorded for the event.
+      const rank = (item: NormalizedSelection) =>
+        item.decision_state === 'FINAL_QUALIFIED' ? 3
+          : item.decision_state === 'PROVISIONAL_EDGE' ? 2
+            : item.decision_state === 'AWAITING_FINAL_EVIDENCE' ? 1 : 0
+      if (!existing || rank(selection) > rank(existing)) byEvent.set(key, selection)
+    }
+  }
+  return [...byEvent.values()]
 }
 
 export function MultiSportTodayPage() {
+  useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
-  const loader = useCallback((signal: AbortSignal) => endpoints.today(signal, sport === 'NFL' || sport === 'MLB' ? sport : null), [sport])
-  const { data, state, loading, error, refresh } = useApiResource(loader)
   const { registry, state: registryState } = useSportRegistry()
-  const navigable = navigableRegistrySports(registry)
-  const mlbDeskHref = sportNavigationHref(navigable.find((sport) => sport.league_code === 'MLB') ?? null)
 
-  // One clock for the whole render keeps grouping and countdowns consistent.
-  const now = useMemo(() => Date.now(), [data])
+  const loader = useCallback(async (signal: AbortSignal): Promise<DecisionsBoard> => {
+    const warnings: string[] = []
+    const [today, funnel] = await Promise.all([
+      endpoints.today(signal),
+      apiRequest<ExperimentFunnelData>('/experiment/funnel', {}, signal)
+        .catch((error: unknown) => {
+          if (signal.aborted) throw error
+          warnings.push('Experiment funnel unavailable')
+          return null
+        }),
+    ])
+    return { data_mode: 'live', today, funnel, warnings }
+  }, [])
 
-  const selections = useMemo(
-    () => (data ? data.sport_sections.flatMap((section) => section.selections) : []),
-    [data],
+  const resource = useApiResource(loader)
+  const model = resource.data?.today ?? null
+  const funnel = resource.data?.funnel ?? null
+
+  const sections = useMemo(
+    () => (model?.sport_sections ?? []).filter((section) =>
+      sport === 'ALL' || section.league_code === sport),
+    [model, sport],
   )
-  const grouped = useMemo(() => groupSelections(selections, now), [selections, now])
+  const selections = useMemo(() => distinctSelections(sections), [sections])
 
-  if (!data || state === 'unavailable' || state === 'loading') {
+  const fundable = useMemo(
+    () => selections.filter((item) => item.can_ever_fund_official_position),
+    [selections],
+  )
+  const minimumEdge = (funnel?.min_adjusted_edge ?? 0.02) * 100
+
+  const stages = useMemo(() => {
+    const scheduled = sections.reduce((sum, s) => sum + (s.scheduled_event_count ?? 0), 0)
+    const forecast = sections.reduce((sum, s) => sum + (s.valid_forecast_count ?? 0), 0)
+    const priced = selections.filter((item) => item.market_evidence_state === 'QUOTE_PRESENT').length
+    const qualified = sections.reduce((sum, s) => sum + (s.final_qualified_count ?? 0), 0)
+    const positioned = sections.reduce((sum, s) => sum + (s.official_position_count ?? 0), 0)
+    return [
+      { key: 'scheduled', label: 'Scheduled', count: scheduled, note: 'games on today\'s slate' },
+      { key: 'forecast', label: 'Forecasted', count: forecast, note: 'a current model forecast exists' },
+      { key: 'priced', label: 'Priced', count: priced, note: 'a usable two-sided quote is persisted' },
+      { key: 'qualified', label: 'Qualified', count: qualified, note: `cleared the ${minimumEdge.toFixed(1)}% minimum` },
+      { key: 'positioned', label: 'Positioned', count: positioned, note: 'recorded in the virtual ledger' },
+    ]
+  }, [sections, selections, minimumEdge])
+
+  const ranked = useMemo(() => {
+    const scored = fundable.filter((item) => item.adjusted_edge != null)
+    return [...scored].sort((a, b) => (b.adjusted_edge ?? 0) - (a.adjusted_edge ?? 0))
+  }, [fundable])
+  const qualifiedNow = ranked.filter((item) => item.decision_state === 'FINAL_QUALIFIED')
+  const nearThreshold = ranked.filter((item) =>
+    item.decision_state !== 'FINAL_QUALIFIED'
+    && (item.adjusted_edge ?? -99) >= minimumEdge - 2 && (item.adjusted_edge ?? -99) < minimumEdge)
+  const clearingButOpen = ranked.filter((item) =>
+    item.decision_state !== 'FINAL_QUALIFIED' && (item.adjusted_edge ?? -99) >= minimumEdge)
+  // Everything fundable stays on the page, in edge order. Dropping the games
+  // that are well short would leave the reader unable to tell "we looked and
+  // it was not close" from "we never looked".
+  const ordered = useMemo(() => {
+    const head = [...qualifiedNow, ...clearingButOpen, ...nearThreshold]
+    const seen = new Set(head.map((item) => `${item.league_code}:${item.event_id}`))
+    return [...head, ...ranked.filter((item) => !seen.has(`${item.league_code}:${item.event_id}`))]
+  }, [qualifiedNow, clearingButOpen, nearThreshold, ranked])
+
+  const blockers = useMemo(() => {
+    const counts = new Map<BlockerKey, Set<string>>()
+    for (const selection of selections) {
+      const key = firstBlocker(selection)
+      if (!key) continue
+      const set = counts.get(key) ?? new Set<string>()
+      set.add(`${selection.league_code}:${selection.event_id}`)
+      counts.set(key, set)
+    }
+    return [...counts.entries()]
+      .map(([key, games]) => ({ key, games: games.size }))
+      .sort((a, b) => b.games - a.games)
+  }, [selections])
+
+  const timeline = useMemo(() => {
+    const rows = selections
+      .filter((item) => item.final_decision_cutoff)
+      .map((item) => ({ selection: item, cutoff: item.final_decision_cutoff as string }))
+    return rows.sort((a, b) => a.cutoff.localeCompare(b.cutoff))
+  }, [selections])
+
+  const resolved = useMemo(
+    () => selections.filter((item) => item.position_status || item.event_status === 'FINAL'),
+    [selections],
+  )
+
+  const zone = model?.display_timezone
+  const now = Date.now()
+
+  if (registryState === 'unavailable') {
     return (
-      <div className="page command-center">
-        <CommandHeader />
-        <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-        <DataStatePanel
-          state={state}
-          emptyTitle="No governed sports evidence is available"
-          emptyDetail="No current sport has a persisted slate or decision. Nothing has been fabricated."
-          unavailableTitle="The daily command center is unavailable"
-          unavailableDetail="The persisted-read API could not be reached. No historical or illustrative result was substituted."
-          action={mlbDeskHref ? <Link className="secondary-button" to={mlbDeskHref}>Open the MLB desk</Link> : undefined}
-        />
-      </div>
+      <div className="bx bx-decisions"><div className="bx__inner">
+        <p className="bx-empty" role="alert">
+          Sport registry authority is unavailable. The decision desk fails closed rather than
+          guessing which leagues may create a position.
+        </p>
+      </div></div>
     )
   }
-
-  if (registryState !== 'ready' || registry === null) {
-    return (
-      <div className="page command-center">
-        <CommandHeader />
-        <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-        <section className="multisport-roadmap" aria-label="Sport registry status">
-          <p className="multisport-empty" role="status">
-            {registryState === 'loading'
-              ? 'Loading the authoritative sport registry. No sport is presented as active until it is verified.'
-              : 'The authoritative sport registry is unavailable. The all-sports command center is closed rather than inventing active sports from an unverified payload.'}
-          </p>
-        </section>
-      </div>
-    )
-  }
-
-  const sports = resolveAllSports(registry.sports).filter(item => sport === 'ALL' || item.leagueCode === sport)
-  const sportByLeague = new Map<string, ResolvedSport>(sports.map((sport) => [sport.leagueCode, sport]))
-  const leagueOrder = registry.sports.map((sport) => sport.league_code)
-  const navigationByLeague = new Map(navigable.map((item) => [item.league_code, withSport('/games', item.league_code)]))
-
-  // A game with two active policies produces two governed decisions that may
-  // legitimately disagree, so the groups count DECISIONS. The event total is
-  // shown separately and never inside the same row, because four tiles that
-  // look like a partition of 11 games but sum to 19 is simply wrong.
-  const gameCount = new Set(selections.map((item) => item.event_id)).size
-  const counts = {
-    READY: grouped.READY.length,
-    WATCHING: grouped.WATCHING.length,
-    PASSED: grouped.PASSED.length,
-    CLOSED: grouped.CLOSED.length,
-  }
-  const decisionCount = counts.READY + counts.WATCHING + counts.PASSED + counts.CLOSED
-  const readyFunded = grouped.READY.filter((item) => item.decision.reasonCode === 'READY_FUNDED').length
-  // Watching decisions that hold no usable sportsbook price. They are open,
-  // but nothing is reviewing them: they cannot be priced at all.
-  const marketBlocked = grouped.WATCHING.filter((item) =>
-    item.decision.reasonCode === 'WATCH_NO_MARKET_PRICE'
-    || item.decision.reasonCode === 'WATCH_MARKET_PRICE_STALE',
-  ).length
-  const checkpoint = slateNextCheckpoint(grouped.WATCHING)
-  const scopes = experimentScopes(selections)
 
   return (
-    <div className="page command-center">
-      <CommandHeader
-        operationalDate={data.operational_date}
-        timezone={data.display_timezone}
-        freshness={relativeAge(data.data_freshness.latest_forecast_at, now)}
-        sports={sports}
-        navigationByLeague={navigationByLeague}
-        onRefresh={refresh}
-        refreshing={loading}
-      />
+    <div className="bx bx-decisions">
+      <div className="bx__inner">
+        <header className="bx-head">
+          <div>
+            <span className="bx-eyebrow"><ClipboardCheck size={13} aria-hidden="true" /> Daily Decisions</span>
+            <h1>What <em>qualifies</em> today</h1>
+            <p className="bx-muted" style={{ marginTop: 8, maxWidth: '58ch' }}>
+              Persisted decisions, counted. Nothing here re-runs the policy, re-prices a game or
+              calls a provider.
+            </p>
+          </div>
+          <div className="bx-head__meta">
+            <span className="bx-chip">
+              <Clock size={12} aria-hidden="true" />
+              {model?.operational_date ? dayOf(`${model.operational_date}T12:00:00Z`) : 'Loading'}
+              {zone ? ` · ${zone}` : ''}
+            </span>
+            <span className="bx-chip">
+              Forecasts {agoOf(model?.data_freshness?.latest_forecast_at ?? null, now) ?? 'not recorded'}
+            </span>
+            <span className="bx-chip bx-chip--warn">Research &amp; simulation only</span>
+          </div>
+        </header>
 
-      <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-
-      <section className="today-answer" aria-labelledby="today-answer-heading">
-        <h2 id="today-answer-heading" className="sr-only">Today’s decision summary</h2>
-        <p className="today-answer__message">{slateMessage(counts, readyFunded, marketBlocked)}</p>
-        <p className="daily-summary__scope today-answer__scope">
-          <strong>{gameCount}</strong> {gameCount === 1 ? 'game' : 'games'} today
-          {' · '}
-          <strong>{decisionCount}</strong> governed {decisionCount === 1 ? 'decision' : 'decisions'}
-        </p>
-        <DecisionFlow
-          total={decisionCount}
-          groups={GROUP_ORDER.map((group) => ({
-            group,
-            label: GROUP_META[group].title,
-            count: counts[group],
-          }))}
-        />
-        <dl className="today-answer__meta">
-          <div>
-            <dt>Next checkpoint</dt>
-            <dd>
-              {checkpoint
-                ? <>{formatTimestamp(checkpoint.at)} <small>· {checkpoint.label.toLowerCase()} · {checkpoint.eventLabel}</small></>
-                : 'None scheduled'}
-            </dd>
-          </div>
-          <div>
-            <dt>Last complete refresh</dt>
-            <dd>{relativeAge(data.overall_summary.latest_complete_refresh, now)}</dd>
-          </div>
-          <div>
-            <dt>Funded experiment</dt>
-            <dd>
-              {scopes.funded ?? (
-                <>None active <small>· official decisions still governed by {GOVERNING_POLICY}</small></>
-              )}
-              {scopes.comparisons.length > 0 && (
-                <small>· strict comparison: {scopes.comparisons.join(' · ')}</small>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Automatic odds refresh</dt>
-            <dd>
-              {data.data_freshness.automatic_odds_refresh_running
-                ? 'Running'
-                : <>Not running <small>· {oddsRefreshLabel(data.data_freshness.odds_refresh_state)}</small></>}
-            </dd>
-          </div>
-          <div>
-            <dt>Virtual exposure</dt>
-            <dd>${data.overall_summary.total_virtual_stake.toFixed(2)} <small>· virtual only</small></dd>
-          </div>
-        </dl>
-        {decisionCount > gameCount && (
-          <p className="daily-summary__footnote">
-            These four counts break down {decisionCount} governed decisions, not{' '}
-            {gameCount} {gameCount === 1 ? 'game' : 'games'}: some games carry more than one
-            active policy.
+        {resource.loading && !model && <p className="bx-empty" role="status">Loading today's decisions…</p>}
+        {resource.error && (
+          <p className="bx-empty" role="alert">
+            {resource.error}. No decision, count or price is substituted when the read fails.
           </p>
         )}
-      </section>
 
-      <LeagueStrip
-        sports={sports}
-        sections={data.sport_sections}
-        grouped={grouped}
-        navigationByLeague={navigationByLeague}
-      />
+        {model && (
+          <Panel eyebrow="Decision funnel" title="From today's slate to a recorded position"
+            action={<span className="bx-dim">Counts are games, not decisions. A game evaluated at several
+              phases is counted once.</span>}>
+            <div className="bx-funnel">
+              {stages.map((stage, index) => {
+                const previous = index === 0 ? stage.count : stages[index - 1].count
+                const dropped = Math.max(0, previous - stage.count)
+                return (
+                  <div key={stage.key}
+                    className={`bx-funnel__stage${stage.key === 'positioned' && stage.count > 0 ? ' bx-funnel__stage--final' : ''}`}>
+                    <small>{stage.label}</small>
+                    <strong className="bx-num">{stage.count}</strong>
+                    <span>{stage.note}</span>
+                    {dropped > 0 && <span className="bx-funnel__drop">−{dropped}</span>}
+                  </div>
+                )
+              })}
+            </div>
+            {sections.some((section) => !section.can_create_official_positions) && (
+              <p className="bx-dim" style={{ marginTop: 12 }}>
+                {sections.filter((s) => !s.can_create_official_positions).map((s) => s.league_code).join(', ')}{' '}
+                {sections.filter((s) => !s.can_create_official_positions).length === 1 ? 'is' : 'are'} research
+                shadow in this phase and cannot create an official position. Those games are not counted
+                as decisions the policy declined.
+              </p>
+            )}
+          </Panel>
+        )}
 
-      <section className="decision-board" aria-labelledby="decision-board-heading">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">TODAY’S DECISIONS</span>
-            <h2 id="decision-board-heading">Decision board</h2>
+        <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', alignItems: 'start' }}
+          className="bx-decisions__split">
+          <Panel eyebrow="Best opportunities now" title="Ranked by adjusted edge">
+            {ranked.length === 0
+              ? <p className="bx-empty">
+                No fundable selection has a recorded adjusted edge today. A zero-selection day is a
+                valid outcome, not a missing result.
+              </p>
+              : <div style={{ display: 'grid', gap: 9 }}>
+                {ordered.slice(0, 8).map((selection, index) => (
+                  <OpportunityRow key={`${selection.league_code}:${selection.event_id}`}
+                    rank={index + 1} selection={selection} minimumEdge={minimumEdge}
+                    zone={zone} withSport={withSport} />
+                ))}
+                {qualifiedNow.length === 0 && (
+                  <p className="bx-dim">
+                    No selection has reached a final qualified decision yet. The rows above are ranked
+                    by recorded adjusted edge and remain subject to the final pregame evaluation.
+                  </p>
+                )}
+              </div>}
+          </Panel>
+
+          <div style={{ display: 'grid', gap: 18 }}>
+            <Panel eyebrow="Why games did not qualify" title="Blockers"
+              action={<span className="bx-dim">distinct games</span>}>
+              {blockers.length === 0
+                ? <p className="bx-empty">Nothing is blocked on today's slate.</p>
+                : <div className="bx-blockers">
+                  {blockers.map((row) => {
+                    const widest = blockers[0].games || 1
+                    return (
+                      <div className="bx-blocker" key={row.key}>
+                        <span>{BLOCKER_LABEL[row.key]}</span>
+                        <b className="bx-num">{row.games}</b>
+                        <span className="bx-blocker__bar">
+                          <span style={{ width: `${(row.games / widest) * 100}%`, background: BLOCKER_COLOR[row.key] }} />
+                        </span>
+                      </div>
+                    )
+                  })}
+                  <p className="bx-dim">
+                    Each game is charged to the first gate it failed, in the order the policy
+                    evaluates them, so these counts never exceed the games on the slate.
+                  </p>
+                </div>}
+            </Panel>
+
+            <Panel eyebrow="Today's cutoffs" title="When decisions lock"
+              action={<Timer size={15} aria-hidden="true" />}>
+              {timeline.length === 0
+                ? <p className="bx-empty">No decision cutoff is recorded for today.</p>
+                : <div className="bx-timeline">
+                  {timeline.map(({ selection, cutoff }) => {
+                    const passed = new Date(cutoff).getTime() < now
+                    return (
+                      <div key={`${selection.league_code}:${selection.event_id}`}
+                        className={`bx-timeline__row${passed ? ' bx-timeline__row--passed' : ''}`}>
+                        <span className="bx-timeline__time">{clockOf(cutoff, zone)}</span>
+                        <span className="bx-timeline__dot" aria-hidden="true">
+                          <i style={{ background: passed ? 'var(--bx-dim)' : 'var(--bx-accent)' }} />
+                        </span>
+                        <span style={{ minWidth: 0 }}>
+                          <LeagueTag league={selection.league_code} /> {selection.event_label}
+                        </span>
+                        <span className="bx-dim">{passed ? 'locked' : 'upcoming'}</span>
+                      </div>
+                    )
+                  })}
+                </div>}
+            </Panel>
           </div>
-          <p className="decision-board__note">
-            One card per governed decision. Open groups first; resolved groups collapse.
-          </p>
         </div>
-        {GROUP_ORDER.map((group) => (
-          <DecisionGroupSection
-            key={group}
-            group={group}
-            items={grouped[group]}
-            leagueOrder={leagueOrder}
-            sections={data.sport_sections}
-            sportByLeague={sportByLeague}
-            now={now}
-          />
-        ))}
-      </section>
 
-      <ExploreSection sports={sports} navigationByLeague={navigationByLeague} />
+        <Panel eyebrow="Resolved" title="Closed for decisions">
+          {resolved.length === 0
+            ? <p className="bx-dim">No game has closed for decisions yet today.</p>
+            : <div className="bx-scroll">
+              <table className="bx-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Game</th><th scope="col">Selection</th><th scope="col">Price</th>
+                    <th scope="col">Adjusted edge</th><th scope="col">Position</th><th scope="col">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resolved.map((selection) => (
+                    <tr key={`${selection.league_code}:${selection.event_id}`}>
+                      <th scope="row"><LeagueTag league={selection.league_code} /> {selection.event_label}</th>
+                      <td>{selection.selection_label ?? '—'}</td>
+                      <td className="bx-num">{american(selection.price_american)}</td>
+                      <td className="bx-num">{selection.adjusted_edge == null ? '—' : pctPoints(selection.adjusted_edge, 2)}</td>
+                      <td>{selection.position_status ?? 'none'}</td>
+                      <td>{selection.position_result ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
+        </Panel>
 
-      <TrustSection />
+        {funnel?.available && (
+          <details className="bx-details">
+            <summary>Experiment to date · {funnel.experiment?.name}</summary>
+            <div className="bx-details__body">
+              <div className="bx-funnel">
+                {funnel.stages.map((stage) => (
+                  <div className="bx-funnel__stage" key={stage.key}>
+                    <small>{stage.label}</small>
+                    <strong className="bx-num">{stage.count}</strong>
+                    <span>{stage.explanation}</span>
+                    {stage.dropped > 0 && <span className="bx-funnel__drop">−{stage.dropped}</span>}
+                  </div>
+                ))}
+              </div>
+              <p>
+                Minimum adjusted edge {(funnel.min_adjusted_edge * 100).toFixed(1)} points; final pregame
+                cutoff {funnel.cutoff_minutes} minutes before start. Read from the policy module, not
+                restated here.
+              </p>
+              {funnel.price_restoration?.statement && <p>{funnel.price_restoration.statement}</p>}
+            </div>
+          </details>
+        )}
 
-      <footer className="multisport-evidence-footer">
-        <span><CalendarDays size={15} /> Generated {formatTimestamp(data.generated_at)}</span>
-        <span><Clock3 size={15} /> Latest forecast {data.data_freshness.latest_forecast_at ? formatTimestamp(data.data_freshness.latest_forecast_at) : 'not recorded'}</span>
-        <span><Clock3 size={15} /> Latest market {data.data_freshness.latest_market_at ? formatTimestamp(data.data_freshness.latest_market_at) : 'not recorded'}</span>
-        <span><ShieldCheck size={15} /> Provider calls made by this read: {data.data_freshness.provider_calls_made}</span>
-      </footer>
+        <p className="bx-dim">
+          {typeof model?.notes?.provider_calls === 'string'
+            ? model.notes.provider_calls
+            : 'This read made no provider call and created no decision, position or settlement.'}
+          {registry ? ` Registry ${model?.registry_version ?? ''}.` : ''}
+          {hasNoCrossSportRanking(model) ? ' Selections are ranked within a sport only; no cross-sport score exists.' : ''}
+        </p>
+      </div>
     </div>
   )
 }
 
-/**
- * The product's front door.
- *
- * It states what AISP is in plain language before any governance vocabulary,
- * and carries the one disclosure that must never be missed: this is research
- * and simulation, with no real-money wagering.
- */
-function CommandHeader({
-  operationalDate, timezone, freshness, onRefresh, refreshing,
+function OpportunityRow({
+  rank, selection, minimumEdge, zone, withSport,
 }: {
-  operationalDate?: string
-  timezone?: string
-  freshness?: string
-  sports?: ResolvedSport[]
-  navigationByLeague?: Map<LeagueCode, string | null>
-  onRefresh?: () => void
-  refreshing?: boolean
-} = {}) {
-  const { sport, withSport } = useSportSelection()
-  return (
-    <header className="command-header">
-      <div className="command-header__main">
-        <p className="command-header__eyebrow">{sport === 'ALL' ? 'ALL SPORTS' : sport} · DAILY COMMAND CENTER</p>
-        <h1 className="command-header__title">AI Sports Predictor</h1>
-        <p className="command-header__value">{VALUE_STATEMENT}</p>
-        <div className="command-header__meta">
-          {operationalDate && (
-            <span className="command-header__date">
-              <CalendarDays size={14} aria-hidden="true" />
-              {formatDate(operationalDate)}{timezone ? ` · ${timezone}` : ''}
-            </span>
-          )}
-          {freshness && (
-            <span className="command-header__fresh">
-              <Activity size={14} aria-hidden="true" /> Forecasts refreshed {freshness.toLowerCase()}
-            </span>
-          )}
-          <span className="command-header__disclosure">{RESEARCH_NOTE}</span>
-        </div>
-      </div>
-
-      <div className="command-header__side">
-        <div className="command-header__buttons">
-          {/* The simulators are a destination in their own right, so the way in
-              sits in the header rather than inside one decision card. */}
-          <Link className="command-header__labs" to={withSport("/labs")}>
-            <Beaker size={14} aria-hidden="true" /> Open Interactive Labs
-          </Link>
-          {onRefresh && (
-            <button className="command-header__refresh" type="button" onClick={onRefresh} disabled={refreshing}>
-              <RefreshCw size={14} className={refreshing ? 'spin' : ''} aria-hidden="true" /> Refresh persisted view
-            </button>
-          )}
-        </div>
-      </div>
-    </header>
-  )
-}
-
-/**
- * Every league AISP recognises, with its parent sport and its truthful status.
- *
- * Planned leagues are shown deliberately rather than hidden or rendered as a
- * broken empty state, and they stay non-interactive: a league can only become a
- * link when the backend registry says it is navigable.
- */
-function LeagueStrip({ sports, sections, grouped, navigationByLeague }: {
-  sports: ResolvedSport[]
-  sections: SportSection[]
-  grouped: Record<DecisionGroup, GroupedGame[]>
-  navigationByLeague: Map<LeagueCode, string | null>
+  rank: number; selection: NormalizedSelection; minimumEdge: number; zone?: string
+  withSport: (href: string, sport?: 'MLB' | 'NFL') => string
 }) {
-  const allDecisions = GROUP_ORDER.flatMap((group) => grouped[group])
+  const edge = selection.adjusted_edge
+  const qualified = selection.decision_state === 'FINAL_QUALIFIED'
+  const clears = edge != null && edge >= minimumEdge
+  const tone = qualified ? 'qualified' : clears ? 'qualified' : edge != null && edge >= minimumEdge - 2 ? 'near' : 'blocked'
+  const distance = edge == null ? null : edge - minimumEdge
+  // The bar runs from zero to twice the threshold so the threshold sits in the
+  // middle: a selection just short of it and one just past it are visibly
+  // different, which is the entire point of drawing it.
+  const scale = Math.max(minimumEdge * 2, 1)
+  const fill = edge == null ? 0 : Math.min(100, Math.max(0, (edge / scale) * 100))
   return (
-    <section className="league-strip" aria-labelledby="league-strip-heading">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">COVERAGE</span>
-          <h2 id="league-strip-heading">Sports and leagues</h2>
+    <article className={`bx-op bx-op--${tone}`}
+      aria-label={`${selection.event_label} ${selection.selection_label ?? ''}`}>
+      <span className="bx-op__rank">{rank}</span>
+      <div className="bx-op__game">
+        <strong><LeagueTag league={selection.league_code} /> {selection.event_label}</strong>
+        <small>{selection.selection_label ?? 'no selection recorded'} · {selection.market_label ?? 'market not stated'}</small>
+        <small>
+          <b className="bx-num">{american(selection.price_american)}</b>{' '}
+          {selection.sportsbook ?? 'no sportsbook recorded'}
+          {selection.final_decision_cutoff ? ` · locks ${clockOf(selection.final_decision_cutoff, zone)}` : ''}
+        </small>
+      </div>
+      <div className="bx-op__edge">
+        <b className="bx-num">{edge == null ? '—' : pctPoints(edge, 2)}</b>
+        <small>adjusted edge</small>
+      </div>
+      <div className="bx-threshold">
+        <div className="bx-threshold__track">
+          <span className="bx-threshold__fill"
+            style={{
+              width: `${fill}%`,
+              background: tone === 'qualified' ? 'var(--bx-good)' : tone === 'near' ? 'var(--bx-warn)' : 'rgba(255,255,255,.2)',
+            }} />
+          <span className="bx-threshold__mark" style={{ left: '50%' }} aria-hidden="true" />
         </div>
-        <p className="league-strip__note">
-          A league is active only when the backend sport registry says so.
-        </p>
+        <div className="bx-threshold__legend">
+          <span>0%</span>
+          <span>{minimumEdge.toFixed(1)}% min</span>
+        </div>
+        {distance != null && (
+          <span className="bx-dim">
+            {distance >= 0
+              ? `${signedPoints(distance, 2)} pts above the minimum`
+              : `${Math.abs(distance).toFixed(2)} pts short of the minimum`}
+          </span>
+        )}
       </div>
-      <div className="league-strip__grid">
-        {sports.map((sport) => (
-          <LeagueTile
-            key={sport.leagueCode}
-            sport={sport}
-            section={sections.find((item) => item.league_code === sport.leagueCode) ?? null}
-            decisionCount={allDecisions.filter((item) => item.selection.league_code === sport.leagueCode).length}
-            href={navigationByLeague.get(sport.leagueCode as LeagueCode) ?? null}
-          />
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function LeagueTile({ sport, section, decisionCount, href }: {
-  sport: ResolvedSport
-  section: SportSection | null
-  decisionCount: number
-  href: string | null
-}) {
-  const tone = sport.availability.toLowerCase().replace('_', '-')
-  const eventTerm = section?.scheduled_event_count === 1
-    ? sport.terminology.event
-    : sport.terminology.eventPlural
-  return (
-    <article
-      className={`league-tile league-tile--${tone}`}
-      style={{ ['--sport-accent' as string]: sport.accent.base }}
-      aria-disabled={sport.navigable ? undefined : 'true'}
-    >
-      <header className="league-tile__head">
-        <span className="league-tile__code">
-          <span aria-hidden="true">{sport.icon}</span> {sport.shortName}
+      <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
+        <span className={`bx-chip ${qualified ? 'bx-chip--good' : tone === 'near' ? 'bx-chip--warn' : ''}`}>
+          {qualified
+            ? <><CheckCircle2 size={12} aria-hidden="true" /> Qualified</>
+            : clears
+              ? 'Clears · awaiting final'
+              : tone === 'near'
+                ? <><AlertTriangle size={12} aria-hidden="true" /> Near threshold</>
+                : 'Below threshold'}
         </span>
-        <span className={`league-tile__status league-tile__status--${tone}`}>{sport.availabilityLabel}</span>
-      </header>
-      <h3 className="league-tile__name">{section?.display_name ?? sport.displayName}</h3>
-      <p className="league-tile__sport">{sport.sportName}</p>
-
-      {section ? (
-        <p className="league-tile__counts">
-          <strong>{section.scheduled_event_count}</strong> scheduled {eventTerm}
-          {' · '}
-          <strong>{decisionCount}</strong> governed {decisionCount === 1 ? 'decision' : 'decisions'}
-        </p>
-      ) : (
-        <p className="league-tile__counts league-tile__counts--none">
-          No slate, forecast or decision is recorded — this league is not in the sport registry.
-        </p>
-      )}
-
-      {/* One short line here; the full explanation stays available on hover
-          and in the card's own status, so the strip does not become an essay. */}
-      <p className="league-tile__blurb" title={sport.statusExplanation}>{sport.availabilityBlurb}</p>
-
-      {section && (
-        <dl className="league-tile__metrics">
-          <div><dt>Official positions</dt><dd>{section.official_position_count ?? 0}</dd></div>
-          <div><dt>Final qualified decisions</dt><dd>{section.final_qualified_decision_count ?? section.final_qualified_count ?? 0}</dd></div>
-        </dl>
-      )}
-
-      {section?.degraded && (
-        <p className="league-tile__warning">{section.degraded_reason ?? 'Persisted evidence is degraded.'}</p>
-      )}
-
-      <div className="league-tile__actions">
-        {href && sport.navigable
-          ? <Link className="league-tile__link" to={href}>Open {sport.shortName}</Link>
-          : <span className="league-tile__link league-tile__link--disabled" aria-disabled="true">Not available yet</span>}
-        {/* Named for what it opens, and it lands on the picker rather than on
-            some arbitrary game. */}
-        {labIsAvailable(sport) && sport.lab && (
-          <Link className="league-tile__lab" to={`/labs?sport=${sport.leagueCode}`}>
-            Open {sport.shortName} {sport.lab.name.split('— ')[1] ?? 'Interactive Lab'}
+        {selection.detail_href && (
+          <Link className="bx-btn" to={withSport(selection.detail_href, selection.league_code as 'MLB' | 'NFL')}>
+            Open <ArrowRight size={13} />
           </Link>
         )}
       </div>
+      {(selection.outstanding_gates ?? []).length > 0 && (
+        <p className="bx-dim" style={{ gridColumn: '1 / -1' }}>
+          {(selection.outstanding_gates ?? []).join(' · ')}
+        </p>
+      )}
     </article>
   )
-}
-
-function DecisionGroupSection({ group, items, leagueOrder, sections, sportByLeague, now }: {
-  group: DecisionGroup
-  items: GroupedGame[]
-  leagueOrder: LeagueCode[]
-  sections: SportSection[]
-  sportByLeague: Map<string, ResolvedSport>
-  now: number
-}) {
-  const meta = GROUP_META[group]
-  const events = distinctGameCount(items)
-  const headingId = `group-${group.toLowerCase()}`
-  const orderedLeagues = [...leagueOrder]
-  items.forEach(({ selection }) => {
-    if (!orderedLeagues.includes(selection.league_code)) orderedLeagues.push(selection.league_code)
-  })
-  const byLeague = orderedLeagues
-    .map((league) => ({ league, entries: items.filter((item) => item.selection.league_code === league) }))
-    .filter((entry) => entry.entries.length > 0)
-
-  // Resolved groups can be long and are rarely the reason someone opened the
-  // page. Collapse them past a handful so they still answer "how many passed?"
-  // at a glance without pushing the open decisions off the screen. <details>
-  // keeps the content in the DOM and keyboard reachable.
-  const collapsible = (group === 'PASSED' || group === 'CLOSED') && items.length > 6
-
-  const body = byLeague.length === 0
-    ? <p className="multisport-empty" role="status">{meta.empty}</p>
-    : byLeague.map(({ league, entries }) => {
-        const definition = sections.find((section) => section.league_code === league)
-        const sport = sportByLeague.get(league)
-        const leagueEvents = distinctGameCount(entries)
-        const eventWord = sport
-          ? (leagueEvents === 1 ? sport.terminology.event : sport.terminology.eventPlural)
-          : (leagueEvents === 1 ? 'game' : 'games')
-        return (
-          <div className="decision-group__league" key={league}>
-            <h3>
-              {definition?.display_name ?? league}
-              <span>
-                {entries.length} {entries.length === 1 ? 'decision' : 'decisions'} ·{' '}
-                {leagueEvents} {eventWord} ·{' '}
-                ranked only within {league}
-              </span>
-            </h3>
-            <div className="decision-card-grid">
-              {entries.map((entry) => (
-                sport
-                  ? (
-                    <DecisionEventCard
-                      key={`${entry.selection.event_id}:${entry.selection.experiment_id ?? 'none'}:${entry.selection.policy_version ?? 'none'}`}
-                      item={entry}
-                      sport={sport}
-                      now={now}
-                    />
-                  )
-                  : null
-              ))}
-            </div>
-          </div>
-        )
-      })
-
-  return (
-    <section className={`decision-group decision-group--${group.toLowerCase()}`} aria-labelledby={headingId}>
-      <div className="decision-group__heading">
-        <h2 id={headingId}>
-          {meta.title} <span className="decision-group__count">{items.length}</span>
-        </h2>
-        <p>
-          {meta.blurb}
-          {items.length > 0 && (
-            <span className="decision-group__unit">
-              {' '}{items.length} {items.length === 1 ? 'decision' : 'decisions'} across{' '}
-              {events} {events === 1 ? 'event' : 'events'}.
-            </span>
-          )}
-        </p>
-      </div>
-      {collapsible
-        ? (
-          <details className="decision-group__collapse">
-            <summary>Show all {items.length} {meta.collapsed}</summary>
-            {body}
-          </details>
-        )
-        : body}
-    </section>
-  )
-}
-
-interface Destination {
-  key: string
-  name: string
-  blurb: string
-  href: string | null
-  icon: ReactNode
-}
-
-/**
- * The rest of the platform, stated at its real availability.
- *
- * A destination that does not work yet is never given a route, a control or an
- * output — it is listed as planned and left inert.
- */
-function ExploreSection({ sports, navigationByLeague }: {
-  sports: ResolvedSport[]
-  navigationByLeague: Map<LeagueCode, string | null>
-}) {
-  const mlbHref = navigationByLeague.get('MLB') ?? null
-  const destinations: Destination[] = [
-    {
-      key: 'forecasts',
-      name: 'Game & event forecasts',
-      blurb: 'Every scheduled event with a governed model forecast and its supporting evidence.',
-      href: mlbHref,
-      icon: <LineChart size={17} aria-hidden="true" />,
-    },
-    {
-      key: 'markets',
-      name: 'Market board',
-      blurb: 'Observed sportsbook prices beside the model, with no price implied when none was recorded.',
-      href: '/markets',
-      icon: <Store size={17} aria-hidden="true" />,
-    },
-    {
-      key: 'pulse',
-      name: 'Crowd & market pulse',
-      blurb: 'Kalshi and Polymarket quotes as observational comparisons — never an AISP position.',
-      href: '/market-pulse',
-      icon: <Users size={17} aria-hidden="true" />,
-    },
-    {
-      key: 'performance',
-      name: 'Model performance',
-      blurb: 'Calibration and accuracy of the forecasts themselves, tracked separately from policy.',
-      href: '/performance',
-      icon: <BarChart3 size={17} aria-hidden="true" />,
-    },
-    {
-      key: 'experiment',
-      name: '$1,000 Experiment',
-      blurb: 'A virtual research bankroll: every position recorded before the event, then settled.',
-      href: '/experiment',
-      icon: <Sparkles size={17} aria-hidden="true" />,
-    },
-    {
-      key: 'labs',
-      name: 'Interactive labs',
-      blurb: 'Open the simulations behind a forecast: Gen 1 outcome distributions and V18 sequential replays.',
-      href: '/labs',
-      icon: <Beaker size={17} aria-hidden="true" />,
-    },
-    {
-      key: 'methodology',
-      name: 'Methodology',
-      blurb: 'How forecasts are produced, how decisions qualify, and what the platform will not claim.',
-      href: '/methodology',
-      icon: <ShieldCheck size={17} aria-hidden="true" />,
-    },
-  ]
-
-  return (
-    <section className="explore" aria-labelledby="explore-heading">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">EXPLORE THE PLATFORM</span>
-          <h2 id="explore-heading">Beyond today’s slate</h2>
-        </div>
-      </div>
-
-      <div className="explore__grid">
-        {destinations.map((destination) => (
-          destination.href
-            ? (
-              <Link key={destination.key} className="explore__card" to={destination.href}>
-                <span className="explore__icon">{destination.icon}</span>
-                <strong>{destination.name}</strong>
-                <span className="explore__blurb">{destination.blurb}</span>
-              </Link>
-            )
-            : (
-              <span key={destination.key} className="explore__card explore__card--disabled" aria-disabled="true">
-                <span className="explore__icon">{destination.icon}</span>
-                <strong>{destination.name}</strong>
-                <span className="explore__blurb">{destination.blurb}</span>
-                <em>Not available yet</em>
-              </span>
-            )
-        ))}
-      </div>
-
-      <div className="explore__labs">
-        <h3><FlaskConical size={16} aria-hidden="true" /> Interactive labs</h3>
-        <p className="explore__labs-note">
-          A lab is listed only at its real status. A planned lab has no controls, no route and no output.
-        </p>
-        <ul>
-          {SPORT_ORDER.map((league) => {
-            const sport = sports.find((item) => item.leagueCode === league)
-            if (!sport?.lab) return null
-            const available = sport.lab.status === 'AVAILABLE' && sport.navigable
-            const labName = sport.lab.name.split('— ')[1] ?? sport.lab.name
-            return (
-              <li key={league} className={available ? 'lab lab--available' : 'lab lab--planned'}>
-                <span className="lab__name">
-                  <span aria-hidden="true">{sport.icon}</span> {sport.shortName} {labName}
-                </span>
-                <span className="lab__status">{available ? 'Available' : 'Planned'}</span>
-                <span className="lab__blurb">
-                  {available
-                    ? 'Choose a game in Interactive Labs to explore its saved simulations.'
-                    : sport.lab.description}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
-    </section>
-  )
-}
-
-/** Why the numbers above can be trusted. Deliberately short. */
-function TrustSection() {
-  const claims: Array<{ title: string; detail: string }> = [
-    { title: 'Forecasts are timestamped', detail: 'Every forecast records when it was produced and from which engine.' },
-    { title: 'Decisions are recorded before the event', detail: 'A decision is written with its cutoff, then never edited.' },
-    { title: 'Settled results are immutable', detail: 'Once an event settles, its recorded outcome is preserved as it was.' },
-    { title: 'Model and policy are measured separately', detail: 'Forecast accuracy and wagering-policy performance are tracked apart.' },
-    { title: 'Prediction markets are observational', detail: 'Kalshi and Polymarket are comparisons only. AISP takes no position in them.' },
-    { title: 'The experiment is virtual', detail: 'The $1,000 Experiment uses virtual research positions. No real money is staked.' },
-  ]
-  return (
-    <section className="trust" aria-labelledby="trust-heading">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">VERIFIED PERFORMANCE</span>
-          <h2 id="trust-heading">How this record is kept honest</h2>
-        </div>
-        <Link className="trust__link" to="/performance">See the performance record</Link>
-      </div>
-      <ul className="trust__grid">
-        {claims.map((claim) => (
-          <li key={claim.title}>
-            <strong>{claim.title}</strong>
-            <span>{claim.detail}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-/** Human age of the last complete refresh; never guesses when unrecorded. */
-export function relativeAge(at: string | null, now: number): string {
-  if (!at) return 'Not recorded'
-  const value = Date.parse(at)
-  if (Number.isNaN(value)) return 'Not recorded'
-  const minutes = Math.round((now - value) / 60000)
-  if (minutes < 0) return formatTimestamp(at)
-  if (minutes < 1) return 'Just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ${minutes % 60}m ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-/**
- * The policy that governs official virtual decisions regardless of whether a
- * funded experiment is active. "None active" alone reads as "no policy is in
- * force", which is false: V2.1 still decides.
- */
-const GOVERNING_POLICY = 'AISP_PRACTICAL_PREGAME_POLICY_V2_1'
-
-function oddsRefreshLabel(state: MultiSportDataFreshness['odds_refresh_state']): string {
-  switch (state) {
-    case 'POLLING_DISABLED':
-      return 'scheduled odds polling is disabled'
-    case 'QUOTA_BELOW_FLOOR':
-      return 'provider quota is at or below the configured floor'
-    case 'QUOTA_MAY_HAVE_RENEWED_PROBE_REQUIRED':
-      return 'quota reading is stale; an authorized probe is required'
-    case 'NO_QUOTA_READING':
-      return 'no provider quota reading is recorded'
-    default:
-      return 'refresh state unavailable'
-  }
-}
-
-/**
- * The active experiment scopes, kept apart.
- *
- * More than one experiment runs at once and they are legitimately different
- * scopes: V2.1 is what funds official virtual positions, and V1 is retained as
- * its strict comparison. Picking whichever produced more rows today presented
- * the comparison as if it were the funded experiment, which is wrong. This
- * labels each scope from the persisted identities and invents neither.
- */
-export function experimentScopes(
-  selections: { experiment_name: string | null; policy_version: string | null }[],
-): { funded: string | null; comparisons: string[] } {
-  const labels = new Map<string, string>()
-  selections.forEach((item) => {
-    if (!item.policy_version) return
-    const label = item.experiment_name
-      ? `${item.experiment_name} · ${item.policy_version}`
-      : item.policy_version
-    labels.set(item.policy_version, label)
-  })
-  const funded = labels.get(GOVERNING_POLICY) ?? null
-  const comparisons = [...labels.entries()]
-    .filter(([policy]) => policy !== GOVERNING_POLICY)
-    .map(([, label]) => label)
-    .sort()
-  return { funded, comparisons }
-}
-
-export function hasNoCrossSportRanking(data: TodayAllSportsReadModel): boolean {
-  return data.cross_sport_ranking === 'NOT_APPLICABLE_PHASE_1'
-}
-
-/** Kept for callers that still translate a raw availability state. */
-export function availabilityLabel(state: SportAvailabilityState): string {
-  const labels: Record<SportAvailabilityState, string> = {
-    LIVE: 'Active forecasting',
-    RESEARCH_SHADOW: 'Research foundation',
-    DEVELOPMENT: 'In development',
-    PLANNED: 'Planned',
-    UNAVAILABLE: 'Unavailable',
-  }
-  return labels[state] ?? state
 }
