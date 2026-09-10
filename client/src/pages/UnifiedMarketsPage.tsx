@@ -167,20 +167,32 @@ export function UnifiedMarketsPage() {
 
   const total = (sport === 'NFL' ? 0 : mlbRows.length) + (sport === 'MLB' ? 0 : nflRows.length)
 
-  /** Replay can only open a game the board is already showing. */
+  /**
+   * Replay can only open a game the board is already showing, and it opens on
+   * a game that has a tape: defaulting to the earliest kickoff put an NFL game
+   * with no persisted price at the top, so the first thing the feature showed
+   * was its own empty state.
+   */
   const replayChoices = useMemo<ReplayChoice[]>(() => [
-    ...(sport === 'NFL' ? [] : mlbRows.map(({ row }) => ({
+    ...(sport === 'NFL' ? [] : mlbRows.map(({ row, books }) => ({
       gameId: row.game_id, league: 'MLB' as const,
       label: `${row.away_abbrev} @ ${row.home_abbrev}`, startsAt: row.starts_at ?? '',
+      hasQuote: books.some((entry) => (entry.books ?? []).length > 0),
     }))),
     ...(sport === 'MLB' ? [] : nflRows
       .filter((event) => event.canonical_game_id)
-      .map((event) => ({
-        gameId: event.canonical_game_id as string, league: 'NFL' as const,
-        label: `${event.away.abbreviation} @ ${event.home.abbreviation}`,
-        startsAt: event.kickoff_utc ?? '',
-      }))),
-  ].sort((a, b) => a.startsAt.localeCompare(b.startsAt)), [mlbRows, nflRows, sport])
+      .map((event) => {
+        const engine = event.engines.find((entry) => entry.engine_id === 'NFL_M1_XGBOOST')
+          ?? event.engines[0]
+        return {
+          gameId: event.canonical_game_id as string, league: 'NFL' as const,
+          label: `${event.away.abbreviation} @ ${event.home.abbreviation}`,
+          startsAt: event.kickoff_utc ?? '',
+          hasQuote: (engine?.market_comparison?.markets ?? []).some((block) => Boolean(block.quote)),
+        }
+      })),
+  ].sort((a, b) => Number(b.hasQuote) - Number(a.hasQuote) || a.startsAt.localeCompare(b.startsAt)),
+  [mlbRows, nflRows, sport])
 
   return (
     <div className="bx bx-markets">

@@ -253,3 +253,80 @@ def test_an_unregistered_game_is_refused_without_inventing_a_market(fixture):
     tape = MarketTapeService(fixture["session"]).tape(game_id=uuid4(), now=START)
     assert tape["requirement"] == "This game is not registered."
     assert tape["frames"] == [] and tape["books"] == []
+
+
+def test_a_spread_pairs_within_one_line_and_never_across_two(fixture):
+    """The failure this exists for.
+
+    A spread market can hold -3.5 and -4.5 at the same time. "Home -3.5 against
+    away +4.5" is not a price anybody could take, so the two sides of a pair
+    must sit on the same handicap.
+    """
+
+    session = fixture["session"]
+    entry = book(session, "Bovada (SportsGameOdds, research)", "sgo:bovada")
+    spread = Market(game_id=fixture["game"].id, market_type=MarketType.SPREAD, period="full_game")
+    session.add(spread)
+    session.flush()
+    sides = {}
+    for key, label, point in (
+        ("home:-3.5", "ATL -3.5", -3.5), ("away:3.5", "TB +3.5", 3.5),
+        ("home:-4.5", "ATL -4.5", -4.5),
+    ):
+        outcome = MarketOutcome(market_id=spread.id, outcome_key=key, label=label)
+        session.add(outcome)
+        session.flush()
+        sides[key] = (outcome, point)
+
+    at = START - timedelta(hours=2)
+    for key, american in (("home:-3.5", -110), ("away:3.5", -110), ("home:-4.5", 130)):
+        outcome, point = sides[key]
+        session.add(OddsSnapshot(
+            market_outcome_id=outcome.id, sportsbook_id=entry.id, observed_at=at,
+            available_as_of=at, american_odds=american, point=point,
+            decimal_odds=1.91, implied_probability=0.5238,
+            source="SPORTSGAMEODDS", source_mode="LIVE",
+        ))
+    session.flush()
+
+    tape = MarketTapeService(session).tape(
+        game_id=fixture["game"].id, market_type="SPREAD", now=START)
+    # The -3.5 line is the only one with two sides, and it is what is shown.
+    assert tape["market"]["line"] == "3.50"
+    labels = {tape["market"]["side_a"]["label"], tape["market"]["side_b"]["label"]}
+    assert labels == {"ATL -3.5", "TB +3.5"}
+    assert tape["frames"][-1]["usable_books"] == 1
+    assert tape["frames"][-1]["consensus_no_vig_a"] == pytest.approx(0.5, abs=1e-6)
+
+
+def test_a_spread_with_no_two_sided_line_states_the_absence(fixture):
+    session = fixture["session"]
+    entry = book(session, "Bovada (SportsGameOdds, research)", "sgo:bovada")
+    spread = Market(game_id=fixture["game"].id, market_type=MarketType.SPREAD, period="full_game")
+    session.add(spread)
+    session.flush()
+    for key, point in (("home:-3.5", -3.5), ("home:-4.5", -4.5)):
+        outcome = MarketOutcome(market_id=spread.id, outcome_key=key, label=key)
+        session.add(outcome)
+        session.flush()
+        session.add(OddsSnapshot(
+            market_outcome_id=outcome.id, sportsbook_id=entry.id,
+            observed_at=START - timedelta(hours=1), available_as_of=START - timedelta(hours=1),
+            american_odds=-110, point=point, decimal_odds=1.91, implied_probability=0.5238,
+            source="SPORTSGAMEODDS", source_mode="LIVE",
+        ))
+    session.flush()
+
+    tape = MarketTapeService(session).tape(
+        game_id=fixture["game"].id, market_type="SPREAD", now=START)
+    assert tape["frames"] == []
+    assert "both sides of one line" in tape["requirement"]
+
+
+def test_milestones_keep_one_shape_whether_or_not_a_market_exists(fixture):
+    """A consumer should never have to tell "no tape" from "a different tape"."""
+
+    empty = MarketTapeService(fixture["session"]).tape(
+        game_id=fixture["game"].id, market_type="TOTAL", now=START)
+    assert set(empty["milestones"]) == {"opening", "latest", "at_cutoff", "movement"}
+    assert all(value is None for value in empty["milestones"].values())

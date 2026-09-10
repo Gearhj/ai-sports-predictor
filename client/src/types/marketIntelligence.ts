@@ -53,6 +53,8 @@ export interface MarketTape {
   market: {
     market_type: 'MONEYLINE' | 'SPREAD' | 'TOTAL'
     period: string
+    /** The handicap or total this tape is showing. Null on a moneyline. */
+    line?: string | null
     side_a: { market_outcome_id: string; outcome_key: string; label: string } | null
     side_b: { market_outcome_id: string; outcome_key: string; label: string } | null
     home_side: 'a' | 'b' | null

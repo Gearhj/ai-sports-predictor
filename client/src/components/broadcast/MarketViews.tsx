@@ -23,6 +23,8 @@ export interface ReplayChoice {
   league: 'MLB' | 'NFL'
   label: string
   startsAt: string
+  /** Whether the board already knows this game has a persisted quote. */
+  hasQuote: boolean
 }
 
 /* -- Replay ---------------------------------------------------------------- */
@@ -58,7 +60,7 @@ export function ReplayView({
             {games.length === 0 && <option value="">No game on the board</option>}
             {games.map((choice) => (
               <option key={choice.gameId} value={choice.gameId}>
-                {choice.league} · {choice.label}
+                {choice.league} · {choice.label}{choice.hasQuote ? '' : ' · no price stored'}
               </option>
             ))}
           </select>

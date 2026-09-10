@@ -36,7 +36,7 @@ quote existing and a quote being usable through the decision cutoff.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from statistics import fmean, pstdev
@@ -160,24 +160,36 @@ class MarketTapeService:
                 game=game, cutoff=cutoff,
             )
 
-        # Outcomes are per market; a market with anything other than two
-        # outcomes cannot form the two-sided pair the policy prices from.
-        by_market: dict[Any, set[Any]] = defaultdict(set)
+        # A market is paired PER LINE, not per market row. One spread market
+        # can hold -3.5 and -4.5 at the same time; "home -3.5 against away
+        # +4.5" is not a price anyone could take, so the two sides of a pair
+        # must sit on the same handicap or total.
+        groups: dict[tuple[Any, str], set[Any]] = defaultdict(set)
+        counts: Counter[tuple[Any, str]] = Counter()
         outcomes: dict[Any, MarketOutcome] = {}
         books: dict[Any, Sportsbook] = {}
-        for _, outcome, market, book in rows:
-            by_market[market.id].add(outcome.id)
+        for snapshot, outcome, market, book in rows:
+            key = (market.id, _line_key(outcome, snapshot, market_type))
+            groups[key].add(outcome.id)
+            counts[key] += 1
             outcomes[outcome.id] = outcome
             books[book.id] = book
-        market_id = max(by_market, key=lambda key: len(by_market[key]))
-        pair_ids = sorted(by_market[market_id], key=lambda key: str(outcomes[key].outcome_key))
-        if len(pair_ids) != 2:
+        # Prefer the most-quoted line that actually has two sides; that is the
+        # line the market was really trading, and it is the only one a reader
+        # can compare across books.
+        pairable = [key for key in groups if len(groups[key]) == 2]
+        if not pairable:
+            widest = max(groups, key=lambda key: len(groups[key]))
             return self._empty(
                 game_id, market_type, now,
-                f"This {market_type.lower()} market has {len(pair_ids)} persisted outcome(s); "
-                "a comparable price needs exactly two sides.",
+                f"No {market_type.lower()} line has exactly two persisted sides "
+                f"({len(groups[widest])} outcome(s) on the most-quoted line); a comparable "
+                "price needs both sides of one line.",
                 game=game, cutoff=cutoff,
             )
+        chosen = max(pairable, key=lambda key: counts[key])
+        market_id, line_key = chosen
+        pair_ids = sorted(groups[chosen], key=lambda key: str(outcomes[key].outcome_key))
         side_a, side_b = pair_ids
 
         # side -> book -> ordered observations
@@ -185,6 +197,8 @@ class MarketTapeService:
         instants: set[datetime] = set()
         for snapshot, outcome, market, book in rows:
             if market.id != market_id or outcome.id not in series:
+                continue
+            if _line_key(outcome, snapshot, market_type) != line_key:
                 continue
             at = _aware(snapshot.observed_at)
             if at is None or snapshot.american_odds is None:
@@ -218,6 +232,7 @@ class MarketTapeService:
             "market": {
                 "market_type": market_type,
                 "period": "full_game",
+                "line": None if line_key == "" else line_key,
                 "side_a": self._side_label(outcomes[side_a], home, away),
                 "side_b": self._side_label(outcomes[side_b], home, away),
                 "home_side": home_side,
@@ -287,7 +302,10 @@ class MarketTapeService:
             "books": [], "contract": {}, "frames": [], "frame_count": 0,
             "observed_instants": 0, "frames_sampled": False,
             "first_observed_utc": None, "last_observed_utc": None,
-            "model_probability_series": [], "milestones": {},
+            "model_probability_series": [],
+            # The same keys whether or not a market exists, so a consumer never
+            # has to tell "no tape" apart from "a differently shaped tape".
+            "milestones": {"opening": None, "latest": None, "at_cutoff": None, "movement": None},
             "requirement": requirement,
         }
 
@@ -508,6 +526,28 @@ class MarketTapeService:
                 "hours_observed": round(span_hours, 3),
             },
         }
+
+
+def _line_key(outcome: MarketOutcome, snapshot: OddsSnapshot, market_type: str) -> str:
+    """The handicap or total this outcome belongs to, as a stable string.
+
+    A MONEYLINE has no line at all, so every outcome shares one key and the
+    two sides always group. A spread or total is keyed by the ABSOLUTE point,
+    because -3.5 and +3.5 are the two sides of one line while -3.5 and -4.5
+    are two different lines that must never be paired with each other.
+    """
+
+    if market_type == "MONEYLINE":
+        return ""
+    if snapshot.point is not None:
+        return f"{abs(float(snapshot.point)):.2f}"
+    _, _, suffix = str(outcome.outcome_key or "").partition(":")
+    if suffix and suffix.lower() not in ("none", ""):
+        try:
+            return f"{abs(float(suffix)):.2f}"
+        except ValueError:
+            return suffix
+    return ""
 
 
 def _latest_at(observations: list[Observation], at: datetime) -> Observation | None:

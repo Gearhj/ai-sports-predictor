@@ -152,7 +152,10 @@ export function MarketReplay({
 
       <div className="bx-replay__books">
         <div className="bx-replay__books-head">
-          <h4>Every book at {clockOf(current.t)}</h4>
+          <h4>
+            Every book at {clockOf(current.t)}
+            {tape.market.line ? ` · line ${tape.market.line}` : ''}
+          </h4>
           <button type="button" className="bx-btn bx-btn--ghost"
             onClick={() => onSelectBook(null)} disabled={selectedBook === null}>
             Clear selection
@@ -202,6 +205,9 @@ export function MarketReplay({
           ? `, thinned to ${tape.frame_count} frames for transport — frames are dropped, never interpolated`
           : ''}
         . {tape.market.probability_meaning}.
+        {tape.market.line
+          ? ` Both sides sit on the ${tape.market.line} line; two different lines are never paired.`
+          : ''}
         {cutoff ? ` Decision cutoff ${clockOf(cutoff)}.` : ''}
       </p>
     </div>
