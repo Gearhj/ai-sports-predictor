@@ -101,12 +101,63 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
   const matching = representativeFinals.find(
     (g) => g.homeScore === sample.home && g.awayScore === sample.away) ?? null
 
+  /*
+   * The distribution, accumulating.
+   *
+   * M1 publishes a joint distribution rather than a sequence of plays, so the
+   * thing worth watching build is the distribution itself. Cells are revealed
+   * in descending probability, which is the order that shows the mass
+   * concentrating; the readout states how much of it is on screen.
+   *
+   * Nothing is sampled or invented here. These are the producer's own cells,
+   * shown a few at a time.
+   */
+  const ordered = useMemo(
+    () => [...cells].sort((a, b) => b.probability - a.probability), [cells],
+  )
+  const [revealed, setRevealed] = useState(0)
+  const [building, setBuilding] = useState(true)
+  useEffect(() => { setRevealed(0); setBuilding(true) }, [ordered])
+  useEffect(() => {
+    if (!building || ordered.length === 0) return
+    let done = false
+    let last = performance.now()
+    let carry = 0
+    const timer = window.setInterval(() => {
+      if (done) return
+      const now = performance.now()
+      // Fill in about two seconds regardless of how many distinct scores the
+      // engine produced, so a 500-cell and a 50-cell distribution both read.
+      carry += Math.min(0.25, (now - last) / 1000) * (ordered.length / 2)
+      last = now
+      const whole = Math.floor(carry)
+      if (whole <= 0) return
+      carry -= whole
+      setRevealed((current) => {
+        const next = Math.min(ordered.length, current + whole)
+        if (next >= ordered.length) { done = true; window.clearInterval(timer); setBuilding(false) }
+        return next
+      })
+    }, 16)
+    return () => { done = true; window.clearInterval(timer) }
+  }, [building, ordered])
+
+  const shown = useMemo(() => ordered.slice(0, revealed), [ordered, revealed])
+  const massShown = useMemo(
+    () => shown.reduce((sum, cell) => sum + cell.probability, 0), [shown],
+  )
+
   const marked = sample
+  // What the current selection (or the drawn outcome) means on the other two
+  // charts, so a choice made in one place is visible in all three.
+  const selectedMargin = marked ? marked.home - marked.away : null
+  const selectedTotal = marked ? marked.home + marked.away : null
+
   const heatmap = useMemo(() => {
     const maxHome = Math.max(...cells.map((c) => c.home))
     const maxAway = Math.max(...cells.map((c) => c.away))
     const cap = Math.max(maxHome, maxAway)
-    const data = cells.filter((c) => c.home <= cap && c.away <= cap).map((c) => [c.away, c.home, c.probability])
+    const data = shown.filter((c) => c.home <= cap && c.away <= cap).map((c) => [c.away, c.home, c.probability])
     return {
       animation: false,
       grid: { left: 44, right: 16, top: 12, bottom: 40 },
@@ -128,7 +179,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
         } : undefined,
       }],
     }
-  }, [cells, homeTeam, awayTeam, marked])
+  }, [cells, shown, homeTeam, awayTeam, marked])
 
   const marginChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
@@ -136,8 +187,22 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
     tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `${homeTeam} by ${p.name}: ${pct(p.value, 3)}` },
     xAxis: { type: 'category', data: explorer.margin_distribution.map((m) => m.margin), axisLabel: { ...AXIS, interval: 4 }, name: `${homeTeam} minus ${awayTeam}`, nameLocation: 'middle', nameGap: 24 },
     yAxis: { type: 'value', axisLabel: { ...AXIS, formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
-    series: [{ type: 'bar', data: explorer.margin_distribution.map((m) => ({ value: m.probability, itemStyle: { color: m.margin > 0 ? '#ffb454' : m.margin < 0 ? '#4fb3ff' : '#8a98a7' } })), barCategoryGap: '15%' }],
-  }), [explorer.margin_distribution, homeTeam, awayTeam])
+    series: [{
+      type: 'bar', barCategoryGap: '15%',
+      // The selected score's own margin is highlighted rather than annotated,
+      // so a selection in the heatmap is visible in this chart too.
+      data: explorer.margin_distribution.map((m) => ({
+        value: m.probability,
+        itemStyle: {
+          color: selectedMargin === m.margin
+            ? '#ff8f3c'
+            : m.margin > 0 ? '#ffb454' : m.margin < 0 ? '#4fb3ff' : '#8a98a7',
+          borderColor: selectedMargin === m.margin ? '#0b1729' : 'transparent',
+          borderWidth: selectedMargin === m.margin ? 1 : 0,
+        },
+      })),
+    }],
+  }), [explorer.margin_distribution, homeTeam, awayTeam, selectedMargin])
 
   const totalChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
@@ -145,8 +210,14 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
     tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `Total ${p.name}: ${pct(p.value, 3)}` },
     xAxis: { type: 'category', data: explorer.total_distribution.map((m) => m.total), axisLabel: { ...AXIS, interval: 4 }, name: 'Combined points', nameLocation: 'middle', nameGap: 24 },
     yAxis: { type: 'value', axisLabel: { ...AXIS, formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
-    series: [{ type: 'bar', data: explorer.total_distribution.map((m) => m.probability), itemStyle: { color: '#1c7c8a' }, barCategoryGap: '15%' }],
-  }), [explorer.total_distribution])
+    series: [{
+      type: 'bar', barCategoryGap: '15%',
+      data: explorer.total_distribution.map((m) => ({
+        value: m.probability,
+        itemStyle: { color: selectedTotal === m.total ? '#ff8f3c' : '#1c7c8a' },
+      })),
+    }],
+  }), [explorer.total_distribution, selectedTotal])
 
   const q = explorer.quantiles
   const step = (value: number, delta: number) => Math.round((value + delta) * 2) / 2
@@ -160,13 +231,59 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
         <Dices size={14} aria-hidden="true" /> {engineLabel} · {simulationLabel(explorer.simulation)} · {explorer.cells.toLocaleString()} distinct final scores
       </p>
       <p className="explorer__guide">
-        This engine did not play one game — it produced a whole distribution of final scores.
-        The field below shows <strong>one outcome drawn from it</strong>. Draw again, or pick any
-        exact score from the heatmap, and the scoreboard, the probability and the spread and total
-        answers all follow your choice. Nothing here is a sequence of plays.
+        This engine did not play one game — it produced a whole distribution of final scores,
+        and that distribution is what you are looking at. Watch it build, then select any cell:
+        the margin, the total, the spread and total answers and the sampled scoreboard below all
+        follow your choice. There are no play paths here, and none are borrowed from another engine.
       </p>
 
-      <div className="explorer__stage explorer__stage--hero">
+      <div className="metric-grid metric-grid--six">
+        <MetricCard label={`${homeTeam} win`} value={pct(explorer.outcomes.home)} detail={`Expected ${explorer.expected.home.toFixed(1)} points`} />
+        <MetricCard label={`${awayTeam} win`} value={pct(explorer.outcomes.away)} detail={`Expected ${explorer.expected.away.toFixed(1)} points`} />
+        <MetricCard label="Tie" value={pct(explorer.outcomes.tie)} detail="Modelled final-score tie, not overtime" />
+        <MetricCard label="Expected margin" value={`${explorer.expected.margin_home >= 0 ? '+' : ''}${explorer.expected.margin_home.toFixed(1)}`} detail={`${homeTeam} minus ${awayTeam}`} />
+        <MetricCard label="Expected total" value={explorer.expected.total.toFixed(1)} detail="Combined points" />
+        <MetricCard label="Likely margin range" value={`${q.margin.p25 ?? '—'} to ${q.margin.p75 ?? '—'}`} detail={`Middle half · 90%: ${q.margin.p05 ?? '—'} to ${q.margin.p95 ?? '—'}`} />
+      </div>
+
+      <div className="explorer__charts">
+        <article className="explorer__chart explorer__chart--wide explorer__chart--hero">
+          <div className="explorer__chartHead">
+            <div>
+              <h3>Every simulated final score</h3>
+              <p className="muted">
+                Select a cell to inspect its exact probability, and to mark that margin and total
+                on the two charts below. Every plotted score belongs to this engine.
+              </p>
+            </div>
+            <div className="explorer__build">
+              <button
+                type="button" className="secondary-button"
+                onClick={() => { setRevealed(0); setBuilding(true) }}
+              >Rebuild</button>
+              <span role="status">
+                <b>{shown.length.toLocaleString()}</b> of{' '}
+                <b>{ordered.length.toLocaleString()}</b> distinct final scores ·{' '}
+                <b>{pct(massShown, 1)}</b> of the probability mass
+              </span>
+            </div>
+          </div>
+          <ReactECharts option={heatmap} onEvents={{ click: chooseCell }} style={{ height: 420 }} opts={{ renderer: 'svg' }} notMerge />
+          <div className="nfl-score-shortcuts" aria-label="Likely score shortcuts">{explorer.most_likely_scores.slice(0, 8).map((s) => <button type="button" key={`${s.home}-${s.away}`} aria-pressed={selectedCell?.home === s.home && selectedCell?.away === s.away} onClick={() => setSelectedCell(s)}>{homeTeam} {s.home}–{awayTeam} {s.away} · {pct(s.probability, 2)}</button>)}</div>
+          <details className="nfl-lab-evidence"><summary>Choose any exact score with the keyboard</summary><label>Exact final score <select aria-label="Exact final score" value={selectedCell ? `${selectedCell.home}:${selectedCell.away}` : ''} onChange={(e) => { const [home, away] = e.target.value.split(':').map(Number); setSelectedCell(cells.find((c) => c.home === home && c.away === away) ?? null) }}><option value="">Choose a recorded score</option>{cells.map((c) => <option key={`${c.home}:${c.away}`} value={`${c.home}:${c.away}`}>{homeTeam} {c.home}–{awayTeam} {c.away} · {pct(c.probability, 3)}</option>)}</select></label></details>
+          {selectedCell && <div className="nfl-cell-selection" role="status"><strong>{homeTeam} {selectedCell.home}–{awayTeam} {selectedCell.away} · {pct(selectedCell.probability, 3)}</strong><span>{matching ? `Matches a supplied sampled final${matching.label ? `: ${matching.label}` : ''}.` : 'No supplied representative game has this exact final.'}</span>{matching?.simulationIndex != null && onReplayRepresentative && <button className="secondary-button" type="button" onClick={() => onReplayRepresentative(matching.simulationIndex!)}>Replay this representative</button>}</div>}
+        </article>
+        <article className="explorer__chart">
+          <h3>Margin distribution</h3>
+          <ReactECharts option={marginChart} style={{ height: 220 }} opts={{ renderer: 'svg' }} notMerge />
+        </article>
+        <article className="explorer__chart">
+          <h3>Total distribution</h3>
+          <ReactECharts option={totalChart} style={{ height: 220 }} opts={{ renderer: 'svg' }} notMerge />
+        </article>
+      </div>
+
+      <div className="explorer__stage explorer__stage--secondary">
         <FootballField
           awayTeam={awayTeam} homeTeam={homeTeam}
           awayScore={sample.away} homeScore={sample.home}
@@ -183,34 +300,6 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
             <Dices size={15} aria-hidden="true" /> Draw another outcome
           </button>
         </FootballField>
-      </div>
-
-      <div className="metric-grid metric-grid--six">
-        <MetricCard label={`${homeTeam} win`} value={pct(explorer.outcomes.home)} detail={`Expected ${explorer.expected.home.toFixed(1)} points`} />
-        <MetricCard label={`${awayTeam} win`} value={pct(explorer.outcomes.away)} detail={`Expected ${explorer.expected.away.toFixed(1)} points`} />
-        <MetricCard label="Tie" value={pct(explorer.outcomes.tie)} detail="Modelled final-score tie, not overtime" />
-        <MetricCard label="Expected margin" value={`${explorer.expected.margin_home >= 0 ? '+' : ''}${explorer.expected.margin_home.toFixed(1)}`} detail={`${homeTeam} minus ${awayTeam}`} />
-        <MetricCard label="Expected total" value={explorer.expected.total.toFixed(1)} detail="Combined points" />
-        <MetricCard label="Likely margin range" value={`${q.margin.p25 ?? '—'} to ${q.margin.p75 ?? '—'}`} detail={`Middle half · 90%: ${q.margin.p05 ?? '—'} to ${q.margin.p95 ?? '—'}`} />
-      </div>
-
-      <div className="explorer__charts">
-        <article className="explorer__chart explorer__chart--wide">
-          <h3>Joint final-score heatmap</h3>
-          <p className="muted">Select a cell to inspect its exact probability. Every plotted score belongs to this engine.</p>
-          <ReactECharts option={heatmap} onEvents={{ click: chooseCell }} style={{ height: 360 }} opts={{ renderer: 'svg' }} notMerge />
-          <div className="nfl-score-shortcuts" aria-label="Likely score shortcuts">{explorer.most_likely_scores.slice(0, 8).map((s) => <button type="button" key={`${s.home}-${s.away}`} aria-pressed={selectedCell?.home === s.home && selectedCell?.away === s.away} onClick={() => setSelectedCell(s)}>{homeTeam} {s.home}–{awayTeam} {s.away} · {pct(s.probability, 2)}</button>)}</div>
-          <details className="nfl-lab-evidence"><summary>Choose any exact score with the keyboard</summary><label>Exact final score <select aria-label="Exact final score" value={selectedCell ? `${selectedCell.home}:${selectedCell.away}` : ''} onChange={(e) => { const [home, away] = e.target.value.split(':').map(Number); setSelectedCell(cells.find((c) => c.home === home && c.away === away) ?? null) }}><option value="">Choose a recorded score</option>{cells.map((c) => <option key={`${c.home}:${c.away}`} value={`${c.home}:${c.away}`}>{homeTeam} {c.home}–{awayTeam} {c.away} · {pct(c.probability, 3)}</option>)}</select></label></details>
-          {selectedCell && <div className="nfl-cell-selection" role="status"><strong>{homeTeam} {selectedCell.home}–{awayTeam} {selectedCell.away} · {pct(selectedCell.probability, 3)}</strong><span>{matching ? `Matches a supplied sampled final${matching.label ? `: ${matching.label}` : ''}.` : 'No supplied representative game has this exact final.'}</span>{matching?.simulationIndex != null && onReplayRepresentative && <button className="secondary-button" type="button" onClick={() => onReplayRepresentative(matching.simulationIndex!)}>Replay this representative</button>}</div>}
-        </article>
-        <article className="explorer__chart">
-          <h3>Margin distribution</h3>
-          <ReactECharts option={marginChart} style={{ height: 220 }} opts={{ renderer: 'svg' }} notMerge />
-        </article>
-        <article className="explorer__chart">
-          <h3>Total distribution</h3>
-          <ReactECharts option={totalChart} style={{ height: 220 }} opts={{ renderer: 'svg' }} notMerge />
-        </article>
       </div>
 
       <div className="explorer__queries">

@@ -478,3 +478,31 @@
 @media (max-width: 950px) {
   .scencmp__fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* -- outcome explorer: the distribution leads ----------------------------- */
+/*
+ * M1 publishes a distribution of final scores, not play paths. The heatmap is
+ * therefore the subject and a single drawn scoreboard is a footnote to it --
+ * the reverse of how this page used to be arranged, where an empty field
+ * dominated a view whose engine has no plays to put on it.
+ */
+.explorer__chart--hero { grid-column: 1 / -1; }
+
+.explorer__chartHead {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px;
+}
+.explorer__chartHead h3 { margin: 0 0 4px; }
+.explorer__chartHead .muted { margin: 0; max-width: 74ch; }
+
+.explorer__build { display: flex; align-items: center; gap: 10px; }
+.explorer__build span {
+  color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+.explorer__build b { color: var(--ink); font-weight: 700; }
+
+/* The sampled scoreboard, now secondary. */
+.explorer__stage--secondary {
+  margin: 14px 0 4px; padding: 12px;
+  background: var(--soft); border: 1px solid var(--line); border-radius: 10px;
+}
