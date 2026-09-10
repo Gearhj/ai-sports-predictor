@@ -231,3 +231,190 @@
 @media (max-width: 700px) {
   .explorer__stage--hero .gridiron__svg { height: min(28vh, 230px); }
 }
+
+/* == Simulation Population ================================================ */
+/*
+ * The play-engine's primary view. Dark stage for the field so the modeled paths
+ * carry the contrast, light panels for the numbers so they stay readable.
+ */
+
+.pop { display: grid; gap: 14px; }
+.pop--fullscreen { padding: 20px; background: #06121d; overflow: auto; }
+
+.pop__head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: 12px;
+}
+.pop__head h3 { margin: 4px 0 0; font-size: 21px; letter-spacing: -.02em; color: var(--ink); }
+.pop--fullscreen .pop__head h3, .pop--fullscreen .pop__coverage { color: #dbe8f2; }
+
+/* The sentence that keeps six games from reading as a thousand. */
+.pop__coverage {
+  margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+.pop__coverage strong { color: var(--ink); font-weight: 700; }
+.pop--fullscreen .pop__coverage strong { color: #eaf3fa; }
+
+.pop__stage { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; align-items: start; }
+
+.pop__fieldwrap {
+  padding: 10px; border-radius: 12px;
+  background: radial-gradient(120% 150% at 50% -10%, rgba(58,190,178,.16), transparent 60%), #08151f;
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 18px 40px rgba(4,12,20,.32);
+}
+
+.pop-field { position: relative; width: 100%; }
+.pop-field__canvas { position: absolute; inset: 0; display: block; }
+.pop-field__canvas--trail { pointer-events: none; }
+
+.pop-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+  margin: 10px 2px 0; padding: 0; list-style: none;
+}
+.pop-legend li {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: #c3d5e4; font-size: 11px; font-weight: 600;
+}
+.pop-legend small { color: #7f95a9; font-weight: 500; }
+.pop-legend i { width: 14px; height: 3px; border-radius: 2px; }
+.pop-legend__ring {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: transparent; border: 2px solid;
+}
+
+.pop-note { margin: 8px 2px 0; color: #7f95a9; font-size: 11px; line-height: 1.55; }
+.pop-empty { padding: 26px; color: var(--muted); text-align: center; }
+
+/* -- controls ------------------------------------------------------------- */
+
+.pop__controls {
+  display: grid; gap: 11px; padding: 13px;
+  background: var(--surface-sheen); border: 1px solid var(--line); border-radius: 10px;
+}
+.pop__transport { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.pop-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 10px; color: var(--ink);
+  background: white; border: 1px solid var(--line-strong); border-radius: 6px;
+  font-size: 12px; font-weight: 600;
+}
+.pop-btn:hover { border-color: var(--teal); color: var(--teal-dark); }
+.pop-btn--primary { color: white; background: var(--teal); border-color: var(--teal-dark); }
+.pop-btn--primary:hover { color: white; background: var(--teal-dark); }
+
+.pop-ctl { display: grid; gap: 5px; }
+.pop-ctl > span {
+  color: var(--muted); font: 600 10px "IBM Plex Mono", monospace;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.pop-ctl > span b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.pop-ctl select {
+  padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: white; font-size: 12px;
+}
+.pop-ctl input[type="range"] { width: 100%; accent-color: var(--teal); }
+
+.pop-seg { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.pop-seg__btn {
+  flex: 1; padding: 5px 4px; color: var(--muted); background: white;
+  border: 0; border-right: 1px solid var(--line); font-size: 11px; font-weight: 600;
+}
+.pop-seg__btn:last-child { border-right: 0; }
+.pop-seg__btn--on { color: white; background: var(--teal); }
+
+.pop-ctl--checks { gap: 6px; }
+.pop-ctl--checks label,
+.pop-ctl--games label {
+  display: flex; align-items: center; gap: 7px;
+  color: #46596c; font-size: 12px; font-weight: 500;
+}
+.pop-ctl--checks input, .pop-ctl--games input { accent-color: var(--teal); }
+
+.pop-ctl--games {
+  gap: 5px; margin: 0; padding: 9px 10px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--soft);
+}
+.pop-ctl--games legend {
+  padding: 0 4px; color: var(--muted);
+  font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase;
+}
+.pop-ctl--games small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* -- linked statistics ---------------------------------------------------- */
+
+.pop__stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+
+.pop-stats-block {
+  padding: 13px 15px; background: var(--surface-sheen);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+/* The population block is visually distinct because its numbers answer a
+   different question with a different denominator. */
+.pop-stats-block--population { background: var(--soft); }
+
+.pop-stats-block h4 {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 8px; margin: 0 0 10px; color: #1a3047; font-size: 13px;
+}
+.pop-stats-block h4 small {
+  color: var(--muted); font: 600 11px "IBM Plex Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.pop-stats-block dl { display: grid; gap: 9px; margin: 0; }
+.pop-stats-block dl > div {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 10px;
+}
+.pop-stats-block dt { color: #4b5d70; font-size: 12px; }
+.pop-stats-block dd {
+  margin: 0; text-align: right; color: var(--ink);
+  font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.pop-stats-block dd small {
+  display: block; color: var(--muted); font-size: 11px; font-weight: 500;
+}
+
+.pop-denominator { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+.pop-hist { display: flex; align-items: flex-end; gap: 2px; height: 78px; margin-top: 12px; }
+.pop-hist__bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.pop-hist__bar span {
+  display: block; min-height: 1px; border-radius: 2px 2px 0 0;
+  background: linear-gradient(180deg, var(--teal), rgba(8,127,122,.35));
+}
+.pop-hist__bar small {
+  margin-top: 3px; color: var(--muted); text-align: center;
+  font: 500 9px "IBM Plex Mono", monospace;
+}
+
+@media (max-width: 1100px) {
+  .pop__stage { grid-template-columns: minmax(0, 1fr); }
+  .pop__stats { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The accumulation is the content, not decoration, so it still runs — but
+     nothing else in this view animates. */
+  .pop-btn, .pop-seg__btn { transition: none; }
+}
+
+/* -- advanced analysis ---------------------------------------------------- */
+/*
+ * The drive engine keeps its own identity and its own deep links, but it is a
+ * separate research artifact and no longer competes for a slot in the main
+ * lab navigation.
+ */
+.advanced-analysis {
+  margin: 18px 0 0; padding: 0 14px;
+  background: var(--soft); border: 1px solid var(--line); border-radius: 9px;
+}
+.advanced-analysis > summary {
+  padding: 11px 0; color: #46596c; font-size: 12px; font-weight: 700;
+  letter-spacing: .02em; cursor: pointer;
+}
+.advanced-analysis > div { padding: 0 0 14px; }
+.advanced-analysis p { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 78ch; }
+.advanced-analysis strong { color: var(--ink); }

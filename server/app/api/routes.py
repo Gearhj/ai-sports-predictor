@@ -486,6 +486,30 @@ def nfl_play_theater(game_id: UUID, session: DatabaseSession, settings: AppSetti
     return payload
 
 
+@router.get("/nfl/games/{game_id}/play-population/{scenario_id}", tags=["nfl"])
+def nfl_play_population(
+    game_id: UUID, scenario_id: str,
+    session: DatabaseSession, settings: AppSettings,
+) -> dict:
+    """Every drawable play for one scenario: the six representative games.
+
+    The scenario simulated a thousand games; six carry play paths. The payload
+    states both counts in `coverage` so a field full of moving lines can never
+    be read as a thousand games on screen.
+    """
+
+    from app.services.nfl_play_theater import NflPlayTheaterService
+    from app.services.nfl_read_service import NflReadService
+
+    event_id = NflReadService(session, settings).event_id_for_game(game_id)
+    payload = (NflPlayTheaterService(session, settings).population(event_id, scenario_id)
+               if event_id else None)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="No play-level simulation evidence for this scenario")
+    return payload
+
+
 @router.get("/nfl/games/{game_id}/play-theater/{scenario_id}/{position}", tags=["nfl"])
 def nfl_play_theater_game(
     game_id: UUID, scenario_id: str, position: int,

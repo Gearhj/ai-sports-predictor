@@ -550,10 +550,8 @@ class PlayEvidenceUnavailable(RuntimeError):
     """
 
 
-def read_representative_game(
-    supplement: ResearchSupplement, *, label: str | None = None, position: int | None = None,
-) -> dict[str, Any]:
-    """Read ONE representative game back from its verified content-addressed file.
+def read_artifact(supplement: ResearchSupplement) -> dict[str, Any]:
+    """Read and integrity-check the whole artifact behind a supplement row.
 
     The address on the row is the checksum of the file, so re-hashing the bytes
     is a complete integrity check: the file cannot have drifted, been swapped or
@@ -573,7 +571,19 @@ def read_representative_game(
         )
     if len(raw) != reference.get("byteCount"):
         raise PlayEvidenceUnavailable(f"PLAY_ARTIFACT_BYTE_COUNT_MISMATCH: {path}")
-    games = json.loads(raw.decode("utf-8")).get("simulatedGames") or []
+    return json.loads(raw.decode("utf-8"))
+
+
+def read_representative_game(
+    supplement: ResearchSupplement, *, label: str | None = None, position: int | None = None,
+) -> dict[str, Any]:
+    """Read ONE representative game back from its verified content-addressed file.
+
+    The address on the row is the checksum of the file, so re-hashing the bytes
+    is a complete integrity check: the file cannot have drifted, been swapped or
+    been truncated without this failing.
+    """
+    games = read_artifact(supplement).get("simulatedGames") or []
     for index, game in enumerate(games):
         if (label is not None and game.get("label") == label) or (position is not None and index == position):
             return game

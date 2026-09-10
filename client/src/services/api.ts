@@ -25,7 +25,8 @@ import type { SportRegistryResponse, TodayAllSportsReadModel } from '../types/mu
 import type { LabsGames } from '../types/labs'
 import type { OddsCollectionStatus } from '../types/domain'
 import type {
-  NflConsumerStatus, NflGameDetail, NflPlayRepresentative, NflPlayTheaterIndex,
+  NflConsumerStatus, NflGameDetail, NflPlayPopulation,
+  NflPlayRepresentative, NflPlayTheaterIndex,
   NflResearchResults, NflWeekOverview, NflWeeks,
 } from '../types/nfl'
 import type {
@@ -196,6 +197,10 @@ export const endpoints = {
   nflPlayRepresentative: (gameId: string, scenarioId: string, position: number, signal?: AbortSignal) =>
     apiRequest<NflPlayRepresentative>(
       `/nfl/games/${encodeURIComponent(gameId)}/play-theater/${encodeURIComponent(scenarioId)}/${position}`,
+      {}, signal),
+  nflPlayPopulation: (gameId: string, scenarioId: string, signal?: AbortSignal) =>
+    apiRequest<NflPlayPopulation>(
+      `/nfl/games/${encodeURIComponent(gameId)}/play-population/${encodeURIComponent(scenarioId)}`,
       {}, signal),
   nflResearch: (signal?: AbortSignal) => apiRequest<NflResearchResults>('/nfl/research', {}, signal),
   nflConsumer: (signal?: AbortSignal) => apiRequest<NflConsumerStatus>('/nfl/consumer', {}, signal),

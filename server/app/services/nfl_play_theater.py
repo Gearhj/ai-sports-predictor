@@ -45,12 +45,21 @@ from app.core.config import Settings
 from app.forecast_exchange.nfl_play_level_v1 import (
     KIND_PLAY,
     PlayEvidenceUnavailable,
+    read_artifact,
     read_representative_game,
 )
 from app.models import ResearchSupplement
 
 SCHEMA_VERSION = "AISP_NFL_PLAY_THEATER_READ_V1"
 SPORT = "NFL"
+
+#: Said once, wherever geometry is served. Short enough to sit under a field
+#: without becoming a wall of caveat.
+GEOMETRY_NOTICE = (
+    "Ball paths are modeled schematic geometry derived from each play's own "
+    "state and outcome. They are not measured tracking, not player routes and "
+    "carry no player identities."
+)
 
 #: The order scenarios are offered in: BASE first, then the sensitivities in
 #: matched pairs so a reader sees faster next to slower, pass next to run.
@@ -227,11 +236,7 @@ class NflPlayTheaterService:
             "away_team": artifact.get("awayTeam"),
             "scenarios": blocks,
             "pairing": self._pairing(rows),
-            "geometry_notice": (
-                "Ball paths are modeled schematic geometry derived from each play's own "
-                "state and outcome. They are not measured tracking, not player routes and "
-                "carry no player identities."
-            ),
+            "geometry_notice": GEOMETRY_NOTICE,
         }
 
     @staticmethod
@@ -279,6 +284,91 @@ class NflPlayTheaterService:
         }
 
     # -- one game ------------------------------------------------------------
+    def population(self, event_id: str, scenario_id: str) -> dict[str, Any] | None:
+        """Every drawable play for one scenario, with the counts stated exactly.
+
+        THE COUNT THAT MATTERS
+        ----------------------
+        A population is 1,000 simulated games. Six of them carry play paths.
+        This returns those six -- roughly 850 to 1,100 plays -- and it says so
+        in `coverage` rather than letting a field full of moving lines imply a
+        thousand games are on screen. The producer's own 1,000-game aggregates
+        travel alongside under `population_accounting`, unchanged and clearly
+        separate, because they ARE the whole population and the drawn plays are
+        not.
+
+        Nothing here pools scenarios or events. One event, one scenario, its own
+        six games.
+        """
+        rows = self._rows(event_id)
+        row = rows.get(scenario_id)
+        if row is None:
+            return None
+        try:
+            artifact = read_artifact(row)
+        except PlayEvidenceUnavailable as error:
+            return {
+                "schema_version": SCHEMA_VERSION, "event_id": event_id,
+                "scenario_id": scenario_id, "available": False,
+                "cause": str(error).split(":", 1)[0], "detail": str(error),
+            }
+
+        games = artifact.get("simulatedGames") or []
+        plays: list[dict[str, Any]] = []
+        summaries: list[dict[str, Any]] = []
+        for position, game in enumerate(games):
+            game_plays = game.get("plays") or []
+            plays.extend(_population_play(position, play) for play in game_plays)
+            summaries.append({
+                "position": position,
+                "label": game.get("label"),
+                "simulation_index": game.get("simulationIndex"),
+                "seed": game.get("seed"),
+                "home_score": game.get("homeScore"),
+                "away_score": game.get("awayScore"),
+                "reached_overtime": game.get("reachedOvertime"),
+                "play_count": len(game_plays),
+            })
+
+        accounting = artifact.get("populationAccounting") or {}
+        population_plays = accounting.get("plays")
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "event_id": event_id,
+            "scenario_id": scenario_id,
+            "available": True,
+            "supplement_sha256": row.supplement_sha256,
+            "home_team": artifact.get("homeTeam"),
+            "away_team": artifact.get("awayTeam"),
+            "coverage": {
+                # Every one of these is read off the artifact, never inferred.
+                "simulated_games": artifact.get("drawCount"),
+                "games_with_play_paths": len(games),
+                "plays_drawable": len(plays),
+                "plays_in_population": population_plays,
+                "path_coverage_fraction": (
+                    round(len(games) / artifact["drawCount"], 5)
+                    if artifact.get("drawCount") else None
+                ),
+                "statement": (
+                    f"{len(plays):,} plays are drawable here: every play of the "
+                    f"{len(games)} representative games this scenario published. "
+                    f"The scenario simulated {artifact.get('drawCount'):,} games "
+                    f"({population_plays:,} plays); the other "
+                    f"{(artifact.get('drawCount') or 0) - len(games):,} games were "
+                    "published as final scores only, without play paths."
+                ) if artifact.get("drawCount") and population_plays else None,
+            },
+            # The producer's aggregates over all 1,000 draws. Untouched.
+            "population_accounting": accounting,
+            "population_finals": artifact.get("populationFinals"),
+            "score_summary": artifact.get("scoreSummary"),
+            "games": summaries,
+            "plays": plays,
+            "drawn_accounting": _drawn_accounting(plays),
+            "geometry_notice": GEOMETRY_NOTICE,
+        }
+
     def representative(self, event_id: str, scenario_id: str, position: int) -> dict[str, Any] | None:
         rows = self._rows(event_id)
         row = rows.get(scenario_id)
@@ -361,4 +451,132 @@ def _population_drive_stats(artifact: dict[str, Any]) -> dict[str, Any] | None:
         "plays_per_drive": plays / drives if drives else None,
         "points_per_drive": (home + away) / drives if drives else None,
         "reached_overtime": overtime / count,
+    }
+
+
+#: Play types that are a scrimmage snap. Kicks, tries, penalties and period
+#: markers are not, and pooling them into a "plays" count would quietly change
+#: every rate computed from it.
+SCRIMMAGE_TYPES = frozenset({
+    "RUSH", "PASS_COMPLETE", "PASS_INCOMPLETE", "SACK", "QB_SCRAMBLE",
+    "QB_SNEAK", "KNEEL", "SPIKE", "INTERCEPTION",
+})
+#: A dropback: the pass attempt types plus the two ways a dropback ends without
+#: one. Matches the producer's own `dropbackDenominator` definition.
+DROPBACK_TYPES = frozenset({
+    "PASS_COMPLETE", "PASS_INCOMPLETE", "INTERCEPTION", "SACK", "QB_SCRAMBLE",
+})
+#: A pass ATTEMPT excludes sacks and scrambles -- the producer's
+#: `completionDenominator`. Completion rate over dropbacks would be wrong.
+ATTEMPT_TYPES = frozenset({"PASS_COMPLETE", "PASS_INCOMPLETE", "INTERCEPTION"})
+RUSH_TYPES = frozenset({"RUSH", "QB_SCRAMBLE", "QB_SNEAK"})
+
+
+def _round_point(raw: dict[str, Any]) -> list[float]:
+    """Field coordinates to a tenth of a yard.
+
+    The renderer draws into a few hundred pixels, so six decimal places of a
+    yard is a quarter of the payload spent below the resolution of a screen.
+    """
+    return [round(float(raw["x"]), 1), round(float(raw["y"]), 4)]
+
+
+def _population_play(game_position: int, play: dict[str, Any]) -> dict[str, Any]:
+    """One play, reduced to what the population renderer draws and filters on.
+
+    Deliberately NOT `_project_play`: that one carries the description and full
+    before/after state for a single game's play-by-play, which across a thousand
+    plays is most of the payload and none of the picture.
+    """
+    geometry = play["geometry"]
+    outcome = play["outcome"]
+    before = play["stateBefore"]
+    scoring = geometry.get("scoringEndpoint") or None
+    return {
+        "g": game_position,
+        "n": play["playNumber"],
+        "t": play["playType"],
+        "poss": before.get("possession"),
+        "dir": geometry["possessionDirection"],
+        "dn": before.get("down"),
+        "di": before.get("distance"),
+        "yl": before.get("yardline100"),
+        "q": before.get("quarter"),
+        # Net yards for this play, from the engine's own endpoints.
+        "yds": (
+            None if outcome.get("endYardline100") is None or before.get("yardline100") is None
+            else round(float(before["yardline100"]) - float(outcome["endYardline100"]), 1)
+        ),
+        "sc": (scoring or {}).get("kind"),
+        "scTeam": (scoring or {}).get("scoringTeam"),
+        "to": bool(outcome.get("turnover")),
+        "segs": [{
+            "k": segment["kind"],
+            "i": segment["interpolation"],
+            "s": _round_point(segment["start"]),
+            "c": [_round_point(point) for point in (segment.get("controlPoints") or [])],
+            "e": _round_point(segment["end"]),
+        } for segment in geometry["segments"]],
+        "mk": [{"k": marker["kind"], "p": _round_point(marker["point"])}
+               for marker in (geometry.get("markers") or [])],
+    }
+
+
+def _drawn_accounting(plays: list[dict[str, Any]]) -> dict[str, Any]:
+    """Rates over the plays actually on screen, each with its own denominator.
+
+    These are NOT the population's rates. They are recomputed from the drawable
+    sample so the statistics panel can move with the filters, and the payload
+    keeps them under a separate key for exactly that reason: a reader must never
+    mistake a six-game sample for the thousand-game population.
+    """
+    scrimmage = [p for p in plays if p["t"] in SCRIMMAGE_TYPES]
+    attempts = [p for p in plays if p["t"] in ATTEMPT_TYPES]
+    dropbacks = [p for p in plays if p["t"] in DROPBACK_TYPES]
+    completions = sum(1 for p in plays if p["t"] == "PASS_COMPLETE")
+    gains = [p["yds"] for p in scrimmage if p["yds"] is not None]
+    gains_sorted = sorted(gains)
+
+    def quantile(fraction: float) -> float | None:
+        if not gains_sorted:
+            return None
+        index = min(len(gains_sorted) - 1, max(0, int(round(fraction * (len(gains_sorted) - 1)))))
+        return gains_sorted[index]
+
+    return {
+        "plays_drawn": len(plays),
+        "scrimmage_plays": len(scrimmage),
+        "pass_attempts": len(attempts),
+        "dropbacks": len(dropbacks),
+        "completions": completions,
+        "completion_rate": round(completions / len(attempts), 4) if attempts else None,
+        "completion_denominator": len(attempts),
+        "rush_plays": sum(1 for p in plays if p["t"] in RUSH_TYPES),
+        "sacks": sum(1 for p in plays if p["t"] == "SACK"),
+        "turnovers": sum(1 for p in plays if p["to"]),
+        "turnover_rate_per_scrimmage_play": (
+            round(sum(1 for p in plays if p["to"]) / len(scrimmage), 4) if scrimmage else None
+        ),
+        "turnover_denominator": len(scrimmage),
+        "scoring_plays": sum(1 for p in plays if p["sc"]),
+        "scoring_rate_per_scrimmage_play": (
+            round(sum(1 for p in plays if p["sc"]) / len(scrimmage), 4) if scrimmage else None
+        ),
+        "yards": {
+            "count": len(gains),
+            "mean": round(sum(gains) / len(gains), 3) if gains else None,
+            "quantiles": {
+                "0.05": quantile(0.05), "0.25": quantile(0.25), "0.5": quantile(0.5),
+                "0.75": quantile(0.75), "0.95": quantile(0.95),
+            },
+        },
+        "play_type_counts": {
+            play_type: sum(1 for p in plays if p["t"] == play_type)
+            for play_type in sorted({p["t"] for p in plays})
+        },
+        "denominator_note": (
+            "Recomputed from the plays drawn on this field, not from the 1,000-draw "
+            "population. Attempts exclude sacks and scrambles; scrimmage plays exclude "
+            "kicks, tries, penalties and period markers."
+        ),
     }

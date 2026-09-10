@@ -1,3 +1,4 @@
+import type { PopulationPlay } from '../components/nfl/populationGeometry'
 /**
  * NFL product read model (AISP_NFL_PRODUCT_READ_V1).
  *
@@ -522,4 +523,71 @@ export interface NflPlayScenarioExplorer {
   limitations: string[]
   explains_m1_forecast: boolean
   explorer: NflExplorer
+}
+
+/**
+ * One scenario's drawable play population.
+ *
+ * `coverage` is the load-bearing part: `simulated_games` is the whole
+ * population and `games_with_play_paths` is how many of them were published
+ * with paths. The two are never equal, and no view may imply they are.
+ */
+export interface NflPlayPopulation {
+  schema_version: string
+  event_id: string
+  scenario_id: string
+  available: boolean
+  cause?: string
+  detail?: string
+  supplement_sha256?: string
+  home_team?: { abbreviation: string; displayName?: string } | null
+  away_team?: { abbreviation: string; displayName?: string } | null
+  coverage: {
+    simulated_games: number | null
+    games_with_play_paths: number
+    plays_drawable: number
+    plays_in_population: number | null
+    path_coverage_fraction: number | null
+    statement: string | null
+  }
+  population_accounting: NflPopulationAccounting | null
+  population_finals?: Array<{ homeScore: number; awayScore: number }> | null
+  score_summary?: Record<string, number> | null
+  games: Array<{
+    position: number
+    label: string | null
+    simulation_index: number | null
+    seed: number | null
+    home_score: number | null
+    away_score: number | null
+    reached_overtime: boolean | null
+    play_count: number
+  }>
+  plays: PopulationPlay[]
+  drawn_accounting: Record<string, unknown>
+  geometry_notice: string
+}
+
+/** The producer's own aggregates over every simulated game in the population. */
+export interface NflPopulationAccounting {
+  plays?: number
+  games?: number
+  drives?: number
+  completionRate?: number
+  completionDenominator?: number
+  dropbackDenominator?: number
+  scrimmageDenominator?: number
+  turnoversPerGame?: number
+  pointsPerDrive?: number
+  thirdDownAttempts?: number
+  thirdDownConversionRate?: number
+  fourthDownAttempts?: number
+  fourthDownConversionRate?: number
+  sackRatePerDropback?: number
+  fumblesPerGame?: number
+  playTypeCounts?: Record<string, number>
+  playsPerGame?: { count?: number; mean?: number; standardDeviation?: number; quantiles?: Record<string, number> }
+  drivesPerGame?: { count?: number; mean?: number; standardDeviation?: number; quantiles?: Record<string, number> }
+  yardsPerScrimmagePlay?: { count?: number; mean?: number; standardDeviation?: number; quantiles?: Record<string, number> }
+  denominatorNotes?: string
 }
