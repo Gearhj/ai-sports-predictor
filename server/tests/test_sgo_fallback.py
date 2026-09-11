@@ -616,3 +616,91 @@ def test_the_adjustment_ages_out_of_the_rolling_window(session) -> None:
     outside = day + timedelta(days=OBJECT_WINDOW_DAYS + 1)
     assert object_budget(session, now=inside).objects_used == 24
     assert object_budget(session, now=outside).objects_used == 0
+
+
+# --- what a bounded allowance may be spent on -------------------------------
+
+def test_a_game_whose_freshness_window_has_not_opened_is_not_requested(monkeypatch):
+    """A quote fetched eight hours early cannot still be fresh at the cutoff.
+
+    Before this guard the fallback asked for every uncovered game on the board,
+    including tomorrow's. Those games stay permanently "needs_refresh" -- the
+    quote ages out of its own window long before anyone decides on it -- so the
+    next tick asks again, and the next. A bounded allowance drains on games it
+    cannot help while the games it could help go unfunded.
+    """
+
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import sgo_collection
+    from app.services.quote_coverage import MAX_QUOTE_STALENESS_MINUTES
+
+    now = datetime(2026, 9, 11, 18, 0, tzinfo=UTC)
+    inside = now + timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES - 30)
+    outside = now + timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES + 90)
+    events = [
+        {"cutoff_utc": inside.isoformat(), "covered": False, "needs_refresh": True},
+        {"cutoff_utc": outside.isoformat(), "covered": False, "needs_refresh": True},
+        {"cutoff_utc": outside.isoformat(), "covered": False, "needs_refresh": True},
+    ]
+
+    class _Coverage:
+        def __init__(self, *args, **kwargs) -> None: ...
+        def daily_report(self, **kwargs):
+            return {"events": events}
+
+    captured: dict[str, object] = {}
+
+    def _record(session, *, requested_at, params, budget, job_run_id=None):
+        captured["params"] = params
+        raise RuntimeError("stop before the request")
+
+    monkeypatch.setattr("app.services.quote_coverage.QuoteCoverageService", _Coverage)
+    monkeypatch.setattr(sgo_collection, "record_request", _record)
+    monkeypatch.setattr(sgo_collection, "eligible", lambda settings, now=None: (True, "OK"))
+    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch", lambda session, now=None: None)
+
+    class _Budget:
+        def may_spend(self, objects):
+            captured["wanted"] = objects
+            return True, None
+
+        def as_dict(self):
+            return {}
+
+    monkeypatch.setattr(sgo_collection, "object_budget", lambda session, now=None: _Budget())
+
+    with pytest.raises(RuntimeError):
+        sgo_collection.collect_for_open_cutoffs(object(), object(), now=now)
+
+    # Exactly the one game inside its window -- not the two that cannot be helped.
+    assert captured["wanted"] == 1
+
+
+def test_when_nothing_is_inside_its_window_the_tick_says_so_and_spends_nothing(monkeypatch):
+    """A quiet tick must be legible: "too early" is not "nothing to do"."""
+
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import sgo_collection
+    from app.services.quote_coverage import MAX_QUOTE_STALENESS_MINUTES
+
+    now = datetime(2026, 9, 11, 18, 0, tzinfo=UTC)
+    far = now + timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES + 120)
+
+    class _Coverage:
+        def __init__(self, *args, **kwargs) -> None: ...
+        def daily_report(self, **kwargs):
+            return {"events": [
+                {"cutoff_utc": far.isoformat(), "covered": False, "needs_refresh": True},
+            ]}
+
+    monkeypatch.setattr("app.services.quote_coverage.QuoteCoverageService", _Coverage)
+    monkeypatch.setattr(sgo_collection, "eligible", lambda settings, now=None: (True, "OK"))
+    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch", lambda session, now=None: None)
+
+    result = sgo_collection.collect_for_open_cutoffs(object(), object(), now=now)
+    assert result["attempted"] is False
+    assert result["objects"] == 0
+    assert result["reason"] == "NO_GAME_INSIDE_ITS_FRESHNESS_WINDOW_NEEDS_A_QUOTE"
+    assert result["uncovered_but_window_not_open"] == 1

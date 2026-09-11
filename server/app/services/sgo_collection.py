@@ -481,7 +481,10 @@ def collect_for_open_cutoffs(
     game past its cutoff is never requested, because a price that arrives after
     the decision is not evidence, it is noise that costs an object.
     """
-    from app.services.quote_coverage import QuoteCoverageService
+    from app.services.quote_coverage import (
+        MAX_QUOTE_STALENESS_MINUTES,
+        QuoteCoverageService,
+    )
 
     moment = now or datetime.now(UTC)
     ok, reason = eligible(settings, now=moment)
@@ -503,17 +506,42 @@ def collect_for_open_cutoffs(
     # freshness window by the time the decision is taken is refresh-eligible,
     # because the alternative is a price that is present and unusable -- which
     # reads as covered right up until it silently is not.
-    open_games = [
-        event for event in coverage["events"]
-        if event.get("needs_refresh", not event["covered"])
-        and datetime.fromisoformat(event["cutoff_utc"]) > moment
-    ]
+    #
+    # ...but a refresh only counts if it can still be fresh AT the cutoff. A
+    # 10pm game asked for at lunchtime is permanently "needs_refresh": the
+    # quote we fetch will have aged out of its own freshness window hours
+    # before anyone decides on it, so the next tick asks again, and the next.
+    # That is how a bounded allowance gets spent on games it cannot help while
+    # the games that could be helped go unfunded. So a game enters the request
+    # only once its freshness window has actually opened.
+    #
+    window_open: list[dict[str, Any]] = []
+    too_early = 0
+    for event in coverage["events"]:
+        cutoff = datetime.fromisoformat(event["cutoff_utc"])
+        if cutoff <= moment:
+            continue
+        if not event.get("needs_refresh", not event["covered"]):
+            continue
+        if moment < cutoff - timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES):
+            too_early += 1
+            continue
+        window_open.append(event)
+    open_games = window_open
     if not open_games:
-        return {"attempted": False, "reason": "NO_UNCOVERED_GAME_BEFORE_CUTOFF", "objects": 0}
+        return {"attempted": False,
+                "reason": ("NO_GAME_INSIDE_ITS_FRESHNESS_WINDOW_NEEDS_A_QUOTE"
+                           if too_early else "NO_UNCOVERED_GAME_BEFORE_CUTOFF"),
+                "objects": 0,
+                "uncovered_but_window_not_open": too_early,
+                "freshness_window_minutes": MAX_QUOTE_STALENESS_MINUTES}
 
     # Bound the request to the games that can still be helped: never earlier
     # than now, never later than the last open cutoff.
     last_cutoff = max(datetime.fromisoformat(event["cutoff_utc"]) for event in open_games)
+    # Every game in scope now has its cutoff within the freshness window, so
+    # the horizon is at most that window plus an hour of slack -- not the 24
+    # hours a full-day sweep used to reach across.
     horizon_hours = max(1, min(24, int((last_cutoff - moment).total_seconds() // 3600) + 2))
     wanted = min(len(open_games), MAX_EVENTS_PER_FETCH)
 
@@ -552,6 +580,7 @@ def collect_for_open_cutoffs(
         "attempted": True, "reason": "FALLBACK_COLLECTED",
         "objects": fetch.objects,
         "games_open_before_cutoff": len(open_games),
+        "uncovered_but_window_not_open": too_early,
         "events_ingested": fetch.events_ingested,
         "quote_rows": fetch.quotes_written,
         "pairs": len(fetch.pairs),
