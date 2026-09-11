@@ -399,6 +399,16 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": DAILY_PIPELINE_JOB, "settings": settings},
         **daily_kwargs,
     )
+    # Inert threshold research. Reads decisions that already exist and records
+    # what other minimums would have selected; creates nothing and changes no
+    # threshold, so it is bound only to the single scheduler process.
+    scheduler.add_job(
+        execute_scheduled_job, "interval", minutes=240, jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=8),
+        id="asp-shadow-threshold-ladder",
+        kwargs={"job_name": "record-shadow-threshold-ladder", "settings": settings},
+        **common,
+    )
     scheduler.add_job(
         execute_scheduled_job,
         "interval",

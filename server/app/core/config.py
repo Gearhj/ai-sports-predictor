@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # Model Exchange forecast-bundle consumption. The location is read-only to
     # AISP; automatic consumption stays OFF until it is explicitly enabled, so
     # a scheduler can be wired up without importing anything by surprise.
+    # Where the V18 producer publishes its content-addressed slate packages.
+    # Empty falls back to a sibling of the bundle directory, which is where it
+    # actually publishes today.
+    model_exchange_v18_dir: str = ""
     model_exchange_forecast_bundle_dir: str = Field(
         default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
     )

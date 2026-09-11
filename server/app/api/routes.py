@@ -500,6 +500,45 @@ def rff_board(
     return board
 
 
+@router.get("/coverage/price-funnel", tags=["transparency"])
+def price_coverage_funnel(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None),
+    league: str = Query("MLB"),
+) -> dict:
+    """Where every game on one slate stopped, and the first reason it stopped.
+
+    Read-only diagnosis of persisted rows. It makes no provider request, writes
+    nothing, and reads the active policy's own minimum edge rather than
+    carrying a threshold of its own.
+    """
+
+    from app.services.price_coverage_funnel import PriceCoverageFunnel
+
+    return PriceCoverageFunnel(session, settings).build(
+        event_date=event_date, league_code=league.upper(),
+    )
+
+
+@router.get("/research/threshold-ladder", tags=["transparency"])
+def shadow_threshold_ladder(
+    session: DatabaseSession,
+    settings: AppSettings,
+    league: str = Query("MLB"),
+) -> dict:
+    """What each inert threshold rung has accumulated so far.
+
+    Research evidence only. No rung creates a position, none modifies the
+    funded experiment, and the official minimum edge is reported beside them
+    unchanged.
+    """
+
+    from app.services.shadow_threshold_ladder import ShadowThresholdLadder
+
+    return ShadowThresholdLadder(session, settings).summary(league_code=league.upper())
+
+
 @router.get("/research/nfl-prospective", tags=["transparency"])
 def nfl_prospective_results(session: DatabaseSession) -> dict:
     """Prospective NFL research forecasts scored against final results.

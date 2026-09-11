@@ -3527,3 +3527,44 @@ class NflFinalObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         Index("ix_nfl_final_obs_source_event", "source", "source_event_id"),
     )
+
+
+class ShadowThresholdSelection(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One hypothetical selection a non-official threshold would have made.
+
+    Append-only research evidence. A row here records that a decision which
+    already existed, priced by a quote already persisted, would have cleared a
+    DIFFERENT minimum edge than the official one. It is not a decision, it
+    cannot become a position, and nothing in the funded experiment can see it.
+
+    Identity is (ladder, rung, decision): one rung records a given decision
+    once, so re-running the ladder over the same slate reuses rather than
+    duplicating.
+    """
+
+    __tablename__ = "shadow_threshold_selections"
+
+    ladder_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Percentage points of adjusted edge, e.g. 1.25.
+    rung_percentage: Mapped[float] = mapped_column(Float, index=True, nullable=False)
+    policy: Mapped[str] = mapped_column(String(80), nullable=False)
+    decision_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("shadow_experiment_decisions.id"), index=True, nullable=False
+    )
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
+    league_code: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    slate_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    selection_label: Mapped[str | None] = mapped_column(String(120))
+    adjusted_edge_percentage: Mapped[float] = mapped_column(Float, nullable=False)
+    scheduled_start_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        # One rung records a GAME once per slate. The decision table holds a
+        # row per re-evaluation, so keying on the decision would record the
+        # same game dozens of times and make the rungs incomparable.
+        UniqueConstraint("ladder_id", "rung_percentage", "game_id", "slate_date",
+                         name="uq_shadow_threshold_selection"),
+        Index("ix_shadow_threshold_rung_slate", "rung_percentage", "slate_date"),
+    )

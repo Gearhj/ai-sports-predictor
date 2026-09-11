@@ -70,6 +70,7 @@ STARTER_HEARTBEAT_VERSION = "AISP_STARTER_HEARTBEAT_V1"
 AVAILABLE_JOBS = {
     "refresh-schedule": "Refresh Today's Schedule",
     "bridge-mlb-canonical-events": "Register Upcoming MLB Canonical Events",
+    "record-shadow-threshold-ladder": "Record Inert Shadow Threshold Ladder",
     "refresh-mlb-data": "Refresh MLB Data",
     "refresh-statcast": "Refresh Statcast",
     "refresh-odds": "Refresh Odds",
@@ -190,6 +191,7 @@ class JobOrchestrator:
         handlers: dict[str, Callable[[date], Awaitable[dict[str, Any]]]] = {
             "refresh-schedule": self.refresh_schedule,
             "bridge-mlb-canonical-events": self.bridge_mlb_canonical_events,
+            "record-shadow-threshold-ladder": self.record_shadow_threshold_ladder,
             "refresh-mlb-data": self.refresh_mlb_data,
             "refresh-statcast": self.refresh_statcast,
             "refresh-odds": self.refresh_odds,
@@ -1246,6 +1248,26 @@ class JobOrchestrator:
             "records": outcome["events_registered"],
             **outcome,
             "event_date": event_date.isoformat(),
+        }
+
+    async def record_shadow_threshold_ladder(self, event_date: date) -> dict[str, Any]:
+        """Record what six inert minimums WOULD have selected today.
+
+        Research only. Every rung reads decisions that already existed, priced
+        by quotes already persisted; none creates a position, none touches the
+        funded experiment, and the official minimum is unchanged. The 2.00%
+        rung deliberately reproduces the official policy so the ladder can be
+        checked against a known answer instead of trusted.
+        """
+
+        from app.services.shadow_threshold_ladder import ShadowThresholdLadder
+
+        ladder = ShadowThresholdLadder(self.session, self.settings)
+        outcome = ladder.run(event_date=event_date)
+        self.session.flush()
+        return {
+            "records": sum(rung["recorded"] for rung in outcome["rungs"]),
+            **outcome,
         }
 
     async def refresh_mlb_data(self, event_date: date) -> dict[str, Any]:

@@ -263,7 +263,15 @@ def consume_forecast_bundles(
     _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run)
     _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run)
     _consume_lab_study(session, settings, outcome, dry_run=dry_run)
-    return outcome.as_dict()
+    payload = outcome.as_dict()
+    # MLB V18 publishes its own content-addressed packages beside the NFL
+    # bundles. Same single owner, same cadence, same refusal to execute
+    # anything -- but a different manifest shape, so it gets its own scanner
+    # rather than being forced through the bundle index.
+    from app.jobs.v18_exchange_consumer import consume_v18_packages
+
+    payload["v18"] = consume_v18_packages(session, settings, dry_run=dry_run)
+    return payload
 
 
 def _consume_nfl_labs_v1(session: Session, exchange_root: Path, outcome: ConsumeOutcome,

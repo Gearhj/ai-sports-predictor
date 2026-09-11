@@ -30,6 +30,7 @@ from app.models.entities import (
     ProspectiveEvaluationPlan,
     RosterAvailabilityObservation, RunStatus, Season, SourceFreshnessPolicy, Sport,
     NflFinalObservation,
+    ShadowThresholdSelection,
     ResearchForecastEvaluation,
     ResearchSupplement,
     ShadowBoardDecision, ShadowDecisionSettlement, ShadowForecast, ShadowForecastBundle,
