@@ -9,6 +9,7 @@
  */
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { TeamLogo } from '../TeamLogo'
 
 export type LeagueCode = 'MLB' | 'NFL' | 'NBA' | 'WNBA' | 'NHL' | 'UFC' | string
 
@@ -82,7 +83,7 @@ export function ProbabilityArc({
     <div className="bx-arc" style={{ color: 'var(--bx-text)' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img"
         aria-label={safe == null ? `${label}: no forecast` : `${label} ${pct(safe, 1)}`}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,.09)" strokeWidth={8} />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--bx-sunk)" strokeWidth={10} />
         {safe != null && (
           <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color} strokeWidth={8}
             strokeLinecap="round" strokeDasharray={`${circumference * safe} ${circumference}`}
@@ -117,7 +118,7 @@ export function SplitBar({
       <div className="bx-split__bar" role="img"
         aria-label={`${awayLabel} ${pct(away, 1)}, ${homeLabel} ${pct(home, 1)}${tieShare > 0.001 ? `, tie ${pct(tieShare, 1)}` : ''}`}>
         <span style={{ width: `${away * 100}%`, background: awayColor }} />
-        {tieShare > 0.001 && <span style={{ width: `${tieShare * 100}%`, background: 'rgba(255,255,255,.3)' }} />}
+        {tieShare > 0.001 && <span style={{ width: `${tieShare * 100}%`, background: 'var(--bx-line-strong)' }} />}
         <span style={{ width: `${home * 100}%`, background: homeColor }} />
       </div>
       <div className="bx-split__legend">
@@ -129,8 +130,18 @@ export function SplitBar({
   )
 }
 
-export function TeamMark({ abbreviation, color }: { abbreviation: string; color?: string | null }) {
-  return <span className="bx-slate__abbr" style={color ? { ['--bx-team' as string]: color } : undefined}>{abbreviation}</span>
+/**
+ * A club's crest in a dense row.
+ *
+ * `league` is required rather than optional: WAS, SF and CHI all exist twice
+ * across the two leagues we cover, and an abbreviation on its own is not
+ * enough to identify a team. The component falls back to the coloured
+ * monogram automatically, so a row never loses its identity column.
+ */
+export function TeamMark({
+  league, abbreviation, size = 40,
+}: { league: LeagueCode; abbreviation: string; size?: number }) {
+  return <TeamLogo league={league} abbreviation={abbreviation} size={size} />
 }
 
 export function Stat({

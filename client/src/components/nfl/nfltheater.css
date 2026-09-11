@@ -518,3 +518,46 @@
 }
 .pop-note--density { color: #9fb8cb; }
 .pop-note--density b { color: #dceaf5; font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+ * SIMULATION WORKSPACE — information beside the field, not underneath it
+ *
+ * The field alone answers "what does a play look like". It cannot answer "what
+ * do these plays add up to", and the reader had to stop watching and scroll to
+ * find out. The stage is now three columns on a wide screen: the field, a live
+ * panel that counts what is currently drawn, and the controls that change it.
+ * On a laptop the two side panels stack into one rail; on a phone everything
+ * stacks and the field keeps full width.
+ * ======================================================================== */
+.pop__stage { grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+@media (min-width: 1480px) {
+  .pop__stage { grid-template-columns: minmax(0, 1fr) 270px 290px; }
+}
+
+.pop-stats-block--live {
+  background: white; border-color: var(--line-strong);
+  position: sticky; top: 14px;
+}
+.pop-stats-block--live h4 { font-size: 16px; }
+.pop-stats-block--live dl { gap: 11px; }
+.pop-stats-block--live .d3-chart { margin-top: 4px; }
+
+/* Typography across the workspace: the previous 11-12px captions were the
+ * single biggest readability complaint, and a statistic nobody can read is
+ * not a statistic. */
+.pop-stats-block h4 { font-size: 17px; letter-spacing: -.02em; }
+.pop-stats-block h4 small { font-size: 13px; }
+.pop-stats-block dt { font-size: 14px; color: #47596c; }
+.pop-stats-block dd { font-size: 21px; }
+.pop-stats-block dd small { font-size: 12.5px; }
+.pop-denominator { font-size: 13px; line-height: 1.6; }
+.pop-legend li { font-size: 13px; }
+.pop-legend small { font-size: 12.5px; }
+.pop-note { font-size: 13px; }
+.pop-btn { padding: 9px 14px; font-size: 14px; min-height: 40px; }
+.pop__controls { gap: 13px; padding: 15px; }
+
+@media (max-width: 1100px) {
+  .pop__stage { grid-template-columns: minmax(0, 1fr); }
+  .pop-stats-block--live { position: static; }
+}

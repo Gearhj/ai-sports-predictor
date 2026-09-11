@@ -25,6 +25,7 @@ import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { NflExplorer, NflGameDetail, NflRepresentativeGame } from '../types/nfl'
 import '../components/nfl/nfltheater.css'
+import { teamIdentity } from '../services/teamIdentity'
 
 type View = 'population' | 'watch' | 'explorer' | 'scenarios' | 'drives'
 
@@ -121,7 +122,7 @@ export function NflLabPage() {
       </nav>
       <PageHeader
         eyebrow={`NFL SIMULATION LAB · WEEK ${event.week} · ${stateLabel(event.state).toUpperCase()}`}
-        title={`${event.away?.name ?? away} at ${event.home?.name ?? home}`}
+        title={`${teamIdentity('NFL', away).name} at ${teamIdentity('NFL', home).name}`}
         description={`Kickoff ${event.kickoff_utc ? formatTimestamp(event.kickoff_utc) : 'not scheduled'}. Explore the imported joint final-score evidence, replay persisted drive simulations, and compare precomputed scenarios. Research only — no model runs here and nothing creates a position.`}
       />
 

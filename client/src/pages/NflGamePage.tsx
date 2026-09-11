@@ -14,6 +14,7 @@ import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { NflGameDetail } from '../types/nfl'
+import { teamIdentity } from '../services/teamIdentity'
 
 export function NflGamePage() {
   const { gameId = '' } = useParams()
@@ -53,7 +54,7 @@ export function NflGamePage() {
       </nav>
       <PageHeader
         eyebrow={`NFL · WEEK ${event.week} · ${stateLabel(event.state).toUpperCase()} · RESEARCH SHADOW`}
-        title={`${event.away?.name ?? away} at ${event.home?.name ?? home}`}
+        title={`${teamIdentity('NFL', away).name} at ${teamIdentity('NFL', home).name}`}
         description={`Kickoff ${event.kickoff_utc ? formatTimestamp(event.kickoff_utc) : 'not scheduled'}${event.final_score ? ` · final ${home} ${event.final_score.home}–${away} ${event.final_score.away}` : ''} · research shadow — not executable, no wagering authority.`}
         actions={<Link className="primary-button" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}><FlaskConical size={14} aria-hidden="true" /> Open Simulation Lab</Link>}
       />

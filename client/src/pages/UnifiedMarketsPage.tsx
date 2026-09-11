@@ -37,6 +37,8 @@ import { apiRequest, endpoints } from '../services/api'
 import {
   ComparisonPlot, PlotLegend, impliedProbability, type PlotMark,
 } from '../components/broadcast/ComparisonPlot'
+import { TeamLogo } from '../components/TeamLogo'
+import { teamIdentity } from '../services/teamIdentity'
 import {
   LeagueTag, Panel, SourceBadge, agoOf, american, clockOf, decimals, pct,
   signedPoints, useBroadcastTheme,
@@ -413,8 +415,16 @@ function MlbMarketRow({
           <small>{(row.status ?? '').toLowerCase()}</small>
         </div>
         <div className="bx-mkt__teams">
-          <b><LeagueTag league="MLB" /> {row.away_abbrev} @ {row.home_abbrev}</b>
-          <small>{row.away_team} at {row.home_team}</small>
+          <b className="bx-mkt__crests">
+            <TeamLogo league="MLB" abbreviation={row.away_abbrev} size={32} />
+            <span>{row.away_abbrev}</span>
+            <i>at</i>
+            <TeamLogo league="MLB" abbreviation={row.home_abbrev} size={32} />
+            <span>{row.home_abbrev}</span>
+          </b>
+          <small>
+            {teamIdentity('MLB', row.away_abbrev).name} at {teamIdentity('MLB', row.home_abbrev).name}
+          </small>
         </div>
         <div className="bx-mkt__model">
           <b>{family === 'MONEYLINE' ? pct(row.aisp_home_probability, 1) : american(homeRow?.asp_fair)}</b>
@@ -582,8 +592,17 @@ function NflMarketRow({
           <small>{(event.state ?? '').toLowerCase()}</small>
         </div>
         <div className="bx-mkt__teams">
-          <b><LeagueTag league="NFL" /> {event.away.abbreviation} @ {event.home.abbreviation}</b>
-          <small>{event.away.name} at {event.home.name}</small>
+          <b className="bx-mkt__crests">
+            <TeamLogo league="NFL" abbreviation={event.away.abbreviation} size={32} />
+            <span>{event.away.abbreviation}</span>
+            <i>at</i>
+            <TeamLogo league="NFL" abbreviation={event.home.abbreviation} size={32} />
+            <span>{event.home.abbreviation}</span>
+          </b>
+          <small>
+            {teamIdentity('NFL', event.away.abbreviation).name} at{' '}
+            {teamIdentity('NFL', event.home.abbreviation).name}
+          </small>
         </div>
         <div className="bx-mkt__model">
           <b>{family === 'MONEYLINE' ? pct(modelHome, 1)

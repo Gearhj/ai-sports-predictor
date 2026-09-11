@@ -33,7 +33,7 @@ export interface PlotRange {
 }
 
 export function ComparisonPlot({
-  marks, range, domain, format, height = 48, caption,
+  marks, range, domain, format, height = 64, caption,
 }: {
   marks: PlotMark[]
   range?: PlotRange | null
@@ -98,7 +98,7 @@ export function PlotLegend({ marks, range }: { marks: PlotMark[]; range?: PlotRa
           {mark.label}
         </span>
       ))}
-      {range && <span><i style={{ background: 'rgba(255,255,255,.28)' }} />{range.label}</span>}
+      {range && <span><i style={{ background: 'var(--bx-line-strong)' }} />{range.label}</span>}
     </div>
   )
 }

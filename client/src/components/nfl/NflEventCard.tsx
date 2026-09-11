@@ -10,6 +10,7 @@ import { useSportSelection } from '../../hooks/useSportSelection'
 import { formatTimestamp } from '../../services/format'
 import type { NflEvent } from '../../types/nfl'
 import { pct } from './OutcomeExplorer'
+import { teamIdentity } from '../../services/teamIdentity'
 
 export function stateLabel(state: NflEvent['state']): string {
   return { UPCOMING: 'Upcoming', STARTED: 'Started', FINAL: 'Final', POSTPONED: 'Postponed', CANCELED: 'Canceled', UNSCHEDULED: 'Unscheduled' }[state]
@@ -27,7 +28,9 @@ export function NflEventCard({ event }: { event: NflEvent }) {
       <header className="nfl-card__head">
         <div>
           <h3>{away.abbreviation} @ {home.abbreviation}</h3>
-          <p className="nfl-card__names">{away.name} at {home.name}</p>
+          <p className="nfl-card__names">
+          {teamIdentity('NFL', away.abbreviation).name} at {teamIdentity('NFL', home.abbreviation).name}
+        </p>
         </div>
         <span className={`nfl-card__state nfl-card__state--${event.state.toLowerCase()}`}>{stateLabel(event.state)}</span>
       </header>

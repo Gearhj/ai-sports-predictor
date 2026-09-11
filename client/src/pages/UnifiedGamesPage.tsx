@@ -298,12 +298,12 @@ function GameRow({
 
       <div className="bx-slate__match">
         <div className={`bx-slate__side${homeLead ? '' : ' bx-slate__side--lead'}`}>
-          <TeamMark abbreviation={game.away.abbreviation} color={game.away.color} />
+          <TeamMark league={game.league} abbreviation={game.away.abbreviation} />
           <em>{game.away.name}</em>
           <i className="bx-num">{decimals(game.expAway, 1)}</i>
         </div>
         <div className={`bx-slate__side${homeLead ? ' bx-slate__side--lead' : ''}`}>
-          <TeamMark abbreviation={game.home.abbreviation} color={game.home.color} />
+          <TeamMark league={game.league} abbreviation={game.home.abbreviation} />
           <em>{game.home.name}</em>
           <i className="bx-num">{decimals(game.expHome, 1)}</i>
         </div>

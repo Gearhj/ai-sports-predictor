@@ -1,0 +1,62 @@
+/* Chart styling and, more importantly, chart COLOUR TOKENS.
+ *
+ * The charts are used on two kinds of page: the AISP surface pages, which
+ * define a `--bx-*` palette under `.bx`, and the research document pages,
+ * which do not. A chart that referenced `--bx-accent` outside `.bx` resolved
+ * to nothing and SVG fell back to black -- so the calibration dots, the
+ * "predicted" marker and the axis labels all rendered as the same black blob
+ * and the chart said nothing at all.
+ *
+ * So every token a chart uses is declared here with a light-document default.
+ * Inside `.bx` the surface palette overrides it, and the same chart renders in
+ * whichever theme it lands in without the component knowing which page it is
+ * on.
+ */
+.d3-chart {
+  --bx-text: #10203a;
+  --bx-muted: #55677d;
+  --bx-dim: #75859a;
+  --bx-line: #e4e1dc;
+  --bx-line-strong: #cfcbc4;
+  --bx-s1: #ffffff;
+  --bx-sunk: #f2f0ed;
+  --bx-accent: #0f8d7d;
+  --bx-good: #12855c;
+  --bx-warn: #b5741a;
+  --bx-bad: #c33636;
+
+  display: grid; gap: 12px; min-width: 0;
+  font-family: inherit;
+}
+/* Under a surface page or a dark panel, inherit that palette instead. */
+.bx .d3-chart, .bx-dark-panel .d3-chart { --bx-text: inherit; }
+.bx .d3-chart {
+  --bx-text: #10203a; --bx-muted: #55677d; --bx-dim: #75859a;
+  --bx-line: #e4e1dc; --bx-line-strong: #cfcbc4; --bx-s1: #ffffff; --bx-sunk: #f2f0ed;
+  --bx-accent: #0f8d7d; --bx-good: #12855c; --bx-warn: #b5741a; --bx-bad: #c33636;
+}
+.bx-dark-panel .d3-chart {
+  --bx-text: #f3f7fc; --bx-muted: #a8bacf; --bx-dim: #8699b0;
+  --bx-line: rgba(255, 255, 255, .14); --bx-line-strong: rgba(255, 255, 255, .26);
+  --bx-s1: #14263f; --bx-sunk: rgba(255, 255, 255, .08);
+  --bx-accent: #3fe0cb; --bx-good: #47dd93; --bx-warn: #f7c257; --bx-bad: #ff7b7b;
+}
+
+.d3-chart svg { display: block; width: 100%; overflow: visible; }
+.d3-chart--square { max-width: 380px; }
+.d3-chart__title { margin: 0; color: var(--bx-muted); font-size: 14px; font-weight: 600; }
+.d3-chart__title b { color: var(--bx-text); font-variant-numeric: tabular-nums; }
+
+.d3-legend, .d3-readout {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  margin: 0; color: var(--bx-text); font-size: 13.5px; line-height: 1.5;
+}
+.d3-readout { min-height: 22px; }
+.d3-legend > span, .d3-readout > span { display: inline-flex; align-items: center; gap: 7px; }
+.d3-legend i, .d3-readout i {
+  width: 13px; height: 13px; border-radius: 50%; display: inline-block; flex: 0 0 auto;
+  background: var(--bx-accent);
+}
+.d3-legend i.is-hollow { background: var(--bx-s1); border: 3px solid var(--bx-muted); }
+.d3-legend .bx-muted, .d3-readout .bx-muted { color: var(--bx-muted); font-size: 13.5px; }
+.d3-readout b { font-variant-numeric: tabular-nums; font-weight: 700; }

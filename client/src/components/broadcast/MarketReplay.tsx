@@ -304,9 +304,9 @@ function ReplayPlot({
         {ticks.map((tick) => (
           <g key={tick}>
             <line x1={PAD.left} x2={width - PAD.right} y1={y(tick)} y2={y(tick)}
-              stroke="rgba(255,255,255,.07)" strokeDasharray="2 5" />
+              stroke="var(--bx-line)" strokeDasharray="2 5" />
             <text x={PAD.left - 7} y={y(tick) + 3.5} textAnchor="end"
-              fill="var(--bx-dim)" style={{ font: '600 9.5px var(--bx-mono)' }}>{format(tick)}</text>
+              fill="var(--bx-dim)" style={{ font: '600 12px inherit' }}>{format(tick)}</text>
           </g>
         ))}
         {bandPath && <path d={bandPath} fill="rgba(74,144,255,.16)" stroke="none" />}
@@ -317,7 +317,7 @@ function ReplayPlot({
         <path d={consensusPath} fill="none" stroke="var(--bx-accent)" strokeWidth={2}
           strokeLinejoin="round" strokeLinecap="round" />
         {bookPath && (
-          <path d={bookPath} fill="none" stroke="#ffffff" strokeWidth={1.5} strokeOpacity={0.8}
+          <path d={bookPath} fill="none" stroke="var(--bx-text)" strokeWidth={2} strokeOpacity={0.85}
             strokeLinejoin="round" />
         )}
         {cutoffX != null && (
@@ -342,7 +342,7 @@ function ReplayPlot({
         <span><i style={{ background: 'var(--bx-accent)' }} />Consensus (books with a complete pair)</span>
         <span><i style={{ background: 'rgba(74,144,255,.5)' }} />Spread between books</span>
         {modelPath && <span><i style={{ background: 'var(--bx-warn)' }} />Model forecast — not a market observation</span>}
-        {bookPath && <span><i style={{ background: '#fff' }} />Selected book</span>}
+        {bookPath && <span><i style={{ background: 'var(--bx-text)' }} />Selected book</span>}
       </div>
     </div>
   )

@@ -141,3 +141,115 @@
  * line; only a human-entered score gets the amber. */
 .np-game__provenance.is-automated { color: var(--muted); background: var(--soft); }
 .np-game__provenance.is-manual { color: #8b511f; background: var(--orange-soft); }
+
+/* ==========================================================================
+ * REDESIGN LAYER — bigger, lighter, and with the story on the outside.
+ *
+ * The section previously opened with an eight-tile scoreboard of 4-decimal
+ * numbers. That is the right evidence in the wrong order: a reader arriving
+ * cold needs to know the model picked Seattle, nearly nailed the margin and
+ * badly missed the total, and only then wants the log loss to four places.
+ * So the scorecard leads, the aggregate tiles follow, and the technical
+ * detail stays in the drawer where it always was.
+ * ======================================================================== */
+
+.np { gap: 30px; margin-top: 34px; }
+.np__head h3 { font-size: clamp(28px, 3vw, 38px); }
+.np__lede { font-size: 16px; max-width: 68ch; }
+.np__note { font-size: 14px; }
+.np__section-title { margin: 0 0 4px; font-size: 22px; letter-spacing: -.025em; color: var(--ink); }
+
+.np__sample { padding: 16px 20px; font-size: 15.5px; border-left-width: 5px; }
+.np-stat { padding: 16px 18px; gap: 5px; }
+.np-stat small { font-size: 12.5px; letter-spacing: .04em; font-family: inherit; }
+.np-stat strong { font-size: 30px; }
+.np-stat span, .np-stat em { font-size: 13.5px; }
+.np__scoreboard { gap: 14px; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); }
+
+/* -- the headline scorecard ---------------------------------------------- */
+.np-card {
+  display: grid; gap: 22px; padding: 30px 32px; border-radius: 20px;
+  border: 1px solid var(--line); border-top: 6px solid var(--green);
+  background: white; box-shadow: 0 2px 4px rgba(16, 32, 58, .05), 0 20px 46px rgba(16, 32, 58, .09);
+}
+.np-card.is-wrong { border-top-color: var(--red); }
+.np-card__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.np-card__eyebrow {
+  color: var(--muted); font: 700 12.5px/1 "IBM Plex Mono", monospace;
+  letter-spacing: .14em; text-transform: uppercase;
+}
+.np-card__verdict {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 15px; border-radius: 999px;
+  font-size: 15px; font-weight: 700; letter-spacing: -.01em;
+}
+.np-card__verdict.is-correct { color: var(--green); background: var(--green-soft); }
+.np-card__verdict.is-wrong { color: var(--red); background: var(--red-soft); }
+
+.np-card__score {
+  display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center; padding: 8px 0;
+}
+.np-card__team { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.np-card__team--home { flex-direction: row-reverse; }
+.np-card__name { display: grid; gap: 3px; min-width: 0; }
+.np-card__team--home .np-card__name { text-align: right; }
+.np-card__name b { font-size: 21px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15; }
+.np-card__name small { color: var(--muted); font-size: 14px; }
+.np-card__points {
+  font-size: clamp(46px, 5vw, 64px); font-weight: 800; letter-spacing: -.05em;
+  line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.np-card__at {
+  padding: 8px 13px; border-radius: 8px; border: 1px solid var(--line-strong);
+  color: var(--muted); font: 700 12px/1 "IBM Plex Mono", monospace; letter-spacing: .15em;
+}
+
+.np-card__verdicts {
+  display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 20px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.np-card__verdicts > div { display: grid; gap: 4px; }
+.np-card__verdicts small { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: .03em; }
+.np-card__verdicts strong { font-size: 34px; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
+.np-card__verdicts strong.is-good { color: var(--green); }
+.np-card__verdicts strong.is-bad { color: var(--orange); }
+.np-card__verdicts span { color: var(--muted); font-size: 13.5px; }
+.np-card__story { margin: 0; color: var(--ink); font-size: 16.5px; line-height: 1.6; max-width: 76ch; }
+
+@media (max-width: 780px) {
+  .np-card { padding: 22px 18px; gap: 18px; }
+  .np-card__score { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .np-card__team--home { flex-direction: row; }
+  .np-card__team--home .np-card__name { text-align: left; }
+  .np-card__at { justify-self: start; }
+  .np-card__verdicts { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+}
+
+/* -- calibration ---------------------------------------------------------- */
+.np__calibration {
+  display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr) auto; align-items: start;
+  padding: 26px 28px; border-radius: 18px; border: 1px solid var(--line);
+  background: white; box-shadow: var(--shadow);
+}
+.np__calibration > div { display: grid; gap: 10px; }
+@media (max-width: 900px) { .np__calibration { grid-template-columns: minmax(0, 1fr); } }
+
+/* -- per-game cards, enlarged -------------------------------------------- */
+.np-game { padding: 24px 26px; gap: 18px; border-left-width: 6px; }
+.np-game__teams { font-size: 22px; }
+.np-game__final { font-size: 15px; font-family: inherit; }
+.np-game__final b { font-size: 22px; }
+.np-game__verdict { font-size: 13px; padding: 7px 13px; font-family: inherit; letter-spacing: .04em; }
+.np-game__frozen { font-size: 14px; }
+.np-game__provenance { font-size: 13px; padding: 4px 9px; }
+.np-error__head small { font-size: 12.5px; letter-spacing: .04em; font-family: inherit; }
+.np-error__head span, .np-error__value { font-size: 14px; }
+.np-error__track { height: 12px; }
+.np-game__outcome small { font-size: 12.5px; letter-spacing: .04em; font-family: inherit; }
+.np-game__outcome strong { font-size: 22px; }
+.np-interval small { font-size: 12.5px; letter-spacing: .04em; font-family: inherit; }
+.np-interval__track { height: 20px; }
+.np-interval__legend em { font-size: 13px; }
+.np-game__unavailable, .np-game__market { font-size: 14.5px; }
+.np-game__evidence > summary, .np__inventory > summary { font-size: 12.5px; min-height: 44px; }
+.np-game__evidence-body, .np__inventory-body { font-size: 14px; }

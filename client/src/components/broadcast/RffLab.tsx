@@ -64,7 +64,7 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
         aria-label={game.score == null
           ? 'No RFF score: no component has data'
           : `Provisional RFF ${game.score.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}, ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage`}>
-        <path d={arc(Math.PI, 2 * Math.PI)} fill="none" stroke="rgba(255,255,255,.09)"
+        <path d={arc(Math.PI, 2 * Math.PI)} fill="none" stroke="var(--bx-sunk)"
           strokeWidth={stroke} strokeLinecap="round" />
         {/* The plausible range, drawn behind the needle: a third of the weight
             is missing, and a bare needle would claim a precision we do not have. */}

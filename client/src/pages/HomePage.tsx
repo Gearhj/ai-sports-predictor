@@ -40,7 +40,10 @@ import type { BankrollData, DashboardData } from '../types/domain'
 import type { NflEvent, NflWeeks } from '../types/nfl'
 import type { TodayAllSportsReadModel } from '../types/multisport'
 import type { RffBoard } from '../types/marketIntelligence'
+import { TeamLogo } from '../components/TeamLogo'
+import { onDarkColor, teamIdentity } from '../services/teamIdentity'
 import { RffGauge, bandTone } from '../components/broadcast/RffLab'
+import { ModelVsMarketChart } from '../components/charts/d3Charts'
 import '../broadcast.css'
 
 interface HomeBoard {
@@ -167,31 +170,22 @@ export function HomePage() {
         )}
 
         <div className="bx-home__grid">
-          <Panel eyebrow="Model vs market" title="Biggest disagreements"
-            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/markets')}>Open markets <ArrowRight size={14} /></Link>}>
-            {disagreements.length === 0
-              ? <p className="bx-empty">No game currently has both a forecast and a comparable market price.</p>
-              : <>
-                {disagreements.map((game) => {
-                  const gap = Math.abs(game.edgePoints ?? 0)
-                  const widest = Math.abs(disagreements[0].edgePoints ?? 1) || 1
-                  return (
-                    <div className="bx-gap-row" key={game.key}>
-                      <Link to={withSport(game.analysisHref, game.league)} style={{ color: 'inherit' }}>
-                        <LeagueTag league={game.league} /> {game.away.abbreviation} @ {game.home.abbreviation}
-                      </Link>
-                      <span className="bx-gap-row__track" style={{ width: 120 }} aria-hidden="true">
-                        <span style={{ width: `${Math.max(8, (gap / widest) * 100)}%` }} />
-                      </span>
-                      <b className="bx-gap-row__value">{signedPoints(game.edgePoints, 1)} pp</b>
-                    </div>
-                  )
-                })}
-                <p className="bx-dim" style={{ marginTop: 12 }}>
-                  Model home-win probability minus the no-vig market probability, in percentage
-                  points. A gap is a disagreement to look at, not a selection.
-                </p>
-              </>}
+          <Panel eyebrow="Model vs market" title="Where we disagree with the price"
+            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/markets')}>Open markets <ArrowRight size={16} /></Link>}>
+            <ModelVsMarketChart
+              rows={disagreements.map((game) => ({
+                key: game.key,
+                label: `${game.away.abbreviation} @ ${game.home.abbreviation}`,
+                model: game.homeWin,
+                market: game.marketHome,
+                color: game.home.color ?? undefined,
+                href: withSport(game.analysisHref, game.league),
+              }))} />
+            <p className="bx-muted">
+              Each row is one game&apos;s home-win probability: the hollow dot is the market with
+              the vig removed, the solid dot is the model, and the bar between them is the
+              disagreement. A wide bar is a question worth opening, not a selection.
+            </p>
           </Panel>
 
           <Panel eyebrow="Decisions" title="What the policy says">
@@ -279,55 +273,69 @@ export function HomePage() {
   )
 }
 
+/**
+ * The featured matchup — the one dark panel on a light page.
+ *
+ * Everything else on Home is a white card, so this is where the eye lands, and
+ * it earns that by being the only place showing a game at full size: crests at
+ * 76px, club names at 28px, the projected score as the headline figure, and
+ * the win split as a bar you can read across a room. It is the shot that has
+ * to survive being screen-shared at 50% on somebody's second monitor.
+ *
+ * Team names come from the canonical identity table, not from `teams.name` --
+ * that column still says "St. Louis Rams" for a 2026 fixture, and one wrong
+ * name costs more trust than every correct number on the page earns.
+ */
 function FeatureCard({
   game, zone, withSport,
 }: { game: SlateGame; zone?: string; withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
   const leadHome = (game.homeWin ?? 0) >= (game.awayWin ?? 0)
-  const leader = leadHome ? game.home : game.away
+  const home = teamIdentity(game.league, game.home.abbreviation)
+  const away = teamIdentity(game.league, game.away.abbreviation)
+  const leader = leadHome ? home : away
   const leadProbability = leadHome ? game.homeWin : game.awayWin
   const unit = game.scoreUnit === 'runs' ? 'Projected runs' : 'Projected points'
   return (
-    <article className="bx-feature" aria-label={`${game.away.name} at ${game.home.name}`}
-      style={{
-        ['--bx-home' as string]: game.home.color ?? '#2f4a70',
-        ['--bx-away' as string]: game.away.color ?? '#2f4a70',
-      }}>
+    <article className="bx-feature bx-dark-panel" aria-label={`${away.name} at ${home.name}`}>
       <div className="bx-feature__top">
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
           <LeagueTag league={game.league} />
-          <span className="bx-dim">{dayOf(game.startsAt, zone)} · {clockOf(game.startsAt, zone)}</span>
+          <span className="bx-muted" style={{ fontSize: 15 }}>
+            {dayOf(game.startsAt, zone)} · {clockOf(game.startsAt, zone)}
+          </span>
         </span>
-        <Link className="bx-btn bx-btn--ghost" to={withSport(game.analysisHref, game.league)}>
-          View game <ArrowRight size={14} />
+        <Link className="bx-btn" to={withSport(game.analysisHref, game.league)}>
+          View game <ArrowRight size={16} />
         </Link>
       </div>
 
-      <div className="bx-feature__body">
-        <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>
-          <div className="bx-feature__teams">
-            <div className="bx-feature__team bx-feature__team--away">
-              <small>{game.away.abbreviation}</small>
-              <strong>{game.away.name}</strong>
-            </div>
-            <span className="bx-feature__vs">VS</span>
-            <div className="bx-feature__team bx-feature__team--home">
-              <small>{game.home.abbreviation}</small>
-              <strong>{game.home.name}</strong>
-            </div>
-          </div>
-          <SplitBar away={game.awayWin} home={game.homeWin} tie={game.tie}
-            awayLabel={game.away.abbreviation} homeLabel={game.home.abbreviation}
-            awayColor={game.away.color ?? 'var(--bx-nfl)'} homeColor={game.home.color ?? 'var(--bx-accent)'} />
+      <div className="bx-feature__teams">
+        <div className="bx-feature__team bx-feature__team--away">
+          <TeamLogo league={game.league} abbreviation={game.away.abbreviation} size={76} />
+          <strong>{away.name}</strong>
+          <span className="bx-feature__score bx-num">{decimals(game.expAway, 1)}</span>
         </div>
+        <span className="bx-feature__vs">AT</span>
+        <div className="bx-feature__team bx-feature__team--home">
+          <TeamLogo league={game.league} abbreviation={game.home.abbreviation} size={76} />
+          <strong>{home.name}</strong>
+          <span className="bx-feature__score bx-num">{decimals(game.expHome, 1)}</span>
+        </div>
+      </div>
+
+      <div className="bx-feature__body">
+        <SplitBar away={game.awayWin} home={game.homeWin} tie={game.tie}
+          awayLabel={away.abbreviation} homeLabel={home.abbreviation}
+          awayColor={onDarkColor(away)} homeColor={onDarkColor(home)} />
         <ProbabilityArc value={leadProbability} label={leader.abbreviation}
-          sublabel="model win probability" color={leader.color ?? 'var(--bx-accent)'} />
+          sublabel="model win probability" size={132} color={onDarkColor(leader)} />
       </div>
 
       <div className="bx-feature__stats">
         <Stat label={unit} value={`${decimals(game.expAway, 1)} – ${decimals(game.expHome, 1)}`} />
         <Stat label="Market home" value={pct(game.marketHome, 1)} />
         <Stat label="Model − market"
-          value={game.edgePoints == null ? '—' : `${signedPoints(game.edgePoints, 1)} pp`}
+          value={game.edgePoints == null ? 'no market' : `${signedPoints(game.edgePoints, 1)} pp`}
           tone={game.edgePoints == null ? undefined : Math.abs(game.edgePoints) >= 2 ? 'good' : 'warn'} />
         <Stat label="Best price"
           value={game.bestHomePrice == null && game.bestAwayPrice == null
@@ -341,12 +349,12 @@ function FeatureCard({
             {game.decisionState ?? 'No decision recorded'}
           </span>}
         {game.marketHome == null && <span className="bx-chip bx-chip--warn">No comparable price</span>}
-        <span className="bx-dim" style={{ marginLeft: 'auto' }}>
+        <span className="bx-muted" style={{ marginLeft: 'auto' }}>
           Evidence {agoOf(game.evidenceAt) ?? 'not recorded'}
         </span>
         {game.simulationHref && (
-          <ActionLink to={withSport(game.simulationHref, game.league)}>
-            <Beaker size={14} aria-hidden="true" /> Simulation
+          <ActionLink to={withSport(game.simulationHref, game.league)} primary>
+            <Beaker size={16} aria-hidden="true" /> Simulation
           </ActionLink>
         )}
       </div>

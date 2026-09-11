@@ -36,6 +36,7 @@ import {
 import { useApiResource } from '../hooks/useApiResource'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { useSportSelection } from '../hooks/useSportSelection'
+import { TeamLogo } from '../components/TeamLogo'
 import { apiRequest, endpoints } from '../services/api'
 import {
   LeagueTag, Panel, agoOf, american, clockOf, dayOf, pctPoints, signedPoints, useBroadcastTheme,
@@ -449,7 +450,9 @@ function OpportunityRow({
       aria-label={`${selection.event_label} ${selection.selection_label ?? ''}`}>
       <span className="bx-op__rank">{rank}</span>
       <div className="bx-op__game">
-        <strong><LeagueTag league={selection.league_code} /> {selection.event_label}</strong>
+        <strong>
+          <MatchupCrests league={selection.league_code} label={selection.event_label} />
+        </strong>
         <small>{selection.selection_label ?? 'no selection recorded'} · {selection.market_label ?? 'market not stated'}</small>
         <small>
           <b className="bx-num">{american(selection.price_american)}</b>{' '}
@@ -466,7 +469,7 @@ function OpportunityRow({
           <span className="bx-threshold__fill"
             style={{
               width: `${fill}%`,
-              background: tone === 'qualified' ? 'var(--bx-good)' : tone === 'near' ? 'var(--bx-warn)' : 'rgba(255,255,255,.2)',
+              background: tone === 'qualified' ? 'var(--bx-good)' : tone === 'near' ? 'var(--bx-warn)' : 'var(--bx-line-strong)',
             }} />
           <span className="bx-threshold__mark" style={{ left: '50%' }} aria-hidden="true" />
         </div>
@@ -504,5 +507,31 @@ function OpportunityRow({
         </p>
       )}
     </article>
+  )
+}
+
+/**
+ * Crests for an "AWAY @ HOME" label.
+ *
+ * The decisions feed ships the matchup as one string rather than two team
+ * records, so this parses it rather than inventing an API change for a visual
+ * task. A label that does not split cleanly falls back to printing itself --
+ * a decision row must never disappear because its title was shaped oddly.
+ */
+function MatchupCrests({ league, label }: { league: 'MLB' | 'NFL' | string; label: string }) {
+  const parts = (label ?? '').split('@').map((part) => part.trim())
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return <><LeagueTag league={league} /> {label}</>
+  }
+  const [away, home] = parts
+  return (
+    <span className="bx-op__crests">
+      <LeagueTag league={league} />
+      <TeamLogo league={league} abbreviation={away} size={30} />
+      <span>{away}</span>
+      <i>at</i>
+      <TeamLogo league={league} abbreviation={home} size={30} />
+      <span>{home}</span>
+    </span>
   )
 }

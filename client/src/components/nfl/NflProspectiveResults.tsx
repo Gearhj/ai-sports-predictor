@@ -29,6 +29,8 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronDown, Radio, Target, XCircle } from 'lucide-react'
 import type { NflProspectiveResults, ProspectiveGame, ProspectiveModel } from '../../types/nflProspective'
+import { TeamLogo } from '../TeamLogo'
+import { CalibrationChart, PredictedVsActualChart } from '../charts/d3Charts'
 
 const number = (value: number | null | undefined, digits = 2): string =>
   value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits)
@@ -97,6 +99,8 @@ export function NflProspectiveSection({ data }: { data: NflProspectiveResults })
         )}
       </header>
 
+      {model.games[0] && <Scorecard game={model.games[0]} n={n} />}
+
       <p className="np__sample">
         <strong>n = {n}</strong> scored game{n === 1 ? '' : 's'} for {model.model_label}.{' '}
         {data.sample_note} The first formal review comes at{' '}
@@ -140,13 +144,173 @@ export function NflProspectiveSection({ data }: { data: NflProspectiveResults })
         </div>
       )}
 
+      <Calibration games={model.games} label={model.model_label} />
+
       <div className="np__games">
+        <h4 className="np__section-title">Every scored game</h4>
         {model.games.map((game) => <GameCard key={game.evaluation_id} game={game} />)}
       </div>
 
       <Inventory data={data} />
     </section>
   )
+}
+
+/**
+ * The headline scorecard: what the forecast said, what happened, in one look.
+ *
+ * The whole NE @ SEA story has three parts and a reader should get all three
+ * without doing arithmetic: the winner was right, the margin was almost exact,
+ * and the scoring level was badly overestimated. Those are three different
+ * findings, so they get three separate readouts -- and the predicted-against-
+ * actual chart puts every quantity on ONE shared scale, which is what makes a
+ * 0.19-point miss and a 19.69-point miss look as different as they are.
+ */
+function Scorecard({ game, n }: { game: ProspectiveGame; n: number }) {
+  const away = game.away?.abbreviation ?? 'AWAY'
+  const home = game.home?.abbreviation ?? 'HOME'
+  const correct = game.outcome.winner_correct
+  return (
+    <section className={`np-card${correct ? ' is-correct' : ' is-wrong'}`}
+      aria-label="Most recent scored NFL forecast">
+      <header className="np-card__head">
+        <span className="np-card__eyebrow">
+          Most recent scored game{n === 1 ? ' · the only one so far' : ''}
+        </span>
+        <span className={`np-card__verdict${correct ? ' is-correct' : ' is-wrong'}`}>
+          {correct ? <CheckCircle2 size={17} aria-hidden="true" /> : <XCircle size={17} aria-hidden="true" />}
+          {correct ? 'Winner correct' : 'Winner wrong'}
+        </span>
+      </header>
+
+      <div className="np-card__score">
+        <div className="np-card__team">
+          <TeamLogo league="NFL" abbreviation={away} size={72} />
+          <div className="np-card__name">
+            <b>{game.away?.name ?? away}</b>
+            <small>predicted {number(game.scores.predicted_away, 1)}</small>
+          </div>
+          <strong className="np-card__points">{game.final.away}</strong>
+        </div>
+        <span className="np-card__at">FINAL</span>
+        <div className="np-card__team np-card__team--home">
+          <strong className="np-card__points">{game.final.home}</strong>
+          <div className="np-card__name">
+            <b>{game.home?.name ?? home}</b>
+            <small>predicted {number(game.scores.predicted_home, 1)}</small>
+          </div>
+          <TeamLogo league="NFL" abbreviation={home} size={72} />
+        </div>
+      </div>
+
+      <div className="np-card__verdicts">
+        <div>
+          <small>Winner</small>
+          <strong className={correct ? 'is-good' : 'is-bad'}>{correct ? 'Right' : 'Wrong'}</strong>
+          <span>{percent(game.outcome.probability_of_actual)} given to what happened</span>
+        </div>
+        <div>
+          <small>Margin error</small>
+          <strong className="is-good">{signed(game.margin.error, 2)}</strong>
+          <span>{number(game.margin.predicted, 2)} predicted, {game.margin.actual} actual</span>
+        </div>
+        <div>
+          <small>Total error</small>
+          <strong className="is-bad">{signed(game.total.error, 2)}</strong>
+          <span>{number(game.total.predicted, 2)} predicted, {game.total.actual} actual</span>
+        </div>
+      </div>
+
+      <PredictedVsActualChart
+        rows={[
+          { key: 'home', label: `${home} score`, predicted: game.scores.predicted_home ?? 0, actual: game.final.home, unit: 'pts' },
+          { key: 'away', label: `${away} score`, predicted: game.scores.predicted_away ?? 0, actual: game.final.away, unit: 'pts' },
+          { key: 'margin', label: 'Margin', predicted: game.margin.predicted ?? 0, actual: game.margin.actual, unit: 'pts' },
+          { key: 'total', label: 'Total', predicted: game.total.predicted ?? 0, actual: game.total.actual, unit: 'pts' },
+        ]}
+        domain={[0, Math.max(50, (game.total.predicted ?? 0) + 6)]} />
+
+      <p className="np-card__story">
+        The model picked the right winner and got the margin almost exactly right, while
+        overestimating the scoring level by {number(game.total.error, 1)} points. Those are three
+        separate findings. With {n === 1 ? 'one game' : `${n} games`} none of them establishes
+        whether the model is good, and the excellent margin may be nothing more than two large
+        same-direction score errors cancelling out.
+      </p>
+      <ResultProvenance result={game.result} />
+    </section>
+  )
+}
+
+/**
+ * Calibration, drawn honestly at the sample we actually have.
+ *
+ * Forecasts are bucketed by the probability they gave the home side and
+ * plotted against how often the home side actually won. At n=1 that is one dot
+ * with an interval covering most of the square, which is the correct picture
+ * of knowing nothing yet -- so it ships from the first game with the interval
+ * and the count visible, rather than being withheld until the number flatters
+ * us.
+ *
+ * The interval is Wilson at 95%, which behaves at n=1 where the normal
+ * approximation would collapse to zero width and imply certainty.
+ */
+function Calibration({ games, label }: { games: ProspectiveGame[]; label: string }) {
+  const bins = useMemo(() => {
+    const edges = [0, 0.2, 0.4, 0.6, 0.8, 1]
+    return edges.slice(0, -1).map((low, index) => {
+      const high = edges[index + 1]
+      const inBin = games.filter((game) => {
+        const probability = game.outcome.published_probabilities?.home
+        if (probability == null) return false
+        return probability >= low && (index === edges.length - 2 ? probability <= high : probability < high)
+      })
+      const wins = inBin.filter((game) => game.outcome.actual === 'HOME').length
+      const count = inBin.length
+      const forecast = count === 0
+        ? (low + high) / 2
+        : inBin.reduce((sum, game) => sum + (game.outcome.published_probabilities?.home ?? 0), 0) / count
+      return {
+        label: `${Math.round(low * 100)}-${Math.round(high * 100)}%`,
+        forecast,
+        observed: count === 0 ? null : wins / count,
+        n: count,
+        ...wilson(wins, count),
+      }
+    })
+  }, [games])
+  const scored = games.length
+  return (
+    <section className="np__calibration" aria-label="Calibration">
+      <div>
+        <h4 className="np__section-title">Is the model&apos;s confidence honest?</h4>
+        <p className="np__lede">
+          Every scored forecast is grouped by the probability it gave the home team, then plotted
+          against how often the home team actually won. A perfectly calibrated model sits on the
+          dashed diagonal. Dot size is the number of games in that bucket; the vertical bar is the
+          95% interval around the observed rate.
+        </p>
+        <p className="np__note">
+          With {scored} scored game{scored === 1 ? '' : 's'} for {label}, that interval spans almost
+          the whole range. That is the correct reading, not a rendering fault: this diagram cannot
+          yet tell a well-calibrated model from a badly calibrated one, and it is drawn at this size
+          so the uncertainty is visible rather than left to be assumed.
+        </p>
+      </div>
+      <CalibrationChart bins={bins} size={340} />
+    </section>
+  )
+}
+
+/** Wilson score interval. Unlike the normal approximation it behaves at n=1. */
+function wilson(successes: number, n: number): { low: number | null; high: number | null } {
+  if (n === 0) return { low: null, high: null }
+  const z = 1.96
+  const rate = successes / n
+  const denominator = 1 + (z * z) / n
+  const centre = (rate + (z * z) / (2 * n)) / denominator
+  const spread = (z / denominator) * Math.sqrt((rate * (1 - rate)) / n + (z * z) / (4 * n * n))
+  return { low: Math.max(0, centre - spread), high: Math.min(1, centre + spread) }
 }
 
 function Stat({ label, value, sub, hint }: { label: string; value: string; sub?: string; hint?: string }) {

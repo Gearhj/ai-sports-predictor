@@ -14,6 +14,30 @@
  */
 import type { DashboardData, ForecastGame } from '../types/domain'
 import type { NflEngine, NflEvent, NflMarketBlock } from '../types/nfl'
+import { teamIdentity } from './teamIdentity'
+
+/**
+ * Resolve a side through the canonical identity table.
+ *
+ * Done HERE rather than in each component so one fix reaches every surface at
+ * once. The API's `name` is kept only when we have no canonical record for the
+ * club, which is the case that should look obviously unfinished rather than
+ * silently plausible.
+ *
+ * This is why the slate says "Los Angeles Rams" while `teams.name` in the
+ * database still says "St. Louis Rams": that row is the franchise's founding
+ * identity, and rendering it against a 2026 fixture is simply wrong.
+ */
+function side(
+  league: 'MLB' | 'NFL', abbreviation: string, apiName: string, apiColor?: string | null,
+): SlateTeam {
+  const identity = teamIdentity(league, abbreviation)
+  return {
+    abbreviation: identity.abbreviation,
+    name: identity.known ? identity.name : apiName,
+    color: identity.known ? identity.primary : (apiColor ?? null),
+  }
+}
 
 export interface SlateTeam {
   abbreviation: string
@@ -76,8 +100,8 @@ export function mlbSlate(data: DashboardData | null): SlateGame[] {
       gameId: game.id,
       startsAt: game.start_time ?? null,
       status: game.status ?? 'SCHEDULED',
-      home: { abbreviation: game.home_team.abbreviation, name: game.home_team.name, color: game.home_team.color ?? null },
-      away: { abbreviation: game.away_team.abbreviation, name: game.away_team.name, color: game.away_team.color ?? null },
+      home: side('MLB', game.home_team.abbreviation, game.home_team.name, game.home_team.color),
+      away: side('MLB', game.away_team.abbreviation, game.away_team.name, game.away_team.color),
       homeWin,
       awayWin: fraction(game.away_win_probability),
       tie: null,
@@ -134,8 +158,8 @@ export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST')
       gameId: event.canonical_game_id ?? null,
       startsAt: event.kickoff_utc ?? null,
       status: event.state ?? 'UPCOMING',
-      home: { abbreviation: event.home.abbreviation, name: event.home.name, color: null },
-      away: { abbreviation: event.away.abbreviation, name: event.away.name, color: null },
+      home: side('NFL', event.home.abbreviation, event.home.name),
+      away: side('NFL', event.away.abbreviation, event.away.name),
       homeWin: engine?.home_win_probability ?? null,
       awayWin: engine?.away_win_probability ?? null,
       tie: engine?.tie_probability ?? null,

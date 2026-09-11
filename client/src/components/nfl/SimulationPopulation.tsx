@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Eraser, Expand, Maximize2, Pause, Play, RotateCcw,
 } from 'lucide-react'
+import { AccumulationChart } from '../charts/d3Charts'
 import { PopulationField } from './PopulationField'
 import { buildDensity } from './populationDensity'
 import {
@@ -222,6 +223,18 @@ export function SimulationPopulation({
   const home = population.home_team?.abbreviation ?? 'HOME'
   const away = population.away_team?.abbreviation ?? 'AWAY'
 
+  // One point per ~2.5% of the reveal, so the curve fills smoothly without the
+  // chart re-rendering on every single play.
+  const accumulation = useMemo(() => {
+    const step = Math.max(1, Math.round(Math.max(1, revealed) / 40))
+    const points: { x: number; y: number }[] = []
+    for (let index = 0; index <= revealed; index += step) points.push({ x: index, y: index })
+    if (points.length === 0 || points[points.length - 1].x !== revealed) {
+      points.push({ x: revealed, y: revealed })
+    }
+    return points
+  }, [revealed])
+
   return (
     <div className={`pop${fullscreen ? ' pop--fullscreen' : ''}`} ref={wrapRef}>
       <header className="pop__head">
@@ -294,6 +307,32 @@ export function SimulationPopulation({
             )}
           </p>
         </div>
+
+        {/* The live panel sits BESIDE the field, not under it. Watching plays
+            accumulate and then scrolling to find out what they added up to are
+            two different activities; this makes them one. */}
+        <section className="pop-stats-block pop-stats-block--live">
+          <h4>On this field <small>{stats.plays.toLocaleString()} plays drawn</small></h4>
+          <dl>
+            <div><dt>Pass / run mix</dt><dd>{pct(stats.passShare)} pass<small>{stats.passAttempts} attempts · {stats.rushes} rushes</small></dd></div>
+            <div><dt>Completion rate</dt><dd>{pct(stats.completionRate)}<small>{stats.completions} of {stats.passAttempts} attempts</small></dd></div>
+            <div><dt>Yards per play</dt><dd>{num(stats.yards.mean, 2)}<small>median {num(stats.yards.median, 0)} · over {stats.scrimmage} scrimmage plays</small></dd></div>
+            <div><dt>Turnover rate</dt><dd>{pct(stats.turnoverRate, 2)}<small>{stats.turnovers} in {stats.scrimmage} scrimmage plays</small></dd></div>
+            <div><dt>Scoring plays</dt><dd>{pct(stats.scoringRate, 2)}<small>{stats.scoring} in {stats.scrimmage} scrimmage plays</small></dd></div>
+          </dl>
+          <YardHistogram histogram={stats.histogram} />
+          {/* Each point is one more saved play drawn onto the field. The step
+              shape is deliberate: there is no "between" two plays to smooth
+              through, and a smooth curve would imply there is. */}
+          <AccumulationChart points={accumulation} height={100}
+            label="Plays revealed" valueLabel={`${revealed.toLocaleString()} of ${selected.length.toLocaleString()}`} />
+          <p className="pop-denominator">
+            Every number here counts only the plays currently on the field — what the filters and
+            the playback position leave selected. These are outcome-selected representative games,
+            so this is not an unbiased sample of the population and no win probability is computed
+            from it.
+          </p>
+        </section>
 
         <div className="pop__controls" aria-label="Population controls">
           <div className="pop__transport">
@@ -435,18 +474,6 @@ export function SimulationPopulation({
       </div>
 
       <div className="pop__stats">
-        <section className="pop-stats-block">
-          <h4>On this field <small>{stats.plays.toLocaleString()} plays drawn</small></h4>
-          <dl>
-            <div><dt>Pass / run mix</dt><dd>{pct(stats.passShare)} pass<small>{stats.passAttempts} attempts · {stats.rushes} rushes</small></dd></div>
-            <div><dt>Completion rate</dt><dd>{pct(stats.completionRate)}<small>{stats.completions} of {stats.passAttempts} attempts</small></dd></div>
-            <div><dt>Turnover rate</dt><dd>{pct(stats.turnoverRate, 2)}<small>{stats.turnovers} in {stats.scrimmage} scrimmage plays</small></dd></div>
-            <div><dt>Scoring plays</dt><dd>{pct(stats.scoringRate, 2)}<small>{stats.scoring} in {stats.scrimmage} scrimmage plays</small></dd></div>
-            <div><dt>Yards per play</dt><dd>{num(stats.yards.mean, 2)}<small>median {num(stats.yards.median, 0)} · 5–95% {num(stats.yards.p05, 0)} to {num(stats.yards.p95, 0)}</small></dd></div>
-          </dl>
-          <YardHistogram histogram={stats.histogram} />
-        </section>
-
         <section className="pop-stats-block pop-stats-block--population">
           <h4>
             Full simulated population

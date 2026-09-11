@@ -11,6 +11,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
     "lucide-react": "^0.468.0",
