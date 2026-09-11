@@ -438,8 +438,25 @@ def _validate_forecast(
         raise DailyV18ImportError("Daily forecast contains nonterminating simulations")
     if simulation.get("deterministicReplay") is not True:
         raise DailyV18ImportError("Daily forecast lacks deterministic replay verification")
+    # THREE CLOCKS, NEVER TWO
+    #
+    # `capturedAt` is when the producer's evidence was cut. `forecastCreatedAt`
+    # is when the forecast actually existed. They are minutes apart -- seven on
+    # this slate -- and collapsing them into one value claims we held the
+    # forecast before it had been computed. That error runs in the dangerous
+    # direction: it makes a forecast look MORE prospective than it was, which
+    # is exactly the claim prospective scoring rests on.
     captured = _aware(forecast.get("capturedAt"))
+    created = _aware(forecast.get("forecastCreatedAt")) if forecast.get("forecastCreatedAt") else captured
     scheduled = _aware(forecast.get("scheduledStart"))
+    if captured > created:
+        raise DailyV18ImportError(
+            "Daily forecast was published before its own evidence cutoff "
+            f"(capturedAt {captured.isoformat()} > forecastCreatedAt {created.isoformat()})")
+    if created >= scheduled:
+        raise DailyV18ImportError(
+            "Daily forecast was published at or after first pitch "
+            f"(forecastCreatedAt {created.isoformat()} >= scheduledStart {scheduled.isoformat()})")
     if captured >= scheduled:
         raise DailyV18ImportError("Daily forecast was captured at or after first pitch")
     if evidence.get("game", {}).get("game_id") != game_id:
@@ -613,6 +630,9 @@ def _forecast_row(
     parent = forecast.get("parentAuthority") or {}
     events = list(item.representative_path.get("events") or [])
     captured = _aware(forecast["capturedAt"])
+    # Publication time, falling back to the evidence cutoff only for a legacy
+    # payload that predates the field. Never the other way round.
+    created = _aware(forecast["forecastCreatedAt"]) if forecast.get("forecastCreatedAt") else captured
     scheduled = _aware(forecast["scheduledStart"])
     teams = forecast.get("teams") or {}
     lineup_authorities = forecast.get("lineupAuthorities") or {}
@@ -647,9 +667,14 @@ def _forecast_row(
         status=SHADOW_STATUS,
         scheduled_start_utc=scheduled,
         schedule_as_of_utc=captured,
+        # The evidence cutoff: the last instant of source data behind this
+        # forecast.
         source_cutoff_utc=captured,
         forecast_cutoff_utc=captured,
-        available_as_of_utc=captured,
+        # When the forecast became available. This is what every eligibility
+        # rule in AISP compares against kickoff, so it must be the producer's
+        # publication clock and not its evidence clock.
+        available_as_of_utc=created,
         full_home_win_probability=float(probabilities["homeWin"]),
         full_away_win_probability=float(probabilities["awayWin"]),
         full_expected_home_score=float(expectations["homeRuns"]),

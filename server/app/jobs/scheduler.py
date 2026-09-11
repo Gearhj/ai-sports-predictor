@@ -379,6 +379,17 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         )
     if not settings.scheduler_core_jobs_enabled:
         return scheduler
+    # Canonical events for the NEXT slate, registered before anything needs to
+    # map to one. First among the core jobs deliberately: V18 publication, odds
+    # collection and the coverage funnel can only address a game AISP has
+    # registered, and until this existed AISP registered only today's.
+    scheduler.add_job(
+        execute_scheduled_job, "interval", minutes=180, jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+        id="asp-mlb-event-bridge",
+        kwargs={"job_name": "bridge-mlb-canonical-events", "settings": settings},
+        **common,
+    )
     scheduler.add_job(
         execute_scheduled_job,
         "cron",

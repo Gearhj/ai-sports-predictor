@@ -69,6 +69,7 @@ STARTER_HEARTBEAT_VERSION = "AISP_STARTER_HEARTBEAT_V1"
 
 AVAILABLE_JOBS = {
     "refresh-schedule": "Refresh Today's Schedule",
+    "bridge-mlb-canonical-events": "Register Upcoming MLB Canonical Events",
     "refresh-mlb-data": "Refresh MLB Data",
     "refresh-statcast": "Refresh Statcast",
     "refresh-odds": "Refresh Odds",
@@ -188,6 +189,7 @@ class JobOrchestrator:
     async def _execute(self, name: str, event_date: date) -> dict[str, Any]:
         handlers: dict[str, Callable[[date], Awaitable[dict[str, Any]]]] = {
             "refresh-schedule": self.refresh_schedule,
+            "bridge-mlb-canonical-events": self.bridge_mlb_canonical_events,
             "refresh-mlb-data": self.refresh_mlb_data,
             "refresh-statcast": self.refresh_statcast,
             "refresh-odds": self.refresh_odds,
@@ -1220,6 +1222,31 @@ class JobOrchestrator:
         self._ingestion_run(envelope, archived.raw_file_reference, len(persisted), "refresh-schedule")
         self.session.commit()
         return {"records": len(persisted), "games": len(persisted), "source": envelope.source, "source_mode": mode}
+
+    async def bridge_mlb_canonical_events(self, event_date: date) -> dict[str, Any]:
+        """Register canonical MLB events for today and the next two days.
+
+        Exists because AISP only ever created events for the CURRENT date, so
+        a publisher working a day ahead found an empty table a day ahead --
+        every game on the next slate came back
+        CANONICAL_EVENT_NOT_REGISTERED_IN_LOCAL_IDENTITY_SOURCE. Nothing about
+        identity resolution is reimplemented here: this runs the governed
+        normalizer, which keys on the league's own gamePk and refuses an
+        ambiguous doubleheader, over a forward horizon instead of one day.
+
+        Free public schedule endpoint, one request per date, no key and no
+        metered allowance. It creates no forecast, decision or position.
+        """
+
+        from app.services.mlb_event_bridge import MlbEventBridge
+
+        outcome = await MlbEventBridge(self.session, self.settings).run(start=event_date)
+        self.session.flush()
+        return {
+            "records": outcome["events_registered"],
+            **outcome,
+            "event_date": event_date.isoformat(),
+        }
 
     async def refresh_mlb_data(self, event_date: date) -> dict[str, Any]:
         live_game_exists = self.session.scalar(
