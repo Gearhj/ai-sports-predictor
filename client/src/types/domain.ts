@@ -273,8 +273,21 @@ export interface BettingPerformance {
   current_bankroll: number
   net_profit_loss: number
   total_risked: number
+  settled_stake?: number
+  open_exposure?: number
+  payouts?: number
   roi: number | null
   yield_pct: number | null
+  bankroll_return_pct?: number | null
+  return_on_settled_stake_pct?: number | null
+  peak_bankroll?: number | null
+  lowest_bankroll?: number | null
+  max_drawdown_pct_of_peak?: number | null
+  streak_result?: string | null
+  streak_length?: number
+  best_settled_profit?: number | null
+  worst_settled_profit?: number | null
+  top_two_wins_share_of_profit_pct?: number | null
   positions: number
   settled: number
   open: number
@@ -741,8 +754,20 @@ export interface BankrollData extends DataProvenance {
   starting_bankroll: number
   current_bankroll: number
   peak_bankroll: number
+  lowest_bankroll?: number | null
   total_return: number
+  /**
+   * Legacy: realized profit over ALL stake, open exposure included. Never
+   * display this as a return -- use the two explicit measures below, each of
+   * which names its own denominator.
+   */
   roi: number
+  /** Realized profit / starting bankroll. +0.345% on this ledger. */
+  bankroll_return_pct?: number | null
+  /** Realized profit / settled stake. +11.50% on this ledger. */
+  return_on_settled_stake_pct?: number | null
+  settled_stake?: number | null
+  open_exposure?: number | null
   max_drawdown: number
   record: string
   positions_count: number

@@ -907,6 +907,10 @@ class ShadowExperimentService:
         longest_streak = 0
         wins = losses = pushes = voids = 0
         total_risked = 0.0
+        settled_stake = 0.0
+        open_exposure = 0.0
+        payouts = 0.0
+        trough = starting
         clvs: list[float] = []
         beats = 0
         rows: list[dict[str, Any]] = []
@@ -950,10 +954,21 @@ class ShadowExperimentService:
                 "high_water": round(peak, 2), "drawdown": round(peak - balance, 2),
                 "settled_at": settled_local.isoformat(),
             })
+            trough = min(trough, balance)
         for position, decision in position_rows:
             settlement = settlements.get(position.id)
             stake = float(position.stake)
             total_risked += stake
+            # Settled stake is the denominator a realized return belongs over.
+            # `total_risked` includes money still on an unsettled position, and
+            # dividing a REALIZED profit by it understates the return while
+            # looking like a precise number -- it is the difference between
+            # 11.50% and 10.62% on this ledger.
+            if settlement is not None:
+                settled_stake += stake
+                payouts += float(position.payout or 0.0)
+            else:
+                open_exposure += stake
             result = settlement.result.value.upper() if settlement else "OPEN"
             profit = float(settlement.profit_loss) if settlement else 0.0
             if settlement is not None:
@@ -1022,7 +1037,46 @@ class ShadowExperimentService:
             })
         settled_count = len(settlements)
         net = balance - starting
+        # Retained under its old name so no existing caller changes behaviour.
+        # It is NOT displayed as "ROI" anywhere any more: see the two measures
+        # below, which say what they are divided by.
         roi = (net / total_risked * 100) if total_risked else None
+        #: Profit as a share of the money the experiment started with. This is
+        #: what a reader means by "how is the bankroll doing" -- $1,000 to
+        #: $1,003.45 is +0.35%, and nothing should ever present that as +11%.
+        bankroll_return = (net / starting * 100) if starting else None
+        #: Realized profit as a share of the stake that has actually resolved.
+        #: A much larger number than the bankroll return because the stakes are
+        #: tiny; useful, and meaningless unless the denominator is stated.
+        return_on_settled_stake = (net / settled_stake * 100) if settled_stake else None
+        #: Result of the most recent settlement, and how many in a row.
+        streak_result: str | None = None
+        streak_length = 0
+        for point in reversed(equity[1:]):
+            result = point.get("result")
+            if result in (None, "PUSH", "VOID"):
+                continue
+            if streak_result is None:
+                streak_result = result
+                streak_length = 1
+            elif result == streak_result:
+                streak_length += 1
+            else:
+                break
+        #: How much of the realized profit rests on the single best result. At
+        #: a small sample this is usually the most important number on the page
+        #: and it is never flattering, which is exactly why it is computed.
+        settled_profits = [
+            float(settlement.profit_loss)
+            for settlement in settlements.values()
+        ]
+        best_result = max(settled_profits) if settled_profits else None
+        worst_result = min(settled_profits) if settled_profits else None
+        wins_only = sorted((value for value in settled_profits if value > 0), reverse=True)
+        concentration = (
+            round(sum(wins_only[:2]) / net * 100, 1)
+            if net > 0 and wins_only else None
+        )
         slate_dates = set(self.session.scalars(select(ShadowExperimentDecision.slate_date).where(ShadowExperimentDecision.experiment_id == experiment.id)))
         primary_dates = {decision.slate_date for _, decision in position_rows}
         slate_dates.add(experiment.start_date)
@@ -1030,8 +1084,23 @@ class ShadowExperimentService:
         betting = {
             "starting_bankroll": round(starting, 2), "current_bankroll": round(balance, 2),
             "net_profit_loss": round(net, 2), "total_risked": round(total_risked, 2),
+            "settled_stake": round(settled_stake, 2),
+            "open_exposure": round(open_exposure, 2),
+            "payouts": round(payouts, 2),
             "roi": round(roi, 2) if roi is not None else None,
             "yield_pct": round(roi, 2) if roi is not None else None,
+            "bankroll_return_pct": round(bankroll_return, 3) if bankroll_return is not None else None,
+            "return_on_settled_stake_pct": (
+                round(return_on_settled_stake, 2) if return_on_settled_stake is not None else None
+            ),
+            "peak_bankroll": round(peak, 2),
+            "lowest_bankroll": round(trough, 2),
+            "max_drawdown_pct_of_peak": round(max_dd / peak * 100, 3) if peak else 0.0,
+            "streak_result": streak_result,
+            "streak_length": streak_length,
+            "best_settled_profit": round(best_result, 2) if best_result is not None else None,
+            "worst_settled_profit": round(worst_result, 2) if worst_result is not None else None,
+            "top_two_wins_share_of_profit_pct": concentration,
             "positions": len(position_rows), "settled": settled_count, "open": len(position_rows) - settled_count,
             "wins": wins, "losses": losses, "pushes": pushes, "voids": voids,
             "record": f"{wins}–{losses}–{pushes}",
@@ -1066,6 +1135,13 @@ class ShadowExperimentService:
             "record": f"{wins}–{losses}–{pushes}", "positions": rows,
             "equity": equity, "monthly": monthly_rows, "betting": betting,
             "open_positions": len(position_rows) - settled_count, "settled_positions": settled_count,
+            "settled_stake": round(settled_stake, 2),
+            "open_exposure": round(open_exposure, 2),
+            "bankroll_return_pct": round(bankroll_return, 3) if bankroll_return is not None else None,
+            "return_on_settled_stake_pct": (
+                round(return_on_settled_stake, 2) if return_on_settled_stake is not None else None
+            ),
+            "lowest_bankroll": round(trough, 2),
             "no_bet_days": no_bet_days,
             "daily": self._daily_rows(experiment, position_rows, settlements),
             "current_drawdown": round((peak - balance) / peak * 100, 3) if peak else 0.0,

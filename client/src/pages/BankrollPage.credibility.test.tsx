@@ -390,7 +390,7 @@ describe('position history', () => {
     const ledger = await screen.findByRole('region', { name: 'Complete position ledger' })
     expect(within(ledger).getAllByText('LOSS')).toHaveLength(5)
     expect(within(ledger).getAllByText('WIN')).toHaveLength(3)
-    expect(screen.getByText('NO CHERRY-PICKING · IMMUTABLE POSITION HISTORY')).toBeInTheDocument()
+    expect(screen.getByText('Every position as a table')).toBeInTheDocument()
     expect(screen.getByText('Losses are never removed')).toBeInTheDocument()
   })
 
@@ -490,10 +490,15 @@ describe('funnel presentation and today’s result', () => {
     expect(within(details).getByText('Qualification funnel')).toBeInTheDocument()
     expect(within(details).getByText(/DET @ CLE/)).toBeInTheDocument() // per-game evidence still present
     const text = container.textContent ?? ''
-    expect(text.indexOf('Every position')).toBeLessThan(text.indexOf("How today's slate was screened"))
-    expect(text.indexOf('Bankroll after each settlement')).toBeLessThan(text.indexOf('Every position'))
-    expect(text.indexOf('ROI on risked capital')).toBeLessThan(text.indexOf('Bankroll after each settlement'))
-    expect(text.indexOf("How today's slate was screened")).toBeLessThan(text.indexOf('How this experiment works'))
+    // Order of the primary reading flow: the chart, then the full tape, then
+    // the screening funnel further down.
+    expect(text.indexOf('The tape')).toBeLessThan(text.indexOf("How today's slate was screened"))
+    expect(text.indexOf('Every dollar, in settlement order')).toBeLessThan(text.indexOf('The tape'))
+    // ...and the audit material stays after all of it: the bookkeeping grids
+    // and the settlement-by-settlement table are complete and one click away,
+    // not the first thing a reader meets.
+    expect(text.indexOf('What it risked')).toBeLessThan(text.indexOf('Full bookkeeping detail'))
+    expect(text.indexOf('The tape')).toBeLessThan(text.indexOf('Every position as a table'))
   })
 
   it('reports a zero-position day as a valid NO BET result', async () => {

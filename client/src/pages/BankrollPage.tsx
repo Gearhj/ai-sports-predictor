@@ -12,6 +12,11 @@ import { useApiResource } from '../hooks/useApiResource'
 import { endpoints } from '../services/api'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import type { BankrollData, EquityCurvePoint, ExperimentComparison, QualificationFunnel as FunnelData } from '../types/domain'
+import {
+  BankrollHero, ExperimentNarrative, HowItWorks, RiskAnalytics, SettlementTape,
+} from '../components/experiment/BankrollPanels'
+import { EquityDrawdownChart } from '../components/experiment/EquityDrawdownChart'
+import { bankrollFacts, equitySeries, narrative } from '../components/experiment/bankrollMath'
 
 type PositionRow = BankrollData['positions'][number]
 type ExperimentKey = 'v1' | 'v2'
@@ -353,7 +358,7 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     const shownState = stale ? 'loading' : !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
     return (
       <div className="page bankroll-page">
-        <PageHeader eyebrow={headerEyebrow} title="Can AI Beat the Sportsbooks?" description={contractSentence} actions={<ExperimentBadge />} />
+        <PageHeader eyebrow={headerEyebrow} title="$1,000 Experiment" description={contractSentence} actions={<ExperimentBadge />} />
         {selector}
         <DataModeBanner state={shownState} loading={loading} error={error} onRetry={refresh} />
         {shownState === 'empty' && (
@@ -397,6 +402,10 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
   const maxDrawdownPct = Math.abs(data.max_drawdown)
   const positionsOnDate = data.positions.filter((position) => position.date === funnelDate).length
   const todayResult = demo ? null : deriveTodayResult(funnel, positionsOnDate)
+  // One derivation, shared with the home preview, so the two surfaces can
+  // never disagree about what the bankroll returned.
+  const facts = bankrollFacts(data)
+  const equityPoints = equitySeries(data.equity_curve, facts.startingBankroll)
   const evidenceStage = data.decision_metrics?.evidence_stage ?? null
   const chainReconciled = betting?.bankroll_chain_reconciled ?? true
   const statusChip = data.experiment_status === 'SCHEDULED'
@@ -406,7 +415,7 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
   return (
     <div className="page bankroll-page">
       {/* A. Hero: title, role, contract sentence, honest badges */}
-      <PageHeader eyebrow={headerEyebrow} title="Can AI Beat the Sportsbooks?" description={contractSentence} actions={<ExperimentBadge />} />
+      <PageHeader eyebrow={headerEyebrow} title="$1,000 Experiment" description={contractSentence} actions={<ExperimentBadge />} />
       {selector}
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
       <div className="experiment-badge-row" aria-label="Experiment status badges">
@@ -437,7 +446,73 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
         </div>
       )}
 
-      {/* B. Primary scoreboard — bookkeeping facts only */}
+      {/* B. The experiment at a glance: one very large number, and every
+             return measure named for the denominator it divides by. The old
+             six-up KPI grids are still below, under a details drawer, for
+             anyone auditing rather than reading. */}
+      <div className="exp">
+        <BankrollHero facts={facts} />
+
+        <section className="exp-page__block" aria-label="What the ledger says">
+          <h2 className="exp-page__title">Where the experiment stands</h2>
+          <ExperimentNarrative lines={narrative(facts)} />
+        </section>
+
+        <section className="exp-page__block" aria-label="Equity and drawdown">
+          <div className="exp-page__block-head">
+            <div>
+              <h2 className="exp-page__title">Every dollar, in settlement order</h2>
+              <p className="exp-muted">
+                The bankroll after each settlement, stepped because it only moves when a position
+                resolves. The shaded band is the drawdown: money that had been won and was given
+                back before the next win.
+              </p>
+            </div>
+          </div>
+          {hasSettled
+            ? <EquityDrawdownChart points={equityPoints} starting={facts.startingBankroll}
+              positions={data.positions ?? []} height={420}
+              openCount={facts.openCount} openExposure={facts.openExposure} />
+            : <p className="exp-empty">
+              No position has settled, so there is no path to draw yet. The bankroll is still
+              exactly {formatCurrency(data.starting_bankroll, 0)}.
+            </p>}
+        </section>
+
+        <section className="exp-page__block" aria-label="Settlement tape">
+          <div className="exp-page__block-head">
+            <div>
+              <h2 className="exp-page__title">The tape</h2>
+              <p className="exp-muted">
+                Every position this experiment has taken, newest first. Losses are never removed and
+                open positions are shown as open — result is carried by shape as well as colour.
+              </p>
+            </div>
+          </div>
+          <SettlementTape positions={data.positions ?? []} league="MLB" />
+        </section>
+
+        <section className="exp-page__block" aria-label="Risk and process">
+          <div className="exp-page__block-head">
+            <div>
+              <h2 className="exp-page__title">What it risked</h2>
+              <p className="exp-muted">
+                Profit is one number out of many. These describe the exposure that produced it, and
+                each slice that cannot yet be drawn honestly says so instead of drawing itself.
+              </p>
+            </div>
+          </div>
+          <RiskAnalytics facts={facts} positions={data.positions ?? []} />
+        </section>
+
+        <HowItWorks facts={facts} />
+      </div>
+
+      {/* C. The original bookkeeping grids, preserved in full for audit but
+             moved out of the primary reading flow. */}
+      <details className="exp-audit">
+        <summary>Full bookkeeping detail</summary>
+        <div className="exp-audit__body">
       <section className="metric-grid metric-grid--six experiment-scoreboard experiment-kpi-primary" aria-label="Bankroll and position counts">
         <MetricCard label="Starting bankroll" value={formatCurrency(data.starting_bankroll, 0)} detail={`Opened ${data.experiment_start_date ?? data.experiment_start?.slice(0, 10) ?? 'unavailable'}`} />
         <MetricCard label="Current bankroll" value={formatCurrency(data.current_bankroll)} detail={hasSettled ? 'After every settlement, no deposits or withdrawals' : `Opened at ${formatCurrency(data.starting_bankroll, 0)}`} />
@@ -466,6 +541,8 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
           trend="neutral"
         />
       </section>
+        </div>
+      </details>
       {!chainReconciled && (
         <p className="experiment-sample-note" role="alert"><strong>Ledger reconciliation warning.</strong> The running bankroll does not reproduce every persisted settlement balance. Figures are shown from the persisted chain; investigate before quoting them.</p>
       )}
@@ -498,22 +575,34 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
       </dl>
 
       {/* D. Bankroll equity curve — advances only on settlements */}
-      <Panel title="Bankroll after each settlement" eyebrow="EQUITY CURVE · STARTS AT THE OPENING BANKROLL · ADVANCES ONLY WHEN A POSITION SETTLES" className="equity-panel">
-        <EquityCurve curve={data.equity_curve} experimentKey={experimentKey} hasSettled={hasSettled} />
-      </Panel>
+      {/* The settlement-by-settlement table that used to sit under the old
+          sparkline. The interactive chart above replaced the picture; this
+          keeps the exact figures one click away. */}
+      <details className="exp-audit">
+        <summary>Equity path, settlement by settlement</summary>
+        <div className="exp-audit__body">
+          <EquityCurve curve={data.equity_curve} experimentKey={experimentKey} hasSettled={hasSettled} />
+        </div>
+      </details>
 
       {/* E. Complete position ledger */}
       {openPositions.length > 0 && (
-        <Panel title="Open positions" eyebrow="AWAITING SETTLEMENT" className="section-panel">
-          <PositionLedger positions={openPositions} demo={demo} ariaLabel="Open positions awaiting settlement" />
-        </Panel>
+        <details className="exp-audit">
+          <summary>Open positions awaiting settlement</summary>
+          <div className="exp-audit__body">
+            <PositionLedger positions={openPositions} demo={demo} ariaLabel="Open positions awaiting settlement" />
+          </div>
+        </details>
       )}
-      <Panel title="Every position" eyebrow="NO CHERRY-PICKING · IMMUTABLE POSITION HISTORY" className="section-panel" action={<span className="info-label"><BookOpenText size={13} /> Losses are never removed</span>}>
+      <details className="exp-audit">
+        <summary>Every position as a table <span className="info-label"><BookOpenText size={13} /> Losses are never removed</span></summary>
+        <div className="exp-audit__body">
         <PositionLedger positions={data.positions} demo={demo} />
         <p className="ledger-legend">
           Decision price, stake, model probability, market (no-vig) probability and adjusted edge are recorded when the position is frozen. Result, P/L, bankroll after, closing price and CLV are recorded once at settlement. “Unavailable” means no closing quote was captured; it is never treated as zero.
         </p>
-      </Panel>
+        </div>
+      </details>
 
       {/* F. Decision metrics + V1 vs V2.1 comparison (separate ledgers, never pooled) */}
       {data.decision_metrics && (

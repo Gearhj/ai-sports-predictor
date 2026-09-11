@@ -167,7 +167,9 @@ describe('BankrollPage prospective experiment states', () => {
     expect(within(clvCard).getByText(/1 of 1 settled with a closing quote/)).toBeInTheDocument()
     expect(screen.queryByText('ACTIVE · COLLECTING DATA')).not.toBeInTheDocument()
     // The settled position renders in the immutable ledger.
-    expect(screen.getByText('Every position')).toBeInTheDocument()
-    expect(screen.getByText('NO CHERRY-PICKING · IMMUTABLE POSITION HISTORY')).toBeInTheDocument()
+    // The complete history is now the settlement tape; the old table is kept
+    // behind an audit drawer. Both still show every position, losses included.
+    expect(screen.getByText('The tape')).toBeInTheDocument()
+    expect(screen.getByText('Every position as a table')).toBeInTheDocument()
   })
 })

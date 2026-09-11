@@ -25,7 +25,7 @@
  */
 import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Beaker, CalendarClock, Flame, LineChart, Radio, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Beaker, CalendarClock, Flame, LineChart, Radio } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
@@ -44,6 +44,11 @@ import { TeamLogo } from '../components/TeamLogo'
 import { onDarkColor, teamIdentity } from '../services/teamIdentity'
 import { RffGauge, bandTone } from '../components/broadcast/RffLab'
 import { ModelVsMarketChart } from '../components/charts/d3Charts'
+import { BankrollHero } from '../components/experiment/BankrollPanels'
+import { EquityDrawdownChart } from '../components/experiment/EquityDrawdownChart'
+import {
+  bankrollFacts, equitySeries, money, openPositions, settledPositions, signedMoney,
+} from '../components/experiment/bankrollMath'
 import '../broadcast.css'
 
 interface HomeBoard {
@@ -214,13 +219,13 @@ export function HomePage() {
               </div>}
           </Panel>
 
-          <Panel eyebrow="$1,000 experiment" title="Virtual bankroll"
-            action={<Link className="bx-btn bx-btn--ghost" to={withSport('/experiment')}>Details <ArrowRight size={14} /></Link>}>
-            {!board?.bankroll
-              ? <p className="bx-empty">The experiment ledger is unavailable.</p>
-              : <BankrollSnapshot bankroll={board.bankroll} />}
-          </Panel>
         </div>
+
+        {board?.bankroll
+          ? <BankrollSnapshot bankroll={board.bankroll} withSport={withSport} />
+          : <Panel eyebrow="$1,000 experiment" title="Virtual bankroll">
+            <p className="bx-empty">The experiment ledger is unavailable.</p>
+          </Panel>}
 
         <div className="bx-home__grid" style={{ gridTemplateColumns: 'minmax(0,1.25fr) minmax(0,1fr)' }}>
           <Panel eyebrow="Spiciest market tonight" title="RFF Index — Ripe For Fuckery"
@@ -362,52 +367,102 @@ function FeatureCard({
   )
 }
 
-function BankrollSnapshot({ bankroll }: { bankroll: BankrollData }) {
-  const curve = bankroll.equity_curve ?? []
-  const values = curve.map((point) => point.bankroll)
-  const min = Math.min(bankroll.starting_bankroll, ...values)
-  const max = Math.max(bankroll.starting_bankroll, ...values)
-  const span = max - min || 1
-  const width = 240
-  const height = 62
-  const points = values.map((value, index) => {
-    const x = values.length === 1 ? width : (index / (values.length - 1)) * width
-    return `${x.toFixed(1)},${(height - ((value - min) / span) * height).toFixed(1)}`
-  }).join(' ')
-  const ahead = bankroll.total_return >= 0
+/**
+ * The $1,000 Experiment, previewed at the size it is worth.
+ *
+ * It used to be a third-width utility card with a $30px balance, an
+ * unexplained green zigzag and a stat labelled "ROI +10.62%" -- a number that
+ * divided realized profit by every dollar staked INCLUDING an open position,
+ * sitting next to a bankroll that had moved 0.35%. A reader could only
+ * conclude the bankroll was up eleven percent. It was not.
+ *
+ * Now it is the full content width: the balance as the hero, both returns
+ * named by their denominator, and a real miniature equity chart that starts
+ * at the labelled $1,000 line and steps once per settlement. The most recent
+ * settlement and the open position are shown as themselves rather than
+ * averaged into anything.
+ */
+function BankrollSnapshot({
+  bankroll, withSport,
+}: { bankroll: BankrollData; withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
+  const facts = bankrollFacts(bankroll)
+  const points = equitySeries(bankroll.equity_curve, facts.startingBankroll)
+  const settled = settledPositions(bankroll.positions)
+  const latest = settled[settled.length - 1] ?? null
+  const open = openPositions(bankroll.positions)[0] ?? null
+
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <div>
-        <strong style={{ fontSize: 30, letterSpacing: '-.04em' }} className="bx-num">
-          ${bankroll.current_bankroll.toFixed(2)}
-        </strong>
-        <p className="bx-dim">
-          from ${bankroll.starting_bankroll.toFixed(0)} · {bankroll.record} · {bankroll.settled_positions ?? 0} settled
-        </p>
+    <section className="exp exp-preview" aria-label="$1,000 Experiment">
+      <div className="exp-preview__head">
+        <div>
+          <span className="bx-eyebrow">$1,000 Experiment</span>
+          <h2>What happened when the model risked a hypothetical $1,000</h2>
+          <p className="bx-muted">
+            {bankroll.experiment_name ?? 'Practical pregame policy'} · every position recorded
+            before first pitch, settled once, never edited. Virtual research — no real wagers.
+          </p>
+        </div>
+        <Link className="bx-btn bx-btn--primary" to={withSport('/experiment')}>
+          Open the full experiment <ArrowRight size={17} />
+        </Link>
       </div>
-      {values.length > 1 && (
-        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none"
-          role="img" aria-label={`Virtual bankroll ${ahead ? 'up' : 'down'} $${Math.abs(bankroll.total_return).toFixed(2)}`}>
-          <polyline points={points} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
-            stroke={ahead ? 'var(--bx-good)' : 'var(--bx-bad)'} />
-        </svg>
-      )}
-      <div className="bx-feature__stats">
-        <Stat label="Return" value={`${ahead ? '+' : ''}$${bankroll.total_return.toFixed(2)}`} tone={ahead ? 'good' : 'bad'} />
-        <Stat label="ROI" value={`${bankroll.roi >= 0 ? '+' : ''}${bankroll.roi.toFixed(2)}%`} tone={ahead ? 'good' : 'bad'} />
-        <Stat label="Open" value={String(bankroll.open_positions ?? 0)} />
+
+      <BankrollHero facts={facts} compact />
+
+      <div className="exp-preview__body">
+        <div className="exp-preview__chart">
+          <EquityDrawdownChart points={points} starting={facts.startingBankroll}
+            positions={bankroll.positions ?? []} compact height={210} />
+          <p className="exp-muted">
+            Each step is one settlement. The dashed line is the {money(facts.startingBankroll, 0)} it
+            opened with.
+          </p>
+        </div>
+
+        <div className="exp-preview__latest">
+          {latest && (
+            <article className={`exp-mini exp-mini--${latest.result.toLowerCase()}`}>
+              <small>Most recent settlement</small>
+              <b>{latest.matchup ?? latest.selection}</b>
+              <span>
+                {latest.selection}
+                {latest.price != null ? ` · ${latest.price > 0 ? '+' : ''}${latest.price}` : ''}
+                {latest.sportsbook ? ` · ${latest.sportsbook}` : ''}
+              </span>
+              <strong className={latest.profit_loss >= 0 ? 'is-up' : 'is-down'}>
+                {signedMoney(latest.profit_loss)}
+              </strong>
+            </article>
+          )}
+          {open
+            ? <article className="exp-mini exp-mini--open">
+              <small>Open position</small>
+              <b>{open.matchup ?? open.selection}</b>
+              <span>
+                {open.selection}
+                {open.price != null ? ` · ${open.price > 0 ? '+' : ''}${open.price}` : ''}
+              </span>
+              <strong>{money(open.stake)} at risk</strong>
+            </article>
+            : <article className="exp-mini exp-mini--open">
+              <small>Open positions</small>
+              <b>None</b>
+              <span>Every position has settled.</span>
+            </article>}
+        </div>
       </div>
-      <p className="bx-dim"><TrendingUp size={12} aria-hidden="true" /> {bankroll.virtual_label ?? 'Virtual research experiment'}.</p>
-    </div>
+
+      <p className="exp-preview__caution">
+        <AlertTriangle size={17} aria-hidden="true" />
+        <span>
+          {facts.settledCount} settled positions is far too few to show a betting edge. These are
+          bookkeeping facts about a virtual ledger, not evidence that the model beats the market.
+        </span>
+      </p>
+    </section>
   )
 }
 
-
-/**
- * One game, one line of explanation, and a link out. RFF is a provisional
- * research index; giving it a hero on an all-sports home page would say it
- * matters more than the forecasts and the prices it is derived from.
- */
 function SpiciestMarket({
   board, withSport,
 }: { board: RffBoard | null; withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {

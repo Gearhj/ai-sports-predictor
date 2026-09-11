@@ -673,8 +673,29 @@ class BettingPerformance(BaseModel):
     current_bankroll: float
     net_profit_loss: float
     total_risked: float
+    #: Stake on positions that have actually resolved. The only honest
+    #: denominator for a realized return.
+    settled_stake: float = 0.0
+    #: Stake still riding on unsettled positions. Never counted as realized.
+    open_exposure: float = 0.0
+    payouts: float = 0.0
+    #: Retained for existing callers. Divides by total_risked, which includes
+    #: open exposure, so it is no longer displayed as a return measure.
     roi: float | None
     yield_pct: float | None
+    #: Realized profit / starting bankroll. "How is the bankroll doing."
+    bankroll_return_pct: float | None = None
+    #: Realized profit / settled stake. Much larger, and meaningless unless
+    #: the denominator is stated beside it.
+    return_on_settled_stake_pct: float | None = None
+    peak_bankroll: float | None = None
+    lowest_bankroll: float | None = None
+    max_drawdown_pct_of_peak: float | None = None
+    streak_result: str | None = None
+    streak_length: int = 0
+    best_settled_profit: float | None = None
+    worst_settled_profit: float | None = None
+    top_two_wins_share_of_profit_pct: float | None = None
     positions: int
     settled: int
     open: int
@@ -738,8 +759,16 @@ class BankrollData(BaseModel):
     starting_bankroll: float
     current_bankroll: float
     peak_bankroll: float
+    lowest_bankroll: float | None = None
     total_return: float
+    #: Legacy field: realized profit / ALL stake including open exposure.
+    #: Kept so nothing breaks; the two explicit measures below are what any
+    #: surface should display, because each says what it divided by.
     roi: float
+    bankroll_return_pct: float | None = None
+    return_on_settled_stake_pct: float | None = None
+    settled_stake: float | None = None
+    open_exposure: float | None = None
     max_drawdown: float
     record: str
     positions_count: int

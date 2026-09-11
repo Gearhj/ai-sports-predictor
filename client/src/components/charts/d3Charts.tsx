@@ -420,8 +420,18 @@ export function MovementChart({
         .attr('fill', 'none').attr('stroke', entry.color).attr('stroke-width', 2.5)
         .attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round')
         .attr('d', line)
-      if (!reduced) {
-        const length = (path.node() as SVGPathElement).getTotalLength()
+      // Guarded: jsdom and some embedded webviews omit the SVG geometry API,
+      // and an unguarded call here threw during the effect rather than simply
+      // skipping the reveal.
+      const node = path.node() as SVGPathElement | null
+      let length: number | null = null
+      if (!reduced && node && typeof node.getTotalLength === 'function') {
+        try {
+          const measured = node.getTotalLength()
+          length = Number.isFinite(measured) && measured > 0 ? measured : null
+        } catch { length = null }
+      }
+      if (length != null) {
         path.attr('stroke-dasharray', `${length} ${length}`).attr('stroke-dashoffset', length)
           .transition().duration(900).ease(d3.easeCubicOut).attr('stroke-dashoffset', 0)
           .on('end', function () { d3.select(this).attr('stroke-dasharray', null) })
