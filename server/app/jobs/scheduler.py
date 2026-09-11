@@ -365,7 +365,8 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     catch_up_at = daily_pipeline_catch_up_time(settings)
     if catch_up_at is not None:
         daily_kwargs["next_run_time"] = catch_up_at
-    if settings.model_exchange_auto_import_enabled:
+    if (settings.model_exchange_auto_import_enabled
+            or settings.mlb_v18_exchange_auto_import_enabled):
         # Recurring consumption of COMPLETED local research artifacts (verified
         # forecast bundles, research supplements, benchmark studies). Never a
         # provider request and never a model execution.
@@ -388,6 +389,16 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         next_run_time=datetime.now(UTC) + timedelta(minutes=2),
         id="asp-mlb-event-bridge",
         kwargs={"job_name": "bridge-mlb-canonical-events", "settings": settings},
+        **common,
+    )
+    # An armed model era opens itself. Five minutes is short enough that the
+    # first slate after the boundary is governed by the new engine, and the job
+    # is a no-op on every run before the boundary and after the snapshot.
+    scheduler.add_job(
+        execute_scheduled_job, "interval", minutes=5, jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=1),
+        id="asp-model-era-boundary",
+        kwargs={"job_name": "open-model-era-at-boundary", "settings": settings},
         **common,
     )
     scheduler.add_job(

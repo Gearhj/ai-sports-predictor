@@ -93,6 +93,7 @@ AVAILABLE_JOBS = {
     "generate-nfl-final-pregame-forecasts": "Generate NFL M1 Final-Pregame Research-Shadow Forecasts",
     "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
     "consume-model-exchange-research-artifacts": "Consume Verified Model Exchange Research Artifacts",
+    "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
     "evaluate-nfl-shadow-board": "Evaluate NFL Research-Shadow Board",
@@ -214,6 +215,7 @@ class JobOrchestrator:
             "generate-nfl-final-pregame-forecasts": self.generate_nfl_final_pregame_forecasts,
             "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
             "consume-model-exchange-research-artifacts": self.consume_model_exchange_artifacts,
+            "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
             "evaluate-nfl-shadow-board": self.evaluate_nfl_shadow_board,
@@ -517,6 +519,24 @@ class JobOrchestrator:
             "records": int(payload.get("accepted_count", 0)) + int(payload.get("supplements_accepted", 0)),
             **payload,
         }
+
+    async def open_model_era_at_boundary(self, event_date: date) -> dict[str, Any]:
+        """Open an armed model era once -- and only once -- its boundary arrives.
+
+        Runs on a cadence rather than at a one-shot scheduled instant so that a
+        process restart across the boundary cannot skip it. Before the boundary
+        it reports ARMED and changes nothing; after it, the first run captures
+        the capital snapshot and every later run is a no-op, because the
+        snapshot column is written exactly once.
+        """
+
+        from app.services.v18_champion import V18ChampionService
+
+        service = V18ChampionService(self.session, self.settings)
+        armed = service.arm_experiment()
+        captured = service.capture_boundary()
+        self.session.commit()
+        return {"armed": armed, "captured": captured, "status": service.status()}
 
     async def import_nfl_shadow_bundle(self, event_date: date) -> dict[str, Any]:
         """Import the configured verified NFL bundle family; no provider call.

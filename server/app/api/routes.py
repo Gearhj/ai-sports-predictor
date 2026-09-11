@@ -539,6 +539,40 @@ def shadow_threshold_ladder(
     return ShadowThresholdLadder(session, settings).summary(league_code=league.upper())
 
 
+@router.get("/research/model-era", tags=["transparency"])
+def model_era_status(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: str | None = Query(None, description="Slate to report V18 coverage for."),
+) -> dict:
+    """Which engine controls prospective MLB decisions, and from exactly when.
+
+    Read-only. It reports the imported authority as it stands -- including the
+    disclosed historical-validation review, which activation does not clear --
+    plus how many of the named slate's games actually have a saved V18 forecast.
+    ARMED and ACTIVE are reported as different things, because before the
+    boundary nothing has changed yet.
+    """
+
+    from datetime import date as _date
+
+    from app.core.time import local_today
+    from app.services.v18_champion import V18ChampionService
+    from app.services.v18_forecast_view import v18_coverage
+
+    service = V18ChampionService(session, settings)
+    payload = service.status()
+    slate = _date.fromisoformat(event_date) if event_date else local_today(settings.display_timezone)
+    if payload.get("present"):
+        payload["coverage"] = v18_coverage(session, slate, engine_id=payload["engine_id"])
+    payload["research_only_note"] = (
+        "V18 is a conditional prospective forecasting champion. AISP reads its "
+        "saved forecasts and never executes the model, no real money is "
+        "authorized, and its historical validation remains under review."
+    )
+    return payload
+
+
 @router.get("/research/nfl-prospective", tags=["transparency"])
 def nfl_prospective_results(session: DatabaseSession) -> dict:
     """Prospective NFL research forecasts scored against final results.

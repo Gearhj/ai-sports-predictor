@@ -268,10 +268,26 @@ def consume_forecast_bundles(
     # bundles. Same single owner, same cadence, same refusal to execute
     # anything -- but a different manifest shape, so it gets its own scanner
     # rather than being forced through the bundle index.
+    payload["v18"] = _consume_v18(session, settings, dry_run=dry_run)
+    return payload
+
+
+def _consume_v18(session: Session, settings: Settings, *, dry_run: bool) -> dict[str, Any]:
+    """The MLB V18 package scan, behind its own switch."""
+
+    if not settings.mlb_v18_exchange_auto_import_enabled:
+        return {
+            "enabled": False,
+            "reason": (
+                "MLB_V18_EXCHANGE_AUTO_IMPORT_ENABLED is false; V18 packages "
+                "are not consumed"
+            ),
+            "imported_count": 0, "reused_count": 0,
+            "accounting_only_count": 0, "rejected_count": 0,
+        }
     from app.jobs.v18_exchange_consumer import consume_v18_packages
 
-    payload["v18"] = consume_v18_packages(session, settings, dry_run=dry_run)
-    return payload
+    return {"enabled": True, **consume_v18_packages(session, settings, dry_run=dry_run)}
 
 
 def _consume_nfl_labs_v1(session: Session, exchange_root: Path, outcome: ConsumeOutcome,
@@ -442,7 +458,9 @@ def run_scheduled_import(session: Session, settings: Settings) -> dict[str, Any]
     """
 
     if not settings.model_exchange_auto_import_enabled:
-        return {
+        # The NFL bundle path stays off, but the MLB V18 path has its own
+        # switch and must still run when only that one is on.
+        payload = {
             "enabled": False,
             "reason": (
                 "MODEL_EXCHANGE_AUTO_IMPORT_ENABLED is false; automatic bundle "
@@ -452,7 +470,10 @@ def run_scheduled_import(session: Session, settings: Settings) -> dict[str, Any]
             "reused_count": 0,
             "rejected_count": 0,
             "skipped_count": 0,
+            "v18": _consume_v18(session, settings, dry_run=False),
         }
+        session.commit()
+        return payload
     payload = consume_forecast_bundles(session, settings)
     session.commit()
     return {"enabled": True, **payload}

@@ -38,6 +38,7 @@ import type {
   ShadowPath,
 } from '../types/shadow'
 import type { CoverageFunnelData } from '../components/CoverageFunnel'
+import type { ModelEraData } from '../components/ModelEraBadge'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
 const TOKEN_KEY = 'asp_access_token'
@@ -104,6 +105,13 @@ export async function apiRequest<T>(
 }
 
 export const endpoints = {
+  /** Which engine controls prospective MLB decisions, and from exactly when. */
+  modelEra: (signal?: AbortSignal, eventDate?: string | null) => {
+    const query = new URLSearchParams()
+    if (eventDate) query.set('event_date', eventDate)
+    const suffix = query.toString() ? `?${query}` : ''
+    return apiRequest<ModelEraData>(`/research/model-era${suffix}`, {}, signal)
+  },
   /** Where every game on one slate stopped, and the first reason it stopped. */
   priceCoverageFunnel: (signal?: AbortSignal, eventDate?: string | null, league = 'MLB') => {
     const query = new URLSearchParams({ league })

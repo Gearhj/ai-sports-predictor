@@ -79,6 +79,10 @@ class Settings(BaseSettings):
         default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
     )
     model_exchange_auto_import_enabled: bool = False
+    #: The MLB V18 package path has its own switch. The flag above also
+    #: turns on the NFL bundle, supplement and lab-study consumers, and
+    #: enabling MLB must not silently enable those too.
+    mlb_v18_exchange_auto_import_enabled: bool = False
     #: Cadence for the recurring research-artifact consumer once it is enabled.
     model_exchange_import_interval_minutes: int = Field(default=15, ge=5, le=240)
     #: Model Studio NFL overnight model laboratory (machine-readable study).

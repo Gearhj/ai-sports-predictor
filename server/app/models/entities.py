@@ -2637,6 +2637,10 @@ class OfficialAspPosition(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "official_asp_positions"
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
     forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"), index=True)
+    #: The producer forecast behind a model-era position. Mirrors the decision.
+    shadow_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_forecasts.id"), index=True
+    )
     market_outcome_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("market_outcomes.id"), nullable=False)
     odds_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("odds_snapshots.id"), index=True)
     placed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -3219,6 +3223,19 @@ class ShadowExperiment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # Frozen challenger-policy calibration (evidence penalties, sample sizes,
     # checksum, evidence multiplier, caps). NULL for the V1 strict control.
     policy_config: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    #: Immutable model-era identity when a producer supplement created this
+    #: experiment at an exact future boundary (e.g. the V18 conditional
+    #: champion). NULL for the original Gen1 experiments.
+    model_era_id: Mapped[str | None] = mapped_column(String(80), unique=True)
+    #: The experiment this one succeeds. Its open positions and settlements
+    #: stay where they are; only reconciled capital carries forward.
+    predecessor_experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_experiments.id"), index=True
+    )
+    #: The atomic capital snapshot taken AT the boundary: realized bankroll,
+    #: reserved open stakes, what carried forward, and the predecessor's last
+    #: decision. Written once; a fabricated opening balance is never accepted.
+    boundary_capital: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -3247,6 +3264,12 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     odds_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("odds_snapshots.id"))
     quote_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("forecasts.id"))
+    #: Set instead of ``forecast_id`` when the controlling engine is a producer
+    #: engine whose saved forecasts live in ``shadow_forecasts``. Exactly one of
+    #: the two is populated, so a decision always names the forecast it used.
+    shadow_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_forecasts.id"), index=True
+    )
     forecast_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_version: Mapped[str | None] = mapped_column(String(40))
@@ -3269,6 +3292,72 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
     )
+
+
+class ModelChampionAuthority(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One imported producer supplement granting PROSPECTIVE forecasting authority.
+
+    WHAT THIS IS AND IS NOT
+    -----------------------
+    It records that a named, frozen, externally fitted model is the primary
+    prospective forecasting champion for one sport from one exact future
+    boundary. It grants nothing else. It does not authorize execution inside
+    AISP, does not authorize real money, does not repair the model's historical
+    validation, and does not relabel a single existing forecast: rows already in
+    ``forecasts`` and ``shadow_forecasts`` keep the provenance they were
+    imported with.
+
+    WHY AUTHORITY CANNOT ARRIVE IN A FORECAST
+    -----------------------------------------
+    An ordinary forecast payload is data from a producer. If a forecast could
+    carry the field that makes its own engine the champion, then anything able
+    to write a forecast could promote itself. Authority therefore arrives only
+    through this separately checksummed supplement, addressed by the digest of
+    the exact bytes that granted it.
+    """
+
+    __tablename__ = "model_champion_authorities"
+    #: sha256 of the exact handoff bytes. The import is idempotent on this.
+    handoff_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    sport: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    #: The engine whose saved forecasts this authority covers.
+    engine_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    #: Frozen fitted-model identity, exactly as the producer named it.
+    model_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    model_artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    champion_manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen_bindings_sha256: Mapped[str | None] = mapped_column(String(64))
+    parent_bundle_id: Mapped[str | None] = mapped_column(String(120))
+    training_run_id: Mapped[str | None] = mapped_column(String(120))
+    #: The model-era identity this authority creates, and when it takes effect.
+    model_era_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Disclosed conditions. Activation does not clear them.
+    historical_validation_under_review: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    historical_integrity_note: Mapped[str | None] = mapped_column(Text)
+    #: Hard refusals, persisted so a later reader cannot assume otherwise.
+    execution_allowed_in_aisp: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    real_money_execution_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    gen1_fallback_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    position_backfill_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    minimum_adjusted_edge: Mapped[float] = mapped_column(Float, nullable=False)
+    recommendation_policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    staking_policy_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    #: ARMED until the boundary arrives, ACTIVE afterwards. Never backdated.
+    state: Mapped[str] = mapped_column(String(24), nullable=False, default="ARMED")
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    #: The experiment this authority created, once it exists.
+    experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shadow_experiments.id"), index=True
+    )
+    #: Verification evidence: which files, which digests, which byte counts.
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class ResearchSupplement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

@@ -129,6 +129,14 @@ class MlbEventBridge:
         for offset in range(horizon_days + 1):
             event_date = start + timedelta(days=offset)
             before = self._registered_gamepks(event_date)
+            # Close the read transaction BEFORE going to the network. A SELECT
+            # leaves a transaction open in SQLAlchemy, and awaiting an HTTP call
+            # with one open pins a Postgres backend in `idle in transaction` for
+            # the whole round trip. Every other scheduled job that touches the
+            # same rows then queues behind it, and a slow league response stops
+            # being this job's problem and becomes the scheduler's. Nothing has
+            # been written yet at this point, so there is nothing to lose.
+            self.session.rollback()
             try:
                 outcome.provider_requests += 1
                 response = await self.adapter.get_schedule(event_date)
@@ -196,6 +204,10 @@ class MlbEventBridge:
             for failure in self._unmapped(candidates):
                 failure["date"] = event_date.isoformat()
                 outcome.mapping_failures.append(failure)
+
+            # Commit each date as it completes, so the next date's network call
+            # does not hold this date's writes open behind it.
+            self.session.commit()
 
         return outcome.as_dict()
 

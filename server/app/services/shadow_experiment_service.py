@@ -165,11 +165,17 @@ class ShadowExperimentService:
             select(ShadowExperiment).where(ShadowExperiment.is_active.is_(True))
             .order_by(ShadowExperiment.version.desc())
         ))
-        latest: dict[str, ShadowExperiment] = {}
+        latest: dict[tuple[str, str | None], ShadowExperiment] = {}
         for row in rows:
             if row.decision_policy in SUPERSEDED_POLICIES:
                 continue
-            latest.setdefault(row.decision_policy, row)
+            # Keyed by policy AND model era. A model era reuses its
+            # predecessor's decision policy on purpose -- the rules are
+            # unchanged, only the forecasting engine moved -- so keying on
+            # policy alone would let the successor evict the predecessor from
+            # every active read, and the predecessor's open positions would
+            # stop settling the moment the era began.
+            latest.setdefault((row.decision_policy, row.model_era_id), row)
         return sorted(latest.values(), key=lambda row: row.version)
 
     def superseded_experiments(self) -> list[tuple[ShadowExperiment, str]]:
@@ -368,6 +374,17 @@ class ShadowExperimentService:
         if event_date < experiment.start_date:
             return {"note": "no historical backfill", "frozen": 0, "primary": 0,
                     "policy": experiment.decision_policy}
+        successor = self._active_successor_era(experiment, now)
+        if successor is not None:
+            # The cutover is one-directional: from the boundary onward this
+            # experiment admits no new decision and no new position. Its
+            # existing open positions keep settling in its own ledger, which is
+            # why this stops admission rather than deactivating the experiment.
+            return {"note": "closed to new decisions at the model-era boundary",
+                    "frozen": 0, "primary": 0, "policy": experiment.decision_policy,
+                    "closed_by_model_era": successor.model_era_id,
+                    "boundary_utc": _aware(successor.started_at).isoformat(),
+                    "existing_positions_still_settle": True}
 
         from app.services.read_service import ReadService
 
@@ -377,7 +394,10 @@ class ShadowExperimentService:
         if not games:
             return {"note": "no live games", "frozen": 0, "primary": 0}
         cards = [read.game_card(game) for game in games]
-        forecasts = [read._latest_forecast(game.id) for game in games]
+        # Which engine's saved forecasts control this experiment. For a model
+        # era there is no fallback: a game without a valid V18 forecast is an
+        # explicit skip, never a Gen1 decision wearing a V18 label.
+        forecasts, era_skips = self._controlling_forecasts(experiment, games, now)
         opportunities, _ = read._daily_opportunities(games, cards, forecasts)
         opportunity_by_game = {item.game_id: item for item in opportunities}
         is_v2 = experiment.decision_policy == V2_DECISION_POLICY
@@ -440,8 +460,65 @@ class ShadowExperimentService:
                 primary_count += 1
 
         self.session.commit()
-        return {"frozen": frozen, "primary": primary_count, "phase": phase.value,
-                "games": len(games), "policy": experiment.decision_policy}
+        payload = {"frozen": frozen, "primary": primary_count, "phase": phase.value,
+                   "games": len(games), "policy": experiment.decision_policy}
+        if experiment.model_era_id:
+            payload["model_era_id"] = experiment.model_era_id
+            payload["controlling_engine"] = experiment.controlling_engine
+            payload["skipped_for_no_v18_forecast"] = len(era_skips)
+            payload["skips"] = era_skips
+        return payload
+
+    def _active_successor_era(
+        self, experiment: ShadowExperiment, now: datetime,
+    ) -> ShadowExperiment | None:
+        """A model era that has succeeded this experiment and already begun."""
+
+        if experiment.model_era_id:
+            return None
+        return self.session.scalar(
+            select(ShadowExperiment).where(
+                ShadowExperiment.predecessor_experiment_id == experiment.id,
+                ShadowExperiment.model_era_id.is_not(None),
+                ShadowExperiment.is_active.is_(True),
+                ShadowExperiment.started_at <= now,
+            ).order_by(ShadowExperiment.started_at.desc()).limit(1)
+        )
+
+    def _controlling_forecasts(
+        self, experiment: ShadowExperiment, games: list[Game], now: datetime,
+    ) -> tuple[list[Any], list[dict[str, Any]]]:
+        """Resolve one forecast per game from the experiment's controlling engine.
+
+        Gen1 experiments keep the behaviour they have always had. A model-era
+        experiment reads its own engine's saved forecasts and records, per game,
+        the exact reason when there is not a usable one -- because the whole
+        value of the era boundary is that a V18 decision was made on a V18
+        forecast, and a silent substitution would destroy that claim while
+        leaving the numbers looking fine.
+        """
+
+        from app.services.read_service import ReadService
+
+        read = ReadService(self.session, self.settings)
+        if not experiment.model_era_id:
+            return [read._latest_forecast(game.id) for game in games], []
+
+        from app.services.v18_forecast_view import resolve_for_decision
+
+        forecasts: list[Any] = []
+        skips: list[dict[str, Any]] = []
+        for game in games:
+            cutoff = _aware(game.starts_at) - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
+            view, reason = resolve_for_decision(
+                self.session, game.id, cutoff=cutoff,
+                engine_id=experiment.controlling_engine,
+            )
+            forecasts.append(view)
+            if view is None:
+                skips.append({"game_id": str(game.id), "reason": reason,
+                              "cutoff_utc": cutoff.isoformat()})
+        return forecasts, skips
 
     def _refresh_for_newly_stable_identity(self, game: Game, v2: Any) -> bool:
         """§ starter-lifecycle rule: when PROBABLE_STABLE is first established
@@ -548,9 +625,14 @@ class ShadowExperimentService:
             state = bet.recommendation if bet is not None else "NO_BET"
             reason, reasons = self._selection_evidence(opportunity, bet, forecast)
         version = f"{forecast.lifecycle.value.upper()} · v{forecast.version}" if forecast else None
+        # A producer forecast has no row in `forecasts`; it is identified by its
+        # `shadow_forecasts` row instead. Exactly one of the two is ever set, so
+        # the decision always names the forecast it actually used.
+        shadow_forecast_id = getattr(forecast, "shadow_forecast_id", None) if forecast else None
+        forecast_row_id = forecast.id if (forecast and shadow_forecast_id is None) else None
         payload = {
             "experiment": str(experiment.id), "game": str(game.id), "phase": phase.value,
-            "forecast": str(forecast.id) if forecast else None,
+            "forecast": str(forecast_row_id or shadow_forecast_id) if forecast else None,
             "outcome": bet.market_outcome_id if bet else None,
             "snapshot": bet.odds_snapshot_id if bet else None,
             "recommendation": state, "reasons": reasons,
@@ -585,7 +667,8 @@ class ShadowExperimentService:
             market_outcome_id=outcome_id,
             odds_snapshot_id=snapshot_id,
             quote_observed_at=bet.quote_observed_at if bet else None,
-            forecast_id=forecast.id if forecast else None,
+            forecast_id=forecast_row_id,
+            shadow_forecast_id=shadow_forecast_id,
             forecast_generated_at=forecast.generated_at if forecast else None,
             forecast_cutoff=forecast.available_as_of if forecast else None,
             forecast_version=version,
@@ -601,11 +684,27 @@ class ShadowExperimentService:
             qualification_reasons=reasons,
             evidence_fingerprint=fingerprint,
             source_mode=game.source_mode,
-            evidence=v2.evidence_json() if v2 is not None else None,
+            evidence=self._decision_evidence(forecast, v2),
         )
         self.session.add(decision)
         self.session.flush()
         return decision
+
+    @staticmethod
+    def _decision_evidence(forecast: Any, v2: Any) -> dict[str, Any] | None:
+        """The V2 evidence block, plus the model lineage when one applies.
+
+        A model-era decision has to be able to answer "which fitted model and
+        which simulation produced this number" from its own row, without the
+        reader having to trust that the engine label meant what it says.
+        """
+
+        evidence = dict(v2.evidence_json()) if v2 is not None else None
+        lineage = getattr(forecast, "lineage", None)
+        if callable(lineage):
+            evidence = dict(evidence or {})
+            evidence["model_lineage"] = lineage()
+        return evidence
 
     @staticmethod
     def _uuid(value: Any) -> UUID | None:
@@ -677,7 +776,7 @@ class ShadowExperimentService:
             or _aware(decision.forecast_cutoff) > cutoff
             or decision.market_outcome_id is None
             or decision.odds_snapshot_id is None
-            or decision.forecast_id is None
+            or (decision.forecast_id is None and decision.shadow_forecast_id is None)
             or decision.decimal_odds is None
             or decision.model_probability is None
         ):
@@ -688,7 +787,7 @@ class ShadowExperimentService:
         )):
             return False
         snapshot = self.session.get(OddsSnapshot, decision.odds_snapshot_id)
-        forecast = self.session.get(Forecast, decision.forecast_id)
+        forecast = self._decision_forecast(decision)
         if (
             snapshot is None
             or forecast is None
@@ -736,6 +835,7 @@ class ShadowExperimentService:
 
         self.session.add(OfficialAspPosition(
             forecast_id=decision.forecast_id,
+            shadow_forecast_id=decision.shadow_forecast_id,
             market_outcome_id=decision.market_outcome_id,
             odds_snapshot_id=decision.odds_snapshot_id,
             placed_at=decision.recommended_at,
@@ -752,6 +852,19 @@ class ShadowExperimentService:
         ))
         self.session.flush()
         return True
+
+    def _decision_forecast(self, decision: ShadowExperimentDecision) -> Any | None:
+        """The forecast a decision was actually made on, from either table."""
+
+        if decision.shadow_forecast_id is not None:
+            from app.models.entities import ShadowForecast
+            from app.services.v18_forecast_view import V18ForecastView
+
+            row = self.session.get(ShadowForecast, decision.shadow_forecast_id)
+            return V18ForecastView(row) if row is not None else None
+        if decision.forecast_id is not None:
+            return self.session.get(Forecast, decision.forecast_id)
+        return None
 
     # -- settlement ------------------------------------------------------
     def settle(self, event_date: date | None = None, *, now: datetime | None = None) -> dict[str, Any]:

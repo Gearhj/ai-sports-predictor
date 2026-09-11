@@ -47,6 +47,7 @@ import type {
 import type { ExperimentFunnelData } from '../types/domain'
 import '../broadcast.css'
 import { CoverageFunnel, type CoverageFunnelData } from '../components/CoverageFunnel'
+import { ModelEraBadge, type ModelEraData } from '../components/ModelEraBadge'
 
 /** The page never ranks across sports; the read model says so and this asserts it. */
 export function hasNoCrossSportRanking(model: TodayAllSportsReadModel | null): boolean {
@@ -317,6 +318,10 @@ export function MultiSportTodayPage() {
           </Panel>
 
           <div style={{ display: 'grid', gap: 18 }}>
+            <Panel eyebrow="Forecasting engine" title="Which model decides">
+              <ModelEra />
+            </Panel>
+
             <Panel eyebrow="Price coverage" title="Where the slate stopped"
               action={<span className="bx-chip">MLB · distinct games</span>}>
               <PriceCoverage />
@@ -561,4 +566,24 @@ function PriceCoverage() {
     )
   }
   return <CoverageFunnel data={resource.data} />
+}
+
+/**
+ * The controlling engine, loaded separately so an authority read never delays
+ * the decisions themselves.
+ */
+function ModelEra() {
+  const resource = useApiResource<ModelEraData>(
+    useCallback((signal: AbortSignal) => endpoints.modelEra(signal), []),
+  )
+  if (!resource.data) {
+    return (
+      <p className="bx-muted" role="status">
+        {resource.state === 'loading'
+          ? 'Reading the controlling engine\u2026'
+          : resource.error ?? 'The controlling engine is unavailable.'}
+      </p>
+    )
+  }
+  return <ModelEraBadge data={resource.data} />
 }
