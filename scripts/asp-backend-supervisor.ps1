@@ -206,6 +206,29 @@ function Start-Backend {
   # supervised process rather than whoever happens to be running.
   $psi.EnvironmentVariables['ASP_ODDS_COLLECTION_OWNER'] = $OddsCollectionOwner
 
+  # SOLE OWNER OF THE SCHEDULER -- and, unlike the token above, unique to this
+  # launch. That one is the same string in every backend on this host, so a
+  # process that outlives its supervisor keeps presenting a valid copy of it.
+  # That is exactly what happened: a tree survived a previous run of this task,
+  # lost port 8010, became invisible to the port guard above, and went on
+  # running a second full scheduler against the same database for two days.
+  #
+  # The claim is written here, immediately before the launch that owns it, and
+  # never on the early-exit paths above -- a supervisor that decides it has
+  # nothing to do must not take ownership away from the child already serving.
+  # The backend re-reads this file before every scheduled job and retires its
+  # own scheduler when it no longer matches, so a superseded process stands
+  # down by itself instead of waiting to be found.
+  $instance = [guid]::NewGuid().ToString('N')
+  $runtimeDir = Join-Path $RepoRoot '.runtime'
+  if (-not (Test-Path -LiteralPath $runtimeDir)) {
+    New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+  }
+  $ownerFile = Join-Path $runtimeDir 'scheduler-owner'
+  Set-Content -LiteralPath $ownerFile -Value $instance -Encoding ascii -NoNewline
+  $psi.EnvironmentVariables['ASP_SCHEDULER_INSTANCE'] = $instance
+  Write-Log ('scheduler instance {0} claimed in {1}' -f $instance, $ownerFile)
+
   $proc = [System.Diagnostics.Process]::Start($psi)
   Write-Log ('uvicorn launched (cmd pid={0}) on 127.0.0.1:{1}' -f $proc.Id, $Port)
 

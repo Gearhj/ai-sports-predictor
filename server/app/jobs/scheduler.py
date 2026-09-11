@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from zoneinfo import ZoneInfo
@@ -207,7 +209,72 @@ def _scheduled_event_dates(
     return (previous, today) if previous_incomplete else (today,)
 
 
+#: Stamped by the supervisor at the launch that owns this process. A survivor
+#: of an earlier supervisor keeps its own stale value, which is the whole point.
+_OWNER_TOKEN = os.environ.get("ASP_SCHEDULER_INSTANCE", "").strip()
+#: Latched once this process has been superseded, so it says so exactly once.
+_STOOD_DOWN = False
+
+
+def _owner_file() -> Path:
+    return Path(__file__).resolve().parents[3] / ".runtime" / "scheduler-owner"
+
+
+def is_current_scheduler_owner() -> bool:
+    """True while this process is still the scheduler the supervisor launched.
+
+    The host-wide owner token cannot answer this. Every backend here reads the
+    same ``.env``, so a process that outlives its supervisor keeps presenting a
+    perfectly valid one -- and a survivor that has lost its port is invisible to
+    the supervisor's port check as well. The supervisor therefore stamps a token
+    unique to each launch and writes it where the backend can re-read it.
+
+    Fail-OPEN when the file is absent: that means the mechanism is not deployed
+    on this host -- a developer running uvicorn by hand, a test -- and refusing
+    to run every job would be a worse failure than the one being prevented.
+    Fail-CLOSED the moment the file exists and disagrees, because at that point
+    a newer supervisor has demonstrably claimed ownership.
+    """
+
+    try:
+        claimed = _owner_file().read_text(encoding="ascii").strip()
+    except OSError:
+        return True
+    if not claimed:
+        return True
+    return bool(_OWNER_TOKEN) and _OWNER_TOKEN == claimed
+
+
+def _stand_down(job_name: str) -> None:
+    """Retire this process's scheduler. Announced once, then silent."""
+
+    global _STOOD_DOWN
+    if not _STOOD_DOWN:
+        _STOOD_DOWN = True
+        logger.error(
+            "scheduler_superseded",
+            job=job_name,
+            instance=_OWNER_TOKEN or "<unset>",
+            detail=(
+                "A newer supervisor owns the scheduler; this process is a "
+                "survivor of an earlier launch and is retiring its own jobs."
+            ),
+        )
+    scheduler = _SCHEDULER_INSTANCE
+    mark_scheduler_stopped()
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:  # already down, or shutting down
+            pass
+
+
 async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
+    # Asked on every tick rather than once at startup: ownership is lost while
+    # the process is running, not before it starts.
+    if not is_current_scheduler_owner():
+        _stand_down(job_name)
+        return
     with SessionLocal() as session:
         orchestrator = JobOrchestrator(session, settings)
         try:
