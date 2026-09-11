@@ -7,8 +7,8 @@
   8010" task. It no longer serves port 8010, so the supervisor's port-owner
   guard cannot see it, but it still runs a full APScheduler against the same
   database -- roughly ninety extra job runs an hour, all failing, and in the
-  last measured day 54 SportsGameOdds requests spending 660 objects of a
-  bounded allowance under superseded code.
+  last measured day 55 SportsGameOdds requests spending 678 objects of a
+  bounded 2,500-object allowance under superseded code.
 
   IDENTIFICATION (all four must still hold at execution, or this exits without
   touching anything):
@@ -22,9 +22,9 @@
   The evidence that identified it, for the record:
 
     * Scheduler cadence phase. Five-minute jobs fire in two interleaved
-      series: :00/:05/:10/:15 (all SUCCEEDED) and :03/:08/:13 (all FAILED
-      with [Errno 22]). 21:53:03 + k*5min lands exactly on the failing phase;
-      the live backend started 14:55:00 and lands exactly on the healthy one.
+      series, one all SUCCEEDED and one all FAILED with [Errno 22]. The
+      failing series lands exactly on 21:53:03 + k*5min; the healthy one
+      lands exactly on the live backend's own start + k*5min.
     * Postgres. Ten sessions carry backend_start 2026-09-09 21:53, matching
       the process creation time.
     * Volume. Job runs per hour went from ~105 to ~190 at 22:00 on 2026-09-09
@@ -103,18 +103,18 @@ Write-Host "live ancestry ok: $(($liveChain | ForEach-Object { "$($_.Id):$($_.Na
 
 # -- 3. each suspect must still be exactly what was identified ---------------
 $targets = @()
-foreach ($pid in $SuspectPids) {
-    $p = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
-    if (-not $p) { Write-Host "pid $pid is already gone."; continue }
+foreach ($target in $SuspectPids) {
+    $p = Get-CimInstance Win32_Process -Filter "ProcessId=$target" -ErrorAction SilentlyContinue
+    if (-not $p) { Write-Host "pid $target is already gone."; continue }
     if ($p.Name -ne 'python.exe') {
-        Fail "pid $pid is '$($p.Name)', not python.exe. That PID has been reused by something else."
+        Fail "pid $target is '$($p.Name)', not python.exe. That PID has been reused by something else."
     }
     if ([math]::Abs(($p.CreationDate - $ExpectedStart).TotalSeconds) -gt 5) {
-        Fail "pid $pid started $($p.CreationDate), not $ExpectedStart. That PID has been reused; the duplicate may be gone already."
+        Fail "pid $target started $($p.CreationDate), not $ExpectedStart. That PID has been reused; the duplicate may be gone already."
     }
-    $chain = Get-Ancestry $pid
+    $chain = Get-Ancestry $target
     if ($chain.Id -contains $svc) {
-        Fail "pid $pid descends from the Task Scheduler service. It is a supervised process, not the survivor."
+        Fail "pid $target descends from the Task Scheduler service. It is a supervised process, not the survivor."
     }
     $targets += $p
 }
@@ -127,15 +127,15 @@ foreach ($t in $targets) {
 if ($WhatIfOnly) { Write-Host "-WhatIfOnly set; stopping nothing." -ForegroundColor Yellow; exit 0 }
 
 # -- 4. stop child first, then parent, then the wrapper ----------------------
-foreach ($pid in @($SuspectPids + $WrapperPid)) {
-    $p = Get-Process -Id $pid -ErrorAction SilentlyContinue
-    if (-not $p) { Write-Host "  $pid already gone"; continue }
-    if ($pid -eq $WrapperPid -and $p.ProcessName -ne 'cmd') {
-        Write-Host "  skipping wrapper $pid : it is '$($p.ProcessName)', not cmd" -ForegroundColor Yellow
+foreach ($target in @($SuspectPids + $WrapperPid)) {
+    $p = Get-Process -Id $target -ErrorAction SilentlyContinue
+    if (-not $p) { Write-Host "  $target already gone"; continue }
+    if ($target -eq $WrapperPid -and $p.ProcessName -ne 'cmd') {
+        Write-Host "  skipping wrapper $target : it is '$($p.ProcessName)', not cmd" -ForegroundColor Yellow
         continue
     }
-    try { Stop-Process -Id $pid -Force -ErrorAction Stop; Write-Host "  stopped $pid" }
-    catch { Write-Host "  could NOT stop $pid : $($_.Exception.Message)" -ForegroundColor Yellow }
+    try { Stop-Process -Id $target -Force -ErrorAction Stop; Write-Host "  stopped $target" }
+    catch { Write-Host "  could NOT stop $target : $($_.Exception.Message)" -ForegroundColor Yellow }
 }
 
 # -- 5. the live backend must have survived ----------------------------------
