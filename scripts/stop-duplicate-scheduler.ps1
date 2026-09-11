@@ -157,6 +157,6 @@ try {
 }
 
 Write-Host ""
-Write-Host "Confirm over the next ten minutes: [Errno 22] job runs should stop entirely," -ForegroundColor Green
-Write-Host "and the :03/:08/:13 cadence should disappear, leaving only :00/:05/:10/:15." -ForegroundColor Green
+Write-Host "Confirm over the next ten minutes: [Errno 22] job runs should stop" -ForegroundColor Green
+Write-Host "entirely, leaving one five-minute cadence instead of two interleaved ones." -ForegroundColor Green
 exit 0
