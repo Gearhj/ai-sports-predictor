@@ -46,6 +46,7 @@ import type {
 } from '../types/multisport'
 import type { ExperimentFunnelData } from '../types/domain'
 import '../broadcast.css'
+import { CoverageFunnel, type CoverageFunnelData } from '../components/CoverageFunnel'
 
 /** The page never ranks across sports; the read model says so and this asserts it. */
 export function hasNoCrossSportRanking(model: TodayAllSportsReadModel | null): boolean {
@@ -316,6 +317,11 @@ export function MultiSportTodayPage() {
           </Panel>
 
           <div style={{ display: 'grid', gap: 18 }}>
+            <Panel eyebrow="Price coverage" title="Where the slate stopped"
+              action={<span className="bx-chip">MLB · distinct games</span>}>
+              <PriceCoverage />
+            </Panel>
+
             <Panel eyebrow="Why games did not qualify" title="Blockers"
               action={<span className="bx-dim">distinct games</span>}>
               {blockers.length === 0
@@ -534,4 +540,25 @@ function MatchupCrests({ league, label }: { league: 'MLB' | 'NFL' | string; labe
       <span>{home}</span>
     </span>
   )
+}
+
+/**
+ * The coverage funnel, loaded on its own so a slow or missing diagnosis never
+ * delays the decisions themselves. The decisions are the page; this explains
+ * the ones that are absent.
+ */
+function PriceCoverage() {
+  const resource = useApiResource<CoverageFunnelData>(
+    useCallback((signal: AbortSignal) => endpoints.priceCoverageFunnel(signal), []),
+  )
+  if (!resource.data) {
+    return (
+      <p className="bx-muted" role="status">
+        {resource.state === 'loading'
+          ? 'Reading today\u2019s coverage\u2026'
+          : resource.error ?? 'Coverage diagnosis is unavailable.'}
+      </p>
+    )
+  }
+  return <CoverageFunnel data={resource.data} />
 }

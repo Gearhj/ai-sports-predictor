@@ -37,6 +37,7 @@ import type {
   ShadowComparison,
   ShadowPath,
 } from '../types/shadow'
+import type { CoverageFunnelData } from '../components/CoverageFunnel'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '')
 const TOKEN_KEY = 'asp_access_token'
@@ -103,6 +104,12 @@ export async function apiRequest<T>(
 }
 
 export const endpoints = {
+  /** Where every game on one slate stopped, and the first reason it stopped. */
+  priceCoverageFunnel: (signal?: AbortSignal, eventDate?: string | null, league = 'MLB') => {
+    const query = new URLSearchParams({ league })
+    if (eventDate) query.set('event_date', eventDate)
+    return apiRequest<CoverageFunnelData>(`/coverage/price-funnel?${query}`, {}, signal)
+  },
   today: (signal?: AbortSignal, sport?: 'MLB' | 'NFL' | null) => {
     const query = new URLSearchParams()
     if (sport) query.set('sport', sport)
