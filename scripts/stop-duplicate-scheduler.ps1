@@ -34,11 +34,26 @@
       exclusively on the healthy cadence and have never failed.
 
 .NOTES
-  This stops ONLY those two PIDs and their cmd.exe wrapper. It does not touch
-  PostgreSQL, the live backend, the V18 publisher, or the side-stack workers
-  running from bash.exe. If the machine has been rebooted or the processes
-  have changed since this was written, every guard fails closed and nothing is
-  stopped -- re-run the identification rather than editing the PIDs here.
+  This stops ONLY those two PIDs and, separately proven, their cmd.exe wrapper.
+  It does not touch PostgreSQL, the live backend, the V18 publisher, or the
+  side-stack workers running from bash.exe. If the machine has been rebooted or
+  the processes have changed since this was written, every guard fails closed
+  and nothing is stopped -- re-run the identification rather than editing the
+  PIDs here.
+
+  The wrapper is held to a higher bar than the suspects, because a cmd.exe PID
+  is the most reusable thing on the machine and killing the wrong one is how a
+  cleanup script becomes the outage. It is stopped only when it appears in the
+  validated ancestry of a suspect that already passed every check, AND its
+  image is cmd.exe, AND its creation time matches, AND its command line can
+  actually be read and shows it launching this backend. An unreadable command
+  line is a refusal, not a shrug: proving nothing is not the same as proving
+  it is safe.
+
+  After stopping, both suspects must be gone and must stay gone across a short
+  watch, and no replacement may appear beneath the wrapper. A survivor or a
+  restart exits nonzero, because "I sent the signal" is not the outcome anyone
+  needs; "the duplicate is no longer running" is.
 
   Safe to run twice. If the tree is already gone it reports that and exits 0.
 #>
@@ -103,6 +118,9 @@ Write-Host "live ancestry ok: $(($liveChain | ForEach-Object { "$($_.Id):$($_.Na
 
 # -- 3. each suspect must still be exactly what was identified ---------------
 $targets = @()
+#: Every process id appearing in a VALIDATED suspect's ancestry. The wrapper is
+#: allowed to be stopped only if it is in here.
+$suspectAncestorIds = @()
 foreach ($target in $SuspectPids) {
     $p = Get-CimInstance Win32_Process -Filter "ProcessId=$target" -ErrorAction SilentlyContinue
     if (-not $p) { Write-Host "pid $target is already gone."; continue }
@@ -116,6 +134,7 @@ foreach ($target in $SuspectPids) {
     if ($chain.Id -contains $svc) {
         Fail "pid $target descends from the Task Scheduler service. It is a supervised process, not the survivor."
     }
+    $suspectAncestorIds += $chain.Id
     $targets += $p
 }
 if (-not $targets) { Write-Host "Nothing to stop; the duplicate tree is already gone." -ForegroundColor Green; exit 0 }
@@ -124,22 +143,84 @@ foreach ($t in $targets) {
     Write-Host ("  target pid {0}  created {1}  ancestry {2}" -f $t.ProcessId, $t.CreationDate,
         ((Get-Ancestry $t.ProcessId | ForEach-Object { "$($_.Id):$($_.Name)" }) -join ' < '))
 }
+# -- 4. the wrapper must PROVE it belongs to this tree -----------------------
+# Four independent facts, every one required. A cmd.exe pid is the most
+# reusable number on the machine, so "it was the wrapper two hours ago" is not
+# evidence about what it is now.
+$wrapperProc = Get-CimInstance Win32_Process -Filter "ProcessId=$WrapperPid" -ErrorAction SilentlyContinue
+$stopWrapper = $false
+if (-not $wrapperProc) {
+    Write-Host "  wrapper $WrapperPid : already gone, nothing to prove."
+} elseif ($suspectAncestorIds -notcontains $WrapperPid) {
+    Write-Host ("  wrapper {0} : REFUSED -- not in the validated ancestry of any suspect (ancestry seen: {1})." -f
+        $WrapperPid, (($suspectAncestorIds | Sort-Object -Unique) -join ', ')) -ForegroundColor Yellow
+} elseif ($wrapperProc.Name -ne 'cmd.exe') {
+    Write-Host "  wrapper $WrapperPid : REFUSED -- image is '$($wrapperProc.Name)', not cmd.exe." -ForegroundColor Yellow
+} elseif ([math]::Abs(($wrapperProc.CreationDate - $ExpectedStart).TotalSeconds) -gt 5) {
+    Write-Host "  wrapper $WrapperPid : REFUSED -- created $($wrapperProc.CreationDate), not $ExpectedStart." -ForegroundColor Yellow
+} elseif ([string]::IsNullOrWhiteSpace($wrapperProc.CommandLine)) {
+    Write-Host "  wrapper $WrapperPid : REFUSED -- its command line cannot be read, so nothing about it is proven." -ForegroundColor Yellow
+} elseif ($wrapperProc.CommandLine -notmatch 'uvicorn' -or
+          $wrapperProc.CommandLine -notmatch 'app\.main:app' -or
+          $wrapperProc.CommandLine -notmatch [regex]::Escape("--port $Port")) {
+    Write-Host "  wrapper $WrapperPid : REFUSED -- command line does not launch this backend:" -ForegroundColor Yellow
+    Write-Host "      $($wrapperProc.CommandLine)" -ForegroundColor Yellow
+} else {
+    $stopWrapper = $true
+    Write-Host "  wrapper $WrapperPid : proven (in suspect ancestry, cmd.exe, created $($wrapperProc.CreationDate))"
+    Write-Host "      $($wrapperProc.CommandLine)"
+}
+if ($wrapperProc -and -not $stopWrapper) {
+    Write-Host "  the wrapper will be LEFT RUNNING. The suspects are still stopped." -ForegroundColor Yellow
+}
+
 if ($WhatIfOnly) { Write-Host "-WhatIfOnly set; stopping nothing." -ForegroundColor Yellow; exit 0 }
 
-# -- 4. stop child first, then parent, then the wrapper ----------------------
-foreach ($target in @($SuspectPids + $WrapperPid)) {
+# -- 5. stop child first, then parent, then the proven wrapper ---------------
+$toStop = @($SuspectPids)
+if ($stopWrapper) { $toStop += $WrapperPid }
+foreach ($target in $toStop) {
     $p = Get-Process -Id $target -ErrorAction SilentlyContinue
     if (-not $p) { Write-Host "  $target already gone"; continue }
-    if ($target -eq $WrapperPid -and $p.ProcessName -ne 'cmd') {
-        Write-Host "  skipping wrapper $target : it is '$($p.ProcessName)', not cmd" -ForegroundColor Yellow
-        continue
-    }
     try { Stop-Process -Id $target -Force -ErrorAction Stop; Write-Host "  stopped $target" }
     catch { Write-Host "  could NOT stop $target : $($_.Exception.Message)" -ForegroundColor Yellow }
 }
 
-# -- 5. the live backend must have survived ----------------------------------
-Start-Sleep -Seconds 4
+# -- 6. the duplicate must be gone, and must stay gone -----------------------
+# Watched rather than sampled once: a supervised thing that is going to come
+# back comes back within seconds, and a single check taken half a second after
+# the kill would report success either way.
+$problems = @()
+for ($tick = 0; $tick -lt 6; $tick++) {
+    Start-Sleep -Seconds 2
+    $problems = @()
+    foreach ($target in $SuspectPids) {
+        $p = Get-CimInstance Win32_Process -Filter "ProcessId=$target" -ErrorAction SilentlyContinue
+        if ($p) { $problems += "suspect $target is still running ($($p.Name), created $($p.CreationDate))" }
+    }
+    if ($stopWrapper) {
+        $w = Get-CimInstance Win32_Process -Filter "ProcessId=$WrapperPid" -ErrorAction SilentlyContinue
+        if ($w) { $problems += "wrapper $WrapperPid is still running" }
+    }
+    # A replacement launched by the wrapper we validated -- either still
+    # parented to it, or orphaned but still carrying it as its recorded parent.
+    $spawn = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$WrapperPid" -ErrorAction SilentlyContinue |
+               Where-Object { $SuspectPids -notcontains [int]$_.ProcessId })
+    foreach ($sp in $spawn) {
+        $problems += "a replacement appeared under wrapper ${WrapperPid}: pid $($sp.ProcessId) ($($sp.Name), created $($sp.CreationDate))"
+    }
+    if ($problems.Count -eq 0 -and $tick -ge 2) { break }
+}
+if ($problems.Count -gt 0) {
+    Write-Host ""
+    Write-Host "DUPLICATE NOT CLEARED:" -ForegroundColor Red
+    $problems | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    Write-Host "The live backend was not touched. Re-run the identification before trying again."
+    exit 3
+}
+Write-Host "duplicate cleared: both suspects gone, no replacement under the wrapper."
+
+# -- 7. the live backend must have survived ----------------------------------
 $stillLive = (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
               Select-Object -First 1).OwningProcess
 if ($stillLive -ne $live) {
