@@ -2956,3 +2956,560 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .coverage-alert li span { opacity: .8; font-variant-numeric: tabular-nums; }
 .coverage-alert li code { font-size: .68rem; opacity: .75; }
 @media (max-width: 700px) { .coverage-alert li b { min-width: 0; } }
+
+/* --- Ensemble release candidate, beside the frozen baseline ---------------
+   Two research tracks. The candidate is tinted so it reads as the new thing,
+   the replay badge is deliberately loud, and a component that fell back is
+   muted rather than hidden: a component that vanishes silently is not
+   auditable. Nothing here is styled to look like an endorsement. */
+.candidate-compare { margin: 22px 0; padding: 18px; border-radius: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface, white) 94%, var(--accent, #3b6ea5) 6%); }
+.candidate-compare__note { margin: 6px 0 14px; color: var(--muted); font-size: 13px; max-width: 68ch; }
+.candidate-compare__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.candidate-card { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border-radius: 10px; background: white; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.candidate-card--candidate { border-left: 3px solid var(--accent, #3b6ea5); }
+.candidate-card--baseline { border-left: 3px solid var(--muted, #8a94a6); }
+.candidate-card--absent { opacity: 0.7; }
+.candidate-card header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.candidate-card__track { font-weight: 600; font-size: 13px; }
+.candidate-card__authority { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.candidate-card__value { font-size: 30px; font-weight: 650; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.candidate-card__caption { margin: 0; color: var(--muted); font-size: 12px; }
+.candidate-card__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 14px; margin: 8px 0 0; font-size: 12px; }
+.candidate-card__facts div { display: flex; flex-direction: column; gap: 1px; }
+.candidate-card__facts dt { color: var(--muted); font-size: 11px; }
+.candidate-card__facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.candidate-card__score { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.candidate-card__score--pending { color: var(--muted); font-size: 12px; font-style: italic; }
+.candidate-card__score-head { margin: 0; font-size: 13px; font-weight: 600; }
+.candidate-card__qualified { margin: 8px 0 0; font-size: 11px; color: var(--muted); max-width: 60ch; }
+.candidate-compare__status { margin: 0; }
+.candidate-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.candidate-badge--prospective { background: color-mix(in srgb, white 82%, #2e7d32 18%); color: #1b5e20; }
+.candidate-badge--replay { background: color-mix(in srgb, white 78%, #ef6c00 22%); color: #8a4500; }
+.candidate-compare__difference { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: white; border: 1px solid var(--line); }
+.candidate-compare__difference h3 { margin: 0 0 6px; font-size: 13px; }
+.candidate-compare__attribution-note { margin: 10px 0 0; font-size: 11px; color: var(--muted); max-width: 72ch; }
+.candidate-compare__components { margin-top: 14px; }
+.candidate-compare__components h3 { margin: 0 0 6px; font-size: 13px; }
+.candidate-compare__components ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.candidate-compare__components li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; padding: 7px 10px; border-radius: 8px; background: white; border: 1px solid var(--line); }
+.candidate-compare__components li.is-fallback { color: var(--muted); border-style: dashed; }
+.candidate-component__icon { display: inline-flex; }
+.candidate-component__id { font-weight: 600; }
+.candidate-component__role, .candidate-component__status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, white 88%, var(--muted, #8a94a6) 12%); }
+.candidate-component__fallback { font-style: italic; }
+.candidate-compare__identity { margin-top: 14px; font-size: 12px; }
+.candidate-compare__identity summary { cursor: pointer; color: var(--muted); }
+
+/* --- Replay configuration table -------------------------------------------
+   The enabled release default is the only row styled as "shipped"; every other
+   configuration is visibly not enabled. The ordering warning sits above the
+   numbers because a reader who only skims the table must still have met it. */
+.candidate-configs { margin-top: 14px; }
+.candidate-configs h3 { margin: 0 0 6px; font-size: 13px; }
+.candidate-configs__warning { margin: 0 0 10px; padding: 8px 11px; border-radius: 8px; font-size: 12px; background: color-mix(in srgb, white 80%, #ef6c00 20%); color: #7a3d00; max-width: 80ch; }
+.candidate-configs__scroll { overflow-x: auto; }
+.candidate-configs table { width: 100%; border-collapse: collapse; font-size: 12px; background: white; border: 1px solid var(--line); border-radius: 8px; }
+.candidate-configs th, .candidate-configs td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.candidate-configs thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.candidate-configs tbody tr:last-child th, .candidate-configs tbody tr:last-child td { border-bottom: none; }
+.candidate-configs tbody tr.is-not-enabled { color: var(--muted); }
+.candidate-configs tbody tr.is-enabled { background: color-mix(in srgb, white 92%, var(--accent, #3b6ea5) 8%); }
+.candidate-configs td.is-numeric, .candidate-configs th.is-numeric { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.candidate-configs__letter { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--line); font-weight: 700; margin-right: 7px; }
+.candidate-configs__title { font-weight: 600; }
+.candidate-configs__enabled { display: block; margin-top: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent, #3b6ea5); }
+.candidate-configs__status { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+.candidate-configs__note { display: block; margin-top: 3px; max-width: 46ch; }
+.candidate-configs__se { color: var(--muted); font-size: 11px; }
+.candidate-configs__status-line { margin: 8px 0 0; font-size: 11px; color: var(--muted); font-family: var(--mono, monospace); }
+.candidate-configs__limitations { margin: 8px 0 0; padding-left: 18px; font-size: 11px; color: var(--muted); max-width: 76ch; }
+
+/* ---------------------------------------------------------------------------
+   Loading placeholders and freshness
+
+   A page renders its shell and skeletons on the first paint, so structure is
+   visible before data arrives. Skeletons deliberately carry no numbers: an
+   empty shape cannot be misread as a real figure the way a placeholder zero
+   can.
+   --------------------------------------------------------------------------- */
+
+.skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12) 25%,
+    rgba(148, 163, 184, 0.22) 37%,
+    rgba(148, 163, 184, 0.12) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sheen {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.skeleton-table {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.skeleton-table__row {
+  display: grid;
+  grid-template-columns: 2fr repeat(auto-fit, minmax(48px, 1fr));
+  gap: 14px;
+  align-items: center;
+}
+
+.skeleton-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.skeleton-cards__card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  border-radius: 12px;
+}
+
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  color: var(--text-dim, #8194ab);
+  white-space: nowrap;
+}
+
+.freshness--stale { color: #b98230; }
+.freshness--error { color: #c2544d; }
+
+.freshness__text { white-space: normal; }
+
+.freshness__retry {
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+
+/* The sheen is decoration. Anyone who has asked for less motion gets a flat
+   placeholder instead, and the spinner stops turning. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  .freshness .spin { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Season accounts — one $1,000 paper bankroll per sport, per season
+
+   The visual language does one job above all others: a planned allocation must
+   never look like funded capital. Planned cards are muted and dashed, their
+   figure is labelled "planned", and the program summary keeps funded and
+   planned in two separate boxes rather than one row of numbers.
+   --------------------------------------------------------------------------- */
+
+.season-accounts {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.season-accounts__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.season-accounts__head h2 { margin: 2px 0 4px; font-size: 20px; }
+.season-accounts__lede { margin: 0; max-width: 62ch; color: var(--text-dim, #8194ab); font-size: 13px; }
+
+.season-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.season-summary__funded,
+.season-summary__planned {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+}
+
+.season-summary__funded { background: rgba(56, 142, 96, 0.07); border-color: rgba(56, 142, 96, 0.32); }
+/* Dashed, never filled: proposed capital reads as an outline, not a balance. */
+.season-summary__planned { border-style: dashed; background: transparent; }
+
+.season-summary__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim, #8194ab);
+}
+.season-summary__funded strong,
+.season-summary__planned strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+.season-summary__planned strong { color: var(--text-dim, #8194ab); }
+.season-summary__detail { font-size: 12px; color: var(--text-dim, #8194ab); }
+.season-summary__note { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; }
+
+.season-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.season-card {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  background: var(--panel, rgba(148, 163, 184, 0.05));
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.season-card:hover { border-color: rgba(148, 163, 184, 0.45); }
+.season-card--selected { border-color: currentColor; box-shadow: inset 0 0 0 1px currentColor; }
+.season-card--planned { border-style: dashed; opacity: 0.82; }
+
+.season-card__head { display: flex; align-items: baseline; gap: 8px; }
+.season-card__head strong { font-size: 16px; letter-spacing: 0.04em; }
+.season-card__season { font-size: 12px; color: var(--text-dim, #8194ab); }
+
+.season-card__status {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim, #8194ab);
+}
+.season-card__status--active { color: #3f9a68; }
+.season-card__status--closed_for_new_positions { color: #b98230; }
+
+.season-card__bankroll { font-size: 22px; font-variant-numeric: tabular-nums; }
+.season-card__planned-amount { font-size: 17px; color: var(--text-dim, #8194ab); font-variant-numeric: tabular-nums; }
+.season-card__return { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.season-card__note { font-size: 11.5px; color: var(--text-dim, #8194ab); }
+
+.season-selector { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.season-selector__label {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-dim, #8194ab);
+}
+.season-selector__option {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  background: transparent; color: inherit; font: inherit;
+  border-radius: 999px; padding: 3px 12px; cursor: pointer; margin-right: 6px;
+}
+.season-selector__option.is-selected { border-color: currentColor; font-weight: 600; }
+
+.season-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin: 0 0 12px;
+}
+.season-metrics > div { display: grid; gap: 2px; }
+.season-metrics dt {
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-dim, #8194ab);
+}
+.season-metrics dd { margin: 0; font-size: 19px; font-variant-numeric: tabular-nums; }
+/* The denominator is printed under every ratio, because "return" and "ROI"
+   answer different questions and the difference is the divisor. */
+.season-metrics__denominator { font-size: 11px !important; color: var(--text-dim, #8194ab); }
+
+.season-detail__planned { display: flex; gap: 8px; align-items: flex-start; }
+.season-detail__boundary { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
+.season-detail__partial { color: #b98230; font-weight: 600; }
+
+.season-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.season-table th, .season-table td { padding: 7px 10px; text-align: left; white-space: nowrap; }
+.season-table thead th {
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-dim, #8194ab); border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+}
+.season-table tbody tr + tr td, .season-table tbody tr + tr th {
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+.era-row--excluded { opacity: 0.6; }
+.era-row__active { color: #3f9a68; font-weight: 600; }
+
+.equity-curve { display: grid; gap: 12px; }
+.equity-curve__chart { width: 100%; height: 180px; }
+.equity-curve__reference {
+  stroke: rgba(148, 163, 184, 0.55); stroke-width: 1; stroke-dasharray: 4 4;
+}
+.equity-curve__reference-label {
+  fill: var(--text-dim, #8194ab); font-size: 11px; text-anchor: end;
+}
+.equity-curve__line { fill: none; stroke-width: 2; }
+.equity-curve__line.is-up { stroke: #3f9a68; }
+.equity-curve__line.is-down { stroke: #c2544d; }
+.equity-curve__point { fill: currentColor; opacity: 0.7; }
+.equity-curve__values { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.equity-curve__values th, .equity-curve__values td { padding: 5px 10px; text-align: left; }
+.equity-curve__values thead th {
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-dim, #8194ab);
+}
+
+.is-up { color: #3f9a68; }
+.is-down { color: #c2544d; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Signal pills — one mapping, three colours a reader has to learn
+
+   Grey: nothing to act on. Yellow: watching. Green: the model disagrees with
+   the market enough to matter, quieter for STANDARD than for STRONG.
+
+   The pill has a fixed min-width and wraps rather than growing, because a
+   longer label used to push into the Analysis button beside it.
+   --------------------------------------------------------------------------- */
+
+.signal-pill-wrap {
+  display: inline-grid;
+  gap: 2px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.signal-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  max-width: 100%;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.signal-pill__sub {
+  font-size: 11px;
+  color: var(--text-dim, #8194ab);
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+/* NO BET — light grey fill, dark grey text, grey border. */
+.signal-pill--neutral {
+  background: #eceff3;
+  color: #414b57;
+  border-color: #c3ccd7;
+}
+
+/* WATCH — pale yellow fill, dark gold/brown text, yellow border. */
+.signal-pill--watch {
+  background: #fdf4d8;
+  color: #6d4c13;
+  border-color: #e3c469;
+}
+
+/* STANDARD EDGE — the quieter green. Same family as STRONG, clearly not it. */
+.signal-pill--edge {
+  background: #e8f5ec;
+  color: #1f6437;
+  border-color: #8cc7a2;
+}
+
+/* STRONG EDGE — pale green fill, dark green text, green border. */
+.signal-pill--strong {
+  background: #d8f0e0;
+  color: #14532d;
+  border-color: #3f9a68;
+}
+
+/* A recorded position: distinct from a band, because it is a different fact. */
+.signal-pill--decided {
+  background: #e4eefc;
+  color: #1c3f73;
+  border-color: #86aee0;
+}
+
+/* The game has started; the band is history. */
+.signal-pill--closed {
+  background: transparent;
+  color: #6b7684;
+  border-color: #c3ccd7;
+  border-style: dashed;
+  font-weight: 600;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .signal-pill--neutral { background: #262b33; color: #c3ccd7; border-color: #414b57; }
+  :root:not([data-theme="light"]) .signal-pill--watch   { background: #33290f; color: #e8c877; border-color: #8a6c22; }
+  :root:not([data-theme="light"]) .signal-pill--edge    { background: #16301f; color: #86d3a4; border-color: #2f6a45; }
+  :root:not([data-theme="light"]) .signal-pill--strong  { background: #17402a; color: #9fe8bc; border-color: #3f9a68; }
+  :root:not([data-theme="light"]) .signal-pill--decided { background: #1b2b45; color: #a8c8f2; border-color: #3a5f96; }
+  :root:not([data-theme="light"]) .signal-pill--closed  { color: #8b95a3; border-color: #414b57; }
+}
+
+:root[data-theme="dark"] .signal-pill--neutral { background: #262b33; color: #c3ccd7; border-color: #414b57; }
+:root[data-theme="dark"] .signal-pill--watch   { background: #33290f; color: #e8c877; border-color: #8a6c22; }
+:root[data-theme="dark"] .signal-pill--edge    { background: #16301f; color: #86d3a4; border-color: #2f6a45; }
+:root[data-theme="dark"] .signal-pill--strong  { background: #17402a; color: #9fe8bc; border-color: #3f9a68; }
+:root[data-theme="dark"] .signal-pill--decided { background: #1b2b45; color: #a8c8f2; border-color: #3a5f96; }
+:root[data-theme="dark"] .signal-pill--closed  { color: #8b95a3; border-color: #414b57; }
+
+/* The row's decision column keeps its own width so the pill and the actions
+   beside it cannot overlap at any label length. */
+.bx-slate__decision {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-width: 132px;
+  max-width: 168px;
+}
+
+.bx-slate__actions { flex-shrink: 0; }
+
+/* Simulator modes: every mode visible, each saying what it does, an
+   unavailable one disabled with its reason rather than removed. */
+.view-selector--modes {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.view-selector__mode {
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.28));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.view-selector__mode b { font-size: 13.5px; }
+.view-selector__mode small { font-size: 11.5px; color: var(--text-dim, #8194ab); line-height: 1.35; }
+.view-selector__mode.is-active { border-color: currentColor; box-shadow: inset 0 0 0 1px currentColor; }
+.view-selector__mode.is-unavailable { cursor: not-allowed; opacity: 0.72; border-style: dashed; }
+.view-selector__why { color: #b98230 !important; }
+.view-selector__why code { font-size: 11px; }
+
+/* Simulation provenance: the artifact on screen and the controlling era, kept
+   apart, in place of a banner that only meant "the API answered". */
+.sim-provenance {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.26));
+  margin-bottom: 14px;
+}
+.sim-provenance__row {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.sim-provenance__row > div { display: grid; gap: 2px; min-width: 0; }
+.sim-provenance__label {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-dim, #8194ab);
+}
+.sim-provenance__row strong { font-size: 14px; }
+.sim-provenance__row small { font-size: 11.5px; color: var(--text-dim, #8194ab); overflow-wrap: anywhere; }
+.sim-provenance__row code { font-size: 11px; }
+.sim-provenance__muted { color: var(--text-dim, #8194ab); font-weight: 500; }
+.sim-provenance__differs { color: #b98230 !important; }
+.sim-provenance__note {
+  display: flex; gap: 6px; align-items: flex-start; margin: 0;
+  font-size: 11.5px; color: var(--text-dim, #8194ab);
+}
+.sim-provenance__error { margin: 0; font-size: 12px; color: #c2544d; }
+
+/* ---------------------------------------------------------------------------
+   Replay transport: reachable at ordinary desktop height
+
+   The diamond, the scorebug and the feed together are taller than a 1512x950
+   window, so the whole transport sat below the fold: at that size a reader saw
+   PA 1 and a Play button they had to scroll to find, and the speed, inning jump
+   and step controls were never visible at all.
+
+   The transport sticks to the bottom of the viewport while the simulator is on
+   screen, so play/pause, previous/next, restart, speed and the inning jump stay
+   reachable without scrolling. Theater mode keeps its own full-height layout.
+   --------------------------------------------------------------------------- */
+
+/* Outside theater mode the ballpark had no height limit, so on a wide window
+   it grew with the column width until the scorebug, the field and the
+   transport together were taller than the viewport -- which is why a reader at
+   1512x950 saw PA 1 and a Play button and never the step, speed or inning
+   controls at all.
+
+   Sticky positioning cannot rescue this: `.theater` sets `overflow: hidden`,
+   which makes it the sticky containing block and leaves nothing to stick to.
+   Capping the field is the fix, and it keeps the whole transport on screen. */
+.theater:not(.theater--full) .theater__park {
+  aspect-ratio: 1000 / 660;
+  max-height: min(44vh, 400px);
+  width: 100%;
+  margin-inline: auto;
+}
+
+.theater:not(.theater--full) .theater__field {
+  width: 100%;
+  height: 100%;
+}
+
+/* A short window gives the field less again rather than losing the controls. */
+@media (max-height: 780px) {
+  .theater:not(.theater--full) .theater__park { max-height: 34vh; }
+}
+
+/* `.theater` sets `overflow: hidden` only to clip its own border radius. That
+   also made it the sticky containing block, so the transport could not stick to
+   anything. Outside theater mode the radius is clipped on the children that
+   need it instead, which frees the transport to stay on screen however much
+   page sits above the diamond. */
+.theater:not(.theater--full) { overflow: visible; }
+.theater:not(.theater--full) > :first-child { border-top-left-radius: 16px; }
+
+.theater:not(.theater--full) .transport {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  border-bottom-left-radius: 16px;
+  background: rgba(4, 10, 18, 0.94);
+  box-shadow: 0 -8px 20px rgba(3, 8, 16, 0.4);
+}
+
+/* The feed column must not paint over a sticky transport beside it. */
+.theater:not(.theater--full) .feed { z-index: 1; }

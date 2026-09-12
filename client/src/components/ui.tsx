@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Database, RefreshCw, WifiOff } from 'lucide-react'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
 import type { ReadinessState, ResourceState, Trend } from '../types/domain'
@@ -240,4 +240,144 @@ export const formatNumber = (value: number | null | undefined, digits = 1) => va
 
 export function TableScroll({ children, ariaLabel }: { children: ReactNode; ariaLabel?: string }) {
   return <div className="table-scroll" role={ariaLabel ? 'region' : undefined} aria-label={ariaLabel} tabIndex={ariaLabel ? 0 : undefined}>{children}</div>
+}
+
+/**
+ * A placeholder shaped like the content that will replace it.
+ *
+ * Skeletons exist so the page has its final structure from the first paint:
+ * headings, panels and table rows occupy the space they will keep, and the
+ * arriving data fills them in without the layout jumping. A spinner in the
+ * middle of an empty page is what made a loading page look like a broken one.
+ */
+export function Skeleton({ width = '100%', height = 14, radius = 6 }: {
+  width?: string | number
+  height?: string | number
+  radius?: number
+}) {
+  return (
+    <span
+      className="skeleton"
+      aria-hidden="true"
+      style={{ width, height, borderRadius: radius }}
+    />
+  )
+}
+
+export function SkeletonTable({ rows = 6, columns = 5, ariaLabel = 'Loading rows' }: {
+  rows?: number
+  columns?: number
+  ariaLabel?: string
+}) {
+  return (
+    <div className="skeleton-table" role="status" aria-busy="true" aria-label={ariaLabel}>
+      {Array.from({ length: rows }, (_, row) => (
+        <div className="skeleton-table__row" key={row}>
+          {Array.from({ length: columns }, (_, column) => (
+            <Skeleton key={column} height={12} width={column === 0 ? '38%' : '100%'} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SkeletonCards({ count = 4 }: { count?: number }) {
+  return (
+    <div className="skeleton-cards" role="status" aria-busy="true" aria-label="Loading summary">
+      {Array.from({ length: count }, (_, index) => (
+        <div className="skeleton-cards__card" key={index}>
+          <Skeleton width="52%" height={10} />
+          <Skeleton width="72%" height={22} />
+          <Skeleton width="40%" height={10} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function relativeAge(timestamp: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - timestamp) / 1000))
+  if (seconds < 10) return 'just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`
+}
+
+/**
+ * When this page last re-read stored data, and whether that read is current.
+ *
+ * `updatedAt` is a **display** clock: when the browser last fetched what is on
+ * screen. It is not the evidence clock. A quote's freshness, a forecast's
+ * publication time and a decision cutoff all come from the payload and are
+ * shown by the page itself; re-reading a stored quote here does not give it a
+ * newer evidence timestamp, and nothing on this control relaxes those rules.
+ */
+export function Freshness({ updatedAt, refreshing, stale, error, onRetry, label = 'Data' }: {
+  updatedAt: number | null
+  refreshing: boolean
+  stale?: boolean
+  error?: string | null
+  onRetry?: () => void
+  label?: string
+}) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const failed = Boolean(error)
+  return (
+    <span
+      className={`freshness${failed ? ' freshness--error' : stale ? ' freshness--stale' : ''}`}
+      aria-live="polite"
+    >
+      {refreshing
+        ? <RefreshCw className="spin" size={12} aria-hidden="true" />
+        : failed
+          ? <WifiOff size={12} aria-hidden="true" />
+          : <Circle size={8} aria-hidden="true" />}
+      <span className="freshness__text">
+        {refreshing
+          ? `Updating ${label.toLowerCase()}…`
+          : failed
+            ? `Showing the last good read — refresh failed (${error})`
+            : updatedAt === null
+              ? `${label} not read yet`
+              : `${label} read ${relativeAge(updatedAt, now)}`}
+      </span>
+      {failed && onRetry && (
+        <button type="button" className="freshness__retry" onClick={onRetry}>Retry</button>
+      )}
+    </span>
+  )
+}
+
+/**
+ * One signal pill, styled from the shared status table.
+ *
+ * Named `SignalPill` because `StatusPill` above is a different thing — a
+ * readiness indicator — and the two must not share a name or a class prefix.
+ *
+ * Sizing is fixed here rather than at each call site so a longer label like
+ * STANDARD EDGE cannot change a row's geometry, which is how it came to
+ * collide with the Analysis button. The pill wraps its text instead of pushing
+ * its neighbours.
+ */
+export function SignalPill({ label, className, title, sub }: {
+  label: ReactNode
+  className: string
+  title?: string
+  /** A quieter second line, e.g. "last pregame reading". */
+  sub?: ReactNode
+}) {
+  return (
+    <span className="signal-pill-wrap">
+      <span className={className} title={title}>{label}</span>
+      {sub && <small className="signal-pill__sub">{sub}</small>}
+    </span>
+  )
 }

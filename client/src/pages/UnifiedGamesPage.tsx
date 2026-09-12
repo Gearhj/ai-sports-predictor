@@ -28,10 +28,14 @@
  */
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { Freshness, SkeletonCards, SkeletonTable, SignalPill } from '../components/ui'
+import { PrefetchLink } from '../components/PrefetchLink'
 import {
   ArrowRight, Beaker, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, LineChart,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
+import { closedStyle, edgeDescription, hasStarted, opportunityStyle } from '../services/statusStyle'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
 import { byStartTime, mlbSlate, nflSlate, type SlateGame } from '../services/broadcastSlate'
@@ -97,7 +101,13 @@ export function UnifiedGamesPage() {
     // `params` is read for season/week only; date drives its own dependency.
   }, [sport, dateParam, params])
 
-  const resource = useApiResource(loader)
+  const resource = useApiResource(loader, {
+    key: cacheKey('unified/games', {
+      sport, date: dateParam, season: params.get('season'), week: params.get('week'),
+    }),
+    staleTimeMs: STALE_TIME.slate,
+    refreshIntervalMs: STALE_TIME.slate,
+  })
   const board = resource.data?.scope === sport ? resource.data : null
 
   const mlbGames = useMemo(() => mlbSlate(board?.mlb ?? null).sort(byStartTime), [board])
@@ -197,18 +207,27 @@ export function UnifiedGamesPage() {
             <span className="bx-ribbon__label">Next up</span>
             <div className="bx-ribbon__scroll bx-scroll">
               {nextUp.map((game) => (
-                <Link key={game.key} className="bx-ribbon__game" to={withSport(game.analysisHref, game.league)}>
+                <PrefetchLink key={game.key} className="bx-ribbon__game" to={withSport(game.analysisHref, game.league)}>
                   <b><span style={{ color: `var(--bx-${game.league.toLowerCase()})` }}>{game.league}</span>{' '}
                     {game.away.abbreviation} @ {game.home.abbreviation}</b>
                   <small>{clockOf(game.startsAt)}</small>
-                </Link>
+                </PrefetchLink>
               ))}
             </div>
           </nav>
         )}
 
-        {resource.loading && !board && <p className="bx-empty" role="status">Loading the slate…</p>}
-        {resource.error && <p className="bx-empty" role="alert">{resource.error}</p>}
+        {resource.loading && !board && (
+          <>
+            <SkeletonCards count={4} />
+            <SkeletonTable rows={8} columns={6} ariaLabel="Loading the slate" />
+          </>
+        )}
+        {resource.error && !board && <p className="bx-empty" role="alert">{resource.error}</p>}
+        {board && (
+          <Freshness label="Slate" updatedAt={resource.updatedAt} refreshing={resource.refreshing}
+            stale={resource.stale} error={resource.error} onRetry={resource.refresh} />
+        )}
 
         {(sport === 'ALL' || sport === 'MLB') && (
           <LeagueSection
@@ -334,23 +353,29 @@ function GameRow({
         </span>
       </div>
 
-      <div style={{ display: 'grid', gap: 4, justifyItems: 'start', minWidth: 0 }}>
+      <div className="bx-slate__decision">
         <DecisionChip game={game} />
+        {/* The band describes one side; the old bare signed number was always
+            the home side, so the two disagreed in sign on every away edge. */}
         <span className="bx-dim">
-          {game.edgePoints == null
-            ? 'No comparable price'
-            : `${signedPoints(game.edgePoints, 1)} pp vs market`}
+          {edgeDescription({
+            edgeSide: game.edgeSide,
+            modelEdgePoints: game.modelEdgePoints,
+            homeEdgePoints: game.edgePoints,
+            homeAbbrev: game.home.abbreviation,
+            awayAbbrev: game.away.abbreviation,
+          }).text}
         </span>
       </div>
 
       <div className="bx-slate__actions">
-        <Link className="bx-btn" to={withSport(game.analysisHref, game.league)}>
+        <PrefetchLink className="bx-btn" to={withSport(game.analysisHref, game.league)}>
           Analysis <ArrowRight size={13} />
-        </Link>
+        </PrefetchLink>
         {game.simulationHref && (
-          <Link className="bx-btn bx-btn--primary" to={withSport(game.simulationHref, game.league)}>
+          <PrefetchLink className="bx-btn bx-btn--primary" to={withSport(game.simulationHref, game.league)}>
             <Beaker size={13} aria-hidden="true" /> Simulate
-          </Link>
+          </PrefetchLink>
         )}
         {/* The evidence drawer is an affordance on the row, not a strip under
             it: as a strip it added a line to all twenty-one games so that a
@@ -390,11 +415,40 @@ function GameRow({
   )
 }
 
+/**
+ * The market-disagreement band for one game.
+ *
+ * Two things are kept apart that used to be one chip. The band says how far
+ * the model is from the market; it is not a decision, and a game that has
+ * already started carries only the reading it had before first pitch. Showing
+ * a started game's old band with the same weight as a live one is what made
+ * finished games look like open opportunities.
+ */
 function DecisionChip({ game }: { game: SlateGame }) {
-  if (game.researchOnly) return <span className="bx-chip">Research only</span>
-  const state = (game.decisionState ?? '').toUpperCase()
-  if (state.includes('QUALIFIED')) return <span className="bx-chip bx-chip--good">Qualified</span>
-  if (state.includes('PROVISIONAL') || state.includes('WATCH')) return <span className="bx-chip bx-chip--warn">{game.decisionState}</span>
-  if (!game.decisionState) return <span className="bx-chip">No decision recorded</span>
-  return <span className="bx-chip">{game.decisionState}</span>
+  if (game.researchOnly) {
+    return (
+      <SignalPill
+        label="Research only" className="signal-pill signal-pill--neutral"
+        title="This sport publishes research forecasts and no governed decision band."
+      />
+    )
+  }
+  if (!game.decisionState) {
+    return (
+      <SignalPill
+        label="No band published" className="signal-pill signal-pill--neutral"
+        title="No market-disagreement band is published for this game."
+      />
+    )
+  }
+  const style = opportunityStyle(game.decisionState)
+  const started = hasStarted(game.status)
+  return (
+    <SignalPill
+      label={game.decisionState}
+      className={started ? closedStyle().className : style.className}
+      title={started ? closedStyle().title : style.title}
+      sub={started ? 'last pregame reading' : undefined}
+    />
+  )
 }

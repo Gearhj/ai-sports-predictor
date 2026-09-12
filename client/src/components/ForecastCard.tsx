@@ -3,18 +3,24 @@ import { ChevronRight, Clock3, CloudSun, Database, MapPin, ShieldCheck } from 'l
 import { Link, useNavigate } from 'react-router-dom'
 import type { ForecastGame } from '../types/domain'
 import { formatTime, formatTimestamp } from '../services/format'
-import { formatMoneyline, formatNumber, formatPct, ScoreBar, TeamBadge } from './ui'
+import { closedStyle, hasStarted, opportunityStyle } from '../services/statusStyle'
+import { formatMoneyline, formatNumber, formatPct, ScoreBar, SignalPill, TeamBadge } from './ui'
 import { GameLifecycleStrip } from './GameLifecycle'
 
-function OpportunityBadge({ label }: { label: ForecastGame['opportunity'] }) {
-  const className = label === 'STRONG EDGE'
-    ? 'opportunity opportunity--strong'
-    : label === 'STANDARD EDGE'
-      ? 'opportunity opportunity--standard'
-      : label === 'WATCH'
-        ? 'opportunity opportunity--watch'
-        : 'opportunity'
-  return <span className={className}>{label}</span>
+function OpportunityBadge({ label, status }: {
+  label: ForecastGame['opportunity']
+  status?: string | null
+}) {
+  // Shared mapping, so this card and the slate row cannot disagree about what
+  // a status looks like, and an unknown status is never promoted to green.
+  const started = hasStarted(status)
+  const style = started ? closedStyle() : opportunityStyle(label)
+  return (
+    <SignalPill
+      label={label} className={style.className} title={style.title}
+      sub={started ? 'last pregame reading' : undefined}
+    />
+  )
 }
 
 function TeamRow({
@@ -77,7 +83,7 @@ export function ForecastCard({ game, demo = false }: { game: ForecastGame; demo?
           <span><MapPin size={13} /> {game.venue.split(' · ')[0]}</span>
           {game.status.toLowerCase().includes('weather') && <span className="forecast-card__weather"><CloudSun size={13} /> Weather watch</span>}
         </div>
-        <OpportunityBadge label={game.opportunity} />
+        <OpportunityBadge label={game.opportunity} status={game.status} />
       </header>
 
       <GameLifecycleStrip game={game} />

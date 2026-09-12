@@ -8,6 +8,7 @@
  * The Odds API.
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiRequest, endpoints } from '../services/api'
@@ -92,8 +93,13 @@ describe('Markets & Crowd', () => {
   })
 
   it('labels the temporary fallback separately from the primary provider', async () => {
+    // The badge moved out of the collapsed row into the expanded source
+    // detail: the row now carries the book name, the price and its age, and
+    // the provider implementation is detail rather than a repeated headline.
     mount()
     const mlb = await screen.findByRole('region', { name: /Baseball prices/i })
+    const row = within(mlb).getByRole('article', { name: /Tampa Bay Rays at Atlanta Braves/i })
+    await userEvent.click(within(row).getByRole('button', { name: /Show bookmaker detail/i }))
     expect(within(mlb).getAllByText(/SGO fallback/i).length).toBeGreaterThan(0)
     expect(within(mlb).queryByText(/^Odds API$/)).toBeNull()
   })

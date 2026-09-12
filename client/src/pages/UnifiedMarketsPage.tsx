@@ -28,10 +28,14 @@
  *  - The Odds API and the temporary SportsGameOdds research fallback are
  *    labelled separately on every price. They are not one "source".
  */
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
 import { ArrowRight, ChevronDown, Flame, History, RefreshCw, Radio } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
+import { quoteDescription, resolveQuotedSide } from '../services/marketOrientation'
+import { hasStarted } from '../services/statusStyle'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
 import {
@@ -144,7 +148,13 @@ export function UnifiedMarketsPage() {
     return { data_mode: 'live', scope: sport, date: day, books, crowd, weeks, nfl, warnings }
   }, [sport, day, params])
 
-  const resource = useApiResource(loader)
+  const resource = useApiResource(loader, {
+    key: cacheKey('unified/markets', {
+      sport, date: day, season: params.get('season'), week: params.get('week'),
+    }),
+    staleTimeMs: STALE_TIME.slate,
+    refreshIntervalMs: STALE_TIME.slate,
+  })
   const board = resource.data?.scope === sport ? resource.data : null
   const now = board?.nfl?.now_utc ? new Date(board.nfl.now_utc).getTime() : Date.now()
 
@@ -272,12 +282,26 @@ export function UnifiedMarketsPage() {
 
         <p className="bx-dim">
           Reloading this page makes no provider call. A price is persisted evidence with its own
-          observation time — never a wagering-eligibility decision. "Fresh" means observed within{' '}
-          {FRESH_MINUTES / 60} hours of this read.
+          observation time — never a wagering-eligibility decision. A game's status and a quote's
+          status are separate: a started or finished game still shows the last price recorded
+          <em> before</em> first pitch, and the age below is when that price was recorded, not when
+          this page last refreshed. "Within the freshness window" means observed within{' '}
+          {FRESH_MINUTES / 60} hours of this read. The model probability compared here is the
+          <b> Gen 1 official forecast</b>; the V18 research-shadow forecast in the Diamond
+          Simulator is a different model and a different number, and the two are never mixed.
         </p>
 
-        {resource.loading && !board && <p className="bx-empty" role="status">Loading persisted market evidence…</p>}
-        {resource.error && <p className="bx-empty" role="alert">{resource.error}</p>}
+        {resource.loading && !board && (
+          <>
+            <SkeletonCards count={3} />
+            <SkeletonTable rows={8} columns={6} ariaLabel="Loading persisted market evidence" />
+          </>
+        )}
+        {resource.error && !board && <p className="bx-empty" role="alert">{resource.error}</p>}
+        {board && (
+          <Freshness label="Prices" updatedAt={resource.updatedAt} refreshing={resource.refreshing}
+            stale={resource.stale} error={resource.error} onRetry={resource.refresh} />
+        )}
 
         {view === 'PRICES' && sport !== 'NFL' && (
           <Panel eyebrow={`MLB · ${FAMILY_LABEL.MLB[family]}`} title="Baseball prices"
@@ -340,6 +364,67 @@ function matches(...values: (string | null | undefined)[]): boolean {
 
 /* -- MLB ------------------------------------------------------------------ */
 
+/**
+ * The collapsed row's comparison, as labelled values rather than a picture.
+ *
+ * Every value names its team or contract. A missing value is rendered as an
+ * explicit unavailable state with the reason beside it, because a blank cell
+ * and a zero look the same at a glance and neither is the truth.
+ */
+function ComparisonSummary({
+  selectionLabel, modelLabel, modelValue, consensusLabel, consensusValue,
+  gap, bestLabel, bestValue, bestBook, bestSource, observed, comparability,
+}: {
+  selectionLabel: string
+  modelLabel: string
+  modelValue: string
+  consensusLabel: string
+  consensusValue: string
+  gap: { text: string; tone: 'up' | 'down' | 'flat' } | null
+  bestLabel: string
+  bestValue: string
+  bestBook: string
+  bestSource: ReactNode
+  observed: string
+  comparability: string | null
+}) {
+  return (
+    <div className="bx-mkt__compare">
+      <span className="bx-mkt__compare-selection">{selectionLabel}</span>
+      <dl className="bx-mkt__facts">
+        <div>
+          <dt>{modelLabel}</dt>
+          <dd className="bx-num">{modelValue}</dd>
+        </div>
+        <div>
+          <dt>{consensusLabel}</dt>
+          <dd className="bx-num">{consensusValue}</dd>
+        </div>
+        <div>
+          <dt>Model &minus; consensus</dt>
+          <dd className={`bx-num${gap ? ` bx-gap--${gap.tone}` : ''}`}>
+            {gap ? gap.text : 'unavailable'}
+          </dd>
+        </div>
+        <div>
+          <dt>{bestLabel}</dt>
+          <dd className="bx-num">{bestValue}</dd>
+          <dd className="bx-mkt__facts-note">
+            {bestBook}
+            {bestSource && <span className="bx-mkt__facts-source">{bestSource}</span>}
+          </dd>
+        </div>
+        <div>
+          <dt>Sportsbook price age</dt>
+          <dd className="bx-mkt__facts-note">{observed}</dd>
+        </div>
+      </dl>
+      {comparability && <p className="bx-mkt__compare-note">{comparability}</p>}
+    </div>
+  )
+}
+
+
 function MlbMarketRow({
   row, books, family, now, withSport, onReplay,
 }: {
@@ -359,6 +444,14 @@ function MlbMarketRow({
   const observedAt = homeRow?.observed_at ?? null
   const fresh = isFresh(observedAt, now)
   const crowd = (row.providers ?? []).filter((provider) => provider.midpoint != null)
+  // Game status and quote status are different facts. A started game's last
+  // book price is a pregame record, and a page that refreshed a moment ago does
+  // not make a four-hour-old quote live.
+  const gameStarted = hasStarted(row.status)
+  const priceAge = observedAt
+    ? `${gameStarted ? 'Pregame price · ' : ''}last recorded ${agoOf(observedAt, now)}`
+      + (!gameStarted && fresh === false ? ' · outside the freshness window' : '')
+    : 'Observation time not recorded'
 
   const marks: PlotMark[] = []
   let range = null as null | { low: number; high: number; label: string }
@@ -406,6 +499,49 @@ function MlbMarketRow({
     caption = `American price for ${homeRow?.selection ?? 'the recorded selection'}${homeRow?.line != null ? ` ${signedPoints(homeRow.line, 1)}` : ''}.`
   }
 
+  // What the row is actually comparing, named rather than implied.
+  const selectionLabel = family === 'MONEYLINE'
+    ? `${row.home_abbrev} win`
+    : `${homeRow?.selection ?? 'recorded selection'}${homeRow?.line != null ? ` ${signedPoints(homeRow.line, 1)}` : ''}`
+
+  // Model minus consensus, on the one basis both are expressed in. For a run
+  // line or a total the two are prices, and they are only comparable when they
+  // are the same selection at the same line -- which the backend guarantees by
+  // construction here, because both come from the same `homeRow`.
+  const gap: { text: string; tone: 'up' | 'down' | 'flat' } | null = (() => {
+    if (family === 'MONEYLINE') {
+      const model = row.aisp_home_probability
+      const consensus = row.sportsbook_home_probability
+      if (model == null || consensus == null) return null
+      const points = (model - consensus) * 100
+      return {
+        text: `${points > 0 ? '+' : ''}${points.toFixed(1)} pp`,
+        tone: points > 0.05 ? 'up' : points < -0.05 ? 'down' : 'flat',
+      }
+    }
+    const model = homeRow?.asp_fair
+    const consensus = homeRow?.consensus
+    if (model == null || consensus == null) return null
+    const diff = model - consensus
+    return {
+      text: `${diff > 0 ? '+' : ''}${Math.round(diff)}`,
+      tone: diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
+    }
+  })()
+
+  // Why a comparison is missing, when it is.
+  const comparability = family === 'MONEYLINE'
+    ? (row.aisp_home_probability == null
+        ? 'No model probability is published for this game.'
+        : row.sportsbook_home_probability == null
+          ? 'No complete two-sided book quote supports a no-vig consensus, so no comparison is shown.'
+          : null)
+    : (homeRow == null
+        ? 'No recorded selection at a comparable line, so no comparison is shown.'
+        : homeRow.asp_fair == null || homeRow.consensus == null
+          ? `Only one side of ${selectionLabel} is recorded; a model-versus-market gap needs both at the same line.`
+          : null)
+
   return (
     <>
       <article className={`bx-mkt__row${open ? ' bx-mkt__row--open' : ''}`}
@@ -426,29 +562,28 @@ function MlbMarketRow({
             {teamIdentity('MLB', row.away_abbrev).name} at {teamIdentity('MLB', row.home_abbrev).name}
           </small>
         </div>
-        <div className="bx-mkt__model">
-          <b>{family === 'MONEYLINE' ? pct(row.aisp_home_probability, 1) : american(homeRow?.asp_fair)}</b>
-          <small>{family === 'MONEYLINE' ? `${row.home_abbrev} model` : 'model fair'}</small>
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <ComparisonPlot marks={marks} range={range} domain={domain} format={format} />
-        </div>
-        <div className="bx-mkt__best">
-          <b>{best ? american(best.price) : 'no price'}</b>
-          <small>{best ? bookName(best.book) : 'no complete two-sided quote is persisted'}</small>
-          <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-            {best && <SourceBadge source={best.book} />}
-            {fresh != null && (
-              <span className={`bx-source ${fresh ? 'bx-source--kalshi' : 'bx-source--sgo'}`}>
-                {fresh ? 'fresh' : 'stale'} {agoOf(observedAt, now)}
-              </span>
-            )}
-          </span>
-        </div>
-        <div className="bx-mkt__model">
-          <b>{family === 'MONEYLINE' ? pct(row.sportsbook_home_probability, 1) : american(homeRow?.consensus)}</b>
-          <small>consensus</small>
-        </div>
+        {/* The collapsed row used to carry an unlabelled miniature plot. It is
+            now the same facts as words: which selection, what the model says,
+            what the books say, how far apart they are, and the best recorded
+            price with its age. The plot moved into the drawer, where it has a
+            title and a legend. */}
+        <ComparisonSummary
+          selectionLabel={selectionLabel}
+          modelLabel={family === 'MONEYLINE' ? 'Gen 1 model' : 'Gen 1 model fair price'}
+          modelValue={family === 'MONEYLINE' ? pct(row.aisp_home_probability, 1) : american(homeRow?.asp_fair)}
+          consensusLabel={family === 'MONEYLINE' ? 'Sportsbook consensus' : 'Sportsbook consensus price'}
+          consensusValue={family === 'MONEYLINE' ? pct(row.sportsbook_home_probability, 1) : american(homeRow?.consensus)}
+          gap={gap}
+          bestLabel={best ? `Best recorded ${selectionLabel} price` : 'Best recorded price'}
+          bestValue={best ? american(best.price) : 'unavailable'}
+          bestBook={best ? bookName(best.book) : 'no complete two-sided quote is persisted'}
+          // The provider-implementation badge (SGO FALLBACK and friends) lives
+          // in the drawer's source details. The book name and the price are
+          // what a reader needs here.
+          bestSource={null}
+          observed={priceAge}
+          comparability={comparability}
+        />
         <button type="button" className="bx-mkt__toggle" aria-expanded={open}
           aria-label={`${open ? 'Hide' : 'Show'} bookmaker detail for ${row.away_abbrev} at ${row.home_abbrev}`}
           onClick={() => setOpen((value) => !value)}>
@@ -498,13 +633,35 @@ function MlbMarketRow({
                   Kalshi and Polymarket publish home-win contracts. They are not run-line or total
                   prices and are not shown on this tab.
                 </p>
-                : <CrowdTable providers={crowd} home={row.home_abbrev ?? 'Home'} now={now} note={row.consensus_note} />}
+                : <CrowdTable
+                    providers={crowd} home={row.home_abbrev ?? 'Home'}
+                    away={row.away_abbrev ?? 'Away'}
+                    homeProbability={row.aisp_home_probability}
+                    now={now} note={row.consensus_note} />}
+
+              {/* The detailed plot lives here, with a title and its legend,
+                  rather than unlabelled in the collapsed row. */}
+              <h4 style={{ margin: '16px 0 6px', fontSize: 13 }}>
+                {family === 'MONEYLINE'
+                  ? `${row.home_abbrev} home-win probability by source`
+                  : `${selectionLabel} price by source`}
+              </h4>
+              <ComparisonPlot marks={marks} range={range} domain={domain} format={format} />
               <PlotLegend marks={marks} range={range} />
               <p className="bx-dim" style={{ marginTop: 6 }}>{caption}</p>
-              <p className="bx-dim" style={{ marginTop: 8 }}>
-                Sportsbook observation {observedAt ? agoOf(observedAt, now) : 'not recorded'}.{' '}
-                {row.display_note ?? ''}
-              </p>
+              <details className="bx-mkt__sources">
+                <summary>Source details and provenance</summary>
+                <p className="bx-dim" style={{ marginTop: 6 }}>
+                  Sportsbook observation {observedAt ? agoOf(observedAt, now) : 'not recorded'}.{' '}
+                  {row.display_note ?? ''}
+                </p>
+                {best && (
+                  <p className="bx-dim" style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    Best recorded price provider: {bookName(best.book)}
+                    <SourceBadge source={best.book} />
+                  </p>
+                )}
+              </details>
               <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                 <button type="button" className="bx-btn bx-btn--primary" onClick={() => onReplay(row.game_id)}>
                   <History size={13} aria-hidden="true" /> Replay this market
@@ -716,9 +873,30 @@ function NflMarketRow({
   )
 }
 
+/**
+ * Prediction-market observations, with the side each book is actually on.
+ *
+ * The midpoint column is oriented to the home team by the backend. The bid and
+ * ask are the raw contract's own prices, and different venues list different
+ * sides of the same game -- Polymarket may quote the away contract while
+ * Kalshi quotes the home one. Both were previously shown under a single
+ * "<home> win" heading, which made a correct away-side book look like a
+ * contradiction.
+ *
+ * The side is resolved from the numbers and named. When it cannot be
+ * established the prices are withheld with the reason, never complemented into
+ * agreement.
+ */
 function CrowdTable({
-  providers, home, now, note,
-}: { providers: PredictionProviderProbability[]; home: string; now: number; note: string | null | undefined }) {
+  providers, home, away, homeProbability, now, note,
+}: {
+  providers: PredictionProviderProbability[]
+  home: string
+  away: string
+  homeProbability: number | null | undefined
+  now: number
+  note: string | null | undefined
+}) {
   if (providers.length === 0) {
     return <p className="bx-dim">No matched pregame contract observation is available for this game.</p>
   }
@@ -728,26 +906,64 @@ function CrowdTable({
         <table className="bx-table">
           <thead>
             <tr>
-              <th scope="col">Venue</th><th scope="col">{home} win</th><th scope="col">Bid / ask</th>
-              <th scope="col">Observed</th><th scope="col">Settlement review</th>
+              <th scope="col">Venue</th>
+              <th scope="col">{home} win</th>
+              <th scope="col">Quoted side</th>
+              <th scope="col">Bid / ask</th>
+              <th scope="col">Observation</th>
+              <th scope="col">Settlement review</th>
             </tr>
           </thead>
           <tbody>
-            {providers.map((provider) => (
-              <tr key={provider.provider}>
-                <th scope="row"><SourceBadge source={provider.provider} /></th>
-                <td className="bx-num">{pct(provider.midpoint, 1)}</td>
-                <td className="bx-num">
-                  {provider.best_bid == null ? '—' : `${pct(provider.best_bid, 1)} / ${pct(provider.best_ask, 1)}`}
-                </td>
-                <td>{agoOf(provider.observed_at, now) ?? 'not recorded'}</td>
-                <td>{provider.semantics_status === 'SEMANTICS_MATCHED' ? 'reviewed' : 'unreviewed · research only'}</td>
-              </tr>
-            ))}
+            {providers.map((provider) => {
+              const orientation = resolveQuotedSide({
+                homeProbability,
+                bestBid: provider.best_bid,
+                bestAsk: provider.best_ask,
+              })
+              const sideLabel = orientation.side === 'HOME' ? home
+                : orientation.side === 'AWAY' ? away : null
+              const quote = quoteDescription({
+                observationKind: provider.observation_kind,
+                inPlay: provider.in_play,
+                ageLabel: agoOf(provider.observed_at, now),
+              })
+              return (
+                <tr key={provider.provider}>
+                  <th scope="row"><SourceBadge source={provider.provider} /></th>
+                  <td className="bx-num">{pct(provider.midpoint, 1)}</td>
+                  <td>
+                    {sideLabel
+                      ? <span className="bx-chip">{sideLabel} contract</span>
+                      : <span className="bx-dim" title={orientation.reason ?? undefined}>
+                          side not established
+                        </span>}
+                  </td>
+                  <td className="bx-num">
+                    {/* Withheld rather than shown under the wrong team. */}
+                    {sideLabel == null || provider.best_bid == null
+                      ? <span className="bx-dim">unavailable</span>
+                      : `${pct(provider.best_bid, 1)} / ${pct(provider.best_ask, 1)}`}
+                  </td>
+                  <td>
+                    <span className="bx-mkt__quotekind">{quote.kind}</span>
+                    <small className="bx-dim" style={{ display: 'block' }}>{quote.recorded}</small>
+                  </td>
+                  <td>{provider.semantics_status === 'SEMANTICS_MATCHED'
+                    ? 'reviewed'
+                    : 'unreviewed · research only'}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
-      {note && <p className="bx-dim" style={{ marginTop: 8 }}>{note}</p>}
+      <p className="bx-dim" style={{ marginTop: 8 }}>
+        The <b>{home} win</b> column is oriented to {home}. <b>Bid / ask</b> are the venue's own
+        contract prices, which may list either side; the side is named per row and the prices are
+        withheld when it cannot be established.
+      </p>
+      {note && <p className="bx-dim" style={{ marginTop: 6 }}>{note}</p>}
     </>
   )
 }

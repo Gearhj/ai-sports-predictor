@@ -77,6 +77,11 @@ export interface SlateGame {
   totalLine: number | null
   /** Model minus market, in percentage points of home-win probability. */
   edgePoints: number | null
+  /** Which side the published band describes. The band and `edgePoints`
+   *  disagree in sign whenever this is 'away', so the row must name it. */
+  edgeSide: 'home' | 'away' | null
+  /** The backend's own edge, in points, signed against `edgeSide`. */
+  modelEdgePoints: number | null
   modelLabel: string | null
   evidenceAt: string | null
   analysisHref: string
@@ -122,6 +127,8 @@ export function mlbSlate(data: DashboardData | null): SlateGame[] {
       // against `edge_side`, so it is not reused here: a signed home-side
       // number is what the row renders and it must mean exactly that.
       edgePoints: homeWin != null && marketHome != null ? (homeWin - marketHome) * 100 : null,
+      edgeSide: (game.edge_side === 'home' || game.edge_side === 'away') ? game.edge_side : null,
+      modelEdgePoints: typeof game.model_edge === 'number' ? game.model_edge : null,
       modelLabel: (game as { forecast_model_label?: string }).forecast_model_label ?? null,
       evidenceAt: game.data_as_of ?? null,
       analysisHref: `/games/${game.id}`,
@@ -177,6 +184,9 @@ export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST')
       handicap: spread?.line ?? null,
       totalLine: total?.line ?? null,
       edgePoints: modelHome != null && marketHome != null ? (modelHome - marketHome) * 100 : null,
+      // NFL publishes no decision band, so it publishes no edge side either.
+      edgeSide: null,
+      modelEdgePoints: null,
       modelLabel: engine?.model_label ?? null,
       evidenceAt: engine?.timestamps?.source_evidence_utc ?? null,
       analysisHref: event.canonical_game_id ? `/games/${event.canonical_game_id}` : '/games',

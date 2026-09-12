@@ -247,7 +247,7 @@ afterEach(() => {
 describe('simulator track routing', () => {
   it('defaults to the official Gen 1 track and labels it as a distribution', async () => {
     mount('')
-    expect(await screen.findByRole('heading', { level: 1, name: /Official Gen 1 · Final-score distribution/ }))
+    expect(await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline · Final-score distribution/ }))
       .toBeInTheDocument()
     // Gen 1 is described as a distribution, never as play-by-play.
     expect(document.querySelector('.track-scope')).toHaveTextContent(
@@ -265,16 +265,26 @@ describe('simulator track routing', () => {
     expect(screen.getByRole('group', { name: /scoreboard/i })).toHaveTextContent('PA 1 of 2')
   })
 
-  it('exposes only artifact-supported V18 views', async () => {
+  it('keeps an unsupported V18 view discoverable, disabled, with its reason', async () => {
+    // Hiding the mode made an unavailable view indistinguishable from one that
+    // never existed. These two are unavailable for a specific, reportable
+    // reason -- the producer published no supplement -- and saying so is what
+    // lets a reader (or a Codex handoff) act on it.
     mount('?track=v18', {
       views: { broadcast: true, geometry: false, population: false },
       geometry: false,
       population: false,
     })
-    expect(await screen.findByRole('button', { name: 'Broadcast Replay' }))
-      .toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Play Geometry' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Simulation Population' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Broadcast Replay' })).toBeEnabled()
+
+    const geometry = screen.getByRole('button', { name: 'Play Geometry' })
+    expect(geometry).toBeDisabled()
+    expect(geometry).toHaveTextContent(/available_views\.geometry = false/)
+    expect(geometry).toHaveTextContent(/Nothing is reconstructed in its place/)
+
+    const population = screen.getByRole('button', { name: 'Simulation Population' })
+    expect(population).toBeDisabled()
+    expect(population).toHaveTextContent(/available_views\.population = false/)
   })
 
   it('keeps the two engines’ population figures apart', async () => {
@@ -300,11 +310,11 @@ describe('simulator track routing', () => {
   it('switches tracks without claiming either forecast changed', async () => {
     const user = userEvent.setup()
     mount('')
-    await screen.findByRole('heading', { level: 1, name: /Official Gen 1/ })
+    await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline/ })
     const selector = await screen.findByRole('navigation', { name: /simulation track/i })
     expect(screen.getByText(/Switching tracks changes only which engine/i)).toBeInTheDocument()
 
-    await user.click(within(selector).getByRole('button', { name: /V18 Research Shadow/ }))
+    await user.click(within(selector).getByRole('button', { name: /V18 · Saved game simulation/ }))
     expect(await screen.findByRole('heading', { level: 1, name: /V18 Monte Carlo Diamond Theater/ }))
       .toBeInTheDocument()
   })
@@ -327,7 +337,7 @@ describe('simulator track routing', () => {
 
   it('hides the selector when only Gen 1 exists', async () => {
     mount('', { shadows: false })
-    await screen.findByRole('heading', { level: 1, name: /Official Gen 1/ })
+    await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline/ })
     expect(screen.queryByRole('navigation', { name: /simulation track/i })).not.toBeInTheDocument()
   })
 })
@@ -388,7 +398,7 @@ describe('the simulator view selector', () => {
 
   it('offers no view selector on the Gen 1 track', async () => {
     mount('')
-    await screen.findByRole('heading', { level: 1, name: /Official Gen 1/ })
+    await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline/ })
     expect(screen.queryByRole('navigation', { name: /simulator view/i })).not.toBeInTheDocument()
   })
 })

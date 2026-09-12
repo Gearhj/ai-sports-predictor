@@ -15,7 +15,9 @@ import { DiamondTheater } from '../components/DiamondTheater'
 import { V18SimulationTrack, type V18View } from '../components/V18SimulationTrack'
 import { ScenarioLab } from '../components/ScenarioLab'
 import { DataModeBanner, DataStatePanel, PageHeader } from '../components/ui'
+import { SimulationProvenance } from '../components/SimulationProvenance'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import {
@@ -36,9 +38,11 @@ export function GameSimulationPage() {
   const { gameId = '' } = useParams()
   const simulationResource = useApiResource(
     useMemo(() => (signal?: AbortSignal) => endpoints.gameSimulation(gameId, signal), [gameId]),
+    { key: cacheKey('game/simulation', { gameId }), staleTimeMs: STALE_TIME.game },
   )
   const pulseResource = useApiResource(
     useMemo(() => (signal?: AbortSignal) => endpoints.marketPulseGame(gameId, signal), [gameId]),
+    { key: cacheKey('game/market-pulse', { gameId }), staleTimeMs: STALE_TIME.game },
   )
 
   // Which engine's simulation the reader asked for. Gen 1 stays the default,
@@ -155,7 +159,7 @@ export function GameSimulationPage() {
           ? (activeView === 'geometry' ? 'V18 Play Geometry'
             : activeView === 'population' ? 'V18 Simulation Population'
               : 'V18 Monte Carlo Diamond Theater')
-          : 'Official Gen 1 · Final-score distribution'}
+          : 'Gen 1 baseline · Final-score distribution'}
         description={`${awayTeam} @ ${homeTeam}`}
         actions={(
           <Link className="secondary-button" to={`/games/${gameId}`}>
@@ -167,8 +171,11 @@ export function GameSimulationPage() {
       {bothTracks && (
         <nav className="track-selector" aria-label="Simulation track">
           {([
-            ['gen1', 'Official Gen 1 · Outcome distribution'],
-            ['v18', 'V18 Research Shadow · Game simulation'],
+            // "Official" was fixed wording from when Gen 1 controlled funded
+            // decisions. Which era controls is a live fact and is stated by the
+            // provenance strip below, not baked into a tab label.
+            ['gen1', 'Gen 1 baseline · Final-score distribution'],
+            ['v18', 'V18 · Saved game simulation'],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -188,9 +195,15 @@ export function GameSimulationPage() {
         the official forecast nor the research-shadow forecast is altered here.
       </p>
 
-      <DataModeBanner
-        state={simulationResource.state}
-        loading={simulationResource.loading}
+      {/* A "LIVE DATA" banner here meant only that the API answered, beside a
+          saved simulation that is not live coverage of anything. What a reader
+          needs instead is which artifact is on screen and which era actually
+          controls funded decisions -- two separate facts. */}
+      <SimulationProvenance
+        track={track}
+        shadow={shadow}
+        simulation={simulation}
+        refreshing={simulationResource.refreshing}
         error={simulationResource.error}
         onRetry={simulationResource.refresh}
       />
@@ -211,28 +224,48 @@ export function GameSimulationPage() {
 
       {track === 'v18' && shadow && (
         <>
-          <nav className="view-selector" aria-label="Simulator view">
+          {/* Every mode stays visible. An unavailable one is disabled with the
+              reason it is unavailable, because a mode that silently disappears
+              is indistinguishable from one that never existed -- and these two
+              are unavailable for a specific, reportable reason. */}
+          <nav className="view-selector view-selector--modes" aria-label="Simulator view">
             {([
-              ['broadcast', 'Broadcast Replay', 'Score, bases, outs and the game feed'],
-              ['geometry', 'Play Geometry', 'Animated ball and runner paths'],
-              ['population', 'Simulation Population', 'All 5,000 simulated games'],
-            ] as const).filter(([key]) => availableV18Views[key]).map(([key, label, hint]) => (
-              <button
-                key={key}
-                type="button"
-                title={hint}
-                // The hint is a tooltip; the accessible name stays the label.
-                aria-label={label}
-                aria-current={activeView === key ? 'page' : undefined}
-                className={activeView === key ? 'is-active' : ''}
-                onClick={() => setParams(
-                  key === 'broadcast' ? { track: 'v18' } : { track: 'v18', view: key },
-                  { replace: true },
-                )}
-              >
-                {label}
-              </button>
-            ))}
+              ['broadcast', 'Broadcast Replay',
+               'Replays one saved simulated game plate appearance by plate appearance: score, bases, outs and the feed.'],
+              ['geometry', 'Play Geometry',
+               'Schematic ball and runner paths for each saved play.'],
+              ['population', 'Simulation Population',
+               'Every simulated game behind the forecast, not one path.'],
+            ] as const).map(([key, label, description]) => {
+              const available = Boolean(availableV18Views[key])
+              const active = activeView === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={!available}
+                  aria-label={label}
+                  aria-current={active ? 'page' : undefined}
+                  aria-describedby={`mode-desc-${key}`}
+                  className={`view-selector__mode${active ? ' is-active' : ''}${available ? '' : ' is-unavailable'}`}
+                  onClick={() => setParams(
+                    key === 'broadcast' ? { track: 'v18' } : { track: 'v18', view: key },
+                    { replace: true },
+                  )}
+                >
+                  <b>{label}</b>
+                  <small id={`mode-desc-${key}`}>{description}</small>
+                  {!available && (
+                    <small className="view-selector__why">
+                      Unavailable — this forecast's producer published no{' '}
+                      {key === 'geometry' ? 'play-geometry' : 'population'} supplement
+                      (<code>available_views.{key} = false</code>). Nothing is reconstructed in
+                      its place.
+                    </small>
+                  )}
+                </button>
+              )
+            })}
           </nav>
 
           <V18SimulationTrack
