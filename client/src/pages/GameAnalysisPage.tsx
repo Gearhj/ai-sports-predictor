@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams} from 'react-router-dom'
 import { MarketPulsePanel } from '../components/MarketPulsePanel'
 import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles, ArrowRight} from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
@@ -21,6 +21,7 @@ import {
 import { NflResearchAnalysis } from '../components/NflResearchAnalysis'
 import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { ShadowForecastPanel } from '../components/ShadowForecastPanel'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import { endpoints } from '../services/api'
@@ -28,6 +29,8 @@ import { formatCompactTimestamp, formatTime, formatTimestamp } from '../services
 
 export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   const { gameId = 'demo-nym-atl' } = useParams()
+  // An explicitly selected historical snapshot, when the reader asked for one.
+  const [searchParams] = useSearchParams()
   const demoData = useMemo(() => demo ? (() => {
     try { return getDemoGame(gameId) } catch { return null }
   })() : null, [demo, gameId])
@@ -39,7 +42,9 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
     }
     return endpoints.game(gameId, signal)
   }, [demo, demoData, gameId])
-  const { data, state, loading, error, refresh } = useApiResource(loader, demoData ? { demoData } : {})
+  const { data, state, loading, error, refresh } = useApiResource(loader, demoData
+    ? { demoData }
+    : { key: cacheKey('game/analysis', { gameId, horizon: searchParams.get('as_of') }), staleTimeMs: STALE_TIME.game })
   const { policy } = usePublicPolicy()
   const missingLiveGame = !demo && Boolean(error?.toLowerCase().includes('not found'))
   if (!data || state === 'empty' || state === 'unavailable' || state === 'loading') {

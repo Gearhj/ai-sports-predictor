@@ -36,17 +36,10 @@ const AXIS = { color: '#6d7d91', fontSize: 11 }
 
 export function GameSimulationPage() {
   const { gameId = '' } = useParams()
-  const simulationResource = useApiResource(
-    useMemo(() => (signal?: AbortSignal) => endpoints.gameSimulation(gameId, signal), [gameId]),
-    { key: cacheKey('game/simulation', { gameId }), staleTimeMs: STALE_TIME.game },
-  )
-  const pulseResource = useApiResource(
-    useMemo(() => (signal?: AbortSignal) => endpoints.marketPulseGame(gameId, signal), [gameId]),
-    { key: cacheKey('game/market-pulse', { gameId }), staleTimeMs: STALE_TIME.game },
-  )
 
   // Which engine's simulation the reader asked for. Gen 1 stays the default,
-  // so an existing link keeps working exactly as before.
+  // so an existing link keeps working exactly as before. Read before the
+  // resources, because both are part of their cache identity.
   const [params, setParams] = useSearchParams()
   const requestedTrack = params.get('track') === 'v18' ? 'v18' : 'gen1'
   // The visualisation selector is separate from the engine selector. An
@@ -55,6 +48,25 @@ export function GameSimulationPage() {
     const value = params.get('view')
     return value === 'geometry' || value === 'population' ? value : 'broadcast'
   })()
+  //: An explicitly selected historical snapshot, when the reader asked for one.
+  const horizon = params.get('as_of')
+
+  const simulationResource = useApiResource(
+    useMemo(() => (signal?: AbortSignal) => endpoints.gameSimulation(gameId, signal), [gameId]),
+    {
+      // Track, view and horizon are part of the identity: the same game shows
+      // a different engine's numbers on each, and a cache that ignored them
+      // would serve one under the other's heading.
+      key: cacheKey('game/simulation', {
+        gameId, track: requestedTrack, view: requestedView, horizon,
+      }),
+      staleTimeMs: STALE_TIME.game,
+    },
+  )
+  const pulseResource = useApiResource(
+    useMemo(() => (signal?: AbortSignal) => endpoints.marketPulseGame(gameId, signal), [gameId]),
+    { key: cacheKey('game/market-pulse', { gameId, horizon }), staleTimeMs: STALE_TIME.game },
+  )
   const [shadowTracks, setShadowTracks] = useState<ShadowComparison | null>(null)
 
   useEffect(() => {
@@ -81,6 +93,8 @@ export function GameSimulationPage() {
   const activeView: V18View = availableV18Views[requestedView]
     ? requestedView
     : 'broadcast'
+  const unavailableViews = (['geometry', 'population'] as const)
+    .filter((key) => !availableV18Views[key])
   const simulation = simulationResource.data as GameSimulationData | null
   const pulse = pulseResource.data as MarketPulseGameDetail | null
   const row = pulse?.row ?? null
@@ -257,16 +271,38 @@ export function GameSimulationPage() {
                   <small id={`mode-desc-${key}`}>{description}</small>
                   {!available && (
                     <small className="view-selector__why">
-                      Unavailable — this forecast's producer published no{' '}
-                      {key === 'geometry' ? 'play-geometry' : 'population'} supplement
-                      (<code>available_views.{key} = false</code>). Nothing is reconstructed in
-                      its place.
+                      This forecast does not include this view. Nothing is reconstructed
+                      in its place.
                     </small>
                   )}
                 </button>
               )
             })}
           </nav>
+
+          {/* The field names stay available, but below the control rather than
+              inside it. A reader deciding whether to click a mode needs one
+              sentence; whoever is chasing why the supplement is absent -- or
+              writing the producer handoff -- needs the exact flag. */}
+          {unavailableViews.length > 0 && (
+            <details className="mode-technical">
+              <summary>Technical detail: unavailable views</summary>
+              <ul>
+                {unavailableViews.map((key) => (
+                  <li key={key}>
+                    <code>available_views.{key} = false</code>, derived from{' '}
+                    <code>
+                      lineage.{key === 'geometry' ? 'geometry.events' : 'populationGeometry.summary'}
+                    </code>
+                    {' '}on <code>{shadow?.forecast_id ?? 'this forecast'}</code>. The producer
+                    published no {key === 'geometry' ? 'play-geometry' : 'population-geometry'}{' '}
+                    supplement for it. (The population <em>statistics</em> below come from the
+                    forecast itself and are unaffected.)
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
 
           <V18SimulationTrack
             shadow={shadow}

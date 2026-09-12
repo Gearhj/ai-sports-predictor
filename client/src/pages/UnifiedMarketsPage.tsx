@@ -34,7 +34,8 @@ import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
 import { ArrowRight, ChevronDown, Flame, History, RefreshCw, Radio } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
-import { quoteDescription, resolveQuotedSide } from '../services/marketOrientation'
+import { quoteDescription, resolveQuotedContract } from '../services/marketOrientation'
+import { availabilityNote, engineShortName } from '../services/forecastSelection'
 import { hasStarted } from '../services/statusStyle'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
@@ -287,8 +288,10 @@ export function UnifiedMarketsPage() {
           <em> before</em> first pitch, and the age below is when that price was recorded, not when
           this page last refreshed. "Within the freshness window" means observed within{' '}
           {FRESH_MINUTES / 60} hours of this read. The model probability compared here is the
-          <b> Gen 1 official forecast</b>; the V18 research-shadow forecast in the Diamond
-          Simulator is a different model and a different number, and the two are never mixed.
+          <b> forecast that governs each game</b>, chosen by the same rule the slate and the
+          simulator use — so one game shows one model's number everywhere. Each row names the
+          engine that supplied its figure and any condition attached to it; two engines' numbers
+          are never mixed into one comparison.
         </p>
 
         {resource.loading && !board && (
@@ -373,7 +376,7 @@ function matches(...values: (string | null | undefined)[]): boolean {
  */
 function ComparisonSummary({
   selectionLabel, modelLabel, modelValue, consensusLabel, consensusValue,
-  gap, bestLabel, bestValue, bestBook, bestSource, observed, comparability,
+  gap, forecastNote, bestLabel, bestValue, bestBook, bestSource, observed, comparability,
 }: {
   selectionLabel: string
   modelLabel: string
@@ -381,6 +384,7 @@ function ComparisonSummary({
   consensusLabel: string
   consensusValue: string
   gap: { text: string; tone: 'up' | 'down' | 'flat' } | null
+  forecastNote: string | null
   bestLabel: string
   bestValue: string
   bestBook: string
@@ -418,6 +422,12 @@ function ComparisonSummary({
           <dt>Sportsbook price age</dt>
           <dd className="bx-mkt__facts-note">{observed}</dd>
         </div>
+        {forecastNote && (
+          <div>
+            <dt>Forecast</dt>
+            <dd className="bx-mkt__facts-note">{forecastNote}</dd>
+          </div>
+        )}
       </dl>
       {comparability && <p className="bx-mkt__compare-note">{comparability}</p>}
     </div>
@@ -499,6 +509,20 @@ function MlbMarketRow({
     caption = `American price for ${homeRow?.selection ?? 'the recorded selection'}${homeRow?.line != null ? ` ${signedPoints(homeRow.line, 1)}` : ''}.`
   }
 
+  // Which forecast this comparison uses. Resolved server-side by the shared
+  // selector, so this row cannot compare a different model from the slate.
+  const selected = row.forecast_selection?.primary ?? null
+  // The engine that actually produced the number compared here, which is not
+  // always the selector's primary: when the controlling engine's forecast is
+  // unusable the comparison falls back, and the label must follow the number.
+  // `displayed_engine_id` is the field the slate reads too, so both surfaces
+  // name the engine the same way. The row-level field stays as a fallback for
+  // a payload produced before it existed.
+  const comparisonEngineId = row.forecast_selection?.displayed_engine_id
+    ?? row.aisp_comparison_engine_id ?? selected?.engine_id ?? null
+  const selectedEngine = engineShortName(comparisonEngineId)
+  const selectionNote = availabilityNote(selected)
+
   // What the row is actually comparing, named rather than implied.
   const selectionLabel = family === 'MONEYLINE'
     ? `${row.home_abbrev} win`
@@ -528,6 +552,22 @@ function MlbMarketRow({
       tone: diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
     }
   })()
+
+  // Model, version and the two clocks, compactly. Never the refresh time.
+  const fellBack = Boolean(
+    selected && comparisonEngineId && comparisonEngineId !== selected.engine_id,
+  )
+  const forecastIdentityNote = selected
+    ? [
+      fellBack
+        ? `${engineShortName(comparisonEngineId)} baseline shown — `
+          + `${engineShortName(selected.engine_id)} is not currently usable`
+        : `${selected.model_label}`,
+      selected.source_cutoff_utc ? `evidence to ${agoOf(selected.source_cutoff_utc, now)}` : null,
+      selected.published_utc ? `published ${agoOf(selected.published_utc, now)}` : null,
+      selectionNote || null,
+    ].filter(Boolean).join(' · ')
+    : null
 
   // Why a comparison is missing, when it is.
   const comparability = family === 'MONEYLINE'
@@ -569,11 +609,12 @@ function MlbMarketRow({
             title and a legend. */}
         <ComparisonSummary
           selectionLabel={selectionLabel}
-          modelLabel={family === 'MONEYLINE' ? 'Gen 1 model' : 'Gen 1 model fair price'}
+          modelLabel={family === 'MONEYLINE' ? `${selectedEngine} model` : `${selectedEngine} model fair price`}
           modelValue={family === 'MONEYLINE' ? pct(row.aisp_home_probability, 1) : american(homeRow?.asp_fair)}
           consensusLabel={family === 'MONEYLINE' ? 'Sportsbook consensus' : 'Sportsbook consensus price'}
           consensusValue={family === 'MONEYLINE' ? pct(row.sportsbook_home_probability, 1) : american(homeRow?.consensus)}
           gap={gap}
+          forecastNote={forecastIdentityNote}
           bestLabel={best ? `Best recorded ${selectionLabel} price` : 'Best recorded price'}
           bestValue={best ? american(best.price) : 'unavailable'}
           bestBook={best ? bookName(best.book) : 'no complete two-sided quote is persisted'}
@@ -916,11 +957,10 @@ function CrowdTable({
           </thead>
           <tbody>
             {providers.map((provider) => {
-              const orientation = resolveQuotedSide({
-                homeProbability,
-                bestBid: provider.best_bid,
-                bestAsk: provider.best_ask,
-              })
+              // Read from the contract's own identity. A price crossing 50%
+              // cannot change which team a contract settles on, so nothing
+              // here looks at the numbers to decide the side.
+              const orientation = resolveQuotedContract(provider, homeProbability)
               const sideLabel = orientation.side === 'HOME' ? home
                 : orientation.side === 'AWAY' ? away : null
               const quote = quoteDescription({
@@ -934,14 +974,28 @@ function CrowdTable({
                   <td className="bx-num">{pct(provider.midpoint, 1)}</td>
                   <td>
                     {sideLabel
-                      ? <span className="bx-chip">{sideLabel} contract</span>
-                      : <span className="bx-dim" title={orientation.reason ?? undefined}>
-                          side not established
-                        </span>}
+                      ? (
+                        <span
+                          className="bx-chip"
+                          title={[orientation.question, orientation.settlementMeaning]
+                            .filter(Boolean).join(' · ') || undefined}
+                        >
+                          {sideLabel}
+                          {orientation.nativeLabel && orientation.nativeLabel !== sideLabel
+                            ? ` · ${orientation.nativeLabel}` : ''}
+                        </span>
+                      )
+                      : (
+                        // The native label and the raw quote still show; only
+                        // the normalized comparison is withheld.
+                        <span className="bx-mkt__unverified" title={orientation.reason ?? undefined}>
+                          {orientation.nativeLabel ?? 'contract not identified'}
+                          <small>Side unverified</small>
+                        </span>
+                      )}
                   </td>
                   <td className="bx-num">
-                    {/* Withheld rather than shown under the wrong team. */}
-                    {sideLabel == null || provider.best_bid == null
+                    {provider.best_bid == null
                       ? <span className="bx-dim">unavailable</span>
                       : `${pct(provider.best_bid, 1)} / ${pct(provider.best_ask, 1)}`}
                   </td>
@@ -960,9 +1014,33 @@ function CrowdTable({
       </div>
       <p className="bx-dim" style={{ marginTop: 8 }}>
         The <b>{home} win</b> column is oriented to {home}. <b>Bid / ask</b> are the venue's own
-        contract prices, which may list either side; the side is named per row and the prices are
-        withheld when it cannot be established.
+        contract prices, and each venue lists both sides as separate contracts. The side comes
+        from the contract's own identity — its outcome label, market and outcome identifiers —
+        not from the prices, so it does not change when a price crosses 50%.
       </p>
+      {providers.some((p) => resolveQuotedContract(p, homeProbability).consistencyWarning) && (
+        <p className="bx-dim" role="status" style={{ marginTop: 6 }}>
+          {providers
+            .map((p) => resolveQuotedContract(p, homeProbability).consistencyWarning)
+            .filter(Boolean)[0]}
+        </p>
+      )}
+      <details className="bx-mkt__sources" style={{ marginTop: 6 }}>
+        <summary>Contract identifiers</summary>
+        <ul className="bx-mkt__contract-ids">
+          {providers.map((p) => {
+            const o = resolveQuotedContract(p, homeProbability)
+            return (
+              <li key={p.provider}>
+                <b>{p.provider}</b> · {o.question ?? 'question not recorded'}
+                {o.marketId && <> · <code>{o.marketId}</code></>}
+                {o.outcomeId && <> · outcome <code>{o.outcomeId}</code></>}
+                {o.settlementMeaning && <> · {o.settlementMeaning}</>}
+              </li>
+            )
+          })}
+        </ul>
+      </details>
       {note && <p className="bx-dim" style={{ marginTop: 6 }}>{note}</p>}
     </>
   )

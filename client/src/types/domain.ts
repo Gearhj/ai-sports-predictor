@@ -1079,6 +1079,14 @@ export interface LiveShadowStatus {
 
 // ---- Prediction Market Observer (Crowd & Market Pulse) ----
 export interface PredictionProviderProbability {
+  /** Identity of the contract the raw bid/ask belong to. Read, not inferred. */
+  quoted_selection?: string | null
+  quoted_outcome_label?: string | null
+  quoted_market_id?: string | null
+  quoted_outcome_id?: string | null
+  quoted_market_question?: string | null
+  quoted_settlement_meaning?: string | null
+  quoted_side_source?: 'CONTRACT_METADATA' | 'UNVERIFIED' | null
   provider: string
   midpoint: number | null
   microprice?: number | null
@@ -1126,6 +1134,10 @@ export interface MarketPulseRow {
   starts_at: string | null
   status: string
   aisp_home_probability: number | null
+  /** The engine that actually produced `aisp_home_probability`. */
+  aisp_comparison_engine_id?: string | null
+  /** Which forecast the selector chose, and the alternatives. */
+  forecast_selection?: import('../services/forecastSelection').ForecastSelection | null
   aisp_forecast_fresh: boolean
   sportsbook_home_probability: number | null
   polymarket_home_probability: number | null

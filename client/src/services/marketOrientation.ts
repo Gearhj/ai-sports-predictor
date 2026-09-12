@@ -1,84 +1,130 @@
 /**
- * Which side a prediction-market book is actually quoted on.
+ * Which side a prediction-market book is quoted on — read, never inferred.
  *
- * The board publishes two different things per provider and the table showed
- * them in one row under one heading:
+ * WHAT THIS REPLACED, AND WHY
+ * ---------------------------
+ * The first version of this module compared the raw bid/ask midpoint against
+ * the home-oriented probability and picked whichever it sat closer to. That
+ * worked on the data in front of it and was still wrong, for a reason no test
+ * of that data would have caught: **a contract's side is a property of the
+ * contract, not of its price.** A Detroit contract that drifts from 0.59 to
+ * 0.48 is still a Detroit contract, and a price-based test would have silently
+ * relabelled it Colorado as it crossed 50%. It also had to give up entirely
+ * near even money, which is exactly where a mislabelling costs most.
  *
- *   `midpoint`            already oriented to the home team by the backend
- *   `best_bid`/`best_ask` the raw contract's own prices, on whichever side
- *                         that venue lists
+ * Both venues in fact publish the side explicitly, and AISP already stores it:
  *
- * For COL @ DET those disagree in the way that looks like a bug and is not:
- * Polymarket's raw book is 0.40/0.41 because it lists the *Colorado* contract,
- * while its home-oriented midpoint is 0.595; Kalshi's raw book is 0.59/0.60
- * because it lists Detroit. Both are correct. Putting both under a "DET win"
- * heading is what was wrong.
+ *   Kalshi     market  KXMLBGAME-26SEP121310COLDET-DET
+ *              outcome KXMLBGAME-26SEP121310COLDET-DET:YES   "Detroit wins"
+ *   Polymarket market  0x923c5ee0…  outcome 527481423…       "Detroit Tigers"
  *
- * This resolves the raw side by evidence — comparing the raw book's own
- * midpoint against the oriented probability and its complement — and reports
- * `null` when neither matches. It never flips a price to make the two agree:
- * an unresolved orientation is withheld, because a silently complemented
- * price is indistinguishable from a correct one and twice as harmful.
+ * `PredictionMarketContract` records the venue's own outcome label, market and
+ * outcome identifiers and question; `PredictionMarketSnapshot` records the
+ * canonical selection the normalizer mapped them to. The read service now
+ * carries all of that through the DTO, so this module reads a decision that
+ * was already made from identity rather than re-deriving one from numbers.
+ *
+ * Prices are still compared — but only as a *consistency check* that can flag
+ * a contradiction, never as the source of the side.
  */
 
 export type QuotedSide = 'HOME' | 'AWAY'
 
-export interface OrientationInput {
-  /** Home-oriented probability published by the backend. */
-  homeProbability: number | null | undefined
-  bestBid: number | null | undefined
-  bestAsk: number | null | undefined
+/** The contract-identity fields the board publishes for one provider quote. */
+export interface QuotedContract {
+  quoted_selection?: string | null
+  quoted_outcome_label?: string | null
+  quoted_market_id?: string | null
+  quoted_outcome_id?: string | null
+  quoted_market_question?: string | null
+  quoted_settlement_meaning?: string | null
+  quoted_side_source?: 'CONTRACT_METADATA' | 'UNVERIFIED' | null
+  best_bid?: number | null
+  best_ask?: number | null
 }
 
 export interface Orientation {
+  /** Canonical side, or null when identity could not establish one. */
   side: QuotedSide | null
-  /** Midpoint of the raw book, or null when it has no two-sided quote. */
-  rawMidpoint: number | null
-  /** Why the side could not be established, when it could not. */
+  /** The venue's own label for the contract, shown when the side is unknown. */
+  nativeLabel: string | null
+  /** Venue market / outcome identifiers, for technical detail. */
+  marketId: string | null
+  outcomeId: string | null
+  /** The venue's question and what a YES settlement means. */
+  question: string | null
+  settlementMeaning: string | null
+  /** True when identity established the side. */
+  verified: boolean
+  /** Why the side is unverified, or why a check disagreed. */
   reason: string | null
+  /** A stored price/identity contradiction worth surfacing, if any. */
+  consistencyWarning: string | null
 }
 
 /**
- * How close the raw midpoint must sit to the oriented probability (or its
- * complement) to call the side. Wide enough for ordinary spread and
- * observation-time drift between the two figures; far too narrow to confuse
- * one side with the other on any non-degenerate market.
+ * Resolve one provider quote's contract.
+ *
+ * `homeProbability` is used only for the consistency check. It never decides
+ * the side, so a price crossing 50% cannot change the answer.
  */
-const TOLERANCE = 0.06
+export function resolveQuotedContract(
+  quote: QuotedContract,
+  homeProbability?: number | null,
+): Orientation {
+  const selection = (quote.quoted_selection ?? '').toUpperCase()
+  const side: QuotedSide | null =
+    selection === 'HOME' ? 'HOME' : selection === 'AWAY' ? 'AWAY' : null
+  const verified = quote.quoted_side_source === 'CONTRACT_METADATA' && side !== null
 
-export function resolveQuotedSide(input: OrientationInput): Orientation {
-  const { homeProbability, bestBid, bestAsk } = input
-  const bid = numberOrNull(bestBid)
-  const ask = numberOrNull(bestAsk)
+  const base: Orientation = {
+    side: verified ? side : null,
+    nativeLabel: quote.quoted_outcome_label ?? null,
+    marketId: quote.quoted_market_id ?? null,
+    outcomeId: quote.quoted_outcome_id ?? null,
+    question: quote.quoted_market_question ?? null,
+    settlementMeaning: quote.quoted_settlement_meaning ?? null,
+    verified,
+    reason: verified
+      ? null
+      : quote.quoted_selection || quote.quoted_outcome_label
+        ? 'The venue published this contract without a canonical side mapping.'
+        : 'No contract identity is recorded for this quote.',
+    consistencyWarning: null,
+  }
+  if (!verified) return base
+  return { ...base, consistencyWarning: consistencyWarning(quote, side, homeProbability) }
+}
+
+/**
+ * Does the stored price agree with the stored identity?
+ *
+ * A disagreement is reported, not acted on: the identity stands, and the
+ * warning says the two sources differ so someone can look. Silently trusting
+ * the price here would reintroduce exactly the bug this module removed.
+ */
+function consistencyWarning(
+  quote: QuotedContract,
+  side: QuotedSide | null,
+  homeProbability?: number | null,
+): string | null {
+  const bid = numberOrNull(quote.best_bid)
+  const ask = numberOrNull(quote.best_ask)
   const home = numberOrNull(homeProbability)
+  if (side === null || home === null || (bid === null && ask === null)) return null
 
-  if (bid == null && ask == null) {
-    return { side: null, rawMidpoint: null, reason: 'No two-sided quote is recorded.' }
-  }
-  const rawMidpoint = bid != null && ask != null ? (bid + ask) / 2 : (bid ?? ask) as number
-  if (home == null) {
-    return {
-      side: null, rawMidpoint,
-      reason: 'No home-oriented probability is published to compare the book against.',
-    }
-  }
-  const toHome = Math.abs(rawMidpoint - home)
-  const toAway = Math.abs(rawMidpoint - (1 - home))
-
-  // A market near 50/50 cannot be told apart by this test, and guessing there
-  // would be a coin flip presented as a fact.
-  if (Math.abs(toHome - toAway) < 0.01) {
-    return {
-      side: null, rawMidpoint,
-      reason: 'The quote sits too near even money to identify which side it lists.',
-    }
-  }
-  if (toHome <= TOLERANCE && toHome < toAway) return { side: 'HOME', rawMidpoint, reason: null }
-  if (toAway <= TOLERANCE && toAway < toHome) return { side: 'AWAY', rawMidpoint, reason: null }
-  return {
-    side: null, rawMidpoint,
-    reason: 'The recorded book does not match either side of the published probability.',
-  }
+  const raw = bid !== null && ask !== null ? (bid + ask) / 2 : ((bid ?? ask) as number)
+  const expected = side === 'HOME' ? home : 1 - home
+  // Wide: spreads, observation-time drift between the two figures and rounding
+  // all move this legitimately. Only a gap far larger than any of those is
+  // worth a reader's attention.
+  if (Math.abs(raw - expected) <= 0.15) return null
+  return (
+    `The stored price for this contract (${(raw * 100).toFixed(1)}%) is far from the `
+    + `published ${side === 'HOME' ? 'home' : 'away'} probability `
+    + `(${(expected * 100).toFixed(1)}%). The side shown comes from the contract's own `
+    + 'identity; the prices are reported as recorded.'
+  )
 }
 
 function numberOrNull(value: number | null | undefined): number | null {

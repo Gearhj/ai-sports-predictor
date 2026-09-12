@@ -654,6 +654,8 @@ class PredictionMarketReadService:
             home_team=home_team, away_team=away_team, home_abbrev=home_abbr, away_abbrev=away_abbr,
             starts_at=_aware(game.starts_at), status=game.status.value.upper(),
             aisp_home_probability=aisp_home, aisp_forecast_fresh=aisp_fresh,
+            aisp_comparison_engine_id=getattr(self, "_comparison_engine", None),
+            forecast_selection=self._forecast_selection(game),
             sportsbook_home_probability=book_home, polymarket_home_probability=poly_home,
             kalshi_home_probability=kalshi_home,
             research_consensus_home_probability=(consensus.median_probability if consensus and consensus.eligible else None),
@@ -698,7 +700,13 @@ class PredictionMarketReadService:
             freshness_seconds=(datetime.now(UTC) - obs).total_seconds() if obs else None,
             provider=snap.provider, midpoint=self._to_home(snap.midpoint, snap.selection),
             microprice=self._to_home(snap.microprice, snap.selection),
+            # Raw, unoriented, and now accompanied by the identity of the
+            # contract they belong to. The midpoint above is turned to the home
+            # side; these are not, and a consumer that guessed the side from
+            # the numbers would get it wrong every time the venue happens to
+            # list the away contract -- which both venues do.
             best_bid=snap.best_bid, best_ask=snap.best_ask, last_trade=snap.last_trade,
+            **self._quoted_contract(snap),
             bid_ask_spread=snap.bid_ask_spread, volume=snap.volume, open_interest=snap.open_interest,
             top_depth=(snap.top_bid_size or 0) + (snap.top_ask_size or 0) if snap.top_bid_size is not None else None,
             quality_tier=snap.quality_tier,
@@ -713,6 +721,44 @@ class PredictionMarketReadService:
         """Latest moneyline HOME win probability per provider (P(home))."""
         return {provider: self._probability_from_snapshot(snap)
                 for provider, snap in self._provider_snapshots(game_id).items()}
+
+    def _quoted_contract(self, snap: PredictionMarketSnapshot) -> dict[str, Any]:
+        """Identity of the contract a raw quote belongs to, from stored metadata.
+
+        The side is read, never inferred. ``PredictionMarketContract`` already
+        records the venue's own outcome label, market and outcome identifiers
+        and question, and the snapshot records the canonical selection those
+        were normalized to. Nothing here looks at a price.
+
+        A contract whose stored metadata cannot establish a canonical side is
+        reported as UNVERIFIED with whatever native label exists, so the caller
+        can show the raw quote and withhold only the normalized comparison.
+        """
+
+        contract = self.session.get(PredictionMarketContract, snap.contract_id)
+        selection = (snap.selection or "").upper()
+        resolved = selection in {
+            CanonicalSelection.HOME.value, CanonicalSelection.AWAY.value,
+        }
+        label = contract.outcome_label if contract else None
+        question = contract.market_question if contract else None
+        # Kalshi encodes the settlement side in the outcome id itself
+        # (``…-DET:YES``); Polymarket's token id is opaque, so the meaning comes
+        # from the outcome label the venue published for that token.
+        outcome_id = snap.provider_outcome_id or (contract.provider_outcome_id if contract else None)
+        meaning = None
+        if label:
+            side = str(outcome_id).rsplit(":", 1)[-1].upper() if outcome_id and ":" in str(outcome_id) else "YES"
+            meaning = f"{side} settles if {label} wins" if side in {"YES", "NO"} else None
+        return {
+            "quoted_selection": selection if resolved else None,
+            "quoted_outcome_label": label,
+            "quoted_market_id": snap.provider_market_id or (contract.provider_market_id if contract else None),
+            "quoted_outcome_id": outcome_id,
+            "quoted_market_question": question,
+            "quoted_settlement_meaning": meaning,
+            "quoted_side_source": "CONTRACT_METADATA" if (resolved and label) else "UNVERIFIED",
+        }
 
     @staticmethod
     def _to_home(prob: float | None, selection: str) -> float | None:
@@ -1065,13 +1111,60 @@ class PredictionMarketReadService:
         return hn, ha, an, aa
 
     def _aisp_home_probability(self, game: Game) -> tuple[float | None, bool]:
+        """The model probability this board compares against.
+
+        Uses the same selector every other surface uses, and applies the same
+        rule the slate applies: the selected forecast is shown whenever it has
+        a number, with its condition stated beside it. An earlier version here
+        required AVAILABLE, which meant an invalidated game showed V18's 60.2%
+        on the slate and Gen 1's 58.9% on this board for the same game --
+        two engines under one heading, which is the disagreement the shared
+        selector exists to remove. A limitation is a caption, not a reason to
+        substitute a different model's number.
+
+        The fallback below is reached only when the selected forecast has no
+        probability at all (the engine published nothing for this game). It is
+        labelled: `aisp_comparison_engine_id` names the engine that supplied
+        the number, so nothing here is a silent substitution.
+        """
+
+        from app.services.forecast_selection import ForecastSelector
+
+        selection = ForecastSelector(self.session).select(game)
+        primary = selection.primary
+        if primary is not None and primary.home_win_probability is not None:
+            published = primary.published_utc
+            fresh = published is not None and (datetime.now(UTC) - published) <= timedelta(hours=24)
+            self._comparison_engine = primary.engine_id
+            return round(float(primary.home_win_probability), 6), fresh
+
         from app.services.read_service import ReadService
 
         forecast = ReadService(self.session, self.settings)._latest_forecast(game.id)
         if forecast is None:
+            self._comparison_engine = None
             return None, False
+        # The controlling engine's forecast is not usable, so the comparison
+        # falls back -- and says which engine it fell back to, because a label
+        # naming the other model beside this number would be a lie.
+        self._comparison_engine = "AISP_BASELINE"
         fresh = _aware(forecast.generated_at) is not None and (datetime.now(UTC) - _aware(forecast.generated_at)) <= timedelta(hours=24)
         return round(float(forecast.home_win_probability), 6), fresh
+
+    def _forecast_selection(self, game: Game) -> dict[str, Any]:
+        """The shared selection, plus the engine that supplied the number.
+
+        `displayed_engine_id` is the same field the slate emits, so one client
+        rule names the engine on every surface. It is taken from the attribution
+        `_aisp_home_probability` just recorded, which is why that call comes
+        first when a row is built.
+        """
+
+        from app.services.forecast_selection import ForecastSelector
+
+        payload = ForecastSelector(self.session).select(game).as_dict()
+        payload["displayed_engine_id"] = getattr(self, "_comparison_engine", None)
+        return payload
 
     def _sportsbook_home_probability(self, game: Game) -> float | None:
         from app.services.read_service import ReadService

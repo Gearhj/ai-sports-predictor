@@ -16,10 +16,31 @@ DataMode = Literal["live", "empty", "demo", "unavailable"]
 
 class ProviderProbability(BaseModel):
     provider: str
+    #: ``midpoint`` and ``microprice`` are oriented to the HOME team by the read
+    #: service. ``best_bid``/``best_ask`` are NOT: they are the raw prices of
+    #: whichever contract this snapshot belongs to, and venues list both sides
+    #: as separate contracts. The ``quoted_*`` fields below say which contract
+    #: those raw prices came from, so no consumer has to infer it from the
+    #: numbers -- a price that crosses 50% must not change which team it is.
     midpoint: float | None = None
     microprice: float | None = None
     best_bid: float | None = None
     best_ask: float | None = None
+    #: Canonical side of the contract the raw quote belongs to: HOME or AWAY.
+    quoted_selection: str | None = None
+    #: The venue's own label for that contract ("Colorado Rockies", "Detroit").
+    quoted_outcome_label: str | None = None
+    #: Venue identifiers for the exact contract and outcome quoted.
+    quoted_market_id: str | None = None
+    quoted_outcome_id: str | None = None
+    #: The venue's own question, e.g. "Detroit wins".
+    quoted_market_question: str | None = None
+    #: What a YES settlement on this contract means, in the venue's terms.
+    quoted_settlement_meaning: str | None = None
+    #: How the side was established. CONTRACT_METADATA is the only sufficient
+    #: source; UNVERIFIED means the stored metadata could not establish it and
+    #: the normalized comparison must be withheld.
+    quoted_side_source: Literal["CONTRACT_METADATA", "UNVERIFIED"] = "UNVERIFIED"
     last_trade: float | None = None
     bid_ask_spread: float | None = None
     volume: float | None = None
@@ -105,6 +126,13 @@ class MarketPulseRow(BaseModel):
     starts_at: datetime | None = None
     status: str
     aisp_home_probability: float | None = None
+    #: The engine that actually produced `aisp_home_probability`. This can
+    #: differ from `forecast_selection.primary` when the controlling engine's
+    #: forecast is not usable and the comparison fell back -- a label naming
+    #: the primary beside a fallback number would misattribute it.
+    aisp_comparison_engine_id: str | None = None
+    #: Which forecast the selector chose for this game, and the alternatives.
+    forecast_selection: dict[str, Any] | None = None
     aisp_forecast_fresh: bool = False
     sportsbook_home_probability: float | None = None
     polymarket_home_probability: float | None = None

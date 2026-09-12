@@ -88,6 +88,8 @@ export interface SlateGame {
   simulationHref: string | null
   /** Whatever the source called the decision, or null when it governs none. */
   decisionState: string | null
+  /** Which forecast the probabilities and the band above describe. */
+  selection: import('./forecastSelection').ForecastSelection | null
   researchOnly: boolean
 }
 
@@ -134,6 +136,8 @@ export function mlbSlate(data: DashboardData | null): SlateGame[] {
       analysisHref: `/games/${game.id}`,
       simulationHref: `/games/${game.id}/simulation`,
       decisionState: game.opportunity ?? null,
+      selection: (game as { forecast_selection?: import('./forecastSelection').ForecastSelection })
+        .forecast_selection ?? null,
       researchOnly: false,
     }
   })
@@ -195,6 +199,8 @@ export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST')
       // NFL is a research track. It governs no decision, so it reports none
       // rather than reporting "NO BET", which would imply it could have bet.
       decisionState: null,
+      // NFL keeps its retained M1 selection; this selector governs MLB only.
+      selection: null,
       researchOnly: true,
     }
   })

@@ -277,14 +277,23 @@ describe('simulator track routing', () => {
     })
     expect(await screen.findByRole('button', { name: 'Broadcast Replay' })).toBeEnabled()
 
+    // The control itself says one plain thing. Reading a flag name off a
+    // button is not what tells a viewer whether the mode is worth clicking.
     const geometry = screen.getByRole('button', { name: 'Play Geometry' })
     expect(geometry).toBeDisabled()
-    expect(geometry).toHaveTextContent(/available_views\.geometry = false/)
+    expect(geometry).toHaveTextContent(/This forecast does not include this view/)
     expect(geometry).toHaveTextContent(/Nothing is reconstructed in its place/)
+    expect(geometry).not.toHaveTextContent(/available_views/)
 
     const population = screen.getByRole('button', { name: 'Simulation Population' })
     expect(population).toBeDisabled()
-    expect(population).toHaveTextContent(/available_views\.population = false/)
+    expect(population).toHaveTextContent(/This forecast does not include this view/)
+
+    // The exact field names stay reachable for whoever has to chase the
+    // missing supplement, one disclosure below the controls.
+    const technical = screen.getByText(/Technical detail: unavailable views/)
+    expect(technical.parentElement).toHaveTextContent(/available_views\.geometry = false/)
+    expect(technical.parentElement).toHaveTextContent(/available_views\.population = false/)
   })
 
   it('keeps the two engines’ population figures apart', async () => {

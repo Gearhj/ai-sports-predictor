@@ -3424,6 +3424,19 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .view-selector__why { color: #b98230 !important; }
 .view-selector__why code { font-size: 11px; }
 
+/* The field names that used to sit on the disabled control itself. Below the
+   modes, closed by default: a reader choosing a view needs the sentence, a
+   reader chasing the missing supplement needs the flag. */
+.mode-technical {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--muted, #7a8699);
+}
+.mode-technical > summary { cursor: pointer; }
+.mode-technical ul { margin: 6px 0 0; padding-left: 18px; }
+.mode-technical li { margin-bottom: 4px; }
+.mode-technical code { font-size: 11px; }
+
 /* Simulation provenance: the artifact on screen and the controlling era, kept
    apart, in place of a banner that only meant "the API answered". */
 .sim-provenance {

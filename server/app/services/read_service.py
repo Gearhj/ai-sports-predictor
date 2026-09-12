@@ -1149,8 +1149,27 @@ class ReadService:
         )
         venue = self.session.get(Venue, game.venue_id) if game.venue_id else None
         market = self._market_context(game.id, home.id, away.id)
-        home_probability = forecast.home_win_probability if forecast else None
-        away_probability = forecast.away_win_probability if forecast else None
+        # One selector decides which engine this surface leads with, so the
+        # slate, the market board, the analysis page and the simulator cannot
+        # disagree about which forecast a game "has". A V18 game shows V18's
+        # probability AND a band recomputed from it with the same thresholds --
+        # leaving Gen 1's band beside a V18 number would attribute a judgement
+        # to a model that never made it.
+        from app.services.forecast_selection import GEN1_ENGINE, ForecastSelector
+
+        selection = ForecastSelector(self.session).select(game)
+        primary = selection.primary
+        # A published-but-limited forecast stays on screen with its limitation
+        # rather than being swapped for the other engine behind the reader's
+        # back; only a primary with no numbers at all (MISSING, or a game
+        # outside the era) falls through to Gen 1, and the payload says so.
+        use_primary = primary is not None and primary.home_win_probability is not None
+        if use_primary:
+            home_probability = primary.home_win_probability
+            away_probability = primary.away_win_probability
+        else:
+            home_probability = forecast.home_win_probability if forecast else None
+            away_probability = forecast.away_win_probability if forecast else None
         market_home = market["home_probability"]
         home_edge = model_edge(home_probability, market_home)
         away_edge = (
@@ -1175,8 +1194,18 @@ class ReadService:
         status = game.status.value.upper()
         if not forecast:
             status = f"{status} · FORECAST UNAVAILABLE"
+        # Which engine actually produced the numbers below. Usually the
+        # selected one; when the selection has no numbers at all it is the
+        # engine the fallback came from. A chip reading "V18" above a Gen 1
+        # probability is the exact mislabelling this field prevents.
+        selection_payload = selection.as_dict()
+        selection_payload["displayed_engine_id"] = (
+            primary.engine_id if use_primary
+            else (GEN1_ENGINE if forecast is not None else None)
+        )
         return ForecastGame(
             id=str(game.id),
+            forecast_selection=selection_payload,
             league_code=_league_code_for(self.session, game),
             start_time=_aware(game.starts_at),
             status=status,

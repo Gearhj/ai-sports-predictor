@@ -108,6 +108,10 @@ class ForecastGame(BaseModel):
     model_edge: float | None
     edge_side: Literal["home", "away", "none"]
     opportunity: Literal["STRONG EDGE", "STANDARD EDGE", "WATCH", "NO BET"]
+    #: The forecast the band and the probabilities above actually describe, and
+    #: the alternatives. Without this a consumer cannot tell whether a band was
+    #: computed from the engine whose probability it sits beside.
+    forecast_selection: dict[str, Any] | None = None
     confidence: float | None
     data_readiness: float | None
     data_as_of: datetime | None

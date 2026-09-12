@@ -36,6 +36,7 @@ import {
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, opportunityStyle } from '../services/statusStyle'
+import { availabilityNote, engineShortName, isCurrent, type ForecastIdentity } from '../services/forecastSelection'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
 import { byStartTime, mlbSlate, nflSlate, type SlateGame } from '../services/broadcastSlate'
@@ -355,6 +356,15 @@ function GameRow({
 
       <div className="bx-slate__decision">
         <DecisionChip game={game} />
+        {/* The band is a comparison against the market, made by one specific
+            forecast. Naming that forecast is what stops a Gen 1 judgement
+            sitting beside a V18 number. */}
+        {game.selection?.primary && (
+          <ForecastChip
+            identity={game.selection.primary}
+            displayedEngineId={game.selection.displayed_engine_id}
+          />
+        )}
         {/* The band describes one side; the old bare signed number was always
             the home side, so the two disagreed in sign on every away edge. */}
         <span className="bx-dim">
@@ -424,6 +434,40 @@ function GameRow({
  * a started game's old band with the same weight as a live one is what made
  * finished games look like open opportunities.
  */
+/**
+ * Which forecast produced the numbers in this row, and whether it governs.
+ *
+ * A forecast that exists but is not current still shows, with its condition:
+ * removing it would hide evidence, and showing it unmarked would present a
+ * superseded or invalidated reading as the live one.
+ */
+function ForecastChip(
+  { identity, displayedEngineId }:
+  { identity: ForecastIdentity; displayedEngineId?: string | null },
+) {
+  // The chip names whoever produced the numbers in this row. When the
+  // controlling engine published nothing, that is the fallback engine, and
+  // saying "V18" over a Gen 1 probability would be a false attribution.
+  const shown = displayedEngineId ?? identity.engine_id
+  const substituted = shown !== identity.engine_id
+  const current = !substituted && isCurrent(identity)
+  const note = substituted
+    ? `${engineShortName(shown)} is shown because `
+      + `${engineShortName(identity.engine_id)} ${availabilityNote(identity).toLowerCase() || 'is unavailable'}`
+    : availabilityNote(identity)
+  return (
+    <span className="bx-forecast-chip" title={note || undefined}>
+      <b>{engineShortName(shown)}</b>
+      {!current && (
+        <small className="bx-forecast-chip__flag">
+          {substituted ? 'substituted' : 'not current'}
+        </small>
+      )}
+    </span>
+  )
+}
+
+
 function DecisionChip({ game }: { game: SlateGame }) {
   if (game.researchOnly) {
     return (
