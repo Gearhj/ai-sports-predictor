@@ -51,6 +51,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.data_sources.nflverse import (
+    same_club,
     ATTRIBUTION, NFLVERSE, NflverseGame, NflverseSchedule, NflverseScheduleSource,
 )
 from app.gen2.exchange.canonical_json import canonical_sha256
@@ -293,8 +294,17 @@ class NflFinalIngestService:
         evidence = feed_game.result_evidence()
         # Sanity: the feed's sides must be the sides we hold. A silent home/away
         # swap would invert every margin we score.
-        if (entry.home_abbreviation and feed_game.home_team
-                and feed_game.home_team != entry.home_abbreviation):
+        #
+        # Compared through the feed's club vocabulary rather than by raw string
+        # equality. The two vocabularies agree on 31 of 32 clubs and differ on
+        # one spelling -- nflverse writes the Rams as "LA", AISP as "LAR" -- so
+        # a plain != rejected every Rams home game as an orientation mismatch
+        # and left them permanently unscorable. The guard is unchanged for a
+        # real disagreement: same_club() is False for two different clubs, and
+        # False for an unrecognised token.
+        if entry.home_abbreviation and feed_game.home_team and not same_club(
+            feed_game.home_team, entry.home_abbreviation
+        ):
             return {**base, "skipped": "HOME_SIDE_MISMATCH",
                     "detail": f"The feed calls {feed_game.home_team} the home side; AISP holds "
                               f"{entry.home_abbreviation}. Refusing to record a result whose "

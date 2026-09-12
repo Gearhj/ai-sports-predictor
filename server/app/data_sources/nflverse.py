@@ -68,6 +68,38 @@ ATTRIBUTION = "nflverse-data schedules release (https://github.com/nflverse/nflv
 
 #: Price columns present in the CSV and intentionally never parsed. Named here
 #: so the omission reads as a decision rather than an oversight.
+#: Where this release's club spelling differs from AISP's canonical
+#: abbreviation, as ``feed token -> AISP abbreviation``.
+#:
+#: Exactly one entry, and it is not a guess: the live 2026 release was read and
+#: its 32 club tokens compared against AISP's 32. Thirty-one are byte-identical;
+#: nflverse writes the Los Angeles Rams as ``LA`` where AISP holds ``LAR``.
+#:
+#: This exists ONLY to decide whether two spellings name the same club. It is
+#: never used to choose a side: :func:`same_club` still reports False for two
+#: genuinely different clubs, which is what keeps the home/away guard able to
+#: refuse a feed whose orientation really does disagree.
+#:
+#: Extend it from observed evidence, never from expectation -- an unrecognised
+#: token should fail the orientation check loudly rather than be quietly
+#: coerced into a club it might not be.
+FEED_TEAM_ALIASES: dict[str, str] = {"LA": "LAR"}
+
+
+def same_club(feed_team: str | None, aisp_abbreviation: str | None) -> bool:
+    """Whether a feed token and an AISP abbreviation name the same club.
+
+    Returns False when either side is missing: an unknown side is not a
+    confirmed match, and the caller treats a non-match as a refusal.
+    """
+
+    if not feed_team or not aisp_abbreviation:
+        return False
+    feed = feed_team.strip().upper()
+    aisp = aisp_abbreviation.strip().upper()
+    return FEED_TEAM_ALIASES.get(feed, feed) == aisp
+
+
 IGNORED_PRICE_COLUMNS = (
     "away_moneyline", "home_moneyline", "spread_line", "away_spread_odds",
     "home_spread_odds", "total_line", "under_odds", "over_odds",

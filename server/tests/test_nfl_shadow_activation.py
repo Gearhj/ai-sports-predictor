@@ -409,6 +409,56 @@ def test_market_checkpoint_windows_preserve_final_pregame_cutoff():
     ) == "CURRENT"
 
 
+class _FakeProcess:
+    """A subprocess stand-in for the producer contract tests."""
+
+    def __init__(self, stdout: bytes, stderr: bytes = b"", returncode: int = 0):
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+
+    async def communicate(self):
+        return self._stdout, self._stderr
+
+    def kill(self):
+        self.returncode = -9
+
+
+def _producer_world(tmp_path):
+    """A frozen Model Studio layout and the payload a healthy producer returns."""
+
+    root = tmp_path / "model-studio"
+    script = root / "scripts" / "run_nfl_2026_prospective_shadow.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# governed test stub", encoding="utf-8")
+    python = root / ".venv" / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"test-only")
+    family = tmp_path / "exchange" / "aisp-daily-forecast-bundles"
+    family.mkdir(parents=True)
+    locator = family / "nfl-2026-research-shadow-index.json"
+    head = "a" * 40
+    payload = {
+        "status": "ACTIVE", "games": 272, "forecastsCreated": 0,
+        "bundleCount": 0, "featureVectorCount": 272,
+        "modelManifestSha256": "ab9c066052b288f3f6162d8f8558e673988fb52172c72fe00aa855aa800a45e9",
+        "modelBinarySha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+        "featureContractSha256": NFL_FEATURE_CONTRACT_SHA256,
+        "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False,
+        "reloadFixtureReproduced": True, "producerRevision": head,
+        "forecastCutoffUtc": "2026-08-29T12:00:00Z",
+        "completedAtUtc": "2026-08-29T12:00:01Z",
+        "lateFinalPregameOmissions": 0,
+        "exchangeLocatorPath": str(locator),
+        "exchangeLocatorCurrentBundleCount": 57,
+        "exchangeLocatorCurrentForecastCount": 544,
+        "exchangeLocatorCurrentBundleListSha256": "b" * 64,
+        "exchangeLocatorHistoricalBundleCount": 57,
+        "exchangeLocatorHistoricalBundleListSha256": "c" * 64,
+    }
+    return root, python, family, locator, head, payload
+
+
 @pytest.mark.asyncio
 async def test_model_studio_producer_uses_exact_no_shell_contract(tmp_path, settings, monkeypatch):
     root = tmp_path / "model-studio"
@@ -473,15 +523,28 @@ async def test_model_studio_producer_uses_exact_no_shell_contract(tmp_path, sett
     )
     assert result["producerRevision"] == head
     assert calls[0][0] == ("git", "-C", str(root.resolve()), "rev-parse", "HEAD")
+    # The worktree check is scoped to the producer's own code. Model Studio is
+    # a shared monorepo whose MLB work rewrites tracked output artifacts
+    # continuously; an unscoped check treated that as a producer-identity
+    # violation and stopped NFL forecasting entirely.
     assert calls[1][0] == (
+        "git", "-C", str(root.resolve()), "status", "--porcelain=v1", "--untracked-files=no",
+        "--", "scripts/run_nfl_2026_prospective_shadow.py", "server/sports_nfl_m1",
+    )
+    # The repository-wide status is still read, but only to record how much
+    # else differed -- it is never a reason to refuse.
+    assert calls[2][0] == (
         "git", "-C", str(root.resolve()), "status", "--porcelain=v1", "--untracked-files=no"
     )
-    assert calls[2][0] == (
+    assert calls[3][0] == (
         str(python.resolve()), "-m", "scripts.run_nfl_2026_prospective_shadow",
         "--snapshot-type", "EARLY", "--snapshot-type", "CURRENT",
     )
-    assert calls[2][1]["cwd"] == str(root.resolve())
-    assert "shell" not in calls[2][1]
+    assert calls[3][1]["cwd"] == str(root.resolve())
+    assert "shell" not in calls[3][1]
+    assert result["producerCodePathsVerified"] == [
+        "scripts/run_nfl_2026_prospective_shadow.py", "server/sports_nfl_m1",
+    ]
 
 
 def test_public_shadow_read_never_calls_provider(client, monkeypatch):
@@ -494,3 +557,74 @@ def test_public_shadow_read_never_calls_provider(client, monkeypatch):
     monkeypatch.setattr(TheOddsAPIAdapter, "get_scores", forbidden)
     response = client.get("/api/v1/shadow-board?date=2026-09-09&sport=NFL")
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_unrelated_studio_changes_do_not_block_the_nfl_producer(settings, tmp_path, monkeypatch):
+    """MLB output artifacts are not an NFL producer-identity violation.
+
+    Model Studio is a shared monorepo. Its MLB work rewrites tracked output
+    JSON continuously, and an unscoped worktree check treated that as "producer
+    code identity is not frozen" -- so every NFL producer run from 2026-09-11
+    failed while every NFL producer file was untouched.
+    """
+
+    from app.jobs.orchestrator import _invoke_nfl_shadow_producer
+
+    root, python, family, locator, head, payload = _producer_world(tmp_path)
+
+    async def fake_create(*args, **kwargs):
+        if args[0] == "git" and "rev-parse" in args:
+            return _FakeProcess((head + "\n").encode("ascii"))
+        if args[0] == "git":
+            scoped = "--" in args
+            # Clean under the producer's own paths; dirty everywhere else.
+            return _FakeProcess(
+                b"" if scoped
+                else b" M outputs/mlb-v18-current-state-pipeline-v1/slates/2026-09-11/latest.json\n"
+                     b" M server/sports_current_statcast/mlb_v18_prospective_transform.py\n"
+            )
+        return _FakeProcess(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr("app.jobs.orchestrator.asyncio.create_subprocess_exec", fake_create)
+    configured = settings.model_copy(update={
+        "nfl_model_studio_root": str(root),
+        "nfl_model_studio_python": str(python),
+        "nfl_shadow_bundle_import_dir": str(family),
+    })
+
+    result = await _invoke_nfl_shadow_producer(configured, ("EARLY", "CURRENT"))
+    assert result["producerRevision"] == head
+    # The unrelated difference is recorded, never a reason to refuse.
+    assert result["studioUnrelatedDirtyPathCount"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_modified_nfl_producer_still_refuses_to_run(settings, tmp_path, monkeypatch):
+    """Scoping the check must not weaken what it was protecting."""
+
+    from app.jobs.orchestrator import _invoke_nfl_shadow_producer
+
+    root, python, family, locator, head, payload = _producer_world(tmp_path)
+
+    async def fake_create(*args, **kwargs):
+        if args[0] == "git" and "rev-parse" in args:
+            return _FakeProcess((head + "\n").encode("ascii"))
+        if args[0] == "git":
+            # Dirty under the producer's own code.
+            return _FakeProcess(b" M server/sports_nfl_m1/prospective_shadow.py\n")
+        raise AssertionError("the producer must not be launched with modified code")
+
+    monkeypatch.setattr("app.jobs.orchestrator.asyncio.create_subprocess_exec", fake_create)
+    configured = settings.model_copy(update={
+        "nfl_model_studio_root": str(root),
+        "nfl_model_studio_python": str(python),
+        "nfl_shadow_bundle_import_dir": str(family),
+    })
+
+    with pytest.raises(ValueError) as error:
+        await _invoke_nfl_shadow_producer(configured, ("EARLY", "CURRENT"))
+    assert "producer code identity is not frozen" in str(error.value)
+    # The message names what actually differed, instead of leaving the operator
+    # to search a monorepo for it.
+    assert "server/sports_nfl_m1/prospective_shadow.py" in str(error.value)

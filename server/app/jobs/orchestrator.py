@@ -2109,6 +2109,49 @@ class JobOrchestrator:
         return ledger
 
 
+#: The Model Studio paths that determine what the NFL M1 producer computes:
+#: the frozen CLI entry point, and the package it imports. Everything the
+#: producer needs lives under these two paths -- ``server/sports_nfl_m1``
+#: imports only the standard library and third-party packages -- so a change
+#: anywhere else in the shared monorepo cannot alter its output.
+NFL_PRODUCER_CODE_PATHS: tuple[str, ...] = (
+    "scripts/run_nfl_2026_prospective_shadow.py",
+    "server/sports_nfl_m1",
+)
+
+
+async def _git_porcelain(root: Path, paths: tuple[str, ...]) -> list[str]:
+    """Tracked, non-pristine paths under ``paths`` (whole repo when empty).
+
+    Untracked files are excluded: an unversioned scratch file is not a change
+    to committed producer code.
+    """
+
+    command = ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=no"]
+    if paths:
+        command.append("--")
+        command.extend(paths)
+    process = await asyncio.create_subprocess_exec(
+        *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+    except TimeoutError:
+        process.kill()
+        await process.communicate()
+        raise ValueError("Timed out verifying the configured Model Studio worktree") from None
+    if process.returncode != 0:
+        raise ValueError(
+            "Cannot verify configured Model Studio worktree: "
+            + stderr.decode("utf-8", errors="replace")[-500:]
+        )
+    return [
+        line[3:].strip()
+        for line in stdout.decode("utf-8", errors="replace").splitlines()
+        if line.strip()
+    ]
+
+
 async def _invoke_nfl_shadow_producer(
     settings: Settings, snapshot_types: tuple[str, ...]
 ) -> dict[str, Any]:
@@ -2162,25 +2205,32 @@ async def _invoke_nfl_shadow_producer(
     expected_head = git_stdout.decode("ascii", errors="strict").strip().lower()
     if len(expected_head) != 40 or any(ch not in "0123456789abcdef" for ch in expected_head):
         raise ValueError("Configured Model Studio HEAD is not a full Git commit identity")
-    clean_process = await asyncio.create_subprocess_exec(
-        "git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=no",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        clean_stdout, clean_stderr = await asyncio.wait_for(clean_process.communicate(), timeout=30)
-    except TimeoutError:
-        clean_process.kill()
-        await clean_process.communicate()
-        raise ValueError("Timed out verifying the configured Model Studio worktree") from None
-    if clean_process.returncode != 0:
+    # The worktree check is scoped to the paths that actually determine what
+    # this producer computes: its CLI and the one package that CLI imports.
+    #
+    # It used to check the whole repository. Model Studio is a shared monorepo
+    # where MLB work continuously rewrites tracked *output* artifacts
+    # (slate JSON, readiness state, monitoring snapshots), so ordinary MLB
+    # activity by the Studio owner silently stopped NFL forecasting: every run
+    # from 2026-09-11 onward failed with "producer code identity is not
+    # frozen" while every NFL producer file was untouched. A data artifact
+    # belonging to another sport cannot change what the NFL estimator computes,
+    # and treating it as if it could is what made the guard misfire.
+    #
+    # The integrity property is unchanged and still enforced: the producer runs
+    # only when its own code is at the recorded HEAD with no local
+    # modification, and the producer independently reports the content hashes
+    # of its model binary, manifest and feature contract, which are verified
+    # against the frozen contract after it returns.
+    dirty_scoped = await _git_porcelain(root, NFL_PRODUCER_CODE_PATHS)
+    if dirty_scoped:
         raise ValueError(
-            "Cannot verify configured Model Studio worktree: "
-            + clean_stderr.decode("utf-8", errors="replace")[-500:]
+            "Configured Model Studio has uncommitted changes to NFL producer code; "
+            "producer code identity is not frozen: " + ", ".join(dirty_scoped[:10])
         )
-    if clean_stdout.strip():
-        raise ValueError(
-            "Configured Model Studio has tracked or staged changes; producer code identity is not frozen"
-        )
+    # Recorded, not enforced: the operator can see the repository was not
+    # pristine and exactly how many unrelated paths differed.
+    dirty_repository = await _git_porcelain(root, ())
 
     arguments: list[str] = ["-m", "scripts.run_nfl_2026_prospective_shadow"]
     for snapshot_type in snapshot_types:
@@ -2275,6 +2325,10 @@ async def _invoke_nfl_shadow_producer(
     declared_locator = Path(str(payload.get("exchangeLocatorPath", ""))).resolve()
     if declared_locator != expected_locator:
         raise ValueError("Model Studio NFL producer wrote a different configured exchange locator")
+    # Recorded so a reader of the receipt can see the Studio worktree was not
+    # pristine, and that the producer's own code nevertheless was.
+    payload["producerCodePathsVerified"] = list(NFL_PRODUCER_CODE_PATHS)
+    payload["studioUnrelatedDirtyPathCount"] = len(dirty_repository)
     return payload
 
 

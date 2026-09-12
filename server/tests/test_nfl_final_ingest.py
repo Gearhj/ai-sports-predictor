@@ -500,3 +500,69 @@ async def test_the_result_still_cannot_influence_which_forecast_is_scored(world)
     # v10 would have been perfect. It was published one second after kickoff.
     assert current.snapshot_version == 9
     assert current.probability_of_actual == pytest.approx(0.5736, abs=1e-9)
+
+
+# -- club vocabulary: the feed and AISP spell one club differently -----------
+
+
+def test_the_feed_spelling_of_the_rams_is_the_same_club_as_ours():
+    """nflverse writes the Rams as "LA"; AISP holds "LAR".
+
+    This is the whole of the difference between the two vocabularies. Comparing
+    the raw strings made every Rams home game look like an orientation
+    disagreement, and their finals were refused for as long as that lasted.
+    """
+
+    from app.data_sources.nflverse import same_club
+
+    assert same_club("LA", "LAR") is True
+    assert same_club("lar", "LAR") is True
+    assert same_club("SEA", "SEA") is True
+
+
+def test_two_different_clubs_are_still_not_the_same_club():
+    """The alias must not weaken the guard it was added to unblock."""
+
+    from app.data_sources.nflverse import same_club
+
+    assert same_club("SF", "LAR") is False
+    assert same_club("LAC", "LAR") is False
+    # An unrecognised token fails loudly rather than being coerced.
+    assert same_club("XYZ", "LAR") is False
+    # A missing side is never a confirmed match.
+    assert same_club(None, "LAR") is False
+    assert same_club("LA", None) is False
+
+
+async def test_a_rams_home_final_is_recorded_rather_than_refused(world):
+    """The regression this fixes: the feed's LA is our LAR, so record it."""
+
+    session = world["session"]
+    home = world["home"]
+    home.abbreviation = "LAR"
+    home.name = "Los Angeles Rams"
+    session.flush()
+
+    payload = csv_for().replace(b",SEA,13,", b",LA,13,")
+    summary = await run(world, payload=payload)
+
+    assert summary["skipped"] == []
+    observation = session.scalar(select(NflFinalObservation))
+    assert observation is not None
+    # Recorded with our orientation, not the feed's spelling: 13 is still the
+    # home score, so no margin is inverted.
+    assert observation.home_score == 13
+    assert observation.away_score == 10
+
+
+async def test_a_genuine_home_away_swap_is_still_refused_for_the_rams(world):
+    """Aliasing one spelling does not make a different club acceptable."""
+
+    session = world["session"]
+    world["home"].abbreviation = "LAR"
+    session.flush()
+
+    payload = csv_for().replace(b",SEA,13,", b",BUF,13,")
+    summary = await run(world, payload=payload)
+    assert summary["skipped"][0]["skipped"] == "HOME_SIDE_MISMATCH"
+    assert session.scalar(select(func.count()).select_from(NflFinalObservation)) == 0
