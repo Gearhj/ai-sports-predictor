@@ -53,7 +53,15 @@ from app.data_sources.provider_registry import (
     SPORTSGAMEODDS,
     fallback_window_open,
 )
-from app.data_sources.sgo_parser import AISP_MARKET_KEY, MoneylinePair, ParseResult, parse_events
+from app.data_sources.sgo_parser import (
+    AISP_MARKET_KEY,
+    MainMarketParseResult,
+    MainMarketQuote,
+    MoneylinePair,
+    ParseResult,
+    parse_events,
+    parse_main_markets,
+)
 
 ENDPOINT_KEY = "sgo_mlb_events"
 #: An explicit opening balance, NOT a request. Objects were consumed by
@@ -95,6 +103,12 @@ class FallbackFetch:
     parse: ParseResult
     events_ingested: int = 0
     quotes_written: int = 0
+    #: Totals and run lines from the SAME response. These cost nothing extra:
+    #: SportsGameOdds bills per event object, and every market the event carries
+    #: is already inside the payload that was paid for. Retaining them was a
+    #: parser omission, not a request or account limitation.
+    main: "MainMarketParseResult | None" = None
+    market_quotes_written: int = 0
 
     def skew_summary(self) -> dict[str, Any]:
         skews = [pair.timestamp_skew_seconds for pair in self.pairs]
@@ -207,12 +221,78 @@ def fetch_pregame_moneylines(
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(response.content)
     parse = parse_events(payload, received_at=moment, now=moment, league_id="MLB")
+    # The same bytes, read for the other two main markets. No second request and
+    # no second object: the provider's published unit is the event, and the
+    # totals and run lines were already inside the response the moneyline parse
+    # just read.
+    main = parse_main_markets(payload, received_at=moment, now=moment, league_id="MLB")
     return FallbackFetch(
         requested_at=moment,
         objects=len(payload.get("data") or []),
         pairs=parse.pairs,
         parse=parse,
+        main=main,
     )
+
+
+def to_market_event_dtos(
+    quotes: "list[MainMarketQuote]", *, markets: tuple[str, ...] = ("totals", "spreads"),
+) -> list[OddsEventDTO]:
+    """Totals and run lines as ordinary odds DTOs, one bookmaker at a time.
+
+    ``h2h`` is excluded by default because ``to_event_dtos`` already writes it
+    from the moneyline parse; including it here would put the same quote through
+    two code paths for no gain.
+
+    Each side carries its OWN bookmaker line as ``point``. That matters: in the
+    retained payload FanDuel posts Houston/Philadelphia at 8.5 while six other
+    books post 8.0, and the provider's odd-level consensus says 8.0. Storing the
+    consensus against FanDuel's price would record a quote no book ever made.
+    """
+
+    by_event: dict[str, list[MainMarketQuote]] = {}
+    for quote in quotes:
+        if quote.market_key not in markets:
+            continue
+        by_event.setdefault(quote.event_id, []).append(quote)
+
+    events: list[OddsEventDTO] = []
+    for event_id, group in by_event.items():
+        first = group[0]
+        by_book: dict[str, list[MainMarketQuote]] = {}
+        for quote in group:
+            by_book.setdefault(quote.bookmaker_key, []).append(quote)
+        books = [
+            BookmakerDTO(
+                key=book_key,
+                title=book_quotes[0].bookmaker_title,
+                last_update=min(quote.freshness_at for quote in book_quotes),
+                markets=[
+                    BookMarketDTO(
+                        key=quote.market_key,
+                        # A two-sided quote is only as fresh as its stalest half,
+                        # the same rule the moneyline path already applies.
+                        last_update=quote.freshness_at,
+                        outcomes=[
+                            OddsOutcomeDTO(
+                                name=side.label, price=side.american, point=side.point)
+                            for side in quote.sides
+                        ],
+                    )
+                    for quote in sorted(book_quotes, key=lambda item: item.market_key)
+                ],
+            )
+            for book_key, book_quotes in sorted(by_book.items())
+        ]
+        events.append(OddsEventDTO(
+            source_event_id=event_id,
+            commence_time=first.commence_time,
+            home_team=first.home_team_name,
+            away_team=first.away_team_name,
+            bookmakers=books,
+            source_mode="LIVE",
+        ))
+    return events
 
 
 def ingest(session: Session, settings: Settings, fetch: FallbackFetch,
@@ -220,15 +300,28 @@ def ingest(session: Session, settings: Settings, fetch: FallbackFetch,
     """Normalize the fetched pairs through the ordinary ingestion path."""
     from app.ingestion.normalizer import CanonicalNormalizer
 
+    normalizer = CanonicalNormalizer(session)
     events = to_event_dtos(fetch.pairs)
-    if not events:
-        return fetch
-    written = CanonicalNormalizer(session).ingest_odds(
-        events, source=SPORTSGAMEODDS, available_as_of=fetch.requested_at,
-        source_mode="LIVE", event_date=event_date,
-    )
-    fetch.events_ingested = len(events)
-    fetch.quotes_written = int(written)
+    if events:
+        written = normalizer.ingest_odds(
+            events, source=SPORTSGAMEODDS, available_as_of=fetch.requested_at,
+            source_mode="LIVE", event_date=event_date,
+        )
+        fetch.events_ingested = len(events)
+        fetch.quotes_written = int(written)
+
+    # Totals and run lines from the same already-paid-for response. Ingested
+    # through the same normalizer, so provider namespacing, duplicate
+    # suppression and canonical game binding are identical to the moneyline
+    # path -- nothing here is a second ingestion mechanism.
+    if fetch.main is not None:
+        market_events = to_market_event_dtos(fetch.main.quotes)
+        if market_events:
+            fetch.market_quotes_written = int(normalizer.ingest_odds(
+                market_events, source=SPORTSGAMEODDS,
+                available_as_of=fetch.requested_at,
+                source_mode="LIVE", event_date=event_date,
+            ))
     return fetch
 
 
@@ -583,6 +676,12 @@ def collect_for_open_cutoffs(
         "uncovered_but_window_not_open": too_early,
         "events_ingested": fetch.events_ingested,
         "quote_rows": fetch.quotes_written,
+        # Totals and run lines from the SAME event objects. Reported separately
+        # so the receipt shows the extra coverage arrived for zero extra cost.
+        "market_quote_rows": fetch.market_quotes_written,
+        "main_markets": (fetch.main.by_market() if fetch.main else {}),
+        "markets_observed_not_ingested": (
+            dict(fetch.main.observed_not_ingested) if fetch.main else {}),
         "pairs": len(fetch.pairs),
         "bookmakers": sorted({pair.bookmaker_key for pair in fetch.pairs}),
         "skew": fetch.skew_summary(),
