@@ -133,10 +133,24 @@ def shadow_comparison(session: Session, game_id: uuid.UUID) -> dict[str, Any] | 
             else None
         ),
         "shadows": [_shadow_payload(row, official, start) for row in shadows],
+        # Two separate facts, previously collapsed into one sentence that read
+        # as "V18 is not used for anything". The artifact and the experiment are
+        # different things: importing a research package grants no authority at
+        # all, and whether a funded experiment uses V18 is decided by that
+        # experiment's own policy and its recorded champion authority. Saying
+        # only the first, beside a simulator that reports V18 controlling funded
+        # decisions, left the two surfaces contradicting each other.
         "notes": (
-            "V18 is a research-shadow challenger. It has no wagering authority, "
-            "does not change any official forecast or decision, and is not "
-            "presented as better or worse than Gen 1."
+            "These are two forecasts of the same game, shown side by side. "
+            "Neither is presented as better or worse than the other."
+        ),
+        "authority_note": (
+            "This research forecast package grants no authority of its own: "
+            "importing or displaying it changes no official forecast, decision "
+            "or position. Separately, the paper experiment that has been "
+            "activated may use V18 under its own recorded policy and champion "
+            "authority. Those are different things, and neither is changed by "
+            "what is shown here."
         ),
     }
 

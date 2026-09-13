@@ -37,6 +37,7 @@ import type {
   ShadowComparison,
   ShadowPath,
 } from '../types/shadow'
+import type { ExperimentAccountsData } from '../types/accounts'
 import type { CoverageFunnelData } from '../components/CoverageFunnel'
 import type { ModelEraData } from '../components/ModelEraBadge'
 
@@ -105,6 +106,16 @@ export async function apiRequest<T>(
 }
 
 export const endpoints = {
+  /** Every sport's $1,000 season account: funded capital and planned allocations. */
+  experimentAccounts: (signal?: AbortSignal) =>
+    apiRequest<ExperimentAccountsData>('/experiment/accounts', {}, signal),
+  /** One sport's seasons, or one named season in full. */
+  experimentAccountsForSport: (sport: string, signal?: AbortSignal, season?: string | null) => {
+    const query = season ? `?season=${encodeURIComponent(season)}` : ''
+    return apiRequest<ExperimentAccountsData>(
+      `/experiment/accounts/${encodeURIComponent(sport)}${query}`, {}, signal,
+    )
+  },
   /** Which engine controls prospective MLB decisions, and from exactly when. */
   modelEra: (signal?: AbortSignal, eventDate?: string | null) => {
     const query = new URLSearchParams()
@@ -131,8 +142,14 @@ export const endpoints = {
   labsGames: (league: string, signal?: AbortSignal) =>
     apiRequest<LabsGames>(`/labs/games?league=${encodeURIComponent(league)}`, {}, signal),
   // Research-shadow tracks. Read-only; they carry no wagering authority.
-  gameShadowForecasts: (id: string, signal?: AbortSignal) =>
-    apiRequest<ShadowComparison>(`/games/${encodeURIComponent(id)}/shadow-forecasts`, {}, signal),
+  // `configuration` selects one candidate arm (survival, transition). Omitted,
+  // the newest is returned with the others listed beside it.
+  gameShadowForecasts: (id: string, configuration?: string | null, signal?: AbortSignal) =>
+    apiRequest<ShadowComparison>(
+      `/games/${encodeURIComponent(id)}/shadow-forecasts`
+      + (configuration ? `?configuration=${encodeURIComponent(configuration)}` : ''),
+      {}, signal,
+    ),
   shadowForecastGeometry: (forecastId: string, signal?: AbortSignal) =>
     apiRequest<PlayGeometryPayload>(
       `/shadow-forecasts/${encodeURIComponent(forecastId)}/geometry`, {}, signal,

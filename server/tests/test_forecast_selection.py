@@ -15,7 +15,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models import (
-    FeatureVersion, Forecast, ForecastStatus, Game, GameStatus, League,
+    FeatureVersion, Forecast, ForecastStatus, Game, GameStatus, GameTeam, League,
+    Team,
     ModelStatus, ModelVersion,
     ShadowExperiment, ShadowExperimentDecision, ShadowForecast, ShadowForecastBundle,
     Sport, Venue,
@@ -38,7 +39,14 @@ def world(session: Session):
     venue = Venue(name="Park", city="City", timezone="UTC")
     session.add_all([league, venue])
     session.flush()
-    return {"session": session, "league": league, "venue": venue}
+    home = Team(league_id=league.id, name="Detroit Tigers", abbreviation="DET")
+    away = Team(league_id=league.id, name="Colorado Rockies", abbreviation="COL")
+    session.add_all([home, away])
+    session.flush()
+    return {
+        "session": session, "league": league, "venue": venue,
+        "home": home, "away": away,
+    }
 
 
 def _game(world, starts_at: datetime) -> Game:
@@ -47,6 +55,13 @@ def _game(world, starts_at: datetime) -> Game:
         starts_at=starts_at, status=GameStatus.SCHEDULED,
     )
     world["session"].add(game)
+    world["session"].flush()
+    # The card reader resolves the two sides before it reads a forecast, so a
+    # game without them is not a game it can render.
+    world["session"].add_all([
+        GameTeam(game_id=game.id, team_id=world["home"].id, is_home=True),
+        GameTeam(game_id=game.id, team_id=world["away"].id, is_home=False),
+    ])
     world["session"].flush()
     return game
 
@@ -270,7 +285,7 @@ def test_a_missing_v18_is_reported_rather_than_silently_replaced(world):
     assert result.primary.availability is Availability.MISSING
     assert result.primary.home_win_probability is None
     assert "published no forecast for this game" in result.primary.availability_detail
-    assert "labelled with the engine that produced it" in result.primary.availability_detail
+    assert "No other model is shown in its place" in result.primary.availability_detail
     # Gen 1 is present, labelled as the comparison.
     assert result.comparison[0].engine_id == "AISP_BASELINE"
 
@@ -321,3 +336,98 @@ def test_selecting_a_forecast_writes_nothing(world):
 
     assert session.query(ShadowExperimentDecision).count() == before_decisions
     assert session.query(OfficialAspPosition).count() == before_positions
+
+
+# -- what the primary fields show when the engine published nothing ---------
+
+
+def test_a_missing_v18_leaves_the_primary_fields_empty(world):
+    """No Gen 1 number is substituted into the primary forecast fields.
+
+    An earlier version put Gen 1's probability there with a label attached. The
+    label was honest and the substitution was still wrong: the slate showed
+    "SEA 52% / 48% OAK" for a game V18 had said nothing about, and a reader
+    comparing that against a V18 figure on another row was comparing two models
+    without being able to tell.
+    """
+
+    from app.core.config import get_settings
+    from app.services.read_service import ReadService
+
+    _authority(world)
+    game = _game(world, BOUNDARY + timedelta(hours=2))
+    _gen1(world, game, home_wp=0.52)
+    session = world["session"]
+    session.flush()
+
+    card = ReadService(session, get_settings()).game_card(game)
+    assert card.home_win_probability is None
+    assert card.away_win_probability is None
+    assert "FORECAST UNAVAILABLE" in card.status
+
+    selection = card.forecast_selection
+    assert selection["displayed_engine_id"] is None
+    assert selection["primary"]["engine_id"] == V18_ENGINE
+    assert selection["primary"]["availability"] == "MISSING"
+    # Gen 1 is still reachable, as a comparison rather than as the answer.
+    assert [row["engine_id"] for row in selection["comparison"]] == ["AISP_BASELINE"]
+    assert selection["comparison"][0]["home_win_probability"] == pytest.approx(0.52)
+
+
+def test_an_available_v18_fills_the_primary_fields(world):
+    from app.core.config import get_settings
+    from app.services.read_service import ReadService
+
+    _authority(world)
+    game = _game(world, BOUNDARY + timedelta(hours=2))
+    _v18(world, game, published=game.starts_at - timedelta(hours=1), home_wp=0.6024)
+    _gen1(world, game, home_wp=0.5889)
+    session = world["session"]
+    session.flush()
+
+    card = ReadService(session, get_settings()).game_card(game)
+    assert card.home_win_probability == pytest.approx(60.24)
+    assert card.forecast_selection["displayed_engine_id"] == V18_ENGINE
+
+
+def test_an_invalidated_v18_keeps_its_own_number_and_its_condition(world):
+    """Limited is not the same as absent: the forecast stays, labelled."""
+
+    from app.core.config import get_settings
+    from app.services.read_service import ReadService
+
+    _authority(world)
+    game = _game(world, BOUNDARY + timedelta(hours=2))
+    _v18(world, game, published=game.starts_at - timedelta(hours=1), home_wp=0.6024)
+    _gen1(world, game, home_wp=0.5889)
+    _blocking_decision(
+        world, game,
+        "V2 TIER_D_INELIGIBLE: Lineup evidence MISSING_BLOCKING "
+        "(Material lineup change after the current forecast: LINEUP_CONFIRMED).",
+    )
+    session = world["session"]
+    session.flush()
+
+    card = ReadService(session, get_settings()).game_card(game)
+    assert card.home_win_probability == pytest.approx(60.24)
+    selection = card.forecast_selection
+    assert selection["displayed_engine_id"] == V18_ENGINE
+    assert selection["primary"]["availability"] == "INVALIDATED"
+    assert "Material lineup change" in selection["primary"]["availability_detail"]
+
+
+def test_a_pre_era_game_still_shows_the_forecast_that_governed_it(world):
+    """Removing the substitution must not restate history as unavailable."""
+
+    from app.core.config import get_settings
+    from app.services.read_service import ReadService
+
+    _authority(world)
+    game = _game(world, BOUNDARY - timedelta(days=1))
+    _gen1(world, game, home_wp=0.52)
+    session = world["session"]
+    session.flush()
+
+    card = ReadService(session, get_settings()).game_card(game)
+    assert card.home_win_probability == pytest.approx(52.0)
+    assert card.forecast_selection["displayed_engine_id"] == "AISP_BASELINE"

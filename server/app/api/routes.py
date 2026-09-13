@@ -21,6 +21,7 @@ from app.models import (
     OddsSnapshot,
     OfficialAspPosition,
 )
+from app.schemas.experiment_accounts import ExperimentAccountsData
 from app.schemas.api import (
     AuthResponse,
     AuthUser,
@@ -57,6 +58,7 @@ from app.shadow_import.mlb_v18_population_geometry import (
     population_payload,
     population_representatives,
 )
+from app.shadow_import.mlb_ensemble_candidate_read import candidate_comparison
 from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
 from app.services.scenario_service import run_scenario, scenario_capabilities
 from app.services.simulation_replay_service import replay_official_simulation
@@ -213,7 +215,18 @@ def labs_games(
 
 
 @router.get("/games/{game_id}/shadow-forecasts", tags=["forecasts"])
-def game_shadow_forecasts(game_id: UUID, session: DatabaseSession) -> dict:
+def game_shadow_forecasts(
+    game_id: UUID,
+    session: DatabaseSession,
+    configuration: str | None = Query(
+        None,
+        description=(
+            "Candidate configuration to compare, by producer configuration id or "
+            "candidate engine version. Omitted, the newest configuration is shown "
+            "and the rest are listed in available_configurations."
+        ),
+    ),
+) -> dict:
     """Official Gen 1 forecast beside any registered research-shadow forecast.
 
     Read-only. Returns both tracks with their own timestamps and model
@@ -224,6 +237,15 @@ def game_shadow_forecasts(game_id: UUID, session: DatabaseSession) -> dict:
     payload = shadow_comparison(session, game_id)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+    # The ensemble release candidate, when one has been imported for this game.
+    # It rides on the existing payload rather than a second round trip, and it
+    # is None for every game that has no candidate -- which is most of them.
+    # One game can carry several candidate configurations (survival, transition).
+    # Without an explicit selector the newest one stood in for all of them, so
+    # importing a second arm replaced the first on every surface at once.
+    payload["candidate_comparison"] = candidate_comparison(
+        session, game_id, configuration=configuration,
+    )
     return payload
 
 
@@ -411,6 +433,53 @@ def historical_game_explorer(
         tier=tier,
         source=source,
     )
+
+
+@router.get(
+    "/experiment/accounts",
+    response_model=ExperimentAccountsData,
+    tags=["transparency"],
+)
+def experiment_accounts(
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> ExperimentAccountsData:
+    """One $1,000 paper account per sport, for the season each is currently in.
+
+    Read-only. Funded accounts report real capital derived from the ledger;
+    sports that have not started report a planned allocation and why, and the
+    two are never mixed into one total.
+    """
+
+    from app.core.time import local_today
+    from app.services.experiment_accounts_read import ExperimentAccountReadService
+
+    return ExperimentAccountReadService(session, settings).program(
+        today=local_today(settings.display_timezone),
+    )
+
+
+@router.get(
+    "/experiment/accounts/{sport}",
+    response_model=ExperimentAccountsData,
+    tags=["transparency"],
+)
+def experiment_accounts_for_sport(
+    session: DatabaseSession,
+    settings: AppSettings,
+    sport: str,
+    season: str | None = Query(None, description="Season identifier, e.g. 2026 or 2026-27"),
+) -> ExperimentAccountsData:
+    """One sport's seasons, newest first, or one named season in full."""
+
+    from app.core.time import local_today
+    from app.services.experiment_accounts_read import ExperimentAccountReadService
+
+    service = ExperimentAccountReadService(session, settings)
+    today = local_today(settings.display_timezone)
+    if season:
+        return service.season(sport, season, today=today)
+    return service.sport(sport, today=today)
 
 
 @router.get("/bankroll", response_model=BankrollData, tags=["transparency"])
@@ -785,6 +854,43 @@ def live_shadow_status(session: DatabaseSession, settings: AppSettings, user: Ad
     from app.services.live_shadow_service import LiveShadowOperator
 
     return LiveShadowOperator(session, settings).status()
+
+
+@router.get(
+    "/admin/nba/data-status",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:nba-status", category="admin"))],
+)
+def nba_data_status(session: DatabaseSession, settings: AppSettings, user: AdminUser) -> dict:
+    """The NBA data path: entitlement, mode, coverage and what is stored.
+
+    Admin-only, read-only, and provider-free: it makes no request and needs no
+    credential. It reports the entitlement assessment rather than a connection
+    test, because a successful request would establish that the key works and
+    nothing about whether the call was permitted or what it cost.
+
+    Every count is broken out by ``data_mode``. A FIXTURE count is never
+    presented as ingested provider data, and no customer-facing surface reads
+    these tables.
+    """
+
+    from app.nba.read_service import NbaDataStatusService
+
+    return NbaDataStatusService(session, settings).status()
+
+
+@router.get(
+    "/admin/nba/games",
+    tags=["administration"],
+    dependencies=[Depends(rate_limit("admin:nba-status", category="admin"))],
+)
+def nba_games(session: DatabaseSession, settings: AppSettings, user: AdminUser,
+              limit: int = 25) -> dict:
+    """Imported NBA games with their actual scores and statistic counts."""
+
+    from app.nba.read_service import NbaDataStatusService
+
+    return NbaDataStatusService(session, settings).games(limit=limit)
 
 
 @router.post(

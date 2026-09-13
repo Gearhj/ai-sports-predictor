@@ -206,9 +206,22 @@ class ForecastSelector:
             comparison = [row for row in (gen1,) if row is not None]
             note = v18.availability_detail
         else:
-            primary = self._absent_v18(game, effective_at=effective_at, starts_at=starts_at)
-            comparison = [row for row in (gen1,) if row is not None]
-            note = primary.availability_detail if primary else None
+            absent = self._absent_v18(game, effective_at=effective_at, starts_at=starts_at)
+            if absent is None:
+                # The game predates the era (or no era is registered), and the
+                # controlling engine published nothing for it. Gen 1 is not a
+                # substitute here -- it is the forecast that actually governed
+                # this game, and showing it is how history stays unrestated.
+                primary = gen1
+                comparison = []
+                note = (
+                    "This game started before the current engine took control, so it "
+                    "keeps the forecast that governed it at the time."
+                ) if effective_at and gen1 is not None else None
+            else:
+                primary = absent
+                comparison = [row for row in (gen1,) if row is not None]
+                note = absent.availability_detail
 
         return Selection(
             primary=primary,
@@ -342,8 +355,8 @@ class ForecastSelector:
             availability=Availability.MISSING,
             availability_detail=(
                 "The controlling engine published no forecast for this game. "
-                "Any figure still shown is labelled with the engine that "
-                "produced it."
+                "No other model is shown in its place; Gen 1 remains available "
+                "as an explicit comparison."
             ),
             decision_eligible=False,
         )

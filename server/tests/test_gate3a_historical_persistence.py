@@ -31,6 +31,7 @@ from app.historical.checkpoints import (
     SqlAlchemyCheckpointRepository,
 )
 from app.historical.persistence import (
+    _venue_metadata_conflict,
     A1_GOVERNANCE_DECISION,
     HistoricalCanonicalPersistenceService,
     HistoricalPersistenceError,
@@ -925,3 +926,96 @@ def test_sqlalchemy_checkpoint_repository_failed_then_success_and_resume_noop(se
         session.commit()
     session.rollback()
     SourceEnvelope,
+
+
+# -- one venue, two publication precisions ---------------------------------
+#
+# MLB's schedule hydrate publishes Comerica Park at 42.3391151/-83.048695. AISP
+# had it stored at 42.339/-83.0485 from a lower-precision path. Exact float
+# equality called that an identity conflict, and every 2026 canonical pass
+# failed on it before a single final was written. The guard has to keep catching
+# a mapping that points at a different ground without failing on the fourth
+# decimal place.
+
+
+def _with_venue(schedule, **venue_fields):
+    return schedule.model_copy(update={
+        "game": schedule.game.model_copy(update={
+            "venue": schedule.game.venue.model_copy(update=venue_fields)
+        })
+    })
+
+
+def test_a_more_precise_coordinate_for_the_same_venue_is_not_a_conflict() -> None:
+    """42.3391151 and 42.339 are one ball park published at two precisions.
+
+    Exercised at the comparison rather than through a second persisted chunk:
+    re-persisting one game hits an unrelated naive/aware datetime path that only
+    appears under SQLite, and this test is about the coordinate rule.
+    """
+
+    stored = Venue(name="Comerica Park", latitude=42.339, longitude=-83.0485,
+                   timezone="America/Detroit")
+    supplied = VenueDTO(source_id="2394", name="Comerica Park",
+                        latitude=42.3391151, longitude=-83.048695,
+                        timezone="America/Detroit")
+    assert _venue_metadata_conflict(supplied, stored) is None
+
+
+def test_a_missing_provider_coordinate_is_not_read_as_a_conflict() -> None:
+    """A feed that publishes no coordinate contradicts nothing."""
+
+    stored = Venue(name="Comerica Park", latitude=42.339, longitude=-83.0485,
+                   timezone="America/Detroit")
+    supplied = VenueDTO(source_id="2394", name="Comerica Park")
+    assert _venue_metadata_conflict(supplied, stored) is None
+
+
+def test_the_comparison_names_the_field_that_disagrees() -> None:
+    stored = Venue(name="Comerica Park", latitude=42.339, longitude=-83.0485,
+                   timezone="America/Detroit")
+    moved = VenueDTO(source_id="2394", name="Comerica Park",
+                     latitude=41.829, longitude=-87.6339, timezone="America/Detroit")
+    assert "latitude" in (_venue_metadata_conflict(moved, stored) or "")
+
+
+def test_a_coordinate_far_enough_to_be_another_ground_still_fails(session) -> None:
+    service = HistoricalCanonicalPersistenceService(session)
+    source = _approved_source(service)
+    session.commit()
+
+    first = _with_venue(
+        _schedule("venue-conflict"),
+        latitude=42.339, longitude=-83.0485, timezone="America/Detroit",
+    )
+    _persist(service, source, [first], [_boxscore(first)])
+
+    moved = _with_venue(
+        _schedule("venue-conflict"),
+        latitude=41.829, longitude=-87.6339, timezone="America/Detroit",
+    )
+    with pytest.raises(HistoricalPersistenceError, match="conflicts with provider metadata"):
+        _persist(service, source, [moved], [_boxscore(moved)],
+                 sequence=1, fingerprint="b" * 64)
+
+
+def test_a_different_timezone_for_one_venue_is_still_a_conflict(session) -> None:
+    """A zone name is categorical: two of them for one ground is a real disagreement."""
+
+    service = HistoricalCanonicalPersistenceService(session)
+    source = _approved_source(service)
+    session.commit()
+
+    first = _with_venue(
+        _schedule("venue-timezone"),
+        latitude=42.339, longitude=-83.0485, timezone="America/Detroit",
+    )
+    _persist(service, source, [first], [_boxscore(first)])
+
+    rezoned = _with_venue(
+        _schedule("venue-timezone"),
+        latitude=42.339, longitude=-83.0485, timezone="America/Chicago",
+    )
+    with pytest.raises(HistoricalPersistenceError, match="conflicts with provider metadata"):
+        _persist(service, source, [rezoned], [_boxscore(rezoned)],
+                 sequence=1, fingerprint="b" * 64)

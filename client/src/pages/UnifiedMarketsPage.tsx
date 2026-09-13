@@ -518,9 +518,14 @@ function MlbMarketRow({
   // `displayed_engine_id` is the field the slate reads too, so both surfaces
   // name the engine the same way. The row-level field stays as a fallback for
   // a payload produced before it existed.
+  // No fallback to the SELECTED engine: that is what made an unavailable row
+  // still claim "V18 MODEL" beside an empty value. Null here means no engine
+  // supplied a number, which is exactly what the row must say.
   const comparisonEngineId = row.forecast_selection?.displayed_engine_id
-    ?? row.aisp_comparison_engine_id ?? selected?.engine_id ?? null
-  const selectedEngine = engineShortName(comparisonEngineId)
+    ?? row.aisp_comparison_engine_id ?? null
+  // Falls back to the SELECTED engine's name only for the column heading, which
+  // has to say something; the value under it is "—" when nothing was published.
+  const selectedEngine = engineShortName(comparisonEngineId ?? selected?.engine_id)
   const selectionNote = availabilityNote(selected)
 
   // What the row is actually comparing, named rather than implied.
@@ -554,25 +559,31 @@ function MlbMarketRow({
   })()
 
   // Model, version and the two clocks, compactly. Never the refresh time.
-  const fellBack = Boolean(
-    selected && comparisonEngineId && comparisonEngineId !== selected.engine_id,
-  )
+  //
+  // No engine is named when none supplied a number. The removed branch read
+  // "Gen 1 baseline shown — V18 is not currently usable" above a Gen 1 figure;
+  // the primary fields now stay empty instead, so this row and the slate agree
+  // about a game the controlling engine said nothing on.
+  const unavailable = !comparisonEngineId
   const forecastIdentityNote = selected
-    ? [
-      fellBack
-        ? `${engineShortName(comparisonEngineId)} baseline shown — `
-          + `${engineShortName(selected.engine_id)} is not currently usable`
-        : `${selected.model_label}`,
-      selected.source_cutoff_utc ? `evidence to ${agoOf(selected.source_cutoff_utc, now)}` : null,
-      selected.published_utc ? `published ${agoOf(selected.published_utc, now)}` : null,
-      selectionNote || null,
-    ].filter(Boolean).join(' · ')
+    ? (unavailable
+      ? [
+        `${engineShortName(selected.engine_id)} forecast unavailable`,
+        selectionNote || null,
+      ].filter(Boolean).join(' · ')
+      : [
+        `${selected.model_label}`,
+        selected.source_cutoff_utc ? `evidence to ${agoOf(selected.source_cutoff_utc, now)}` : null,
+        selected.published_utc ? `published ${agoOf(selected.published_utc, now)}` : null,
+        selectionNote || null,
+      ].filter(Boolean).join(' · '))
     : null
 
   // Why a comparison is missing, when it is.
   const comparability = family === 'MONEYLINE'
     ? (row.aisp_home_probability == null
-        ? 'No model probability is published for this game.'
+        ? 'The controlling engine published no forecast for this game, so there '
+          + 'is nothing to compare. No other model is substituted here.'
         : row.sportsbook_home_probability == null
           ? 'No complete two-sided book quote supports a no-vig consensus, so no comparison is shown.'
           : null)

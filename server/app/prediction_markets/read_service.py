@@ -1122,10 +1122,14 @@ class PredictionMarketReadService:
         selector exists to remove. A limitation is a caption, not a reason to
         substitute a different model's number.
 
-        The fallback below is reached only when the selected forecast has no
-        probability at all (the engine published nothing for this game). It is
-        labelled: `aisp_comparison_engine_id` names the engine that supplied
-        the number, so nothing here is a silent substitution.
+        When the selected forecast has no probability at all -- the controlling
+        engine published nothing for this game -- there is no comparison. This
+        used to fall through to Gen 1 with a label. A labelled substitution is
+        still a substitution: it put one model's number under a heading a reader
+        reads as the other's, and it made this board carry a number for a game
+        the slate showed as unavailable. The row now reports no model
+        probability, and Gen 1 stays reachable as an explicit comparison in the
+        selection payload.
         """
 
         from app.services.forecast_selection import ForecastSelector
@@ -1138,18 +1142,8 @@ class PredictionMarketReadService:
             self._comparison_engine = primary.engine_id
             return round(float(primary.home_win_probability), 6), fresh
 
-        from app.services.read_service import ReadService
-
-        forecast = ReadService(self.session, self.settings)._latest_forecast(game.id)
-        if forecast is None:
-            self._comparison_engine = None
-            return None, False
-        # The controlling engine's forecast is not usable, so the comparison
-        # falls back -- and says which engine it fell back to, because a label
-        # naming the other model beside this number would be a lie.
-        self._comparison_engine = "AISP_BASELINE"
-        fresh = _aware(forecast.generated_at) is not None and (datetime.now(UTC) - _aware(forecast.generated_at)) <= timedelta(hours=24)
-        return round(float(forecast.home_win_probability), 6), fresh
+        self._comparison_engine = None
+        return None, False
 
     def _forecast_selection(self, game: Game) -> dict[str, Any]:
         """The shared selection, plus the engine that supplied the number.

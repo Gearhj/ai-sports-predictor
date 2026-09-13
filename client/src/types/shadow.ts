@@ -106,6 +106,156 @@ export interface ShadowComparison {
   official: OfficialForecastView | null
   shadows: ShadowForecastView[]
   notes: string
+  /** What the package does and does not grant, kept apart from the experiment. */
+  authority_note?: string | null
+  /** Present only when an ensemble release candidate has been imported. */
+  candidate_comparison?: CandidateComparison | null
+}
+
+
+/** One side of the baseline-versus-candidate comparison. */
+export interface CandidateSide {
+  track: 'RESEARCH_SHADOW' | 'RESEARCH_CANDIDATE'
+  label: string
+  engine_id: string
+  engine_version: string | null
+  forecast_id: string
+  model_artifact_sha256: string | null
+  artifact_type: 'PROSPECTIVE' | 'HISTORICAL_REPLAY'
+  is_replay: boolean
+  home_win_probability: number | null
+  away_win_probability: number | null
+  expected_home_runs: number | null
+  expected_away_runs: number | null
+  evidence_cutoff_utc: string | null
+  published_utc: string | null
+  imported_utc: string | null
+  scheduled_start_utc: string | null
+  simulation_count: number | null
+  wagering_authority: false
+  execution_allowed_in_aisp: false
+  score: CandidateScore | null
+}
+
+/** The persisted research score, when eligible final evidence exists. */
+export interface CandidateScore {
+  evaluation_id: string
+  scoring_version: string
+  evaluated_at: string | null
+  home_score: number | null
+  away_score: number | null
+  actual_outcome: string | null
+  predicted_outcome: string | null
+  winner_correct: boolean | null
+  probability_of_actual: number | null
+  log_loss: number | null
+  brier_score: number | null
+  margin_error: number | null
+  total_error: number | null
+  crps_margin: number | null
+  crps_total: number | null
+  result_source: string | null
+  result_tier: number | null
+  publication_clock: string | null
+  publication_clock_verified: boolean | null
+}
+
+export interface CandidateComponent {
+  component_id: string
+  role: string | null
+  status: string | null
+  sha256: string | null
+  ran: boolean
+  fallback_reason: string | null
+  detail: string | null
+}
+
+export interface CandidateConfiguration {
+  key: string
+  letter: string
+  title: string
+  status: string
+  note: string
+  enabled_in_release: boolean
+  provenance: string
+  simulations: number | null
+  home_win_probability: number
+  home_win_monte_carlo_standard_error: number | null
+  expected_home_runs: number
+  expected_away_runs: number
+  expected_total_runs: number | null
+  extra_inning_rate: number | null
+  paired_delta_vs_a: {
+    home_win_probability: number | null
+    home_win_paired_standard_error: number | null
+    expected_home_runs: number | null
+    expected_away_runs: number | null
+    expected_total_runs: number | null
+  }
+  illegal_state_count: number | null
+  nontermination_count: number | null
+}
+
+/** One published configuration of the candidate engine family for a game. */
+export interface CandidateConfigurationOption {
+  key: string
+  configuration_id: string | null
+  configuration_identity_source: 'PRODUCER_CONFIGURATION_ID' | 'CANDIDATE_ENGINE_VERSION'
+  actual_configuration: string | null
+  engine_version: string | null
+  forecast_id: string
+  contract_version: string | null
+  component_trial_supported: boolean
+  fell_back_to_baseline_draws: boolean
+  published_utc: string | null
+}
+
+export interface CandidateComparison {
+  schema_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_COMPARISON_V1'
+  game_id: string
+  artifact_type: 'PROSPECTIVE' | 'HISTORICAL_REPLAY'
+  is_replay: boolean
+  prospective_eligible: boolean
+  /** Which arm this payload describes, and every arm published for the game. */
+  configuration?: CandidateConfigurationOption | null
+  available_configurations?: CandidateConfigurationOption[]
+  /** How the displayed baseline was resolved. */
+  baseline_binding?: string | null
+  /** Present when this arm's component did not run and it reused baseline draws. */
+  fallback_note?: string | null
+  baseline: CandidateSide | null
+  candidate: CandidateSide
+  difference: {
+    home_win_probability_points: number | null
+    expected_home_runs: number | null
+    expected_away_runs: number | null
+    convention: string
+  } | null
+  components: CandidateComponent[]
+  configurations?: CandidateConfiguration[]
+  default_configuration?: string | null
+  comparison_status?: string | null
+  limitations?: string[]
+  candidate_package_sha256?: string | null
+  ordering_claim?: string
+  component_attribution: Record<string, unknown> | null
+  component_attribution_note: string | null
+  candidate_identity: {
+    engine_id: string
+    engine_version: string | null
+    model_artifact_sha256: string | null
+    handoff_sha256: string | null
+    object_sha256: string | null
+    baseline_forecast_id: string | null
+  }
+  authority: {
+    candidate_wagering_authority: false
+    candidate_execution_allowed_in_aisp: false
+    candidate_activates_model: false
+    controlling_engine_for_official_decisions: string
+    controlling_engine_source: string
+  }
+  note: string
 }
 
 export interface ShadowPathEvent {

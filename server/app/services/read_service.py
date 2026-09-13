@@ -1155,21 +1155,24 @@ class ReadService:
         # probability AND a band recomputed from it with the same thresholds --
         # leaving Gen 1's band beside a V18 number would attribute a judgement
         # to a model that never made it.
-        from app.services.forecast_selection import GEN1_ENGINE, ForecastSelector
+        from app.services.forecast_selection import ForecastSelector
 
         selection = ForecastSelector(self.session).select(game)
         primary = selection.primary
+        # The selected forecast is the only thing the primary fields ever show.
         # A published-but-limited forecast stays on screen with its limitation
-        # rather than being swapped for the other engine behind the reader's
-        # back; only a primary with no numbers at all (MISSING, or a game
-        # outside the era) falls through to Gen 1, and the payload says so.
+        # stated; a forecast the controlling engine never published leaves these
+        # fields EMPTY and says so.
+        #
+        # The removed branch fell through to Gen 1 here. It was labelled, but a
+        # labelled substitution is still a substitution: the slate then read
+        # "SEA 52% / 48% OAK" for a game V18 had said nothing about, and a
+        # reader comparing that number against a V18 forecast elsewhere was
+        # comparing two different models. Gen 1 remains reachable as an explicit
+        # comparison in `forecast_selection.comparison`.
         use_primary = primary is not None and primary.home_win_probability is not None
-        if use_primary:
-            home_probability = primary.home_win_probability
-            away_probability = primary.away_win_probability
-        else:
-            home_probability = forecast.home_win_probability if forecast else None
-            away_probability = forecast.away_win_probability if forecast else None
+        home_probability = primary.home_win_probability if use_primary else None
+        away_probability = primary.away_win_probability if use_primary else None
         market_home = market["home_probability"]
         home_edge = model_edge(home_probability, market_home)
         away_edge = (
@@ -1192,17 +1195,18 @@ class ReadService:
             default=_aware(game.created_at),
         )
         status = game.status.value.upper()
-        if not forecast:
+        # Keyed on the SELECTED forecast, not on whether a legacy Gen 1 row
+        # exists. A game the controlling engine never forecast has no primary
+        # number to show even when Gen 1 published one, and the status has to
+        # agree with the empty fields rather than with the other engine's row.
+        if not use_primary:
             status = f"{status} · FORECAST UNAVAILABLE"
         # Which engine actually produced the numbers below. Usually the
         # selected one; when the selection has no numbers at all it is the
         # engine the fallback came from. A chip reading "V18" above a Gen 1
         # probability is the exact mislabelling this field prevents.
         selection_payload = selection.as_dict()
-        selection_payload["displayed_engine_id"] = (
-            primary.engine_id if use_primary
-            else (GEN1_ENGINE if forecast is not None else None)
-        )
+        selection_payload["displayed_engine_id"] = primary.engine_id if use_primary else None
         return ForecastGame(
             id=str(game.id),
             forecast_selection=selection_payload,

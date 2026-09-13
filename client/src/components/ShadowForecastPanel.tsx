@@ -14,11 +14,14 @@
  *    difference inside the shadow's own Monte Carlo interval is called
  *    simulation-indistinguishable.
  */
-import { useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { ArrowRight } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { endpoints } from '../services/api'
+import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { formatTimestamp } from '../services/format'
+import { EnsembleCandidatePanel } from './EnsembleCandidatePanel'
 import type { ShadowComparison, ShadowForecastView } from '../types/shadow'
 
 function pct(value: number | null | undefined): string {
@@ -26,26 +29,40 @@ function pct(value: number | null | undefined): string {
 }
 
 export function ShadowForecastPanel({ gameId }: { gameId: string }) {
-  const [data, setData] = useState<ShadowComparison | null>(null)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let live = true
-    endpoints
-      .gameShadowForecasts(gameId, controller.signal)
-      .then((payload) => {
-        if (live) setData(payload?.schema_version === 'AISP_MLB_V18_SHADOW_COMPARISON_V1' ? payload : null)
-      })
-      // A game with no shadow track is the normal case, and an unreachable
-      // endpoint must not break the official analysis around it.
-      .catch(() => { if (live) setData(null) })
-    return () => { live = false; controller.abort() }
-  }, [gameId])
+  // Through the shared cache, so this panel is fetched once per game however
+  // many places ask for it, and a return to the same game renders it from
+  // what was already read. A game with no shadow track is the normal case, and
+  // an unreachable endpoint must not break the official analysis around it —
+  // both still resolve to "no shadow track" rather than an error.
+  // The selected candidate arm rides in the URL, so a link to one configuration
+  // is shareable and the cache keeps the two arms apart rather than serving one
+  // under the other's heading.
+  const [searchParams] = useSearchParams()
+  const configuration = searchParams.get('configuration')
+  const resource = useApiResource<ShadowComparison>(
+    useCallback(
+      (signal: AbortSignal) => endpoints.gameShadowForecasts(gameId, configuration, signal),
+      [gameId, configuration],
+    ),
+    {
+      key: cacheKey('game/shadow-forecasts', { gameId, configuration }),
+      staleTimeMs: STALE_TIME.game,
+    },
+  )
+  const payload = resource.data
+  const data = payload?.schema_version === 'AISP_MLB_V18_SHADOW_COMPARISON_V1' ? payload : null
 
   // A payload without a recognisable shadow list is treated as "no shadow
   // track", never as a rendering error: this panel must never be able to take
   // down the official analysis around it.
-  if (!data || !Array.isArray(data.shadows) || data.shadows.length === 0) return null
+  const candidate = data?.candidate_comparison ?? null
+  if (!data || !Array.isArray(data.shadows) || data.shadows.length === 0) {
+    // A candidate can exist for a game that has no registered V18 shadow row.
+    // It is still worth showing, with its baseline side reported as absent.
+    return candidate
+      ? <EnsembleCandidatePanel comparison={candidate} homeTeam={data?.home_team ?? null} />
+      : null
+  }
 
   return (
     <section className="shadow-compare" id="research-shadow" aria-labelledby="shadow-compare-heading">
@@ -55,6 +72,11 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
           <h2 id="shadow-compare-heading">Official forecast vs. research challenger</h2>
         </div>
         <p className="shadow-compare__note">{data.notes}</p>
+        {data.authority_note && (
+          <p className="shadow-compare__note shadow-compare__note--authority" role="note">
+            {data.authority_note}
+          </p>
+        )}
       </div>
 
       <div className="shadow-compare__grid">
@@ -62,7 +84,13 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
           <article className="shadow-card shadow-card--official">
             <header>
               <span className="shadow-card__track">Official · Gen 1</span>
-              <span className="shadow-card__authority">Wagering authority</span>
+              {/* This badge used to read "Wagering authority", asserted as a
+                  constant. Which engine a funded experiment uses is recorded in
+                  the champion authority, not decided by this panel, and the
+                  simulator beside it reports V18 controlling funded decisions.
+                  The badge now names the track; the authority note above says
+                  what does and does not grant authority. */}
+              <span className="shadow-card__authority">Official forecast track</span>
             </header>
             <p className="shadow-card__value">{pct(data.official.home_win_probability)}</p>
             <p className="shadow-card__caption">
@@ -98,6 +126,10 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
           />
         ))}
       </div>
+
+      {candidate && (
+        <EnsembleCandidatePanel comparison={candidate} homeTeam={data.home_team} />
+      )}
     </section>
   )
 }
@@ -113,7 +145,7 @@ function ShadowCard({ shadow, homeTeam, gameId }: {
       <header>
         <span className="shadow-card__track">Research shadow · {shadow.engine_id}</span>
         <span className="shadow-card__authority shadow-card__authority--none">
-          No wagering authority
+          Research package · grants no authority
         </span>
       </header>
       <p className="shadow-card__value">{pct(shadow.home_win_probability)}</p>

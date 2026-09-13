@@ -3526,3 +3526,22 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 
 /* The feed column must not paint over a sticky transport beside it. */
 .theater:not(.theater--full) .feed { z-index: 1; }
+
+
+/* Which arm of the candidate comparison is on screen, and what else exists.
+   Listed rather than hidden: a second configuration is a sibling, not a newer
+   version of the first. */
+.candidate-configs { margin: 10px 0 14px; font-size: 12px; }
+.candidate-configs__list {
+  display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 8px; padding: 0; list-style: none;
+}
+.candidate-configs__list li {
+  border: 1px solid var(--line, #d7dee8); border-radius: 10px; padding: 6px 10px;
+}
+.candidate-configs__list li.is-active { border-color: #5b7ea6; background: rgba(91,126,166,.08); }
+.candidate-configs__list b { display: block; font-size: 12px; }
+.candidate-configs__list small { color: var(--muted, #7a8699); font-size: 11px; }
+.candidate-configs__facts { display: flex; flex-wrap: wrap; gap: 14px; margin: 0; }
+.candidate-configs__facts dt { font-size: 11px; color: var(--muted, #7a8699); }
+.candidate-configs__facts dd { margin: 0; font-size: 12px; }
+.candidate-configs__fallback { margin: 8px 0 0; color: #b98230; font-size: 12px; }

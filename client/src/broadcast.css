@@ -861,3 +861,20 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
 .bx-mkt__drawer .bx-scroll { overflow-x: auto; }
 .bx-mkt__drawer .bx-table { min-width: 560px; }
 .bx-mkt__drawer .bx-table th, .bx-mkt__drawer .bx-table td { white-space: nowrap; }
+
+/* Which forecast a row's numbers and band came from. */
+.bx-forecast-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  font-size: 11px; color: var(--bx-muted);
+}
+.bx-forecast-chip b { font-weight: 700; letter-spacing: .04em; color: var(--bx-text); }
+.bx-forecast-chip__flag { color: #b98230; }
+/* No model number is on screen for this game. Muted rather than alarming: an
+   absent forecast is a normal state, not an error. */
+.bx-forecast-chip--absent b { color: #8a94a6; font-weight: 600; }
+
+/* A contract whose side identity could not be established. */
+.bx-mkt__unverified { display: grid; gap: 1px; }
+.bx-mkt__unverified small { color: #b98230; font-size: 11px; }
+.bx-mkt__contract-ids { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; }
+.bx-mkt__contract-ids code { overflow-wrap: anywhere; }

@@ -614,16 +614,11 @@ class HistoricalCanonicalPersistenceService:
                     f"Exact game identity {dto.source_game_id} conflicts with "
                     "schedule time or season"
                 )
-            if any(
-                supplied is not None and existing != supplied
-                for supplied, existing in (
-                    (dto.venue.latitude, venue.latitude),
-                    (dto.venue.longitude, venue.longitude),
-                    (dto.venue.timezone, venue.timezone),
-                )
-            ):
+            conflict = _venue_metadata_conflict(dto.venue, venue)
+            if conflict is not None:
                 raise HistoricalPersistenceError(
-                    f"Exact venue identity {dto.venue.source_id} conflicts with provider metadata"
+                    f"Exact venue identity {dto.venue.source_id} conflicts with "
+                    f"provider metadata: {conflict}"
                 )
             if row.final is not None:
                 game.status = GameStatus.FINAL
@@ -1298,6 +1293,48 @@ def _completion_evidence(
             "Final completion evidence uses a prohibited timestamp substitute"
         )
     return basis, source_field, method, limitation
+
+
+#: How far two published coordinates for one venue may differ and still be the
+#: same venue. About 110 m at the equator -- orders of magnitude smaller than the
+#: distance between any two ball parks, and orders of magnitude larger than a
+#: precision difference between provider surfaces.
+#:
+#: The exact-equality test this replaces could not be satisfied: MLB's schedule
+#: hydrate publishes Comerica Park at 42.3391151/-83.048695, AISP had stored
+#: 42.339/-83.0485 from a lower-precision path, and `!=` on two floats called
+#: that an identity conflict. Every 2026 canonical pass failed on it. Rewriting
+#: the stored venue instead would have been worse: this module deliberately
+#: refuses to rewrite mutable dimension rows while replaying, for the same
+#: reason `_exact_player` refuses to move a player's current team.
+#:
+#: A gap larger than this is still a conflict and still fails closed -- that is
+#: the case the guard exists for, a mapping pointing at a different ground.
+_VENUE_COORDINATE_TOLERANCE_DEGREES = 1e-3
+
+
+def _venue_metadata_conflict(supplied: Any, stored: Venue) -> str | None:
+    """Why the provider's venue metadata contradicts the stored venue, if it does.
+
+    Coordinates compare within a tolerance; the timezone is categorical and
+    still compares exactly, because two different zone names for one ground is
+    a real disagreement rather than a precision artefact.
+    """
+
+    for label, given, held in (
+        ("latitude", supplied.latitude, stored.latitude),
+        ("longitude", supplied.longitude, stored.longitude),
+    ):
+        if given is None or held is None:
+            continue
+        if abs(float(given) - float(held)) > _VENUE_COORDINATE_TOLERANCE_DEGREES:
+            return (
+                f"{label} {given!r} differs from stored {held!r} by more than "
+                f"{_VENUE_COORDINATE_TOLERANCE_DEGREES} degrees"
+            )
+    if supplied.timezone is not None and stored.timezone != supplied.timezone:
+        return f"timezone {supplied.timezone!r} differs from stored {stored.timezone!r}"
+    return None
 
 
 def _history_availability_basis(outcome: GameFinalOutcome) -> str:

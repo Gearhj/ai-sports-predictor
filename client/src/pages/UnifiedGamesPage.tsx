@@ -445,24 +445,24 @@ function ForecastChip(
   { identity, displayedEngineId }:
   { identity: ForecastIdentity; displayedEngineId?: string | null },
 ) {
-  // The chip names whoever produced the numbers in this row. When the
-  // controlling engine published nothing, that is the fallback engine, and
-  // saying "V18" over a Gen 1 probability would be a false attribution.
-  const shown = displayedEngineId ?? identity.engine_id
-  const substituted = shown !== identity.engine_id
-  const current = !substituted && isCurrent(identity)
-  const note = substituted
-    ? `${engineShortName(shown)} is shown because `
-      + `${engineShortName(identity.engine_id)} ${availabilityNote(identity).toLowerCase() || 'is unavailable'}`
-    : availabilityNote(identity)
+  // `displayed_engine_id` is null when the controlling engine published nothing
+  // for this game. The row then carries no model number at all, and the chip
+  // says so rather than naming an engine whose figure is not on screen. No
+  // other engine is substituted into the primary fields; Gen 1 stays reachable
+  // as an explicit comparison.
+  const unavailable = !displayedEngineId
+  const note = availabilityNote(identity)
+  if (unavailable) {
+    return (
+      <span className="bx-forecast-chip bx-forecast-chip--absent" title={note || undefined}>
+        <b>{engineShortName(identity.engine_id)} forecast unavailable</b>
+      </span>
+    )
+  }
   return (
     <span className="bx-forecast-chip" title={note || undefined}>
-      <b>{engineShortName(shown)}</b>
-      {!current && (
-        <small className="bx-forecast-chip__flag">
-          {substituted ? 'substituted' : 'not current'}
-        </small>
-      )}
+      <b>{engineShortName(displayedEngineId)}</b>
+      {!isCurrent(identity) && <small className="bx-forecast-chip__flag">not current</small>}
     </span>
   )
 }

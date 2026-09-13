@@ -1,0 +1,22 @@
+{
+  "artifactType": "PROSPECTIVE",
+  "configuration": "V18_TRANSITION_ONLY",
+  "contractVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V2",
+  "handoffPath": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-ensemble-research-v1\\three-arm-pregame-comparison-v1\\packages\\sha256\\150b2002fba9d12fa84f7855ffb6e67e94f86300f342e1d841d6525648ebeb5b\\V18_TRANSITION_ONLY\\aisp-handoff.json",
+  "handoffSha256": "576d28816539a1c3cba57cf0ba11aac21b5fd3e72f2d7bf7be0192e7f8a3c607",
+  "importedAtUtc": "2026-09-12T23:31:25.150054+00:00",
+  "outcome": {
+    "already_present": [
+      "mlb-v18-transition-09e45e02c85179b124cce9ec13446fcc756831e18761a35e76cf336bee0de15b",
+      "mlb-v18-transition-42b4ad65cc24ed31b5d5aeb37fc9b30d491568f3943571059f66c3b8189f377b",
+      "mlb-v18-transition-53d12ce777066cf905b69a9bd21b691aad256cf15531ad988ecaa4ef2281939a",
+      "mlb-v18-transition-716d3d7425aa5300baf80a41a47afefb07058bdc7a0fa5608c03060a6bdb0d3f",
+      "mlb-v18-transition-bb92168f8d64fb87f86065aac2e9c47263bd580c5d72f3aa5614aeaa3857a691"
+    ],
+    "artifact_type": "PROSPECTIVE",
+    "bundle_created": false,
+    "imported": [],
+    "rejected": []
+  },
+  "schemaVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_CONSUMER_RECEIPT_V1"
+}
