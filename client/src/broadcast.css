@@ -878,3 +878,156 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
 .bx-mkt__unverified small { color: #b98230; font-size: 11px; }
 .bx-mkt__contract-ids { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; }
 .bx-mkt__contract-ids code { overflow-wrap: anywhere; }
+
+/* ==========================================================================
+   MLB Over / Under, and Parlay Watch.
+
+   Both screens are dense with numbers that mean different things, so the
+   styling's whole job is separation: a model probability, an offered price and
+   an estimate derived from the two never share a visual weight, and anything
+   that is an assumption or an estimate is carried in a colour that says so
+   rather than in a footnote nobody reads.
+   ========================================================================== */
+
+.totals__bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+  justify-content: space-between; margin-bottom: 10px;
+}
+.totals__filter { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; }
+.totals__filter input { width: 15px; height: 15px; }
+.totals__coverage { margin: 0; font-size: 11.5px; color: var(--bx-muted); }
+.totals__filter-note, .totals__gap, .totals__unavailable, .totals__scenario-note {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin: 8px 0; padding: 9px 11px; border-radius: 8px;
+  font-size: 12px; line-height: 1.45;
+}
+.totals__filter-note { background: rgba(91,126,166,.10); color: var(--bx-muted); }
+.totals__scenario-note { background: rgba(91,126,166,.10); color: var(--bx-muted); }
+.totals__gap { background: rgba(185,130,48,.12); color: #b98230; }
+.totals__unavailable { background: rgba(185,130,48,.10); color: #b98230; }
+
+.totals__list { display: grid; gap: 12px; }
+.totals__game {
+  border: 1px solid var(--bx-line, rgba(128,140,160,.25));
+  border-radius: 10px; padding: 12px 14px;
+}
+.totals__head {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  align-items: flex-start; justify-content: space-between;
+}
+.totals__head h3 { margin: 0; font-size: 14px; }
+.totals__when { margin: 2px 0 0; font-size: 11.5px; color: var(--bx-muted); }
+.totals__model { display: flex; gap: 20px; margin: 0; }
+.totals__model dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--bx-muted); }
+.totals__model dd { margin: 2px 0 0; font-size: 15px; font-weight: 700; }
+.totals__model dd small { font-weight: 400; font-size: 11px; color: var(--bx-muted); }
+
+.totals__table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12.5px; }
+.totals__table th, .totals__table td {
+  text-align: right; padding: 6px 8px;
+  border-top: 1px solid var(--bx-line, rgba(128,140,160,.2));
+}
+.totals__table thead th {
+  text-align: right; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--bx-muted); border-top: 0;
+}
+.totals__table tbody th { text-align: left; font-weight: 600; }
+.totals__table td small { display: block; font-size: 10.5px; color: var(--bx-muted); font-weight: 400; }
+.totals__side { font-weight: 700; letter-spacing: .04em; }
+.totals__line { margin-left: 6px; color: var(--bx-muted); }
+.totals__muted { color: var(--bx-muted); }
+.totals__badge {
+  margin-left: 7px; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+}
+.totals__badge--scenario { background: rgba(91,126,166,.18); color: #5b7ea6; }
+.totals__empty, .totals__hidden {
+  margin: 10px 0 0; font-size: 12px; color: var(--bx-muted); line-height: 1.5;
+}
+.totals__scenario {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px;
+  font-size: 12px;
+}
+.totals__scenario input {
+  width: 84px; padding: 4px 7px; font: inherit;
+  border: 1px solid var(--bx-line, rgba(128,140,160,.35)); border-radius: 6px;
+  background: transparent; color: inherit;
+}
+.totals__scenario small { color: var(--bx-muted); font-size: 11px; }
+
+/* -- Parlay Watch --------------------------------------------------------- */
+
+.parlay__controls { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; }
+.parlay__legs-toggle, .parlay__filters { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.parlay__legs-toggle button, .parlay__filters button {
+  padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--bx-line, rgba(128,140,160,.3)); border-radius: 999px;
+  background: transparent; color: inherit;
+}
+.parlay__legs-toggle button.is-active, .parlay__filters button.is-active {
+  border-color: #5b7ea6; background: rgba(91,126,166,.14); font-weight: 600;
+}
+.parlay__inventory { margin: 0 0 8px; font-size: 11.5px; color: var(--bx-muted); }
+.parlay__assumption {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin: 6px 0; padding: 9px 11px; border-radius: 8px;
+  font-size: 12px; line-height: 1.45;
+  background: rgba(185,130,48,.10); color: #b98230;
+}
+.parlay__error { margin: 8px 0; font-size: 12px; color: #c0392b; }
+.parlay__empty, .parlay__single {
+  margin: 12px 0; font-size: 12.5px; color: var(--bx-muted); line-height: 1.5;
+}
+.parlay__grid {
+  display: grid; gap: 12px; margin-top: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.parlay__ticket {
+  border: 1px solid var(--bx-line, rgba(128,140,160,.25));
+  border-radius: 10px; padding: 12px 14px;
+}
+.parlay__features { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.parlay__feature {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .05em;
+  background: rgba(91,126,166,.16); color: #5b7ea6;
+}
+.parlay__feature-note { margin: 0 0 8px; font-size: 11.5px; color: var(--bx-muted); }
+.parlay__legs { margin: 0 0 10px; padding-left: 18px; font-size: 12.5px; }
+.parlay__legs li { margin-bottom: 3px; }
+.parlay__leg-price { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.parlay__leg-prob { margin-left: 8px; font-size: 11px; color: var(--bx-muted); }
+.parlay__numbers {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px 14px; margin: 0;
+}
+.parlay__numbers dt {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--bx-muted);
+}
+.parlay__numbers dd {
+  margin: 2px 0 0; font-size: 13.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.parlay__badge {
+  margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  background: rgba(91,126,166,.16); color: #5b7ea6;
+}
+.parlay__badge--estimated { background: rgba(185,130,48,.16); color: #b98230; }
+.parlay__book { margin: 10px 0 0; font-size: 11.5px; color: var(--bx-muted); line-height: 1.45; }
+.parlay__record {
+  margin-top: 10px; padding: 7px 13px; font: inherit; font-size: 12px; cursor: pointer;
+  border: 1px solid #5b7ea6; border-radius: 8px;
+  background: rgba(91,126,166,.12); color: inherit;
+}
+.parlay__record:disabled { opacity: .6; cursor: progress; }
+.parlay__recorded {
+  display: flex; align-items: center; gap: 6px;
+  margin: 10px 0 0; font-size: 12px; color: #3d8b5f;
+}
+.parlay__more, .parlay__excluded { margin-top: 14px; font-size: 12.5px; }
+.parlay__more summary, .parlay__excluded summary { cursor: pointer; color: var(--bx-muted); }
+.parlay__excluded ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.55; }

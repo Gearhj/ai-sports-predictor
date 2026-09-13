@@ -31,7 +31,9 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
-import { ArrowRight, ChevronDown, Flame, History, RefreshCw, Radio } from 'lucide-react'
+import {
+  ArrowRight, ChevronDown, Flame, History, Layers, RefreshCw, Radio, Sigma,
+} from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { quoteDescription, resolveQuotedContract } from '../services/marketOrientation'
@@ -49,6 +51,11 @@ import {
   signedPoints, useBroadcastTheme,
 } from '../components/broadcast/primitives'
 import { ReplayView, RffView, type ReplayChoice } from '../components/broadcast/MarketViews'
+import { MlbTotalsView } from '../components/markets/MlbTotalsView'
+import { ParlayWatchView } from '../components/markets/ParlayWatchView'
+import {
+  readMarketFilter, useMlbTotals, useParlayWatch, useRecordTicket,
+} from '../hooks/useMlbTotals'
 import { conditionalHomeWin } from '../services/broadcastSlate'
 import type {
   MarketBoardData, MarketBoardRow, MarketPulseBoard, MarketPulseRow,
@@ -58,14 +65,17 @@ import type { NflEvent, NflMarketBlock, NflWeeks } from '../types/nfl'
 import '../broadcast.css'
 
 type Family = 'MONEYLINE' | 'SPREAD' | 'TOTAL'
-type View = 'PRICES' | 'REPLAY' | 'RFF'
+type View = 'PRICES' | 'TOTALS' | 'PARLAY' | 'REPLAY' | 'RFF'
+const VIEW_KEYS = ['PRICES', 'TOTALS', 'PARLAY', 'REPLAY', 'RFF'] as const
 function readView(value: string | null): View {
   const upper = (value ?? '').toUpperCase()
-  return upper === 'REPLAY' || upper === 'RFF' ? upper : 'PRICES'
+  return (VIEW_KEYS as readonly string[]).includes(upper) ? (upper as View) : 'PRICES'
 }
 
 const VIEWS: { key: View; label: string; hint: string }[] = [
   { key: 'PRICES', label: 'Prices', hint: 'One row per game: model, best price, consensus, book spread.' },
+  { key: 'TOTALS', label: 'Over / Under', hint: "V18's own run distribution priced against the recorded total." },
+  { key: 'PARLAY', label: 'Parlay Watch', hint: 'Two- and three-leg research combinations, priced from stored quotes.' },
   { key: 'REPLAY', label: 'Replay', hint: 'Watch one market move from its first observation to the cutoff.' },
   { key: 'RFF', label: 'RFF Lab', hint: 'Ripe For Fuckery: a provisional research index of market unrest.' },
 ]
@@ -124,6 +134,26 @@ export function UnifiedMarketsPage() {
   }, [setParams])
   const setView = useCallback((next: View) => setParam('view', next === 'PRICES' ? null : next), [setParam])
   const day = params.get('date') ?? new Date().toISOString().slice(0, 10)
+
+  // Totals and Parlay Watch state. Filters live in the URL for the same reason
+  // the replay does: a board someone is looking at should be a link they can
+  // send, not a set of clicks they have to describe.
+  const oversOnly = params.get('overs') === '1'
+  const legCount: 2 | 3 = params.get('legs') === '3' ? 3 : 2
+  const marketFilter = readMarketFilter(params.get('combo'))
+  const [scenarios, setScenarios] = useState<Record<string, string>>({})
+  const setScenario = useCallback((gameId: string, line: string) => {
+    setScenarios((old) => ({ ...old, [gameId]: line }))
+  }, [])
+  const totals = useMlbTotals({
+    day, enabled: view === 'TOTALS' && sport !== 'NFL', oversOnly, scenarios,
+  })
+  const parlay = useParlayWatch({
+    day, enabled: view === 'PARLAY' && sport !== 'NFL', legCount, marketFilter,
+  })
+  const {
+    recordTicket, recordingKey, recordedByKey, recordError,
+  } = useRecordTicket(() => parlay.refresh())
 
   const loader = useCallback(async (signal: AbortSignal): Promise<MarketsBoard> => {
     const warnings: string[] = []
@@ -258,6 +288,8 @@ export function UnifiedMarketsPage() {
               title={entry.hint} onClick={() => setView(entry.key)}>
               {entry.key === 'REPLAY' && <History size={13} aria-hidden="true" />}
               {entry.key === 'RFF' && <Flame size={13} aria-hidden="true" />}
+              {entry.key === 'TOTALS' && <Sigma size={13} aria-hidden="true" />}
+              {entry.key === 'PARLAY' && <Layers size={13} aria-hidden="true" />}
               {entry.label}
             </button>
           ))}
@@ -331,6 +363,42 @@ export function UnifiedMarketsPage() {
                     withSport={withSport} onReplay={(id) => { setParam('game', id); setView('REPLAY') }} />
                 ))}
               </div>}
+          </Panel>
+        )}
+
+        {view === 'TOTALS' && (
+          <Panel
+            eyebrow="MLB · Total runs"
+            title="Over / Under"
+            action={<span className="bx-dim">V18 distribution vs recorded line</span>}
+          >
+            <MlbTotalsView
+              board={totals.data}
+              oversOnly={oversOnly}
+              onOversOnly={(next) => setParam('overs', next ? '1' : null)}
+              scenarios={scenarios}
+              onScenario={setScenario}
+            />
+          </Panel>
+        )}
+
+        {view === 'PARLAY' && (
+          <Panel
+            eyebrow="MLB · Research combinations"
+            title="Parlay Watch"
+            action={<span className="bx-dim">No wagering authority</span>}
+          >
+            <ParlayWatchView
+              watch={parlay.data}
+              legCount={legCount}
+              onLegCount={(next) => setParam('legs', String(next))}
+              marketFilter={marketFilter}
+              onMarketFilter={(next) => setParam('combo', next === 'ALL' ? null : next)}
+              onRecord={recordTicket}
+              recordingKey={recordingKey}
+              recordedByKey={recordedByKey}
+              recordError={recordError}
+            />
           </Panel>
         )}
 
