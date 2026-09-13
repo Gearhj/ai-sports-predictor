@@ -9,6 +9,8 @@ import { QualificationFunnel } from '../components/QualificationFunnel'
 import { OperationalDateNav } from '../components/OperationalDateNav'
 import { operationalToday, resolveOperationalDate } from '../services/operationalDate'
 import { useApiResource } from '../hooks/useApiResource'
+import { SeasonAccounts } from '../components/SeasonAccounts'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import type { BankrollData, EquityCurvePoint, ExperimentComparison, QualificationFunnel as FunnelData } from '../types/domain'
@@ -317,7 +319,9 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     () => (signal?: AbortSignal) => endpoints.bankroll(signal, experimentKey),
     [experimentKey],
   )
-  const { data, state, loading, error, refresh } = useApiResource(loader, demo ? { demoData: demoBankroll } : {})
+  const { data, state, loading, error, refresh } = useApiResource(loader, demo
+    ? { demoData: demoBankroll }
+    : { key: cacheKey('bankroll', { experimentKey }), staleTimeMs: STALE_TIME.operational })
   const { policy } = usePublicPolicy()
   const funnelDate = resolveOperationalDate(searchParams.get('date'))
   const [funnel, setFunnel] = useState<FunnelData | null | undefined>(undefined)
@@ -354,11 +358,18 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     ? 'Example positions demonstrate the ledger; these are not live or historical results.'
     : 'A $1,000 virtual bankroll follows one frozen forecasting model under one frozen decision policy: every position is recorded before first pitch, settled exactly once, and never edited or removed.'
 
+  // The season-account surface is the page's primary subject now: it is what
+  // holds the money. The per-era experiment view below it stays, because a
+  // model era is still worth reading on its own -- it just no longer decides
+  // what the bankroll is.
+  const seasonAccounts = demo ? null : <SeasonAccounts />
+
   if (!data || stale || state === 'unavailable' || state === 'loading' || (!experimentIsActive && (state === 'empty' || data.experiment_status === 'NOT_STARTED'))) {
     const shownState = stale ? 'loading' : !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
     return (
       <div className="page bankroll-page">
         <PageHeader eyebrow={headerEyebrow} title="$1,000 Experiment" description={contractSentence} actions={<ExperimentBadge />} />
+        {seasonAccounts}
         {selector}
         <DataModeBanner state={shownState} loading={loading} error={error} onRetry={refresh} />
         {shownState === 'empty' && (
@@ -416,6 +427,7 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     <div className="page bankroll-page">
       {/* A. Hero: title, role, contract sentence, honest badges */}
       <PageHeader eyebrow={headerEyebrow} title="$1,000 Experiment" description={contractSentence} actions={<ExperimentBadge />} />
+      {seasonAccounts}
       {selector}
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
       <div className="experiment-badge-row" aria-label="Experiment status badges">

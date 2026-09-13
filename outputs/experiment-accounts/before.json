@@ -1,0 +1,99 @@
+{
+  "phase": "before",
+  "before": {
+    "eras": [
+      {
+        "version": 1,
+        "sport": "MLB",
+        "policy": "AISP_OPPORTUNITY_POLICY_V1",
+        "era": null,
+        "active": true,
+        "funded": false,
+        "starting_bankroll": 1000.0,
+        "realized_pl": 0.0,
+        "era_bankroll": 1000.0,
+        "reserved": 0.0,
+        "positions": 0,
+        "settlements": 0
+      },
+      {
+        "version": 2,
+        "sport": "MLB",
+        "policy": "AISP_PRACTICAL_PREGAME_POLICY_V2",
+        "era": null,
+        "active": true,
+        "funded": true,
+        "starting_bankroll": 1000.0,
+        "realized_pl": 0.0,
+        "era_bankroll": 1000.0,
+        "reserved": 0.0,
+        "positions": 0,
+        "settlements": 0
+      },
+      {
+        "version": 3,
+        "sport": "MLB",
+        "policy": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+        "era": null,
+        "active": true,
+        "funded": true,
+        "starting_bankroll": 1000.0,
+        "realized_pl": -3.98,
+        "era_bankroll": 996.02,
+        "reserved": 2.5,
+        "positions": 19,
+        "settlements": 18
+      },
+      {
+        "version": 4,
+        "sport": "MLB",
+        "policy": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+        "era": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1",
+        "active": false,
+        "funded": true,
+        "starting_bankroll": 1000.0,
+        "realized_pl": 0.0,
+        "era_bankroll": 1000.0,
+        "reserved": 0.0,
+        "positions": 0,
+        "settlements": 0
+      },
+      {
+        "version": 5,
+        "sport": "MLB",
+        "policy": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+        "era": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1_R1:ARMED",
+        "active": false,
+        "funded": true,
+        "starting_bankroll": 1000.0,
+        "realized_pl": 0.0,
+        "era_bankroll": 1000.0,
+        "reserved": 0.0,
+        "positions": 0,
+        "settlements": 0
+      },
+      {
+        "version": 6,
+        "sport": "MLB",
+        "policy": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+        "era": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1_R1",
+        "active": true,
+        "funded": true,
+        "starting_bankroll": 993.52,
+        "realized_pl": 0.0,
+        "era_bankroll": 993.52,
+        "reserved": 3.52,
+        "positions": 2,
+        "settlements": 0
+      }
+    ],
+    "totals": {
+      "sum_of_era_starting_bankrolls": 4993.52,
+      "settled_net_pl_all_funded_eras": -3.98,
+      "reserved_all_funded_eras": 6.02,
+      "positions_all_funded_eras": 21,
+      "settlements_all_funded_eras": 18,
+      "funded_eras_with_activity": 2
+    }
+  }
+}

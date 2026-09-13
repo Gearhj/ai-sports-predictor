@@ -66,4 +66,16 @@ from app.models.nba import (  # noqa: E402,F401
     NbaTeamGameStat,
 )
 
+# Season-scoped paper-bankroll accounts. Additive: the experiment, decision,
+# position and settlement tables are unchanged, and membership links an era to
+# its season account without rewriting the append-only era row.
+from app.models.experiment_accounts import (  # noqa: E402,F401
+    AccountStatus,
+    ExperimentAccount,
+    ExperimentAccountFunding,
+    ExperimentAccountMembership,
+    FundingKind,
+    MembershipRole,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

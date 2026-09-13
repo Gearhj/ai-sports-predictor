@@ -537,15 +537,22 @@ describe('funnel presentation and today’s result', () => {
 })
 
 describe('safety', () => {
-  it('only reads the four public endpoints and issues no writes', async () => {
+  it('reads only public read endpoints and issues no writes', async () => {
     const calls = stub()
     renderAt('/experiment')
     await screen.findByRole('region', { name: 'Complete position ledger' })
     await screen.findByText(/How today's slate was screened/)
-    const paths = new Set(calls.map((u) => u.replace(/^https?:\/\/[^/]+/, '').split('?')[0]))
+    const paths = new Set(calls.map((u) => u
+      .replace(/^https?:\/\/[^/]+/, '')
+      .split('?')[0]
+      // The per-sport account read carries the sport in its path; the sport
+      // itself is not what this test is pinning.
+      .replace(/^\/api\/v1\/experiment\/accounts\/[^/]+$/, '/api/v1/experiment/accounts/:sport')))
     expect([...paths].sort()).toEqual([
       '/api/v1/bankroll', '/api/v1/experiment/comparison',
       '/api/v1/experiment/funnel', '/api/v1/experiment/qualification-funnel',
+      // The season-account surface. Both are reads of stored ledger rows.
+      '/api/v1/experiment/accounts', '/api/v1/experiment/accounts/:sport',
     ].sort())
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
     for (const call of fetchMock.mock.calls) {
