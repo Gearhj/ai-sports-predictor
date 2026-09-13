@@ -661,6 +661,11 @@ class PositionSchema(BaseModel):
     # Which engine produced this position, resolved from the forecast its
     # decision bound. Both binding columns are read, so a season spanning a
     # model change reports the right engine per row rather than one page label.
+    raw_model_probability: float | None = None
+    adjusted_probability: float | None = None
+    offered_decimal_odds: float | None = None
+    offered_break_even_probability: float | None = None
+    adjusted_edge_vs_no_vig: float | None = None
     model_engine_id: str | None = None
     model_engine_version: str | None = None
     forecast_identity: str | None = None

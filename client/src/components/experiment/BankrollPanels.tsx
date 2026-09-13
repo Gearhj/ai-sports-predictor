@@ -231,15 +231,42 @@ export function SettlementTape({
 
                 {(isOpenRow || startOpen) && (
                   <dl className="exp-row__evidence">
-                    <div><dt>Model probability</dt>
-                      <dd>{position.model_probability == null ? 'not recorded'
-                        : `${(position.model_probability * 100).toFixed(1)}%`}</dd></div>
-                    <div><dt>Market probability</dt>
+                    {/* Four numbers a reader needs kept apart. The raw model
+                        probability is what V18 published; the adjusted one is
+                        what the policy actually used after its saved evidence
+                        penalties; the offered price has its own break-even; and
+                        the no-vig reference is a different comparison again.
+                        Showing one "edge" let the policy's no-vig margin be read
+                        as the margin the stake was paid against, and those two
+                        differ by the whole penalty — 2.84 pp against no-vig
+                        versus 0.32 pp against the price, on the NYY position. */}
+                    <div><dt>Model probability (raw)</dt>
+                      <dd>{position.raw_model_probability == null
+                        ? (position.model_probability == null ? 'not recorded'
+                          : `${(position.model_probability * 100).toFixed(1)}%`)
+                        : `${(position.raw_model_probability * 100).toFixed(2)}%`}</dd></div>
+                    <div><dt>Adjusted probability used</dt>
+                      <dd>{position.adjusted_probability == null ? 'not recorded'
+                        : `${(position.adjusted_probability * 100).toFixed(2)}%`}</dd></div>
+                    <div><dt>Offered price break-even</dt>
+                      <dd>{position.offered_break_even_probability == null ? 'not recorded'
+                        : `${(position.offered_break_even_probability * 100).toFixed(2)}%`}
+                        <small>1 ÷ decimal odds</small></dd></div>
+                    <div><dt>Edge vs offered price</dt>
+                      <dd>{position.adjusted_probability == null
+                        || position.offered_break_even_probability == null ? 'not recorded'
+                        : `${((position.adjusted_probability
+                              - position.offered_break_even_probability) * 100).toFixed(2)} pp`}
+                        <small>what the stake is paid against</small></dd></div>
+                    <div><dt>No-vig reference probability</dt>
                       <dd>{position.market_probability == null ? 'not recorded'
-                        : `${(position.market_probability * 100).toFixed(1)}%`}</dd></div>
-                    <div><dt>Adjusted edge at decision</dt>
-                      <dd>{position.adjusted_edge == null ? 'not recorded'
-                        : `${(position.adjusted_edge * 100).toFixed(2)} pp`}</dd></div>
+                        : `${(position.market_probability * 100).toFixed(2)}%`}</dd></div>
+                    <div><dt>Edge vs no-vig</dt>
+                      <dd>{position.adjusted_edge_vs_no_vig == null
+                        ? (position.adjusted_edge == null ? 'not recorded'
+                          : `${(position.adjusted_edge * 100).toFixed(2)} pp`)
+                        : `${(position.adjusted_edge_vs_no_vig * 100).toFixed(2)} pp`}
+                        <small>what the policy minimum is applied to</small></dd></div>
                     <div><dt>Decided</dt>
                       <dd>{position.recommended_at
                         ? new Date(position.recommended_at).toLocaleString('en-US', {

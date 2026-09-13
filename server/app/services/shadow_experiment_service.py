@@ -1230,6 +1230,20 @@ class ShadowExperimentService:
                 # decision bound at the time. A page-level model name cannot
                 # answer this once a season spans two engines, and a reader
                 # comparing one row against another needs it per row.
+                # The two edges the policy records are DIFFERENT quantities and
+                # are carried separately: the minimum is applied to the no-vig
+                # edge, while the stake is paid against the offered price. A
+                # single "edge" field invited the two to be read as one.
+                "raw_model_probability": (decision.evidence or {}).get("raw_model_probability")
+                if isinstance(decision.evidence, dict) else None,
+                "adjusted_probability": (decision.evidence or {}).get("adjusted_probability")
+                if isinstance(decision.evidence, dict) else None,
+                "offered_decimal_odds": float(position.decimal_odds)
+                if position.decimal_odds else None,
+                "offered_break_even_probability": (1.0 / float(position.decimal_odds))
+                if position.decimal_odds else None,
+                "adjusted_edge_vs_no_vig": (decision.evidence or {}).get("adjusted_edge")
+                if isinstance(decision.evidence, dict) else None,
                 "model_engine_id": engine_by_decision.get(decision.id, (None, None))[0],
                 "model_engine_version": engine_by_decision.get(decision.id, (None, None))[1],
                 "forecast_identity": forecast_identity_by_decision.get(decision.id),

@@ -699,6 +699,12 @@ export interface Position {
    * A page-level model name cannot answer this once a season spans two
    * engines, which is exactly what the 2026 MLB season does.
    */
+  raw_model_probability?: number | null
+  adjusted_probability?: number | null
+  offered_decimal_odds?: number | null
+  offered_break_even_probability?: number | null
+  /** Against the no-vig reference. NOT the same as the offered-price edge. */
+  adjusted_edge_vs_no_vig?: number | null
   model_engine_id?: string | null
   model_engine_version?: string | null
   forecast_identity?: string | null
