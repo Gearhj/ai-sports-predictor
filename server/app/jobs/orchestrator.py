@@ -98,6 +98,7 @@ AVAILABLE_JOBS = {
     "settle-parlay-tickets": "Settle Recorded Virtual Parlay Tickets",
     "refresh-nfl-shadow-schedule": "Refresh NFL Research-Shadow Schedule Authority",
     "materialize-current-nfl-features": "Verify Current NFL Feature Vectors",
+    "sync-nfl-foundation-sources": "Sync NFL Current-Season Foundation Sources",
     "generate-nfl-shadow-forecasts": "Generate NFL M1 Early/Current Research-Shadow Forecasts",
     "generate-nfl-final-pregame-forecasts": "Generate NFL M1 Final-Pregame Research-Shadow Forecasts",
     "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
@@ -223,6 +224,7 @@ class JobOrchestrator:
             "settle-shadow-decisions": self.settle_shadow_decisions,
             "refresh-nfl-shadow-schedule": self.refresh_nfl_shadow_schedule,
             "materialize-current-nfl-features": self.materialize_current_nfl_features,
+            "sync-nfl-foundation-sources": self.sync_nfl_foundation_sources,
             "generate-nfl-shadow-forecasts": self.generate_nfl_shadow_forecasts,
             "generate-nfl-final-pregame-forecasts": self.generate_nfl_final_pregame_forecasts,
             "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
@@ -657,6 +659,24 @@ class JobOrchestrator:
             "missing_feature_hashes": len(rows) - len(valid),
         }
 
+    async def sync_nfl_foundation_sources(self, event_date: date) -> dict[str, Any]:
+        """Refresh the NFL current-season Foundation sources. AISP owns this.
+
+        The producer's inspection found no recurring owner for the repaired sync,
+        which meant current-season publication could run on inputs nobody had
+        refreshed -- exactly the state that made PIT-NE stale. This job is that
+        owner: it runs inside the existing orchestrator, on the existing
+        schedule, against the existing Model Studio checkout and virtual
+        environment, and it adds no scheduler of its own.
+
+        Success and failure are both receipted. A sync that fails must not look
+        like a sync that was skipped, and neither may look like one that
+        succeeded -- so the return value always names the outcome, the exit
+        status, and how fresh the sources were afterwards.
+        """
+
+        return await self._run_nfl_foundation_sync()
+
     async def generate_nfl_shadow_forecasts(self, event_date: date) -> dict[str, Any]:
         """Run the frozen Model Studio producer, then verify/import its exchange.
 
@@ -677,6 +697,98 @@ class JobOrchestrator:
             event_date, snapshot_types=("FINAL_PREGAME",)
         )
 
+    async def _run_nfl_foundation_sync(self) -> dict[str, Any]:
+        """Invoke the sync and receipt the outcome, whatever it is.
+
+        Three outcomes, never collapsed into each other:
+
+        ``SKIPPED``   the Studio root or interpreter is not configured, so
+                      nothing was attempted. Not a failure and not a success.
+        ``FAILED``    the child ran and returned non-zero, or timed out. The
+                      exit status and the tail of its stderr are recorded.
+        ``SUCCEEDED`` the child returned zero.
+
+        Source freshness is read AFTER the sync and reported alongside, because
+        "the command succeeded" and "the sources are current" are different
+        claims -- a sync can exit zero having found nothing new, and a reader
+        needs to see which happened.
+        """
+
+        from pathlib import Path
+
+        started = datetime.now(UTC)
+        root_text = (self.settings.nfl_model_studio_root or "").strip()
+        python_text = (self.settings.nfl_model_studio_python or "").strip()
+        if not root_text or not python_text:
+            return {
+                "status": "SKIPPED",
+                "version": NFL_FOUNDATION_SYNC_VERSION,
+                "detail": (
+                    "NFL_MODEL_STUDIO_ROOT and NFL_MODEL_STUDIO_PYTHON are not both "
+                    "configured, so the Foundation sync was not attempted."
+                ),
+                "attempted": False,
+                "started_at_utc": started.isoformat(),
+            }
+
+        root = Path(root_text)
+        python = Path(python_text)
+        if not root.is_dir() or not python.is_file():
+            return {
+                "status": "SKIPPED",
+                "version": NFL_FOUNDATION_SYNC_VERSION,
+                "detail": f"Configured Model Studio root or interpreter does not exist: {root}",
+                "attempted": False,
+                "started_at_utc": started.isoformat(),
+            }
+
+        process = await asyncio.create_subprocess_exec(
+            str(python), *NFL_FOUNDATION_SYNC_ARGS, cwd=str(root),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        timed_out = False
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=NFL_FOUNDATION_SYNC_TIMEOUT_SECONDS)
+        except TimeoutError:
+            process.kill()
+            stdout, stderr = await process.communicate()
+            timed_out = True
+        finished = datetime.now(UTC)
+
+        succeeded = (not timed_out) and process.returncode == 0
+        receipt: dict[str, Any] = {
+            "status": "SUCCEEDED" if succeeded else "FAILED",
+            "version": NFL_FOUNDATION_SYNC_VERSION,
+            "attempted": True,
+            "command": [str(python), *NFL_FOUNDATION_SYNC_ARGS],
+            "cwd": str(root),
+            "exit_code": None if timed_out else process.returncode,
+            "timed_out": timed_out,
+            "started_at_utc": started.isoformat(),
+            "finished_at_utc": finished.isoformat(),
+            "duration_seconds": round((finished - started).total_seconds(), 3),
+            "stdout_tail": stdout.decode("utf-8", errors="replace")[-1500:],
+            "stderr_tail": stderr.decode("utf-8", errors="replace")[-1500:],
+            "owner": (
+                "AISP orchestrator job 'sync-nfl-foundation-sources', and the "
+                "CURRENT generation path, which runs it before publishing."
+            ),
+        }
+        receipt["source_freshness"] = _nfl_foundation_freshness(
+            stdout.decode("utf-8", errors="replace"))
+        if not succeeded:
+            logger.error(
+                "nfl_foundation_sync_failed",
+                exit_code=receipt["exit_code"], timed_out=timed_out,
+            )
+        else:
+            logger.info(
+                "nfl_foundation_sync_succeeded",
+                duration_seconds=receipt["duration_seconds"],
+            )
+        return receipt
+
     async def _generate_and_import_nfl_shadow(
         self, event_date: date, *, snapshot_types: tuple[str, ...]
     ) -> dict[str, Any]:
@@ -687,6 +799,16 @@ class JobOrchestrator:
                 "producer_called": False,
                 "snapshot_types": list(snapshot_types),
             }
+        # Ordinary CURRENT publication consumes Foundation sources, so the sync
+        # runs first and its receipt travels with the result. A failed sync does
+        # NOT abort publication: the producer's own input-value checks already
+        # preserve unchanged forecasts, and refusing to publish because a
+        # refresh failed would turn a stale-input problem into a no-forecast
+        # problem. It is recorded loudly instead.
+        foundation: dict[str, Any] | None = None
+        if "CURRENT" in snapshot_types:
+            foundation = await self._run_nfl_foundation_sync()
+
         producer = await _invoke_nfl_shadow_producer(self.settings, snapshot_types)
         if producer["status"] == "NO_ELIGIBLE_UPCOMING_GAMES":
             return {
@@ -696,6 +818,7 @@ class JobOrchestrator:
                 "snapshot_types": list(snapshot_types),
                 "games": 0,
                 "imported": False,
+                "foundation_sync": foundation,
             }
 
         # Navigation metadata is not scientific authority. Re-read and validate
@@ -2250,9 +2373,39 @@ class JobOrchestrator:
 #: producer needs lives under these two paths -- ``server/sports_nfl_m1``
 #: imports only the standard library and third-party packages -- so a change
 #: anywhere else in the shared monorepo cannot alter its output.
+#: Bumped whenever the scope below changes, and recorded on every producer
+#: receipt. A widening or narrowing of what "producer code identity is frozen"
+#: covers is a change to the integrity claim itself, so it is versioned rather
+#: than edited silently -- a receipt naming V1 and one naming V2 assert
+#: different things, and a reader has to be able to tell which.
+NFL_PRODUCER_CODE_SCOPE_VERSION = "AISP_NFL_PRODUCER_CODE_SCOPE_V2"
+
+#: V2 adds the current-season publication lane. V1 covered only the prospective
+#: shadow CLI and the estimator package, which was correct for what ran then;
+#: the rolling publisher and the Foundation source sync have since become part
+#: of what produces an imported forecast, and their code was unguarded.
+#:
+#: These are the paths the producer actually imports, traced from the entry
+#: points rather than guessed:
+#:
+#:   run_nfl_2026_prospective_shadow.py -> server/sports_nfl_m1
+#:   publish_nfl_rolling_shadow.py      -> server/sports_nfl_m1
+#:   sync_nfl_current_season.py         -> server/sports_nfl,
+#:                                         server/sports_cockpit/interprocess_lock
+#:
+#: Still deliberately NOT the whole repository. Model Studio is a shared
+#: monorepo whose MLB work continuously rewrites tracked output artifacts, and
+#: scoping to the repo is what silently stopped NFL forecasting from
+#: 2026-09-11: every run failed on "producer code identity is not frozen" while
+#: every NFL producer file was untouched. A data artifact belonging to another
+#: sport cannot change what the NFL estimator computes.
 NFL_PRODUCER_CODE_PATHS: tuple[str, ...] = (
     "scripts/run_nfl_2026_prospective_shadow.py",
+    "scripts/publish_nfl_rolling_shadow.py",
+    "scripts/sync_nfl_current_season.py",
     "server/sports_nfl_m1",
+    "server/sports_nfl",
+    "server/sports_cockpit/interprocess_lock.py",
 )
 
 
@@ -2286,6 +2439,80 @@ async def _git_porcelain(root: Path, paths: tuple[str, ...]) -> list[str]:
         for line in stdout.decode("utf-8", errors="replace").splitlines()
         if line.strip()
     ]
+
+
+#: The repaired Foundation sync, exactly as the producer documented it. Frozen
+#: as an argument vector rather than a shell string: there is no shell here, so
+#: nothing in a settings value can become a command.
+NFL_FOUNDATION_SYNC_ARGS: tuple[str, ...] = (
+    "-B", "-m", "scripts.sync_nfl_current_season", "--through", "latest-completed",
+)
+NFL_FOUNDATION_SYNC_VERSION = "AISP_NFL_FOUNDATION_SYNC_V1"
+#: Generous, because the sync downloads season assets. Bounded, because a hung
+#: child must not hold the orchestrator open indefinitely.
+NFL_FOUNDATION_SYNC_TIMEOUT_SECONDS = 900
+
+
+def _nfl_foundation_freshness(stdout: str) -> dict[str, Any]:
+    """Source freshness, taken from the sync's OWN report.
+
+    The sync prints an ``ASP_NFL_CURRENT_SEASON_SYNC_REPORT_V1`` JSON document
+    naming the dataset version it advanced to, which source families changed,
+    and whether the warehouse actually moved. That is far better evidence than
+    a filesystem mtime: it is the producer's own declaration about what it did,
+    and it distinguishes the two outcomes a caller most needs told apart --
+    "exit 0, nothing had changed" and "exit 0, new assets landed".
+
+    An earlier draft walked a guessed directory tree instead and reported
+    nothing, because the staging root lives outside the Studio checkout
+    entirely. Guessing a path to describe someone else's work was the wrong
+    shape; reading what they published is the right one.
+    """
+
+    opening = stdout.find("{")
+    if opening < 0:
+        return {
+            "basis": "NO_SYNC_REPORT_ON_STDOUT",
+            "detail": "The sync produced no JSON report, so freshness is unknown.",
+        }
+    try:
+        report = json.loads(stdout[opening:])
+    except ValueError:
+        return {
+            "basis": "SYNC_REPORT_UNPARSEABLE",
+            "detail": "The sync printed something that is not its declared report.",
+        }
+    if not isinstance(report, dict):
+        return {"basis": "SYNC_REPORT_UNPARSEABLE", "detail": "Report is not an object."}
+
+    authority = report.get("resultAuthority") or {}
+    probe = report.get("sourceProbe") or {}
+    changed = report.get("changedFamilies") or []
+    return {
+        "basis": "SYNC_SELF_REPORT",
+        "contract": report.get("contract"),
+        "report_status": report.get("status"),
+        "attempted_at_utc": report.get("attemptedAtUtc"),
+        "current_season": report.get("currentSeason"),
+        "requested_through": report.get("requestedThrough"),
+        # The two facts a reader actually needs, kept apart on purpose.
+        "source_changed": report.get("sourceChanged"),
+        "warehouse_advanced": report.get("warehouseAdvanced"),
+        "changed_families": list(changed),
+        "changed_family_count": len(changed),
+        "dataset_version_id": authority.get("datasetVersionId"),
+        "foundation_manifest_sha256": authority.get("foundationManifestSha256"),
+        "source_snapshot_identity": authority.get("sourceSnapshotIdentity"),
+        "current_season_completed_games": authority.get("currentSeasonCompletedGames"),
+        "current_season_scheduled_games": authority.get("currentSeasonScheduledGames"),
+        "asset_count": probe.get("assetCount"),
+        "family_count": probe.get("familyCount"),
+        "historical_authority_preserved": report.get("historicalAuthorityPreserved"),
+        # Recorded because the sync is allowed to fit nothing, and a reader
+        # should be able to confirm that it did not.
+        "models_fitted": report.get("modelsFitted"),
+        "models_promoted": report.get("modelsPromoted"),
+    }
 
 
 async def _invoke_nfl_shadow_producer(
@@ -2464,6 +2691,7 @@ async def _invoke_nfl_shadow_producer(
     # Recorded so a reader of the receipt can see the Studio worktree was not
     # pristine, and that the producer's own code nevertheless was.
     payload["producerCodePathsVerified"] = list(NFL_PRODUCER_CODE_PATHS)
+    payload["producerCodeScopeVersion"] = NFL_PRODUCER_CODE_SCOPE_VERSION
     payload["studioUnrelatedDirtyPathCount"] = len(dirty_repository)
     return payload
 
