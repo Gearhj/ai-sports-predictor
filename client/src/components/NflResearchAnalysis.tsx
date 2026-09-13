@@ -16,6 +16,7 @@ import { ArrowRight, FlaskConical } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MetricCard, Panel } from './ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { DataProvenance, ForecastGame, ShadowBoardData, ShadowEngineView } from '../types/domain'
@@ -36,7 +37,10 @@ export function NflResearchAnalysis({ game, slateDate }: {
     (signal: AbortSignal) => endpoints.shadowBoard(slateDate, signal, 'NFL'),
     [slateDate],
   )
-  const { data, loading } = useApiResource(loader as (signal: AbortSignal) => Promise<ShadowBoardData & DataProvenance>, {})
+  const { data, loading } = useApiResource(
+    loader as (signal: AbortSignal) => Promise<ShadowBoardData & DataProvenance>,
+    { key: cacheKey('shadow/board', { league: 'NFL', slateDate }), staleTimeMs: STALE_TIME.game },
+  )
   const event = data?.games?.find((item) => item.canonical_game_id === game.id)
   const engine: ShadowEngineView | undefined = event?.engines?.[0]
 

@@ -3,9 +3,10 @@ import { CalendarDays, ChevronLeft, ChevronRight, Filter, RefreshCw } from 'luci
 import { Link } from 'react-router-dom'
 import { OpportunityCard } from '../components/OpportunityCard'
 import { QualificationFunnel } from '../components/QualificationFunnel'
-import { DataModeBanner, DataStatePanel, formatCurrency, PageHeader } from '../components/ui'
+import { DataModeBanner, DataStatePanel, Freshness, formatCurrency, PageHeader, SkeletonCards, SkeletonTable } from '../components/ui'
 import { demoDashboard } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatDate, formatTimestamp, timeSortValue } from '../services/format'
 import type {
@@ -58,7 +59,9 @@ function selectionForMarket(opportunity: GameOpportunity | undefined, market: st
 const num = (value: number | null | undefined) => (value == null ? -1e15 : value)
 
 export function TodayPage({ demo = false }: { demo?: boolean }) {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.dashboard, demo ? { demoData: demoDashboard } : {})
+  const { data, state, loading, error, refresh, refreshing, updatedAt, stale } = useApiResource(endpoints.dashboard, demo
+    ? { demoData: demoDashboard }
+    : { key: 'dashboard/today', staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
   const [sort, setSort] = useState<SortKey>('opportunity')
   const [tab, setTab] = useState<string>('all')
 
@@ -81,14 +84,27 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
       <div className="page today-page">
         <PageHeader eyebrow="DAILY OPPORTUNITY BOARD" title="Today’s MLB Forecasts" description="Governed model-vs-market opportunities for research and simulation." />
         <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
-        <DataStatePanel
-          state={state}
-          emptyTitle="No current MLB slate is available"
-          emptyDetail="The API is connected, but no current games or published forecasts are available. Historical research remains a separate evidence stream."
-          unavailableTitle="Current forecasts are unavailable"
-          unavailableDetail="The live API could not be reached. No historical row or illustrative result has been substituted."
-          action={<Link className="secondary-button" to="/research/history">View governed 2025 history</Link>}
-        />
+        {loading && (
+          /* The board's own shape, held open while the slate is read. It is
+             deliberately blank rather than zeroed: an empty cell cannot be
+             mistaken for a real edge of 0.00%. */
+          <>
+            <SkeletonCards count={4} />
+            <SkeletonTable rows={8} columns={6} ariaLabel="Loading today’s forecasts" />
+          </>
+        )}
+        {/* The skeleton above already says "reading"; the panel speaks only
+            when the answer is a genuine empty slate or a failure. */}
+        {!loading && (
+          <DataStatePanel
+            state={state}
+            emptyTitle="No current MLB slate is available"
+            emptyDetail="The API is connected, but no current games or published forecasts are available. Historical research remains a separate evidence stream."
+            unavailableTitle="Current forecasts are unavailable"
+            unavailableDetail="The live API could not be reached. No historical row or illustrative result has been substituted."
+            action={<Link className="secondary-button" to="/research/history">View governed 2025 history</Link>}
+          />
+        )}
       </div>
     )
   }
@@ -150,6 +166,16 @@ export function TodayPage({ demo = false }: { demo?: boolean }) {
         description={formatDate(data.date)}
         actions={(
           <div className="today-header-actions">
+            {!demo && (
+              <Freshness
+                label="Slate"
+                updatedAt={updatedAt}
+                refreshing={refreshing}
+                stale={stale}
+                error={error}
+                onRetry={refresh}
+              />
+            )}
             <span className="model-chip">MODEL STATUS - {data.model_status}</span>
             <div className="date-control" aria-label="Date navigation">
               <button type="button" aria-label="Previous date" disabled><ChevronLeft size={16} /></button>

@@ -16,6 +16,7 @@
 import { ArrowRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { PrefetchLink } from './PrefetchLink'
 import {
   canShowForecasts,
   marketLabel,
@@ -151,9 +152,9 @@ export function SportEventCard({
       <footer className="sport-event-card__foot">
         {footer}
         {event.detailHref && forecastsAllowed && (
-          <Link className="sport-event-card__link" to={event.detailHref}>
+          <PrefetchLink className="sport-event-card__link" to={event.detailHref}>
             Full analysis <ArrowRight size={13} aria-hidden="true" />
-          </Link>
+          </PrefetchLink>
         )}
       </footer>
 

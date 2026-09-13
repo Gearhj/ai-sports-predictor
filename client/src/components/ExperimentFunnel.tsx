@@ -14,6 +14,7 @@
  */
 import { useCallback } from 'react'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import type { ExperimentFunnelData } from '../types/domain'
 
@@ -29,6 +30,7 @@ function Bar({ count, of }: { count: number; of: number }) {
 export function ExperimentFunnel() {
   const resource = useApiResource<ExperimentFunnelData>(
     useCallback((signal: AbortSignal) => endpoints.experimentFunnel(signal), []),
+    { key: 'experiment/funnel', staleTimeMs: STALE_TIME.operational },
   )
   const data = resource.data
   if (!data || !data.available) return null

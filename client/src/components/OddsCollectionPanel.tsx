@@ -16,6 +16,7 @@ import { AlertTriangle, Coins, Gauge, ShieldCheck } from 'lucide-react'
 import { useCallback } from 'react'
 import { Panel, MetricCard, TableScroll } from './ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import { QuoteCoveragePanel } from './QuoteCoveragePanel'
@@ -33,15 +34,23 @@ export function OddsCollectionPanel() {
     (signal: AbortSignal) => endpoints.oddsCollectionStatus(signal),
     [],
   )
-  const { data, state, error } = useApiResource<OddsCollectionStatus>(loader)
+  const { data, state, error } = useApiResource<OddsCollectionStatus>(loader, {
+    key: 'odds/collection-status', staleTimeMs: STALE_TIME.operational,
+  })
 
-  if (!data) {
+  // A response without a budget is not a zero budget. Rendering the panel from
+  // a payload that lacks it would either invent figures or, as it did, throw
+  // and take the whole admin page down with it.
+  const complete = Boolean(data?.budget && data.projection)
+  if (!complete) {
     return (
       <Panel title="Odds credit budget" eyebrow="PROVIDER OPERATIONS" className="section-panel">
         <p className="muted">
           {state === 'unavailable'
             ? error ?? 'The operator status endpoint could not be reached.'
-            : 'Reading the provider request ledger…'}
+            : data
+              ? 'The operator status endpoint returned no request ledger. No credit figure is shown in its place.'
+              : 'Reading the provider request ledger…'}
         </p>
       </Panel>
     )

@@ -30,13 +30,16 @@
  */
 import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { PrefetchLink } from '../components/PrefetchLink'
 import {
   AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Clock, Timer,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { TeamLogo } from '../components/TeamLogo'
+import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
 import { apiRequest, endpoints } from '../services/api'
 import {
   LeagueTag, Panel, agoOf, american, clockOf, dayOf, pctPoints, signedPoints, useBroadcastTheme,
@@ -141,7 +144,11 @@ export function MultiSportTodayPage() {
     return { data_mode: 'live', today, funnel, warnings }
   }, [])
 
-  const resource = useApiResource(loader)
+  const resource = useApiResource(loader, {
+    key: 'today/all-sports',
+    staleTimeMs: STALE_TIME.slate,
+    refreshIntervalMs: STALE_TIME.slate,
+  })
   const model = resource.data?.today ?? null
   const funnel = resource.data?.funnel ?? null
 
@@ -254,11 +261,26 @@ export function MultiSportTodayPage() {
               Forecasts {agoOf(model?.data_freshness?.latest_forecast_at ?? null, now) ?? 'not recorded'}
             </span>
             <span className="bx-chip bx-chip--warn">Research &amp; simulation only</span>
+            {/* When the browser last re-read stored decisions. The forecast and
+                quote clocks above are evidence times and are unaffected by it. */}
+            <Freshness
+              label="Decisions"
+              updatedAt={resource.updatedAt}
+              refreshing={resource.refreshing}
+              stale={resource.stale}
+              error={model ? resource.error : null}
+              onRetry={resource.refresh}
+            />
           </div>
         </header>
 
-        {resource.loading && !model && <p className="bx-empty" role="status">Loading today's decisions…</p>}
-        {resource.error && (
+        {resource.loading && !model && (
+          <>
+            <SkeletonCards count={4} />
+            <SkeletonTable rows={7} columns={6} ariaLabel="Loading today’s decisions" />
+          </>
+        )}
+        {resource.error && !model && (
           <p className="bx-empty" role="alert">
             {resource.error}. No decision, count or price is substituted when the read fails.
           </p>
@@ -507,9 +529,9 @@ function OpportunityRow({
                 : 'Below threshold'}
         </span>
         {selection.detail_href && (
-          <Link className="bx-btn" to={withSport(selection.detail_href, selection.league_code as 'MLB' | 'NFL')}>
+          <PrefetchLink className="bx-btn" to={withSport(selection.detail_href, selection.league_code as 'MLB' | 'NFL')}>
             Open <ArrowRight size={13} />
-          </Link>
+          </PrefetchLink>
         )}
       </div>
       {(selection.outstanding_gates ?? []).length > 0 && (
@@ -555,6 +577,7 @@ function MatchupCrests({ league, label }: { league: 'MLB' | 'NFL' | string; labe
 function PriceCoverage() {
   const resource = useApiResource<CoverageFunnelData>(
     useCallback((signal: AbortSignal) => endpoints.priceCoverageFunnel(signal), []),
+    { key: 'coverage/price-funnel', staleTimeMs: STALE_TIME.slate },
   )
   if (!resource.data) {
     return (
@@ -575,6 +598,7 @@ function PriceCoverage() {
 function ModelEra() {
   const resource = useApiResource<ModelEraData>(
     useCallback((signal: AbortSignal) => endpoints.modelEra(signal), []),
+    { key: 'research/model-era', staleTimeMs: STALE_TIME.reference },
   )
   if (!resource.data) {
     return (

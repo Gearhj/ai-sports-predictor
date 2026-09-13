@@ -19,6 +19,7 @@ import { ScenarioPopulationCompare } from '../components/nfl/ScenarioPopulationC
 import { stateLabel } from '../components/nfl/NflEventCard'
 import { DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { useNflPlayTheater } from '../hooks/useNflPlayTheater'
 import { useNflPlayPopulation } from '../hooks/useNflPlayPopulation'
 import { endpoints } from '../services/api'
@@ -59,6 +60,7 @@ export function NflLabPage() {
   const populationResource = useNflPlayPopulation(gameId, scenarioId)
   const resource = useApiResource<NflGameDetail>(
     useCallback((signal: AbortSignal) => endpoints.nflGame(gameId, signal), [gameId]),
+    { key: cacheKey('nfl/game', { gameId }), staleTimeMs: STALE_TIME.game },
   )
   const data = resource.data
   const choices = useMemo<EngineChoice[]>(() => {

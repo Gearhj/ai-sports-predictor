@@ -294,7 +294,11 @@ class PriceCoverageFunnel:
             return GameOutcome(
                 **base, reached=STAGE_COMPLETE_QUOTE, blocked_at=STAGE_FRESH_THROUGH_CUTOFF,
                 reason=REASON_EXPIRES_BEFORE_CUTOFF,
-                detail={"best_quote_age_minutes_at_cutoff": entry.age_at_cutoff},
+                # age_at_cutoff is a method. Passing it uncalled put a bound
+                # method in the response body, and the whole funnel failed to
+                # serialize -- a 500 for every reader whenever any game on the
+                # slate reached this branch.
+                detail={"best_quote_age_minutes_at_cutoff": entry.age_at_cutoff()},
             )
 
         # Gate 5: the active policy's own minimum.

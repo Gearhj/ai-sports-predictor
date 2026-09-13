@@ -4,6 +4,7 @@ import { ModelPerformance } from '../components/nfl/ModelPerformance'
 import { NflProspectiveSection } from '../components/nfl/NflProspectiveResults'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { apiRequest, endpoints } from '../services/api'
 import type { NflResearchResults } from '../types/nfl'
 import type { NflProspectiveResults } from '../types/nflProspective'
@@ -24,6 +25,7 @@ function NflProspective() {
   const resource = useApiResource<NflProspectiveResults>(
     useCallback((signal: AbortSignal) =>
       apiRequest<NflProspectiveResults>('/research/nfl-prospective', {}, signal), []),
+    { key: 'research/nfl-prospective', staleTimeMs: STALE_TIME.history },
   )
   if (!resource.data) {
     return (
@@ -40,6 +42,7 @@ function NflProspective() {
 function NflEvidence({ historical }: { historical: boolean }) {
   const resource = useApiResource<NflResearchResults & { data_mode?: 'live' }>(
     useCallback((signal: AbortSignal) => endpoints.nflResearch(signal), []),
+    { key: 'research/nfl-evidence', staleTimeMs: STALE_TIME.history },
   )
   return (
     <section className="sport-research-section" aria-label="NFL research evidence">

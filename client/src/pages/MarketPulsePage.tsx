@@ -9,6 +9,7 @@ import { formatDate } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
 import { demoMarketPulse } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import type { GameEvidenceState, MarketPulseBoard, MarketPulseRow, ObserverJobStatus } from '../types/domain'
 
@@ -283,7 +284,13 @@ export function MarketPulsePage({ demo = false }: { demo?: boolean }) {
     () => (signal?: AbortSignal) => endpoints.marketPulse(slateDate, signal, sport),
     [slateDate, sport],
   )
-  const { data, state, loading, error, refresh } = useApiResource(loader, demo ? { demoData: demoMarketPulse } : {})
+  const { data, state, loading, error, refresh } = useApiResource(loader, demo
+    ? { demoData: demoMarketPulse }
+    : {
+      key: cacheKey('markets/pulse', { slateDate, sport }),
+      staleTimeMs: STALE_TIME.slate,
+      refreshIntervalMs: STALE_TIME.slate,
+    })
 
   const header = (
     <PageHeader

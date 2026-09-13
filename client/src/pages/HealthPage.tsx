@@ -5,6 +5,7 @@ import { LiveShadowStatusCard } from '../components/LiveShadowStatusCard'
 import { OddsCollectionPanel } from '../components/OddsCollectionPanel'
 import { demoHealth } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME } from '../services/queryCache'
 import { useAuth } from '../hooks/useAuth'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
@@ -25,7 +26,9 @@ const adminJobs = [
 ] as const
 
 export function HealthPage({ demo = false }: { demo?: boolean }) {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.health, demo ? { demoData: demoHealth } : {})
+  const { data, state, loading, error, refresh } = useApiResource(endpoints.health, demo
+    ? { demoData: demoHealth }
+    : { key: 'health', staleTimeMs: STALE_TIME.operational, refreshIntervalMs: STALE_TIME.operational })
   const { user } = useAuth()
   const [runningJob, setRunningJob] = useState<string | null>(null)
   const [jobMessage, setJobMessage] = useState<string | null>(null)

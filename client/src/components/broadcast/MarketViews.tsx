@@ -8,6 +8,7 @@
  */
 import { useCallback } from 'react'
 import { useApiResource } from '../../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../../services/queryCache'
 import { apiRequest } from '../../services/api'
 import { MarketReplay } from './MarketReplay'
 import { RffComponents, RffHeadline, RffShareCard, bandTone } from './RffLab'
@@ -46,7 +47,9 @@ export function ReplayView({
     },
     [gameId, family],
   )
-  const resource = useApiResource<MarketTape>(loader)
+  const resource = useApiResource<MarketTape>(loader, {
+    key: cacheKey('markets/tape', { gameId, family }), staleTimeMs: STALE_TIME.game,
+  })
   // A tape for the previous selection is not this selection's tape; showing it
   // would put one game's movement under another game's name.
   const tape = resource.data && resource.data.game_id === gameId ? resource.data : null
@@ -96,7 +99,9 @@ export function RffView({
   const loader = useCallback((signal: AbortSignal) => apiRequest<RffBoard>(
     `/markets/rff?date=${day}${league ? `&league=${league}` : ''}&market=${family}`, {}, signal,
   ), [day, league, family])
-  const resource = useApiResource<RffBoard>(loader)
+  const resource = useApiResource<RffBoard>(loader, {
+    key: cacheKey('markets/rff', { day, league, family }), staleTimeMs: STALE_TIME.slate,
+  })
   const board = resource.data
   const games = board?.games ?? []
   const active = games.find((game) => game.game_id === selected) ?? games[0] ?? null
@@ -176,7 +181,9 @@ function InformationEventPanel({ gameId, family }: { gameId: string; family: Fam
   const loader = useCallback((signal: AbortSignal) => apiRequest<InformationEventsForGame>(
     `/information-events/${gameId}?market=${family}`, {}, signal,
   ), [gameId, family])
-  const resource = useApiResource<InformationEventsForGame>(loader)
+  const resource = useApiResource<InformationEventsForGame>(loader, {
+    key: cacheKey('information-events', { gameId, family }), staleTimeMs: STALE_TIME.game,
+  })
   const data = resource.data?.game_id === gameId ? resource.data : null
 
   return (

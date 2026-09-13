@@ -25,8 +25,10 @@
  */
 import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
 import { AlertTriangle, ArrowRight, Beaker, CalendarClock, Flame, LineChart, Radio } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { apiRequest, endpoints } from '../services/api'
 import {
@@ -94,7 +96,11 @@ export function HomePage() {
     return { data_mode: 'live', today, mlb, nfl, bankroll, rff, warnings }
   }, [sport])
 
-  const resource = useApiResource(loader)
+  const resource = useApiResource(loader, {
+    key: cacheKey('home', { sport }),
+    staleTimeMs: STALE_TIME.slate,
+    refreshIntervalMs: STALE_TIME.slate,
+  })
   const board = resource.data
 
   const games = useMemo(() => {
@@ -142,11 +148,18 @@ export function HomePage() {
               {board?.today?.operational_date ? dayOf(`${board.today.operational_date}T12:00:00Z`) : 'Loading slate'}</span>
             <span className="bx-chip">{upcoming.length} upcoming</span>
             <span className="bx-chip">{activeSports.length || '—'} active {activeSports.length === 1 ? 'sport' : 'sports'}</span>
+            <Freshness label="Slate" updatedAt={resource.updatedAt} refreshing={resource.refreshing}
+              stale={resource.stale} error={board ? resource.error : null} onRetry={resource.refresh} />
           </div>
         </header>
 
-        {resource.loading && !board && <p className="bx-empty" role="status">Loading tonight's slate…</p>}
-        {resource.error && <p className="bx-empty" role="alert">{resource.error}</p>}
+        {resource.loading && !board && (
+          <>
+            <SkeletonCards count={3} />
+            <SkeletonTable rows={6} columns={5} ariaLabel="Loading tonight’s slate" />
+          </>
+        )}
+        {resource.error && !board && <p className="bx-empty" role="alert">{resource.error}</p>}
 
         {featured.length > 0 && (
           <div className="bx-home__features">

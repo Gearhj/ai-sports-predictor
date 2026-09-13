@@ -1,5 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { configure } from '@testing-library/react'
+import { beforeEach } from 'vitest'
+import { clearCache, setCacheScope } from '../services/queryCache'
 
 // Route components are intentionally code-split. Under a fully parallel test
 // run, Vite may need more than Testing Library's one-second default to
@@ -37,4 +39,13 @@ Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
   value: () => ({
     measureText: (text: string) => ({ width: text.length * 7 }),
   }) as unknown as CanvasRenderingContext2D,
+})
+
+// The query cache is module-global by design: that is what lets a page render
+// from cache after navigation. Tests need the opposite — each one starts from
+// an empty cache, exactly as a fresh page load would, so a response mocked in
+// one test cannot be served to the next.
+beforeEach(() => {
+  setCacheScope('anon')
+  clearCache()
 })

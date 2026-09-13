@@ -399,7 +399,42 @@ class GameStateService:
         # Resolve the latest eligible observation per player across all teams.
         # Filtering to the requested team only after that resolution prevents a
         # player's old-club row from surviving a later point-in-time trade.
-        rows = list(self.session.scalars(
+        #
+        # That resolution does not depend on the team, so it is identical for
+        # every call sharing a cutoff and source mode -- and a dashboard makes
+        # one per club per game. Resolving it once per request turned ~14k ORM
+        # rows hydrated six times into one pass; see _resolved_roster.
+        current = self._resolved_roster(cutoff, source_mode)
+        return tuple(
+            row for row in current
+            if row.team_id == team_id and row.active_roster is not False
+        )
+
+    def _resolved_roster(
+        self, cutoff: datetime, source_mode: str,
+    ) -> tuple[RosterAvailabilityObservation, ...]:
+        """Latest eligible observation per player, memoised for this session.
+
+        The cache lives on ``Session.info``, which is created and discarded with
+        the request, so a later request cannot read an earlier one's resolution
+        and no observation written in between is missed.
+        """
+
+        cache: dict[Any, tuple[RosterAvailabilityObservation, ...]] = (
+            self.session.info.setdefault("_roster_resolution", {})
+        )
+        key = (cutoff, source_mode)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+
+        ordering = (
+            RosterAvailabilityObservation.available_as_of.desc(),
+            RosterAvailabilityObservation.effective_at.desc(),
+            RosterAvailabilityObservation.created_at.desc(),
+            RosterAvailabilityObservation.id.desc(),
+        )
+        statement = (
             select(RosterAvailabilityObservation)
             .where(
                 RosterAvailabilityObservation.available_as_of <= cutoff,
@@ -407,18 +442,20 @@ class GameStateService:
                 RosterAvailabilityObservation.effective_at <= cutoff,
                 RosterAvailabilityObservation.source_mode == source_mode,
             )
-            .order_by(
-                RosterAvailabilityObservation.available_as_of.desc(),
-                RosterAvailabilityObservation.effective_at.desc(),
-                RosterAvailabilityObservation.created_at.desc(),
-                RosterAvailabilityObservation.id.desc(),
-            )
-        ))
-        current = _dedupe(rows, lambda row: row.player_id)
-        return tuple(
-            row for row in current
-            if row.team_id == team_id and row.active_roster is not False
         )
+        if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
+            # Same ordering, same winner per player -- but the database discards
+            # the 93% of rows the Python dedupe was throwing away after loading
+            # them. The fallback below keeps SQLite (tests) working unchanged.
+            statement = statement.distinct(
+                RosterAvailabilityObservation.player_id
+            ).order_by(RosterAvailabilityObservation.player_id, *ordering)
+            resolved = tuple(self.session.scalars(statement))
+        else:
+            rows = list(self.session.scalars(statement.order_by(*ordering)))
+            resolved = _dedupe(rows, lambda row: row.player_id)
+        cache[key] = resolved
+        return resolved
 
     def _latest_market_observations(
         self,

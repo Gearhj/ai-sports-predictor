@@ -2,12 +2,13 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { AlertTriangle, Archive, CheckCircle2, ChevronLeft, ChevronRight, CircleSlash2, Database, Filter, ShieldCheck } from 'lucide-react'
 import { DataStatePanel, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { HistoricalGameExplorerRow, HistoricalPopulationSummary, HistoricalResearchData, ResourceState } from '../types/domain'
 
 export function HistoricalResearchPage() {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.history)
+  const { data, state, loading, error, refresh } = useApiResource(endpoints.history, { key: 'research/history', staleTimeMs: STALE_TIME.history })
 
   if (!data || state === 'empty' || state === 'unavailable' || state === 'loading') {
     return (
@@ -201,7 +202,10 @@ function HistoricalGameExplorer({ sourceKeys }: { sourceKeys: string[] }) {
     }, signal),
     [filters],
   )
-  const { data, state, loading, error, refresh } = useApiResource(loader)
+  const { data, state, loading, error, refresh } = useApiResource(loader, {
+    key: cacheKey('research/history/games', filters as unknown as Record<string, unknown>),
+    staleTimeMs: STALE_TIME.history,
+  })
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Radio } from 'lucide-react'
 import { Panel } from './ui'
 import { endpoints } from '../services/api'
+import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import type { MarketPulseGameDetail } from '../types/domain'
 
 /**
@@ -26,25 +28,18 @@ function pct(value: number | null | undefined): string {
  * observed sportsbook / prediction-market beliefs beside the AISP forecast.
  */
 export function MarketPulsePanel({ gameId, demo = false }: { gameId: string; demo?: boolean }) {
-  const [data, setData] = useState<MarketPulseGameDetail | null>(null)
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    const controller = new AbortController()
-    endpoints
-      .marketPulseGame(gameId, controller.signal)
-      .then((d) => active && setData(d))
-      .catch(() => active && setData(null))
-      .finally(() => active && setLoaded(true))
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [gameId])
+  // Shared-cache read: one request per game across every panel that wants it,
+  // and no refetch when the reader comes back to a game they just left.
+  const resource = useApiResource<MarketPulseGameDetail>(
+    useCallback((signal: AbortSignal) => endpoints.marketPulseGame(gameId, signal), [gameId]),
+    { key: cacheKey('game/market-pulse', { gameId }), staleTimeMs: STALE_TIME.game },
+  )
+  const data = resource.data
 
   const row = data?.row ?? null
-  if (!loaded) return null
+  // Nothing is claimed about this game until the first read has settled, one
+  // way or the other.
+  if (resource.loading) return null
   if (!row || row.providers.length === 0) {
     // Honest: no comparable governed prediction-market contract for this game.
     return null

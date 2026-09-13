@@ -4,11 +4,14 @@ import { coversDiagonal, ReliabilityDiagram, wilsonInterval } from '../charts/Re
 import { DataModeBanner, DataStatePanel, formatPct, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoPerformance } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import type { HistoricalDatasetPerformanceSummary, OfflineEvaluation, OfflineEvaluationMetrics, OfflineEvaluationWindow } from '../types/domain'
 
 export function PerformancePage({ demo = false }: { demo?: boolean }) {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.performance, demo ? { demoData: demoPerformance } : {})
+  const { data, state, loading, error, refresh } = useApiResource(endpoints.performance, demo
+    ? { demoData: demoPerformance }
+    : { key: 'performance', staleTimeMs: STALE_TIME.operational })
   const hasOfflineEvaluation = Boolean(data?.offline_evaluation)
   const hasHistoricalDataset = Boolean(data?.historical_dataset)
 

@@ -4,13 +4,16 @@ import { Link } from 'react-router-dom'
 import { DataModeBanner, DataStatePanel, formatMoneyline, MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { demoMarketBoard } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatDate, formatTime, formatTimestamp, recencySortValue } from '../services/format'
 import { MarketFeedNotice } from '../components/MarketFeedNotice'
 import type { MarketType } from '../types/domain'
 
 export function MarketBoardPage({ demo = false }: { demo?: boolean }) {
-  const { data, state, loading, error, refresh } = useApiResource(endpoints.markets, demo ? { demoData: demoMarketBoard } : {})
+  const { data, state, loading, error, refresh } = useApiResource(endpoints.markets, demo
+    ? { demoData: demoMarketBoard }
+    : { key: 'markets/board', staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
   const [market, setMarket] = useState<'All' | MarketType>('All')
   const [query, setQuery] = useState('')
   const [minimumEdge, setMinimumEdge] = useState<number | null>(null)

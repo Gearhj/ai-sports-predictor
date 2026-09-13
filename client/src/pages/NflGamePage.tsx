@@ -11,6 +11,7 @@ import { ResearchResultsPanel } from '../components/nfl/ResearchResultsPanel'
 import { stateLabel } from '../components/nfl/NflEventCard'
 import { DataStatePanel, MetricCard, PageHeader, Panel } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { NflGameDetail } from '../types/nfl'
@@ -20,6 +21,7 @@ export function NflGamePage() {
   const { gameId = '' } = useParams()
   const resource = useApiResource<NflGameDetail>(
     useCallback((signal: AbortSignal) => endpoints.nflGame(gameId, signal), [gameId]),
+    { key: cacheKey('nfl/game', { gameId }), staleTimeMs: STALE_TIME.game },
   )
   const data = resource.data
   const [engineIndex, setEngineIndex] = useState(0)

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { clearToken, endpoints, getStoredToken, storeToken } from '../services/api'
+import { setCacheScope } from '../services/queryCache'
 import type { AuthUser } from '../types/domain'
 
 interface AuthContextValue {
@@ -55,6 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearToken()
     setUser(null)
   }, [])
+
+  // Cached responses belong to whoever was signed in when they were fetched.
+  // Changing identity — signing in, switching account, signing out — empties
+  // the shared cache so nothing from the previous scope can be rendered.
+  useEffect(() => {
+    setCacheScope(user ? `user:${user.id}` : 'anon')
+  }, [user])
 
   const value = useMemo(() => ({ user, loading, login, register, logout }), [user, loading, login, register, logout])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

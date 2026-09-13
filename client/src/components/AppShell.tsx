@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useSportRegistry } from '../hooks/useSportRegistry'
+import { PrefetchNavLink } from './PrefetchLink'
 import { useSportSelection, type SelectedSport } from '../hooks/useSportSelection'
 import { resolveAllSports } from '../services/sportExperience'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
@@ -43,7 +44,10 @@ export function AppShell() {
         <nav className="side-nav" aria-label="Primary navigation">
           <span className="side-nav__label">Your sports workspace</span>
           {primaryNav.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={withSport(to)} end={end} className={({ isActive }) => `side-nav__item ${isActive ? 'side-nav__item--active' : ''}`}><Icon size={17} /><span>{label}</span></NavLink>
+            /* Hovering or tabbing to a nav item starts its route chunk, and its
+               first read where one is worth warming. Following the link then
+               lands on content instead of on a spinner. */
+            <PrefetchNavLink key={to} to={withSport(to)} end={end} className={({ isActive }) => `side-nav__item ${isActive ? 'side-nav__item--active' : ''}`}><Icon size={17} /><span>{label}</span></PrefetchNavLink>
           ))}
           <span className="side-nav__label side-nav__label--spaced">Platform</span>
           {(demoMode || user?.role === 'ADMIN') && <NavLink to="/admin" className="side-nav__item"><DatabaseZap size={17} />Data health</NavLink>}

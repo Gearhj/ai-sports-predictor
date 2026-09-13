@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 import { AlertTriangle, ArrowUpRight, ChevronRight, Clock3, MapPin, ScrollText } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
+import { PrefetchLink } from './PrefetchLink'
 import type { GameOpportunity, ForecastGame, OpportunitySelection, RecommendationState } from '../types/domain'
 import { formatTime, formatTimestamp } from '../services/format'
 import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamLogo } from './ui'
@@ -324,7 +325,7 @@ export function OpportunityCard({
       )}
 
       <footer className="opportunity-card__footer">
-        <Link to={analysisHref} className="forecast-card__cta">Open full analysis <ChevronRight size={15} /></Link>
+        <PrefetchLink to={analysisHref} className="forecast-card__cta">Open full analysis <ChevronRight size={15} /></PrefetchLink>
         <Link to={marketsHref} className="opportunity-card__compare">Compare all sportsbooks <ArrowUpRight size={13} /></Link>
         <span className="opportunity-card__research"><ScrollText size={12} /> Research · simulation only</span>
       </footer>

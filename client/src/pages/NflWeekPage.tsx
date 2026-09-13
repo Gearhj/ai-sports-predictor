@@ -11,6 +11,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { NflEventCard } from '../components/nfl/NflEventCard'
 import { DataStatePanel, PageHeader } from '../components/ui'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatDate, formatTimestamp } from '../services/format'
 import type { NflConsumerStatus, NflWeekOverview, NflWeeks } from '../types/nfl'
@@ -34,7 +35,10 @@ export function ConsumerStatusLine({ consumer }: { consumer: NflConsumerStatus }
 
 export function NflWeekPage({ embedded = false }: { embedded?: boolean }) {
   const [params, setParams] = useSearchParams()
-  const weeksResource = useApiResource<NflWeeks>(useCallback((signal: AbortSignal) => endpoints.nflWeeks(signal), []))
+  const weeksResource = useApiResource<NflWeeks>(
+    useCallback((signal: AbortSignal) => endpoints.nflWeeks(signal), []),
+    { key: 'nfl/weeks', staleTimeMs: STALE_TIME.reference },
+  )
   const weeks = weeksResource.data
   const requestedSeason = Number(params.get('season'))
   const requestedWeek = Number(params.get('week'))
@@ -49,7 +53,10 @@ export function NflWeekPage({ embedded = false }: { embedded?: boolean }) {
       : Promise.reject(new Error('No NFL week is available')),
     [selected],
   )
-  const overview = useApiResource<NflWeekOverview>(loader)
+  const overview = useApiResource<NflWeekOverview>(loader, {
+    key: cacheKey('nfl/market-week', { season: selected?.season, week: selected?.week }),
+    staleTimeMs: STALE_TIME.slate,
+  })
   const data = overview.data
 
   const index = weeks?.weeks.findIndex((w) => selected && w.season === selected.season && w.week === selected.week) ?? -1

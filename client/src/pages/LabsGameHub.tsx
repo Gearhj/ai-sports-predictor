@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { useApiResource } from '../hooks/useApiResource'
+import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { endpoints } from '../services/api'
 import { formatDate, formatTimestamp } from '../services/format'
@@ -88,7 +89,10 @@ export function LabsPage() {
     const nfl = selected && weeks ? await safe('NFL simulations', () => endpoints.nflWeek(selected.season, selected.week, signal)) : null
     return { data_mode: 'live', scope: sport, mlb: mlb?.schema_version === 'AISP_INTERACTIVE_LABS_V1' && mlb.league === 'MLB' ? mlb : null, weeks, nfl, warnings }
   }, [sport, requestedSeason, requestedWeek])
-  const resource = useApiResource(loader)
+  const resource = useApiResource(loader, {
+    key: cacheKey('labs/games', { sport, season: requestedSeason, week: requestedWeek }),
+    staleTimeMs: STALE_TIME.history,
+  })
   const data = resource.data?.scope === sport ? resource.data : null
   const dates = [...new Set(data?.mlb?.games.map((g) => g.slate_date).filter((d): d is string => Boolean(d)) ?? [])].sort().reverse()
   const v18Dates = (data?.mlb?.games ?? []).filter((g) => g.v18_available && g.slate_date).map((g) => g.slate_date!).sort().reverse()
