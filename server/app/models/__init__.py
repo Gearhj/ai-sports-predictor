@@ -53,4 +53,17 @@ from app.models.prediction_market import (
     PredictionMarketSemanticTemplate,
 )
 
+# NBA intake tables live in their own module and their own namespace. They are
+# imported here so the ORM registers them; nothing in the MLB/NFL path reads
+# them, and every row carries data_mode.
+from app.models.nba import (  # noqa: E402,F401
+    NbaGame,
+    NbaPlayer,
+    NbaPlayerGameStat,
+    NbaRosterMembership,
+    NbaSourcePayload,
+    NbaTeam,
+    NbaTeamGameStat,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]
