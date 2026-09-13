@@ -1,0 +1,20 @@
+{
+  "artifactType": "PROSPECTIVE",
+  "configuration": "V18_SURVIVAL_ONLY",
+  "consumerImportedAtUtc": "2026-09-13T15:29:14.944127+00:00",
+  "contractVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V1",
+  "handoffPath": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-ensemble-research-v1\\survival-starter-coverage-v1\\packages\\sha256\\eed95fe30e7c70cf0d88a8f4e8d4a82fc89e1f27e864b5bc088cef6dafb926ad\\V18_SURVIVAL_ONLY\\aisp-handoff.json",
+  "handoffSha256": "9c83bfb9b695dad4c517ce26e5266faddd2cfbdbf36701636f3b52b4ce6dd6b4",
+  "outcome": {
+    "already_present": [
+      "mlb-v18-survival-e2be2661fa1f72156096dd3b16087e5cc98ccd329bf299a89653de06851edac1"
+    ],
+    "artifact_type": "PROSPECTIVE",
+    "bundle_created": false,
+    "imported": [],
+    "rejected": []
+  },
+  "producerGeneratedAtUtc": "2026-09-13T14:49:54.906665+00:00",
+  "schemaVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_CONSUMER_RECEIPT_V1",
+  "slateDate": "2026-09-13"
+}
