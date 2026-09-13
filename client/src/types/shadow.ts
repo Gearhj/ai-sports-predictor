@@ -137,6 +137,8 @@ export interface CandidateSide {
   wagering_authority: false
   execution_allowed_in_aisp: false
   score: CandidateScore | null
+  /** Joined on THIS side's exact forecast id, never on the game alone. */
+  formal_assessment?: FormalAssessmentSide | null
 }
 
 /** The persisted research score, when eligible final evidence exists. */
@@ -327,6 +329,109 @@ export interface CandidateConfigurationOption {
   published_utc?: string | null
 }
 
+/**
+ * The published formal assessment for one arm of one game.
+ *
+ * Separate from `score_difference`, which is AISP's own research scorer. These
+ * are the producer's published numbers, scored against a named governed final
+ * revision, and the two sets are shown side by side rather than merged: they
+ * use different Brier conventions and, on a score-limited arm, different
+ * denominators. Merging them would produce a table where no column means one
+ * thing.
+ */
+export interface FormalAssessmentMetric {
+  key: string
+  label: string
+  value: number | null
+  baseline_value: number | null
+  /** Candidate minus baseline. Every metric is a loss, so negative is better. */
+  delta: number | null
+  favours: 'CANDIDATE' | 'BASELINE' | null
+}
+
+export interface FormalAssessmentSide {
+  schema_version: 'AISP_MLB_FORMAL_ASSESSMENT_V1'
+  assessment_schema_version: string | null
+  index_sha256: string
+  game: string
+  source_game_id: string
+  arm: string
+  forecast_id: string
+  is_baseline: boolean
+  baseline_forecast_id: string | null
+  correct_pick: boolean
+  winner_pick: string | null
+  actual_away_home: number[]
+  /** The arm's own draw count. Never normalised against the baseline's. */
+  draw_count: number | null
+  baseline_draw_count: number | null
+  equal_denominator: boolean | null
+  home_win_probability: number | null
+  brier_convention: string
+  brier_note: string
+  metrics: FormalAssessmentMetric[]
+  final_identity: {
+    canonical_game_id: string | null
+    source_outcome_id: string | null
+    source_revision: number | null
+    status: string | null
+    away_score: number | null
+    home_score: number | null
+    final_at_utc: string | null
+    lineage_basis: string | null
+  }
+  decision: string | null
+  conclusions: string[]
+  score_limited: {
+    original_draw_count: number | null
+    retained_draw_count: number | null
+    excluded_draw_count: number | null
+    exclusion_rate: number | null
+    picks_changed: number
+  } | null
+  pitcher_allocation: { status: string; reason: string } | null
+  promoted: false
+  authority_note: string
+  sample_note: string
+}
+
+export interface FormalAssessmentBlock {
+  available: true
+  package: {
+    index_sha256: string
+    index_bytes: number
+    files_verified: string[]
+    created_at_utc: string | null
+    artifact_kind: string | null
+    governed_study_games_scored: number | null
+    research_interventions: number | null
+    original_baseline_draws_per_game: number | null
+    score_limited_retained_draws: number | null
+    previous_qualified_package_sha256: string | null
+    qualification_resolved: string | null
+    decisions: Record<string, string> | null
+    conclusions: string[]
+    pitcher_allocation: { status: string; reason: string } | null
+    promoted: false
+  }
+  final_identity_agreement: {
+    status: 'SAME_GOVERNED_FINAL' | 'DIFFERENT_GOVERNED_FINAL'
+      | 'ARMS_SCORED_DIFFERENT_FINALS' | 'NO_GOVERNED_FINAL_PERSISTED'
+    detail: string
+    assessment_outcome_id?: string
+    assessment_revision?: number | null
+    aisp_outcome_id?: string | null
+    aisp_revision?: number | null
+  }
+  brier_conventions: {
+    published: string
+    aisp_research_scorer: string
+    relationship: string
+  }
+  conclusions: string[]
+  promoted: false
+}
+
 export interface CandidateComparison {
   schema_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_COMPARISON_V1'
   game_id: string
@@ -344,6 +449,8 @@ export interface CandidateComparison {
   score_difference?: CandidateScoreDifference | null
   shared_final?: CandidateSharedFinal | null
   governed_final?: CandidateGovernedFinal | null
+  /** The published formal assessment, when one is attached to this game. */
+  formal_assessment?: FormalAssessmentBlock | null
   baseline: CandidateSide | null
   candidate: CandidateSide
   difference: {

@@ -19,6 +19,7 @@ import { AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react'
 import { formatTimestamp } from '../services/format'
 import type {
   CandidateCohort, CandidateComparison, CandidateConfiguration,
+  FormalAssessmentSide,
   CandidateConfigurationOption, CandidateScore, CandidateScoreLimit,
   CandidateSide,
 } from '../types/shadow'
@@ -458,6 +459,169 @@ function ResultBlock({ comparison }: { comparison: CandidateComparison }) {
 }
 
 /**
+ * The producer's published formal assessment for this exact arm.
+ *
+ * Shown beside AISP's own scored difference rather than merged into it. The two
+ * disagree about conventions in ways that matter: the published Brier is binary
+ * and AISP's is the summed two-class form, exactly twice it; and a score-limited
+ * arm reports over its own 4,722 retained draws against a 5,000-draw baseline.
+ * A single blended table would have columns that mean different things by row,
+ * so each set keeps its own table and its own labels.
+ *
+ * The conclusions are not decoration. Every number here comes from one realized
+ * game, and a reader looking at seven metrics that all favour one arm will
+ * reach for "it is better" unless told plainly that one game cannot support it.
+ */
+function FormalAssessmentPanel({ comparison }: { comparison: CandidateComparison }) {
+  const block = comparison.formal_assessment
+  const side = comparison.candidate?.formal_assessment
+    ?? comparison.baseline?.formal_assessment
+    ?? null
+  if (!block || !side) return null
+
+  const agreement = block.final_identity_agreement
+  const divergent = agreement.status !== 'SAME_GOVERNED_FINAL'
+
+  return (
+    <section className="formal-assessment" data-testid="formal-assessment">
+      <h3>Formal assessment (published)</h3>
+
+      <p className="formal-assessment__identity">
+        Scored against governed outcome{' '}
+        <code>{side.final_identity.source_outcome_id}</code> revision{' '}
+        <b>{side.final_identity.source_revision}</b> —{' '}
+        {side.final_identity.away_score}–{side.final_identity.home_score}
+        {side.actual_away_home.length === 2 && ' final'}.
+      </p>
+
+      {/* Only a mismatch is a warning. Agreement is stated quietly; alarming a
+          reader when nothing is wrong teaches them to skip the warning that
+          matters. */}
+      <p
+        className={divergent
+          ? 'formal-assessment__warning'
+          : 'formal-assessment__note'}
+        role={divergent ? 'note' : undefined}
+        data-testid="formal-identity-agreement"
+      >
+        {divergent && <AlertTriangle size={13} aria-hidden="true" />} {agreement.detail}
+      </p>
+
+      <FormalMetrics side={side} />
+
+      <p className="formal-assessment__note" data-testid="formal-brier-note">
+        {block.brier_conventions.relationship}
+      </p>
+
+      {side.score_limited && (
+        <p className="formal-assessment__note" data-testid="formal-denominator">
+          This arm reports over{' '}
+          <b className="bx-num">
+            {side.score_limited.retained_draw_count?.toLocaleString()}
+          </b>{' '}
+          retained draws of the baseline's{' '}
+          <b className="bx-num">
+            {side.score_limited.original_draw_count?.toLocaleString()}
+          </b>
+          {' '}({side.score_limited.excluded_draw_count?.toLocaleString()} excluded,{' '}
+          {side.score_limited.exclusion_rate != null
+            ? `${(side.score_limited.exclusion_rate * 100).toFixed(2)}%`
+            : 'rate unavailable'}). The denominators are not equal and no
+          equal-N pairing was invented. {side.score_limited.picks_changed} pick
+          {side.score_limited.picks_changed === 1 ? '' : 's'} changed.
+        </p>
+      )}
+
+      {side.decision && (
+        <p className="formal-assessment__decision" data-testid="formal-decision">
+          {side.decision}
+        </p>
+      )}
+
+      <ul className="formal-assessment__conclusions" data-testid="formal-conclusions">
+        {block.conclusions.map((line) => <li key={line}>{line}</li>)}
+      </ul>
+
+      {side.pitcher_allocation?.status === 'UNAVAILABLE' && (
+        <p className="formal-assessment__note" data-testid="formal-pitcher">
+          Pitcher allocation: unavailable. {side.pitcher_allocation.reason}
+        </p>
+      )}
+
+      <p className="formal-assessment__note">{side.sample_note}</p>
+      <p className="formal-assessment__note">{side.authority_note}</p>
+
+      <details className="formal-assessment__package">
+        <summary>Package and verification</summary>
+        <dl>
+          <div>
+            <dt>Index SHA-256</dt>
+            <dd><code>{block.package.index_sha256}</code></dd>
+          </div>
+          <div>
+            <dt>Bytes</dt>
+            <dd className="bx-num">{block.package.index_bytes.toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Files verified</dt>
+            <dd>{block.package.files_verified.length}</dd>
+          </div>
+          <div>
+            <dt>Governed study games scored</dt>
+            <dd className="bx-num">{block.package.governed_study_games_scored}</dd>
+          </div>
+          <div>
+            <dt>Preserves</dt>
+            <dd>
+              <code>
+                {block.package.previous_qualified_package_sha256?.slice(0, 12)}…
+              </code>{' '}
+              {block.package.qualification_resolved}
+            </dd>
+          </div>
+        </dl>
+      </details>
+    </section>
+  )
+}
+
+function FormalMetrics({ side }: { side: FormalAssessmentSide }) {
+  const scored = side.metrics.filter((metric) => metric.value != null)
+  if (scored.length === 0) return null
+  return (
+    <div className="bx-scroll">
+      <table className="candidate-result__table">
+        <caption className="sr-only">
+          Published formal scores for this arm and its baseline
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Metric</th>
+            <th scope="col">Baseline</th>
+            <th scope="col">{side.is_baseline ? 'This arm' : 'Candidate'}</th>
+            <th scope="col">Difference</th>
+            <th scope="col">Direction</th>
+          </tr>
+        </thead>
+        <tbody>
+          {scored.map((metric) => (
+            <tr key={metric.key}>
+              <th scope="row">{metric.label}</th>
+              <td className="bx-num">{metric.baseline_value?.toFixed(6) ?? '—'}</td>
+              <td className="bx-num">{metric.value?.toFixed(6) ?? '—'}</td>
+              <td className="bx-num">
+                {metric.delta == null ? '—' : signed(metric.delta, 6)}
+              </td>
+              <td>{metric.favours ? favourText(metric.favours) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/**
  * The mean across the games this configuration and its baseline both scored.
  *
  * The count is on every row because metrics do not share a cohort: a game with
@@ -591,6 +755,7 @@ export function EnsembleCandidatePanel({
       </div>
 
       <ResultBlock comparison={comparison} />
+      <FormalAssessmentPanel comparison={comparison} />
       {cohort && cohort.configuration === comparison.configuration?.key && (
         <CohortBlock cohort={cohort} />
       )}

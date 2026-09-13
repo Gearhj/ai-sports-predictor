@@ -32,6 +32,11 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.explain.formal_assessment import (
+    AISP_SUMMED_BRIER,
+    assessment_for,
+    package_summary,
+)
 from app.models import ResearchForecastEvaluation, ShadowForecast
 from app.models.entities import ModelChampionAuthority
 from app.shadow_import.mlb_ensemble_candidate import (
@@ -183,6 +188,16 @@ def _side(session: Session, row: ShadowForecast, label: str, track: str) -> dict
         "wagering_authority": False,
         "execution_allowed_in_aisp": False,
         "score": _score_for(session, row),
+        # Joined on THIS side's exact forecast id and game, never on the game
+        # alone: a baseline and a candidate of one game are different forecasts
+        # and must never receive each other's published scores.
+        "formal_assessment": assessment_for(
+            source_game_id=row.source_event_id,
+            forecast_id=row.forecast_id,
+            configuration_id=(
+                (row.lineage_detail or {}).get("configurationId")
+                or row.engine_version),
+        ),
     }
 
 
@@ -302,7 +317,7 @@ def _governed_final(session: Session, game_id: uuid.UUID) -> dict[str, Any] | No
 
     row = session.execute(text(
         "select revision, outcome_status, home_score, away_score, final_at,"
-        " payload_checksum, source_record_id"
+        " payload_checksum, source_record_id, id"
         " from game_final_outcomes where game_id = :g"
         " order by revision desc limit 1"
     ), {"g": str(game_id)}).first()
@@ -316,6 +331,101 @@ def _governed_final(session: Session, game_id: uuid.UUID) -> dict[str, Any] | No
         "final_at_utc": _iso(row[4]),
         "payload_checksum": row[5],
         "source_record_id": row[6],
+        # The producer's packages name this id and revision explicitly, so the
+        # consumer can check it scored the same result rather than assume it.
+        "source_outcome_id": str(row[7]),
+    }
+
+
+def _formal_assessment_block(
+    session: Session,
+    game_id: uuid.UUID,
+    candidate: dict[str, Any],
+    baseline: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The published assessment for this comparison, with its identity checked.
+
+    Two things are reported rather than assumed. First, whether the governed
+    final the producer scored against is the one AISP holds -- same outcome id,
+    same revision. A package that scored a different revision would still
+    display its numbers, clearly marked as bound to a different result, because
+    silently showing them beside AISP's final is how two results become one.
+
+    Second, that the two Brier conventions differ. The producer's is binary and
+    AISP's own scorer stores the summed two-class form, exactly twice it. Both
+    appear on the same screen, so the relationship is stated and neither value
+    is converted.
+    """
+
+    attached = [
+        row for row in (
+            (candidate or {}).get("formal_assessment"),
+            (baseline or {}).get("formal_assessment"),
+        ) if row
+    ]
+    if not attached:
+        return None
+
+    governed = _governed_final(session, game_id)
+    identities = {
+        (
+            str(row["final_identity"].get("source_outcome_id") or ""),
+            row["final_identity"].get("source_revision"),
+        )
+        for row in attached
+    }
+    if governed is None:
+        agreement = {
+            "status": "NO_GOVERNED_FINAL_PERSISTED",
+            "detail": (
+                "AISP holds no governed final for this game, so the assessment's "
+                "result identity cannot be confirmed against one."
+            ),
+        }
+    elif len(identities) > 1:
+        agreement = {
+            "status": "ARMS_SCORED_DIFFERENT_FINALS",
+            "detail": (
+                "The attached arms name different final identities, so their "
+                "differences would be partly differences of outcome."
+            ),
+        }
+    else:
+        outcome_id, revision = next(iter(identities))
+        matches = (
+            outcome_id == str(governed.get("source_outcome_id") or "")
+            and revision == governed.get("revision")
+        )
+        agreement = {
+            "status": "SAME_GOVERNED_FINAL" if matches else "DIFFERENT_GOVERNED_FINAL",
+            "detail": (
+                "The assessment scored the governed final revision AISP holds."
+                if matches else
+                "The assessment scored a different final revision from the one "
+                "AISP holds; its scores belong to that revision, not this one."
+            ),
+            "assessment_outcome_id": outcome_id,
+            "assessment_revision": revision,
+            "aisp_outcome_id": governed.get("source_outcome_id"),
+            "aisp_revision": governed.get("revision"),
+        }
+
+    summary = package_summary() or {}
+    return {
+        "available": True,
+        "package": summary,
+        "final_identity_agreement": agreement,
+        "brier_conventions": {
+            "published": attached[0].get("brier_convention"),
+            "aisp_research_scorer": AISP_SUMMED_BRIER,
+            "relationship": (
+                "AISP's stored Brier is the summed two-class form and is exactly "
+                "twice the published binary Brier. Both are shown as published; "
+                "neither is halved or doubled to match the other."
+            ),
+        },
+        "conclusions": attached[0].get("conclusions"),
+        "promoted": False,
     }
 
 
@@ -791,6 +901,8 @@ def candidate_comparison(
             candidate.get("score"), (baseline or {}).get("score"),
         ),
         "governed_final": _governed_final(session, game_id),
+        "formal_assessment": _formal_assessment_block(
+            session, game_id, candidate, baseline),
         # A fallback arm is numerically identical to the baseline on purpose.
         # Saying so here is what stops the difference of 0.0000 below being read
         # as "the component made no difference" -- the component did not run.

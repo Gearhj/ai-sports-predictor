@@ -3603,6 +3603,33 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .candidate-cohort__excluded summary { cursor: pointer; color: var(--muted, #7a8699); }
 .candidate-cohort__excluded ul { margin: 6px 0 0; padding-left: 18px; }
 .candidate-cohort__excluded li { margin-bottom: 4px; }
+/* The producer's published formal assessment, under the comparison it belongs
+   to. Deliberately quiet: these numbers come from one realized game, and giving
+   them a louder treatment than AISP's own scored difference would imply they
+   settle something. The conclusions list is the part that must survive a skim,
+   so it is the only element here with any weight. */
+.formal-assessment { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line, #e3e8ef); }
+.formal-assessment h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: .02em; }
+.formal-assessment__identity { margin: 0 0 6px; font-size: 13px; }
+.formal-assessment__identity code { font-size: 11px; }
+.formal-assessment__note { margin: 6px 0; font-size: 12px; color: var(--muted, #7a8699); }
+.formal-assessment__warning {
+  margin: 6px 0; font-size: 12px; color: #b98230;
+  display: flex; gap: 6px; align-items: baseline;
+}
+.formal-assessment__decision { margin: 8px 0 4px; font-size: 12.5px; }
+.formal-assessment__conclusions {
+  margin: 8px 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6;
+}
+.formal-assessment__package { margin: 8px 0 0; font-size: 12px; }
+.formal-assessment__package summary { cursor: pointer; color: var(--muted, #7a8699); }
+.formal-assessment__package dl { margin: 8px 0 0; display: grid; gap: 5px; }
+.formal-assessment__package dt {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted, #7a8699);
+}
+.formal-assessment__package dd { margin: 0; font-size: 12px; word-break: break-all; }
+
 .candidate-card__absent { color: var(--muted, #7a8699); font-style: italic; }
 .candidate-card__score-note { margin: 6px 0 0; font-size: 11px; color: var(--muted, #7a8699); }
 
