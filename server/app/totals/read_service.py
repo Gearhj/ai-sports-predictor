@@ -52,6 +52,7 @@ from app.models import (
     Sportsbook,
     Team,
 )
+from app.explain.opportunity import explain_totals_opportunity
 from app.services.forecast_selection import Availability, ForecastSelector
 from app.totals.index_attachment import CONSUMER_FIELD, attachment_map
 from app.totals.pricing import (
@@ -233,7 +234,17 @@ class MlbTotalsReadService:
             primary, attachments or {})
 
         market = self._market_block(game, now=now, scenario_line=scenario_line)
-        selections = self._selections(distribution, market, now=now)
+        selections = self._selections(
+            distribution, market, now=now,
+            matchup=f"{away['abbreviation']} at {home['abbreviation']}",
+            forecast_facts={
+                "expected_total_runs": forecast_block.get("expected_total_runs"),
+                "simulation_count": forecast_block.get("simulation_count"),
+                "forecast_id": forecast_block.get("forecast_id"),
+                "engine_id": forecast_block.get("engine_id"),
+                "engine_version": forecast_block.get("engine_version"),
+            },
+        )
 
         return {
             "game_id": str(game.id),
@@ -374,6 +385,8 @@ class MlbTotalsReadService:
         market: dict[str, Any],
         *,
         now: datetime,
+        matchup: str = "",
+        forecast_facts: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         line = market.get("line")
         if distribution is None or line is None:
@@ -383,6 +396,7 @@ class MlbTotalsReadService:
         except TotalsPricingError:
             return []
 
+        forecast_facts = forecast_facts or {}
         rows: list[dict[str, Any]] = []
         for side in ("OVER", "UNDER"):
             p_win, p_push, p_loss = probabilities.fraction(side)
@@ -410,7 +424,7 @@ class MlbTotalsReadService:
                     ),
                 }
             fair = fair_decimal_odds(p_win, p_push)
-            rows.append({
+            selection = {
                 "side": side,
                 "line": probabilities.line,
                 "line_source": market["line_source"],
@@ -428,7 +442,25 @@ class MlbTotalsReadService:
                     NO_MARKET_LINE if market["line_source"] == LINE_SCENARIO
                     else "NO_RECORDED_PRICE_FOR_THIS_SIDE"
                 ),
-            })
+            }
+            # Built from THIS record, so the probability and the price on screen
+            # can never belong to different lines. Books disagree about the
+            # number as well as the price, and an explanation assembled from a
+            # second lookup is exactly how Over 8.0's probability ends up beside
+            # a price for Over 8.5.
+            selection["explanation"] = explain_totals_opportunity(
+                matchup=matchup,
+                side=side,
+                line=probabilities.line,
+                line_source=market["line_source"],
+                win_probability_pct=selection["win_probability_pct"],
+                push_probability_pct=selection["push_probability_pct"],
+                loss_probability_pct=selection["loss_probability_pct"],
+                price=price_block,
+                forecast=forecast_facts,
+                model_fair_american=selection["model_fair_american_odds"],
+            )
+            rows.append(selection)
         return rows
 
     @staticmethod

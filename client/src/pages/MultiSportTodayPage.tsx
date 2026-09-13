@@ -29,7 +29,7 @@
  * decision the policy declined to make.
  */
 import { useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { PrefetchLink } from '../components/PrefetchLink'
 import {
   AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Clock, Timer,
@@ -54,6 +54,11 @@ import { ModelEraBadge, type ModelEraData } from '../components/ModelEraBadge'
 import { WagerExplanation } from '../components/explain/WagerExplanation'
 import { useSlateExplanations } from '../hooks/useExplanation'
 import type { DecisionExplanation } from '../types/explain'
+import type { TotalsBoard } from '../types/totals'
+import { useMlbTotals } from '../hooks/useMlbTotals'
+import {
+  TotalsOpportunities, collectOpportunities, type TotalsSort,
+} from '../components/markets/TotalsOpportunities'
 
 /** The page never ranks across sports; the read model says so and this asserts it. */
 export function hasNoCrossSportRanking(model: TodayAllSportsReadModel | null): boolean {
@@ -76,6 +81,92 @@ type BlockerKey =
  * has neither a price nor an edge is a pricing problem, not an edge problem,
  * and counting it in both would make the blockers add to more than the games.
  */
+
+/** Stable identity: a fresh object literal would rebuild the hook's key. */
+const EMPTY_SCENARIOS: Record<string, string> = {}
+
+type MarketFilterValue = 'ALL' | 'MONEYLINE' | 'TOTALS'
+
+export function readMarket(value: string | null): MarketFilterValue {
+  const upper = (value ?? '').toUpperCase()
+  return upper === 'MONEYLINE' || upper === 'TOTALS' ? upper : 'ALL'
+}
+
+export function readTotalsSort(value: string | null, oversOnly: boolean): TotalsSort {
+  const upper = (value ?? '').toUpperCase()
+  if (upper === 'EXPECTED_RETURN') return 'EXPECTED_RETURN'
+  // Ranking by Over probability only means something while the listing is
+  // Overs. Applied to a mixed listing it would sort two opposite sides of the
+  // same game by one side's number, which reads as a ranking and is not one.
+  if (upper === 'WIN_PROBABILITY' && oversOnly) return 'WIN_PROBABILITY'
+  return 'GAME_TIME'
+}
+
+/**
+ * Why the totals listing is empty, from the board's own coverage.
+ *
+ * An empty listing has several quite different causes -- no game, no forecast,
+ * no recorded line, no usable price -- and they are not interchangeable. A
+ * generic blank would let "the books have not posted a total" read as "the
+ * model has nothing to say", so each one says which it is.
+ */
+export function totalsUnavailableReason(board: TotalsBoard | null): string | null {
+  if (!board?.coverage) return null
+  const { coverage, market_availability: availability } = board
+  if (coverage.games === 0) return 'No MLB game is scheduled for this slate.'
+  if (coverage.games_with_v18_distribution === 0) {
+    return 'No MLB game on this slate has a current V18 forecast, so no total can be priced.'
+  }
+  if (coverage.games_with_recorded_line === 0) {
+    return `No sportsbook total is recorded for any game on this slate. ${availability?.detail ?? ''}`.trim()
+  }
+  if (coverage.selections_with_usable_price === 0) {
+    return 'A total is recorded for this slate, but no side carries a usable offered price.'
+  }
+  return null
+}
+
+/**
+ * Moneyline / Totals, and "Overs only" inside Totals.
+ *
+ * The counts are on the buttons because the honest answer to "are there any
+ * totals today?" is usually a small number, and a reader should be able to see
+ * that without switching markets and finding an empty panel.
+ */
+function MarketFilter({
+  market, oversOnly, moneylineCount, totalsCount, onMarket, onOversOnly,
+}: {
+  market: MarketFilterValue
+  oversOnly: boolean
+  moneylineCount: number
+  totalsCount: number
+  onMarket: (next: MarketFilterValue) => void
+  onOversOnly: (next: boolean) => void
+}) {
+  return (
+    <div className="totals-op__markets" data-testid="market-filter">
+      <div className="bx-segment" role="group" aria-label="Market">
+        <button type="button" aria-pressed={market === 'ALL'}
+          onClick={() => onMarket('ALL')} data-testid="market-ALL">All markets</button>
+        <button type="button" aria-pressed={market === 'MONEYLINE'}
+          onClick={() => onMarket('MONEYLINE')} data-testid="market-MONEYLINE">
+          Moneyline <span className="bx-dim">{moneylineCount}</span>
+        </button>
+        <button type="button" aria-pressed={market === 'TOTALS'}
+          onClick={() => onMarket('TOTALS')} data-testid="market-TOTALS">
+          Totals <span className="bx-dim">{totalsCount}</span>
+        </button>
+      </div>
+      {market !== 'MONEYLINE' && (
+        <label className="totals-op__overs">
+          <input type="checkbox" checked={oversOnly} data-testid="overs-only"
+            onChange={(event) => onOversOnly(event.target.checked)} />
+          <span>Overs only</span>
+        </label>
+      )}
+    </div>
+  )
+}
 
 export function firstBlocker(selection: NormalizedSelection): BlockerKey | null {
   const gates = (selection.outstanding_gates ?? []).join(' | ').toLowerCase()
@@ -133,6 +224,16 @@ export function MultiSportTodayPage() {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
   const { registry, state: registryState } = useSportRegistry()
+
+  const [params, setParams] = useSearchParams()
+  const setParam = useCallback((key: string, value: string | null) => {
+    setParams((old) => {
+      const next = new URLSearchParams(old)
+      if (value === null) next.delete(key)
+      else next.set(key, value)
+      return next
+    }, { replace: true })
+  }, [setParams])
 
   const loader = useCallback(async (signal: AbortSignal): Promise<DecisionsBoard> => {
     const warnings: string[] = []
@@ -204,6 +305,26 @@ export function MultiSportTodayPage() {
   // so the explanations are fetched for the same day the cards describe rather
   // than for the browser's idea of today.
   const slateDate = model?.operational_date ?? new Date().toISOString().slice(0, 10)
+  // Which market the desk is showing. It lives in the URL for the same reason
+  // the markets page keeps its view there: a board someone is looking at should
+  // be a link they can send rather than a set of clicks they have to describe.
+  const market = readMarket(params.get('market'))
+  const oversOnly = params.get('overs') === '1'
+  const totalsSort = readTotalsSort(params.get('sort'), oversOnly)
+  const showTotals = (market === 'ALL' || market === 'TOTALS')
+    && (sport === 'ALL' || sport === 'MLB')
+  const showMoneyline = market === 'ALL' || market === 'MONEYLINE'
+  // The filter narrows the listing in the browser, so the board is fetched
+  // whole and "Overs only" costs no second request. Either way this is a read
+  // of stored evidence: no provider is called when the filter changes.
+  const totals = useMlbTotals({
+    day: slateDate, enabled: showTotals, oversOnly: false, scenarios: EMPTY_SCENARIOS,
+  })
+  const totalsCount = useMemo(
+    () => collectOpportunities(totals.data, oversOnly).length,
+    [totals.data, oversOnly],
+  )
+
   const explanations = useSlateExplanations(slateDate, true)
   const explanationByGame = useMemo(() => {
     const map = new Map<string, DecisionExplanation>()
@@ -343,8 +464,19 @@ export function MultiSportTodayPage() {
 
         <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', alignItems: 'start' }}
           className="bx-decisions__split">
-          <Panel eyebrow="Best opportunities now" title="Ranked by adjusted edge">
-            {ranked.length === 0
+          <Panel
+            eyebrow="Best opportunities now"
+            title={market === 'TOTALS' ? 'MLB Over / Under' : 'Ranked by adjusted edge'}
+            action={
+              <MarketFilter
+                market={market} oversOnly={oversOnly}
+                moneylineCount={Math.min(ordered.length, 8)} totalsCount={totalsCount}
+                onMarket={(next) => setParam('market', next === 'ALL' ? null : next)}
+                onOversOnly={(next) => setParam('overs', next ? '1' : null)}
+              />
+            }
+          >
+            {!showMoneyline ? null : ranked.length === 0
               ? <p className="bx-empty">
                 No fundable selection has a recorded adjusted edge today. A zero-selection day is a
                 valid outcome, not a missing result.
@@ -363,6 +495,19 @@ export function MultiSportTodayPage() {
                   </p>
                 )}
               </div>}
+
+            {showTotals && (
+              <div className={showMoneyline ? 'totals-op__section' : undefined}>
+                {showMoneyline && <h3 className="totals-op__subhead">MLB Over / Under</h3>}
+                {totals.loading && !totals.data
+                  ? <p className="bx-dim" role="status">Loading totals opportunities…</p>
+                  : <TotalsOpportunities
+                      board={totals.data} oversOnly={oversOnly} sort={totalsSort}
+                      onSort={(next) => setParam('sort', next === 'GAME_TIME' ? null : next)}
+                      unavailableReason={totalsUnavailableReason(totals.data)}
+                    />}
+              </div>
+            )}
           </Panel>
 
           <div style={{ display: 'grid', gap: 18 }}>

@@ -10,6 +10,8 @@
  * quoted at zero are different facts, and the UI has to be able to tell them apart.
  */
 
+import type { WhyExplanation } from './explain'
+
 export type LineSource = 'RECORDED_SPORTSBOOK_LINE' | 'USER_SELECTED_SCENARIO'
 
 export interface TotalsBookQuote {
@@ -44,6 +46,9 @@ export interface TotalsSelection {
   model_fair_american_odds: number | null
   price: TotalsPrice | null
   price_unavailable_reason: string | null
+  /** Built from THIS record, so the probability and the price can never come
+   *  from different lines. Same shape as a wager explanation's `why`. */
+  explanation: WhyExplanation
 }
 
 export interface TotalsMarket {

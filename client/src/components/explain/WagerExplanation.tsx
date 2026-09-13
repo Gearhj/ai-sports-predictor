@@ -108,12 +108,23 @@ function Details({ details }: { details: DecisionExplanation['why']['details'] }
   )
 }
 
-export function WagerExplanation({ explanation }: { explanation: DecisionExplanation }) {
+export function WagerExplanation({
+  explanation, whyLabel,
+}: {
+  explanation: DecisionExplanation
+  /** "Why this opportunity?" where no wager exists. Defaults to the wager
+   *  wording, so every existing caller is unchanged. */
+  whyLabel?: string
+}) {
   const { why, what_happened: what } = explanation
+  // A research opportunity must never be labelled as a wager. The default
+  // stays "Why this wager?" so the ledger and decision desk are untouched,
+  // and the totals listing passes the opportunity wording explicitly.
+  const label = whyLabel ?? 'Why this wager?'
   return (
     <div className="explain-group" data-testid="wager-explanation">
       <Disclosure
-        label="Why this wager?"
+        label={label}
         icon={<HelpCircle size={13} aria-hidden="true" />}
         testId="explain-why"
       >
