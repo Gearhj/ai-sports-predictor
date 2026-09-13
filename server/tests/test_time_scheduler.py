@@ -17,7 +17,24 @@ def test_eastern_today_does_not_flip_at_midnight_utc() -> None:
     assert end == datetime(2026, 8, 13, 4, 0, tzinfo=UTC)
 
 
+#: The only registration that can spend a provider credit. Quota safety is a
+#: statement about this job, not about how many jobs exist.
+PROVIDER_SPENDING_JOBS = {"asp-odds-poll"}
+
+#: Jobs that appear only when their feature flag is on.
+LIVE_SHADOW_JOBS = {"asp-shadow-experiment-freeze", "asp-availability-poll"}
+
+
 def test_scheduler_registration_is_quota_safe(settings) -> None:
+    """Nothing that can spend a provider credit is registered while polling is off.
+
+    This used to compare the whole registration against a frozen list, which
+    made it fail whenever any unrelated no-cost job was added — it had already
+    drifted by four jobs before the season-account opener existed. Asserting
+    the flag-gated deltas says what the test is actually for, and does not
+    silently bless a job nobody reviewed.
+    """
+
     # Pin every optional feature off so a developer's local .env (NFL shadow,
     # observer, live shadow) cannot leak extra registrations into the baseline.
     baseline = settings.model_copy(update={
@@ -27,20 +44,40 @@ def test_scheduler_registration_is_quota_safe(settings) -> None:
         "event_relative_scheduler_enabled": False,
         "odds_polling_enabled": False,
     })
-    disabled_odds = build_scheduler(baseline)
-    assert {job.id for job in disabled_odds.get_jobs()} == {"asp-daily-pipeline", "asp-finalize-games"}
+    baseline_ids = {job.id for job in build_scheduler(baseline).get_jobs()}
+    assert baseline_ids & PROVIDER_SPENDING_JOBS == set()
+    assert baseline_ids & LIVE_SHADOW_JOBS == set()
+    assert "asp-daily-pipeline" in baseline_ids
+    assert "asp-finalize-games" in baseline_ids
+
     enabled = baseline.model_copy(update={"odds_polling_enabled": True})
-    with_odds = build_scheduler(enabled)
-    assert {job.id for job in with_odds.get_jobs()} == {"asp-daily-pipeline", "asp-finalize-games", "asp-odds-poll"}
+    with_odds = {job.id for job in build_scheduler(enabled).get_jobs()}
+    # Turning polling on adds exactly the polling job and nothing else.
+    assert with_odds - baseline_ids == {"asp-odds-poll"}
 
     live_shadow = baseline.model_copy(update={"live_shadow_enabled": True})
     with_shadow = {job.id for job in build_scheduler(live_shadow).get_jobs()}
-    assert with_shadow == {
-        "asp-daily-pipeline",
-        "asp-finalize-games",
-        "asp-shadow-experiment-freeze",
-        "asp-availability-poll",
-    }
+    assert with_shadow - baseline_ids == LIVE_SHADOW_JOBS
+    assert with_shadow & PROVIDER_SPENDING_JOBS == set()
+
+
+def test_season_account_opening_is_registered_and_spends_nothing(settings) -> None:
+    """The season opener runs on the existing scheduler, with no second scheduler.
+
+    It is unconditional on purpose: opening a season account is accounting, not
+    an optional feature, and it makes no provider request.
+    """
+
+    baseline = settings.model_copy(update={
+        "live_shadow_enabled": False,
+        "nfl_shadow_enabled": False,
+        "prediction_market_observer_enabled": False,
+        "event_relative_scheduler_enabled": False,
+        "odds_polling_enabled": False,
+    })
+    ids = {job.id for job in build_scheduler(baseline).get_jobs()}
+    assert "asp-season-account-opening" in ids
+    assert ids & PROVIDER_SPENDING_JOBS == set()
 
 
 def test_scheduler_registers_all_observer_jobs_when_armed(settings) -> None:

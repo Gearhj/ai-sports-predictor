@@ -458,6 +458,31 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "bridge-mlb-canonical-events", "settings": settings},
         **common,
     )
+    # V18 research scoring. Reads the finals the live MLB state observations
+    # already persisted and writes research evaluations only -- no provider
+    # request, no model execution, no decision, position, settlement or bankroll
+    # change, and no model activation. It is therefore not bound to the odds
+    # ownership flag, only to this single scheduler process. Thirty minutes
+    # matches the settlement cadence a slate finishes on, and the job is a
+    # legitimate no-op once every final in range is already scored.
+    scheduler.add_job(
+        execute_scheduled_job, "interval", minutes=30, jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=3),
+        id="asp-mlb-v18-research-evaluate",
+        kwargs={"job_name": "evaluate-mlb-v18-research-forecasts", "settings": settings},
+        **common,
+    )
+    # Season accounts open themselves at their configured boundary. Daily is
+    # the right cadence for a once-a-season event: it is frequent enough that a
+    # season opens on the day it should, and the job is a no-op on every run
+    # before the boundary and on every run after the contribution exists.
+    scheduler.add_job(
+        execute_scheduled_job, "interval", hours=6, jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+        id="asp-season-account-opening",
+        kwargs={"job_name": "open-season-experiment-accounts", "settings": settings},
+        **common,
+    )
     # An armed model era opens itself. Five minutes is short enough that the
     # first slate after the boundary is governed by the new engine, and the job
     # is a no-op on every run before the boundary and after the snapshot.

@@ -67,6 +67,14 @@ from app.services.read_service import ReadService
 STARTER_HEARTBEAT_MINUTES = 10
 STARTER_HEARTBEAT_VERSION = "AISP_STARTER_HEARTBEAT_V1"
 
+#: Bounds for V18 research scoring, applied to the population before any result
+#: is read. The floor is the study's own start date and it also keeps the sealed
+#: 2026-08-14..2026-08-27 Final OOT window out of the pass; the three gamePks are
+#: permanently excluded and must never have an outcome read at all.
+V18_LEAGUE = "MLB"
+V18_EVALUATION_FLOOR = datetime(2026, 8, 28, tzinfo=UTC)
+V18_PERMANENT_EXCLUSIONS = frozenset({"823343", "824235", "822693"})
+
 AVAILABLE_JOBS = {
     "refresh-schedule": "Refresh Today's Schedule",
     "bridge-mlb-canonical-events": "Register Upcoming MLB Canonical Events",
@@ -103,6 +111,8 @@ AVAILABLE_JOBS = {
     "recalculate-nfl-shadow-performance": "Recalculate NFL Prospective Performance",
     "ingest-nfl-finals": "Ingest NFL Final Scores (nflverse, no cost)",
     "evaluate-nfl-research-forecasts": "Score NFL Research Forecasts Against Finals",
+    "evaluate-mlb-v18-research-forecasts": "Score MLB V18 Research Forecasts Against Finals",
+    "open-season-experiment-accounts": "Open Due $1,000 Sport/Season Paper Accounts",
     "poll-availability-events": "Poll MLB Availability Changes (Live Shadow)",
     "freeze-shadow-experiment": "Freeze $1,000 Shadow Experiment Decisions",
     "settle-shadow-experiment": "Settle $1,000 Shadow Experiment Positions",
@@ -225,6 +235,8 @@ class JobOrchestrator:
             "recalculate-nfl-shadow-performance": self.recalculate_nfl_shadow_performance,
             "ingest-nfl-finals": self.ingest_nfl_finals,
             "evaluate-nfl-research-forecasts": self.evaluate_nfl_research_forecasts,
+            "evaluate-mlb-v18-research-forecasts": self.evaluate_mlb_v18_research_forecasts,
+            "open-season-experiment-accounts": self.open_season_experiment_accounts,
             "poll-availability-events": self.poll_availability_events,
             "discover-prediction-markets": self._pm_discover,
             "refresh-prediction-market-snapshots": self._pm_refresh,
@@ -1085,6 +1097,110 @@ class JobOrchestrator:
             "scoring_version": summary["scoring_version"],
             "provider_calls": 0, "models_executed": 0,
             "positions_created": 0, "official_decisions_created": 0,
+            "event_date": event_date.isoformat(),
+        }
+
+    async def open_season_experiment_accounts(self, event_date: date) -> dict[str, Any]:
+        """Open each sport/season paper account once, at its configured boundary.
+
+        This is the only thing that creates the $1,000. It is idempotent in
+        three independent ways, because a funding job that runs twice is the
+        one failure this program cannot absorb: the service checks for an
+        existing opening row, the table has a unique constraint on
+        ``(account_id, kind)``, and a second unique constraint on the
+        deterministic idempotency key. Any one of them alone would be enough;
+        all three are cheap.
+
+        It runs on the existing scheduler as an ordinary interval job. No
+        second scheduler, no one-shot trigger that cannot be re-run, and every
+        contribution carries the JobRun id that actually performed it, so
+        "the season was funded" is evidenced by a receipt rather than by a
+        schedule that was supposed to fire.
+
+        Structurally, this job cannot: execute a model, create a decision, open
+        or settle a position, call a provider, or move capital between
+        accounts. It contributes an opening balance and links model eras to the
+        season they ran in.
+        """
+
+        from datetime import UTC as _UTC, datetime as _datetime
+
+        from app.services.experiment_accounts import ExperimentAccountProvisioner
+
+        provisioner = ExperimentAccountProvisioner(self.session, self.settings)
+        report = provisioner.run(
+            today=event_date,
+            now=_datetime.now(_UTC),
+            executed_by="job:open-season-experiment-accounts",
+            job_run_id=self._active_job_run_id,
+        )
+        self.session.commit()
+        payload = report.as_dict()
+        return {
+            # No "job" key: the orchestrator's completion log already supplies
+            # one, and a duplicate makes the structured logger raise.
+            "event_date": event_date.isoformat(),
+            "records": len(payload["accounts_funded"]),
+            "provider_calls": 0,
+            "models_executed": 0,
+            "decisions_created": 0,
+            "positions_created": 0,
+            **payload,
+        }
+
+    async def evaluate_mlb_v18_research_forecasts(self, event_date: date) -> dict[str, Any]:
+        """Score every eligible final MLB game's frozen pregame V18 forecast.
+
+        The same evaluator, the same freeze rule and the same provenance rule
+        the NFL path uses -- only the league and its bounds differ. It reads
+        the final that the live MLB state observations already persisted, so no
+        provider is called and no new final evidence is invented.
+
+        What it cannot do, structurally rather than by convention: execute a
+        model, create a decision, open or settle a position, move a bankroll,
+        change a policy or threshold, or edit a forecast. The V18 model era
+        stays ARMED and unactivated throughout; a research score is a
+        measurement of a forecast, not authority for one.
+
+        Bounds are applied to the population BEFORE any result is read: the
+        study floor of 2026-08-28, which also keeps the sealed 2026-08-14..27
+        Final OOT window out, and the three permanently excluded gamePks.
+        """
+
+        from app.services.forecast_evaluation import ForecastEvaluationService
+
+        summary = ForecastEvaluationService(self.session).evaluate_league(
+            league_code=V18_LEAGUE,
+            earliest_start=V18_EVALUATION_FLOOR,
+            excluded_source_event_ids=V18_PERMANENT_EXCLUSIONS,
+            require_shadow_forecast=True,
+        )
+        self.session.flush()
+        verified = qualified = 0
+        for game in summary["games"]:
+            for record in game.get("records", ()):
+                clock = record.get("publication_clock")
+                if clock == "VERIFIED_INDEPENDENT_PUBLICATION":
+                    verified += 1
+                elif clock:
+                    qualified += 1
+        return {
+            "records": summary["scored"],
+            "final_games": summary["final_games"],
+            "evaluations_written": summary["scored"],
+            "evaluations_reused": summary["reused"],
+            "evaluations_superseded": summary.get("superseded", 0),
+            "games_skipped": len(summary["skipped"]),
+            "skip_reasons": sorted({entry.get("skipped") for entry in summary["skipped"]
+                                    if entry.get("skipped")}),
+            "verified_publication_clock": verified,
+            "qualified_publication_clock": qualified,
+            "earliest_start": summary.get("earliest_start"),
+            "excluded_source_event_ids": summary.get("excluded_source_event_ids", []),
+            "scoring_version": summary["scoring_version"],
+            "provider_calls": 0, "models_executed": 0,
+            "positions_created": 0, "official_decisions_created": 0,
+            "model_era_activated": False, "bankroll_mutated": False,
             "event_date": event_date.isoformat(),
         }
 
