@@ -432,3 +432,118 @@ def test_a_signed_error_is_compared_by_magnitude_not_by_sign(world):
     expected = ("CANDIDATE" if margin["delta"] < 0
                 else "BASELINE" if margin["delta"] > 0 else "NEITHER")
     assert margin["favours"] == expected
+
+
+def _score_limited_arm(world, *, baseline_identity="v18-1", home_win=0.4939,
+                       ran=True):
+    """A V3 score-limited arm, shaped like the real CIN-MIL 823734 package.
+
+    It declares NO componentTrialSupported flag, because it is not a component
+    trial: the filter keeps a subset of the baseline's completed draws and every
+    summary is reported over that subset.
+    """
+
+    return forecast(
+        world, engine=CANDIDATE_ENGINE, version="mlb-v18-score-limited-v1",
+        identity="cand-score-limited", status="PROSPECTIVE_RESEARCH_SHADOW",
+        home_win=home_win, published=START - timedelta(hours=2),
+        lineage={
+            "artifactType": "PROSPECTIVE",
+            "baselineForecastId": baseline_identity,
+            "contractVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+            # Absent, exactly as the producer publishes it.
+            "componentTrialSupported": None,
+            "fallbackToOriginalDraws": None,
+            "scoreLimits": {
+                "maxRunsPerPlayedHalfInning": 5, "maxRunsPerTeamGame": 14},
+            "sourceSimulationCount": 5000,
+            "retainedSimulationCount": 4722,
+            "excludedSimulationCount": 278,
+            "exclusionRate": 0.0556,
+            "components": [
+                {"componentId": "MLB_V18_SCORE_LIMITED_V1", "role": "SCORE_LIMIT"},
+            ],
+            "componentsApplied": [
+                {"componentId": "MLB_V18_SCORE_LIMITED_V1", "ran": ran},
+            ],
+        },
+    )
+
+
+def test_a_score_limited_arm_is_excluded_but_never_called_a_fallback(world):
+    """The exclusion is right; the old reason for it was false.
+
+    A score-limited arm has no componentTrialSupported flag, so reading the
+    absent flag as False dropped it as FALLBACK_NOT_A_COMPONENT_TRIAL -- claiming
+    its component had not run and that its numbers were the baseline's own draws.
+    Both halves were untrue: the filter ran, and the arm's numbers differ.
+    """
+
+    session = world["session"]
+    forecast(world, engine=BASELINE_ENGINE, version="v18-a", identity="v18-1",
+             status="PROSPECTIVE_RESEARCH_SHADOW", home_win=0.4962,
+             published=START - timedelta(hours=3))
+    _score_limited_arm(world)
+    final(world)
+    ForecastEvaluationService(session).evaluate_league(
+        league_code="MLB", require_shadow_forecast=True)
+
+    cohort = candidate_cohort(session, configuration="mlb-v18-score-limited-v1")
+    # Still out of the component-effectiveness average: a conditional forecast
+    # over 4,722 draws is not a measurement of a component's effect.
+    assert cohort["games"] == 0
+    reasons = [row["reason"] for row in cohort["excluded"]]
+    assert reasons == ["CONDITIONED_POPULATION_NOT_COMPONENT_TRIAL"]
+    detail = cohort["excluded"][0]["detail"]
+    assert "conditional forecast" in detail
+    assert "fall" not in detail.lower(), "the arm did not fall back to anything"
+
+
+def test_the_score_limit_facts_reach_the_display_payload(world):
+    session = world["session"]
+    forecast(world, engine=BASELINE_ENGINE, version="v18-a", identity="v18-1",
+             status="PROSPECTIVE_RESEARCH_SHADOW", home_win=0.4962,
+             published=START - timedelta(hours=3))
+    _score_limited_arm(world)
+
+    comparison = candidate_comparison(
+        session, world["game"].id, configuration="mlb-v18-score-limited-v1")
+    limit = comparison["configuration"]["score_limit"]
+    assert limit["label"] == "Score-limited research"
+    assert limit["limits"] == {
+        "maxRunsPerPlayedHalfInning": 5, "maxRunsPerTeamGame": 14}
+    assert limit["source_simulation_count"] == 5000
+    assert limit["retained_simulation_count"] == 4722
+    assert limit["excluded_simulation_count"] == 278
+    # The filter ran. The absent producer flag must not be read as "it did not".
+    assert limit["component_ran"] is True
+    assert comparison["fallback_note"] is None
+    assert "stayed within the published scoring limits" in limit["conditions_on"]
+    assert "not a promotion" in limit["interpretation_limit"]
+
+
+def test_a_declared_score_limit_that_did_not_run_says_so(world):
+    session = world["session"]
+    forecast(world, engine=BASELINE_ENGINE, version="v18-a", identity="v18-1",
+             status="PROSPECTIVE_RESEARCH_SHADOW", home_win=0.4962,
+             published=START - timedelta(hours=3))
+    _score_limited_arm(world, ran=False)
+
+    comparison = candidate_comparison(
+        session, world["game"].id, configuration="mlb-v18-score-limited-v1")
+    assert comparison["configuration"]["score_limit"]["component_ran"] is False
+
+
+def test_an_ordinary_fallback_arm_keeps_its_own_reason(world):
+    """The new branch must not swallow the case it sits in front of."""
+
+    session = world["session"]
+    _three_arms(world)
+    final(world)
+    ForecastEvaluationService(session).evaluate_league(
+        league_code="MLB", require_shadow_forecast=True)
+
+    fallback = candidate_cohort(
+        session, configuration="mlb-v18-three-arm-duration-v1")
+    assert [row["reason"] for row in fallback["excluded"]] == [
+        "FALLBACK_NOT_A_COMPONENT_TRIAL"]

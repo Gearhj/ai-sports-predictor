@@ -558,3 +558,153 @@ describe('scored comparison', () => {
     expect(screen.queryByTestId('candidate-cohort')).toBeNull()
   })
 })
+
+// -- score-limited research: a conditional arm, labelled as one --------------
+
+/**
+ * The real CIN-MIL 823734 package is the fixture. Its SCORE_LIMIT component ran
+ * and kept 4,722 of 5,000 completed draws, so every candidate number on this arm
+ * is computed over a smaller, conditioned population than the baseline's. The
+ * defect these tests pin is that an arm like this declares no
+ * componentTrialSupported flag -- it is not a component trial -- and the absent
+ * flag was being read as false and rendered as "fell back to baseline draws".
+ */
+describe('score-limited research', () => {
+  afterEach(cleanup)
+
+  const SCORE_LIMIT = {
+    label: 'Score-limited research' as const,
+    limits: { maxRunsPerPlayedHalfInning: 5, maxRunsPerTeamGame: 14 },
+    component_ran: true,
+    components_applied: [{ componentId: 'MLB_V18_SCORE_LIMITED_V1', ran: true }],
+    source_simulation_count: 5000,
+    retained_simulation_count: 4722,
+    excluded_simulation_count: 278,
+    exclusion_rate: 0.0556,
+    denominator_used: 4722,
+    conditions_on:
+      "Games that stayed within the published scoring limits. Every probability "
+      + "and expected score below is computed over the 4722 draws that satisfied "
+      + "them, not over the baseline's 5000.",
+    not_clipped:
+      'Complete violating paths were excluded. No accepted score was clipped and '
+      + "no event sequence was modified, so an accepted draw is the baseline's own draw.",
+    interpretation_limit:
+      'This is a conditional forecast, not a better unconditional one. It says '
+      + 'nothing about how often the limits are exceeded, and it is not a '
+      + 'promotion of this configuration.',
+  }
+
+  const limited = {
+    key: 'mlb-v18-score-limited-v1',
+    configuration_id: 'mlb-v18-score-limited-v1',
+    configuration_identity_source: 'CANDIDATE_ENGINE_VERSION' as const,
+    actual_configuration: null,
+    engine_version: 'mlb-v18-score-limited-v1',
+    forecast_id: 'cand-score-limited',
+    contract_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3',
+    // Absent upstream, so false -- and that is exactly why it must not drive
+    // the fallback wording.
+    component_trial_supported: false,
+    fell_back_to_baseline_draws: false,
+    score_limit: SCORE_LIMIT,
+    published_utc: '2026-09-13T16:44:13Z',
+  }
+
+  const mount = (over: Partial<CandidateComparison> = {}) => render(
+    <EnsembleCandidatePanel
+      comparison={{ ...comparison(), configuration: limited, ...over }}
+      homeTeam="Milwaukee Brewers"
+    />,
+  )
+
+  it('names the arm score-limited research', () => {
+    mount()
+    expect(screen.getByTestId('candidate-score-limit'))
+      .toHaveTextContent('Score-limited research')
+  })
+
+  it('shows the limits, the retained count and what was excluded', () => {
+    mount()
+    const block = screen.getByTestId('candidate-score-limit')
+    expect(block).toHaveTextContent('5 runs per played half-inning')
+    expect(block).toHaveTextContent('14 runs per team, per game')
+    expect(block).toHaveTextContent('4,722')
+    expect(block).toHaveTextContent('of 5,000')
+    expect(block).toHaveTextContent('278')
+    expect(block).toHaveTextContent('5.56%')
+  })
+
+  it('states that the numbers above use the retained population as denominator', () => {
+    mount()
+    expect(screen.getByTestId('candidate-score-limit'))
+      .toHaveTextContent('the retained population')
+  })
+
+  it('explains that it conditions on staying within the limits', () => {
+    mount()
+    const block = screen.getByTestId('candidate-score-limit')
+    expect(block).toHaveTextContent(/stayed within the published scoring limits/i)
+    expect(block).toHaveTextContent(/No accepted score was clipped/i)
+  })
+
+  it('refuses to present the arm as an improvement or a promotion', () => {
+    mount()
+    const block = screen.getByTestId('candidate-score-limit')
+    expect(block).toHaveTextContent(/conditional forecast, not a better unconditional one/i)
+    expect(block).toHaveTextContent(/not a promotion/i)
+    expect(block).toHaveTextContent(/not promoted/i)
+  })
+
+  it('never calls a filtered arm a fallback in the arm selector', () => {
+    mount({
+      available_configurations: [
+        limited,
+        {
+          ...limited,
+          key: 'mlb-v18-three-arm-duration-v1',
+          configuration_id: 'mlb-v18-three-arm-duration-v1',
+          engine_version: 'mlb-v18-three-arm-duration-v1',
+          forecast_id: 'cand-duration',
+          contract_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V2',
+          fell_back_to_baseline_draws: true,
+          score_limit: null,
+        },
+      ],
+    })
+    const bar = screen.getByTestId('candidate-configurations')
+    expect(bar).toHaveTextContent('score-limited')
+    expect(bar).toHaveTextContent('4,722 draws kept')
+    // The genuine fallback arm keeps its own, accurate wording.
+    expect(bar).toHaveTextContent('fell back to baseline draws')
+  })
+
+  it('says so when the filter did not run, rather than assuming it did', () => {
+    mount({
+      configuration: {
+        ...limited,
+        score_limit: { ...SCORE_LIMIT, component_ran: false, components_applied: [] },
+      },
+      available_configurations: [
+        {
+          ...limited,
+          score_limit: { ...SCORE_LIMIT, component_ran: false, components_applied: [] },
+        },
+        {
+          ...limited, key: 'other', configuration_id: 'other',
+          engine_version: 'other', forecast_id: 'f-other', score_limit: null,
+        },
+      ],
+    })
+    expect(screen.getByTestId('candidate-configurations'))
+      .toHaveTextContent('score limit did not run')
+    // And on the face of the block, not only in the selector.
+    expect(screen.getByTestId('candidate-score-limit'))
+      .toHaveTextContent(/did not run for this game/i)
+  })
+
+  it('shows no score-limit block for an arm that applied no limits', () => {
+    mount({ configuration: { ...limited, score_limit: null } })
+    expect(screen.queryByTestId('candidate-score-limit')).toBeNull()
+  })
+})

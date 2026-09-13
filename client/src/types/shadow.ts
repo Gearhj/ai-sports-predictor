@@ -286,6 +286,31 @@ export interface CandidateConfiguration {
   nontermination_count: number | null
 }
 
+/**
+ * The filter a score-limited configuration applied, and what survived it.
+ *
+ * Present only on an arm that kept a SUBSET of the baseline's completed draws.
+ * Every candidate number on such an arm is computed over `retained`, not over
+ * `source`, so the denominator is displayed beside the numbers rather than left
+ * for the reader to assume.
+ */
+export interface CandidateScoreLimit {
+  label: 'Score-limited research'
+  limits: { maxRunsPerPlayedHalfInning?: number; maxRunsPerTeamGame?: number }
+  /** Whether the filter actually ran, read from the recorded ran-flags. */
+  component_ran: boolean
+  components_applied: { componentId?: string; ran?: boolean }[]
+  source_simulation_count: number | null
+  retained_simulation_count: number | null
+  excluded_simulation_count: number | null
+  exclusion_rate: number | null
+  /** The denominator the candidate's own summaries used. */
+  denominator_used: number | null
+  conditions_on: string
+  not_clipped: string
+  interpretation_limit: string
+}
+
 /** One published configuration of the candidate engine family for a game. */
 export interface CandidateConfigurationOption {
   key: string
@@ -297,7 +322,9 @@ export interface CandidateConfigurationOption {
   contract_version: string | null
   component_trial_supported: boolean
   fell_back_to_baseline_draws: boolean
-  published_utc: string | null
+  /** Set when this arm conditions on scoring limits; absent otherwise. */
+  score_limit?: CandidateScoreLimit | null
+  published_utc?: string | null
 }
 
 export interface CandidateComparison {

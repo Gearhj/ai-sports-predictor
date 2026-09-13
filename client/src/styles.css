@@ -3546,6 +3546,27 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .candidate-configs__facts dd { margin: 0; font-size: 12px; }
 .candidate-configs__fallback { margin: 8px 0 0; color: #b98230; font-size: 12px; }
 
+/* Score-limited research. Boxed and set apart from the two side cards because
+   it changes what the numbers above it MEAN -- they are computed over the
+   retained draws, not the baseline's full population -- and a reader who skims
+   past that reads a conditional forecast as an unconditional one. */
+.candidate-scorelimit {
+  margin: 14px 0 0; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #5b7ea6 32%, transparent);
+  background: color-mix(in srgb, #5b7ea6 6%, transparent);
+}
+.candidate-scorelimit__head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.candidate-scorelimit__head h3 { margin: 0; font-size: 13px; }
+.candidate-badge--research { background: color-mix(in srgb, white 78%, #5b7ea6 22%); color: #33506e; }
+.candidate-scorelimit__note {
+  margin: 8px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted, #7a8699);
+}
+.candidate-scorelimit__note--limit {
+  display: flex; align-items: flex-start; gap: 6px; color: #b98230;
+}
+
 
 /* The result of one comparison, and the cohort it belongs to. Tables rather
    than prose: five numbers with a direction column are read faster than five

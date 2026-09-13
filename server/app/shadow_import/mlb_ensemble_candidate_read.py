@@ -352,6 +352,72 @@ def _configuration_key(row: ShadowForecast) -> str:
     return str(row.engine_version or "")
 
 
+def _score_limit(row: ShadowForecast) -> dict[str, Any] | None:
+    """The filter this configuration applied, when it applied one.
+
+    A SCORE_LIMIT configuration is not a component trial and not a fallback. It
+    keeps a SUBSET of the baseline's own completed draws -- the ones that stayed
+    inside the published limits -- and reports every summary over that subset.
+    Nothing is clipped: an accepted draw is the baseline's draw unchanged.
+
+    That makes it a conditional forecast. Comparing it against the baseline
+    answers "how does this game look if it stays inside these limits", which is
+    a different question from "what did this component do", and it must not be
+    averaged into a component-effectiveness cohort.
+    """
+
+    lineage = dict(row.lineage_detail or {})
+    limits = lineage.get("scoreLimits")
+    if not limits:
+        return None
+    # The producer declares componentTrialSupported only for component trials, so
+    # it is absent here and reads as False. Whether the filter RAN is a separate,
+    # recorded fact -- take it from what actually ran rather than letting a
+    # missing declaration imply the component sat out.
+    # componentsApplied records ran-flags by componentId only; the role lives in
+    # the components manifest, so the two are joined on that id.
+    limit_ids = {
+        str((entry or {}).get("componentId") or "")
+        for entry in (lineage.get("components") or [])
+        if str((entry or {}).get("role") or "") == "SCORE_LIMIT"
+    }
+    applied = [
+        entry for entry in (lineage.get("componentsApplied") or [])
+        if str((entry or {}).get("componentId") or "") in limit_ids
+    ]
+    source = lineage.get("sourceSimulationCount")
+    retained = lineage.get("retainedSimulationCount")
+    excluded = lineage.get("excludedSimulationCount")
+    return {
+        "label": "Score-limited research",
+        "limits": limits,
+        "component_ran": bool(applied) and all(bool(e.get("ran")) for e in applied),
+        "components_applied": applied,
+        "source_simulation_count": source,
+        "retained_simulation_count": retained,
+        "excluded_simulation_count": excluded,
+        "exclusion_rate": lineage.get("exclusionRate"),
+        "denominator_used": (row.uncertainty or {}).get("simulationCount"),
+        "conditions_on": (
+            "Games that stayed within the published scoring limits. Every "
+            "probability and expected score below is computed over the "
+            f"{format(retained, ',d') if isinstance(retained, int) else 'retained'} "
+            f"draws that satisfied them, not over the baseline's "
+            f"{format(source, ',d') if isinstance(source, int) else 'original'}."
+        ),
+        "not_clipped": (
+            "Complete violating paths were excluded. No accepted score was "
+            "clipped and no event sequence was modified, so an accepted draw is "
+            "the baseline's own draw."
+        ),
+        "interpretation_limit": (
+            "This is a conditional forecast, not a better unconditional one. It "
+            "says nothing about how often the limits are exceeded, and it is not "
+            "a promotion of this configuration."
+        ),
+    }
+
+
 def candidate_configurations(
     session: Session, game_id: uuid.UUID,
 ) -> list[dict[str, Any]]:
@@ -408,6 +474,7 @@ def candidate_configurations(
             "contract_version": lineage.get("contractVersion"),
             "component_trial_supported": bool(supported),
             "fell_back_to_baseline_draws": bool(fell_back),
+            "score_limit": _score_limit(row),
             "published_utc": _iso(row.available_as_of_utc),
         })
     return configurations
@@ -473,6 +540,12 @@ def candidate_cohort(session: Session, *, configuration: str) -> dict[str, Any]:
         baseline's own draws, so its score equals the baseline's exactly.
         Averaging those in would pull every difference towards zero and dress a
         copy of the baseline up as evidence about the component.
+    *   **Conditioned populations.** A score-limited arm keeps only the baseline
+        draws that stayed inside its published limits and reports every summary
+        over that subset. Its component did run and its numbers do differ, so it
+        is not a fallback -- but it answers a conditional question over a smaller
+        denominator, and averaging it in would read a conditional forecast as a
+        component effect.
     *   **Historical replays.** A rerun over a finished game is not a forecast
         that existed before it.
     *   **Pairs with no bound baseline**, and pairs scored against different
@@ -512,6 +585,19 @@ def candidate_cohort(session: Session, *, configuration: str) -> dict[str, Any]:
         supported = lineage.get("componentTrialSupported")
         if supported is None:
             supported = eligibility.get("componentTrialSupported")
+        limit = _score_limit(row)
+        if limit is not None:
+            # Excluded, but not as a failure. Its component ran and its numbers
+            # differ from the baseline's; what disqualifies it from a
+            # component-effectiveness average is that it answers a conditional
+            # question over a different denominator. Calling this a fallback
+            # would be false on both counts.
+            drop(row, "CONDITIONED_POPULATION_NOT_COMPONENT_TRIAL",
+                 "This configuration keeps only the baseline draws that stayed "
+                 "within its published scoring limits and reports every summary "
+                 "over that subset. It is a conditional forecast, not a measured "
+                 "component effect, so it is not averaged into this cohort.")
+            continue
         if not supported:
             drop(row, "FALLBACK_NOT_A_COMPONENT_TRIAL",
                  "This configuration's component did not run for this game, so its "
@@ -693,6 +779,7 @@ def candidate_comparison(
             "contract_version": lineage.get("contractVersion"),
             "component_trial_supported": bool(supported),
             "fell_back_to_baseline_draws": bool(fell_back),
+            "score_limit": _score_limit(candidate_row),
         },
         "available_configurations": candidate_configurations(session, game_id),
         "baseline_binding": baseline_binding,

@@ -18,7 +18,8 @@
 import { AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react'
 import { formatTimestamp } from '../services/format'
 import type {
-  CandidateCohort, CandidateComparison, CandidateConfiguration, CandidateScore,
+  CandidateCohort, CandidateComparison, CandidateConfiguration,
+  CandidateConfigurationOption, CandidateScore, CandidateScoreLimit,
   CandidateSide,
 } from '../types/shadow'
 
@@ -217,6 +218,97 @@ function ConfigurationTable({
  * decides whether its number means anything: whether its component actually
  * ran, or whether it fell back to the baseline's own draws.
  */
+/**
+ * The one fact that decides whether an arm's numbers mean anything.
+ *
+ * Three states, not two. A score-limited arm declares no componentTrialSupported
+ * flag -- it is not a component trial -- so reading the absent flag as false
+ * printed "fell back to baseline draws" over an arm whose filter had run and
+ * whose numbers differed from the baseline's. That claim was false twice over,
+ * and it is the claim a reader would have used to dismiss the arm.
+ */
+function armSummary(option: CandidateConfigurationOption): string {
+  if (option.score_limit) {
+    const retained = option.score_limit.retained_simulation_count
+    return option.score_limit.component_ran
+      ? `score-limited${retained != null ? ` · ${retained.toLocaleString()} draws kept` : ''}`
+      : 'score limit did not run'
+  }
+  return option.component_trial_supported ? 'component ran' : 'fell back to baseline draws'
+}
+
+/**
+ * Score-limited research: the limits, what survived them, and what that means.
+ *
+ * This arm is the baseline CONDITIONED on staying inside published scoring
+ * limits, so its probabilities answer a narrower question than the baseline's.
+ * The denominator is shown beside the limits because a difference computed over
+ * 4,722 draws and one computed over 5,000 are not the same measurement, and the
+ * interpretation limit is stated on the face of the block rather than in a
+ * panel the reader has to open.
+ */
+function ScoreLimitBlock({ limit }: { limit: CandidateScoreLimit }) {
+  const half = limit.limits?.maxRunsPerPlayedHalfInning
+  const game = limit.limits?.maxRunsPerTeamGame
+  const kept = limit.retained_simulation_count
+  const source = limit.source_simulation_count
+  const dropped = limit.excluded_simulation_count
+  const rate = limit.exclusion_rate
+  return (
+    <section className="candidate-scorelimit" data-testid="candidate-score-limit">
+      <div className="candidate-scorelimit__head">
+        <h3>Score-limited research</h3>
+        <span className="candidate-badge candidate-badge--research">
+          <AlertTriangle size={13} aria-hidden="true" /> Conditional forecast — not promoted
+        </span>
+      </div>
+      <dl className="candidate-card__facts">
+        <div>
+          <dt>Limits applied</dt>
+          <dd>
+            {half != null ? `${half} runs per played half-inning` : 'Not published'}
+            {game != null ? ` · ${game} runs per team, per game` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>Simulations kept</dt>
+          <dd>
+            {kept != null ? kept.toLocaleString() : '—'}
+            {source != null ? ` of ${source.toLocaleString()}` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>Simulations excluded</dt>
+          <dd>
+            {dropped != null ? dropped.toLocaleString() : '—'}
+            {rate != null ? ` (${(rate * 100).toFixed(2)}%)` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>Denominator used above</dt>
+          <dd>
+            {limit.denominator_used != null ? limit.denominator_used.toLocaleString() : '—'}
+            {limit.denominator_used != null && kept != null && limit.denominator_used === kept
+              ? ' — the retained population' : ''}
+          </dd>
+        </div>
+      </dl>
+      {!limit.component_ran && (
+        <p className="candidate-scorelimit__note candidate-scorelimit__note--limit" role="note">
+          <AlertTriangle size={13} aria-hidden="true" /> The score limit did not run
+          for this game. The limits above describe the configuration, not a filter
+          that was applied, so these numbers are not a score-limited result.
+        </p>
+      )}
+      <p className="candidate-scorelimit__note">{limit.conditions_on}</p>
+      <p className="candidate-scorelimit__note">{limit.not_clipped}</p>
+      <p className="candidate-scorelimit__note candidate-scorelimit__note--limit" role="note">
+        <MinusCircle size={13} aria-hidden="true" /> {limit.interpretation_limit}
+      </p>
+    </section>
+  )
+}
+
 function ConfigurationBar({ comparison }: { comparison: CandidateComparison }) {
   const options = comparison.available_configurations ?? []
   const selected = comparison.configuration
@@ -235,11 +327,7 @@ function ConfigurationBar({ comparison }: { comparison: CandidateComparison }) {
                 >
                   <b>{option.configuration_id ?? option.key}</b>
                 </a>
-                <small>
-                  {option.component_trial_supported
-                    ? 'component ran'
-                    : 'fell back to baseline draws'}
-                </small>
+                <small>{armSummary(option)}</small>
               </li>
             )
           })}
@@ -492,6 +580,10 @@ export function EnsembleCandidatePanel({
       <p className="candidate-compare__note">{comparison.note}</p>
 
       <ConfigurationBar comparison={comparison} />
+
+      {comparison.configuration?.score_limit && (
+        <ScoreLimitBlock limit={comparison.configuration.score_limit} />
+      )}
 
       <div className="candidate-compare__grid">
         <SideCard side={comparison.baseline} homeTeam={homeTeam} />
