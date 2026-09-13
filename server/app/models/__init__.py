@@ -77,5 +77,11 @@ from app.models.experiment_accounts import (  # noqa: E402,F401
     FundingKind,
     MembershipRole,
 )
+from app.models.parlay import (  # noqa: E402,F401
+    FUNDING_RESEARCH_ONLY,
+    FUNDING_SEASON_ACCOUNT,
+    ParlayTicket,
+    ParlayTicketLeg,
+)
 
 __all__ = [name for name in globals() if not name.startswith("_")]

@@ -95,6 +95,7 @@ AVAILABLE_JOBS = {
     "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
     "evaluate-shadow-betting-board": "Evaluate Research-Shadow Betting Board",
     "settle-shadow-decisions": "Settle Research-Shadow Decisions",
+    "settle-parlay-tickets": "Settle Recorded Virtual Parlay Tickets",
     "refresh-nfl-shadow-schedule": "Refresh NFL Research-Shadow Schedule Authority",
     "materialize-current-nfl-features": "Verify Current NFL Feature Vectors",
     "generate-nfl-shadow-forecasts": "Generate NFL M1 Early/Current Research-Shadow Forecasts",
@@ -212,6 +213,7 @@ class JobOrchestrator:
             "run-simulations": self.generate_forecasts,
             "publish-official-positions": self.publish_positions,
             "settle-games": self.settle_games,
+            "settle-parlay-tickets": self.settle_parlay_tickets,
             "recalculate-performance": self.recalculate_performance,
             "daily-pipeline": self.daily_pipeline,
             "finalize-games": self.finalize_games,
@@ -1906,8 +1908,26 @@ class JobOrchestrator:
         steps["shadow_experiment_freeze"] = await self.freeze_shadow_experiment(event_date)
         steps["settlement"] = await self.settle_games(event_date)
         steps["shadow_experiment_settle"] = await self.settle_shadow_experiment(event_date)
+        # Parlay tickets settle from the same governed finals this step just
+        # refreshed, on the existing schedule rather than a new one.
+        steps["parlay_tickets"] = await self.settle_parlay_tickets(event_date)
         steps["performance"] = await self.recalculate_performance(event_date)
         return {"records": sum(int(value.get("records", 0)) for value in steps.values()), "steps": steps}
+
+    async def settle_parlay_tickets(self, event_date: date) -> dict[str, Any]:
+        """Settle every open ticket whose games all have a governed final.
+
+        Reads the same ``game_final_outcomes`` record the rest of AISP scores
+        against, settles each ticket at most once, and leaves a ticket pending
+        whenever any leg still lacks evidence. Touches no provider and creates
+        no schedule of its own -- it rides the existing finalize pipeline.
+        """
+
+        from app.parlay.tickets import ParlayTicketService
+
+        report = ParlayTicketService(self.session).settle_open_tickets()
+        self.session.commit()
+        return {"records": report["settled"], **report}
 
     async def controlled_live_validation(self, event_date: date) -> dict[str, Any]:
         """Run the one-shot Gate 2 validation under strict quota safeguards.

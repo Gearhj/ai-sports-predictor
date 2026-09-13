@@ -22,6 +22,7 @@ from app.models import (
     OfficialAspPosition,
 )
 from app.schemas.experiment_accounts import ExperimentAccountsData
+from app.schemas.parlay import RecordParlayTicketRequest
 from app.schemas.api import (
     AuthResponse,
     AuthUser,
@@ -1326,3 +1327,121 @@ def experiment_starter_analysis(
     from app.services.qualification_service import QualificationService
 
     return QualificationService(session, settings).starter_gate_analysis(_today(event_date, settings))
+
+
+# ---------------------------------------------------------------------------
+# MLB totals, Parlay Watch, and recorded virtual tickets
+#
+# Every GET here is a pure read of stored rows. Enumeration and refresh never
+# reach a provider: the market data is whatever the scheduled collection already
+# captured, and a reader browsing combinations cannot spend provider credit.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/mlb/totals", tags=["markets"])
+def mlb_totals(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+    overs_only: bool = Query(
+        False,
+        description=(
+            "Show Over selections only. Changes which selections are listed and "
+            "nothing else -- no probability, price or estimate differs."
+        ),
+    ),
+    scenario_line: list[str] | None = Query(
+        None,
+        description=(
+            "Exploratory lines as game_id:line. Returned labelled "
+            "USER_SELECTED_SCENARIO and priced with no offer attached, because "
+            "no sportsbook quoted them."
+        ),
+    ),
+) -> dict:
+    """V18's total-runs distribution beside the recorded sportsbook total.
+
+    Read-only. Probabilities are percents and every payload says so. A missing
+    line or price is reported as missing, never as zero, and the response names
+    when MLB totals were last captured and from where.
+    """
+
+    from app.totals.read_service import MlbTotalsReadService
+
+    scenarios: dict[str, float] = {}
+    for entry in scenario_line or []:
+        game, _, value = entry.partition(":")
+        try:
+            scenarios[game.strip()] = float(value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"scenario_line must be game_id:line, got {entry!r}",
+            ) from None
+
+    return MlbTotalsReadService(session, settings).board(
+        _today(event_date, settings),
+        overs_only=overs_only,
+        scenario_lines=scenarios,
+    )
+
+
+@router.get("/mlb/parlays", tags=["markets"])
+def mlb_parlay_watch(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+    legs: int = Query(2, ge=2, le=3, description="Two or three legs."),
+    market_filter: str = Query(
+        "ALL", description="ALL | OVERS_ONLY | TOTALS_ONLY | MIXED"),
+) -> dict:
+    """Eligible research combinations for one slate, and up to two featured.
+
+    Each ticket uses distinct games and one sportsbook. Combined figures assume
+    cross-game independence and say so. Nothing here is an offer, and recording
+    is a separate, deliberate action.
+    """
+
+    from app.parlay.read_service import MlbParlayReadService
+
+    try:
+        return MlbParlayReadService(session, settings).watch(
+            _today(event_date, settings), leg_count=legs, market_filter=market_filter,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/mlb/parlays/tickets", tags=["markets"])
+def mlb_parlay_tickets(session: DatabaseSession, settings: AppSettings) -> dict:
+    """Every recorded virtual ticket, with parlay performance tagged separately."""
+
+    from app.parlay.performance import ParlayPerformanceReadService
+
+    return ParlayPerformanceReadService(session, settings).summary()
+
+
+@router.post("/mlb/parlays/tickets", tags=["markets"], status_code=status.HTTP_200_OK)
+def record_mlb_parlay_ticket(
+    payload: RecordParlayTicketRequest,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> dict:
+    """Freeze one virtual ticket from stored evidence.
+
+    The request names selections, not numbers. Every price and probability is
+    re-derived here from the stored quote and the stored forecast, so the ticket
+    records what AISP held rather than what a browser believed.
+
+    Idempotent: the frozen content is content-addressed and that address is
+    unique, so repeating the request returns the first ticket and writes nothing.
+    """
+
+    from app.parlay.recording import RecordingError, record_from_request
+
+    try:
+        return record_from_request(session, settings, payload)
+    except RecordingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
