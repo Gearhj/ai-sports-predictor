@@ -19,6 +19,8 @@ import {
 } from '../components/experiment/BankrollPanels'
 import { EquityDrawdownChart } from '../components/experiment/EquityDrawdownChart'
 import { bankrollFacts, equitySeries, narrative } from '../components/experiment/bankrollMath'
+import { WagerExplanation } from '../components/explain/WagerExplanation'
+import { usePositionExplanation } from '../hooks/useExplanation'
 
 type PositionRow = BankrollData['positions'][number]
 type ExperimentKey = 'v1' | 'v2'
@@ -163,6 +165,21 @@ function ResultPill({ result }: { result: PositionRow['result'] }) {
   return <span className={`result-pill result-pill--${result.toLowerCase()}`}>{result}</span>
 }
 
+/** The explanation panels, loaded only once a row's details are open. */
+function LedgerExplanation({ positionId, enabled }: { positionId: string; enabled: boolean }) {
+  const resource = usePositionExplanation(positionId, enabled)
+  if (!enabled) return null
+  if (resource.loading) return <p className="explain__note">Loading the explanation…</p>
+  if (!resource.data) {
+    return (
+      <p className="explain__note">
+        No explanation is available for this position: it has no bound decision record.
+      </p>
+    )
+  }
+  return <WagerExplanation explanation={resource.data} />
+}
+
 function LedgerRow({ position, demo, expanded, onToggle }: { position: PositionRow; demo: boolean; expanded: boolean; onToggle: () => void }) {
   const detailId = `ledger-detail-${position.id}`
   return (
@@ -211,6 +228,10 @@ function LedgerRow({ position, demo, expanded, onToggle }: { position: PositionR
               <div><dt>Beat the close</dt><dd>{position.beat_close == null ? 'No closing quote recorded' : position.beat_close ? 'Yes' : 'No'}</dd></div>
               <div><dt>Game</dt><dd><Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>{position.game_id}</Link></dd></div>
             </dl>
+            {/* Why it was taken, and what happened — from the same service
+                Daily Decisions uses, so the rationale does not change once the
+                result is known. */}
+            <LedgerExplanation positionId={position.id} enabled={expanded} />
           </td>
         </tr>
       )}

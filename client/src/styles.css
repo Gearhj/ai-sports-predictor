@@ -3714,3 +3714,71 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .theater__park { height: 28vh; max-height: 28vh; }
   .theater__field { height: 100%; max-height: 28vh; }
 }
+
+/* Decision and outcome explanations.
+
+   Quiet by construction: these are answers to a question the reader asked by
+   opening them, so nothing here competes with the numbers it explains. The one
+   line given visual weight is the framing sentence, because "the model did not
+   make this the likely winner" is the statement most easily skipped and most
+   costly to miss. */
+.explain-group { margin-top: 8px; display: grid; gap: 4px; }
+.explain__toggle {
+  display: inline-flex; align-items: center; gap: 6px; width: 100%;
+  padding: 5px 0; font: inherit; font-size: 12px; cursor: pointer;
+  background: none; border: 0; color: var(--muted, #7a8699); text-align: left;
+}
+.explain__toggle:hover { color: inherit; }
+.explain__chevron { margin-left: auto; transition: transform .15s ease; }
+.explain__chevron.is-open { transform: rotate(180deg); }
+.explain__panel {
+  padding: 10px 12px; margin-bottom: 4px; border-radius: 8px;
+  background: color-mix(in srgb, #5b7ea6 6%, transparent);
+  border: 1px solid color-mix(in srgb, #5b7ea6 20%, transparent);
+}
+.explain__status {
+  margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.explain__status--recorded { color: #3d8b5f; }
+.explain__status--qualifying { color: var(--muted, #7a8699); }
+.explain__framing {
+  margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; font-weight: 600;
+}
+.explain__bullets { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.55; }
+.explain__bullets li { margin-bottom: 4px; }
+.explain__price {
+  display: flex; flex-wrap: wrap; gap: 16px; margin: 10px 0 0;
+}
+.explain__price dt {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted, #7a8699);
+}
+.explain__price dd {
+  margin: 2px 0 0; font-size: 14px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.explain__note {
+  margin: 10px 0 0; font-size: 11.5px; line-height: 1.5;
+  color: var(--muted, #7a8699);
+}
+.explain__note--guard { font-style: italic; }
+.explain__subhead {
+  margin: 10px 0 4px; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted, #7a8699);
+}
+.explain__facts { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 0; }
+.explain__facts dt {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted, #7a8699);
+}
+.explain__facts dd { margin: 2px 0 0; font-size: 11.5px; }
+.explain__facts code, .explain__gates code { font-size: 10.5px; overflow-wrap: anywhere; }
+.explain__gates {
+  margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.6;
+  columns: 2; column-gap: 18px;
+}
+@media (max-width: 640px) {
+  .explain__price { gap: 12px; }
+  .explain__gates { columns: 1; }
+}

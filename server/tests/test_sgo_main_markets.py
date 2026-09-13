@@ -25,7 +25,7 @@ the fourth, so both are checked explicitly rather than inferred.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -300,3 +300,69 @@ class TestCoverageAccounting:
         assert classify_odd(player) == "PLAYER_PROP"
         assert classify_odd(first_five) == "PARTIAL_GAME_PERIOD"
         assert classify_odd(hits) == "NON_RUNS_STAT"
+
+
+# -- the ordinary-run coverage gap -------------------------------------------
+
+class TestTotalsCoverageGate:
+    """A fresh moneyline used to mean "covered", so totals were never fetched.
+
+    Coverage was measured on the moneyline alone, which was correct while the
+    moneyline was the only market retained. Once totals ride inside the same
+    event object, a game can be covered and still have no total -- permanently,
+    because the moneyline satisfying the gate does not go stale before first
+    pitch. On the live board this described 14 of 25 games.
+    """
+
+    def test_a_game_with_no_total_is_reported_as_missing(self, session):
+        from app.models import (
+            Game, GameStatus, League, Market, MarketOutcome, MarketType,
+            OddsSnapshot, Season, Sport, Sportsbook,
+        )
+        from app.services.sgo_collection import _games_missing_total
+
+        sport = Sport(code="BASEBALL", name="Baseball")
+        session.add(sport)
+        session.flush()
+        league = League(sport_id=sport.id, code="MLB", name="MLB")
+        session.add(league)
+        session.flush()
+        season = Season(league_id=league.id, name="2026",
+                        starts_at=START - timedelta(days=1),
+                        ends_at=START + timedelta(days=1))
+        session.add(season)
+        session.flush()
+        games = []
+        for _ in range(2):
+            game = Game(league_id=league.id, season_id=season.id, starts_at=START,
+                        status=GameStatus.SCHEDULED, source_mode="LIVE")
+            session.add(game)
+            games.append(game)
+        session.flush()
+
+        # Only the first game gets a stored full-game total.
+        book = Sportsbook(key="b", name="Book", region="us", active=True)
+        session.add(book)
+        session.flush()
+        market = Market(game_id=games[0].id, market_type=MarketType.TOTAL,
+                        period="full_game")
+        session.add(market)
+        session.flush()
+        outcome = MarketOutcome(market_id=market.id, outcome_key="over:7.5", label="Over")
+        session.add(outcome)
+        session.flush()
+        session.add(OddsSnapshot(
+            market_outcome_id=outcome.id, sportsbook_id=book.id,
+            observed_at=START, available_as_of=START, american_odds=-110,
+            decimal_odds=1.909, point=7.5, source="SPORTSGAMEODDS", source_mode="LIVE"))
+        session.flush()
+
+        missing = _games_missing_total(
+            session, [str(games[0].id), str(games[1].id)])
+        assert str(games[0].id) not in missing
+        assert str(games[1].id) in missing
+
+    def test_an_empty_request_asks_nothing(self, session):
+        from app.services.sgo_collection import _games_missing_total
+
+        assert _games_missing_total(session, []) == set()

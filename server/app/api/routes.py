@@ -1445,3 +1445,66 @@ def record_mlb_parlay_ticket(
     except RecordingError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Plain-language decision and outcome explanations
+#
+# Pure reads over retained evidence. Opening a panel calls no provider, spends
+# no quota, and writes nothing: forecasts, decisions, thresholds, positions,
+# stakes, settlements and bankrolls are all untouched.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/explanations/decisions/{decision_id}", tags=["transparency"])
+def explain_decision(decision_id: UUID, session: DatabaseSession) -> dict:
+    """Why one decision qualified, and what happened if it has settled."""
+
+    from app.explain.service import ExplanationService
+
+    payload = ExplanationService(session).for_decision(decision_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Decision not found")
+    return payload
+
+
+@router.get("/explanations/positions/{position_id}", tags=["transparency"])
+def explain_position(position_id: UUID, session: DatabaseSession) -> dict:
+    """The same explanation, reached from a recorded wager instead."""
+
+    from app.explain.service import ExplanationService
+
+    payload = ExplanationService(session).for_position(position_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Position not found, or it has no bound decision",
+        )
+    return payload
+
+
+@router.get("/explanations/slate", tags=["transparency"])
+def explain_slate(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+) -> dict:
+    """Every decision on one slate, explained once each.
+
+    Daily Decisions uses this so a slate costs one request rather than one per
+    card, and so a qualifying opportunity and a recorded wager are distinguished
+    by the same service that explains them.
+    """
+
+    from app.explain.service import ExplanationService
+
+    day = _today(event_date, settings)
+    explanations = ExplanationService(session).for_slate(day)
+    return {
+        "schema_version": "AISP_SLATE_EXPLANATIONS_V1",
+        "event_date": day.isoformat(),
+        "explanations": explanations,
+        "recorded_wagers": sum(1 for row in explanations if row["recorded_wager"]),
+        "qualifying_only": sum(1 for row in explanations if not row["recorded_wager"]),
+    }

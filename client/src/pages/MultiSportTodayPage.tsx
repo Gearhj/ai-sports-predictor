@@ -51,6 +51,9 @@ import type { ExperimentFunnelData } from '../types/domain'
 import '../broadcast.css'
 import { CoverageFunnel, type CoverageFunnelData } from '../components/CoverageFunnel'
 import { ModelEraBadge, type ModelEraData } from '../components/ModelEraBadge'
+import { WagerExplanation } from '../components/explain/WagerExplanation'
+import { useSlateExplanations } from '../hooks/useExplanation'
+import type { DecisionExplanation } from '../types/explain'
 
 /** The page never ranks across sports; the read model says so and this asserts it. */
 export function hasNoCrossSportRanking(model: TodayAllSportsReadModel | null): boolean {
@@ -73,6 +76,7 @@ type BlockerKey =
  * has neither a price nor an edge is a pricing problem, not an edge problem,
  * and counting it in both would make the blockers add to more than the games.
  */
+
 export function firstBlocker(selection: NormalizedSelection): BlockerKey | null {
   const gates = (selection.outstanding_gates ?? []).join(' | ').toLowerCase()
   if (!selection.can_ever_fund_official_position) return 'RESEARCH_ONLY'
@@ -193,6 +197,27 @@ export function MultiSportTodayPage() {
   // Everything fundable stays on the page, in edge order. Dropping the games
   // that are well short would leave the reader unable to tell "we looked and
   // it was not close" from "we never looked".
+  // One request for the whole slate rather than one per card. The server side
+  // spends no quota either way, but a decision desk should not issue fifteen
+  // requests before anyone has asked a question.
+  // The slate the board is showing. `today` carries the date the server used,
+  // so the explanations are fetched for the same day the cards describe rather
+  // than for the browser's idea of today.
+  const slateDate = model?.operational_date ?? new Date().toISOString().slice(0, 10)
+  const explanations = useSlateExplanations(slateDate, true)
+  const explanationByGame = useMemo(() => {
+    const map = new Map<string, DecisionExplanation>()
+    for (const row of explanations.data?.explanations ?? []) {
+      // A game can carry several phases; the recorded wager wins, otherwise the
+      // most advanced decision already sorted last by the service.
+      const existing = map.get(row.game_id)
+      if (!existing || (row.recorded_wager && !existing.recorded_wager)) {
+        map.set(row.game_id, row)
+      }
+    }
+    return map
+  }, [explanations.data])
+
   const ordered = useMemo(() => {
     const head = [...qualifiedNow, ...clearingButOpen, ...nearThreshold]
     const seen = new Set(head.map((item) => `${item.league_code}:${item.event_id}`))
@@ -328,7 +353,8 @@ export function MultiSportTodayPage() {
                 {ordered.slice(0, 8).map((selection, index) => (
                   <OpportunityRow key={`${selection.league_code}:${selection.event_id}`}
                     rank={index + 1} selection={selection} minimumEdge={minimumEdge}
-                    zone={zone} withSport={withSport} />
+                    zone={zone} withSport={withSport}
+                    explanation={explanationByGame.get(selection.event_id) ?? null} />
                 ))}
                 {qualifiedNow.length === 0 && (
                   <p className="bx-dim">
@@ -463,10 +489,11 @@ export function MultiSportTodayPage() {
 }
 
 function OpportunityRow({
-  rank, selection, minimumEdge, zone, withSport,
+  rank, selection, minimumEdge, zone, withSport, explanation,
 }: {
   rank: number; selection: NormalizedSelection; minimumEdge: number; zone?: string
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  explanation?: DecisionExplanation | null
 }) {
   const edge = selection.adjusted_edge
   const qualified = selection.decision_state === 'FINAL_QUALIFIED'
@@ -534,6 +561,11 @@ function OpportunityRow({
           </PrefetchLink>
         )}
       </div>
+      {explanation && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <WagerExplanation explanation={explanation} />
+        </div>
+      )}
       {(selection.outstanding_gates ?? []).length > 0 && (
         <p className="bx-dim" style={{ gridColumn: '1 / -1' }}>
           {(selection.outstanding_gates ?? []).join(' · ')}

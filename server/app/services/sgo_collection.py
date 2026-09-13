@@ -235,6 +235,46 @@ def fetch_pregame_moneylines(
     )
 
 
+def _games_missing_total(session: Session, game_ids: "list[str]") -> set[str]:
+    """Which of these games hold no full-game total quote at all.
+
+    Deliberately "none at all" rather than "none fresh". A stale total is still
+    a total, and re-requesting for freshness would reopen the spending loop the
+    window rule exists to close; this only fills a market that was never
+    collected because the parser used to discard it.
+    """
+
+    from sqlalchemy import func, select as _select
+
+    from app.models import Market, MarketOutcome, MarketType, OddsSnapshot
+
+    if not game_ids:
+        return set()
+    have = session.execute(
+        _select(Market.game_id, func.count())
+        .select_from(OddsSnapshot)
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .join(Market, Market.id == MarketOutcome.market_id)
+        .where(
+            Market.market_type == MarketType.TOTAL,
+            Market.period == "full_game",
+            Market.game_id.in_([_uuid(value) for value in game_ids]),
+        )
+        .group_by(Market.game_id)
+    ).all()
+    covered = {str(row[0]) for row in have if row[1]}
+    return {value for value in game_ids if value not in covered}
+
+
+def _uuid(value: "str | Any") -> Any:
+    import uuid as _uuid_module
+
+    try:
+        return _uuid_module.UUID(str(value))
+    except (TypeError, ValueError):
+        return value
+
+
 def to_market_event_dtos(
     quotes: "list[MainMarketQuote]", *, markets: tuple[str, ...] = ("totals", "spreads"),
 ) -> list[OddsEventDTO]:
@@ -608,17 +648,36 @@ def collect_for_open_cutoffs(
     # the games that could be helped go unfunded. So a game enters the request
     # only once its freshness window has actually opened.
     #
+    # Coverage is measured on the MONEYLINE, which was the only market this
+    # collector retained. Now that the same event object also yields the full
+    # game total and run line, a game can be "covered" and still have no total
+    # at all -- and it would stay that way forever, because the moneyline that
+    # satisfies the gate never goes stale before first pitch.
+    #
+    # So a second, narrower reason to refresh: a game inside its window whose
+    # full-game total has never been retained. It costs nothing extra (billing
+    # is per event object, and the moneyline is in the same response), it is
+    # bounded by the same freshness window, cooldown and object budget, and it
+    # stops asking as soon as a total exists.
+    missing_totals = _games_missing_total(
+        session, [event["game_id"] for event in coverage["events"]])
+
     window_open: list[dict[str, Any]] = []
     too_early = 0
+    totals_only = 0
     for event in coverage["events"]:
         cutoff = datetime.fromisoformat(event["cutoff_utc"])
         if cutoff <= moment:
             continue
-        if not event.get("needs_refresh", not event["covered"]):
+        needs_moneyline = event.get("needs_refresh", not event["covered"])
+        needs_total = event["game_id"] in missing_totals
+        if not needs_moneyline and not needs_total:
             continue
         if moment < cutoff - timedelta(minutes=MAX_QUOTE_STALENESS_MINUTES):
             too_early += 1
             continue
+        if not needs_moneyline:
+            totals_only += 1
         window_open.append(event)
     open_games = window_open
     if not open_games:
@@ -673,6 +732,7 @@ def collect_for_open_cutoffs(
         "attempted": True, "reason": "FALLBACK_COLLECTED",
         "objects": fetch.objects,
         "games_open_before_cutoff": len(open_games),
+        "games_admitted_for_missing_total_only": totals_only,
         "uncovered_but_window_not_open": too_early,
         "events_ingested": fetch.events_ingested,
         "quote_rows": fetch.quotes_written,
