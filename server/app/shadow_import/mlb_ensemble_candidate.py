@@ -86,13 +86,16 @@ from app.shadow_import.mlb_v18 import ENGINE_ID as BASELINE_ENGINE_ID
 
 HANDOFF_SCHEMA_V1 = "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V1"
 HANDOFF_SCHEMA_V2 = "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V2"
+HANDOFF_SCHEMA_V3 = "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3"
 
-#: Handoff envelopes this consumer accepts. V2 exists for exactly one reason:
-#: to carry a TRANSITION component. It is not a new payload format -- the object
-#: manifest and the per-game forecast stay at their V1 schemas, and every
-#: existing check (self-addressing, safety invariants, baseline system binding,
-#: per-game baseline binding, pregame clock, idempotency) applies unchanged.
-SUPPORTED_HANDOFF_SCHEMAS = frozenset({HANDOFF_SCHEMA_V1, HANDOFF_SCHEMA_V2})
+#: Handoff envelopes this consumer accepts. Each later version exists for
+#: exactly one reason -- V2 to carry a TRANSITION component, V3 to carry a
+#: SCORE_LIMIT one -- and neither is a new payload format: the object manifest
+#: and the per-game forecast stay at their V1 schemas, and every existing check
+#: (self-addressing, safety invariants, baseline system binding, per-game
+#: baseline binding, pregame clock, idempotency) applies unchanged.
+SUPPORTED_HANDOFF_SCHEMAS = frozenset(
+    {HANDOFF_SCHEMA_V1, HANDOFF_SCHEMA_V2, HANDOFF_SCHEMA_V3})
 
 #: Kept as the V1 name so existing importers and tests that reference the single
 #: schema constant continue to mean what they meant.
@@ -130,12 +133,26 @@ ROLE_DURATION = "DURATION"
 #: the contract by writing a different component name into an old envelope.
 ROLE_TRANSITION = "TRANSITION"
 
+#: Post-simulation whole-game filtering, recognised ONLY under a V3 envelope.
+#: It is not DURATION, TRANSITION or CALIBRATION: those change how a game is
+#: simulated, while this one changes WHICH completed simulations are kept. An
+#: accepted draw is untouched -- no score is clipped, no sequence rewritten --
+#: so the candidate is the baseline conditioned on staying inside the limits.
+ROLE_SCORE_LIMIT = "SCORE_LIMIT"
+
 ROLES_V1 = frozenset({ROLE_BASE, ROLE_CALIBRATION, ROLE_DURATION})
 ROLES_V2 = ROLES_V1 | {ROLE_TRANSITION}
+ROLES_V3 = ROLES_V2 | {ROLE_SCORE_LIMIT}
 ROLES_BY_SCHEMA: dict[str, frozenset[str]] = {
     HANDOFF_SCHEMA_V1: ROLES_V1,
     HANDOFF_SCHEMA_V2: ROLES_V2,
+    HANDOFF_SCHEMA_V3: ROLES_V3,
 }
+
+#: The rule refuses to publish a forecast from too few surviving draws. Below
+#: this the retained population is not a population, whatever the arithmetic
+#: says. Fixed by the contract, not tuned here.
+MINIMUM_RETAINED_SIMULATIONS = 1000
 
 #: Kept for callers that predate the versioned sets. It is the V1 set, so a
 #: reader who has not been updated still sees the narrower contract.
@@ -319,10 +336,19 @@ def verify_package(handoff_path: Path, *, package_root: Path | None = None) -> V
     for component in components:
         role = str(component.get("role") or "")
         if role not in allowed_roles:
-            if role in ROLES_V2:
+            # Name the envelope that WOULD accept it, so a producer that used an
+            # old header by mistake is told which one to use -- without the old
+            # header ever being widened.
+            required = next(
+                (version for version, roles in (
+                    (HANDOFF_SCHEMA_V2, ROLES_V2), (HANDOFF_SCHEMA_V3, ROLES_V3),
+                ) if role in roles),
+                None,
+            )
+            if required is not None:
                 raise EnsembleCandidateImportError(
                     f"component role {role!r} requires handoff schema "
-                    f"{HANDOFF_SCHEMA_V2}; this package declares {schema_version}"
+                    f"{required}; this package declares {schema_version}"
                 )
             raise EnsembleCandidateImportError(f"unknown component role {role!r}")
         if not str(component.get("componentId") or ""):
@@ -449,6 +475,45 @@ def _verify_object(
         raise EnsembleCandidateImportError("forecast declares no integer simulation.seed")
     if not isinstance(forecast.get("season"), int):
         raise EnsembleCandidateImportError("forecast declares no integer season")
+
+    # SCORE_LIMIT is the one transformation whose retained population is
+    # deliberately smaller than the source. The per-game baseline binding still
+    # names the ORIGINAL 5,000 (it describes the baseline, which did not change),
+    # while the child simulation block reports what survived. Both are checked,
+    # and they are checked against each other.
+    simulation_block = forecast.get("simulation") or {}
+    source_count = simulation_block.get("sourceSimulationCount")
+    retained_count = simulation_block.get("retainedSimulationCount")
+    if retained_count is not None or source_count is not None:
+        excluded = simulation_block.get("excludedSimulationCount")
+        for label, value in (
+            ("sourceSimulationCount", source_count),
+            ("retainedSimulationCount", retained_count),
+            ("excludedSimulationCount", excluded),
+        ):
+            if not isinstance(value, int) or value < 0:
+                raise EnsembleCandidateImportError(
+                    f"{label} must be a non-negative integer, got {value!r}"
+                )
+        if retained_count + excluded != source_count:
+            raise EnsembleCandidateImportError(
+                f"retained {retained_count} + excluded {excluded} does not equal "
+                f"source {source_count}; the population does not account for itself"
+            )
+        if retained_count < MINIMUM_RETAINED_SIMULATIONS:
+            raise EnsembleCandidateImportError(
+                f"only {retained_count} retained draws, below the rule's fixed "
+                f"minimum of {MINIMUM_RETAINED_SIMULATIONS}"
+            )
+        # The denominator every candidate number is computed over must BE the
+        # retained count. A forecast whose own simulationCount still says 5,000
+        # is reporting probabilities over draws it excluded.
+        if simulation_block.get("simulationCount") != retained_count:
+            raise EnsembleCandidateImportError(
+                f"simulation.simulationCount {simulation_block.get('simulationCount')!r} "
+                f"is not the retained count {retained_count}; candidate summaries "
+                "must use the accepted population as their denominator"
+            )
 
     applied = forecast.get("componentsApplied")
     if not isinstance(applied, list) or not applied:
@@ -735,6 +800,43 @@ def register_package(
             session, item.forecast, baseline,
         )
 
+    # An envelope may omit the bundle-level clock and slate entirely -- the V3
+    # score-limited package does. Both columns are NOT NULL, and neither may be
+    # invented: a fresh clock here would read as a producer timestamp.
+    #
+    # They are DERIVED from values the producer did record, and the derivation is
+    # stored beside them so nobody later mistakes a derived value for a declared
+    # one. generated_at falls back to the earliest child forecast's own immutable
+    # freeze; slate_date to the date those forecasts are scheduled for.
+    declared_generated_at = handoff.get("generatedAt")
+    declared_slate_date = handoff.get("slateDate")
+    child_freezes = sorted(
+        _aware(item.forecast["publishedAt"]) for item in verified.forecasts
+    )
+    child_dates = sorted(
+        _aware(item.forecast["scheduledStart"]).date() for item in verified.forecasts
+    )
+    generated_at = (
+        _aware(declared_generated_at) if declared_generated_at else child_freezes[0]
+    )
+    slate_date = (
+        _aware(declared_slate_date + "T00:00:00+00:00").date()
+        if isinstance(declared_slate_date, str) else child_dates[0]
+    )
+    clock_provenance = {
+        "generatedAt": "DECLARED_BY_HANDOFF" if declared_generated_at
+        else "DERIVED_FROM_EARLIEST_CHILD_FORECAST_FREEZE",
+        "slateDate": "DECLARED_BY_HANDOFF" if declared_slate_date
+        else "DERIVED_FROM_CHILD_SCHEDULED_START",
+        "bundleId": "DECLARED_BY_HANDOFF" if handoff.get("bundleId")
+        else "DERIVED_FROM_HANDOFF_DIGEST",
+        "note": (
+            "A derived value is not a producer declaration. Nothing here is a "
+            "fresh clock: every derived timestamp is copied from a value the "
+            "producer recorded on its own forecasts."
+        ),
+    }
+
     bundle = session.scalar(
         select(ShadowForecastBundle)
         .where(ShadowForecastBundle.bundle_sha256 == verified.handoff_sha256)
@@ -745,12 +847,11 @@ def register_package(
             bundle_id=str(handoff.get("bundleId") or f"mlb-ensemble-candidate-{verified.handoff_sha256[:24]}"),
             logical_uri=str(verified.handoff_path.as_uri()),
             source_fixture_id=str(candidate.get("engineVersion") or ""),
-            slate_date=_aware(handoff.get("slateDate") + "T00:00:00+00:00").date()
-            if isinstance(handoff.get("slateDate"), str) else None,
+            slate_date=slate_date,
             league="MLB", sport="MLB",
             status=STATUS_BY_TYPE[verified.artifact_type],
             research_shadow_only=True,
-            generated_at=_aware(handoff.get("generatedAt")),
+            generated_at=generated_at,
             imported_at=now,
             forecast_count=len(verified.forecasts),
             quote_count=0, candidate_count=len(verified.forecasts),
@@ -760,6 +861,7 @@ def register_package(
                 "candidate": candidate,
                 "baseline": baseline,
                 "components": handoff.get("components"),
+                "clockProvenance": clock_provenance,
                 "executionAllowed": False,
                 "wageringAuthority": False,
                 "activatesModel": False,
@@ -859,6 +961,17 @@ def register_package(
                 # to see that rather than counting it as a component trial.
                 "configurationId": forecast.get("configurationId"),
                 "actualConfiguration": forecast.get("actualConfiguration"),
+                # What the filter was and what survived it. Displayed rather
+                # than inferred: a reader comparing this against its baseline
+                # needs the limits and the denominator in front of them.
+                "scoreLimits": forecast.get("scoreLimits"),
+                "sourceSimulationCount": (
+                    forecast.get("simulation") or {}).get("sourceSimulationCount"),
+                "retainedSimulationCount": (
+                    forecast.get("simulation") or {}).get("retainedSimulationCount"),
+                "excludedSimulationCount": (
+                    forecast.get("simulation") or {}).get("excludedSimulationCount"),
+                "exclusionRate": forecast.get("exclusionRate"),
                 "componentTrialSupported": (
                     forecast.get("eligibility") or {}).get("componentTrialSupported"),
                 "fallbackToOriginalDraws": (
@@ -889,10 +1002,12 @@ __all__ = [
     "AUTHORITY_BINDINGS", "BaselineBindingError", "CONTRACT_VERSION",
     "EVIDENCE_BINDINGS", "FORECAST_BINDINGS", "LINEAGE_BINDINGS",
     "ENGINE_ID", "FORECAST_SCHEMA", "HANDOFF_SCHEMA",
-    "HANDOFF_SCHEMA_V1", "HANDOFF_SCHEMA_V2", "SUPPORTED_HANDOFF_SCHEMAS",
+    "HANDOFF_SCHEMA_V1", "HANDOFF_SCHEMA_V2", "HANDOFF_SCHEMA_V3",
+    "SUPPORTED_HANDOFF_SCHEMAS",
     "HISTORICAL_REPLAY", "OBJECT_SCHEMA", "PROSPECTIVE", "ROLE_BASE",
-    "ROLE_CALIBRATION", "ROLE_DURATION", "ROLE_TRANSITION",
-    "ROLES_V1", "ROLES_V2", "ROLES_BY_SCHEMA", "STATUS_BY_TYPE",
+    "ROLE_CALIBRATION", "ROLE_DURATION", "ROLE_TRANSITION", "ROLE_SCORE_LIMIT",
+    "ROLES_V1", "ROLES_V2", "ROLES_V3", "ROLES_BY_SCHEMA", "STATUS_BY_TYPE",
+    "MINIMUM_RETAINED_SIMULATIONS",
     "CandidateRegistrationOutcome", "EnsembleCandidateImportError",
     "VerifiedCandidateForecast", "VerifiedCandidatePackage",
     "register_package", "verify_package",

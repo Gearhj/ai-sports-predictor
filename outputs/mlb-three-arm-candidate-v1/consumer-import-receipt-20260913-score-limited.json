@@ -1,0 +1,50 @@
+{
+  "artifactType": "PROSPECTIVE",
+  "authority": {
+    "activatesModel": false,
+    "candidateAuthority": false,
+    "executionAllowedInAISP": false,
+    "promotes": false,
+    "wageringAuthority": false
+  },
+  "baselineForecastId": "mlb-v18-daily-05f86403fb40fc60600d479b94821a46e17b91471afbf6c8ac3c48e18ceeaeaa",
+  "candidateEngineVersion": "mlb-v18-score-limited-v1",
+  "canonicalGameId": "3c7a6820-7c95-4e91-87fa-6acb89c013d7",
+  "clocks": {
+    "consumerImportedAtUtc": "2026-09-13T17:01:17.829508+00:00",
+    "forecastFreezeUtc": "2026-09-13T16:44:13.820226+00:00",
+    "note": "forecastFreezeUtc is the producer's immutable local comparison freeze; the exchange publication receipt carries delivery time. consumerImportedAtUtc is AISP's own clock and never backdates the producer's. A genuinely pregame producer forecast can still be imported late; these fields keep the two facts separable.",
+    "policyCutoffUtc": "2026-09-13T17:55:00+00:00",
+    "scheduledStartUtc": "2026-09-13 14:10:00-04:00",
+    "sourceCaptureUtc": "2026-09-13 15:13:04.087492+00:00"
+  },
+  "configuration": "SCORE_LIMITED",
+  "configurationSha256": "146cc86cfe89e6834788170f7b4e03ff8260f61f6b3672fd0ad4f2f430f66382",
+  "contractVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+  "forecastId": "mlb-v18-score-limited-8ac962b90c3da1bbdcefd84de01ebd403f5c44459ca4e4d68d1eb4d8350996bb",
+  "handoffFileSha256": "3dc5a0692a8e0a0cbd0d7b2a7745d801da7d2de2fb49c8a703bae02524e4374b",
+  "handoffPath": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-ensemble-research-v1\\score-limited-v1\\packages\\sha256\\3d239fdb897063d28f87b0e7ede23c4d6d2818d4ac7062b4df34fbca5da6342a\\aisp-handoff.json",
+  "handoffSha256": "a6e4015602b32c4ce36dee66d59ff8c19e34fe119dc9e5370730906014c7f348",
+  "outcome": {
+    "already_present": [
+      "mlb-v18-score-limited-8ac962b90c3da1bbdcefd84de01ebd403f5c44459ca4e4d68d1eb4d8350996bb"
+    ],
+    "artifact_type": "PROSPECTIVE",
+    "bundle_created": false,
+    "imported": [],
+    "rejected": []
+  },
+  "population": {
+    "baselineBindingSimulationCount": 5000,
+    "denominatorUsedForCandidateSummaries": 4722,
+    "excludedSimulationCount": 278,
+    "retainedSimulationCount": 4722,
+    "sourceSimulationCount": 5000
+  },
+  "schemaVersion": "AISP_MLB_ENSEMBLE_CANDIDATE_CONSUMER_RECEIPT_V1",
+  "scoreLimits": {
+    "maxRunsPerPlayedHalfInning": 5,
+    "maxRunsPerTeamGame": 14
+  },
+  "sourceGameId": "823734"
+}

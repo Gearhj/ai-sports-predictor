@@ -718,7 +718,7 @@ def test_an_unknown_role_is_still_refused_under_v2(tmp_path: Path):
 
 def test_an_unsupported_handoff_version_is_refused(tmp_path: Path):
     handoff = build_package(
-        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V9",
     )
     with pytest.raises(EnsembleCandidateImportError, match="expected one of"):
         verify_package(handoff)
@@ -846,3 +846,156 @@ def test_a_fallback_arm_is_labelled_not_counted_as_a_component_result(world, tmp
 def test_an_unknown_configuration_returns_nothing_rather_than_another_arm(world, tmp_path: Path):
     session, game_id, comparison = _two_configurations(world, tmp_path)
     assert comparison(session, game_id, configuration="V18_NOT_PUBLISHED") is None
+
+
+# -- V3 and the score-limit role -------------------------------------------
+#
+# SCORE_LIMIT is post-simulation whole-game filtering: it changes WHICH completed
+# draws are kept, not how any game is simulated. That makes it a different kind
+# of thing from DURATION, TRANSITION and CALIBRATION, and it is the one
+# transformation whose retained population is deliberately smaller than its
+# source -- so the denominator has to be checked, not assumed.
+
+
+def _score_limit_components(base_sha: str = BASELINE_ARTIFACT) -> list[dict]:
+    return [
+        {"componentId": "V18_WHOLE_GAME", "role": "BASE", "sha256": base_sha,
+         "status": "FROZEN"},
+        {"componentId": "MLB_V18_SCORE_LIMITED_V1", "role": "SCORE_LIMIT",
+         "sha256": DURATION_SHA, "status": "SHADOW_ONLY"},
+    ]
+
+
+def _with_population(root: Path, handoff: Path, *, source=5000, retained=4722,
+                     excluded=278, denominator=None):
+    _rewrite_forecast(root, handoff, {"simulation": {
+        "simulatorId": "V18_WHOLE_GAME_SCORE_LIMITED_RESEARCH",
+        "simulatorVersion": "1", "seed": 20260907,
+        "sourceSimulationCount": source,
+        "retainedSimulationCount": retained,
+        "excludedSimulationCount": excluded,
+        "simulationCount": denominator if denominator is not None else retained,
+    }})
+
+
+def test_a_v3_package_carrying_a_score_limit_component_verifies(tmp_path: Path):
+    handoff = build_package(
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        components=_score_limit_components())
+    _with_population(tmp_path, handoff)
+
+    verified = verify_package(handoff)
+
+    assert len(verified.forecasts) == 1 and verified.rejected == ()
+    assert verified.contract_version == "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3"
+
+
+@pytest.mark.parametrize("schema", [
+    "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V1",
+    "AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V2",
+])
+def test_older_envelopes_still_reject_the_score_limit_role(tmp_path: Path, schema: str):
+    """The envelope gates the vocabulary. V2 gained TRANSITION, not everything."""
+
+    handoff = build_package(
+        tmp_path, schema_version=schema, components=_score_limit_components())
+
+    with pytest.raises(EnsembleCandidateImportError) as exc:
+        verify_package(handoff)
+    assert "SCORE_LIMIT" in str(exc.value)
+    assert "HANDOFF_V3" in str(exc.value)
+
+
+def test_v3_still_rejects_a_role_no_version_defines(tmp_path: Path):
+    handoff = build_package(
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        components=[
+            {"componentId": "V18_WHOLE_GAME", "role": "BASE",
+             "sha256": BASELINE_ARTIFACT, "status": "FROZEN"},
+            {"componentId": "SOMETHING", "role": "WEATHER",
+             "sha256": DURATION_SHA, "status": "SHADOW_ONLY"},
+        ])
+
+    with pytest.raises(EnsembleCandidateImportError, match="unknown component role"):
+        verify_package(handoff)
+
+
+def test_the_retained_population_must_account_for_itself(tmp_path: Path):
+    """Retained plus excluded is the source, or the filter lost draws."""
+
+    handoff = build_package(
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        components=_score_limit_components())
+    _with_population(tmp_path, handoff, retained=4722, excluded=100)
+
+    verified = verify_package(handoff)
+
+    # A per-object failure is collected with its reason rather than raised, so
+    # one bad game never silently drops out of an otherwise valid package.
+    assert verified.forecasts == ()
+    assert len(verified.rejected) == 1
+    assert "does not account for itself" in verified.rejected[0]["reason"]
+
+
+def test_candidate_summaries_must_use_the_retained_denominator(tmp_path: Path):
+    """A forecast still reporting 5,000 is averaging over draws it excluded."""
+
+    handoff = build_package(
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        components=_score_limit_components())
+    _with_population(tmp_path, handoff, denominator=5000)
+
+    verified = verify_package(handoff)
+
+    # A per-object failure is collected with its reason rather than raised, so
+    # one bad game never silently drops out of an otherwise valid package.
+    assert verified.forecasts == ()
+    assert len(verified.rejected) == 1
+    assert "not the retained count" in verified.rejected[0]["reason"]
+
+
+def test_too_few_retained_draws_is_refused(tmp_path: Path):
+    handoff = build_package(
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        components=_score_limit_components())
+    _with_population(tmp_path, handoff, retained=999, excluded=4001)
+
+    verified = verify_package(handoff)
+
+    # A per-object failure is collected with its reason rather than raised, so
+    # one bad game never silently drops out of an otherwise valid package.
+    assert verified.forecasts == ()
+    assert len(verified.rejected) == 1
+    assert "below the rule's fixed minimum" in verified.rejected[0]["reason"]
+
+
+def test_the_baseline_binding_still_names_the_original_five_thousand(
+    world, tmp_path: Path,
+):
+    """Filtering changes the CANDIDATE's denominator, never the baseline's.
+
+    baselineBinding describes the ordinary V18 forecast, which did not change,
+    so it must still agree with the stored baseline's own simulation count. This
+    is the check that would break if the retained count were substituted there.
+    """
+
+    session = world["session"]
+    handoff = build_package(
+        tmp_path, schema_version="AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V3",
+        components=_score_limit_components(),
+        canonical_game_id=str(world["game"].id))
+    _with_population(tmp_path, handoff)
+    verified = verify_package(handoff)
+
+    register_package(session, verified)
+    session.flush()
+
+    row = session.scalar(select(ShadowForecast).where(
+        ShadowForecast.engine_id == CANDIDATE_ENGINE))
+    lineage = row.lineage_detail or {}
+    assert lineage["baselineBinding"]["simulationCount"] == BASELINE_SIM_COUNT
+    assert lineage["sourceSimulationCount"] == 5000
+    assert lineage["retainedSimulationCount"] == 4722
+    assert lineage["excludedSimulationCount"] == 278
+    # The stored denominator is the retained one.
+    assert (row.uncertainty or {}).get("simulationCount") == 4722
