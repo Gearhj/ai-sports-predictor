@@ -110,6 +110,8 @@ export interface ShadowComparison {
   authority_note?: string | null
   /** Present only when an ensemble release candidate has been imported. */
   candidate_comparison?: CandidateComparison | null
+  /** The cohort the selected configuration belongs to. */
+  candidate_cohort?: CandidateCohort | null
 }
 
 
@@ -152,12 +154,100 @@ export interface CandidateScore {
   brier_score: number | null
   margin_error: number | null
   total_error: number | null
+  crps_home?: number | null
+  crps_away?: number | null
   crps_margin: number | null
   crps_total: number | null
+  energy_score?: number | null
+  /**
+   * An absent distribution is absent, never zero. When this is false the CRPS
+   * and energy fields are null and the reason says why, so a blank cell is
+   * never read as a perfect score.
+   */
+  distribution_available?: boolean
+  distribution_unavailable_reason?: string | null
+  distribution_draws?: number | null
+  /** Which recorded final this score was computed against. */
+  result_identity?: string | null
   result_source: string | null
   result_tier: number | null
+  result_observed_utc?: string | null
   publication_clock: string | null
   publication_clock_verified: boolean | null
+}
+
+/** One loss metric, candidate against baseline, with the direction spelled out. */
+export interface CandidateScoreMetric {
+  key: string
+  label: string
+  candidate: number
+  baseline: number
+  delta: number
+  favours: 'CANDIDATE' | 'BASELINE' | 'NEITHER'
+}
+
+export interface CandidateScoreDifference {
+  convention: string
+  direction: string
+  metrics: CandidateScoreMetric[]
+}
+
+/** Whether both arms were scored against the same recorded final. */
+export interface CandidateSharedFinal {
+  status: 'SHARED' | 'DIVERGENT' | 'UNKNOWN'
+  candidate_result_identity: string | null
+  baseline_result_identity: string | null
+  detail: string
+}
+
+/** The separately governed, revisioned outcome record for the game. */
+export interface CandidateGovernedFinal {
+  revision: number
+  outcome_status: string
+  home_score: number
+  away_score: number
+  final_at_utc: string | null
+  payload_checksum: string | null
+  source_record_id: string | null
+}
+
+/** A mean over the games where one configuration and its baseline both scored. */
+export interface CandidateCohortMetric {
+  key: string
+  label: string
+  games: number
+  candidate_mean: number
+  baseline_mean: number
+  delta: number
+  favours: 'CANDIDATE' | 'BASELINE' | 'NEITHER'
+}
+
+export interface CandidateCohortGame {
+  source_game_id: string
+  canonical_game_id: string | null
+  candidate_forecast_id: string
+  baseline_forecast_id: string
+  scheduled_start_utc: string | null
+  candidate: CandidateScore
+  baseline: CandidateScore
+}
+
+export interface CandidateCohortExclusion {
+  forecast_identity: string
+  source_game_id: string
+  reason: string
+  detail: string
+}
+
+export interface CandidateCohort {
+  schema_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_COHORT_V1'
+  configuration: string
+  games: number
+  metrics: CandidateCohortMetric[]
+  included: CandidateCohortGame[]
+  excluded: CandidateCohortExclusion[]
+  convention: string
+  claim_limit: string
 }
 
 export interface CandidateComponent {
@@ -223,6 +313,10 @@ export interface CandidateComparison {
   baseline_binding?: string | null
   /** Present when this arm's component did not run and it reused baseline draws. */
   fallback_note?: string | null
+  /** Candidate minus baseline on every rule BOTH sides actually scored. */
+  score_difference?: CandidateScoreDifference | null
+  shared_final?: CandidateSharedFinal | null
+  governed_final?: CandidateGovernedFinal | null
   baseline: CandidateSide | null
   candidate: CandidateSide
   difference: {

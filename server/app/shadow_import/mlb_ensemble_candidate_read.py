@@ -26,10 +26,10 @@ WHAT IT REFUSES TO SHOW
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models import ResearchForecastEvaluation, ShadowForecast
@@ -43,6 +43,7 @@ from app.shadow_import.mlb_ensemble_candidate import (
 from app.shadow_import.mlb_v18 import ENGINE_ID as BASELINE_ENGINE_ID
 
 SCHEMA_VERSION = "AISP_MLB_ENSEMBLE_CANDIDATE_COMPARISON_V1"
+COHORT_SCHEMA_VERSION = "AISP_MLB_ENSEMBLE_CANDIDATE_COHORT_V1"
 
 #: The attribution key Model Studio must supply for a per-component split to be
 #: shown. Absent it, the surface shows the total difference only.
@@ -133,10 +134,24 @@ def _score_for(session: Session, row: ShadowForecast) -> dict[str, Any] | None:
         "brier_score": _round(evaluation.brier_score),
         "margin_error": _round(evaluation.margin_error),
         "total_error": _round(evaluation.total_error),
+        "crps_home": _round(evaluation.crps_home),
+        "crps_away": _round(evaluation.crps_away),
         "crps_margin": _round(evaluation.crps_margin),
         "crps_total": _round(evaluation.crps_total),
+        "energy_score": _round(evaluation.energy_score),
+        # An absent distribution is absent, not zero. Both fields travel
+        # together so a reader is never left to guess whether a blank CRPS
+        # means "perfect" or "not computed".
+        "distribution_available": bool(evaluation.distribution_available),
+        "distribution_unavailable_reason": evaluation.distribution_unavailable_reason,
+        "distribution_draws": evaluation.distribution_draws,
+        # Which result this score was computed against. Two arms of one
+        # comparison must carry the same value or the comparison is between
+        # two different games.
+        "result_identity": evaluation.result_identity,
         "result_source": evaluation.result_source,
         "result_tier": evaluation.result_tier,
+        "result_observed_utc": _iso(evaluation.result_observed_utc),
         "publication_clock": clock.get("classification"),
         "publication_clock_verified": clock.get("verified"),
     }
@@ -168,6 +183,124 @@ def _side(session: Session, row: ShadowForecast, label: str, track: str) -> dict
         "wagering_authority": False,
         "execution_allowed_in_aisp": False,
         "score": _score_for(session, row),
+    }
+
+
+#: Scores where a SMALLER number is the better one. Every rule here is a loss,
+#: so "candidate minus baseline, negative favours the candidate" holds for all
+#: of them -- but stating the direction per metric is what stops a reader
+#: seeing "-0.03" and having to work out which way that points.
+_LOSS_METRICS = (
+    ("log_loss", "Log loss"),
+    ("brier_score", "Brier score"),
+    ("crps_home", "CRPS, home runs"),
+    ("crps_away", "CRPS, away runs"),
+    ("crps_margin", "CRPS, run differential"),
+    ("crps_total", "CRPS, total runs"),
+    ("energy_score", "Energy score"),
+    ("margin_error", "Absolute margin error"),
+    ("total_error", "Absolute total error"),
+)
+
+
+def _score_difference(
+    candidate: dict[str, Any] | None, baseline: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Candidate minus baseline for every rule both sides actually scored.
+
+    A metric one side did not compute is omitted rather than defaulted: a
+    missing CRPS is not a CRPS of zero, and subtracting against zero would
+    manufacture an improvement out of an absent distribution.
+    """
+
+    if not candidate or not baseline:
+        return None
+    metrics: list[dict[str, Any]] = []
+    for key, label in _LOSS_METRICS:
+        theirs = baseline.get(key)
+        ours = candidate.get(key)
+        if not isinstance(ours, (int, float)) or not isinstance(theirs, (int, float)):
+            continue
+        delta = round(float(ours) - float(theirs), 6)
+        metrics.append({
+            "key": key,
+            "label": label,
+            "candidate": ours,
+            "baseline": theirs,
+            "delta": delta,
+            "favours": "CANDIDATE" if delta < 0 else "BASELINE" if delta > 0 else "NEITHER",
+        })
+    if not metrics:
+        return None
+    return {
+        "convention": "candidate minus baseline",
+        "direction": (
+            "Every metric here is a loss, so a NEGATIVE difference means the "
+            "candidate lost less than the baseline on this game. A positive "
+            "difference means it lost more."
+        ),
+        "metrics": metrics,
+    }
+
+
+def _shared_final(
+    candidate: dict[str, Any] | None, baseline: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Whether both arms were scored against the same recorded result.
+
+    Two scores computed against different results are not a comparison, and the
+    difference between them would be partly a difference of outcome. Rather than
+    assume one pass produced both, the identities are compared and reported.
+    """
+
+    ours = (candidate or {}).get("result_identity")
+    theirs = (baseline or {}).get("result_identity")
+    if ours is None or theirs is None:
+        return {
+            "status": "UNKNOWN",
+            "candidate_result_identity": ours,
+            "baseline_result_identity": theirs,
+            "detail": "At least one side has no score yet, so there is nothing to compare.",
+        }
+    matched = str(ours) == str(theirs)
+    return {
+        "status": "SHARED" if matched else "DIVERGENT",
+        "candidate_result_identity": ours,
+        "baseline_result_identity": theirs,
+        "detail": (
+            "Both arms were scored against the same recorded final."
+            if matched else
+            "The two arms were scored against DIFFERENT recorded finals, so the "
+            "difference between them is not a like-for-like comparison."
+        ),
+    }
+
+
+def _governed_final(session: Session, game_id: uuid.UUID) -> dict[str, Any] | None:
+    """The governed outcome record for this game, when one is persisted.
+
+    Reported beside the score's own result identity rather than in place of it:
+    the research scorer reads FINAL state observations, and this row is the
+    separately governed, revisioned record Model Studio reads. Showing both is
+    how a reader can tell they agree.
+    """
+
+    row = session.execute(text(
+        "select revision, outcome_status, home_score, away_score, final_at,"
+        " payload_checksum, source_record_id"
+        " from game_final_outcomes where game_id = :g"
+        " order by revision desc limit 1"
+    ), {"g": str(game_id)}).first()
+    if row is None:
+        return None
+    return {
+        "revision": row[0],
+        "outcome_status": row[1],
+        "home_score": row[2],
+        "away_score": row[3],
+        "final_at_utc": _iso(row[4]),
+        "payload_checksum": row[5],
+        "source_record_id": row[6],
     }
 
 
@@ -316,6 +449,154 @@ def _bound_baseline(
     return _latest(session, game_id, BASELINE_ENGINE_ID), "LATEST_BASELINE_NO_BINDING_PUBLISHED"
 
 
+def candidate_cohort(session: Session, *, configuration: str) -> dict[str, Any]:
+    """A mean over the games where one configuration and its baseline both scored.
+
+    WHAT IS DELIBERATELY NOT IN HERE
+    --------------------------------
+    *   **Fallback arms.** A configuration whose component did not run reused the
+        baseline's own draws, so its score equals the baseline's exactly.
+        Averaging those in would pull every difference towards zero and dress a
+        copy of the baseline up as evidence about the component.
+    *   **Historical replays.** A rerun over a finished game is not a forecast
+        that existed before it.
+    *   **Pairs with no bound baseline**, and pairs scored against different
+        recorded finals. Either makes the difference partly a difference of
+        something other than the model.
+    *   **A different horizon.** A candidate and a baseline that disagree about
+        first pitch are not forecasting the same event.
+
+    Each metric is averaged only over the games where BOTH sides computed it, and
+    that count is reported beside it. A missing distribution shrinks a metric's
+    cohort; it never enters as a zero.
+    """
+
+    rows = session.scalars(
+        select(ShadowForecast)
+        .where(
+            ShadowForecast.engine_id == CANDIDATE_ENGINE_ID,
+            ShadowForecast.engine_version == configuration,
+        )
+        .order_by(ShadowForecast.scheduled_start_utc)
+    ).all()
+
+    included: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+
+    def drop(row: ShadowForecast, reason: str, detail: str) -> None:
+        excluded.append({
+            "forecast_identity": row.forecast_id,
+            "source_game_id": row.source_event_id,
+            "reason": reason,
+            "detail": detail,
+        })
+
+    for row in rows:
+        lineage = dict(row.lineage_detail or {})
+        eligibility = dict((row.readiness_detail or {}).get("eligibility") or {})
+        supported = lineage.get("componentTrialSupported")
+        if supported is None:
+            supported = eligibility.get("componentTrialSupported")
+        if not supported:
+            drop(row, "FALLBACK_NOT_A_COMPONENT_TRIAL",
+                 "This configuration's component did not run for this game, so its "
+                 "numbers are the baseline's own draws rather than a measured result.")
+            continue
+        if str(lineage.get("artifactType") or PROSPECTIVE) == HISTORICAL_REPLAY:
+            drop(row, "HISTORICAL_REPLAY",
+                 "A labelled rerun over a finished game is not prospective evidence.")
+            continue
+        identity = str(lineage.get("baselineForecastId") or "")
+        baseline_row = session.scalar(
+            select(ShadowForecast).where(
+                ShadowForecast.forecast_id == identity,
+                ShadowForecast.engine_id == BASELINE_ENGINE_ID,
+            )
+        ) if identity else None
+        if baseline_row is None:
+            drop(row, "NO_BOUND_BASELINE",
+                 "The candidate names no baseline forecast that resolves in AISP, so "
+                 "there is nothing to difference it against.")
+            continue
+        ours = _aware_start(row)
+        theirs = _aware_start(baseline_row)
+        if ours is None or theirs is None or ours != theirs:
+            drop(row, "HORIZON_MISMATCH",
+                 f"Candidate first pitch {_iso(ours)} does not equal the baseline's "
+                 f"{_iso(theirs)}, so the two are not forecasting the same event.")
+            continue
+        candidate_score = _score_for(session, row)
+        baseline_score = _score_for(session, baseline_row)
+        if candidate_score is None or baseline_score is None:
+            drop(row, "PENDING_NOT_YET_SCORED",
+                 "One or both sides have no current research evaluation yet: the game "
+                 "has no eligible recorded final, or the scorer has not run since it did.")
+            continue
+        if str(candidate_score.get("result_identity")) != str(
+                baseline_score.get("result_identity")):
+            drop(row, "DIVERGENT_RESULT",
+                 "The two arms were scored against different recorded finals.")
+            continue
+        included.append({
+            "source_game_id": row.source_event_id,
+            "canonical_game_id": str(row.canonical_game_id) if row.canonical_game_id else None,
+            "candidate_forecast_id": row.forecast_id,
+            "baseline_forecast_id": baseline_row.forecast_id,
+            "scheduled_start_utc": _iso(ours),
+            "candidate": candidate_score,
+            "baseline": baseline_score,
+        })
+
+    metrics: list[dict[str, Any]] = []
+    for key, label in _LOSS_METRICS:
+        pairs = [
+            (entry["candidate"][key], entry["baseline"][key])
+            for entry in included
+            if isinstance(entry["candidate"].get(key), (int, float))
+            and isinstance(entry["baseline"].get(key), (int, float))
+        ]
+        if not pairs:
+            continue
+        candidate_mean = sum(value for value, _ in pairs) / len(pairs)
+        baseline_mean = sum(value for _, value in pairs) / len(pairs)
+        delta = candidate_mean - baseline_mean
+        metrics.append({
+            "key": key,
+            "label": label,
+            "games": len(pairs),
+            "candidate_mean": round(candidate_mean, 6),
+            "baseline_mean": round(baseline_mean, 6),
+            "delta": round(delta, 6),
+            "favours": "CANDIDATE" if delta < 0 else "BASELINE" if delta > 0 else "NEITHER",
+        })
+
+    return {
+        "schema_version": COHORT_SCHEMA_VERSION,
+        "configuration": configuration,
+        "games": len(included),
+        "metrics": metrics,
+        "included": included,
+        "excluded": excluded,
+        "convention": (
+            "candidate minus baseline; every metric is a loss, so a negative "
+            "difference favours the candidate"
+        ),
+        "claim_limit": (
+            "This is a mean over a handful of observed games. It measures whether "
+            "this configuration scored better or worse than its own frozen baseline "
+            "on those games. It is not a significance test, it establishes no "
+            "ordering between configurations, and it is not a promotion decision."
+        ),
+    }
+
+
+def _aware_start(row: ShadowForecast) -> datetime | None:
+    value = row.scheduled_start_utc
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 def candidate_comparison(
     session: Session, game_id: uuid.UUID, *, configuration: str | None = None,
 ) -> dict[str, Any] | None:
@@ -399,6 +680,14 @@ def candidate_comparison(
         },
         "available_configurations": candidate_configurations(session, game_id),
         "baseline_binding": baseline_binding,
+        # What actually happened, and how each side scored against it.
+        "score_difference": _score_difference(
+            candidate.get("score"), (baseline or {}).get("score"),
+        ),
+        "shared_final": _shared_final(
+            candidate.get("score"), (baseline or {}).get("score"),
+        ),
+        "governed_final": _governed_final(session, game_id),
         # A fallback arm is numerically identical to the baseline on purpose.
         # Saying so here is what stops the difference of 0.0000 below being read
         # as "the component made no difference" -- the component did not run.
@@ -459,6 +748,6 @@ def candidate_comparison(
 
 
 __all__ = [
-    "ATTRIBUTION_KEY", "SCHEMA_VERSION",
-    "candidate_comparison", "candidate_configurations",
+    "ATTRIBUTION_KEY", "SCHEMA_VERSION", "COHORT_SCHEMA_VERSION",
+    "candidate_comparison", "candidate_configurations", "candidate_cohort",
 ]

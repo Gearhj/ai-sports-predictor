@@ -18,7 +18,8 @@
 import { AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react'
 import { formatTimestamp } from '../services/format'
 import type {
-  CandidateComparison, CandidateConfiguration, CandidateScore, CandidateSide,
+  CandidateCohort, CandidateComparison, CandidateConfiguration, CandidateScore,
+  CandidateSide,
 } from '../types/shadow'
 
 function pct(value: number | null | undefined): string {
@@ -105,9 +106,23 @@ function ScoreBlock({ score }: { score: CandidateScore | null }) {
         <div><dt>Log loss</dt><dd>{score.log_loss?.toFixed(4) ?? '—'}</dd></div>
         <div><dt>Brier</dt><dd>{score.brier_score?.toFixed(4) ?? '—'}</dd></div>
         <div><dt>Margin error</dt><dd>{signed(score.margin_error)}</dd></div>
-        <div><dt>CRPS margin</dt><dd>{score.crps_margin?.toFixed(3) ?? '—'}</dd></div>
+        <div>
+          <dt>CRPS margin</dt>
+          <dd>
+            {score.distribution_available === false
+              ? <span className="candidate-card__absent">unavailable</span>
+              : score.crps_margin?.toFixed(3) ?? '—'}
+          </dd>
+        </div>
         <div><dt>Result source</dt><dd>{score.result_source ?? '—'}</dd></div>
       </dl>
+      {score.distribution_available === false && score.distribution_unavailable_reason && (
+        // Absent, not zero. Without this line a blank CRPS reads as a perfect
+        // distribution score rather than as one that was never computed.
+        <p className="candidate-card__score-note" role="note">
+          No distribution scores: {score.distribution_unavailable_reason}
+        </p>
+      )}
       {score.publication_clock_verified === false && (
         <p className="candidate-card__qualified">
           Qualified: this forecast's publication time is stored as the same value as
@@ -260,12 +275,191 @@ function ConfigurationBar({ comparison }: { comparison: CandidateComparison }) {
 }
 
 
+function favourText(favours: string): string {
+  return favours === 'CANDIDATE' ? 'candidate lost less'
+    : favours === 'BASELINE' ? 'baseline lost less'
+      : 'identical'
+}
+
+/**
+ * What actually happened, and how the two arms scored against it.
+ *
+ * Every metric here is a loss, so a negative difference favours the candidate.
+ * That is stated rather than left to a sign, because "-0.03 log loss" is only
+ * meaningful to a reader who already knows which direction is good.
+ */
+function ResultBlock({ comparison }: { comparison: CandidateComparison }) {
+  const difference = comparison.score_difference
+  const shared = comparison.shared_final
+  const governed = comparison.governed_final
+  const candidateScore = comparison.candidate?.score ?? null
+  // Rendered even when nothing is scored yet. Hiding the section made a pending
+  // game look like a game with no result to report, which is the state a reader
+  // most needs told apart from "scored, and the difference was nil".
+
+  return (
+    <section className="candidate-result" data-testid="candidate-result">
+      <h3>The result</h3>
+      {governed ? (
+        <p className="candidate-result__final">
+          Final <b>{governed.away_score}–{governed.home_score}</b>{' '}
+          <small>
+            governed record revision {governed.revision} · {governed.outcome_status}
+            {governed.source_record_id ? ` · source ${governed.source_record_id}` : ''}
+          </small>
+        </p>
+      ) : (
+        <p className="candidate-result__final candidate-result__final--pending">
+          Pending — no governed final outcome record is persisted for this game yet.
+        </p>
+      )}
+
+      {shared?.status === 'DIVERGENT' && (
+        // A difference between two scores computed against different results is
+        // partly a difference of outcome, not of model. Only DIVERGENT is a
+        // warning: UNKNOWN just means the game has not been scored yet, and
+        // alarming a reader about a pending game trains them to ignore this.
+        <p className="candidate-result__warning" role="note">
+          <AlertTriangle size={13} aria-hidden="true" /> {shared.detail}
+        </p>
+      )}
+
+      {difference ? (
+        <>
+          <p className="candidate-result__direction">{difference.direction}</p>
+          <div className="bx-scroll">
+            <table className="candidate-result__table">
+              <caption className="sr-only">
+                Candidate and baseline losses on this game, and their difference
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Metric</th>
+                  <th scope="col">Baseline</th>
+                  <th scope="col">Candidate</th>
+                  <th scope="col">Difference</th>
+                  <th scope="col">Direction</th>
+                </tr>
+              </thead>
+              <tbody>
+                {difference.metrics.map((metric) => (
+                  <tr key={metric.key}>
+                    <th scope="row">{metric.label}</th>
+                    <td className="bx-num">{metric.baseline.toFixed(4)}</td>
+                    <td className="bx-num">{metric.candidate.toFixed(4)}</td>
+                    <td className="bx-num">{signed(metric.delta, 4)}</td>
+                    <td>{favourText(metric.favours)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="candidate-result__note">
+            Rules neither side computed are omitted rather than shown as zero.
+          </p>
+        </>
+      ) : (
+        <p className="candidate-result__note">
+          {candidateScore
+            ? 'The baseline has no current score on the same final, so no like-for-like difference is available.'
+            : 'Not scored yet — this game has no eligible recorded final.'}
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * The mean across the games this configuration and its baseline both scored.
+ *
+ * The count is on every row because metrics do not share a cohort: a game with
+ * no retained distribution contributes a log loss and no CRPS, so averaging
+ * them over the same denominator would be wrong.
+ */
+function CohortBlock({ cohort }: { cohort: CandidateCohort }) {
+  const pending = cohort.excluded.filter((row) => row.reason === 'PENDING_NOT_YET_SCORED')
+  const other = cohort.excluded.filter((row) => row.reason !== 'PENDING_NOT_YET_SCORED')
+  return (
+    <section className="candidate-cohort" data-testid="candidate-cohort">
+      <h3>
+        Across {cohort.games} scored game{cohort.games === 1 ? '' : 's'}
+        {' '}· {cohort.configuration}
+      </h3>
+      {cohort.games === 0 ? (
+        <p className="candidate-cohort__empty">
+          No game in this configuration has both arms scored against one recorded
+          final yet, so there is nothing to average.
+        </p>
+      ) : (
+        <div className="bx-scroll">
+          <table className="candidate-result__table">
+            <caption className="sr-only">
+              Mean loss per metric across the scored common cohort
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Metric</th>
+                <th scope="col">Games</th>
+                <th scope="col">Baseline mean</th>
+                <th scope="col">Candidate mean</th>
+                <th scope="col">Difference</th>
+                <th scope="col">Direction</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cohort.metrics.map((metric) => (
+                <tr key={metric.key}>
+                  <th scope="row">{metric.label}</th>
+                  <td className="bx-num">{metric.games}</td>
+                  <td className="bx-num">{metric.baseline_mean.toFixed(4)}</td>
+                  <td className="bx-num">{metric.candidate_mean.toFixed(4)}</td>
+                  <td className="bx-num">{signed(metric.delta, 4)}</td>
+                  <td>{favourText(metric.favours)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {pending.length > 0 && (
+        // Pending games stay visible. Dropping them would make the cohort look
+        // complete when it is only the part that has finished.
+        <p className="candidate-cohort__pending" data-testid="candidate-cohort-pending">
+          <MinusCircle size={13} aria-hidden="true" />{' '}
+          {pending.length} more game{pending.length === 1 ? '' : 's'} imported and
+          still pending a recorded final:{' '}
+          {pending.map((row) => row.source_game_id).join(', ')}.
+        </p>
+      )}
+      {other.length > 0 && (
+        <details className="candidate-cohort__excluded">
+          <summary>
+            {other.length} forecast{other.length === 1 ? '' : 's'} excluded from this average
+          </summary>
+          <ul>
+            {other.map((row) => (
+              <li key={row.forecast_identity}>
+                <b>{row.source_game_id}</b> — {row.reason}. {row.detail}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <p className="candidate-cohort__limit" role="note">{cohort.claim_limit}</p>
+    </section>
+  )
+}
+
+
 export function EnsembleCandidatePanel({
   comparison,
   homeTeam,
+  cohort = null,
 }: {
   comparison: CandidateComparison
   homeTeam: string | null
+  cohort?: CandidateCohort | null
 }) {
   if (comparison.schema_version !== 'AISP_MLB_ENSEMBLE_CANDIDATE_COMPARISON_V1') return null
   const { difference, components, candidate_identity: identity, authority } = comparison
@@ -303,6 +497,11 @@ export function EnsembleCandidatePanel({
         <SideCard side={comparison.baseline} homeTeam={homeTeam} />
         <SideCard side={comparison.candidate} homeTeam={homeTeam} />
       </div>
+
+      <ResultBlock comparison={comparison} />
+      {cohort && cohort.configuration === comparison.configuration?.key && (
+        <CohortBlock cohort={cohort} />
+      )}
 
       {difference && (
         <div className="candidate-compare__difference" data-testid="candidate-difference">

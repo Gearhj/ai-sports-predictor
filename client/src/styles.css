@@ -3545,3 +3545,42 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .candidate-configs__facts dt { font-size: 11px; color: var(--muted, #7a8699); }
 .candidate-configs__facts dd { margin: 0; font-size: 12px; }
 .candidate-configs__fallback { margin: 8px 0 0; color: #b98230; font-size: 12px; }
+
+
+/* The result of one comparison, and the cohort it belongs to. Tables rather
+   than prose: five numbers with a direction column are read faster than five
+   sentences, and the direction column is what stops a signed delta needing a
+   mental note about which way is good. */
+.candidate-result, .candidate-cohort { margin: 16px 0 0; }
+.candidate-result h3, .candidate-cohort h3 {
+  margin: 0 0 8px; font-size: 13px; letter-spacing: .02em;
+}
+.candidate-result__final { margin: 0 0 8px; font-size: 14px; }
+.candidate-result__final small { color: var(--muted, #7a8699); font-size: 11px; }
+.candidate-result__final--pending { color: var(--muted, #7a8699); }
+.candidate-result__direction, .candidate-result__note {
+  margin: 6px 0; font-size: 12px; color: var(--muted, #7a8699);
+}
+.candidate-result__warning {
+  margin: 6px 0; font-size: 12px; color: #b98230;
+  display: flex; gap: 6px; align-items: baseline;
+}
+.candidate-result__table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.candidate-result__table th, .candidate-result__table td {
+  padding: 5px 8px; border-bottom: 1px solid var(--line, #e3e8ef); text-align: left;
+}
+.candidate-result__table thead th {
+  font-size: 11px; color: var(--muted, #7a8699); text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.candidate-result__table td.bx-num { text-align: right; font-variant-numeric: tabular-nums; }
+.candidate-cohort__empty, .candidate-cohort__limit, .candidate-cohort__pending {
+  margin: 8px 0 0; font-size: 12px; color: var(--muted, #7a8699);
+}
+.candidate-cohort__pending { color: #b98230; display: flex; gap: 6px; align-items: baseline; }
+.candidate-cohort__excluded { margin: 8px 0 0; font-size: 12px; }
+.candidate-cohort__excluded summary { cursor: pointer; color: var(--muted, #7a8699); }
+.candidate-cohort__excluded ul { margin: 6px 0 0; padding-left: 18px; }
+.candidate-cohort__excluded li { margin-bottom: 4px; }
+.candidate-card__absent { color: var(--muted, #7a8699); font-style: italic; }
+.candidate-card__score-note { margin: 6px 0 0; font-size: 11px; color: var(--muted, #7a8699); }

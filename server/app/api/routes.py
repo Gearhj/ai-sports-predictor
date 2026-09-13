@@ -58,7 +58,10 @@ from app.shadow_import.mlb_v18_population_geometry import (
     population_payload,
     population_representatives,
 )
-from app.shadow_import.mlb_ensemble_candidate_read import candidate_comparison
+from app.shadow_import.mlb_ensemble_candidate_read import (
+    candidate_cohort,
+    candidate_comparison,
+)
 from app.shadow_import.mlb_v18_read import sequential_path, shadow_comparison
 from app.services.scenario_service import run_scenario, scenario_capabilities
 from app.services.simulation_replay_service import replay_official_simulation
@@ -243,9 +246,19 @@ def game_shadow_forecasts(
     # One game can carry several candidate configurations (survival, transition).
     # Without an explicit selector the newest one stood in for all of them, so
     # importing a second arm replaced the first on every surface at once.
-    payload["candidate_comparison"] = candidate_comparison(
-        session, game_id, configuration=configuration,
-    )
+    comparison = candidate_comparison(session, game_id, configuration=configuration)
+    payload["candidate_comparison"] = comparison
+    # The cohort this game belongs to, for the configuration on screen. It rides
+    # on the same response so the panel can show one game beside the aggregate
+    # it contributes to, without a second round trip and without the two being
+    # able to describe different configurations.
+    if comparison is not None:
+        selected = (comparison.get("configuration") or {}).get("key")
+        payload["candidate_cohort"] = (
+            candidate_cohort(session, configuration=selected) if selected else None
+        )
+    else:
+        payload["candidate_cohort"] = None
     return payload
 
 

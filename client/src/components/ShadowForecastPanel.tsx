@@ -60,7 +60,8 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
     // A candidate can exist for a game that has no registered V18 shadow row.
     // It is still worth showing, with its baseline side reported as absent.
     return candidate
-      ? <EnsembleCandidatePanel comparison={candidate} homeTeam={data?.home_team ?? null} />
+      ? <EnsembleCandidatePanel comparison={candidate} homeTeam={data?.home_team ?? null}
+                                cohort={payload?.candidate_cohort ?? null} />
       : null
   }
 
@@ -128,7 +129,11 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
       </div>
 
       {candidate && (
-        <EnsembleCandidatePanel comparison={candidate} homeTeam={data.home_team} />
+        <EnsembleCandidatePanel
+          comparison={candidate}
+          homeTeam={data.home_team}
+          cohort={payload?.candidate_cohort ?? null}
+        />
       )}
     </section>
   )

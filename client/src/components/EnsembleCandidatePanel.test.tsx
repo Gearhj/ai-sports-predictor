@@ -1,7 +1,10 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EnsembleCandidatePanel } from './EnsembleCandidatePanel'
-import type { CandidateComparison, CandidateConfiguration, CandidateSide } from '../types/shadow'
+import type {
+  CandidateCohort, CandidateComparison, CandidateConfiguration, CandidateScore,
+  CandidateSide,
+} from '../types/shadow'
 
 const BASELINE: CandidateSide = {
   track: 'RESEARCH_SHADOW',
@@ -379,5 +382,179 @@ describe('candidate configurations', () => {
     )
     expect(screen.getByTestId('candidate-configurations'))
       .toHaveTextContent('not a measured component effect')
+  })
+})
+
+// -- the result, and the cohort it belongs to ------------------------------
+
+describe('scored comparison', () => {
+  afterEach(cleanup)
+
+  const scored = (over: Partial<CandidateScore> = {}): CandidateScore => ({
+    evaluation_id: 'eval-1',
+    scoring_version: 'AISP_MLB_V18_PROSPECTIVE_SCORING_V1',
+    evaluated_at: '2026-09-13T03:10:00Z',
+    home_score: 6, away_score: 2,
+    actual_outcome: 'HOME', predicted_outcome: 'HOME', winner_correct: true,
+    probability_of_actual: 0.6312,
+    log_loss: 0.4601, brier_score: 0.1359,
+    margin_error: 1.2, total_error: 0.8,
+    crps_home: null, crps_away: null, crps_margin: null, crps_total: null,
+    energy_score: null,
+    distribution_available: false,
+    distribution_unavailable_reason: 'The forecast retained no simulation draws.',
+    distribution_draws: null,
+    result_identity: 'MLB_STATS_API:obs-a',
+    result_source: 'MLB_STATS_API', result_tier: 1,
+    result_observed_utc: '2026-09-13T02:40:00Z',
+    publication_clock: 'VERIFIED_INDEPENDENT_PUBLICATION',
+    publication_clock_verified: true,
+    ...over,
+  })
+
+  const difference = {
+    convention: 'candidate minus baseline',
+    direction:
+      'Every metric here is a loss, so a NEGATIVE difference means the candidate '
+      + 'lost less than the baseline on this game. A positive difference means it lost more.',
+    metrics: [
+      { key: 'log_loss', label: 'Log loss', candidate: 0.4601, baseline: 0.4879,
+        delta: -0.0278, favours: 'CANDIDATE' as const },
+      { key: 'brier_score', label: 'Brier score', candidate: 0.1359, baseline: 0.1322,
+        delta: 0.0037, favours: 'BASELINE' as const },
+    ],
+  }
+
+  const withResult = (over: Partial<CandidateComparison> = {}) => comparison({
+    baseline: { ...BASELINE, score: scored({ log_loss: 0.4879, brier_score: 0.1322 }) },
+    candidate: { ...CANDIDATE, score: scored() },
+    configuration: {
+      key: 'mlb-v18-three-arm-transition-v1',
+      configuration_id: 'mlb-v18-three-arm-transition-v1',
+      configuration_identity_source: 'CANDIDATE_ENGINE_VERSION' as const,
+      actual_configuration: 'V18_TRANSITION_ONLY',
+      engine_version: 'mlb-v18-three-arm-transition-v1',
+      forecast_id: 'cand-1',
+      contract_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_HANDOFF_V2',
+      component_trial_supported: true,
+      fell_back_to_baseline_draws: false,
+      published_utc: '2026-09-12T21:19:47Z',
+    },
+    score_difference: difference,
+    shared_final: {
+      status: 'SHARED' as const,
+      candidate_result_identity: 'MLB_STATS_API:obs-a',
+      baseline_result_identity: 'MLB_STATS_API:obs-a',
+      detail: 'Both arms were scored against the same recorded final.',
+    },
+    governed_final: {
+      revision: 1, outcome_status: 'FINAL', home_score: 6, away_score: 2,
+      final_at_utc: '2026-09-13T02:22:30Z', payload_checksum: 'c'.repeat(64),
+      source_record_id: '822927',
+    },
+    ...over,
+  })
+
+  it('shows the final, both losses and a difference whose direction is stated', () => {
+    render(<EnsembleCandidatePanel comparison={withResult()} homeTeam="Tampa Bay Rays" />)
+    const block = screen.getByTestId('candidate-result')
+    expect(block).toHaveTextContent('2–6')
+    expect(block).toHaveTextContent('revision 1')
+    expect(block).toHaveTextContent('0.4879')   // baseline log loss
+    expect(block).toHaveTextContent('0.4601')   // candidate log loss
+    expect(block).toHaveTextContent('-0.0278')
+    expect(block).toHaveTextContent('candidate lost less')
+    expect(block).toHaveTextContent('baseline lost less')
+    expect(block).toHaveTextContent(/NEGATIVE difference/)
+  })
+
+  it('says a missing distribution is unavailable rather than showing a zero', () => {
+    render(<EnsembleCandidatePanel comparison={withResult()} homeTeam="Tampa Bay Rays" />)
+    expect(screen.getAllByText('unavailable').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/retained no simulation draws/).length).toBeGreaterThan(0)
+    // A CRPS row is absent from the difference table, not present as 0.0000.
+    const block = screen.getByTestId('candidate-result')
+    expect(block).not.toHaveTextContent('CRPS')
+  })
+
+  it('warns when the two arms were scored against different finals', () => {
+    render(
+      <EnsembleCandidatePanel
+        comparison={withResult({
+          shared_final: {
+            status: 'DIVERGENT',
+            candidate_result_identity: 'MLB_STATS_API:obs-a',
+            baseline_result_identity: 'MLB_STATS_API:obs-b',
+            detail: 'The two arms were scored against DIFFERENT recorded finals, so the '
+              + 'difference between them is not a like-for-like comparison.',
+          },
+        })}
+        homeTeam="Tampa Bay Rays"
+      />,
+    )
+    expect(screen.getByTestId('candidate-result'))
+      .toHaveTextContent(/DIFFERENT recorded finals/)
+  })
+
+  const cohort = (over: Partial<CandidateCohort> = {}): CandidateCohort => ({
+    schema_version: 'AISP_MLB_ENSEMBLE_CANDIDATE_COHORT_V1',
+    configuration: 'mlb-v18-three-arm-transition-v1',
+    games: 2,
+    metrics: [
+      { key: 'log_loss', label: 'Log loss', games: 2, candidate_mean: 0.51,
+        baseline_mean: 0.53, delta: -0.02, favours: 'CANDIDATE' },
+      { key: 'crps_total', label: 'CRPS, total runs', games: 1, candidate_mean: 2.1,
+        baseline_mean: 2.05, delta: 0.05, favours: 'BASELINE' },
+    ],
+    included: [],
+    excluded: [
+      { forecast_identity: 'cand-3', source_game_id: '825035',
+        reason: 'PENDING_NOT_YET_SCORED', detail: 'No eligible recorded final yet.' },
+      { forecast_identity: 'surv-1', source_game_id: '822927',
+        reason: 'FALLBACK_NOT_A_COMPONENT_TRIAL',
+        detail: "The component did not run, so the numbers are the baseline's own draws." },
+    ],
+    convention: 'candidate minus baseline',
+    claim_limit: 'This is a mean over a handful of observed games. It is not a significance test.',
+    ...over,
+  })
+
+  it('reports the cohort game count per metric and keeps pending games visible', () => {
+    render(
+      <EnsembleCandidatePanel
+        comparison={withResult()} homeTeam="Tampa Bay Rays" cohort={cohort()}
+      />,
+    )
+    const block = screen.getByTestId('candidate-cohort')
+    expect(block).toHaveTextContent('Across 2 scored games')
+    // Metrics do not share a denominator: CRPS was computed on one game only,
+    // so its row must carry its own count rather than the cohort's.
+    const rowFor = (label: RegExp) => within(block).getAllByRole('row')
+      .find((row) => label.test(row.textContent ?? ''))
+    expect(within(rowFor(/CRPS, total runs/)!).getAllByRole('cell')[0])
+      .toHaveTextContent('1')
+    expect(within(rowFor(/Log loss/)!).getAllByRole('cell')[0]).toHaveTextContent('2')
+    expect(screen.getByTestId('candidate-cohort-pending')).toHaveTextContent('825035')
+    expect(block).toHaveTextContent('not a significance test')
+  })
+
+  it('names the fallback exclusion rather than hiding it', () => {
+    render(
+      <EnsembleCandidatePanel
+        comparison={withResult()} homeTeam="Tampa Bay Rays" cohort={cohort()}
+      />,
+    )
+    expect(screen.getByTestId('candidate-cohort'))
+      .toHaveTextContent('FALLBACK_NOT_A_COMPONENT_TRIAL')
+  })
+
+  it('does not show a cohort belonging to a different configuration', () => {
+    render(
+      <EnsembleCandidatePanel
+        comparison={withResult()} homeTeam="Tampa Bay Rays"
+        cohort={cohort({ configuration: 'mlb-v18-three-arm-duration-v1' })}
+      />,
+    )
+    expect(screen.queryByTestId('candidate-cohort')).toBeNull()
   })
 })

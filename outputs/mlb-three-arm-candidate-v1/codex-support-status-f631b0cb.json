@@ -1,0 +1,63 @@
+{
+  "authority": {
+    "aispChangesMade": "none",
+    "candidateAuthority": false,
+    "executionAllowedInAISP": false,
+    "modelActivationAllowed": false,
+    "wageringAuthority": false
+  },
+  "classification": "SUPPORT_STATUS_ONLY",
+  "digestMatches": true,
+  "existingStudies": {
+    "nymNyyCandidateDistributionMetrics": "UNAVAILABLE_NO_RETAINED_DRAWS",
+    "pendingFinals": 0,
+    "providerFinalPublicationTimestamp": null,
+    "qualifiedCompletionClockCases": 3,
+    "sameFinalRevisionForBothArms": true,
+    "scored": 3
+  },
+  "existingStudiesOwner": "Model Studio. Codex scored the COL-DET, NYM-NYY and KC-BOS frozen studies from AISP's final-evidence handoff; those results live in Studio's study artifacts and are deliberately not duplicated into AISP, and they are a different cohort from the five newly imported three-arm comparisons.",
+  "expectedSha256": "f631b0cb38beb6176143f6ad0f88c93adcdf6f4ec8e6880016c83f8cfe5a92c2",
+  "finalEvidenceHandoffAcknowledged": {
+    "aispPublished": "aisp-final-evidence/mlb-three-arm-final-evidence-v1/sha256/2e142e1020e15c2ff77fae1ce1f18084072ff89d34e78df83aa74e97b0190645/final-evidence-handoff.json",
+    "retainedByStudioSha256": "c4ad5008e152e4620cda287c7448469e8bc6ec8d5de1117094e4e2e09b5772e5",
+    "sameFinalRevisionForBothArms": true,
+    "selectionRuleChanged": false
+  },
+  "forecastsImported": 0,
+  "handoffPath": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-ensemble-research-v1\\survival-starter-coverage-v1\\support\\sha256\\f631b0cb38beb6176143f6ad0f88c93adcdf6f4ec8e6880016c83f8cfe5a92c2\\support-handoff.json",
+  "handoffSha256": "f631b0cb38beb6176143f6ad0f88c93adcdf6f4ec8e6880016c83f8cfe5a92c2",
+  "handoffType": "SUPPORT_STATUS_ONLY_NO_CANDIDATE_FORECAST_PACKAGE",
+  "importNotPerformedBecause": "The manifest declares handoffType SUPPORT_STATUS_ONLY_NO_CANDIDATE_FORECAST_PACKAGE, candidatePackage null, an empty forecastIds list, zero new simulation draws and zero retained draws. There is nothing to verify or register through the candidate adapter, and registering a status manifest as a candidate package would put a row in the research-shadow table that no producer published.",
+  "importPerformed": false,
+  "priorFallbacksUnchanged": "The five V18_SURVIVAL_ONLY rows imported earlier remain fallback records. This manifest does not make them supported component trials, and they stay excluded from every survival-effectiveness summary.",
+  "producerCounts": {
+    "baselineReady": 0,
+    "blockedOrPending": 15,
+    "commonSupported": 0,
+    "declared": 15,
+    "fallbackArms": 0,
+    "importConfirmed": 0,
+    "locallyFrozen": 0,
+    "published": 0,
+    "readySupportedSurvival": 0,
+    "survivalSupported": 0,
+    "transitionSupported": 0
+  },
+  "producerPending": [
+    "EXACT_SIX_PROTECTED_SOURCE_APPEARANCES_REQUIRE_NEW_AUTHORITY",
+    "FRESH_COMPLETE_HISTORY_THROUGH_SEPTEMBER_12_AFTER_0400_UTC",
+    "CONFIRMED_INPUTS_AND_NEW_IMMUTABLE_V18_BASELINE_AFTER_CERTIFIED_HISTORY"
+  ],
+  "producerSlateDate": "2026-09-13",
+  "producerStarterCoverage": {
+    "fullyEligible": 0,
+    "knownIdentities": 25,
+    "missingIdentities": 5,
+    "registeredEligibleHistoricalStarts": 21,
+    "unsupportedSlots": 30
+  },
+  "recordedAtUtc": "2026-09-13T00:31:45.287053+00:00",
+  "schemaVersion": "AISP_MLB_CANDIDATE_SUPPORT_STATUS_RECORD_V1",
+  "shadowForecastRowsWritten": 0
+}
