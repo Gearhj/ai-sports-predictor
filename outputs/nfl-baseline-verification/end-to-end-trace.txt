@@ -1,0 +1,43 @@
+==========================================================================
+GAME   ATL @ PIT   kickoff 2026-09-13 17:00:00+00:00
+       canonical_game_id = 70b1ac40-fbd1-4176-89c1-149ac9d3e3d4
+       source_event_id   = 2026_01_ATL_PIT
+
+1. PRODUCER RECEIPT (job run that created this bundle)
+   started_at        = 2026-08-29 21:55:55.972224-04:00
+   producer_revision = 1ccd6b42c906b14be54098b0bd4ec0a200acfd96
+   model_binary_sha  = 7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd
+   model_manifest    = ab9c066052b288f3f6162d8f8558e673988fb52172c72fe00aa855aa800a45e9
+   feature_contract  = ef5c4f9ce8c3dd04a473e7ecb2ea3a255154f65a1bb3fda9d2ebc19bf1cb8f4d
+   games/created     = 272 / 272
+   models_fit        = 0  market_fields_read = False
+   import: bundles=228 rows=1360 locator=ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2
+
+2. BUNDLE
+   bundle_sha256 = dd1f3d8b32c7b445af6a9535c4cd2bbbc8460e315a3ed0d11673e69428061fc6
+   bundle_id     = asp-sports-forecast-exchange:sha256:677115876dc9c4d57a1e5fe8b780752a4925e09168234b9dafe18209123877e7
+   logical_uri   = asp-model-exchange://aisp-daily-forecast-bundles/sha256/dd1f3d8b32c7b445af6a9535c4cd2bbbc8460e315a3ed0d11673e69428061fc6/bundle.json
+   slate_date    = 2026-09-13   status = RESEARCH_SHADOW
+   generated_at  = 2026-09-08 05:30:50.543556-04:00
+   imported_at   = 2026-09-08 05:36:52.788926-04:00
+
+3. IMPORTED FORECAST ROW
+   forecast_id       = asp-sports-game-forecast:sha256:2f2534673a5429135c827d8ff7e514d0a7f930e9a50479ef7b7c7665f2ba121e
+   engine            = NFL_M1_XGBOOST / NFL_M1_2026_RESEARCH_SHADOW_V1
+   model_artifact    = 7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd
+   snapshot          = CURRENT v7 (7 CURRENT revisions kept)
+   source_cutoff_utc = 2026-08-29 10:07:34.968754-04:00
+   forecast_cutoff   = 2026-09-08 05:30:22.560047-04:00
+   published (avail) = 2026-09-08 05:30:50.543556-04:00
+   imported (row)    = 2026-09-08 05:36:52.788926-04:00
+   home_win_prob     = 0.531
+   away_win_prob     = 0.4386
+   expected_home     = 21.7585
+   expected_away     = 20.7265
+   readiness         = 78.0 / thr 50.0
+
+4. PROSPECTIVE ELIGIBILITY
+   forecast_cutoff 2026-09-08 05:30:22.560047-04:00 < kickoff 2026-09-13 17:00:00+00:00  ->  True
+
+5. ROUTE
+   /nfl/games/70b1ac40-fbd1-4176-89c1-149ac9d3e3d4  and  /api/v1/nfl/games/70b1ac40-fbd1-4176-89c1-149ac9d3e3d4
