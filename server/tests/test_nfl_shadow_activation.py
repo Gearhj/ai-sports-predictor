@@ -39,7 +39,12 @@ from app.models import (
     ShadowForecast,
 )
 from app.jobs.orchestrator import JobOrchestrator
-from app.jobs.orchestrator import _invoke_nfl_shadow_producer, _nfl_closing_evidence
+from app.jobs.orchestrator import (
+    NFL_PRODUCER_CODE_PATHS,
+    NFL_PRODUCER_CODE_SCOPE_VERSION,
+    _invoke_nfl_shadow_producer,
+    _nfl_closing_evidence,
+)
 from app.jobs.scheduler import build_scheduler
 from app.services.nfl_shadow_odds_service import (
     NFL_ODDS_TEAM_IDENTITIES,
@@ -527,9 +532,16 @@ async def test_model_studio_producer_uses_exact_no_shell_contract(tmp_path, sett
     # a shared monorepo whose MLB work rewrites tracked output artifacts
     # continuously; an unscoped check treated that as a producer-identity
     # violation and stopped NFL forecasting entirely.
+    #
+    # Scope V2 widened this to the paths the producer actually imports: the
+    # rolling publisher and the Foundation source sync had become part of what
+    # produces an imported forecast while their code was unguarded. The exact
+    # tuple is asserted from the constant rather than retyped, so a future
+    # widening has to be a deliberate edit to the scope -- and the scope version
+    # asserted below is what makes that edit visible on every receipt.
     assert calls[1][0] == (
         "git", "-C", str(root.resolve()), "status", "--porcelain=v1", "--untracked-files=no",
-        "--", "scripts/run_nfl_2026_prospective_shadow.py", "server/sports_nfl_m1",
+        "--", *NFL_PRODUCER_CODE_PATHS,
     )
     # The repository-wide status is still read, but only to record how much
     # else differed -- it is never a reason to refuse.
@@ -542,9 +554,12 @@ async def test_model_studio_producer_uses_exact_no_shell_contract(tmp_path, sett
     )
     assert calls[3][1]["cwd"] == str(root.resolve())
     assert "shell" not in calls[3][1]
-    assert result["producerCodePathsVerified"] == [
-        "scripts/run_nfl_2026_prospective_shadow.py", "server/sports_nfl_m1",
-    ]
+    assert result["producerCodePathsVerified"] == list(NFL_PRODUCER_CODE_PATHS)
+    # Which integrity claim this receipt is making, recorded beside the paths.
+    assert result["producerCodeScopeVersion"] == NFL_PRODUCER_CODE_SCOPE_VERSION
+    # The widening must not have quietly become "the whole repository", which is
+    # the failure mode the scoping existed to prevent.
+    assert all(path.strip() for path in NFL_PRODUCER_CODE_PATHS)
 
 
 def test_public_shadow_read_never_calls_provider(client, monkeypatch):
