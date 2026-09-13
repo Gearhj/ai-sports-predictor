@@ -15,21 +15,23 @@ and how unusual the result was under the forecast's OWN distribution, and then
 it stops. Where the mechanism is unresolved it says so in a sentence, which is
 more useful than either label.
 
-WHAT COUNTS AS EVENT EVIDENCE
------------------------------
-Home runs, walks, starter batters faced, relief exposure and big innings are
-real explanations when they are recorded. AISP currently stores none of them:
-``pitch_events`` and ``player_game_stats`` are empty, and the retained
-availability audit shows the Statcast and bullpen tables at zero rows. So the
-event section reports what is genuinely held -- the governed final, and the
-forecast's own distribution over that result -- and states plainly that deeper
-event analysis is unavailable rather than assembling a plausible narrative from
-the score alone.
+WHERE EVENT EVIDENCE COMES FROM
+-------------------------------
+``pitch_events`` and ``player_game_stats`` are still empty, so nothing is derived
+from AISP's own play store. What the September 12 games now have is the published
+explanation catalogue: observed event counts, starter and relief exposure and
+inning scoring, each bound to an exact forecast identity. Games outside that
+catalogue keep the honest unavailable sentence rather than borrowing another
+game's shape.
 
-The distinction the September 12 diagnostics drew is preserved here too:
-observations about a result describe the result. "Six home runs against 1.175
-expected" is a fact about the game; it does not establish that the duration
-model, the plate-appearance probabilities or the transitions were defective.
+Three kinds of statement stay apart, and the payload labels each one:
+
+*   OBSERVED_CONTRIBUTOR -- a fact about the game. "New York hit six home runs."
+*   POSSIBLE_EXPLANATION -- that fact located in the simulated population. Six
+    against a simulated average of 1.18, reached in 0.24% of 5,000 draws.
+*   ESTABLISHED_MODEL_DEFECT -- never claimed. Nothing in this catalogue shows
+    that the duration model, the plate-appearance probabilities or the
+    transitions were defective, and a tail location is not a p-value.
 """
 
 from __future__ import annotations
@@ -79,6 +81,9 @@ def explain_outcome(
 
     events = _event_bullet(event_evidence)
     bullets.append(events)
+    population = _population_bullet(event_evidence)
+    if population is not None:
+        bullets.append(population)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -92,6 +97,18 @@ def explain_outcome(
             "not establish that it was merely unlucky."
         ),
         "event_evidence_available": bool(events.get("evidence_available")),
+        "population_comparison_available": population is not None,
+        "statement_kinds": {
+            "OBSERVED_CONTRIBUTOR": "A fact about what happened in the game.",
+            "POSSIBLE_EXPLANATION": (
+                "An observed fact located against the simulated population. "
+                "Informative, not causal."
+            ),
+            "ESTABLISHED_MODEL_DEFECT": (
+                "Not claimed anywhere here. No evidence in this catalogue "
+                "establishes that a model component was defective."
+            ),
+        },
     }
 
 
@@ -202,12 +219,19 @@ def _forecast_vs_result(
 
 
 def _event_bullet(event_evidence: dict[str, Any] | None) -> dict[str, Any]:
-    """Home runs, walks, starter duration, relief exposure — only if stored."""
+    """Observed events and exposure, when the catalogue supports them.
+
+    Everything here is an OBSERVED CONTRIBUTOR: a fact about what happened. It
+    is deliberately worded as description. "New York hit six home runs" is a
+    fact; "the home runs caused the miss" is a claim this evidence does not
+    support, and the sentence never drifts from the first into the second.
+    """
 
     if not event_evidence:
         return {
             "key": "events",
             "evidence_available": False,
+            "statement_kind": "UNAVAILABLE",
             "text": (
                 "Deeper event analysis is unavailable: AISP holds no play-level "
                 "or player-level record for this game, so home runs, walks, "
@@ -215,28 +239,108 @@ def _event_bullet(event_evidence: dict[str, Any] | None) -> dict[str, Any]:
                 "cannot be reported."
             ),
         }
+
     parts: list[str] = []
-    for key, template in (
-        ("home_runs", "{value} home runs"),
-        ("walks", "{value} walks"),
-        ("starter_batters_faced", "the starter faced {value} batters"),
-        ("relief_batters_faced", "relief faced {value}"),
-        ("largest_inning_runs", "the biggest inning produced {value} runs"),
-    ):
-        value = event_evidence.get(key)
-        if value is not None:
-            parts.append(template.format(value=value))
+    for side in ("away", "home"):
+        block = event_evidence.get(f"{side}_events") or {}
+        team = block.get("team") or side.upper()
+        counts = block.get("counts") or {}
+        completed = block.get("completed_pa")
+        fragments = []
+        for key, label in (("homeRuns", "home run"), ("baseOnBalls", "walk"),
+                           ("strikeOuts", "strikeout")):
+            value = counts.get(key)
+            if value:
+                fragments.append(f"{value} {label}{'s' if value != 1 else ''}")
+        if fragments:
+            suffix = f" in {completed} completed plate appearances" if completed else ""
+            parts.append(f"{team} recorded {', '.join(fragments)}{suffix}")
+
+    exposure = event_evidence.get("exposure") or {}
+    for side in ("away", "home"):
+        block = exposure.get(side) or {}
+        starter = block.get("starter_bf")
+        relief = block.get("relief_bf")
+        if starter is not None:
+            team = block.get("team") or side.upper()
+            piece = f"{team}'s starter faced {starter} batters"
+            if relief is not None:
+                piece += f" and its relief faced {relief}"
+            parts.append(piece)
+
+    largest = event_evidence.get("largest_inning")
+    if largest and largest.get("runs"):
+        parts.append(
+            f"the largest inning contained {largest['runs']} runs"
+            + (f" ({largest['team']})" if largest.get("team") else "")
+        )
+
     if not parts:
         return {
             "key": "events",
             "evidence_available": False,
+            "statement_kind": "UNAVAILABLE",
             "text": "Deeper event analysis is unavailable for this game.",
         }
     return {
         "key": "events",
         "evidence_available": True,
-        "text": "Recorded events: " + "; ".join(parts) + ".",
+        "statement_kind": "OBSERVED_CONTRIBUTOR",
+        "text": "What the game produced: " + "; ".join(parts) + ".",
         "source": event_evidence.get("source"),
+    }
+
+
+#: Said the same way wherever a population comparison appears.
+_POPULATION_LIMITS = (
+    "A retrospective reproduction, captured after the result was known and "
+    "selected for explanation. Probability sums condition on simulated exposures "
+    "rather than the plate appearances that actually occurred, so this locates "
+    "the result — it does not establish calibration, causation, or a model defect."
+)
+
+
+def _population_bullet(event_evidence: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Where an observed count sits in the retained simulated population.
+
+    This is a POSSIBLE EXPLANATION and is labelled as one. Locating six home
+    runs in the top 0.24% of 5,000 draws is informative and is not a cause, not
+    a p-value, and not evidence of recurring miscalibration. The comparison is
+    also retrospective -- reproduced after the result was known and selected
+    because it was interesting -- so it cannot serve as independent validation.
+    """
+
+    population = (event_evidence or {}).get("population")
+    if not population:
+        return None
+    highlights = population.get("highlights") or []
+    if not highlights:
+        # The comparison exists and nothing stood out. Saying so is informative;
+        # dropping the bullet would report the comparison as unavailable, which
+        # is a different and untrue statement.
+        return {
+            "key": "population",
+            "statement_kind": "POSSIBLE_EXPLANATION",
+            "text": (
+                "Against the retained simulation, no observed event class fell "
+                "in an unusual tail of the "
+                f"{population.get('simulation_count', 0):,}-draw population."
+            ),
+            "classification": population.get("classification"),
+            "limits": _POPULATION_LIMITS,
+        }
+    parts = [
+        f"{row['label']} {row['actual']} against a simulated average of "
+        f"{row['mean']:.2f} ({row['tail_pct']:.2f}% of {row['draws']:,} draws "
+        f"reached it)"
+        for row in highlights
+    ]
+    return {
+        "key": "population",
+        "statement_kind": "POSSIBLE_EXPLANATION",
+        "text": "Against the retained simulation: " + "; ".join(parts) + ".",
+        "classification": population.get("classification"),
+        "limits": _POPULATION_LIMITS,
     }
 
 

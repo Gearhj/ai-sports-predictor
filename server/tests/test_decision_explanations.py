@@ -337,16 +337,26 @@ class TestOutcomeRefusesBothLabels:
             assert invented not in joined.lower()
 
     def test_recorded_event_evidence_is_used_when_present(self):
+        """The catalogue shape, as the explanation service now supplies it."""
+
         payload = explain_outcome(
             decision=decision(), position=position(), settlement=None,
             final={"home_score": 12, "away_score": 2},
             forecast_distributions={"totalRunDistribution": PMF}, matchup=MATCHUP,
-            event_evidence={"home_runs": 6, "starter_batters_faced": 9,
-                            "relief_batters_faced": 34, "source": "TEST"})
+            event_evidence={
+                "source": "CATALOGUE",
+                "away_events": {"team": "PHI", "completed_pa": 32,
+                                "counts": {"homeRuns": 2}},
+                "exposure": {"away": {"team": "PHI", "starter_bf": 9,
+                                      "relief_bf": 34}},
+                "largest_inning": {"runs": 8, "team": "ATL"},
+            })
         events = next(b for b in payload["bullets"] if b["key"] == "events")
         assert events["evidence_available"] is True
-        assert "6 home runs" in events["text"]
-        assert "the starter faced 9 batters" in events["text"]
+        assert events["statement_kind"] == "OBSERVED_CONTRIBUTOR"
+        assert "PHI recorded 2 home runs" in events["text"]
+        assert "PHI's starter faced 9 batters and its relief faced 34" in events["text"]
+        assert "largest inning contained 8 runs (ATL)" in events["text"]
 
     def test_nothing_is_returned_while_the_wager_is_open(self):
         payload = explain_outcome(

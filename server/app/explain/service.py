@@ -146,10 +146,9 @@ class ExplanationService:
             forecast_distributions=(
                 dict(forecast.distributions or {}) if forecast is not None else None),
             matchup=matchup,
-            # No play-level or player-level rows are retained, so nothing is
-            # passed here today. The parameter exists so that when that evidence
-            # is collected the outcome panel uses it without a second design.
-            event_evidence=self._event_evidence(decision.game_id),
+            # Bound postgame observations from the published catalogue, joined
+            # on the exact game AND forecast identity.
+            event_evidence=self._event_evidence(decision.game_id, forecast),
         )
 
         return {
@@ -220,57 +219,148 @@ class ExplanationService:
             "source_record_id": row.source_record_id,
         }
 
-    def _event_evidence(self, game_id: uuid.UUID) -> dict[str, Any] | None:
-        """Play-level evidence for this game, when any is retained.
+    def _event_evidence(
+        self, game_id: uuid.UUID, forecast: ShadowForecast | None,
+    ) -> dict[str, Any] | None:
+        """Observed postgame evidence for this exact game AND forecast.
 
-        Returns None today: ``pitch_events`` and ``player_game_stats`` hold no
-        rows, and the retained availability audit records the Statcast and
-        bullpen tables at zero. The outcome panel then states that deeper event
-        analysis is unavailable instead of narrating the box score it does have.
+        The published catalogue is joined on both identities. A forecast the
+        catalogue does not name gets nothing -- not the same game's evidence
+        under a different revision, which would credit one forecast with
+        another's result.
+
+        AISP's own play store remains empty, so there is no second source to
+        fall back to and none is invented.
         """
 
-        from sqlalchemy import func
-
-        from app.models import PitchEvent, PlayerGameStat
-
-        pitches = self.session.scalar(
-            select(func.count()).select_from(PitchEvent)
-            .where(PitchEvent.game_id == game_id)
-        )
-        stats = self.session.scalar(
-            select(func.count()).select_from(PlayerGameStat)
-            .where(PlayerGameStat.game_id == game_id)
-        )
-        if not pitches and not stats:
+        if forecast is None:
             return None
-        return {
-            "source": "AISP_RETAINED_GAME_EVIDENCE",
-            "pitch_event_rows": int(pitches or 0),
-            "player_stat_rows": int(stats or 0),
+        from app.explain.catalogue import evidence_for
+
+        try:
+            found = evidence_for(
+                source_game_id=forecast.source_event_id,
+                forecast_id=forecast.forecast_id,
+            )
+        except Exception:  # noqa: BLE001
+            # A catalogue that cannot be verified is treated as absent. The
+            # panel then says event analysis is unavailable, which is true, and
+            # a verification failure never becomes a silently partial claim.
+            return None
+        if found is None:
+            return None
+        return _shape_evidence(found)
+
+
+def _shape_evidence(found: Any) -> dict[str, Any]:
+    """Flatten the catalogue row into what the outcome renderer reads."""
+
+    payload: dict[str, Any] = {
+        "source": "MLB_RESEARCH_CLOSEOUT_EXPLANATION_CATALOGUE_V1",
+        "matchup": found.matchup,
+        "availability": found.availability,
+    }
+    exposure = found.observed_exposure or {}
+    # The catalogue carries real abbreviations; "AWAY recorded six home runs"
+    # is a sentence nobody should have to decode.
+    labels = {"AWAY": exposure.get("awayTeam") or "AWAY",
+              "HOME": exposure.get("homeTeam") or "HOME"}
+
+    for side in ("AWAY", "HOME"):
+        block = (found.observed_events or {}).get(side) or {}
+        if block:
+            payload[f"{side.lower()}_events"] = {
+                "team": labels[side],
+                "completed_pa": block.get("completedPA"),
+                "counts": block.get("officialEventCounts") or {},
+            }
+    sides = exposure.get("sides") or {}
+    shaped: dict[str, Any] = {}
+    for side in ("AWAY", "HOME"):
+        block = sides.get(side) or {}
+        if block:
+            shaped[side.lower()] = {
+                "team": labels[side],
+                "starter_bf": block.get("starterBF"),
+                "relief_bf": block.get("reliefBF"),
+                "starter_outs": block.get("starterOuts"),
+            }
+    if shaped:
+        payload["exposure"] = shaped
+
+    largest = _largest_inning(exposure, labels)
+    if largest:
+        payload["largest_inning"] = largest
+
+    if found.population:
+        payload["population"] = {
+            "classification": found.population.get("classification"),
+            "simulation_count": found.population.get("simulation_count"),
+            "highlights": _population_highlights(found.population.get("row") or {}),
         }
+    return payload
 
 
-def _settlement_final(settlement: Any) -> dict[str, Any] | None:
-    """The scores the settlement itself recorded, when no governed row exists.
+def _largest_inning(
+    exposure: dict[str, Any], labels: dict[str, str],
+) -> dict[str, Any] | None:
+    """The biggest single inning either side scored.
 
-    Named as a distinct source rather than presented as the governed record.
-    The two usually agree; where only one exists, a reader should be able to see
-    which one they are looking at.
+    Read from the catalogue's own ``maximumInningRuns`` rather than recomputed
+    from a line score. The inning number is not carried with it, so it is not
+    invented -- the count is the supported fact.
     """
 
-    if settlement is None:
-        return None
-    home = getattr(settlement, "game_home_score", None)
-    away = getattr(settlement, "game_away_score", None)
-    if home is None or away is None:
-        return None
-    return {
-        "home_score": int(home),
-        "away_score": int(away),
-        "revision": None,
-        "source_record_id": None,
-        "source": "POSITION_SETTLEMENT_RECORD",
-    }
+    best: dict[str, Any] | None = None
+    for side, block in (exposure.get("sides") or {}).items():
+        runs = (block or {}).get("maximumInningRuns")
+        if runs is None:
+            continue
+        if best is None or runs > best["runs"]:
+            best = {"runs": runs, "team": labels.get(side, side), "inning": None}
+    return best if best and best["runs"] else None
+
+
+#: Which population counters are worth surfacing, and what to call them. Kept
+#: short on purpose: the panel locates a result, it does not audit the model.
+_POPULATION_LABELS = {
+    "HOME_RUN": "home runs",
+    "WALK_HBP_CI": "walks, hit batters and catcher interference",
+    "STRIKEOUT": "strikeouts",
+}
+
+
+def _population_highlights(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Counters whose realised value is genuinely unusual in the population.
+
+    Only the upper tail, and only when it is tight. A counter sitting in the
+    middle of the distribution is not an explanation of anything, and listing
+    every class would bury the one that is actually striking.
+    """
+
+    highlights: list[dict[str, Any]] = []
+    names = {"AWAY": (row.get("teams") or {}).get("AWAY", {}).get("team") or "AWAY",
+             "HOME": (row.get("teams") or {}).get("HOME", {}).get("team") or "HOME"}
+    for side, block in (row.get("teams") or {}).items():
+        for name, label in _POPULATION_LABELS.items():
+            counter = ((block or {}).get("classes") or {}).get(name) or {}
+            sampled = counter.get("sampledCount") or {}
+            actual, mean = sampled.get("actual"), sampled.get("mean")
+            tail = sampled.get("inclusiveUpperTail")
+            if actual is None or mean is None or tail is None:
+                continue
+            if tail > 0.05:
+                continue
+            highlights.append({
+                "side": side,
+                "label": f"{names.get(side, side)} {label}",
+                "actual": actual,
+                "mean": mean,
+                "tail_pct": tail * 100.0,
+                "draws": sampled.get("draws"),
+            })
+    highlights.sort(key=lambda row: row["tail_pct"])
+    return highlights[:2]
 
 
 __all__ = ["SCHEMA_VERSION", "ExplanationService"]
