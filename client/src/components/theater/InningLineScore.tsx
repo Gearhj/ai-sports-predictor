@@ -33,7 +33,7 @@ export function InningLineScore({ events, awayTeam, homeTeam }: {
       <div className="line-score__scroll">
         <table className="line-score__table">
           <caption className="sr-only">
-            Runs by inning for the representative simulated path
+            Runs by inning for the one simulated game animated above
           </caption>
           <thead>
             <tr>
@@ -92,7 +92,18 @@ export function InningLineScore({ events, awayTeam, homeTeam }: {
 
       {summary.turningPoints.length > 0 && (
         <div className="turning-points">
-          <h3>Score changes in this path</h3>
+          {/* These are LEAD changes plus the final scoring play, which is what
+              summarizePath derives -- not every score change. Under the old
+              heading the list looked like it skipped runs: an 8-run inning
+              appeared as a single row jumping 5-4 to 12-7, while "Scoring plate
+              appearances" right above it said 16. The data was right and the
+              heading was wrong. */}
+          <h3>Lead changes in this path</h3>
+          <p className="turning-points__scope">
+            {summary.turningPoints.length} of {summary.scoringPlays.length} scoring
+            plate appearances — the ones that changed who was ahead, plus the last
+            one. Every run is in the inning line above.
+          </p>
           <ul>
             {summary.turningPoints.map((event) => (
               <li key={event.pa}>

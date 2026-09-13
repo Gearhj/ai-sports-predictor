@@ -276,3 +276,72 @@ describe('ordinals', () => {
     expect(ordinal(21)).toBe('21st')
   })
 })
+
+// -- the eight-run eleventh, and what the summary is allowed to claim -------
+//
+// The retained COL-DET path (MLBAM 824224) scored eight in the top of the 11th
+// across six scoring plate appearances. summarizePath returns LEAD CHANGES plus
+// the final scoring play, which for that inning is a single row. That is correct
+// behaviour and was displayed under the heading "Score changes in this path",
+// where it looked like the list had silently dropped seven runs.
+
+describe('the eleventh-inning summary', () => {
+  const pa = (
+    pos: number, inning: number, half: 'TOP' | 'BOTTOM',
+    away: number, home: number, runs: number, outs: number,
+  ) => ({
+    pa: pos, inning, half, outcome: runs > 0 ? 'SINGLE' : 'BIP_OUT',
+    outsBefore: Math.max(0, outs - (runs > 0 ? 0 : 1)), outsAfter: outs,
+    baseMaskBefore: 0, baseMaskAfter: 0,
+    awayScoreAfter: away, homeScoreAfter: home,
+    runsScored: runs, battingOrderPosition: 1,
+    pitcherState: 'TEAM_BULLPEN', pitchingChange: false,
+  })
+
+  // The real shape: tied 4-4 entering the 11th, away scores eight, home three.
+  const events = [
+    pa(78, 10, 'BOTTOM', 4, 4, 1, 3),
+    pa(81, 11, 'TOP', 5, 4, 1, 0),
+    pa(82, 11, 'TOP', 6, 4, 1, 1),
+    pa(84, 11, 'TOP', 8, 4, 2, 1),
+    pa(86, 11, 'TOP', 9, 4, 1, 1),
+    pa(87, 11, 'TOP', 10, 4, 1, 2),
+    pa(88, 11, 'TOP', 12, 4, 2, 2),
+    pa(89, 11, 'TOP', 12, 4, 0, 3),
+    pa(91, 11, 'BOTTOM', 12, 5, 1, 0),
+    pa(93, 11, 'BOTTOM', 12, 6, 1, 1),
+    pa(95, 11, 'BOTTOM', 12, 7, 1, 2),
+    pa(96, 11, 'BOTTOM', 12, 7, 0, 3),
+  ] as never[]
+
+  it('counts every scoring plate appearance, not just the listed ones', () => {
+    const summary = summarizePath(events)!
+    // Ten scoring plate appearances across the tenth and eleventh; the
+    // lead-change list is far shorter, which is exactly why the old heading
+    // made a correct trace look like it had lost runs.
+    expect(summary.scoringPlays).toHaveLength(10)
+    expect(summary.turningPoints.length).toBeLessThan(summary.scoringPlays.length)
+  })
+
+  it('reaches the recorded final and stops there', () => {
+    const summary = summarizePath(events)!
+    expect([summary.awayFinal, summary.homeFinal]).toEqual([12, 7])
+    expect(summary.innings).toBe(11)
+    expect(summary.extraInnings).toBe(true)
+  })
+
+  it('never reports a run total the events do not support', () => {
+    const summary = summarizePath(events)!
+    const scored = summary.scoringPlays.reduce((total, event) => total + event.runsScored, 0)
+    // The fixture starts at 4-3 and ends 12-7: eight away runs and four home,
+    // every one of them present in the scoring plays.
+    expect(scored).toBe((12 - 4) + (7 - 3))
+    expect(scored).toBe(12)
+  })
+
+  it('keeps the last scoring play so the list ends at the final score', () => {
+    const summary = summarizePath(events)!
+    const last = summary.turningPoints[summary.turningPoints.length - 1]
+    expect([last.awayScoreAfter, last.homeScoreAfter]).toEqual([12, 7])
+  })
+})

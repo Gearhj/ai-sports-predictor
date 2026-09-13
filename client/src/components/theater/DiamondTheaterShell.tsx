@@ -8,7 +8,14 @@
  *
  * Two kinds of number share the screen and must never be confused:
  *   - FIXED population conclusions across all simulated games (flat plates)
- *   - CHANGING state of the one representative path (the bright scorebug)
+ *   - CHANGING state of the ONE retained path (the bright scorebug)
+ *
+ * The changing one is the dangerous one. A moving scoreboard is the most
+ * familiar object in sport, so a reader reads it as the forecast, or as the live
+ * game. Here it is neither: it is one simulated game out of thousands, and the
+ * model's actual answer is the average shown above this component. Everything
+ * below labels the animation as one example and says out loud whether it is
+ * playing, paused or finished.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BallparkField, FIELD } from './BallparkField'
@@ -118,6 +125,13 @@ export function DiamondTheaterShell({ path, shadow, awayTeam, homeTeam }: {
     ? { label: starter, sub: 'starter' }
     : { label: 'Team bullpen', sub: 'governed pitcher state' }
 
+  // Said in words. A play/pause glyph tells a reader what the BUTTON does, not
+  // what the animation is currently doing, and those differ at exactly the
+  // moment a reader is trying to work out whether what they see is live.
+  const playbackLabel = complete
+    ? 'Simulation complete'
+    : playing ? 'Simulation playing' : 'Paused'
+
   return (
     <div
       ref={surface}
@@ -125,6 +139,23 @@ export function DiamondTheaterShell({ path, shadow, awayTeam, homeTeam }: {
       data-testid="diamond-theater"
     >
       <div className="theater__stage">
+        <div className="theater__banner">
+          <span className="theater__banner-label" data-testid="theater-example-label">
+            One simulated game
+          </span>
+          <span
+            className={`theater__playback theater__playback--${
+              complete ? 'complete' : playing ? 'playing' : 'paused'}`}
+            role="status"
+            data-testid="theater-playback-status"
+          >
+            {playbackLabel}
+          </span>
+          <span className="theater__banner-note">
+            Example only — not the live game and not a predicted sequence
+          </span>
+        </div>
+
         <BroadcastScorebug
           event={current}
           awayTeam={awayTeam}
@@ -172,12 +203,9 @@ export function DiamondTheaterShell({ path, shadow, awayTeam, homeTeam }: {
 
         </div>
 
-        <p className="theater__provenance">
-          Representative path selected from{' '}
-          {shadow.simulation_count?.toLocaleString() ?? '—'} completed V18 simulations.
-          This is one simulated game path, not a prediction of the exact play sequence.
-        </p>
-
+        {/* Controls sit directly under the diamond: a reader must never have
+            to scroll past the thing they are controlling to reach play/pause.
+            The provenance note follows them. */}
         <ReplayTimeline
           events={events}
           index={index}
@@ -191,6 +219,20 @@ export function DiamondTheaterShell({ path, shadow, awayTeam, homeTeam }: {
           onSpeed={setSpeed}
           onTheater={() => setTheater((value) => !value)}
         />
+
+        <p className="theater__provenance">
+          {/* "Representative" was an unsupported claim. The package retains ONE
+              path and records no method for choosing it -- no median, no
+              sampling rule, nothing. Calling it representative told readers the
+              animation stood for the distribution, which is the exact
+              misreading this surface exists to prevent. */}
+          One retained simulated game out of{' '}
+          {shadow.simulation_count?.toLocaleString() ?? '—'} the model ran. The package
+          records no method for selecting which one was kept, so it is shown as a
+          single example and nothing more — not a typical game, not a prediction of
+          the play sequence, and not the model's forecast. The forecast is the
+          simulation average above.
+        </p>
       </div>
 
       <SimulationEventFeed

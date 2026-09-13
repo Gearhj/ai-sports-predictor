@@ -181,9 +181,31 @@ describe('the population summary is fixed and separate', () => {
 
   it('states that the path is one member of the population', () => {
     mount()
-    expect(screen.getByText(/Representative path selected from 5,000 completed V18 simulations/))
+    expect(screen.getByText(/One retained simulated game out of 5,000/)).toBeInTheDocument()
+    expect(screen.getByText(/not a prediction of the play sequence/)).toBeInTheDocument()
+  })
+
+  it('does not call the path representative or typical', () => {
+    // The package retains one path and records no selection method, so neither
+    // word is supported by anything stored.
+    const { container } = mount()
+    const text = container.textContent ?? ''
+    // The word may appear in a DENIAL ("not a typical game"); what must never
+    // appear is the affirmative claim, which nothing retained supports.
+    expect(text).not.toMatch(/representative/i)
+    expect(text).not.toMatch(/(?<!not a )typical game/i)
+    expect(text).toMatch(/not a typical game/i)
+    expect(screen.getByText(/records no method for selecting which one was kept/))
       .toBeInTheDocument()
-    expect(screen.getByText(/not a prediction of the exact play sequence/))
+  })
+
+  it('marks the animation as one example and says what playback is doing', () => {
+    mount()
+    expect(screen.getByTestId('theater-example-label')).toHaveTextContent('One simulated game')
+    // In words, not inferred from a play/pause glyph.
+    const status = screen.getByTestId('theater-playback-status')
+    expect(status.textContent).toMatch(/Simulation playing|Paused|Simulation complete/)
+    expect(screen.getByText(/not the live game and not a predicted sequence/))
       .toBeInTheDocument()
   })
 })

@@ -3584,3 +3584,112 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .candidate-cohort__excluded li { margin-bottom: 4px; }
 .candidate-card__absent { color: var(--muted, #7a8699); font-style: italic; }
 .candidate-card__score-note { margin: 6px 0 0; font-size: 11px; color: var(--muted, #7a8699); }
+
+
+/* ---- The forecast, above the animation ---------------------------------- */
+/* Sticky so the model's answer stays on screen while the example plays. It is
+   deliberately calm: no motion, no colour change, nothing that could be mistaken
+   for a live scoreboard. The animated scorebug below is the bright one. */
+.sim-average {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  margin: 0 0 10px;
+  /* Compact on purpose. This block is pinned, so every pixel it takes is a
+     pixel the diamond and its controls do not get: at 242px it pushed the
+     transport below a 720px fold. One row, ~150px. */
+  padding: 10px 14px;
+  border: 1px solid var(--line, #d7dee8);
+  border-radius: 14px;
+  background: var(--surface, #fbfcfe);
+  box-shadow: 0 2px 10px rgba(16, 24, 40, .05);
+}
+.sim-average__head { margin-bottom: 6px; }
+.sim-average__head h2 { margin: 1px 0 0; font-size: 15px; }
+.sim-average__head h2 small {
+  font-weight: 400; font-size: 12px; color: var(--muted, #7a8699);
+}
+/* Scores and the supporting facts share one row on a wide screen, so the
+   pinned block stays short. */
+.sim-average__body {
+  display: flex; align-items: flex-end; gap: 26px; flex-wrap: wrap;
+}
+.sim-average__scores {
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: nowrap;
+}
+.sim-average__team { display: grid; gap: 1px; }
+.sim-average__abbr {
+  font-size: 12px; letter-spacing: .06em; color: var(--muted, #7a8699);
+}
+.sim-average__runs { font-size: 26px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.sim-average__team small { font-size: 11px; color: var(--muted, #7a8699); }
+.sim-average__vs { font-size: 20px; color: var(--muted, #7a8699); padding-bottom: 16px; }
+.sim-average__facts {
+  display: flex; flex-wrap: wrap; gap: 14px; margin: 0;
+}
+.sim-average__facts dt { font-size: 11px; color: var(--muted, #7a8699); }
+.sim-average__facts dd {
+  margin: 0; font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.sim-average__absent { color: var(--muted, #7a8699); font-style: italic; font-size: 12px; }
+.sim-average__note { margin: 7px 0 0; font-size: 12px; color: var(--muted, #7a8699); }
+.sim-average__identity {
+  margin: 6px 0 0; font-size: 11px; color: var(--muted, #7a8699); overflow-wrap: anywhere;
+}
+.sim-average__identity code { font-size: 11px; }
+
+/* ---- The animated example, marked as an example -------------------------- */
+.theater__banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 7px 10px; margin-bottom: 6px;
+  border: 1px dashed #8a94a6;
+  border-radius: 10px 10px 0 0;
+  background: rgba(138, 148, 166, .08);
+}
+.theater__banner-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+}
+.theater__banner-note { font-size: 11px; color: var(--muted, #7a8699); }
+.theater__playback {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
+}
+.theater__playback--playing { background: rgba(46, 125, 50, .14); color: #2e7d32; }
+.theater__playback--paused { background: rgba(185, 130, 48, .16); color: #8a5f14; }
+.theater__playback--complete { background: rgba(91, 126, 166, .16); color: #3f5f80; }
+
+.turning-points__scope {
+  margin: 4px 0 8px; font-size: 12px; color: var(--muted, #7a8699);
+}
+
+/* Narrow widths: the header must not eat the screen, and the diamond plus its
+   controls still have to fit without scrolling past them. */
+@media (max-width: 720px) {
+  .sim-average { position: static; padding: 12px; }
+  .sim-average__runs { font-size: 24px; }
+  .sim-average__scores { gap: 12px; }
+  .sim-average__facts { gap: 12px; }
+  .theater__banner { gap: 6px; }
+}
+
+
+/* Short viewports: the pinned forecast, the diamond and the transport must all
+   be on screen together, because a reader should never scroll past the thing
+   they are controlling to reach play/pause. The diamond is the elastic part --
+   it scales cleanly via preserveAspectRatio -- so it yields first, and the
+   forecast block tightens a little alongside it. */
+@media (max-height: 860px) {
+  .sim-average { padding: 8px 12px; }
+  .sim-average__runs { font-size: 22px; }
+  .sim-average__head h2 { font-size: 14px; }
+  .sim-average__note, .sim-average__identity { margin-top: 5px; }
+  /* An explicit height, not just a cap: the park's height comes from its
+     content, so max-height alone never shrank it. */
+  .theater__park { height: 34vh; max-height: 34vh; }
+  .theater__field { height: 100%; max-height: 34vh; }
+}
+@media (max-height: 700px) {
+  .sim-average__identity { display: none; }
+  .theater__park { height: 28vh; max-height: 28vh; }
+  .theater__field { height: 100%; max-height: 28vh; }
+}

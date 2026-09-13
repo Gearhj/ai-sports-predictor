@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { DiamondTheaterShell } from './theater/DiamondTheaterShell'
+import { SimulationAverageHeader } from './theater/SimulationAverageHeader'
 import { InningLineScore, PopulationPanel } from './theater/InningLineScore'
 import { PlayGeometryView } from './theater/PlayGeometryView'
 import { PopulationView } from './theater/PopulationView'
@@ -34,6 +35,9 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 
   const [path, setPath] = useState<ShadowPath | null>(null)
   const [state, setState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   const [geometry, setGeometry] = useState<PlayGeometryPayload | null>(null)
+  // When this page read the stored forecast. Deliberately a separate value from
+  // the forecast's own evidence cutoff, so neither can stand in for the other.
+  const [readAt] = useState(() => new Date().toISOString())
 
   useEffect(() => {
     const controller = new AbortController()
@@ -112,6 +116,17 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 
               Replay remains available and nothing has been synthesised here.
             </p>
           )
+      )}
+
+      {/* The forecast first. It is the model's answer, it does not move, and it
+          stays on screen while the example plays underneath it. */}
+      {state === 'ready' && (
+        <SimulationAverageHeader
+          shadow={shadow}
+          awayTeam={awayTeam}
+          homeTeam={homeTeam}
+          readAt={readAt}
+        />
       )}
 
       {view === 'broadcast' && state === 'ready' && path && (
