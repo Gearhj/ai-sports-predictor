@@ -170,12 +170,27 @@ class TestOnlySavedEvidence:
         text = next(b["text"] for b in payload["bullets"] if b["key"] == "probability")
         assert "before adjustments" not in text
 
-    def test_the_policy_bullet_uses_the_stored_gates(self):
+    def test_the_policy_bullet_is_ordinary_language(self):
+        """Identifiers and counts are not reasons.
+
+        A reader asking why a wager was taken is not helped by
+        "AISP_PRACTICAL_PREGAME_POLICY_V2_1" or by "4 checks passed". Both are
+        real evidence and both belong in the details disclosure.
+        """
+
         payload = explain_wager(decision=decision(), position=position(),
                                 forecast=None, matchup=MATCHUP)
         text = next(b["text"] for b in payload["bullets"] if b["key"] == "policy")
-        assert "AISP_PRACTICAL_PREGAME_POLICY_V2_1" in text
-        assert "4 policy checks passed" in text
+        assert "the edge cleared the policy's minimum" in text
+        assert "AISP_PRACTICAL_PREGAME_POLICY_V2_1" not in text
+        assert "checks passed" not in text
+
+    def test_the_identifiers_are_kept_in_the_details(self):
+        details = explain_wager(decision=decision(), position=position(),
+                                forecast=None, matchup=MATCHUP)["details"]
+        assert details["policy_version"] == "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
+        assert details["gates_passed_count"] == 4
+        assert len(details["gates_passed"]) == 4
 
     def test_missing_attribution_says_so_and_claims_nothing(self):
         """The sentence the brief asks for, and none of the ones it forbids."""

@@ -216,17 +216,16 @@ def _policy_bullet(decision: Any, evidence: dict[str, Any]) -> dict[str, Any]:
 
     gates = [str(gate) for gate in (evidence.get("gates_passed") or [])]
     if gates:
-        # The two gates that decide the wager, said plainly; the rest are
-        # available in details rather than crowding the summary.
+        # Ordinary language only. The policy version string and the count of
+        # checks are identifiers, not reasons -- a reader asking "why this
+        # wager" is not helped by "AISP_PRACTICAL_PREGAME_POLICY_V2_1" or by
+        # "11 checks passed", and both now live in the details disclosure.
         decisive = [g for g in gates if g in ("adjusted_edge_minimum", "adjusted_ev_positive")]
         readable = [GATE_LANGUAGE.get(g, g.replace("_", " ")) for g in (decisive or gates[:2])]
-        policy = evidence.get("policy_version")
-        text = (
-            f"It qualified because {', and '.join(readable)}"
-            + (f" under {policy}" if policy else "")
-            + f" ({len(gates)} policy checks passed in total)"
-        )
-        return {"key": "policy", "text": text + "."}
+        return {
+            "key": "policy",
+            "text": f"It qualified because {', and '.join(readable)}.",
+        }
 
     reasons = [str(r) for r in (getattr(decision, "qualification_reasons", None) or [])]
     if reasons:
@@ -361,6 +360,7 @@ def _details(
         "staking_version": evidence.get("staking_version"),
         "tier": evidence.get("tier"),
         "gates_passed": list(evidence.get("gates_passed") or []),
+        "gates_passed_count": len(evidence.get("gates_passed") or []),
         "forecast_identity": (
             lineage.get("forecast_id")
             or (getattr(forecast, "forecast_id", None) if forecast is not None else None)

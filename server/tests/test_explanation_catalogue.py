@@ -290,3 +290,49 @@ class TestStatementKindsStayApart:
         events = next(b for b in payload["bullets"] if b["key"] == "events")
         assert events["statement_kind"] == "UNAVAILABLE"
         assert payload["event_evidence_available"] is False
+
+
+class TestSettlementFallbackSurvives:
+    """A settled wager with no governed row must still show its final.
+
+    This existed, was deleted by an edit that rewrote the surrounding block, and
+    only failed for older wagers whose games predate the governed backfill — so
+    the newest rows kept working and hid it. The regression is cheap to pin.
+    """
+
+    def test_the_helper_is_still_defined_and_exported(self):
+        from app.explain import service
+
+        assert hasattr(service, "_settlement_final")
+
+    def test_it_reads_the_scores_the_settlement_recorded(self):
+        from types import SimpleNamespace
+
+        from app.explain.service import _settlement_final
+
+        final = _settlement_final(
+            SimpleNamespace(game_home_score=7, game_away_score=3))
+        assert final == {
+            "home_score": 7, "away_score": 3, "revision": None,
+            "source_record_id": None, "source": "POSITION_SETTLEMENT_RECORD",
+        }
+
+    def test_it_names_itself_as_a_different_source_from_the_governed_record(self):
+        from types import SimpleNamespace
+
+        from app.explain.service import _settlement_final
+
+        final = _settlement_final(
+            SimpleNamespace(game_home_score=1, game_away_score=0))
+        # A reader must be able to tell which record they are looking at.
+        assert final["source"] == "POSITION_SETTLEMENT_RECORD"
+        assert final["revision"] is None
+
+    def test_absent_scores_yield_nothing_rather_than_zeros(self):
+        from types import SimpleNamespace
+
+        from app.explain.service import _settlement_final
+
+        assert _settlement_final(None) is None
+        assert _settlement_final(
+            SimpleNamespace(game_home_score=None, game_away_score=2)) is None

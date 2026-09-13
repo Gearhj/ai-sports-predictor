@@ -67,6 +67,12 @@ def explain_outcome(
     selection = str(getattr(decision, "selection", "") or "")
     bullets: list[dict[str, Any]] = []
 
+    # Order matters here. What was selected and what happened come first,
+    # then the observations that speak to THAT result. The total-runs interval
+    # is moved last and marked secondary: for a moneyline wager it is context
+    # about scoring, and it neither validates nor explains the home-win
+    # probability the decision actually rested on. Leading with it made a
+    # 2-12 loss look like it was being answered with a remark about run totals.
     needed = _needed_bullet(decision, market, selection)
     if needed is not None:
         bullets.append(needed)
@@ -75,15 +81,16 @@ def explain_outcome(
     if outcome is not None:
         bullets.append(outcome)
 
-    comparison = _forecast_vs_result(final, forecast_distributions, market, decision)
-    if comparison is not None:
-        bullets.append(comparison)
-
     events = _event_bullet(event_evidence)
     bullets.append(events)
     population = _population_bullet(event_evidence)
     if population is not None:
         bullets.append(population)
+
+    comparison = _forecast_vs_result(
+        final, forecast_distributions, market, decision)
+    if comparison is not None:
+        bullets.append(comparison)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -103,6 +110,12 @@ def explain_outcome(
             "POSSIBLE_EXPLANATION": (
                 "An observed fact located against the simulated population. "
                 "Informative, not causal."
+            ),
+            "SECONDARY_CONTEXT": (
+                "Related background that does not speak to the selection itself."
+            ),
+            "UNRESOLVED_HYPOTHESIS": (
+                "A question the evidence raises and does not answer."
             ),
             "ESTABLISHED_MODEL_DEFECT": (
                 "Not claimed anywhere here. No evidence in this catalogue "
@@ -194,8 +207,8 @@ def _forecast_vs_result(
     at_or_below = sum(p for runs, p in mass.items() if runs <= total)
 
     text = (
-        f"The forecast expected about {expected:.2f} total runs; the game "
-        f"produced {total}."
+        f"Secondary context: the forecast expected about {expected:.2f} total "
+        f"runs; the game produced {total}."
     )
     # Whichever tail the result fell in is the informative one.
     if total >= expected:
@@ -208,8 +221,14 @@ def _forecast_vs_result(
             f" Under that forecast, {at_or_below * 100:.1f}% of simulated games "
             f"finished at {total} runs or fewer."
         )
+    if market != "TOTAL":
+        text += (
+            " This is about scoring, not about the side that was backed — it "
+            "neither validates nor explains the win probability."
+        )
     return {
         "key": "forecast_vs_result",
+        "statement_kind": "SECONDARY_CONTEXT",
         "text": text,
         "expected_total_runs": round(expected, 4),
         "actual_total_runs": total,
@@ -388,9 +407,14 @@ def _uncertainty(
         )
     return {
         "resolved": False,
+        "statement_kind": "UNRESOLVED_HYPOTHESIS",
         "inside_central_range": inside,
         "central_range": [low, high],
         "text": text,
+        "note": (
+            "Whether any unusual result here reflects recurring plate-appearance, "
+            "duration or transition error is unresolved. One game cannot settle it."
+        ),
     }
 
 

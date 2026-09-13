@@ -27,6 +27,7 @@ from app.models import (
     GameTeam,
     OfficialAspPosition,
     PositionSettlement,
+    PositionStatus,
     ShadowExperimentDecision,
     ShadowForecast,
     Team,
@@ -114,6 +115,32 @@ class ExplanationService:
         if candidate_rank != incumbent_rank:
             return candidate_rank > incumbent_rank
         return candidate.recommended_at > incumbent.recommended_at
+
+    def for_settled(self, limit: int = 40) -> list[dict[str, Any]]:
+        """Settled wagers, newest first, each explained once.
+
+        This is what the historical surface needs: the record of decisions that
+        have resolved, with the rationale they were made on. It is the same
+        service Daily Decisions and the ledger use, so a settled wager reads the
+        same here as it did before it settled.
+        """
+
+        positions = list(self.session.scalars(
+            select(OfficialAspPosition)
+            .where(
+                OfficialAspPosition.shadow_decision_id.is_not(None),
+                OfficialAspPosition.status == PositionStatus.SETTLED,
+            )
+            .order_by(OfficialAspPosition.settled_at.desc())
+            .limit(limit)
+        ))
+        explanations: list[dict[str, Any]] = []
+        for position in positions:
+            decision = self.session.get(
+                ShadowExperimentDecision, position.shadow_decision_id)
+            if decision is not None:
+                explanations.append(self._build(decision, position=position))
+        return explanations
 
     # -- assembly ----------------------------------------------------------
 
@@ -250,6 +277,29 @@ class ExplanationService:
         if found is None:
             return None
         return _shape_evidence(found)
+
+
+def _settlement_final(settlement: Any) -> dict[str, Any] | None:
+    """The scores the settlement itself recorded, when no governed row exists.
+
+    Named as a distinct source rather than presented as the governed record.
+    The two usually agree; where only one exists, a reader should be able to see
+    which one they are looking at.
+    """
+
+    if settlement is None:
+        return None
+    home = getattr(settlement, "game_home_score", None)
+    away = getattr(settlement, "game_away_score", None)
+    if home is None or away is None:
+        return None
+    return {
+        "home_score": int(home),
+        "away_score": int(away),
+        "revision": None,
+        "source_record_id": None,
+        "source": "POSITION_SETTLEMENT_RECORD",
+    }
 
 
 def _shape_evidence(found: Any) -> dict[str, Any]:

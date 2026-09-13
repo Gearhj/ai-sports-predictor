@@ -6,6 +6,7 @@ import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { HistoricalGameExplorerRow, HistoricalPopulationSummary, HistoricalResearchData, ResourceState } from '../types/domain'
+import { SettledWagerHistory } from '../components/explain/SettledWagerHistory'
 
 export function HistoricalResearchPage() {
   const { data, state, loading, error, refresh } = useApiResource(endpoints.history, { key: 'research/history', staleTimeMs: STALE_TIME.history })
@@ -52,6 +53,24 @@ export function HistoricalResearchPage() {
       {canonical.availability === 'AVAILABLE'
         ? <HistoricalGameExplorer sourceKeys={canonical.source_keys} />
         : <Panel title="Historical Game Explorer" eyebrow="CANONICAL SNAPSHOTS ONLY" className="section-panel"><p className="muted">Game-level summaries are withheld until canonical warehouse integrity passes.</p></Panel>}
+
+      {/* Deliberately its own panel. The explorer above is the 2025 Tier-A
+          canonical training population; these are the 2026 wagers the
+          experiment actually recorded. Putting a wager's rationale on a
+          training-population row would join two unrelated things. */}
+      <Panel
+        title="Settled wagers and their rationale"
+        eyebrow="WHY IT WAS TAKEN, AND WHAT HAPPENED"
+        className="section-panel"
+      >
+        <p className="muted">
+          Each explanation is built from the decision's own frozen evidence, so it
+          reads the same here as it did before the result was known. Postgame
+          observations appear only under &ldquo;What happened?&rdquo; and never
+          enter the recorded rationale.
+        </p>
+        <SettledWagerHistory />
+      </Panel>
 
       <Panel
         title="Strict and enhanced populations"

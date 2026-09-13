@@ -1508,3 +1508,33 @@ def explain_slate(
         "recorded_wagers": sum(1 for row in explanations if row["recorded_wager"]),
         "qualifying_only": sum(1 for row in explanations if not row["recorded_wager"]),
     }
+
+
+@router.get("/explanations/settled", tags=["transparency"])
+def explain_settled(
+    session: DatabaseSession,
+    limit: int = Query(40, ge=1, le=200),
+) -> dict:
+    """Settled wagers with the rationale they were made on.
+
+    The historical surface reads this. It is the same explanation service Daily
+    Decisions and the experiment ledger use, so a settled wager reads here
+    exactly as it did before it resolved.
+    """
+
+    from app.explain.service import ExplanationService
+
+    explanations = ExplanationService(session).for_settled(limit=limit)
+    return {
+        "schema_version": "AISP_SETTLED_EXPLANATIONS_V1",
+        "explanations": explanations,
+        "settled": len(explanations),
+        "with_event_evidence": sum(
+            1 for row in explanations
+            if (row.get("what_happened") or {}).get("event_evidence_available")
+        ),
+        "with_population_comparison": sum(
+            1 for row in explanations
+            if (row.get("what_happened") or {}).get("population_comparison_available")
+        ),
+    }

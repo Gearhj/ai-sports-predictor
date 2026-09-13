@@ -3782,3 +3782,25 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .explain__price { gap: 12px; }
   .explain__gates { columns: 1; }
 }
+
+/* Settled wagers on the historical surface. One row per resolved decision,
+   with the same collapsed disclosures the decision desk and ledger use. */
+.settled-history { display: grid; gap: 10px; margin-top: 10px; }
+.settled-history__row {
+  border: 1px solid var(--line, rgba(128,140,160,.25));
+  border-radius: 10px; padding: 10px 12px;
+}
+.settled-history__head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+  font-size: 13px;
+}
+.settled-history__selection { color: var(--muted, #7a8699); }
+.settled-history__date { margin-left: auto; font-size: 11.5px; color: var(--muted, #7a8699); }
+.settled-history__result {
+  padding: 1px 8px; border-radius: 999px; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.settled-history__result--won { background: rgba(61,139,95,.16); color: #3d8b5f; }
+.settled-history__result--lost { background: rgba(192,57,43,.14); color: #c0392b; }
+.settled-history__result--pushed,
+.settled-history__result--open { background: rgba(122,134,153,.16); color: var(--muted, #7a8699); }
