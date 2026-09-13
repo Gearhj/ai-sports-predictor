@@ -1,0 +1,101 @@
+{
+  "bytes": 409952,
+  "counts": {
+    "alternateVersions": 0,
+    "clocksCollapsed": 14,
+    "cohorts": {
+      "NOT_YET_SCORED": 0,
+      "QUALIFIED_DIAGNOSTIC": 14,
+      "VERIFIED_PROSPECTIVE": 17
+    },
+    "distinctGames": 31,
+    "forecastsWithoutCanonicalGame": 0,
+    "gamesWithDecision": 0,
+    "gamesWithEligibleFinal": 31,
+    "gamesWithPosition": 0,
+    "gamesWithResearchScore": 31,
+    "gamesWithoutEligibleFinal": 0,
+    "operationallyDecisionEligible": 0,
+    "scientificallyProspective": 31,
+    "shadowForecastRowsInPopulation": 31
+  },
+  "eligibleFinalGate": {
+    "rule": "status FINAL with both scores, ranked by provenance tier then knowledge time then payload checksum",
+    "sharedWith": "app/services/forecast_evaluation.py::result_for",
+    "source": "game_state_observations"
+  },
+  "exportedAtUtc": "2026-09-12T14:13:33.455021+00:00",
+  "extractionWatermark": {
+    "bundles_count": 602,
+    "decisions_count": 24,
+    "game_final_outcomes_count": 2430,
+    "game_final_outcomes_max_date": "2025-09-28",
+    "positions_count": 19,
+    "shadow_forecasts_count": 2209,
+    "shadow_forecasts_max_created_at": "2026-09-11T19:06:13.272748-04:00"
+  },
+  "file": "v18_forecast_evidence.jsonl",
+  "guarantees": {
+    "databaseWrites": 0,
+    "modelExecutions": 0,
+    "providerCalls": 0,
+    "sealedOutcomesQueried": false
+  },
+  "lineageBlobsBytes": 16428560,
+  "lineageBlobsFile": "v18_lineage_blobs.jsonl",
+  "lineageBlobsNote": "Large per-game lineage payloads (populationGeometry, playGeometry, sequentialPath) live here, keyed by shadowForecastId. Each primary record carries a sha256 and byte count for its blobs under lineage.blobReferences.",
+  "lineageBlobsSha256": "c9701f935cd39372abb4d30259be32b305be39834385f6c21a2be64f8262a058",
+  "modelEra": {
+    "champion_manifest_sha256": "3e8dcc1c50dcdfd2d748e5e0de8e7595ad0b50a2c62eb9baadb4ffe9e5d640c2",
+    "effective_at": "2026-09-12T00:00:00-04:00",
+    "engine_id": "MLB_V18_WHOLE_GAME",
+    "execution_allowed_in_aisp": false,
+    "gen1_fallback_allowed": false,
+    "historical_integrity_note": "Delayed/resumed-game completion was mistaken for original event-date availability. Fold 2 includes at least 55 later-played labels in BOS202406260; all five fitted preprocessing states and historical rolling-feature provenance require review. No clean five-fold point-in-time validation claim. Stored numerical results preserved, not repaired or relabeled.",
+    "historical_validation_under_review": true,
+    "imported_at": "2026-09-11T14:28:27.220282-04:00",
+    "minimum_adjusted_edge": 0.02,
+    "model_artifact_sha256": "44ec4f457741f1aaeff42b81af1be5fd2712e494709ff1a0a8f0742b88d71c8b",
+    "model_era_id": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1",
+    "real_money_execution_allowed": false,
+    "state": "ARMED"
+  },
+  "omissionsFile": "omissions.json",
+  "omissionsSha256": "b26f25d94106de84ddc00b58416cb484240ec1b07e58e7e4feb62a54bed59739",
+  "schemaChangelog": {
+    "AISP_V18_ERROR_ANALYSIS_EVIDENCE_V2": [
+      "eligible-final gate is now the provenance-ranked FINAL state observation, matching app/services/forecast_evaluation.py::result_for",
+      "added researchScore, carrying the persisted research evaluation",
+      "added cohort: VERIFIED_PROSPECTIVE | QUALIFIED_DIAGNOSTIC | NOT_YET_SCORED",
+      "added trainingLabelStore, reporting game_final_outcomes coverage separately"
+    ]
+  },
+  "schemaVersion": "AISP_V18_ERROR_ANALYSIS_EVIDENCE_V2",
+  "selectionRules": {
+    "dateFloor": "2026-08-28",
+    "engineId": "MLB_V18_WHOLE_GAME",
+    "finalRevisionRule": "highest revision in game_final_outcomes for the canonical game",
+    "outcomeGate": "score payloads read only for games passing the final-revision gate",
+    "permanentExclusions": [
+      "823343",
+      "824235",
+      "822693"
+    ],
+    "policyCutoffRule": "scheduled_start_utc minus 15 minutes",
+    "primaryForecastRule": "max(snapshot_version, available_as_of_utc, created_at) per canonical game",
+    "sealedOutOfTimeWindowExcluded": [
+      "2026-08-14",
+      "2026-08-27"
+    ]
+  },
+  "sha256": "722a7bbb1f8fa1fcc98ff59a3436ed92fc35fa7b9c88304cf6b537dc3e7e54e4",
+  "stage": "export",
+  "studyId": "AISP_MLB_V18_ERROR_ANALYSIS_EVIDENCE_V1",
+  "trainingLabelStore": {
+    "firstOfficialDate": null,
+    "lastOfficialDate": null,
+    "note": "The 2025 retrospective training-label store. It is not the eligible-final gate for research scoring and is reported here only so the two provenance kinds stay visibly separate.",
+    "rowsForThisPopulation": 0,
+    "table": "game_final_outcomes"
+  }
+}

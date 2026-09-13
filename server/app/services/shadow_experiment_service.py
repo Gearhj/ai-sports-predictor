@@ -749,6 +749,58 @@ class ShadowExperimentService:
         stake = min(stake, bankroll * cap_fraction)
         return stake if stake > 0 else None
 
+    def _account_staking_basis(self, experiment: ShadowExperiment) -> dict[str, Any] | None:
+        """Season-account capital for this era, or None if it has no account."""
+
+        from app.services.experiment_accounts import ExperimentAccountService
+
+        return ExperimentAccountService(self.session, self.settings).staking_basis(experiment)
+
+    def _stake_used(
+        self,
+        experiment: ShadowExperiment,
+        *,
+        game: Game,
+        event_date: date,
+        basis: dict[str, Any] | None,
+    ) -> tuple[float, float]:
+        """Stake already committed today, and on this game.
+
+        Account-wide when the era has an account, so an era change mid-slate
+        cannot reset a cap to zero; per-era otherwise, which is exactly the
+        previous behaviour.
+        """
+
+        if basis is not None:
+            from app.models import ExperimentAccount
+            from app.services.experiment_accounts import ExperimentAccountService
+
+            accounts = ExperimentAccountService(self.session, self.settings)
+            account = self.session.get(ExperimentAccount, basis["account_id"])
+            if account is not None:
+                return (
+                    accounts.account_stake_used(account, slate_date=event_date),
+                    accounts.account_stake_used(account, game_id=game.id),
+                )
+        daily_used = sum(float(row.stake) for row in self.session.scalars(
+            select(OfficialAspPosition)
+            .join(ShadowExperimentDecision, ShadowExperimentDecision.id == OfficialAspPosition.shadow_decision_id)
+            .where(
+                OfficialAspPosition.shadow_experiment_id == experiment.id,
+                ShadowExperimentDecision.slate_date == event_date,
+            )
+        ))
+        same_game_used = sum(float(row.stake) for row in self.session.scalars(
+            select(OfficialAspPosition)
+            .join(MarketOutcome, MarketOutcome.id == OfficialAspPosition.market_outcome_id)
+            .join(Market, Market.id == MarketOutcome.market_id)
+            .where(
+                OfficialAspPosition.shadow_experiment_id == experiment.id,
+                Market.game_id == game.id,
+            )
+        ))
+        return daily_used, same_game_used
+
     def _create_canonical_position(
         self,
         experiment: ShadowExperiment,
@@ -801,28 +853,24 @@ class ShadowExperimentService:
         ):
             return False
 
-        bankroll = self.current_bankroll(experiment)
-        available = self._available_bankroll(experiment)
+        # Capital comes from the season account when the era has one. The
+        # account is what holds the money: it spans model eras, so the
+        # predecessor's open stake stays reserved while it is open and returns
+        # to the season -- not to a retired era -- when it settles. Sizing and
+        # capping against the era alone is what would lose it.
+        basis = self._account_staking_basis(experiment)
+        if basis is None:
+            bankroll = self.current_bankroll(experiment)
+            available = self._available_bankroll(experiment)
+        else:
+            bankroll = basis["bankroll"]
+            available = basis["available"]
         stake = self.compute_position_stake(experiment, decision, bankroll)
         if stake is None:
             return False
-        daily_used = sum(float(row.stake) for row in self.session.scalars(
-            select(OfficialAspPosition)
-            .join(ShadowExperimentDecision, ShadowExperimentDecision.id == OfficialAspPosition.shadow_decision_id)
-            .where(
-                OfficialAspPosition.shadow_experiment_id == experiment.id,
-                ShadowExperimentDecision.slate_date == event_date,
-            )
-        ))
-        same_game_used = sum(float(row.stake) for row in self.session.scalars(
-            select(OfficialAspPosition)
-            .join(MarketOutcome, MarketOutcome.id == OfficialAspPosition.market_outcome_id)
-            .join(Market, Market.id == MarketOutcome.market_id)
-            .where(
-                OfficialAspPosition.shadow_experiment_id == experiment.id,
-                Market.game_id == game.id,
-            )
-        ))
+        daily_used, same_game_used = self._stake_used(
+            experiment, game=game, event_date=event_date, basis=basis,
+        )
         stake = min(
             stake,
             available,

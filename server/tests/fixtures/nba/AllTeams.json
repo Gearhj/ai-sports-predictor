@@ -1,0 +1,23 @@
+[
+ {
+  "TeamID": 901,
+  "Key": "AUR",
+  "City": "Aurora",
+  "Name": "Comets",
+  "Active": true
+ },
+ {
+  "TeamID": 902,
+  "Key": "BRI",
+  "City": "Bridgeport",
+  "Name": "Anchors",
+  "Active": true
+ },
+ {
+  "TeamID": 903,
+  "Key": "CAL",
+  "City": "Calder",
+  "Name": "Foxes",
+  "Active": true
+ }
+]

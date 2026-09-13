@@ -1,0 +1,262 @@
+{
+  "asOfUtc": "2026-09-12T15:58:44.909115+00:00",
+  "consumer": "Model Studio (Codex)",
+  "extendsExport": "AISP_V18_ERROR_ANALYSIS_EVIDENCE_V2",
+  "extendsManifest": "C:\\Users\\james\\ai-sports-predictor\\outputs\\v18-error-analysis-evidence\\manifest.json",
+  "files": {
+    "market_comparison.json": {
+      "bytes": 39514,
+      "sha256": "e28f8affdee93143a2441c47e3a43050f4ed42f2c14cd7a7cce89e4edfd796c0"
+    },
+    "pitcher_appearance_history.jsonl": {
+      "bytes": 21479053,
+      "sha256": "5c160f63bf84e144530faa1a9dcc9e56d564414f13d893fbbd136fe860876555"
+    },
+    "pregame_pitcher_context.json": {
+      "bytes": 53312,
+      "sha256": "062cd37927049b5e6905bec290a2e6e779423e59a6dbd77b88640b4338889c7b"
+    }
+  },
+  "guarantees": {
+    "databaseWrites": 0,
+    "modelExecutions": 0,
+    "policyChanges": 0,
+    "providerCalls": 0
+  },
+  "inventory": {
+    "asOfUtc": "2026-09-12T15:58:44.909115+00:00",
+    "emptyRelations": [
+      "statcast_player_observations",
+      "player_talent_estimates",
+      "bullpen_availability_observations",
+      "pitching_features",
+      "pitch_events",
+      "player_game_stats"
+    ],
+    "relations": [
+      {
+        "firstAt": null,
+        "lastAt": null,
+        "populated": false,
+        "relation": "statcast_player_observations",
+        "rows": 0
+      },
+      {
+        "firstAt": null,
+        "lastAt": null,
+        "populated": false,
+        "relation": "player_talent_estimates",
+        "rows": 0
+      },
+      {
+        "firstAt": null,
+        "lastAt": null,
+        "populated": false,
+        "relation": "bullpen_availability_observations",
+        "rows": 0
+      },
+      {
+        "firstAt": null,
+        "lastAt": null,
+        "populated": false,
+        "relation": "pitching_features",
+        "rows": 0
+      },
+      {
+        "firstAt": null,
+        "lastAt": null,
+        "populated": false,
+        "relation": "pitch_events",
+        "rows": 0
+      },
+      {
+        "firstAt": null,
+        "lastAt": null,
+        "populated": false,
+        "relation": "player_game_stats",
+        "rows": 0
+      },
+      {
+        "firstAt": "2026-08-13T00:15:22.618346-04:00",
+        "lastAt": "2026-09-12T11:52:08.579774-04:00",
+        "populated": true,
+        "relation": "game_feature_snapshots",
+        "rows": 5616
+      },
+      {
+        "firstAt": "2026-08-13T00:14:38.865807-04:00",
+        "lastAt": "2026-09-12T06:00:57.144333-04:00",
+        "populated": true,
+        "relation": "roster_availability_observations",
+        "rows": 14149
+      },
+      {
+        "firstAt": "2026-08-14T12:47:48.267476-04:00",
+        "lastAt": "2026-09-12T11:54:34.162692-04:00",
+        "populated": true,
+        "relation": "lineup_observations",
+        "rows": 23815
+      },
+      {
+        "firstAt": "2026-08-13T00:14:37.473166-04:00",
+        "lastAt": "2026-09-12T11:50:29.981982-04:00",
+        "populated": true,
+        "relation": "starter_observations",
+        "rows": 31720
+      },
+      {
+        "firstAt": "2025-03-18T08:48:35.689000-04:00",
+        "lastAt": "2025-09-28T18:26:48.948000-04:00",
+        "populated": true,
+        "relation": "player_game_history_observations",
+        "rows": 127872
+      }
+    ],
+    "schemaVersion": "AISP_MLB_V18_EVIDENCE_INVENTORY_V1"
+  },
+  "omissions": {
+    "consequences": [
+      "pitching_features, player_game_stats, player_talent_estimates and pitch_events hold no rows: no per-pitch or aggregated talent inputs exist in AISP at all.",
+      "bullpen_availability_observations and statcast_player_observations hold no rows: reliever workload and batted-ball quality are unavailable as pregame covariates.",
+      "player_game_history_observations covers the 2025 season only; there is no 2026 per-appearance history, so within-season pitcher usage for the current slate cannot be derived from AISP."
+    ],
+    "emptyRelations": [
+      "statcast_player_observations",
+      "player_talent_estimates",
+      "bullpen_availability_observations",
+      "pitching_features",
+      "pitch_events",
+      "player_game_stats"
+    ],
+    "marketOmissions": [
+      {
+        "mlbGamePk": "824792",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823414",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823821",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "824228",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "824714",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823500",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "824875",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "824551",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823738",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "824957",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823250",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823174",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      },
+      {
+        "mlbGamePk": "823901",
+        "reason": "NO_QUOTE_KNOWN_BY_CUTOFF_INSIDE_FRESHNESS_WINDOW",
+        "stage": "market"
+      }
+    ],
+    "note": "Stated explicitly so an implementation can be chosen without waiting for an acquisition project."
+  },
+  "producer": "AISP",
+  "protectedPopulations": {
+    "appliedAs": "SQL predicates on the population, before any outcome read",
+    "colDetDurationPilot": "outcomes and authority remain with the pilot's existing Studio owner; nothing here scores or re-derives them",
+    "quarantinedGamePks": [
+      "823343",
+      "824235",
+      "822693"
+    ],
+    "replayScorerExclusion": "HISTORICAL_REPLAY_RESEARCH_SHADOW rows stay refused by the research scorer",
+    "sealedFinalOutOfTimeWindow": [
+      "2026-08-14",
+      "2026-08-27"
+    ]
+  },
+  "schemaVersion": "AISP_MLB_V18_SIMULATOR_EVIDENCE_HANDOFF_V1",
+  "scopes": {
+    "currentDataPregame": {
+      "fields": [
+        "probablePitcherId",
+        "confirmedPitcherId",
+        "confirmationState",
+        "throws",
+        "daysRest",
+        "pitchesPreviousDay",
+        "pitchesLastStart",
+        "workload"
+      ],
+      "file": "pregame_pitcher_context.json",
+      "gate": "each observation's own availability clock must precede the forecast's decision cutoff",
+      "season": 2026,
+      "use": "PREGAME_COVARIATES"
+    },
+    "developmentHistory": {
+      "appearances": 20870,
+      "distinctPitchers": 873,
+      "fields": [
+        "battersFaced",
+        "outs",
+        "numberOfPitches",
+        "inningsPitched",
+        "strikeOuts",
+        "baseOnBalls",
+        "hits",
+        "homeRuns",
+        "earnedRuns",
+        "gamesStarted"
+      ],
+      "file": "pitcher_appearance_history.jsonl",
+      "firstEventAtUtc": "2025-03-18T08:48:35.689000-04:00",
+      "lastEventAtUtc": "2025-09-28T18:26:48.948000-04:00",
+      "reliefAppearances": 16010,
+      "season": 2025,
+      "starts": 4860,
+      "use": "LABEL_ONLY_AUTHORIZED_HISTORICAL_EVALUATION",
+      "warning": "Reliever usage and PA outcomes here are LABELS. A history row whose evidenceEndAt falls after a forecast's cutoff is not that forecast's pregame input and must never be used as one."
+    },
+    "marketComparison": {
+      "file": "market_comparison.json",
+      "use": "DESCRIPTIVE_SAME_CUTOFF_COMPARISON"
+    }
+  }
+}

@@ -1,4 +1,11 @@
-"""Scoring prospective NFL research forecasts against final results.
+"""Scoring prospective research forecasts against final results.
+
+Written for NFL, now also serving MLB's V18 whole-game research shadow. One
+scorer, not two: the freeze rule, the provenance rule and the scoring rules are
+shared, and only the labels, the scoring version and the published distribution
+shape differ per league (see ``LeagueProfile``). A second implementation would
+eventually disagree with this one about what "prospective" means, which is the
+one thing that must not vary by sport.
 
 WHAT THIS IS, AND WHAT IT IS EMPHATICALLY NOT
 ---------------------------------------------
@@ -43,18 +50,64 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
-    Game, GameStateObservation, GameStatus, GameTeam, League, Market, MarketOutcome,
-    OddsSnapshot, ResearchForecastEvaluation, Season, ShadowForecast, Sportsbook, Team,
+    ExternalIdMapping, Game, GameStateObservation, GameStatus, GameTeam, League,
+    Market, MarketOutcome, OddsSnapshot, ResearchForecastEvaluation, Season,
+    ShadowForecast, Sportsbook, Team,
 )
 from app.services import forecast_scoring as scoring
 from app.services import result_provenance as provenance
 from app.services.forecast_scoring import (
     HOME, AWAY, TIE, JointMass, MassFunction, OutcomeProbabilities, PointErrors,
+    ScoringError,
 )
 
 SCORING_VERSION = "AISP_NFL_PROSPECTIVE_SCORING_V1"
 SPORT = "FOOTBALL"
 LEAGUE = "NFL"
+
+MLB_SCORING_VERSION = "AISP_MLB_V18_PROSPECTIVE_SCORING_V1"
+MLB_SPORT = "BASEBALL"
+MLB_LEAGUE = "MLB"
+
+
+@dataclass(frozen=True)
+class LeagueProfile:
+    """What differs between leagues. Everything else is shared on purpose.
+
+    The scoring rules, the freeze rule and the provenance rule are identical
+    across sports -- only the labels written onto the row, the scoring version
+    that identifies the implementation, and the shape of the published
+    distribution change. Keeping them in one object is what stops the MLB path
+    from drifting into a second, subtly different scorer.
+    """
+
+    league_code: str
+    sport: str
+    scoring_version: str
+    #: Marginal distribution keys, when the producer publishes marginals rather
+    #: than a joint score distribution. Ordered home, away, total, margin.
+    marginal_keys: tuple[str, str, str, str] | None = None
+
+
+LEAGUE_PROFILES: dict[str, LeagueProfile] = {
+    LEAGUE: LeagueProfile(LEAGUE, SPORT, SCORING_VERSION),
+    MLB_LEAGUE: LeagueProfile(
+        MLB_LEAGUE, MLB_SPORT, MLB_SCORING_VERSION,
+        marginal_keys=(
+            "homeRunDistribution", "awayRunDistribution",
+            "totalRunDistribution", "runDifferentialDistribution",
+        ),
+    ),
+}
+
+#: How well a forecast's publication time is evidenced, recorded on every
+#: score. The scorer's eligibility rule is unchanged -- published before start,
+#: full stop -- but a publication time that is merely the evidence cutoff under
+#: another name is not independently evidenced, and a row that does not say so
+#: invites its reader to treat the two as equally strong.
+CLOCK_VERIFIED = "VERIFIED_INDEPENDENT_PUBLICATION"
+CLOCK_UNRESOLVED = "UNRESOLVED_PUBLICATION_CLOCK_COLLAPSED_ONTO_EVIDENCE_CUTOFF"
+CLOCK_NO_EVIDENCE_CUTOFF = "NO_EVIDENCE_CUTOFF_RECORDED"
 
 #: Supplement kinds that are evidence about a forecast rather than forecasts.
 NON_NUMERICAL_KINDS = (
@@ -67,6 +120,13 @@ PUBLISHED_AFTER_KICKOFF = "PUBLISHED_AFTER_KICKOFF"
 NO_KICKOFF = "NO_SCHEDULED_KICKOFF"
 NO_PROBABILITIES = "NO_OUTCOME_PROBABILITIES"
 SUPERSEDED = "SUPERSEDED_BY_A_LATER_PRE_KICKOFF_SNAPSHOT"
+HISTORICAL_REPLAY = "HISTORICAL_REPLAY_NOT_PROSPECTIVE_EVIDENCE"
+
+#: A forecast whose status begins with this is a labelled rerun over games that
+#: have already happened. It is legitimate research and it is kept, but it can
+#: never be prospective evidence, so the scorer refuses it outright rather than
+#: relying on its publication timestamp to fall the right side of first pitch.
+REPLAY_STATUS_PREFIX = "HISTORICAL_REPLAY"
 
 #: Why an evaluation stopped being the current one. The distinction is the
 #: point: the first says our verdict was right and is now better evidenced,
@@ -141,6 +201,54 @@ class ForecastEvaluationService:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+        self._orphan_exclusions: list[dict[str, Any]] = []
+
+    # -- league profile ---------------------------------------------------
+    def profile_for(self, game: Game) -> LeagueProfile:
+        """The league's labels, resolved from the game rather than assumed.
+
+        Defaults to the NFL profile for a game whose league is not registered,
+        which keeps every existing caller's behaviour exactly as it was.
+        """
+
+        code = self.session.scalar(
+            select(League.code)
+            .join(Season, Season.league_id == League.id)
+            .where(Season.id == game.season_id)
+        )
+        return LEAGUE_PROFILES.get(str(code or "").upper(), LEAGUE_PROFILES[LEAGUE])
+
+    @staticmethod
+    def _publication_clock(row: ShadowForecast) -> dict[str, Any]:
+        """Whether this forecast's publication time stands on its own."""
+
+        published = _aware(row.available_as_of_utc)
+        cutoff = _aware(row.source_cutoff_utc)
+        if cutoff is None:
+            classification, detail = CLOCK_NO_EVIDENCE_CUTOFF, (
+                "The snapshot records no source evidence cutoff, so publication "
+                "time cannot be compared against one."
+            )
+        elif published == cutoff:
+            classification, detail = CLOCK_UNRESOLVED, (
+                "Publication time and source evidence cutoff are the same stored "
+                "value, so publication is not independently evidenced. Equal "
+                "timestamps neither prove nor disprove that the forecast was "
+                "published when it says; this score is qualified, not verified."
+            )
+        else:
+            classification, detail = CLOCK_VERIFIED, (
+                "Publication time is recorded separately from the source evidence "
+                "cutoff."
+            )
+        return {
+            "classification": classification,
+            "detail": detail,
+            "verified": classification == CLOCK_VERIFIED,
+            "published_utc": _iso(published),
+            "evidence_cutoff_utc": _iso(cutoff),
+            "imported_utc": _iso(row.created_at),
+        }
 
     # -- eligibility ------------------------------------------------------
     def freeze_eligible(self, *, canonical_game_id: UUID) -> dict[str, FrozenForecast]:
@@ -160,12 +268,26 @@ class ForecastEvaluationService:
             by_identity[f"{row.engine_id}::{row.engine_version}"].append(row)
 
         frozen: dict[str, FrozenForecast] = {}
+        # Exclusions belonging to identities that produced NO eligible snapshot.
+        # Without this they were dropped on the floor: a replay that is the only
+        # snapshot for its engine was correctly refused, but the refusal had no
+        # reason anywhere in the output, which is the same "silently vanished"
+        # failure the rest of this module exists to prevent.
+        self._orphan_exclusions: list[dict[str, Any]] = []
         for identity, snapshots in by_identity.items():
             excluded: list[dict[str, Any]] = []
             eligible: list[ShadowForecast] = []
             for snapshot in snapshots:
                 kickoff = _aware(snapshot.scheduled_start_utc)
                 published = _aware(snapshot.available_as_of_utc)
+                if str(snapshot.status or "").upper().startswith(REPLAY_STATUS_PREFIX):
+                    excluded.append(self._exclusion(
+                        snapshot, HISTORICAL_REPLAY,
+                        "This forecast is a labelled historical replay. It is research "
+                        "evidence about the model, not a forecast that existed before "
+                        "the game, so it cannot enter prospective performance.",
+                    ))
+                    continue
                 if kickoff is None:
                     excluded.append(self._exclusion(snapshot, NO_KICKOFF,
                                                     "The snapshot records no scheduled kickoff."))
@@ -186,6 +308,7 @@ class ForecastEvaluationService:
                     continue
                 eligible.append(snapshot)
             if not eligible:
+                self._orphan_exclusions.extend(excluded)
                 continue
             chosen = max(eligible, key=lambda row: (
                 _aware(row.available_as_of_utc), row.snapshot_version or 0,
@@ -279,10 +402,11 @@ class ForecastEvaluationService:
                 "detail": "The game is not FINAL with a score backed by a state observation.",
             }
 
+        profile = self.profile_for(game)
         frozen = self.freeze_eligible(canonical_game_id=canonical_game_id)
         written, reused, superseded, records = 0, 0, 0, []
         for identity, selection in frozen.items():
-            payload = self._score(selection, result, now=now)
+            payload = self._score(selection, result, now=now, profile=profile)
             existing = self.session.scalar(select(ResearchForecastEvaluation).where(
                 ResearchForecastEvaluation.event_id == payload["event_id"],
                 ResearchForecastEvaluation.engine_id == payload["engine_id"],
@@ -316,14 +440,22 @@ class ForecastEvaluationService:
             # is what promotes the rows that already exist.
             reconciliation = self._reconcile_current(payload)
             superseded += len(reconciliation["superseded"])
-            records.append({**record, **reconciliation})
+            records.append({
+                **record, **reconciliation,
+                "publication_clock": payload["detail"]["publication_clock"]["classification"],
+                "forecast_identity": payload["forecast_identity"],
+                "result_identity": payload["result_identity"],
+            })
         return {
             "game_id": str(canonical_game_id),
             "event_id": next(iter(frozen.values())).row.event_id if frozen else None,
             "models_considered": len(frozen),
             "scored": written, "reused": reused, "superseded": superseded, "records": records,
             "result_source": result.source, "result_tier": result.tier,
-            "excluded": [entry for selection in frozen.values() for entry in selection.excluded],
+            "excluded": (
+                [entry for selection in frozen.values() for entry in selection.excluded]
+                + list(getattr(self, "_orphan_exclusions", []))
+            ),
         }
 
     def _siblings(self, payload: dict[str, Any]) -> list[ResearchForecastEvaluation]:
@@ -401,7 +533,9 @@ class ForecastEvaluationService:
 
     def _score(
         self, selection: FrozenForecast, result: GameResult, *, now: datetime,
+        profile: LeagueProfile | None = None,
     ) -> dict[str, Any]:
+        profile = profile or LEAGUE_PROFILES[LEAGUE]
         row = selection.row
         probabilities = OutcomeProbabilities(
             home=float(row.full_home_win_probability),
@@ -424,11 +558,11 @@ class ForecastEvaluationService:
                 result.home_score + result.away_score,
             )
 
-        distribution = self._distribution_metrics(row, result)
+        distribution = self._distribution_metrics(row, result, profile=profile)
         market = self._market_comparison(result.game, selection.kickoff, outcome, result)
 
         return {
-            "sport": SPORT, "league_code": LEAGUE,
+            "sport": profile.sport, "league_code": profile.league_code,
             "event_id": row.event_id, "canonical_game_id": result.game.id,
             "engine_id": row.engine_id, "engine_version": row.engine_version,
             "model_label": getattr(row, "model_label", None) or row.engine_id,
@@ -474,8 +608,10 @@ class ForecastEvaluationService:
                 "excluded": selection.excluded,
                 "log_loss_epsilon": scoring.LOG_LOSS_EPSILON,
                 "signed_error_convention": "predicted minus actual",
+                "publication_clock": self._publication_clock(row),
+                "result_provenance": provenance.describe(result.source),
             },
-            "scoring_version": SCORING_VERSION,
+            "scoring_version": profile.scoring_version,
             "evaluated_at": now,
         }
 
@@ -490,10 +626,82 @@ class ForecastEvaluationService:
         residual = 1.0 - float(row.full_home_win_probability) - float(row.full_away_win_probability)
         return max(0.0, residual)
 
-    def _distribution_metrics(self, row: ShadowForecast, result: GameResult) -> dict[str, Any]:
+    @staticmethod
+    def _marginal(distributions: dict[str, Any], key: str, draws: int | None) -> MassFunction | None:
+        """A published marginal, as a mass function over integer values."""
+
+        published = distributions.get(key)
+        if not isinstance(published, dict) or not published:
+            return None
+        try:
+            return MassFunction.from_pairs(
+                ((int(value), float(mass)) for value, mass in published.items()),
+                draws=draws,
+            )
+        except (ScoringError, TypeError, ValueError):
+            return None
+
+    def _marginal_metrics(
+        self, row: ShadowForecast, result: GameResult, profile: LeagueProfile,
+    ) -> dict[str, Any] | None:
+        """Distribution metrics from published MARGINALS rather than a joint.
+
+        A whole-game simulator that publishes per-side run distributions has
+        given us everything CRPS needs on each margin, and refusing to score it
+        because the cells are not a joint would discard real measured
+        uncertainty. The energy score genuinely does need the joint, so it stays
+        unavailable with that reason rather than being approximated from the
+        product of the marginals -- independent sides is exactly the assumption
+        a whole-game simulator exists to avoid making.
+        """
+
+        if profile.marginal_keys is None:
+            return None
+        distributions = row.distributions or {}
+        draws = self._draw_count(row)
+        home_key, away_key, total_key, margin_key = profile.marginal_keys
+        home = self._marginal(distributions, home_key, draws)
+        away = self._marginal(distributions, away_key, draws)
+        if home is None or away is None:
+            return None
+        total = self._marginal(distributions, total_key, draws)
+        margin = self._marginal(distributions, margin_key, draws)
+        actual_margin = result.home_score - result.away_score
+        actual_total = result.home_score + result.away_score
+        return {
+            "distribution_available": True,
+            "distribution_unavailable_reason": None,
+            "distribution_draws": draws,
+            "crps_home": scoring.crps(home, result.home_score),
+            "crps_away": scoring.crps(away, result.away_score),
+            "crps_margin": scoring.crps(margin, actual_margin) if margin else None,
+            "crps_total": scoring.crps(total, actual_total) if total else None,
+            "energy_score": None,
+            "interval_coverage": {
+                "margin": scoring.interval_coverage(margin, actual_margin) if margin else None,
+                "total": scoring.interval_coverage(total, actual_total) if total else None,
+                "note": "For one game these are hits and misses. The rate across games is the "
+                        "coverage; a single containment is not.",
+                "basis": "PUBLISHED_MARGINALS",
+                "energy_score_unavailable_reason":
+                    "The energy score is a joint statistic and this forecast publishes "
+                    "marginals only. Multiplying the marginals would assume the two sides "
+                    "are independent, which is the assumption a whole-game simulator "
+                    "exists to avoid.",
+            },
+        }
+
+    def _distribution_metrics(
+        self, row: ShadowForecast, result: GameResult,
+        profile: LeagueProfile | None = None,
+    ) -> dict[str, Any]:
+        profile = profile or LEAGUE_PROFILES[LEAGUE]
         distributions = row.distributions or {}
         cells = distributions.get("joint_score_distribution") or []
         if not cells:
+            marginal = self._marginal_metrics(row, result, profile)
+            if marginal is not None:
+                return marginal
             return {
                 "distribution_available": False,
                 "distribution_unavailable_reason":
@@ -535,16 +743,28 @@ class ForecastEvaluationService:
         }
 
     def _draw_count(self, row: ShadowForecast) -> int | None:
-        """The simulation count the producer published, from its own supplement."""
+        """The simulation count the producer published.
+
+        From its own supplement where one exists; otherwise from the
+        uncertainty block the forecast itself carries, which is where a
+        whole-game simulator records how many games it drew. Never guessed.
+        """
 
         from app.models import ResearchSupplement
 
-        return self.session.scalar(
+        published = self.session.scalar(
             select(ResearchSupplement.simulation_count).where(
                 ResearchSupplement.forecast_id == row.forecast_id,
                 ResearchSupplement.kind == "JOINT_SCORE_SIMULATION",
             ).limit(1)
         )
+        if published is not None:
+            return published
+        declared = (row.uncertainty or {}).get("simulationCount")
+        try:
+            return int(declared) if declared is not None else None
+        except (TypeError, ValueError):
+            return None
 
     # -- market -----------------------------------------------------------
     def _market_comparison(
@@ -722,10 +942,21 @@ class ForecastEvaluationService:
     # -- batch ------------------------------------------------------------
     def evaluate_league(
         self, *, league_code: str = LEAGUE, dry_run: bool = False, now: datetime | None = None,
+        earliest_start: datetime | None = None,
+        excluded_source_event_ids: frozenset[str] | None = None,
+        excluded_id_source: str = "MLB_STATS_API",
+        require_shadow_forecast: bool = False,
     ) -> dict[str, Any]:
-        """Score every final game in one league. Safe to rerun."""
+        """Score every final game in one league. Safe to rerun.
+
+        ``earliest_start`` and ``excluded_source_event_ids`` bound the pass
+        BEFORE any result is read. They are predicates on the population query,
+        not a filter applied to scored rows afterwards: a protected game must
+        never have its outcome read and then be discarded.
+        """
 
         now = now or datetime.now(UTC)
+        profile = LEAGUE_PROFILES.get(str(league_code).upper(), LEAGUE_PROFILES[LEAGUE])
         # Driven by the EVIDENCE, not by the projection. A game is scoreable
         # once an observation records it final; the ``games`` row is a
         # convenience copy of that, and keying off it would let one failed
@@ -740,18 +971,46 @@ class ForecastEvaluationService:
             )
             .exists()
         )
-        game_ids = list(self.session.scalars(
+        query = (
             select(Game.id)
             .join(Season, Season.id == Game.season_id)
             .join(League, League.id == Season.league_id)
             .where(League.code == league_code, has_final)
-            .order_by(Game.starts_at)
-        ))
+        )
+        if earliest_start is not None:
+            query = query.where(Game.starts_at >= earliest_start)
+        if require_shadow_forecast:
+            # A game nothing forecast can never be scored. Narrowing the scan to
+            # games that carry a research forecast keeps ``final_games`` a count
+            # of candidates rather than a count of the league's fixture list.
+            # Off by default so no existing caller's reported counts move.
+            query = query.where(
+                select(ShadowForecast.id)
+                .where(ShadowForecast.canonical_game_id == Game.id)
+                .exists()
+            )
+        if excluded_source_event_ids:
+            # Excluded by identity at the source, in the population predicate.
+            protected = (
+                select(ExternalIdMapping.entity_id)
+                .where(
+                    ExternalIdMapping.entity_type == "game",
+                    # Scoped to the id source: several providers map games, and
+                    # a bare id match could exclude an unrelated game that
+                    # happens to share a string with a protected gamePk.
+                    ExternalIdMapping.source == excluded_id_source,
+                    ExternalIdMapping.external_id.in_(tuple(excluded_source_event_ids)),
+                )
+            )
+            query = query.where(Game.id.not_in(protected))
+        game_ids = list(self.session.scalars(query.order_by(Game.starts_at)))
         results = [self.evaluate_game(canonical_game_id=game_id, dry_run=dry_run, now=now)
                    for game_id in game_ids]
         return {
             "league": league_code,
             "final_games": len(game_ids),
+            "earliest_start": _iso(earliest_start),
+            "excluded_source_event_ids": sorted(excluded_source_event_ids or ()),
             "scored": sum(entry.get("scored", 0) for entry in results),
             "reused": sum(entry.get("reused", 0) for entry in results),
             "superseded": sum(entry.get("superseded", 0) for entry in results),
@@ -759,12 +1018,15 @@ class ForecastEvaluationService:
             "games": results,
             "provider_calls": 0, "models_executed": 0,
             "positions_created": 0, "official_decisions_created": 0,
-            "scoring_version": SCORING_VERSION,
+            "scoring_version": profile.scoring_version,
         }
 
 
 __all__ = [
+    "CLOCK_NO_EVIDENCE_CUTOFF", "CLOCK_UNRESOLVED", "CLOCK_VERIFIED",
     "ForecastEvaluationService", "FrozenForecast", "GameResult", "LEAGUE",
+    "LEAGUE_PROFILES", "LeagueProfile", "MLB_LEAGUE", "MLB_SCORING_VERSION",
+    "MLB_SPORT",
     "NON_NUMERICAL_KINDS", "NO_KICKOFF", "NO_PROBABILITIES", "PUBLISHED_AFTER_KICKOFF",
     "SCORING_VERSION", "SPORT", "SUPERSEDED", "SUPERSEDED_BY_CORRECTION",
     "SUPERSEDED_BY_PROVENANCE",

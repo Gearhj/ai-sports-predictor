@@ -1,0 +1,107 @@
+{
+ "activation": {
+  "authorized": true,
+  "failClosed": "No valid current V18 forecast means no V18 decision or position, never silent Gen1 fallback; current empty handoffs are accounting-only and must not enter forecast importer.",
+  "historicalIntegrity": "Delayed/resumed-game completion was mistaken for original event-date availability. Fold 2 includes at least 55 later-played labels in BOS202406260; all five fitted preprocessing states and historical rolling-feature provenance require review. No clean five-fold point-in-time validation claim. Stored numerical results preserved, not repaired or relabeled.",
+  "performedInAisp": false,
+  "requiredClaudeImplementation": "Import this recovery supplement and open the era at the new boundary using the append-only successor mechanism. The armed record of the original era and every failed boundary attempt are preserved as historical evidence and must not be edited."
+ },
+ "championManifest": {
+  "bytes": 99453,
+  "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-conditional-champion-v1\\champion\\sha256\\3e8dcc1c50dcdfd2d748e5e0de8e7595ad0b50a2c62eb9baadb4ffe9e5d640c2\\champion-manifest.json",
+  "sha256": "3e8dcc1c50dcdfd2d748e5e0de8e7595ad0b50a2c62eb9baadb4ffe9e5d640c2"
+ },
+ "developmentIntegrity": {
+  "bytes": 1866,
+  "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-conditional-champion-v1\\development-integrity\\sha256\\853fc330c98e56e987905980e06225190cbe8985c4c19f4c2b035c20dba2078f\\manifest.json",
+  "sha256": "853fc330c98e56e987905980e06225190cbe8985c4c19f4c2b035c20dba2078f"
+ },
+ "executionAllowedInAISP": false,
+ "forecastTimestampSemantics": "Original forecastCreatedAt, not import time. evidenceCutoffAt is latest incorporated source availability, never advanced by packaging. Require evidence<=created<=decision<firstPitch and existing earlier cutoff gates. Event-status uncertainty fails closed.",
+ "frozenBindings": {
+  "bytes": 106521,
+  "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-conditional-champion-v1\\frozen-model\\sha256\\6297787b57e7e74436036e75b40cf67339115f0cbf6333406766179c9569a235\\model-bindings.json",
+  "sha256": "6297787b57e7e74436036e75b40cf67339115f0cbf6333406766179c9569a235"
+ },
+ "guardImplementation": {
+  "bytes": 11282,
+  "path": "C:\\Users\\james\\asp-model-studio\\server\\model_registry\\mlb_v18_conditional.py",
+  "sha256": "42ab1fa1101d2333fd327cbaebd4b4710a18cd5f4be9c51abe59fe0ff9025147"
+ },
+ "idempotencyIdentity": "mlb-v18-conditional-champion-recovery:3e8dcc1c50dcdfd2d748e5e0de8e7595ad0b50a2c62eb9baadb4ffe9e5d640c2:2026-09-12T16:00:00Z",
+ "modelEra": {
+  "activationPreconditions": [
+   "Claude accepts and schedules activation before the exact boundary; if missed, create a new immutable future-boundary supplement, never backdate",
+   "Atomic Gen1 cutoff and distinct V18 identity; Gen1 forecasts may persist as control but no new Gen1 decisions enter the V18 experiment",
+   "Persist boundary capital/last Gen1 decision and preservation fingerprints; keep future V18 decisions disabled until dependencies verified"
+  ],
+  "bankroll": {
+   "boundaryBalance": null,
+   "captureRequired": "Atomic realized bankroll and open-position reserve snapshot at boundary; no fabricated balance and no fresh duplicate $1000.",
+   "openingV18Capital": "Explicit transfer/carry-forward of available virtual capital at the boundary, preserving Gen1 open-position liabilities and subsequent settlements in their original experiment. If safe transfer accounting is unavailable, activate forecasting only and keep V18 position creation disabled.",
+   "publicReporting": "Do not combine noncontiguous experiments into an apparent clean V18 track. Preserve Gen1, V18 and any reconciled overall totals separately.",
+   "reservedOpenStakes": null
+  },
+  "effectiveAtAmericaNewYork": "2026-09-12T00:00:00-04:00",
+  "effectiveAtUtc": "2026-09-12T16:00:00Z",
+  "experimentId": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1_R1",
+  "firstV18EligibleDecision": {
+   "capture": "record only when it actually exists; zero is valid when all games skip",
+   "decisionId": null,
+   "predicate": "MLB only, new ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1 experiment only, first decisionAt >= effectiveAtUtc with exact V18 pregame forecast, matching event, eligible contemporaneous quote and unchanged V2.1 gates"
+  },
+  "gen1FallbackAllowedInV18": false,
+  "historicalDecisionUpdatesAllowed": false,
+  "lastGen1EligibleDecision": {
+   "capture": "Claude must record actual predecessor experiment UUID and final decision ID atomically at boundary",
+   "decisionId": null,
+   "predicate": "MLB only, predecessor ASP PRACTICAL PREGAME BANKROLL \u2014 2026 V2.1 experiment, AISP_BASELINE/Gen1 forecast identity, immutable committed decisionAt < effectiveAtUtc, ordered by (decisionAt, decisionId)"
+  },
+  "minimumAdjustedEdge": 0.02,
+  "positionBackfillAllowed": false,
+  "readinessCutoffQuoteAndStakeRules": "UNCHANGED",
+  "realMoneyExecutionAllowed": false,
+  "reason": "Existing AISP experiment binds one controlling_engine; decisions reference Gen1 forecasts. No safe immutable model-era contract is presently implemented. Preserve V2.1 and use an explicitly distinct V18 experiment, not an invisible model substitution.",
+  "recommendationPolicyVersion": "AISP_PRACTICAL_PREGAME_POLICY_V2_1",
+  "stakingPolicyVersion": "AISP_QUARTER_KELLY_EVIDENCE_V2",
+  "state": "PENDING_CLAUDE_ACTIVATION_NOT_ALREADY_EFFECTIVE",
+  "structure": "NEW_EXPLICIT_V18_EXPERIMENT_IDENTITY"
+ },
+ "modelIdentity": {
+  "artifactSha256": "44ec4f457741f1aaeff42b81af1be5fd2712e494709ff1a0a8f0742b88d71c8b",
+  "candidateId": "stage3-candidate-83f50e93af5946198c8df4602e08d7b8",
+  "name": "MLB_V18_HGB_PA",
+  "paFold": 5,
+  "parentBundleId": "mlb-v18-whole-game-a6e7e99122f1b60701a4728b",
+  "parentLogicalBundleSha256": "a6e7e99122f1b60701a4728b97b32fcc11e03405bfd456ed6cd54f69b69adb27",
+  "trainingRunId": "stage3-model-development-run-8ff1e0a505da4482a0a67386754e28ff",
+  "trainingRunReceipt": {
+   "bytes": 682003,
+   "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-model-laboratory\\objects\\sha256\\95d4f0199aff4698f187311266c30670c4a95a66802cfd87ab96f1e120fd66bb.json",
+   "sha256": "95d4f0199aff4698f187311266c30670c4a95a66802cfd87ab96f1e120fd66bb"
+  },
+  "version": "V18"
+ },
+ "priorArtifactsAndResearchMetadataRemainUnchanged": true,
+ "realMoneyExecutionAllowed": false,
+ "recovery": {
+  "actualEffectiveAtUtc": "2026-09-12T16:00:00Z",
+  "authoredAtUtc": "2026-09-12T14:44:14.259097Z",
+  "authoredBy": "AISP, under the operator's explicit authorization",
+  "failureReason": "ShadowExperiment records are append-only. V18ChampionService.capture_boundary assigned boundary_capital, starting_bankroll and is_active on the armed ShadowExperiment row; the process-wide immutability guard (app/audit/immutability.py) refused the flush on every scheduled run from 2026-09-12T04:00:00Z onward.",
+  "intendedOriginalBoundaryUtc": "2026-09-12T04:00:00Z",
+  "modelIdentityChanged": false,
+  "note": "Every model identity hash in this supplement is copied verbatim from the original after verifying the original's bytes against the digest AISP recorded at import. Nothing was re-fitted or re-validated, and the disclosed historical-validation review is unchanged and still open.",
+  "originalBoundaryOutcome": "PASSED_WITHOUT_OPENING",
+  "recoveryDecision": "A new immutable future-boundary supplement, per the original supplement's own activationPreconditions. Activation is NOT backdated: V18 did not control any decision between 2026-09-12T04:00:00Z and the new boundary, and every Gen1 decision, position and settlement created in that window stays with Gen1.",
+  "supersedesEraId": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1",
+  "supersedesHandoffSha256": "a3d6ea3fdb9ddecc42e7b5ecac975d0d132931c0ca7bfc0938bdcef205f2d300"
+ },
+ "registrationReceipt": {
+  "bytes": 1538,
+  "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-conditional-champion-v1\\registration\\sha256\\abe96ab97b3ea3215cc4c0656085a806123840968a1645a259adef002e2b11b8\\registration-receipt.json",
+  "sha256": "abe96ab97b3ea3215cc4c0656085a806123840968a1645a259adef002e2b11b8"
+ },
+ "schemaVersion": "AISP_MLB_V18_CONDITIONAL_CHAMPION_HANDOFF_V1",
+ "targetAndFeatureContract": "Exact contracts in championManifest; WALK_HBP_CI combined, OTHER_REACH separate,246 raw/273 treated/436 encoded"
+}

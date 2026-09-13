@@ -89,3 +89,7 @@ outputs/sportsgameodds-validation/response.json
 outputs/sportsgameodds-validation/validation.json
 outputs/sportsgameodds-validation/pregame/
 outputs/sportsgameodds-validation/slate/
+
+# Bulk V18 evidence exports: regenerable from the database by
+# server/scripts/v18_error_analysis_export.py, and tens of megabytes each.
+outputs/v18-error-analysis-evidence/*.jsonl

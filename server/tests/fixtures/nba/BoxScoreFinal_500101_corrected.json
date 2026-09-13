@@ -1,0 +1,125 @@
+{
+ "Game": {
+  "GameID": 500101,
+  "Season": 2026,
+  "SeasonType": 1,
+  "Status": "Final",
+  "Day": "2026-01-14T00:00:00",
+  "DateTime": "2026-01-14T19:30:00",
+  "DateTimeUTC": null,
+  "HomeTeamID": 901,
+  "AwayTeamID": 902,
+  "HomeTeam": "AUR",
+  "AwayTeam": "BRI",
+  "HomeTeamScore": 112,
+  "AwayTeamScore": 109,
+  "IsClosed": true,
+  "Updated": "2026-01-16T15:02:00"
+ },
+ "Quarters": [
+  {
+   "Number": 1,
+   "Name": "1",
+   "HomeScore": 28,
+   "AwayScore": 25
+  },
+  {
+   "Number": 2,
+   "Name": "2",
+   "HomeScore": 30,
+   "AwayScore": 27
+  },
+  {
+   "Number": 3,
+   "Name": "3",
+   "HomeScore": 26,
+   "AwayScore": 29
+  },
+  {
+   "Number": 4,
+   "Name": "4",
+   "HomeScore": 28,
+   "AwayScore": 28
+  }
+ ],
+ "TeamGames": [
+  {
+   "GameID": 500101,
+   "TeamID": 901,
+   "OpponentID": 902,
+   "HomeOrAway": "HOME",
+   "Points": 112,
+   "Assists": 24,
+   "Rebounds": 41,
+   "Turnovers": 12
+  },
+  {
+   "GameID": 500101,
+   "TeamID": 902,
+   "OpponentID": 901,
+   "HomeOrAway": "AWAY",
+   "Points": 109,
+   "Assists": 22,
+   "Rebounds": 38,
+   "Turnovers": 14
+  }
+ ],
+ "PlayerGames": [
+  {
+   "StatID": 90001,
+   "PlayerID": 7001,
+   "GameID": 500101,
+   "TeamID": 901,
+   "OpponentID": 902,
+   "Name": "Ivo Marchetti",
+   "Position": "PG",
+   "Started": 1,
+   "Minutes": 34,
+   "Points": 61,
+   "Assists": 9,
+   "Rebounds": 4
+  },
+  {
+   "StatID": 90002,
+   "PlayerID": 7002,
+   "GameID": 500101,
+   "TeamID": 901,
+   "OpponentID": 902,
+   "Name": "Dane Okafor",
+   "Position": "C",
+   "Started": 1,
+   "Minutes": 31,
+   "Points": 51,
+   "Assists": 2,
+   "Rebounds": 15
+  },
+  {
+   "StatID": 90003,
+   "PlayerID": 7003,
+   "GameID": 500101,
+   "TeamID": 902,
+   "OpponentID": 901,
+   "Name": "Rui Halvorsen",
+   "Position": "SF",
+   "Started": 1,
+   "Minutes": 36,
+   "Points": 58,
+   "Assists": 5,
+   "Rebounds": 7
+  },
+  {
+   "StatID": 90004,
+   "PlayerID": 7004,
+   "GameID": 500101,
+   "TeamID": 902,
+   "OpponentID": 901,
+   "Name": "Milo Achterberg",
+   "Position": "SG",
+   "Started": 1,
+   "Minutes": 33,
+   "Points": 50,
+   "Assists": 6,
+   "Rebounds": 3
+  }
+ ]
+}

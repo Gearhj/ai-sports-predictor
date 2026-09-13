@@ -1,0 +1,103 @@
+{
+  "checks": [
+    {
+      "check": "sha256:v18_forecast_evidence.jsonl",
+      "detail": "manifest=722a7bbb1f8fa1fc... actual=722a7bbb1f8fa1fc...",
+      "pass": true
+    },
+    {
+      "check": "sha256:omissions.json",
+      "detail": "manifest=b26f25d94106de84... actual=b26f25d94106de84...",
+      "pass": true
+    },
+    {
+      "check": "sha256:v18_lineage_blobs.jsonl",
+      "detail": "manifest=c9701f935cd39372... actual=c9701f935cd39372...",
+      "pass": true
+    },
+    {
+      "check": "distinct games match the database",
+      "detail": "database=31 export=31 symmetric_difference=0",
+      "pass": true
+    },
+    {
+      "check": "manifest count matches record count",
+      "detail": "manifest=31 records=31",
+      "pass": true
+    },
+    {
+      "check": "primary + alternates account for every stored version",
+      "detail": "database=31 export=31",
+      "pass": true
+    },
+    {
+      "check": "one record per canonical game",
+      "detail": "games=31 records=31",
+      "pass": true
+    },
+    {
+      "check": "no permanently excluded game present",
+      "detail": "intersection=[]",
+      "pass": true
+    },
+    {
+      "check": "no sealed-window event date present",
+      "detail": "earliest=2026-09-07 latest=2026-09-11",
+      "pass": true
+    },
+    {
+      "check": "every event date is at or after the declared floor",
+      "detail": "floor=2026-08-28 earliest=2026-09-07",
+      "pass": true
+    },
+    {
+      "check": "no score payload on a game without an eligible final",
+      "detail": "leaked=[]",
+      "pass": true
+    },
+    {
+      "check": "eligible-final count matches the database",
+      "detail": "manifest=31 database=31",
+      "pass": true
+    },
+    {
+      "check": "research-score count matches the database",
+      "detail": "manifest=31 database=31",
+      "pass": true
+    },
+    {
+      "check": "no forecast identity has two current evaluations",
+      "detail": "duplicated=0",
+      "pass": true
+    },
+    {
+      "check": "cohorts partition the population",
+      "detail": "cohorts={'NOT_YET_SCORED': 0, 'QUALIFIED_DIAGNOSTIC': 14, 'VERIFIED_PROSPECTIVE': 17} total=31 records=31",
+      "pass": true
+    },
+    {
+      "check": "verified plus qualified equals the scored games",
+      "detail": "verified+qualified=31 scored=31",
+      "pass": true
+    },
+    {
+      "check": "no NOT_YET_SCORED record carries a score",
+      "detail": "offenders=[]",
+      "pass": true
+    },
+    {
+      "check": "every record carries the promised top-level fields",
+      "detail": "missing=[]",
+      "pass": true
+    },
+    {
+      "check": "both eligibility flags retained on every record",
+      "detail": "",
+      "pass": true
+    }
+  ],
+  "directory": "C:\\Users\\james\\ai-sports-predictor\\outputs\\v18-error-analysis-evidence",
+  "failed": 0,
+  "passed": 19,
+  "reconciledAtUtc": "2026-09-12T14:13:33.455021+00:00"
+}

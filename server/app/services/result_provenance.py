@@ -39,13 +39,27 @@ from typing import Any
 
 THE_ODDS_API = "THE_ODDS_API"
 NFLVERSE = "NFLVERSE"
+MLB_STATS_API = "MLB_STATS_API"
 OPERATOR_ENTERED = "OPERATOR_ENTERED"
 
 #: Lower is stronger.
 RESULT_TIERS: dict[str, int] = {
     THE_ODDS_API: 1,
     NFLVERSE: 2,
+    MLB_STATS_API: 2,
     OPERATOR_ENTERED: 3,
+}
+
+#: Where a source's own note differs from the generic note for its tier. MLB's
+#: statistics API is the league's own wire rather than a mirror of it, which the
+#: tier-2 note explicitly disclaims -- but it is still not the governed odds
+#: provider, so it must not be promoted to tier 1 and described as
+#: provider-verified. It keeps tier 2 and says accurately what it is.
+SOURCE_NOTES: dict[str, str] = {
+    MLB_STATS_API: "Recorded automatically from MLB's own statistics API, the "
+                   "league's official wire for game state and final scores. It is "
+                   "not the governed odds provider, so it is not described as "
+                   "provider-verified and it grants no wagering authority.",
 }
 
 #: An unclassified source outranks nothing.
@@ -95,11 +109,14 @@ def describe(source: str | None) -> dict[str, Any]:
     """A source's rank and how it should be described on a page."""
 
     tier = result_tier(source)
+    key = str(source or "").strip().upper() or None
     return {
-        "source": str(source or "").strip().upper() or None,
+        "source": key,
         "tier": tier,
         "label": TIER_LABELS.get(tier, TIER_LABELS[UNCLASSIFIED_TIER]),
-        "note": TIER_NOTES.get(tier, TIER_NOTES[UNCLASSIFIED_TIER]),
+        "note": SOURCE_NOTES.get(
+            key or "", TIER_NOTES.get(tier, TIER_NOTES[UNCLASSIFIED_TIER])
+        ),
         "provider_verified": tier == PROVIDER_VERIFIED_TIER,
         "automated": tier <= AUTOMATED_TIER,
     }
@@ -112,7 +129,8 @@ def stronger(candidate: str | None, incumbent: str | None) -> bool:
 
 
 __all__ = [
-    "AUTOMATED_TIER", "NFLVERSE", "OPERATOR_ENTERED", "PROVIDER_VERIFIED_TIER",
-    "RESULT_TIERS", "THE_ODDS_API", "TIER_LABELS", "TIER_NOTES", "UNCLASSIFIED_TIER",
+    "AUTOMATED_TIER", "MLB_STATS_API", "NFLVERSE", "OPERATOR_ENTERED",
+    "PROVIDER_VERIFIED_TIER", "RESULT_TIERS", "SOURCE_NOTES", "THE_ODDS_API",
+    "TIER_LABELS", "TIER_NOTES", "UNCLASSIFIED_TIER",
     "describe", "is_automated", "is_provider_verified", "result_tier", "stronger",
 ]

@@ -1,0 +1,10 @@
+{
+  "builtAtUtc": "2026-09-12T14:44:14.259097Z",
+  "effectiveAtUtc": "2026-09-12T16:00:00Z",
+  "recoveryEraId": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1_R1",
+  "supersedesEraId": "ASP_MLB_V18_CONDITIONAL_VIRTUAL_20260912_V1",
+  "supersedesHandoffSha256": "a3d6ea3fdb9ddecc42e7b5ecac975d0d132931c0ca7bfc0938bdcef205f2d300",
+  "supplementBytes": 8408,
+  "supplementPath": "C:\\Users\\james\\ai-sports-predictor\\outputs\\v18-era-recovery\\sha256\\a4ec58d487e6488fa5c82530af43175819b11c748b77ba2a4bb6ba682613396a\\champion-handoff-recovery.json",
+  "supplementSha256": "a4ec58d487e6488fa5c82530af43175819b11c748b77ba2a4bb6ba682613396a"
+}

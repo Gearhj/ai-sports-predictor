@@ -1,0 +1,38 @@
+[
+ {
+  "PlayerID": 7001,
+  "TeamID": 901,
+  "FirstName": "Ivo",
+  "LastName": "Marchetti",
+  "Position": "PG",
+  "Jersey": 3,
+  "Status": "Active"
+ },
+ {
+  "PlayerID": 7002,
+  "TeamID": 901,
+  "FirstName": "Dane",
+  "LastName": "Okafor",
+  "Position": "C",
+  "Jersey": 44,
+  "Status": "Active"
+ },
+ {
+  "PlayerID": 7003,
+  "TeamID": 902,
+  "FirstName": "Rui",
+  "LastName": "Halvorsen",
+  "Position": "SF",
+  "Jersey": 11,
+  "Status": "Active"
+ },
+ {
+  "PlayerID": 7004,
+  "TeamID": 902,
+  "FirstName": "Milo",
+  "LastName": "Achterberg",
+  "Position": "SG",
+  "Jersey": 7,
+  "Status": "Active"
+ }
+]

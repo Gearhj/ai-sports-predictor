@@ -1,0 +1,53 @@
+[
+ {
+  "GameID": 500101,
+  "Season": 2026,
+  "SeasonType": 1,
+  "Status": "Final",
+  "Day": "2026-01-14T00:00:00",
+  "DateTime": "2026-01-14T19:30:00",
+  "DateTimeUTC": null,
+  "HomeTeamID": 901,
+  "AwayTeamID": 902,
+  "HomeTeam": "AUR",
+  "AwayTeam": "BRI",
+  "HomeTeamScore": 112,
+  "AwayTeamScore": 108,
+  "IsClosed": true,
+  "Updated": "2026-01-15T02:44:10"
+ },
+ {
+  "GameID": 500102,
+  "Season": 2026,
+  "SeasonType": 1,
+  "Status": "F/OT",
+  "Day": "2026-01-15T00:00:00",
+  "DateTime": "2026-01-15T20:00:00",
+  "DateTimeUTC": null,
+  "HomeTeamID": 901,
+  "AwayTeamID": 902,
+  "HomeTeam": "AUR",
+  "AwayTeam": "BRI",
+  "HomeTeamScore": 121,
+  "AwayTeamScore": 118,
+  "IsClosed": true,
+  "Updated": "2026-01-15T02:44:10"
+ },
+ {
+  "GameID": 500103,
+  "Season": 2026,
+  "SeasonType": 1,
+  "Status": "Scheduled",
+  "Day": "2026-01-20T00:00:00",
+  "DateTime": "2026-01-20T19:00:00",
+  "DateTimeUTC": null,
+  "HomeTeamID": 901,
+  "AwayTeamID": 902,
+  "HomeTeam": "AUR",
+  "AwayTeam": "BRI",
+  "HomeTeamScore": null,
+  "AwayTeamScore": null,
+  "IsClosed": false,
+  "Updated": "2026-01-15T02:44:10"
+ }
+]

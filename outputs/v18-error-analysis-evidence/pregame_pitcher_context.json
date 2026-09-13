@@ -1,0 +1,1396 @@
+{
+  "asOfUtc": "2026-09-12T15:58:44.909115+00:00",
+  "games": [
+    {
+      "confirmationStates": {
+        "PROBABLE": 192
+      },
+      "decisionCutoffUtc": "2026-09-07T21:50:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-a6e7e99122f1b60701a4728b-b8c8632f-7ae1-4ad0-9404-bd51aafa78fe",
+      "latestStarterKnownUtc": "2026-09-07T21:38:33.543101-04:00",
+      "mlbGamePk": "824958",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 192,
+      "starterObservationsTotal": 206,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-07T21:38:33.543101-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "96ae84af-f8f3-48a6-a83a-f96deeb5a95f",
+          "teamId": "52802a93-b3ce-4cbe-ae7f-d13429501f53",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-07T21:38:33.543101-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "7388ba94-b460-4c52-9ac2-e4d5a4d1220d",
+          "teamId": "31d823b3-efad-4907-b55e-8e447d70c754",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 176
+      },
+      "decisionCutoffUtc": "2026-09-08T18:20:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-63171dbd80bc0056905f71c1538a29133b73a9b2d7313b908e77797705ab0293",
+      "latestStarterKnownUtc": "2026-09-08T18:09:26.489706-04:00",
+      "mlbGamePk": "824792",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 176,
+      "starterObservationsTotal": 204,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:09:26.489706-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "c170999b-fa98-46de-b858-9f395b8851d2",
+          "teamId": "88d385b4-078e-44a1-bb0f-b683e0cf7008",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:09:26.489706-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "ca0d7494-93c1-4456-b099-0a4ba3175291",
+          "teamId": "8ab2b7b5-7df6-4faa-9e2f-3e9b0c8545bd",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 178
+      },
+      "decisionCutoffUtc": "2026-09-08T18:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-7a8017a511b6862627b54c897cab655f81fbcbcf9a6eb5682daee8a706a0191b",
+      "latestStarterKnownUtc": "2026-09-08T18:20:22.426307-04:00",
+      "mlbGamePk": "823414",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 178,
+      "starterObservationsTotal": 204,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "d3d89d42-eb69-47cb-9b5e-8c46361f6302",
+          "teamId": "abc8539b-07ed-43c2-8c18-d87729597b74",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "119f95f2-db30-47a2-b820-66611d8b6e5f",
+          "teamId": "94c886aa-1d21-4f4d-a563-30c306ea5cfe",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 178
+      },
+      "decisionCutoffUtc": "2026-09-08T18:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-b6ba1b02d565a82af942dbb679c14926e8fcd6b90e2de8c414cf570fcf780dbf",
+      "latestStarterKnownUtc": "2026-09-08T18:20:22.426307-04:00",
+      "mlbGamePk": "823821",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 178,
+      "starterObservationsTotal": 204,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "d920101d-f93a-4936-97f6-af0e48a235c4",
+          "teamId": "c4f31063-788f-461b-881f-d4af11ad1577",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "6196696c-acc8-4ae3-8c71-e3943af70bb5",
+          "teamId": "3bc3cd41-9656-4f60-998c-178b53a8bcdb",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 178
+      },
+      "decisionCutoffUtc": "2026-09-08T18:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-b3e89a093f409ad0bcb375d5cb668dab2eba8b99f344164f457a3250e64d96c4",
+      "latestStarterKnownUtc": "2026-09-08T18:20:22.426307-04:00",
+      "mlbGamePk": "824228",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 178,
+      "starterObservationsTotal": 204,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "85ffef2d-b2c1-4cf2-9657-5e4ad035459e",
+          "teamId": "cd8fd841-6bb3-47b0-b40a-7eb2af64414e",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "05249a62-5aa3-44ed-9326-24077d56f223",
+          "teamId": "2eca72dd-1750-47dc-acdc-e00a95c8fc97",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 178
+      },
+      "decisionCutoffUtc": "2026-09-08T18:30:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-d029611a3bfe318c9fbc5b86782c15a158a6616bb1199b51e98391ca4201ea89",
+      "latestStarterKnownUtc": "2026-09-08T18:20:22.426307-04:00",
+      "mlbGamePk": "824714",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 178,
+      "starterObservationsTotal": 204,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "8bdd9387-f1c4-4466-bf58-0e7d2dc32ab1",
+          "teamId": "9af763ff-243e-4879-bed0-91efa13aca2f",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:20:22.426307-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "ae2c168e-e183-4436-b18a-b88f16da2a80",
+          "teamId": "5bb91c97-bddc-498d-ad07-06fb6ee674e7",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 182
+      },
+      "decisionCutoffUtc": "2026-09-08T18:50:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-2f759d45d16706a061a5e4a84386bef6a2936affe6111e3534d70ce1059a6846",
+      "latestStarterKnownUtc": "2026-09-08T18:39:34.269947-04:00",
+      "mlbGamePk": "823500",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 182,
+      "starterObservationsTotal": 208,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:39:34.269947-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "42b69596-fc06-4811-8958-b543906dd163",
+          "teamId": "224efebd-3b8a-4fac-b9cc-263e9a55250f",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:39:34.269947-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "69c0ec68-c06b-44c7-a085-d5397ced9751",
+          "teamId": "dd0ae516-e738-421f-af8c-ba20f1125a1c",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 184
+      },
+      "decisionCutoffUtc": "2026-09-08T19:00:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-00f1aa0d2414efeb4e8133b0451b2c10a7e77b95461c6f21d45e791aa8a7f6b8",
+      "latestStarterKnownUtc": "2026-09-08T18:50:25.110436-04:00",
+      "mlbGamePk": "824875",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 184,
+      "starterObservationsTotal": 208,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:50:25.110436-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "31cb4d4b-8e6a-479f-8e62-a42f05601645",
+          "teamId": "e7f252fc-8dc4-4a82-a658-a5445bbe13d0",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T18:50:25.110436-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "1fc71c92-3a2b-4254-b7b2-a9fe140a77c0",
+          "teamId": "d9d8cd91-a9d6-44e4-9046-9d2a0896382e",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 190
+      },
+      "decisionCutoffUtc": "2026-09-08T19:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-b4aa3a53799b24e35f1fe89ea3c4e12187d95e237e95ee9608a2a50f2865b363",
+      "latestStarterKnownUtc": "2026-09-08T19:20:17.535975-04:00",
+      "mlbGamePk": "824551",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 190,
+      "starterObservationsTotal": 212,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T19:20:17.535975-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "56eb36c4-7593-442a-aeda-f47126983e97",
+          "teamId": "ff7987c0-91a2-4650-90b8-2efcebbb486f",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T19:20:17.535975-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "537813cb-a357-4377-97af-1b8cc034e787",
+          "teamId": "c25eb7f6-fd8f-4841-b347-3df883cfe055",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 190
+      },
+      "decisionCutoffUtc": "2026-09-08T19:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-9a23d585db05138ee302ec7eddb09dc53ad96846ae3b9951bcb53782961389af",
+      "latestStarterKnownUtc": "2026-09-08T19:20:17.535975-04:00",
+      "mlbGamePk": "823738",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 190,
+      "starterObservationsTotal": 212,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T19:20:17.535975-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "66382e13-9455-495a-b710-b432b7e5e720",
+          "teamId": "86f17320-7f89-46ba-b0bb-a3272acd2e9c",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T19:20:17.535975-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "924d2134-050f-4012-9cea-8ab472729433",
+          "teamId": "fb77e58d-5010-4087-928e-ae2af3c412cd",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 206
+      },
+      "decisionCutoffUtc": "2026-09-08T21:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-1607e565a9a2e32c6f73493f1bd4920867acda52a6fda05765ddb9d833aafcd1",
+      "latestStarterKnownUtc": "2026-09-08T21:22:17.388603-04:00",
+      "mlbGamePk": "824957",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 206,
+      "starterObservationsTotal": 224,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:22:17.388603-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "12670a79-bb65-42a4-8b2c-5a6490717f08",
+          "teamId": "52802a93-b3ce-4cbe-ae7f-d13429501f53",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:22:17.388603-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "a7647a0b-d138-4932-9e6c-4b021b1d7acb",
+          "teamId": "31d823b3-efad-4907-b55e-8e447d70c754",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 206
+      },
+      "decisionCutoffUtc": "2026-09-08T21:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-2c3badb5051c5da86d02e8233bb9fce2c9e7debafc908b98809f29b873725fac",
+      "latestStarterKnownUtc": "2026-09-08T21:22:17.388603-04:00",
+      "mlbGamePk": "823250",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 206,
+      "starterObservationsTotal": 224,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:22:17.388603-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "9e1564bf-66b6-4b25-82c6-74ed6decdace",
+          "teamId": "2b6872ce-b496-4a97-ac43-6da0b4839022",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:22:17.388603-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "5f35b118-904f-4baf-baef-e49470fc494e",
+          "teamId": "725a1589-cf10-464b-ba04-11f2069a93b2",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 206
+      },
+      "decisionCutoffUtc": "2026-09-08T21:30:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-911abbf02a309944a8f248d6af6fdca1d83f8b114b2c519655d8eebce43b83e1",
+      "latestStarterKnownUtc": "2026-09-08T21:22:17.388603-04:00",
+      "mlbGamePk": "823174",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 206,
+      "starterObservationsTotal": 224,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:22:17.388603-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "11ea2b49-2078-442e-8a8e-0717eb9c89b3",
+          "teamId": "ee51358f-b5c0-4d0d-85c4-f42db83c171b",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:22:17.388603-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "a7afffca-3e14-4a04-91fe-1103f811c2b0",
+          "teamId": "6e258eec-02c9-4ff4-811a-69cefcadcb70",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 212
+      },
+      "decisionCutoffUtc": "2026-09-08T21:55:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-5368883bdc0cbf19db1da941aee1442f61d818e46e254a5242f54e9f8364e2da",
+      "latestStarterKnownUtc": "2026-09-08T21:50:17.318208-04:00",
+      "mlbGamePk": "823901",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 212,
+      "starterObservationsTotal": 228,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:50:17.318208-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "35aa1563-13be-497d-9002-dacf8b9ebada",
+          "teamId": "1861c30e-99af-4fac-b0b6-eed1259d36dc",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-08T21:50:17.318208-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "c81cbe9b-5ace-4019-9f46-dc5f30a49f88",
+          "teamId": "05f434e5-0334-462d-b84a-2e56c51ac25b",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 210
+      },
+      "decisionCutoffUtc": "2026-09-10T18:50:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-c87d341420ff02a6fe420c498b61472af5857015e6771f35d2f5b5706db69c3d",
+      "latestStarterKnownUtc": "2026-09-10T18:49:08.751306-04:00",
+      "mlbGamePk": "823499",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 210,
+      "starterObservationsTotal": 252,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-10T18:49:08.751306-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "1a8ae97e-60c1-4419-9c37-4fb64ef3f922",
+          "teamId": "224efebd-3b8a-4fac-b9cc-263e9a55250f",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-10T18:49:08.751306-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "126e6e1f-1bf2-4af2-b50c-e77a68f9981b",
+          "teamId": "dd0ae516-e738-421f-af8c-ba20f1125a1c",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 212
+      },
+      "decisionCutoffUtc": "2026-09-10T19:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-dbce974760e2106b2fa23a7ef7fd348d67b261d06e690febae2556fa0dd12fdf",
+      "latestStarterKnownUtc": "2026-09-10T19:15:08.740692-04:00",
+      "mlbGamePk": "824550",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 212,
+      "starterObservationsTotal": 252,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-10T19:15:08.740692-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "1053a7c9-1041-4a97-9568-f48632984087",
+          "teamId": "c25eb7f6-fd8f-4841-b347-3df883cfe055",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-10T19:15:08.740692-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "b93be226-76cc-4f1e-a869-40285689e483",
+          "teamId": "ff7987c0-91a2-4650-90b8-2efcebbb486f",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 176
+      },
+      "decisionCutoffUtc": "2026-09-11T14:05:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-050f8df7fa31a6baaae407163523bfbcfb8244478dd63427cee9136a4cff9d05",
+      "latestStarterKnownUtc": "2026-09-11T13:55:00.205391-04:00",
+      "mlbGamePk": "824631",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 176,
+      "starterObservationsTotal": 226,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T13:55:00.205391-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "23f211d1-241c-4269-bea5-77fc5b576bbc",
+          "teamId": "ff7987c0-91a2-4650-90b8-2efcebbb486f",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T13:55:00.205391-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "32ed1558-0610-49f5-b848-0c9442d297eb",
+          "teamId": "86f17320-7f89-46ba-b0bb-a3272acd2e9c",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 226
+      },
+      "decisionCutoffUtc": "2026-09-11T18:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-e7d544fa4730a351356588b547687de90adb1e6a403f85199f096f2fffab9cdb",
+      "latestStarterKnownUtc": "2026-09-11T18:22:14.625882-04:00",
+      "mlbGamePk": "824227",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 226,
+      "starterObservationsTotal": 250,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:22:14.625882-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "3613420f-718e-454e-967e-75d5098007ae",
+          "teamId": "224efebd-3b8a-4fac-b9cc-263e9a55250f",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:22:14.625882-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "cb3b59e6-99dc-42cc-af84-ed5cf788ce3f",
+          "teamId": "2eca72dd-1750-47dc-acdc-e00a95c8fc97",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 228
+      },
+      "decisionCutoffUtc": "2026-09-11T18:30:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-eae2b0e71ca758a863c4ccc0be884de7e446fef26250cbf0efe1dcc00af23f4f",
+      "latestStarterKnownUtc": "2026-09-11T18:28:16.905548-04:00",
+      "mlbGamePk": "822684",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 228,
+      "starterObservationsTotal": 252,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:28:16.905548-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "5d02b342-2e3e-435d-b80d-8f49f75f4ec9",
+          "teamId": "9af763ff-243e-4879-bed0-91efa13aca2f",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:28:16.905548-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "5e0e0998-5c8a-4aa6-9bf5-ed476c9a91e7",
+          "teamId": "2b6872ce-b496-4a97-ac43-6da0b4839022",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 230
+      },
+      "decisionCutoffUtc": "2026-09-11T18:50:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-1340160b1396996164cdcda20975835489138875e67a09e7d0218e4f6c0e49ea",
+      "latestStarterKnownUtc": "2026-09-11T18:40:14.047063-04:00",
+      "mlbGamePk": "823498",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 230,
+      "starterObservationsTotal": 254,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:40:14.047063-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "4032bea9-0201-41bb-8504-6e3a7c8c00b4",
+          "teamId": "c4f31063-788f-461b-881f-d4af11ad1577",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:40:14.047063-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "bceb9b1d-af76-4b9f-8307-911bc52d0644",
+          "teamId": "dd0ae516-e738-421f-af8c-ba20f1125a1c",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 230
+      },
+      "decisionCutoffUtc": "2026-09-11T18:52:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-cae26762d5a599605ee2747e0bdc2d9f15effd6ec2d59afc565312816c7a2cec",
+      "latestStarterKnownUtc": "2026-09-11T18:40:14.047063-04:00",
+      "mlbGamePk": "822767",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 230,
+      "starterObservationsTotal": 256,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:40:14.047063-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "822145a8-6085-4d4f-be0d-e7fe975d5427",
+          "teamId": "8ab2b7b5-7df6-4faa-9e2f-3e9b0c8545bd",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:40:14.047063-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "137f973f-c244-4933-bbbd-c6f842e26efd",
+          "teamId": "52802a93-b3ce-4cbe-ae7f-d13429501f53",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 232
+      },
+      "decisionCutoffUtc": "2026-09-11T18:55:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-e035e47b8bb4634e1310518d41ec0d48d28daf819d5687d5e1a6b8be62fde567",
+      "latestStarterKnownUtc": "2026-09-11T18:52:14.510924-04:00",
+      "mlbGamePk": "824711",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 232,
+      "starterObservationsTotal": 256,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "030b0e80-f7a1-4c63-b26c-882e08fb9e4f",
+          "teamId": "755c3229-e684-42d0-ad7c-1578e42d55a2",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "ffd8b8f7-207d-46c5-8807-844bf579185a",
+          "teamId": "5bb91c97-bddc-498d-ad07-06fb6ee674e7",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 120,
+        "UNKNOWN": 112
+      },
+      "decisionCutoffUtc": "2026-09-11T18:55:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-0f60c4030bc8ab611102669b4e9ce3b4c28b34c4344b7ffe1febdf4969b1c99f",
+      "latestStarterKnownUtc": "2026-09-11T18:52:14.510924-04:00",
+      "mlbGamePk": "823817",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 232,
+      "starterObservationsTotal": 256,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "1275c110-5ab7-497b-8099-4f379702ee69",
+          "teamId": "3bc3cd41-9656-4f60-998c-178b53a8bcdb",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "c4565934-4218-42e4-ab2e-933421fcc0b6",
+          "teamId": "05f434e5-0334-462d-b84a-2e56c51ac25b",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 232
+      },
+      "decisionCutoffUtc": "2026-09-11T18:55:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-b86458e4c50dee44758c0a1b7cf1a0387edad34dea6bc488c8ebb34b6c0a3c15",
+      "latestStarterKnownUtc": "2026-09-11T18:52:14.510924-04:00",
+      "mlbGamePk": "822930",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 232,
+      "starterObservationsTotal": 256,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "5277bbc3-5744-4d2b-b453-b226d138a2c0",
+          "teamId": "abc8539b-07ed-43c2-8c18-d87729597b74",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "41bfa3b2-85fa-4d3e-9106-4b2f97f007d0",
+          "teamId": "e7f252fc-8dc4-4a82-a658-a5445bbe13d0",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 232
+      },
+      "decisionCutoffUtc": "2026-09-11T19:00:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-1d6bb94c5c6a1f0076a9eb085646a9404ffe2891887e8b77f7646079303cf394",
+      "latestStarterKnownUtc": "2026-09-11T18:52:14.510924-04:00",
+      "mlbGamePk": "824873",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 232,
+      "starterObservationsTotal": 256,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "386107aa-d44a-46ef-a920-39d645560619",
+          "teamId": "94c886aa-1d21-4f4d-a563-30c306ea5cfe",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T18:52:14.510924-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "abebe1a3-43c5-4b4c-891e-a28ead067a07",
+          "teamId": "d9d8cd91-a9d6-44e4-9046-9d2a0896382e",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 236
+      },
+      "decisionCutoffUtc": "2026-09-11T19:30:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-66f759aafe23acd63a3cba5d2c0608501fb3dff49e9de9655d58a97b5e08d41f",
+      "latestStarterKnownUtc": "2026-09-11T19:28:11.687703-04:00",
+      "mlbGamePk": "823736",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 236,
+      "starterObservationsTotal": 258,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T19:28:11.687703-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "09a8f2b2-a3a7-4034-a886-463ec3dc98df",
+          "teamId": "1861c30e-99af-4fac-b0b6-eed1259d36dc",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T19:28:11.687703-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "787a63c1-a4a2-452c-ba03-2d7ac9a7e22b",
+          "teamId": "fb77e58d-5010-4087-928e-ae2af3c412cd",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 240
+      },
+      "decisionCutoffUtc": "2026-09-11T19:55:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-d432a4cd32949444c86e6473a4a05ff697f89508c93743c7d57c7f13c2ded096",
+      "latestStarterKnownUtc": "2026-09-11T19:52:14.414747-04:00",
+      "mlbGamePk": "823659",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 240,
+      "starterObservationsTotal": 260,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T19:52:14.414747-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "206fa7cd-41e0-4ed5-8821-94fb027b4cae",
+          "teamId": "88d385b4-078e-44a1-bb0f-b683e0cf7008",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T19:52:14.414747-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "a48d3a1f-4cd8-4fc1-944d-83f35c929d4d",
+          "teamId": "cd8fd841-6bb3-47b0-b40a-7eb2af64414e",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 240
+      },
+      "decisionCutoffUtc": "2026-09-11T20:00:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-b6e2c35abc7e824ec3f72bd8aa59f4eb28163783ad69619e5ae07ec44d0e1633",
+      "latestStarterKnownUtc": "2026-09-11T19:58:13.398753-04:00",
+      "mlbGamePk": "823012",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 240,
+      "starterObservationsTotal": 260,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T19:58:13.398753-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "bb3e59a4-9315-4ce6-bf41-610b9d5ed20b",
+          "teamId": "c25eb7f6-fd8f-4841-b347-3df883cfe055",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T19:58:13.398753-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "eeb49f67-beef-4015-ae9b-636da53ba907",
+          "teamId": "ee51358f-b5c0-4d0d-85c4-f42db83c171b",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 254
+      },
+      "decisionCutoffUtc": "2026-09-11T21:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-21adaa0fb30b546e6dc7aedcec943418c2aaf19703e8b9f1dc593a10eeb13daa",
+      "latestStarterKnownUtc": "2026-09-11T21:22:14.639695-04:00",
+      "mlbGamePk": "824954",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 254,
+      "starterObservationsTotal": 270,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T21:22:14.639695-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "1affdf80-a2a7-4117-9f7d-f5c738681ccc",
+          "teamId": "31d823b3-efad-4907-b55e-8e447d70c754",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T21:22:14.639695-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "8aac2e4a-ff8e-466b-badf-a056fcc7dae0",
+          "teamId": "e0803875-9b57-4378-b264-5c25b8f624b4",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 73,
+        "UNKNOWN": 181
+      },
+      "decisionCutoffUtc": "2026-09-11T21:25:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-cef67bb4bef1b4f6d666c0a695f65302893f03badbf4f9643bf62d0a3aaf93e4",
+      "latestStarterKnownUtc": "2026-09-11T21:22:14.639695-04:00",
+      "mlbGamePk": "825036",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 254,
+      "starterObservationsTotal": 270,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T21:22:14.639695-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "072d1120-88ad-449a-a251-7db970b6287f",
+          "teamId": "7d42c0bf-0caa-4ffc-932c-3f15514ed018",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T21:22:14.639695-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "8053d656-70de-4b39-b7f4-0b742c3ad76f",
+          "teamId": "74fa3a5e-365a-47e9-84c8-ecf2035c4ff0",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 256
+      },
+      "decisionCutoffUtc": "2026-09-11T22:00:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-17a797b3ab6aaf3c8e5048dfa620286ecb4b4fd52fdb3b317a69b239b405d058",
+      "latestStarterKnownUtc": "2026-09-11T21:42:14.121411-04:00",
+      "mlbGamePk": "823173",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 256,
+      "starterObservationsTotal": 272,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T21:42:14.121411-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "748c1fb2-2c4a-452b-a27a-4433159e090f",
+          "teamId": "6e258eec-02c9-4ff4-811a-69cefcadcb70",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-11T21:42:14.121411-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "0a8444ae-408c-40cb-9d9d-8fb98376de8a",
+          "teamId": "725a1589-cf10-464b-ba04-11f2069a93b2",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 135,
+        "UNKNOWN": 11
+      },
+      "decisionCutoffUtc": "2026-09-12T12:55:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-21239787e7773ffa160e98251cd999d427f1b9d99875f7f29b07d68f425c81f4",
+      "latestStarterKnownUtc": "2026-09-12T11:50:29.981982-04:00",
+      "mlbGamePk": "824224",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 146,
+      "starterObservationsTotal": 146,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-12T11:50:29.981982-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "12c1e9d6-27ba-4bf3-a9ae-6c8969731143",
+          "teamId": "224efebd-3b8a-4fac-b9cc-263e9a55250f",
+          "throws": "R",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-12T11:50:29.981982-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "ae48c925-7cd8-4996-9d45-cbf62872b55d",
+          "teamId": "2eca72dd-1750-47dc-acdc-e00a95c8fc97",
+          "throws": "L",
+          "workload": null
+        }
+      ]
+    },
+    {
+      "confirmationStates": {
+        "PROBABLE": 144
+      },
+      "decisionCutoffUtc": "2026-09-12T13:20:00-04:00",
+      "distinctClubsWithStarter": 2,
+      "forecastId": "mlb-v18-daily-d8bc8570b0e62c98150a4629dc075941d6feb0c9ba23611980f4c309c80ce8cb",
+      "latestStarterKnownUtc": "2026-09-12T11:50:29.981982-04:00",
+      "mlbGamePk": "823496",
+      "note": "Only observations whose own availability clock precedes this forecast's decision cutoff are counted or exported.",
+      "sources": [
+        "MLB_STATS_API"
+      ],
+      "starterObservationsKnownByCutoff": 144,
+      "starterObservationsTotal": 144,
+      "startersKnownByCutoff": [
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-12T11:50:29.981982-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "5ab9aeb2-25ca-4979-a1d8-f80a4410a418",
+          "teamId": "c4f31063-788f-461b-881f-d4af11ad1577",
+          "throws": "L",
+          "workload": null
+        },
+        {
+          "confirmationState": "PROBABLE",
+          "confirmedPitcherId": null,
+          "daysRest": null,
+          "knownUtc": "2026-09-12T11:50:29.981982-04:00",
+          "pitchesLastStart": null,
+          "pitchesPreviousDay": null,
+          "probablePitcherId": "e74a60d2-1b2e-42d2-9ac6-e38d7667e072",
+          "teamId": "dd0ae516-e738-421f-af8c-ba20f1125a1c",
+          "throws": "R",
+          "workload": null
+        }
+      ]
+    }
+  ],
+  "gate": "observation availability clock <= that forecast's decision cutoff",
+  "schemaVersion": "AISP_MLB_V18_PREGAME_PITCHER_CONTEXT_V1"
+}

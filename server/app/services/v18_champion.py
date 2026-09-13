@@ -68,6 +68,17 @@ class ChampionImportError(RuntimeError):
     """The supplement was refused. The message is the reason, verbatim."""
 
 
+#: Suffix that distinguishes an era's dormant staging row from the row that
+#: actually opened it. ``ShadowExperiment.model_era_id`` is UNIQUE, so the two
+#: states of one era cannot share an id -- and they should not: an era that was
+#: armed and never opened is a different fact from an era that opened.
+ARMED_ERA_SUFFIX = ":ARMED"
+
+
+def armed_era_id(model_era_id: str) -> str:
+    return f"{model_era_id}{ARMED_ERA_SUFFIX}"
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
@@ -180,6 +191,12 @@ class V18ChampionService:
                 "forecast_timestamp_semantics": payload.get("forecastTimestampSemantics"),
                 "fail_closed": activation.get("failClosed"),
                 "verified_at_utc": now.isoformat(),
+                # A recovery supplement replaces a boundary that passed without
+                # opening. The block travels into the era's capital snapshot so
+                # the record says what was intended, what failed and what
+                # actually happened -- rather than a clean row that hides a
+                # missed transition.
+                "recovery": payload.get("recovery"),
             },
         )
         self.session.add(authority)
@@ -268,7 +285,12 @@ class V18ChampionService:
             # once the boundary has actually arrived.
             is_active=False,
             policy_config=predecessor.policy_config,
-            model_era_id=authority.model_era_id,
+            # ``ShadowExperiment.model_era_id`` is UNIQUE: one experiment row
+            # per era, which is correct -- an era must not have two claimants.
+            # The armed row is a staging record for an era that has not opened,
+            # so it takes the ARMED-qualified id and leaves the era's own id for
+            # the successor that capture_boundary appends at the boundary.
+            model_era_id=armed_era_id(authority.model_era_id),
             predecessor_experiment_id=predecessor.id,
         )
         self.session.add(experiment)
@@ -298,19 +320,41 @@ class V18ChampionService:
         authority = self.authority()
         if authority is None or authority.experiment_id is None:
             return {"captured": False, "reason": "NOTHING_ARMED"}
-        experiment = self.session.get(ShadowExperiment, authority.experiment_id)
-        if experiment is None:
+        armed = self.session.get(ShadowExperiment, authority.experiment_id)
+        if armed is None:
             return {"captured": False, "reason": "ARMED_EXPERIMENT_IS_MISSING"}
-        if experiment.boundary_capital is not None:
+        # Already open: the authority points at a successor that carries the
+        # snapshot. Every later run is a no-op, which is what makes a retry
+        # across the boundary safe.
+        if armed.boundary_capital is not None:
             return {"captured": False, "reused": True, "state": self._state(authority, now),
-                    "boundary_capital": experiment.boundary_capital}
+                    "experiment_id": str(armed.id),
+                    "boundary_capital": armed.boundary_capital}
+        # Belt and braces: a successor may exist even if the authority pointer
+        # did not move (a crash between the two flushes). Find it rather than
+        # opening the era a second time.
+        existing = self.session.scalar(
+            select(ShadowExperiment).where(
+                ShadowExperiment.model_era_id == authority.model_era_id,
+                ShadowExperiment.is_active.is_(True),
+                ShadowExperiment.boundary_capital.is_not(None),
+            ).order_by(ShadowExperiment.version.desc()).limit(1)
+        )
+        if existing is not None:
+            if authority.experiment_id != existing.id:
+                authority.experiment_id = existing.id
+                authority.state = ACTIVE
+                self.session.flush()
+            return {"captured": False, "reused": True, "state": ACTIVE,
+                    "experiment_id": str(existing.id),
+                    "boundary_capital": existing.boundary_capital}
         effective_at = _aware(authority.effective_at)
         if now < effective_at:
             return {"captured": False, "reason": "BOUNDARY_HAS_NOT_ARRIVED",
                     "state": ARMED, "effective_at_utc": effective_at.isoformat(),
                     "starts_in_seconds": int((effective_at - now).total_seconds())}
 
-        predecessor = self.session.get(ShadowExperiment, experiment.predecessor_experiment_id)
+        predecessor = self.session.get(ShadowExperiment, armed.predecessor_experiment_id)
         if predecessor is None:
             return {"captured": False, "reason": "PREDECESSOR_IS_MISSING"}
 
@@ -338,6 +382,10 @@ class V18ChampionService:
             "last_gen1_eligible_decision_id": last_gen1[0],
             "last_gen1_eligible_decision_at": last_gen1[1],
             "new_capital_created": 0.0,
+            # The armed row is neither modified nor discarded. It records that
+            # the era was armed; this successor records that it opened.
+            "supersedes_armed_experiment_id": str(armed.id),
+            "transition_mechanism": "APPEND_ONLY_SUCCESSOR_EXPERIMENT",
             "note": (
                 "Carried capital is the predecessor's realized bankroll minus the "
                 "stake still reserved against its open positions. No new capital "
@@ -345,12 +393,62 @@ class V18ChampionService:
                 "not profit."
             ),
         }
-        experiment.boundary_capital = snapshot
-        experiment.starting_bankroll = max(0.0, carried)
-        experiment.is_active = True
+        recovery = (authority.evidence or {}).get("recovery")
+        if recovery:
+            # A recovery boundary carries the story of the one it replaces.
+            snapshot["recovery"] = recovery
+
+        # ShadowExperiment is append-only. Opening the era therefore INSERTS a
+        # successor rather than flipping fields on the armed row -- which is
+        # what this method used to attempt, and what the immutability guard
+        # correctly refused with "ShadowExperiment records are append-only".
+        #
+        # The successor keeps the armed row's configuration and, critically, the
+        # armed row's OWN predecessor: the Gen1 experiment. ShadowExperimentService
+        # ._active_successor_era looks for a successor of the GEN1 row, so
+        # pointing this at the armed row instead would leave Gen1 admitting
+        # decisions after the boundary.
+        next_version = int(self.session.scalar(
+            select(func.max(ShadowExperiment.version))
+        ) or 0) + 1
+        successor = ShadowExperiment(
+            name=armed.name,
+            version=next_version,
+            started_at=effective_at,
+            start_date=armed.start_date,
+            starting_bankroll=max(0.0, carried),
+            sport=armed.sport,
+            recommendation_policy_version=armed.recommendation_policy_version,
+            staking_policy_version=armed.staking_policy_version,
+            decision_policy=armed.decision_policy,
+            controlling_engine=armed.controlling_engine,
+            supported_markets=list(armed.supported_markets or []),
+            kelly_fraction=armed.kelly_fraction,
+            unit_percentage=armed.unit_percentage,
+            max_position_percentage=armed.max_position_percentage,
+            max_same_game_percentage=armed.max_same_game_percentage,
+            max_daily_percentage=armed.max_daily_percentage,
+            code_commit=armed.code_commit,
+            code_identity=armed.code_identity,
+            is_active=True,
+            policy_config=armed.policy_config,
+            model_era_id=authority.model_era_id,
+            predecessor_experiment_id=armed.predecessor_experiment_id,
+            boundary_capital=snapshot,
+        )
+        self.session.add(successor)
+        self.session.flush()
+
+        # The authority row is a pointer, not history, and is not append-only.
+        # It moves to the experiment that is actually open; the armed row keeps
+        # every value it was written with.
+        authority.experiment_id = successor.id
         authority.state = ACTIVE
         self.session.flush()
-        return {"captured": True, "state": ACTIVE, "experiment_id": str(experiment.id),
+        return {"captured": True, "state": ACTIVE,
+                "experiment_id": str(successor.id),
+                "armed_experiment_id": str(armed.id),
+                "version": successor.version,
                 "boundary_capital": snapshot}
 
     # -- read -----------------------------------------------------------
@@ -425,6 +523,7 @@ class V18ChampionService:
 
 
 __all__ = [
-    "ACTIVE", "ARMED", "ENGINE_ID", "SCHEMA", "SPORT",
+    "ACTIVE", "ARMED", "ARMED_ERA_SUFFIX", "ENGINE_ID", "SCHEMA", "SPORT",
+    "armed_era_id",
     "ChampionImportError", "V18ChampionService", "read_supplement",
 ]

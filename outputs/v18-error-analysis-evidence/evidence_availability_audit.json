@@ -1,0 +1,754 @@
+{
+  "asOfUtc": "2026-09-12T01:41:13.747046+00:00",
+  "backingTableState": [
+    {
+      "first_row": null,
+      "last_row": null,
+      "relation": "statcast_player_observations",
+      "rows": 0
+    },
+    {
+      "first_row": null,
+      "last_row": null,
+      "relation": "bullpen_availability_observations",
+      "rows": 0
+    },
+    {
+      "first_row": null,
+      "last_row": null,
+      "relation": "bullpen_features",
+      "rows": 0
+    },
+    {
+      "first_row": "2026-08-13T00:14:37.866964-04:00",
+      "last_row": "2026-09-11T06:00:21.894369-04:00",
+      "relation": "roster_availability_observations",
+      "rows": 13309
+    },
+    {
+      "first_row": "2026-08-14T12:47:03.182933-04:00",
+      "last_row": "2026-09-11T21:38:13.437024-04:00",
+      "relation": "lineup_observations",
+      "rows": 23698
+    },
+    {
+      "first_row": "2026-08-13T00:15:22.615823-04:00",
+      "last_row": "2026-09-11T18:41:29.737630-04:00",
+      "relation": "game_feature_snapshots",
+      "rows": 5596
+    },
+    {
+      "first_row": "2026-08-13T00:14:36.400538-04:00",
+      "last_row": "2026-09-11T21:28:59.659737-04:00",
+      "relation": "starter_observations",
+      "rows": 29444
+    }
+  ],
+  "carriedForwardClaim": {
+    "claim": "feature_completeness, bullpen and statcast had never ingested any value, costing 20 weight points before any live evidence (audit of 2026-09-08, not re-verified since).",
+    "claimedCost": 20.0,
+    "confirmed": "bullpen and statcast have never held a row and are MISSING on every forecast in the window, costing their full weight each.",
+    "corrected": "feature_completeness is populated on every forecast and is STALE, never MISSING. It scores half weight, not zero.",
+    "measuredCostPerForecast": 15.0,
+    "structuralFloorFromAlwaysMissing": 10.0,
+    "verdict": "PARTLY CONFIRMED"
+  },
+  "components": [
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 9.021,
+      "component": "lineups",
+      "missing": 424,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 46,
+      "stale": 0,
+      "unavailableReasons": {
+        "EVIDENCE_MISSING": 58
+      },
+      "weight": 10.0,
+      "weightShareOfDenominator": 10.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 5.745,
+      "component": "odds",
+      "missing": 242,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 172,
+      "stale": 56,
+      "unavailableReasons": {
+        "EVIDENCE_MISSING": 1,
+        "EVIDENCE_STALE": 13
+      },
+      "weight": 10.0,
+      "weightShareOfDenominator": 10.0
+    },
+    {
+      "alwaysMissing": true,
+      "audited": true,
+      "averagePointsLost": 5.0,
+      "component": "statcast",
+      "missing": 470,
+      "neverReady": true,
+      "notApplicable": 0,
+      "ready": 0,
+      "stale": 0,
+      "unavailableReasons": {
+        "NO_SOURCE_EVIDENCE_REGISTERED": 64
+      },
+      "weight": 5.0,
+      "weightShareOfDenominator": 5.0
+    },
+    {
+      "alwaysMissing": true,
+      "audited": true,
+      "averagePointsLost": 5.0,
+      "component": "bullpen",
+      "missing": 470,
+      "neverReady": true,
+      "notApplicable": 0,
+      "ready": 0,
+      "stale": 0,
+      "unavailableReasons": {
+        "NO_SOURCE_EVIDENCE_REGISTERED": 64
+      },
+      "weight": 5.0,
+      "weightShareOfDenominator": 5.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": true,
+      "averagePointsLost": 5.0,
+      "component": "feature_completeness",
+      "missing": 0,
+      "neverReady": true,
+      "notApplicable": 0,
+      "ready": 0,
+      "stale": 470,
+      "unavailableReasons": {
+        "MEASURED_COVERAGE_BELOW_THRESHOLD": 64
+      },
+      "weight": 10.0,
+      "weightShareOfDenominator": 10.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 3.202,
+      "component": "weather",
+      "missing": 24,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 193,
+      "stale": 253,
+      "unavailableReasons": {
+        "EVIDENCE_MISSING": 3,
+        "EVIDENCE_STALE": 32
+      },
+      "weight": 10.0,
+      "weightShareOfDenominator": 10.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 2.67,
+      "component": "pitcher_confirmation",
+      "missing": 32,
+      "neverReady": true,
+      "notApplicable": 0,
+      "ready": 0,
+      "stale": 438,
+      "unavailableReasons": {
+        "EVIDENCE_MISSING": 3,
+        "EVIDENCE_STALE": 61
+      },
+      "weight": 5.0,
+      "weightShareOfDenominator": 5.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 2.574,
+      "component": "sportsbook_count",
+      "missing": 242,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 228,
+      "stale": 0,
+      "unavailableReasons": {
+        "EVIDENCE_MISSING": 1
+      },
+      "weight": 5.0,
+      "weightShareOfDenominator": 5.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 0.681,
+      "component": "probable_pitchers",
+      "missing": 32,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 438,
+      "stale": 0,
+      "unavailableReasons": {
+        "EVIDENCE_MISSING": 3
+      },
+      "weight": 10.0,
+      "weightShareOfDenominator": 10.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 0.053,
+      "component": "schedule",
+      "missing": 0,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 465,
+      "stale": 5,
+      "unavailableReasons": {},
+      "weight": 10.0,
+      "weightShareOfDenominator": 10.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 0.0,
+      "component": "roster",
+      "missing": 0,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 470,
+      "stale": 0,
+      "unavailableReasons": {},
+      "weight": 5.0,
+      "weightShareOfDenominator": 5.0
+    },
+    {
+      "alwaysMissing": false,
+      "audited": false,
+      "averagePointsLost": 0.0,
+      "component": "team_stats",
+      "missing": 0,
+      "neverReady": false,
+      "notApplicable": 0,
+      "ready": 470,
+      "stale": 0,
+      "unavailableReasons": {},
+      "weight": 15.0,
+      "weightShareOfDenominator": 15.0
+    }
+  ],
+  "fields": {
+    "bullpen": {
+      "critical": false,
+      "meaning": "reliever availability and workload per club",
+      "measured": {
+        "alwaysMissing": true,
+        "audited": true,
+        "averagePointsLost": 5.0,
+        "component": "bullpen",
+        "missing": 470,
+        "neverReady": true,
+        "notApplicable": 0,
+        "ready": 0,
+        "stale": 0,
+        "unavailableReasons": {
+          "NO_SOURCE_EVIDENCE_REGISTERED": 64
+        },
+        "weight": 5.0,
+        "weightShareOfDenominator": 5.0
+      },
+      "missingnessKind": "ABSENT_OBSERVATIONS -- the backing table has never held a row, so the component can only be MISSING. This is an un-ingested source, not a mapping fault and not a stale value.",
+      "producer": "no live ingester writes this table in the 2026 path",
+      "readinessRule": "READY needs rows for BOTH clubs, >=70% coverage on each, and non-null home/away_bullpen_availability feature values (services/forecast_service.py). With an empty table the component can only ever be MISSING.",
+      "readinessWeight": 5.0,
+      "role": "AISP readiness input and a Gen 1 model input (home/away_bullpen_availability, _era, _xera)",
+      "storage": "bullpen_availability_observations (game_id, team_id, player_id), aggregated into bullpen_features"
+    },
+    "feature_completeness": {
+      "critical": true,
+      "meaning": "share of modelled features with a usable value at snapshot time",
+      "measured": {
+        "alwaysMissing": false,
+        "audited": true,
+        "averagePointsLost": 5.0,
+        "component": "feature_completeness",
+        "missing": 0,
+        "neverReady": true,
+        "notApplicable": 0,
+        "ready": 0,
+        "stale": 470,
+        "unavailableReasons": {
+          "MEASURED_COVERAGE_BELOW_THRESHOLD": 64
+        },
+        "weight": 10.0,
+        "weightShareOfDenominator": 10.0
+      },
+      "missingnessKind": "PROXY_BELOW_THRESHOLD -- the field is populated and computed on every forecast; its measured value sits below the 60% coverage threshold, so the component reports STALE and scores half weight. It is not an absent observation.",
+      "producer": "app/services/feature_snapshot_service.py, from the measured coverage of the game's feature snapshot",
+      "readinessRule": "STALE below the 60% measured-coverage threshold, scoring half weight; it is not a missing field",
+      "readinessWeight": 10.0,
+      "role": "AISP readiness input AND a Gen 1 model input (modeling/schema.py FeatureSpec, readiness group)",
+      "snapshotCoverage": {
+        "at_or_above_threshold": 0,
+        "avg_completeness": 0.3581487726358116,
+        "max_completeness": 0.361111,
+        "min_completeness": 0.277778,
+        "snapshots": 497
+      },
+      "storage": "game_feature_snapshots.feature_completeness (float 0..1), mirrored into forecasts.readiness_components"
+    },
+    "statcast": {
+      "critical": false,
+      "meaning": "batted-ball quality: xwOBA, barrel rate, hard-hit rate, exit velocity",
+      "measured": {
+        "alwaysMissing": true,
+        "audited": true,
+        "averagePointsLost": 5.0,
+        "component": "statcast",
+        "missing": 470,
+        "neverReady": true,
+        "notApplicable": 0,
+        "ready": 0,
+        "stale": 0,
+        "unavailableReasons": {
+          "NO_SOURCE_EVIDENCE_REGISTERED": 64
+        },
+        "weight": 5.0,
+        "weightShareOfDenominator": 5.0
+      },
+      "missingnessKind": "ABSENT_OBSERVATIONS -- the backing table has never held a row, so the component can only be MISSING. This is an un-ingested source, not a mapping fault and not a stale value.",
+      "producer": "no live ingester writes this table in the 2026 path",
+      "readinessRule": "READY needs rows for BOTH clubs, >=70% player coverage on each, and freshness (services/forecast_service.py). With an empty table the component can only ever be MISSING.",
+      "readinessWeight": 5.0,
+      "role": "AISP readiness input and a Gen 1 model input (home/away_statcast_xwoba, _barrel_rate, _hard_hit_rate, _average_exit_velocity)",
+      "storage": "statcast_player_observations (team_id, player_id -- NO game_id column; the table is team/player scoped, not game scoped)"
+    }
+  },
+  "historicalAvailability": {
+    "detail": "No timestamped archive of readiness inputs as they stood before each past forecast was located, so what was knowable at an earlier decision time cannot be reconstructed from this environment. Stored readiness_components describe the state at forecast generation only.",
+    "status": "UNKNOWN"
+  },
+  "implementedFormula": {
+    "activeWeightMap": "GATE2_WEIGHTS",
+    "note": "The score is normalized by the sum of all weights in the active map. Because that sum is 100 here, a component's weight and its point cost coincide -- but that is arithmetic coincidence, not a property of the formula. A STALE component costs half its weight, not all of it.",
+    "rule": "score = 100 * sum(weight * status_factor) / sum(weight)",
+    "source": "app/features/readiness.py::calculate_readiness",
+    "statusFactors": {
+      "missing": 0.0,
+      "not_applicable": 1.0,
+      "ready": 1.0,
+      "stale": 0.5
+    }
+  },
+  "outOfScope": [
+    "No weight, threshold or normalization was changed.",
+    "No threshold reduction is proposed; more decisions are not a goal of this audit.",
+    "No ingestion redesign is proposed."
+  ],
+  "population": {
+    "atOrAboveThreshold": 71,
+    "belowThreshold": 399,
+    "dateFloor": "2026-08-28",
+    "description": "AISP (Gen 1) forecasts carrying stored readiness components",
+    "forecasts": 470,
+    "forecastsCarryingUnavailableReasonField": 64,
+    "maxScore": 82.5,
+    "minScore": 35.0,
+    "readinessDenominator": 100.0,
+    "readinessThreshold": 70.0,
+    "reasonFieldNote": "unavailable_reason was added after this window opened, so reason codes are present on only part of the population. Absence of a code is not absence of a gap.",
+    "shareAtOrAboveThreshold": 15.1
+  },
+  "studyId": "AISP_V18_EVIDENCE_AVAILABILITY_AUDIT_V1",
+  "v18GameEvidence": {
+    "note": "This is what AISP stored for the V18 games. V18's own readiness_detail cites CONFIRMED lineups and PROBABLE starters from MLB_STATS_API and does not cite bullpen or Statcast features. An empty AISP field is therefore not evidence that V18 lacked that input.",
+    "rows": [
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-07",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-07T18:06:34.061393-04:00",
+        "lineup_observations": 95,
+        "mlb_game_pk": "824958",
+        "scheduled_start_utc": "2026-09-07T22:05:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 206
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T15:00:18.407839-04:00",
+        "lineup_observations": 114,
+        "mlb_game_pk": "823414",
+        "scheduled_start_utc": "2026-09-08T18:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 204
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T15:16:20.406741-04:00",
+        "lineup_observations": 120,
+        "mlb_game_pk": "823500",
+        "scheduled_start_utc": "2026-09-08T19:05:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 208
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T16:28:58.308920-04:00",
+        "lineup_observations": 100,
+        "mlb_game_pk": "823738",
+        "scheduled_start_utc": "2026-09-08T19:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 212
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T15:00:18.827720-04:00",
+        "lineup_observations": 118,
+        "mlb_game_pk": "823821",
+        "scheduled_start_utc": "2026-09-08T18:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 204
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T14:42:23.328149-04:00",
+        "lineup_observations": 135,
+        "mlb_game_pk": "824228",
+        "scheduled_start_utc": "2026-09-08T18:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 204
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T15:40:19.029341-04:00",
+        "lineup_observations": 130,
+        "mlb_game_pk": "824551",
+        "scheduled_start_utc": "2026-09-08T19:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 212
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T14:46:18.672385-04:00",
+        "lineup_observations": 130,
+        "mlb_game_pk": "824714",
+        "scheduled_start_utc": "2026-09-08T18:45:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 204
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T14:49:00.125997-04:00",
+        "lineup_observations": 118,
+        "mlb_game_pk": "824792",
+        "scheduled_start_utc": "2026-09-08T18:35:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 204
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-08",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T15:16:20.970718-04:00",
+        "lineup_observations": 119,
+        "mlb_game_pk": "824875",
+        "scheduled_start_utc": "2026-09-08T19:15:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 208
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-09",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T17:46:17.669522-04:00",
+        "lineup_observations": 119,
+        "mlb_game_pk": "823174",
+        "scheduled_start_utc": "2026-09-08T21:45:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 224
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-09",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T17:40:25.652754-04:00",
+        "lineup_observations": 125,
+        "mlb_game_pk": "823250",
+        "scheduled_start_utc": "2026-09-08T21:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 224
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-09",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T18:10:18.251657-04:00",
+        "lineup_observations": 126,
+        "mlb_game_pk": "823901",
+        "scheduled_start_utc": "2026-09-08T22:10:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 228
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-09",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-08T18:02:22.902492-04:00",
+        "lineup_observations": 105,
+        "mlb_game_pk": "824957",
+        "scheduled_start_utc": "2026-09-08T21:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 224
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-10",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-10T15:19:09.646247-04:00",
+        "lineup_observations": 174,
+        "mlb_game_pk": "823499",
+        "scheduled_start_utc": "2026-09-10T19:05:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 252
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-10",
+        "feature_snapshots": 2,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-10T16:15:09.571105-04:00",
+        "lineup_observations": 157,
+        "mlb_game_pk": "824550",
+        "scheduled_start_utc": "2026-09-10T19:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 252
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T14:55:31.036779-04:00",
+        "lineup_observations": 163,
+        "mlb_game_pk": "822684",
+        "scheduled_start_utc": "2026-09-11T18:45:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 240
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:21:11.285394-04:00",
+        "lineup_observations": 107,
+        "mlb_game_pk": "822767",
+        "scheduled_start_utc": "2026-09-11T19:07:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 244
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:11:12.124676-04:00",
+        "lineup_observations": 117,
+        "mlb_game_pk": "822930",
+        "scheduled_start_utc": "2026-09-11T19:10:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 244
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T16:17:13.963551-04:00",
+        "lineup_observations": 144,
+        "mlb_game_pk": "823012",
+        "scheduled_start_utc": "2026-09-11T20:15:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 248
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T18:17:38.047685-04:00",
+        "lineup_observations": 114,
+        "mlb_game_pk": "823173",
+        "scheduled_start_utc": "2026-09-11T22:15:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 254
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:19:08.882979-04:00",
+        "lineup_observations": 148,
+        "mlb_game_pk": "823498",
+        "scheduled_start_utc": "2026-09-11T19:05:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 242
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T16:21:09.218867-04:00",
+        "lineup_observations": 133,
+        "mlb_game_pk": "823659",
+        "scheduled_start_utc": "2026-09-11T20:10:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 248
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:51:09.425869-04:00",
+        "lineup_observations": 133,
+        "mlb_game_pk": "823736",
+        "scheduled_start_utc": "2026-09-11T19:45:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 246
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 5,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:11:11.205987-04:00",
+        "lineup_observations": 98,
+        "mlb_game_pk": "823817",
+        "scheduled_start_utc": "2026-09-11T19:10:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 244
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 5,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T14:44:17.583330-04:00",
+        "lineup_observations": 170,
+        "mlb_game_pk": "824227",
+        "scheduled_start_utc": "2026-09-11T18:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 238
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T11:55:25.979585-04:00",
+        "lineup_observations": 116,
+        "mlb_game_pk": "824631",
+        "scheduled_start_utc": "2026-09-11T14:20:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 214
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 4,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:11:11.663652-04:00",
+        "lineup_observations": 160,
+        "mlb_game_pk": "824711",
+        "scheduled_start_utc": "2026-09-11T19:10:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 244
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 4,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T15:19:11.262803-04:00",
+        "lineup_observations": 139,
+        "mlb_game_pk": "824873",
+        "scheduled_start_utc": "2026-09-11T19:15:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 244
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 3,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T17:47:20.353810-04:00",
+        "lineup_observations": 119,
+        "mlb_game_pk": "824954",
+        "scheduled_start_utc": "2026-09-11T21:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 258
+      },
+      {
+        "bullpen_observations": 0,
+        "event_date": "2026-09-11",
+        "feature_snapshots": 6,
+        "lineup_clubs": 2,
+        "lineup_first_observed_at": "2026-09-11T17:40:19.578138-04:00",
+        "lineup_observations": 118,
+        "mlb_game_pk": "825036",
+        "scheduled_start_utc": "2026-09-11T21:40:00-04:00",
+        "starter_clubs": 2,
+        "starter_observations": 258
+      }
+    ],
+    "summary": {
+      "games": 31,
+      "withAnyBullpenObservation": 0,
+      "withBothClubLineups": 31,
+      "withBothClubStarters": 31,
+      "withFeatureSnapshot": 31
+    }
+  }
+}
