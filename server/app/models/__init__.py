@@ -83,5 +83,8 @@ from app.models.parlay import (  # noqa: E402,F401
     ParlayTicket,
     ParlayTicketLeg,
 )
+from app.models.totals_attachment import (  # noqa: E402,F401
+    TotalsIndexAttachment,
+)
 
 __all__ = [name for name in globals() if not name.startswith("_")]

@@ -80,6 +80,8 @@ function watch(over: Partial<ParlayWatch> = {}): ParlayWatch {
     estimated_price_note: ESTIMATED,
     pregame_cutoff_minutes: 15,
     legs_available: 36,
+    index_verified_forecasts: [],
+    legs_from_index_verified_forecasts: 0,
     candidate_count: 36,
     tickets: [featured],
     truncated: false,

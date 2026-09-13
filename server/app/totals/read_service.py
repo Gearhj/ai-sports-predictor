@@ -53,6 +53,7 @@ from app.models import (
     Team,
 )
 from app.services.forecast_selection import Availability, ForecastSelector
+from app.totals.index_attachment import CONSUMER_FIELD, attachment_map
 from app.totals.pricing import (
     PROBABILITY_UNITS,
     TotalsDistribution,
@@ -79,6 +80,16 @@ NO_MARKET_LINE = "NO_RECORDED_TOTAL_LINE"
 
 LINE_RECORDED = "RECORDED_SPORTSBOOK_LINE"
 LINE_SCENARIO = "USER_SELECTED_SCENARIO"
+
+#: Whether a published totals index has verified this exact forecast's PMF.
+#:
+#: Advisory, never a gate. A forecast published after an index's inventory
+#: freeze is the same engine writing the same field through the same importer;
+#: withholding it because an earlier snapshot predates it would hide a current
+#: forecast behind an expired inventory. The board prices either way and says
+#: which is which.
+VERIFIED_BY_INDEX = "VERIFIED_AGAINST_PUBLISHED_INDEX"
+NOT_IN_INDEX = "NOT_COVERED_BY_A_PUBLISHED_INDEX"
 
 
 @dataclass(frozen=True)
@@ -127,8 +138,14 @@ class MlbTotalsReadService:
         now = now or datetime.now(UTC)
         scenarios = scenario_lines or {}
         games = self._mlb_games(event_date)
+        # One query for the whole board. Per row it would be fifteen extra round
+        # trips for a field that only decorates each one.
+        attachments = attachment_map(self.session)
         rows = [
-            self._game_row(game, now=now, scenario_line=scenarios.get(str(game.id)))
+            self._game_row(
+                game, now=now, scenario_line=scenarios.get(str(game.id)),
+                attachments=attachments,
+            )
             for game in games
         ]
 
@@ -158,6 +175,10 @@ class MlbTotalsReadService:
                 "games": len(rows),
                 "games_with_v18_distribution": sum(
                     1 for row in rows if row["forecast"]["distribution_available"]),
+                "games_index_verified": sum(
+                    1 for row in rows
+                    if row["forecast"]["totals_verification"]["status"]
+                    == VERIFIED_BY_INDEX),
                 "games_with_recorded_line": len(with_recorded_line),
                 "games_priceable": len(priced),
                 "selections_with_usable_price": usable,
@@ -169,6 +190,7 @@ class MlbTotalsReadService:
 
     def _game_row(
         self, game: Game, *, now: datetime, scenario_line: float | None,
+        attachments: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         home, away = self._teams(game.id)
         selection = self.selector.select(game, now=now)
@@ -207,6 +229,8 @@ class MlbTotalsReadService:
                 "simulation_count": distribution.simulation_count,
                 "support": list(distribution.support),
             })
+        forecast_block["totals_verification"] = self._verification(
+            primary, attachments or {})
 
         market = self._market_block(game, now=now, scenario_line=scenario_line)
         selections = self._selections(distribution, market, now=now)
@@ -221,6 +245,47 @@ class MlbTotalsReadService:
             "forecast": forecast_block,
             "market": market,
             "selections": selections,
+        }
+
+    @staticmethod
+    def _verification(primary: Any, attachments: dict[str, Any]) -> dict[str, Any]:
+        """Which published index verified this forecast's PMF, if any."""
+
+        identity = primary.forecast_id if primary else None
+        record = attachments.get(identity) if identity else None
+        if record is None:
+            return {
+                "status": NOT_IN_INDEX,
+                "detail": (
+                    "No published totals index has verified this exact forecast. "
+                    "It is priced from the same stored field a verified forecast "
+                    "uses; it simply postdates, or falls outside, every index "
+                    "AISP has attached."
+                ),
+                "index_sha256": None,
+                "attached_at_utc": None,
+                "source_field": CONSUMER_FIELD,
+            }
+        return {
+            "status": VERIFIED_BY_INDEX,
+            "detail": (
+                f"A published index verified this forecast's stored "
+                f"{CONSUMER_FIELD} bin for bin against the producer's own bytes, "
+                f"over {record.original_simulation_count:,} original paired draws "
+                "with the complete scoring tail and extra innings included."
+            ),
+            "index_sha256": record.index_sha256,
+            "index_schema_version": record.index_schema_version,
+            "attached_at_utc": record.attached_at_utc.isoformat(),
+            "derivative_published_at_utc": (
+                record.derivative_published_at_utc.isoformat()
+                if record.derivative_published_at_utc else None),
+            "original_simulation_count": record.original_simulation_count,
+            "extra_innings_included": record.extra_innings_included,
+            "tail_truncated": record.tail_truncated,
+            "score_limited": record.score_limited,
+            "mlbam_game_pk": record.mlbam_game_pk,
+            "source_field": CONSUMER_FIELD,
         }
 
     def _apply_filter(self, row: dict[str, Any], overs_only: bool) -> dict[str, Any]:

@@ -24,6 +24,17 @@ const FORECAST = {
   simulation_count: 5000,
   support: [1, 34] as [number, number],
   unavailable_reason: null,
+  totals_verification: {
+    status: 'VERIFIED_AGAINST_PUBLISHED_INDEX' as const,
+    detail: 'A published index verified this forecast bin for bin.',
+    index_sha256: '73d958132a401dbe3748b33dc9983262dd2b4b421ada78932fbac3bf6c0672a7',
+    attached_at_utc: '2026-09-13T19:30:24Z',
+    original_simulation_count: 5000,
+    extra_innings_included: true,
+    tail_truncated: false,
+    score_limited: false,
+    source_field: 'distributions.totalRunDistribution',
+  },
 }
 
 function row(over: Partial<TotalsRow> = {}): TotalsRow {
@@ -55,8 +66,9 @@ function board(over: Partial<TotalsBoard> = {}): TotalsBoard {
     filter_note: null,
     rows: [row()],
     coverage: {
-      games: 15, games_with_v18_distribution: 14, games_with_recorded_line: 0,
-      games_priceable: 0, selections_with_usable_price: 0,
+      games: 15, games_with_v18_distribution: 14, games_index_verified: 11,
+      games_with_recorded_line: 0, games_priceable: 0,
+      selections_with_usable_price: 0,
     },
     market_availability: {
       latest_total_quote_at: '2026-09-07T20:44:23-04:00',
@@ -318,5 +330,49 @@ describe('an unusable forecast is explained, not hidden', () => {
       }),
     })
     expect(screen.queryByLabelText('Exploratory total for COL @ DET')).toBeNull()
+  })
+})
+
+describe('index verification is reported, never used as a gate', () => {
+  afterEach(cleanup)
+
+  it('names the index that verified the distribution', () => {
+    mount()
+    const chip = screen.getByTestId('totals-verification')
+    expect(chip).toHaveTextContent('verified against published index')
+    expect(chip).toHaveTextContent('73d958132a40')
+    expect(chip).toHaveTextContent('5,000 original')
+    expect(chip).toHaveTextContent(/complete tail, extras included/)
+  })
+
+  it('still prices a forecast no index covers, and says why not', () => {
+    // A forecast published after the snapshot must not be withheld.
+    mount({
+      board: board({
+        rows: [row({
+          forecast: {
+            ...FORECAST,
+            totals_verification: {
+              status: 'NOT_COVERED_BY_A_PUBLISHED_INDEX' as const,
+              detail: 'No published totals index has verified this exact forecast.',
+              index_sha256: null,
+              attached_at_utc: null,
+              source_field: 'distributions.totalRunDistribution',
+            },
+          },
+        })],
+      }),
+    })
+    const chip = screen.getByTestId('totals-verification')
+    expect(chip).toHaveTextContent('Not covered by an attached index')
+    expect(chip).toHaveTextContent('priced from the same stored distribution')
+    // The model figures are still on screen: not covered is not withheld.
+    expect(screen.getByTestId('totals-expected')).toHaveTextContent('9.07')
+    expect(screen.getByLabelText('Exploratory total for COL @ DET')).toBeInTheDocument()
+  })
+
+  it('counts index-verified games in the coverage line', () => {
+    mount()
+    expect(screen.getByTestId('totals-coverage')).toHaveTextContent('11 index-verified')
   })
 })

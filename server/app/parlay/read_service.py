@@ -66,6 +66,7 @@ from app.totals.pricing import (
     TotalsPricingError,
     price_line,
 )
+from app.totals.index_attachment import attachment_map
 from app.totals.read_service import FRESH_MINUTES
 
 SCHEMA_VERSION = "AISP_MLB_PARLAY_WATCH_V1"
@@ -112,6 +113,7 @@ class MlbParlayReadService:
             raise ValueError(f"market filter must be one of {sorted(MARKET_FILTERS)}")
 
         legs, excluded = self._eligible_legs(event_date, now=now)
+        verified = attachment_map(self.session)
         candidates = self._combinations(legs, leg_count=leg_count, market_filter=chosen)
         featured = self._featured(candidates)
 
@@ -126,6 +128,14 @@ class MlbParlayReadService:
             "estimated_price_note": ESTIMATED_PRICE_NOTE,
             "pregame_cutoff_minutes": FINAL_PREGAME_CUTOFF_MINUTES,
             "legs_available": len(legs),
+            # How much of the enumerated evidence a published totals index has
+            # verified. Reported rather than enforced: a leg from a forecast no
+            # index covers is still priced from the same stored field, and
+            # saying so is more useful than withholding it.
+            "index_verified_forecasts": sorted(
+                {leg.forecast_id for leg in legs if leg.forecast_id in verified}),
+            "legs_from_index_verified_forecasts": sum(
+                1 for leg in legs if leg.forecast_id in verified),
             "candidate_count": len(candidates),
             "tickets": candidates[:MAX_TICKETS],
             "truncated": len(candidates) > MAX_TICKETS,

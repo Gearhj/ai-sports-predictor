@@ -57,6 +57,28 @@ export interface TotalsMarket {
   unavailable_reason: string | null
 }
 
+/**
+ * Whether a published totals index verified this exact forecast's stored PMF.
+ *
+ * Advisory, never a gate. A forecast published after an index's inventory
+ * freeze is priced from the same stored field; it simply postdates the snapshot,
+ * and the board says so rather than withholding it.
+ */
+export interface TotalsVerification {
+  status: 'VERIFIED_AGAINST_PUBLISHED_INDEX' | 'NOT_COVERED_BY_A_PUBLISHED_INDEX'
+  detail: string
+  index_sha256: string | null
+  index_schema_version?: string
+  attached_at_utc: string | null
+  derivative_published_at_utc?: string | null
+  original_simulation_count?: number
+  extra_innings_included?: boolean
+  tail_truncated?: boolean
+  score_limited?: boolean
+  mlbam_game_pk?: string
+  source_field: string
+}
+
 export interface TotalsForecast {
   engine_id: string | null
   engine_version: string | null
@@ -70,6 +92,7 @@ export interface TotalsForecast {
   simulation_count: number | null
   support: [number, number] | null
   unavailable_reason: string | null
+  totals_verification: TotalsVerification
 }
 
 export interface TotalsRow {
@@ -97,6 +120,7 @@ export interface TotalsBoard {
   coverage: {
     games: number
     games_with_v18_distribution: number
+    games_index_verified: number
     games_with_recorded_line: number
     games_priceable: number
     selections_with_usable_price: number
@@ -179,6 +203,8 @@ export interface ParlayWatch {
   estimated_price_note: string
   pregame_cutoff_minutes: number
   legs_available: number
+  index_verified_forecasts: string[]
+  legs_from_index_verified_forecasts: number
   candidate_count: number
   tickets: ParlayTicketCandidate[]
   truncated: boolean

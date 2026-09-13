@@ -20,7 +20,7 @@
  * words rather than leaving the reader to infer it from an empty column.
  */
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Info, MinusCircle } from 'lucide-react'
+import { AlertTriangle, Info, MinusCircle, ShieldCheck } from 'lucide-react'
 import type { TotalsBoard, TotalsRow, TotalsSelection } from '../../types/totals'
 
 function pct(value: number | null | undefined, digits = 1): string {
@@ -162,6 +162,34 @@ function GameCard({
         </dl>
       </header>
 
+      <p
+        className={`totals__verified totals__verified--${
+          forecast.totals_verification.status === 'VERIFIED_AGAINST_PUBLISHED_INDEX'
+            ? 'yes' : 'no'}`}
+        data-testid="totals-verification"
+        title={forecast.totals_verification.detail}
+      >
+        {forecast.totals_verification.status === 'VERIFIED_AGAINST_PUBLISHED_INDEX' ? (
+          <>
+            <ShieldCheck size={12} aria-hidden="true" />
+            Distribution verified against published index{' '}
+            <code>{forecast.totals_verification.index_sha256?.slice(0, 12)}</code>
+            {forecast.totals_verification.original_simulation_count != null && (
+              <> · {forecast.totals_verification.original_simulation_count.toLocaleString()} original
+                paired draws, complete tail, extras included</>
+            )}
+          </>
+        ) : (
+          <>
+            <Info size={12} aria-hidden="true" />
+            {/* Not a warning. The forecast is current and priced from the same
+                stored field; it simply postdates every attached index. */}
+            Not covered by an attached index — priced from the same stored
+            distribution, published after the latest index snapshot
+          </>
+        )}
+      </p>
+
       {forecast.unavailable_reason && (
         <p className="totals__unavailable" role="note">
           <AlertTriangle size={13} aria-hidden="true" />{' '}
@@ -260,7 +288,8 @@ export function MlbTotalsView({
         </label>
         <p className="totals__coverage" data-testid="totals-coverage">
           {coverage.games} games · {coverage.games_with_v18_distribution} with a V18
-          distribution · {coverage.games_with_recorded_line} with a recorded line ·{' '}
+          distribution · {coverage.games_index_verified} index-verified ·{' '}
+          {coverage.games_with_recorded_line} with a recorded line ·{' '}
           {coverage.selections_with_usable_price} selections with a usable price
         </p>
       </div>

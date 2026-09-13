@@ -222,6 +222,10 @@ export function ParlayWatchView({
         {watch.legs_available} eligible legs across {watch.leg_inventory.games} games ·{' '}
         {watch.candidate_count} priced combinations
         {watch.truncated && ` (showing the best ${watch.tickets.length})`}
+        {' · '}
+        {watch.legs_from_index_verified_forecasts} leg
+        {watch.legs_from_index_verified_forecasts === 1 ? '' : 's'} from an
+        index-verified forecast
       </p>
 
       <p className="parlay__assumption" role="note" data-testid="parlay-independence">
