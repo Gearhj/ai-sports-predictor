@@ -437,6 +437,18 @@ class HistoricalBackfillRunner:
                     "end_date": chunk_end.isoformat(),
                     "game_type": "R",
                     "policy_version": "gate3a-a1-core-v1",
+                    # The OBSERVATION this chunk canonicalises, not just the
+                    # request for it. Without this the chunk key had the same
+                    # flaw the archive path had: a day whose schedule response
+                    # changed -- more games final, or an official correction --
+                    # was treated as one completed unit, so the later
+                    # observation could never be canonicalised and the games
+                    # that finished after the first pass got no governed final.
+                    #
+                    # Re-running over UNCHANGED bytes still resolves to the same
+                    # fingerprint and is still skipped as completed, so replay
+                    # stays idempotent and spends no provider budget.
+                    "schedule_payload_checksum": schedule_archive.payload_checksum,
                 },
             )
             previous = self.checkpoints.completed(

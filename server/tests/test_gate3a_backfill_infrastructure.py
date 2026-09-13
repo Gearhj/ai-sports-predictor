@@ -375,13 +375,14 @@ def test_historical_archive_is_atomic_compressed_idempotent_and_partitioned(
     )
 
     path = Path(first.raw_file_reference)
-    assert path.parts[-5:] == (
-        "historical",
-        "mlb_stats_api",
-        "2025",
-        "04",
-        "2025-04-01_aaaaaaaaaaaaaaaaaaaaaaaa.json.gz",
-    )
+    # Addressed by request AND content: the request fingerprint locates the
+    # semantic request, the payload checksum distinguishes one observation of
+    # it from another. Repeating the same bytes still resolves to this object.
+    assert path.parts[-5:-1] == ("historical", "mlb_stats_api", "2025", "04")
+    assert path.name.startswith("2025-04-01_aaaaaaaaaaaaaaaaaaaaaaaa_")
+    assert path.name.endswith(".json.gz")
+    assert first.revision == 1
+    assert first.supersedes_payload_checksum is None
     assert first.compressed is first.historical is True
     assert first.idempotent_reuse is False
     assert second.idempotent_reuse is True
@@ -420,12 +421,43 @@ def test_historical_archive_is_atomic_compressed_idempotent_and_partitioned(
             temporal_semantics="HISTORICAL_RECONSTRUCTION",
         )
 
+    # A source whose answer changed is not a conflict. It is a second
+    # observation of the same request, and it gets its own immutable object
+    # beside the first with the supersession recorded.
+    changed = archive.write_historical(
+        "MLB_STATS_API",
+        {"dates": [{"games": [{"gamePk": 1}, {"gamePk": 2}]}]},
+        partition_date=date(2025, 4, 1),
+        request_fingerprint="a" * 64,
+        source_event_timestamp=datetime(2025, 4, 1, tzinfo=UTC),
+        checkpoint_id="checkpoint-1",
+        run_id="run-1",
+    )
+    assert changed.revision == 2
+    assert changed.supersedes_payload_checksum == first.payload_checksum
+    assert changed.raw_file_reference != first.raw_file_reference
+    # The original bytes are untouched and still readable.
+    assert path.exists()
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        assert json.load(stream)["metadata"]["checksum"] == first.payload_checksum
+
+    # An object whose stored bytes contradict the request they claim to answer
+    # is still a hard conflict.
+    corrupted = Path(changed.raw_file_reference)
+    with gzip.open(corrupted, "rt", encoding="utf-8") as stream:
+        document = json.load(stream)
+    document["metadata"]["source"] = "SOMETHING_ELSE"
+    with gzip.open(corrupted, "wt", encoding="utf-8") as stream:
+        json.dump(document, stream)
     with pytest.raises(RawArchiveConflictError):
         archive.write_historical(
             "MLB_STATS_API",
-            {"dates": []},
+            {"dates": [{"games": [{"gamePk": 1}, {"gamePk": 2}]}]},
             partition_date=date(2025, 4, 1),
             request_fingerprint="a" * 64,
+            source_event_timestamp=datetime(2025, 4, 1, tzinfo=UTC),
+            checkpoint_id="checkpoint-1",
+            run_id="run-1",
         )
 
 
