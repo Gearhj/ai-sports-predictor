@@ -125,7 +125,20 @@ function ExperimentComparisonPanel() {
     ['CLV sample (settled only)', clvSample(v1), clvSample(v2)],
   ]
   return (
-    <Panel title={`V1 vs ${v2Label}`} eyebrow="STRICT CONTROL VS PRACTICAL POLICY CHALLENGER · SAME MODEL · SEPARATE LEDGERS — NEVER POOLED" className="section-panel">
+    <Panel
+      title={`V1 vs ${v2Label}`}
+      eyebrow="STRICT CONTROL VS PRACTICAL POLICY CHALLENGER · SEPARATE LEDGERS — NEVER POOLED"
+      className="section-panel"
+    >
+      {/* Scope, stated. Both columns below are Gen 1 predecessor eras, and the
+          "same model" claim is about THEM. Without this line the table sits
+          under the V18 ledger naming asp_mlb_ensemble, and reads as though it
+          described the positions above it. */}
+      <p className="bx-dim" role="note">
+        Scope: the two <b>Gen 1 predecessor</b> policy eras only. This comparison
+        does not include the current model era shown above, and the two are never
+        pooled. Each era's own model is named in its ledger and on every position.
+      </p>
       <TableScroll ariaLabel="Experiment comparison">
         <table className="data-table">
           <thead><tr><th scope="col">Metric</th><th scope="col">{v1.name}</th><th scope="col">{v2.name}</th></tr></thead>
@@ -158,7 +171,14 @@ function LedgerRow({ position, demo, expanded, onToggle }: { position: PositionR
         <td className="ledger-table__seq">{position.settlement_sequence != null ? `#${position.settlement_sequence}` : '—'}</td>
         <td>{position.date}</td>
         <td>{position.matchup ?? '—'}</td>
-        <td><Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}><strong>{position.selection}</strong></Link></td>
+        <td>
+          <Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>
+            <strong>{position.selection}</strong>
+          </Link>
+          {position.model_engine_id && (
+            <small className="bx-dim" style={{ display: 'block' }}>{position.model_engine_id}</small>
+          )}
+        </td>
         <td>{position.market}</td>
         <td>{formatPrice(position.price)}</td>
         <td>{formatCurrency(position.stake)}</td>
@@ -349,14 +369,23 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
   const challengerVersion = policyVersionLabel(experimentKey === 'v2' && !stale ? data?.policy : null) ?? 'V2.1'
 
   const selector = !demo && <ExperimentSelector experimentKey={experimentKey} challengerVersion={challengerVersion} onSelect={setExperiment} />
+  // The eyebrow names the ERA on screen. It used to name the decision policy
+  // only, so the V18 era's ledger sat under "PRACTICAL PREGAME POLICY
+  // CHALLENGER — V2.1" -- the predecessor's title -- with the model nowhere on
+  // the page, and the only model name in view belonged to the Gen 1 comparison
+  // table below it.
+  const eraEngine = !demo && !stale ? data?.controlling_engine ?? null : null
   const headerEyebrow = demo
     ? 'ILLUSTRATIVE EXPERIMENT EXAMPLE'
     : experimentKey === 'v2'
-      ? `PRACTICAL PREGAME POLICY CHALLENGER — ${challengerVersion}`
+      ? `${eraEngine ? `${eraEngine} · ` : ''}PRACTICAL PREGAME POLICY CHALLENGER — ${challengerVersion}`
       : 'STRICT CONTROL — V1 · THE OFFICIAL ASP EXPERIMENT'
   const contractSentence = demo
     ? 'Example positions demonstrate the ledger; these are not live or historical results.'
-    : 'A $1,000 virtual bankroll follows one frozen forecasting model under one frozen decision policy: every position is recorded before first pitch, settled exactly once, and never edited or removed.'
+    // "one frozen forecasting model" stopped being true when the season
+    // changed model mid-season. The bankroll belongs to the SEASON; each era
+    // within it runs one frozen model, and each position says which.
+    : 'A $1,000 virtual season bankroll follows a frozen decision policy: every position is recorded before first pitch against the model era controlling it at that moment, settled exactly once, and never edited or removed.'
 
   // The season-account surface is the page's primary subject now: it is what
   // holds the money. The per-era experiment view below it stays, because a
@@ -572,7 +601,10 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
         <div><dt>Decision policy</dt><dd>{data.policy || 'Unavailable'}<small>{data.policy_relationship ?? 'The policy decides; the model forecasts.'}</small></dd></div>
         <div><dt>Staking policy</dt><dd>{data.staking_policy ?? policy.bankroll.label ?? 'Unavailable'}<small>{data.policy_kelly_fraction != null ? `${data.policy_kelly_fraction * 100}% Kelly · max ${data.policy_max_stake_percentage ?? '—'}% per position` : 'Sizing configuration unavailable'}</small></dd></div>
         <div><dt>Start date</dt><dd>{data.experiment_start_date ?? 'Unavailable'}<small>Registered {data.experiment_start ?? 'unavailable'}</small></dd></div>
-        <div><dt>Opening bankroll</dt><dd>{formatCurrency(data.starting_bankroll, 0)}<small>{data.no_bet_days ?? 0} NO-BET day{(data.no_bet_days ?? 0) === 1 ? '' : 's'} · every position stays in the public ledger</small></dd></div>
+        {/* To the cent. Rounded to the dollar this read "$994" for an era that
+            opened at $993.52, and a reader reconciling the ledger by hand
+            cannot tell a rounding from a 48-cent discrepancy. */}
+        <div><dt>Opening bankroll</dt><dd>{formatCurrency(data.starting_bankroll, 2)}<small>{data.no_bet_days ?? 0} NO-BET day{(data.no_bet_days ?? 0) === 1 ? '' : 's'} · every position stays in the public ledger</small></dd></div>
         <details className="experiment-contract-strip__drawer">
           <summary>Checksums &amp; audit identity</summary>
           <dl>

@@ -658,6 +658,12 @@ class PositionSchema(BaseModel):
     raw_edge: float | None = None
     adjusted_edge: float | None = None
     decision_id: str | None = None
+    # Which engine produced this position, resolved from the forecast its
+    # decision bound. Both binding columns are read, so a season spanning a
+    # model change reports the right engine per row rather than one page label.
+    model_engine_id: str | None = None
+    model_engine_version: str | None = None
+    forecast_identity: str | None = None
     decision_phase: str | None = None
     recommended_at: str | None = None
 

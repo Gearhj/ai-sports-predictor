@@ -694,6 +694,14 @@ export interface Position {
   date: string
   game_id: string
   selection: string
+  /**
+   * The engine behind THIS position, from the forecast its decision bound.
+   * A page-level model name cannot answer this once a season spans two
+   * engines, which is exactly what the 2026 MLB season does.
+   */
+  model_engine_id?: string | null
+  model_engine_version?: string | null
+  forecast_identity?: string | null
   market: string
   price: number
   stake: number

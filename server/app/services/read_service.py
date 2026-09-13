@@ -2594,12 +2594,25 @@ class ReadService:
     _V1_POLICY = "AISP_OPPORTUNITY_POLICY_V1"
 
     def _experiment_identity(self, experiment: Any) -> dict[str, Any]:
-        """Honest naming: the V2.1 challenger is the SAME model under a
-        different decision policy. Model identity comes from the forecasts
-        the experiment's decisions referenced — never from a label."""
-        from app.models import ModelVersion, ShadowExperimentDecision
+        """Which model actually produced this experiment's decisions.
+
+        Read from the forecasts the decisions REFERENCED, never from a label --
+        and from both places a decision can reference one. A Gen 1 decision
+        binds ``forecast_id`` into ``forecasts``; a V18-era decision binds
+        ``shadow_forecast_id`` into ``shadow_forecasts`` and leaves the Gen 1
+        column null.
+
+        Only the first join existed. Every V18-era decision therefore resolved
+        to no model at all, the ledger reported "no decision references a
+        forecast yet" while holding seven V18 positions, and the only model
+        name on the page came from the Gen 1 comparison table beside it -- so the
+        page read as though asp_mlb_ensemble had placed V18's positions.
+        """
+        from app.models import ModelVersion, ShadowExperimentDecision, ShadowForecast
 
         is_v1 = experiment.decision_policy == self._V1_POLICY
+
+        # Gen 1: decisions -> forecasts -> model_versions
         versions = list(self.session.execute(
             select(ModelVersion.name, ModelVersion.version, ModelVersion.status, func.count())
             .select_from(ShadowExperimentDecision)
@@ -2609,23 +2622,60 @@ class ReadService:
             .group_by(ModelVersion.name, ModelVersion.version, ModelVersion.status)
             .order_by(func.count().desc())
         ).all())
-        if versions:
+        # Research-shadow engines: decisions -> shadow_forecasts
+        engines = list(self.session.execute(
+            select(ShadowForecast.engine_id, ShadowForecast.engine_version, func.count())
+            .select_from(ShadowExperimentDecision)
+            .join(ShadowForecast, ShadowForecast.id == ShadowExperimentDecision.shadow_forecast_id)
+            .where(ShadowExperimentDecision.experiment_id == experiment.id)
+            .group_by(ShadowForecast.engine_id, ShadowForecast.engine_version)
+            .order_by(func.count().desc())
+        ).all())
+
+        gen1_decisions = sum(row[3] for row in versions)
+        shadow_decisions = sum(row[2] for row in engines)
+        distinct = len(versions) + len(engines)
+
+        if shadow_decisions >= gen1_decisions and engines:
+            engine_id, engine_version, _ = engines[0]
+            name, version, status_value = engine_id, engine_version, "RESEARCH_SHADOW"
+            source = "decisions→shadow_forecasts"
+        elif versions:
             name, version, status, _ = versions[0]
-            source = ("decisions→forecasts→model_versions"
-                      + ("" if len(versions) == 1 else f" ({len(versions)} model versions referenced; most frequent shown)"))
             status_value = status.value if hasattr(status, "value") else str(status)
+            source = "decisions→forecasts→model_versions"
         else:
             name = version = status_value = None
             source = "no decision references a forecast yet"
+        if distinct > 1:
+            source += f" ({distinct} model identities referenced; most frequent shown)"
+
         policy_version = experiment.decision_policy
         label = ("Strict control — V1" if is_v1
                  else f"Practical pregame policy challenger — V{policy_version.rsplit('_V', 1)[-1].replace('_', '.')}")
+        # Derived from the engines actually observed, not asserted. The old
+        # constant claimed "SAME MODEL · DIFFERENT DECISION POLICY" for every
+        # non-V1 experiment, which is exactly backwards for the V18 era: that
+        # era runs a DIFFERENT model under the SAME decision policy.
+        if is_v1:
+            relationship = "Reference control policy"
+        elif engines and not versions:
+            relationship = (
+                f"DIFFERENT FORECASTING MODEL ({engines[0][0]}) · SAME DECISION POLICY "
+                f"as the predecessor era"
+            )
+        elif engines and versions:
+            relationship = (
+                "MIXED MODEL IDENTITIES · this experiment's decisions reference more "
+                "than one forecasting model; see each position's own disclosure"
+            )
+        else:
+            relationship = "SAME MODEL · DIFFERENT DECISION POLICY — not a new forecasting model"
         return {
             "experiment_key": "v1" if is_v1 else "v2",
             "experiment_role": "STRICT_CONTROL" if is_v1 else "POLICY_CHALLENGER",
             "policy_label": label,
-            "policy_relationship": ("Reference control policy" if is_v1
-                                    else "SAME MODEL · DIFFERENT DECISION POLICY — not a new forecasting model"),
+            "policy_relationship": relationship,
             "model_name": name,
             "model_version": version,
             "model_status": status_value,

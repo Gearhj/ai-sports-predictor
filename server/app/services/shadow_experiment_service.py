@@ -46,6 +46,7 @@ from app.models import (
     GameStatus,
     Market,
     MarketOutcome,
+    ModelVersion,
     OddsSnapshot,
     OfficialAspPosition,
     PositionResult,
@@ -1060,6 +1061,38 @@ class ShadowExperimentService:
         matchups = {
             game_id: f"{parts.get(False, '?')} @ {parts.get(True, '?')}" for game_id, parts in matchup_parts.items()
         }
+        # The engine behind each decision, resolved from the forecast the
+        # decision actually bound. Both binding columns are read: Gen 1
+        # decisions carry forecast_id, research-shadow eras carry
+        # shadow_forecast_id, and a season that spans a model change has both.
+        decision_ids = [decision.id for _, decision in position_rows]
+        engine_by_decision: dict[Any, tuple[str | None, str | None]] = {}
+        forecast_identity_by_decision: dict[Any, str | None] = {}
+        if decision_ids:
+            from app.models import ShadowForecast
+
+            for decision_id, engine_id, engine_version, forecast_identity in self.session.execute(
+                select(
+                    ShadowExperimentDecision.id, ShadowForecast.engine_id,
+                    ShadowForecast.engine_version, ShadowForecast.forecast_id,
+                )
+                .join(ShadowForecast,
+                      ShadowForecast.id == ShadowExperimentDecision.shadow_forecast_id)
+                .where(ShadowExperimentDecision.id.in_(decision_ids))
+            ):
+                engine_by_decision[decision_id] = (engine_id, engine_version)
+                forecast_identity_by_decision[decision_id] = forecast_identity
+            for decision_id, name, version, forecast_id in self.session.execute(
+                select(
+                    ShadowExperimentDecision.id, ModelVersion.name, ModelVersion.version,
+                    Forecast.id,
+                )
+                .join(Forecast, Forecast.id == ShadowExperimentDecision.forecast_id)
+                .join(ModelVersion, ModelVersion.id == Forecast.model_version_id)
+                .where(ShadowExperimentDecision.id.in_(decision_ids))
+            ):
+                engine_by_decision.setdefault(decision_id, (name, version))
+                forecast_identity_by_decision.setdefault(decision_id, str(forecast_id))
         starting = float(experiment.starting_bankroll)
         balance = starting
         peak = starting
@@ -1193,6 +1226,13 @@ class ShadowExperimentService:
                 "raw_edge": decision.edge,
                 "adjusted_edge": (decision.evidence or {}).get("adjusted_edge") if isinstance(decision.evidence, dict) else None,
                 "decision_id": str(decision.id),
+                # Which model produced THIS position, from the forecast the
+                # decision bound at the time. A page-level model name cannot
+                # answer this once a season spans two engines, and a reader
+                # comparing one row against another needs it per row.
+                "model_engine_id": engine_by_decision.get(decision.id, (None, None))[0],
+                "model_engine_version": engine_by_decision.get(decision.id, (None, None))[1],
+                "forecast_identity": forecast_identity_by_decision.get(decision.id),
                 "decision_phase": decision.phase.value if hasattr(decision.phase, "value") else str(decision.phase),
                 "recommended_at": _aware(decision.recommended_at).astimezone(ZoneInfo(self.settings.display_timezone)).isoformat(),
             })

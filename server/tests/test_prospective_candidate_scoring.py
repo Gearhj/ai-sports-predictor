@@ -396,3 +396,39 @@ def test_a_missing_distribution_is_absent_from_the_difference_not_zero(world):
     assert score["crps_total"] is None
     keys = {metric["key"] for metric in payload["score_difference"]["metrics"]}
     assert "crps_total" not in keys
+
+
+def test_a_signed_error_is_compared_by_magnitude_not_by_sign(world):
+    """margin_error is stored SIGNED, so ranking it directly inverts the answer.
+
+    Both arms missed low on the same game. Ranking the raw signed values makes
+    the WORSE forecast -- the one further from zero -- look better, because it
+    is the more negative number. The real cohort showed exactly this: a
+    candidate that missed by -5.54 was reported as beating a baseline that
+    missed by -5.49.
+    """
+
+    session = world["session"]
+    _three_arms(world)
+    final(world)
+    ForecastEvaluationService(session).evaluate_league(
+        league_code="MLB", require_shadow_forecast=True)
+
+    rows = {row.forecast_identity: row for row in session.scalars(
+        select(ResearchForecastEvaluation))}
+    candidate, baseline = rows["cand-transition"], rows["v18-1"]
+    assert candidate.margin_error is not None and baseline.margin_error is not None
+
+    payload = candidate_comparison(
+        session, world["game"].id, configuration="mlb-v18-three-arm-transition-v1")
+    margin = next(m for m in payload["score_difference"]["metrics"]
+                  if m["key"] == "margin_error")
+
+    # Compared as magnitudes, and labelled as magnitudes.
+    assert margin["label"].lower().startswith("absolute")
+    assert margin["candidate"] == pytest.approx(abs(candidate.margin_error))
+    assert margin["baseline"] == pytest.approx(abs(baseline.margin_error))
+    assert margin["candidate"] >= 0 and margin["baseline"] >= 0
+    expected = ("CANDIDATE" if margin["delta"] < 0
+                else "BASELINE" if margin["delta"] > 0 else "NEITHER")
+    assert margin["favours"] == expected

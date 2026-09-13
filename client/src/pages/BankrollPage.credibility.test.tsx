@@ -172,12 +172,14 @@ describe('experiment selection', () => {
   it('binds the selection to the URL so refresh and history preserve it', async () => {
     stub()
     renderAt('/experiment')
-    await screen.findByText('PRACTICAL PREGAME POLICY CHALLENGER — V2.1')
+    // Matched loosely: the eyebrow now leads with the era's controlling engine,
+    // and this test is about the URL binding rather than the exact heading.
+    await screen.findByText(/PRACTICAL PREGAME POLICY CHALLENGER — V2\.1/)
     await userEvent.click(screen.getByRole('tab', { name: /V1 — Strict Control/ }))
-    expect(await screen.findByText('STRICT CONTROL — V1 · THE OFFICIAL ASP EXPERIMENT')).toBeInTheDocument()
+    expect(await screen.findByText(/STRICT CONTROL — V1 · THE OFFICIAL ASP EXPERIMENT/)).toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/experiment?experiment=v1')
     await userEvent.click(screen.getByRole('tab', { name: /V2\.1 — Practical Pregame Policy Challenger/ }))
-    expect(await screen.findByText('PRACTICAL PREGAME POLICY CHALLENGER — V2.1')).toBeInTheDocument()
+    expect(await screen.findByText(/PRACTICAL PREGAME POLICY CHALLENGER — V2\.1/)).toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent('/experiment')
     expect(screen.getByTestId('location').textContent).not.toContain('experiment=')
   })
@@ -228,7 +230,10 @@ describe('primary evidence', () => {
     expect(within(badges).getByText('SAME MODEL · DIFFERENT DECISION POLICY')).toBeInTheDocument()
     expect(within(badges).getByText('EARLY EVIDENCE')).toBeInTheDocument()
     expect(within(badges).getByText('No real wagers')).toBeInTheDocument()
-    expect(screen.getByText(/every position is recorded before first pitch, settled exactly once, and never edited or removed/)).toBeInTheDocument()
+    // The contract sentence no longer claims the bankroll follows "one frozen
+    // forecasting model": this season spans two engines, and the era each
+    // position was recorded against is what is frozen.
+    expect(screen.getByText(/recorded before first pitch against the model era controlling it at that moment, settled exactly once, and never edited or removed/)).toBeInTheDocument()
     expect(container.textContent).not.toMatch(/guaranteed|risk-free|win big|beat the books every|proven edge/i)
   })
 
@@ -294,7 +299,9 @@ describe('primary evidence', () => {
     expect(within(strip).getByText('Role · policy challenger')).toBeInTheDocument()
     expect(within(strip).getByText('AISP_QUARTER_KELLY_EVIDENCE_V2')).toBeInTheDocument()
     expect(within(strip).getByText('2026-09-01')).toBeInTheDocument()
-    expect(within(strip).getByText('$1,000')).toBeInTheDocument()
+    // To the cent: rounded to the dollar an era opening at $993.52 read "$994",
+    // which a reader reconciling by hand cannot tell from a 48-cent error.
+    expect(within(strip).getByText('$1,000.00')).toBeInTheDocument()
     const drawer = within(strip).getByText('Checksums & audit identity').closest('details') as HTMLDetailsElement
     expect(drawer.open).toBe(false)
     expect(within(drawer).getByText('7e439d4bed6ec67e261dfc272e3b1ced93f01f0d59a8813b867dc1b39620a8d2')).toBeInTheDocument()
@@ -576,5 +583,14 @@ describe('safety', () => {
     expect(ledger.querySelector('caption')).not.toBeNull()
     expect(screen.getByRole('status', { name: 'Experiment result for the selected date' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Details' })[0]).toHaveAttribute('aria-controls', 'ledger-detail-p1')
+  })
+
+  it('names the era’s controlling engine in the heading', async () => {
+    // The heading used to name the decision policy only, so the V18 era's
+    // ledger sat under the predecessor's title with no model anywhere near it.
+    stub()
+    renderAt('/experiment')
+    expect(await screen.findByText(/AISP_BASELINE · PRACTICAL PREGAME POLICY CHALLENGER/))
+      .toBeInTheDocument()
   })
 })

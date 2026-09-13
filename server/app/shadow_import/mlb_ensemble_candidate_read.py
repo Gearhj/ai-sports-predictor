@@ -186,21 +186,36 @@ def _side(session: Session, row: ShadowForecast, label: str, track: str) -> dict
     }
 
 
-#: Scores where a SMALLER number is the better one. Every rule here is a loss,
-#: so "candidate minus baseline, negative favours the candidate" holds for all
-#: of them -- but stating the direction per metric is what stops a reader
-#: seeing "-0.03" and having to work out which way that points.
+#: Scores where a SMALLER number is the better one, so "candidate minus
+#: baseline, negative favours the candidate" holds for every row -- and the
+#: direction is still stated per metric rather than left to a sign.
+#:
+#: The third element says whether the stored value is already a loss or has to
+#: be made into one. `margin_error` and `total_error` are stored SIGNED
+#: (predicted minus observed, see forecast_evaluation.py), so ranking them
+#: directly says a forecast that missed by -5.54 beat one that missed by -5.49.
+#: It is the MAGNITUDE that is the loss, and taking it is what makes the
+#: comparison mean what the column header says.
 _LOSS_METRICS = (
-    ("log_loss", "Log loss"),
-    ("brier_score", "Brier score"),
-    ("crps_home", "CRPS, home runs"),
-    ("crps_away", "CRPS, away runs"),
-    ("crps_margin", "CRPS, run differential"),
-    ("crps_total", "CRPS, total runs"),
-    ("energy_score", "Energy score"),
-    ("margin_error", "Absolute margin error"),
-    ("total_error", "Absolute total error"),
+    ("log_loss", "Log loss", False),
+    ("brier_score", "Brier score", False),
+    ("crps_home", "CRPS, home runs", False),
+    ("crps_away", "CRPS, away runs", False),
+    ("crps_margin", "CRPS, run differential", False),
+    ("crps_total", "CRPS, total runs", False),
+    ("energy_score", "Energy score", False),
+    ("margin_error", "Absolute margin error", True),
+    ("total_error", "Absolute total error", True),
 )
+
+
+def _loss_value(score: dict[str, Any] | None, key: str, absolute: bool) -> float | None:
+    """The stored value as a loss, or None when this side did not compute it."""
+
+    value = (score or {}).get(key)
+    if not isinstance(value, (int, float)):
+        return None
+    return abs(float(value)) if absolute else float(value)
 
 
 def _score_difference(
@@ -216,12 +231,12 @@ def _score_difference(
     if not candidate or not baseline:
         return None
     metrics: list[dict[str, Any]] = []
-    for key, label in _LOSS_METRICS:
-        theirs = baseline.get(key)
-        ours = candidate.get(key)
-        if not isinstance(ours, (int, float)) or not isinstance(theirs, (int, float)):
+    for key, label, absolute in _LOSS_METRICS:
+        theirs = _loss_value(baseline, key, absolute)
+        ours = _loss_value(candidate, key, absolute)
+        if ours is None or theirs is None:
             continue
-        delta = round(float(ours) - float(theirs), 6)
+        delta = round(ours - theirs, 6)
         metrics.append({
             "key": key,
             "label": label,
@@ -548,13 +563,14 @@ def candidate_cohort(session: Session, *, configuration: str) -> dict[str, Any]:
         })
 
     metrics: list[dict[str, Any]] = []
-    for key, label in _LOSS_METRICS:
+    for key, label, absolute in _LOSS_METRICS:
         pairs = [
-            (entry["candidate"][key], entry["baseline"][key])
+            (_loss_value(entry["candidate"], key, absolute),
+             _loss_value(entry["baseline"], key, absolute))
             for entry in included
-            if isinstance(entry["candidate"].get(key), (int, float))
-            and isinstance(entry["baseline"].get(key), (int, float))
         ]
+        pairs = [(ours, theirs) for ours, theirs in pairs
+                 if ours is not None and theirs is not None]
         if not pairs:
             continue
         candidate_mean = sum(value for value, _ in pairs) / len(pairs)
