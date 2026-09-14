@@ -19,8 +19,10 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models import ProviderRequestLedger
+from app.services.service_day import service_date
 from app.services.provider_allocation import (
     FALLBACK_MONTHLY_CAP,
+    reserve_for,
     Lane,
     LANES,
     OBJECT_RESERVE,
@@ -131,13 +133,19 @@ def test_the_balance_replenishes_at_the_start_of_the_next_utc_month():
 
 
 def test_the_daily_rate_uses_what_is_left_and_the_days_left(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     plan = build_plan(session, now=now)
     assert plan.remaining == 603
-    assert plan.spendable == 203          # the 400 reserve is never in play
+    # The reserve in force on this SERVICE DAY, not a hardcoded 400. It is a
+    # schedule now, and a test that pins the constant would break every time
+    # the owner moves it while proving nothing about the invariant.
+    assert plan.reserve == reserve_for(service_date(now))
+    assert plan.spendable == 603 - plan.reserve
     assert plan.days_remaining == 17      # through 2026-10-01
-    assert plan.daily_total == 11         # 203 // 17
+    # Derived, not pinned: the daily rate is what is left divided by the days
+    # left, and "what is left" moves with the scheduled reserve.
+    assert plan.daily_total == plan.spendable // plan.days_remaining
 
 
 # -- the parts sum to the whole -------------------------------------------
@@ -196,7 +204,7 @@ def test_the_apportionment_is_deterministic():
 # -- the boundary ---------------------------------------------------------
 
 def test_a_lane_that_has_spent_its_day_is_refused_by_name(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     allowance = build_plan(session, now=now).allocations["sgo_nfl_live"].daily_allowance
     spend(session, lane="sgo_nfl_live", objects=allowance, at=now)
@@ -207,19 +215,25 @@ def test_a_lane_that_has_spent_its_day_is_refused_by_name(session):
 
 
 def test_one_lane_spending_its_day_does_not_starve_another(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     plan = build_plan(session, now=now)
     spend(session, lane="sgo_mlb_events",
           objects=plan.allocations["sgo_mlb_events"].daily_allowance, at=now)
 
-    # MLB is done for the day; NFL in-game still has its own share.
+    # MLB is done for the day. Another lane is unaffected by that -- which is
+    # the property under test. Which lane has room is now demand-driven, so the
+    # assertion is about isolation, not about a fixed share.
     assert request_objects(session, lane="sgo_mlb_events", wanted=1, now=now).granted == 0
-    assert request_objects(session, lane="sgo_nfl_live", wanted=1, now=now).granted == 1
+    others = [key for key in ("sgo_nfl_events", "sgo_nfl_live", "sgo_nfl_periods")
+              if plan.allocations[key].daily_allowance > 0]
+    for key in others:
+        grant = request_objects(session, lane=key, wanted=1, now=now)
+        assert grant.granted == 1, f"{key} was starved by MLB spending its own day"
 
 
 def test_a_partial_grant_says_so_rather_than_refusing_outright(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     allowance = build_plan(session, now=now).allocations["sgo_mlb_events"].daily_allowance
     grant = request_objects(session, lane="sgo_mlb_events",
@@ -229,7 +243,7 @@ def test_a_partial_grant_says_so_rather_than_refusing_outright(session):
 
 
 def test_an_in_flight_reservation_blocks_a_concurrent_job(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     allowance = build_plan(session, now=now).allocations["sgo_mlb_events"].daily_allowance
     # Reserved, no terminal row: another job is mid-request right now.
@@ -241,7 +255,7 @@ def test_an_in_flight_reservation_blocks_a_concurrent_job(session):
 
 
 def test_actual_returned_objects_reconcile_against_what_was_reserved(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     allowance = build_plan(session, now=now).allocations["sgo_mlb_events"].daily_allowance
 
@@ -267,10 +281,12 @@ def test_actual_returned_objects_reconcile_against_what_was_reserved(session):
 
 
 def test_the_reserve_is_never_reachable_however_the_shares_are_drawn(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     # Exactly at the reserve: nothing above it is spendable.
-    record_usage(session, used=FALLBACK_MONTHLY_CAP - OBJECT_RESERVE, at=now)
+    reserve = reserve_for(service_date(now))
+    record_usage(session, used=FALLBACK_MONTHLY_CAP - reserve, at=now)
     plan = build_plan(session, now=now)
+    assert plan.reserve == reserve
     assert plan.spendable == 0
     assert plan.daily_total == 0
     for lane in LANES:
@@ -278,7 +294,7 @@ def test_the_reserve_is_never_reachable_however_the_shares_are_drawn(session):
 
 
 def test_a_missing_usage_reading_falls_back_and_says_it_is_blind(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     spend(session, lane="sgo_mlb_events", objects=50, at=now)
     plan = build_plan(session, now=now)
     assert plan.source == "LOCAL_LEDGER_COUNT"
@@ -299,7 +315,7 @@ def test_spend_since_the_last_reading_is_added_to_the_providers_number(session):
 
 
 def test_an_unknown_lane_is_refused_rather_than_given_a_default(session):
-    now = datetime(2026, 9, 14, 12, tzinfo=UTC)
+    now = datetime(2026, 9, 14, 12, tzinfo=UTC)  # 08:00 EDT, inside the service day
     record_usage(session, used=1897, at=now)
     grant = request_objects(session, lane="sgo_something_new", wanted=5, now=now)
     assert grant.granted == 0

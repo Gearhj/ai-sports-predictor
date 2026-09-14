@@ -31,6 +31,30 @@ from app.scoreboard.nfl_live import (
 )
 
 
+@pytest.fixture
+def live_demand(monkeypatch):
+    """Give the in-game lane a reason to exist.
+
+    Capacity follows demand now: the live lane reserves nothing unless a game
+    is actually being FOLLOWED -- a recorded position or a parlay leg. That is
+    the whole point of the change, so a test about this lane's share has to
+    supply the demand rather than assume a standing percentage of the day.
+    """
+
+    from app.services import allocation_demand
+
+    original = allocation_demand.measure
+
+    def measured(session, *, now=None):
+        result = original(session, now=now)
+        result["nfl_games_followed"] = 1
+        result["reservations"]["sgo_nfl_live"] = allocation_demand.NFL_LIVE_PER_GAME
+        return result
+
+    monkeypatch.setattr(allocation_demand, "measure", measured)
+    return measured
+
+
 def seed_balance(session: Session, *, remaining: int, now: datetime | None = None):
     """Record a provider usage reading, so the real plan has a real balance.
 
@@ -208,18 +232,22 @@ def test_nothing_is_spent_when_no_tracked_game_is_in_its_window(session, nfl_gam
 
 
 def test_a_balance_below_the_reserve_funds_no_lane_and_says_when_it_will(session):
-    from app.services.provider_allocation import OBJECT_RESERVE
+    from app.services.provider_allocation import reserve_for
+    from app.services.service_day import service_date
 
-    # Under the reserve entirely: nothing is spendable, so no lane has a whole
-    # object a day and the refusal names the replenishment date.
-    seed_balance(session, remaining=OBJECT_RESERVE - 10)
+    # Under the reserve IN FORCE TODAY. The reserve is a schedule now, so
+    # seeding against the old 400 constant would leave the balance comfortably
+    # above the real reserve and fund every lane -- the test would pass or fail
+    # on the calendar rather than on the behaviour.
+    reserve = reserve_for(service_date(datetime.now(UTC)))
+    seed_balance(session, remaining=reserve - 10)
     money = affordability(session, wanted=2)
     assert money["allowed"] == 0
     assert money["reason"] == "BUDGET_PAUSED_UNTIL_REPLENISHMENT"
     assert "replenishes on" in money["detail"]
 
 
-def test_the_lane_gets_its_own_share_rather_than_defending_a_floor(session):
+def test_the_lane_gets_its_own_share_rather_than_defending_a_floor(session, live_demand):
     from app.services.provider_allocation import OBJECT_RESERVE, build_plan
 
     seed_balance(session, remaining=OBJECT_RESERVE + 600)
@@ -231,8 +259,7 @@ def test_the_lane_gets_its_own_share_rather_than_defending_a_floor(session):
     assert money["daily_cap"] == plan.allocations["sgo_nfl_live"].daily_allowance
 
 
-def test_the_lane_is_capped_by_its_own_daily_share_not_by_the_whole_balance(
-        session):
+def test_the_lane_is_capped_by_its_own_daily_share_not_by_the_whole_balance(session, live_demand):
     from app.models import ProviderRequestLedger
     from app.services.provider_allocation import (
         OBJECT_RESERVE, PROVIDER, build_plan)
@@ -271,7 +298,7 @@ def test_the_lane_is_capped_by_its_own_daily_share_not_by_the_whole_balance(
     assert "objects a day" in money["detail"]
 
 
-def test_todays_allowance_falls_as_today_is_spent(session):
+def test_todays_allowance_falls_as_today_is_spent(session, live_demand):
     """A budget with a deadline recomputes from what is left, including today.
 
     This is a real and slightly surprising consequence: a lane can never spend
@@ -355,7 +382,7 @@ def test_nfl_live_spend_is_counted_separately_from_mlb_pregame(session):
 # -- end to end, without spending anything --------------------------------
 
 def test_a_tracked_live_game_is_recorded_from_the_provider_payload(
-        session, nfl_game, monkeypatch):
+        session, nfl_game, monkeypatch, live_demand):
     during = nfl_game.starts_at + timedelta(hours=1)
 
     from app.services.provider_allocation import OBJECT_RESERVE
@@ -386,7 +413,7 @@ def test_a_tracked_live_game_is_recorded_from_the_provider_payload(
 
 
 def test_an_event_for_a_different_game_is_skipped_not_attached(
-        session, nfl_game, monkeypatch):
+        session, nfl_game, monkeypatch, live_demand):
     during = nfl_game.starts_at + timedelta(hours=1)
 
     from app.services.provider_allocation import OBJECT_RESERVE

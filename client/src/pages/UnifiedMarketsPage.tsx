@@ -446,6 +446,20 @@ export function bookName(book: string): string {
   return book.replace(/\s*\(.*\)\s*$/, '').trim()
 }
 
+/**
+ * Whether a stored book name came from a research provider.
+ *
+ * The normalizer names a research provider's book "DraftKings (SportsGameOdds,
+ * research)" and the database keys it under `sgo:`. `bookName` strips the
+ * parenthetical for display, which is right for the name and wrong for the
+ * provenance: a research price then renders identically to a governed one, and
+ * the reader has no way to tell that the two came from different places. The
+ * suffix is stripped; the fact is kept.
+ */
+export function isResearchBook(book: string): boolean {
+  return /research\)\s*$/i.test(book) || /^sgo:/i.test(book)
+}
+
 function matches(...values: (string | null | undefined)[]): boolean {
   const needle = String(values[values.length - 1] ?? '').toLowerCase().trim()
   if (!needle) return true
@@ -715,7 +729,9 @@ function MlbMarketRow({
           forecastNote={forecastIdentityNote}
           bestLabel={best ? `Best recorded ${selectionLabel} price` : 'Best recorded price'}
           bestValue={best ? american(best.price) : 'unavailable'}
-          bestBook={best ? bookName(best.book) : 'no complete two-sided quote is persisted'}
+          bestBook={best
+            ? `${bookName(best.book)}${isResearchBook(best.book) ? ' · research provider' : ''}`
+            : 'no complete two-sided quote is persisted'}
           // The provider-implementation badge (SGO FALLBACK and friends) lives
           // in the drawer's source details. The book name and the price are
           // what a reader needs here.
@@ -748,7 +764,12 @@ function MlbMarketRow({
                       {books.flatMap((entry) => (entry.books ?? []).map((quote) => (
                         <tr key={`${entry.id}:${quote.book}`}>
                           <th scope="row">{entry.selection}{entry.line != null ? ` ${signedPoints(entry.line, 1)}` : ''}</th>
-                          <td style={{ textAlign: 'left' }}>{bookName(quote.book)}</td>
+                          <td style={{ textAlign: 'left' }}>
+                            {bookName(quote.book)}
+                            {isResearchBook(quote.book) && (
+                              <small className="bx-dim"> · research</small>
+                            )}
+                          </td>
                           <td className="bx-num" style={{ fontWeight: quote.best ? 800 : 500, color: quote.best ? 'var(--bx-good)' : undefined }}>
                             {american(quote.price)}
                           </td>
@@ -797,6 +818,7 @@ function MlbMarketRow({
                 {best && (
                   <p className="bx-dim" style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     Best recorded price provider: {bookName(best.book)}
+                    {isResearchBook(best.book) && ' (SportsGameOdds, research provider)'}
                     <SourceBadge source={best.book} />
                   </p>
                 )}

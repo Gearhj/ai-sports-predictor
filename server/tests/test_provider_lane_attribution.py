@@ -26,7 +26,12 @@ from app.services.provider_allocation import (
     LANE_LEAGUE, PROVIDER, build_plan, misattributed_rows,
 )
 
+#: Noon UTC is 08:00 EDT -- comfortably inside the 09-14 Eastern service day,
+#: which runs 04:00Z to 04:00Z. Offsets below stay inside it on purpose: a row
+#: ten hours earlier would be 22:00 ET on the 13th and belongs to THAT day,
+#: which is the whole point of the Eastern boundary.
 NOW = datetime(2026, 9, 14, 12, tzinfo=UTC)
+SAME_DAY = datetime(2026, 9, 14, 6, tzinfo=UTC)   # 02:00 EDT on the 14th
 
 
 def _row(session, *, lane, league, objects, at, fingerprint, metadata=...):
@@ -61,7 +66,7 @@ def test_every_lane_declares_the_league_it_may_buy():
 
 def test_an_nfl_request_booked_to_the_mlb_lane_is_detected(session):
     _row(session, lane="sgo_mlb_events", league="NFL", objects=14,
-         at=NOW - timedelta(hours=10), fingerprint="a" * 64)
+         at=SAME_DAY, fingerprint="a" * 64)
     bad = misattributed_rows(session, now=NOW)
     assert len(bad) == 1
     assert bad[0].records_received == 14
@@ -80,7 +85,7 @@ def test_the_mlb_lane_is_not_starved_by_another_leagues_spend(session):
 
     for i, objects in enumerate((1, 14, 2, 1)):
         _row(session, lane="sgo_mlb_events", league="NFL", objects=objects,
-             at=NOW - timedelta(hours=12), fingerprint=str(i) * 64)
+             at=SAME_DAY, fingerprint=str(i) * 64)
 
     plan = build_plan(session, now=NOW)
     mlb = plan.allocations["sgo_mlb_events"]
