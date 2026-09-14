@@ -505,22 +505,38 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
 
 
 def seconds_since_last_fetch(session: Session, *, now: datetime | None = None) -> float | None:
-    """How long since ANY request to this provider, successful or not.
+    """How long since the last request that could have SPENT something.
 
     Counted from reservations, so a failing provider cannot be hammered: a
     request that errored still starts the cooldown.
+
+    WHY THE FREE ENDPOINTS ARE EXCLUDED
+    -----------------------------------
+    This cooldown exists to stop a five-minute scheduler tick from re-buying
+    prices that cannot have changed, and to stop a failing provider being
+    hammered. Neither reason applies to a request that buys nothing.
+
+    Counting every ledger row made the balance reading -- which spends no
+    entities, and runs on its own cadence -- hold off price collection. On
+    2026-09-14 the usage reads at 16:45:13, 16:56:44 and 17:12:17 each pushed
+    the next collection out by another ten minutes, so SD at COL sat uncovered
+    for two and a half hours with six objects of room in its lane. A free read
+    of the account balance is not an attempt to buy a price, exactly as the
+    opening adjustment is not.
     """
     from sqlalchemy import func, select
 
     from app.models import ProviderRequestLedger
+    from app.services.provider_allocation import USAGE_ENDPOINT_KEY
 
     moment = now or datetime.now(UTC)
     latest = session.scalar(
         select(func.max(ProviderRequestLedger.requested_at)).where(
             ProviderRequestLedger.provider == SPORTSGAMEODDS,
-            # An adjustment is not an attempt, so it must not hold off the next
-            # real fetch.
-            ProviderRequestLedger.endpoint_key != OPENING_ADJUSTMENT_KEY,
+            # Neither of these can consume an entity, so neither may hold off
+            # the next real fetch.
+            ProviderRequestLedger.endpoint_key.notin_(
+                (OPENING_ADJUSTMENT_KEY, USAGE_ENDPOINT_KEY)),
         )
     )
     if latest is None:
