@@ -4145,3 +4145,32 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   color: var(--muted, #7a8699); margin: 0;
 }
 .pricecov__stats dd { margin: 2px 0 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* ─── NBA joint comparison ───────────────────────────────────────────────────
+   Two arms side by side. The illustrative totals carry the producer's own
+   classification: a question the simulation can answer, not a market. */
+.nbajoint { margin: 14px 0 6px; padding: 16px 18px;
+  border: 1px solid var(--border, #e2e6ea); border-radius: 12px;
+  background: var(--surface, #fff); }
+.nbajoint__head h3 { margin: 4px 0 0; font-size: 18px; }
+.nbajoint__note { margin: 10px 0 0; font-size: 13px; line-height: 1.55;
+  padding: 9px 11px; border-radius: 8px; background: var(--surface-muted, #f5f6f8); }
+.nbajoint__arms { display: grid; gap: 14px; margin-top: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.nbajoint__arm { border: 1px solid var(--border, #e2e6ea); border-radius: 9px;
+  padding: 12px 14px; }
+.nbajoint__arm h4 { margin: 0; font-size: 14px; }
+.nbajoint__figures { display: grid; gap: 7px; margin: 10px 0 0; }
+.nbajoint__figures > div { display: flex; flex-direction: column; }
+.nbajoint__figures dt { font-size: 10px; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted, #7a8699); margin: 0; }
+.nbajoint__figures dd { margin: 2px 0 0; font-size: 13px; }
+.nbajoint__totals { margin-top: 12px; }
+.nbajoint__tag { display: inline-block; font-size: 10.5px; padding: 2px 8px;
+  border-radius: 999px; background: #f4f1fb; border: 1px solid #ddd4ee; }
+.nbajoint__totals table { width: 100%; margin-top: 7px; border-collapse: collapse;
+  font-size: 12px; font-variant-numeric: tabular-nums; }
+.nbajoint__totals th { text-align: left; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted, #7a8699); font-weight: 600;
+  padding-bottom: 3px; }
+.nbajoint__totals td { padding: 2px 0; }

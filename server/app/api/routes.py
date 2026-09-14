@@ -1619,6 +1619,21 @@ def provider_budget(session: DatabaseSession) -> dict:
     }
 
 
+@router.get("/nba/joint-comparison", tags=["forecasts"])
+def nba_joint_comparison_route(session: DatabaseSession, game_id: str | None = None) -> dict:
+    """The NBA Gen-1 joint comparison. Research only; no wagering authority.
+
+    Separate from /nba/research-forecasts, which serves the point/Elo forecast
+    that declares it has no distribution at all. These arms have ten thousand
+    draws each, and merging the two reads would let one be mistaken for the
+    other.
+    """
+
+    from app.services.nba_joint_read import joint_comparison
+
+    return joint_comparison(session, game_id=game_id)
+
+
 @router.get("/price-coverage", tags=["markets"])
 def price_coverage_route(session: DatabaseSession, date: str | None = None) -> dict:
     """Why each MLB game on a slate does or does not have a stored price.

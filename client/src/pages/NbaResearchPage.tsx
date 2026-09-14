@@ -17,6 +17,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import { NbaResearchCard } from '../components/nba/NbaResearchCard'
 import { useNbaResearch } from '../hooks/useNbaResearch'
+import { useNbaJoint } from '../hooks/useNbaJoint'
+import { NbaJointComparison } from '../components/nba/NbaJointComparison'
 import type { NbaResearchForecast } from '../types/nbaResearch'
 
 function dateHeading(isoDate: string): string {
@@ -41,6 +43,9 @@ export function NbaResearchPage() {
   const [params] = useSearchParams()
   const date = params.get('date')
   const { data, loading, error } = useNbaResearch()
+  // The joint comparison sits beside the point/Elo forecast, not inside it:
+  // one declares it has no distribution, the other has ten thousand draws.
+  const joint = useNbaJoint()
 
   const all = data?.forecasts ?? []
   const visible = date
@@ -84,6 +89,7 @@ export function NbaResearchPage() {
             {forecasts.map((forecast) => (
               <div key={forecast.forecast_id}>
                 <NbaResearchCard forecast={forecast} />
+                <NbaJointComparison comparison={joint.data} />
                 <p className="nbares__back">
                   <Link to={`/nba/games/${forecast.game_id}`}>Open this game’s forecast</Link>
                 </p>

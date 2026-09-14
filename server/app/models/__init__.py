@@ -93,6 +93,13 @@ from app.models.scoreboard import (  # noqa: E402,F401
     SCOREBOARD_STATUSES,
     GameScoreboardObservation,
 )
+# Two research arms of one NBA joint simulation. Separate from
+# nba_research_forecasts, whose point/Elo forecast declares it has NO
+# distribution -- putting both in one table is how the second gets read as the
+# first.
+from app.models.nba_joint_comparison import (  # noqa: E402,F401
+    NbaJointComparisonArm,
+)
 # One frozen allocation per Eastern service day. Separate from the ledger: the
 # ledger records what was REQUESTED, this records what was ISSUED, and an
 # allowance that is recomputed on every read is not an allowance.
