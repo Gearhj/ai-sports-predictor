@@ -17,7 +17,7 @@ reassurance and each one is false:
 from __future__ import annotations
 
 from app.services.provider_allocation import (
-    LANES, LANES_BY_KEY, apportion,
+    LANES, LANES_BY_KEY, Lane, apportion,
 )
 
 
@@ -30,30 +30,55 @@ def test_apportionment_spends_the_whole_daily_total():
         assert sum(apportion(total).values()) == total
 
 
-def test_an_unfunded_lane_receives_nothing():
-    allowances = apportion(11)
-    assert LANES_BY_KEY["sgo_nfl_events"].funded is False
-    assert allowances["sgo_nfl_events"] == 0
+def test_an_unfunded_lane_receives_nothing(monkeypatch):
+    """The mechanism, on a constructed lane set.
+
+    NFL pregame was the unfunded lane until the owner funded it on 2026-09-14.
+    Funding is a policy decision and will move again; that an unfunded lane
+    receives nothing is not, so it is tested independently of the current
+    configuration rather than against whichever lane happens to be off.
+    """
+
+    from app.services import provider_allocation as module
+
+    monkeypatch.setattr(module, "LANES", tuple(
+        Lane(key=lane.key, label=lane.label, share=lane.share,
+             rationale=lane.rationale, funded=lane.key != "sgo_nfl_periods")
+        for lane in module.LANES))
+
+    allowances = module.apportion(11)
+    assert allowances["sgo_nfl_periods"] == 0
+    assert sum(allowances.values()) == 11
+    # And the reporting view shows what it WOULD get, which is the whole point
+    # of distinguishing a policy zero from a rounding zero.
+    assert module.apportion(11, include_unfunded=True)["sgo_nfl_periods"] > 0
 
 
-def test_the_unfunded_zero_is_a_choice_and_not_rounding():
-    """The same share, funded, is not zero -- which is the whole point."""
-
-    if_funded = apportion(11, include_unfunded=True)
-    assert if_funded["sgo_nfl_events"] > 0
-    # And including it is purely a reporting view: the funded split is unchanged
-    # in shape, still sums to the total, and grants nothing.
-    assert sum(if_funded.values()) == 11
-
-
-def test_the_reporting_view_never_grants_an_unfunded_lane(session):
+def test_the_reporting_view_never_grants_an_unfunded_lane(session, monkeypatch):
     """`request_objects` refuses by name whatever the reporting view says."""
 
-    from app.services.provider_allocation import request_objects
+    from app.services import provider_allocation as module
 
-    grant = request_objects(session, lane="sgo_nfl_events", wanted=1)
+    monkeypatch.setattr(module, "LANES", tuple(
+        Lane(key=lane.key, label=lane.label, share=lane.share,
+             rationale=lane.rationale, funded=lane.key != "sgo_nfl_periods")
+        for lane in module.LANES))
+    monkeypatch.setattr(module, "LANES_BY_KEY",
+                        {lane.key: lane for lane in module.LANES})
+
+    grant = module.request_objects(session, lane="sgo_nfl_periods", wanted=1)
     assert grant.allowed is False
     assert grant.reason == "LANE_NOT_FUNDED"
+
+
+def test_the_owner_approved_split_is_what_the_shares_produce():
+    """7 / 1 / 2 / 1 at eleven objects a day, from the declared shares alone."""
+
+    assert apportion(11) == {
+        "sgo_mlb_events": 7, "sgo_nfl_events": 1,
+        "sgo_nfl_live": 2, "sgo_nfl_periods": 1,
+    }
+    assert all(lane.funded for lane in LANES)
 
 
 def test_in_game_checks_are_bounded_by_ONE_DAY_not_by_the_month():

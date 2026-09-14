@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models import ProviderRequestLedger
 from app.services.provider_allocation import (
     FALLBACK_MONTHLY_CAP,
+    Lane,
     LANES,
     OBJECT_RESERVE,
     PROVIDER,
@@ -149,13 +150,37 @@ def test_every_apportionment_sums_to_its_total(total):
     assert all(value >= 0 for value in allocated.values())
 
 
-def test_an_unfunded_lane_gets_nothing_and_its_share_goes_to_the_others():
-    allocated = apportion(11)
-    unfunded = [lane.key for lane in LANES if not lane.funded]
-    assert unfunded, "the test needs at least one unfunded lane to be meaningful"
-    for key in unfunded:
-        assert allocated[key] == 0
+def test_an_unfunded_lane_gets_nothing_and_its_share_goes_to_the_others(monkeypatch):
+    """The mechanism, tested on a constructed lane set.
+
+    Every declared lane is funded today -- the owner funded NFL pregame on
+    2026-09-14 -- so asserting against the live configuration would either skip
+    silently or break whenever funding changes. Funding is a policy decision
+    that will move again; the rule that an unfunded lane receives nothing and
+    its share redistributes is not.
+    """
+
+    from app.services import provider_allocation as module
+
+    lanes = tuple(
+        Lane(key=lane.key, label=lane.label, share=lane.share,
+             rationale=lane.rationale,
+             funded=lane.key != "sgo_nfl_events")
+        for lane in module.LANES
+    )
+    monkeypatch.setattr(module, "LANES", lanes)
+
+    allocated = module.apportion(11)
+    assert allocated["sgo_nfl_events"] == 0
     assert sum(allocated.values()) == 11
+    # The share did not evaporate: the funded lanes absorbed it.
+    assert allocated["sgo_mlb_events"] + allocated["sgo_nfl_live"] > 8
+
+
+def test_every_declared_lane_is_funded_today():
+    """A guard on the current configuration, stated as its own fact."""
+
+    assert [lane.key for lane in LANES if not lane.funded] == []
 
 
 def test_a_small_share_is_not_truncated_out_of_existence():
