@@ -538,6 +538,36 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "refresh-scoreboard", "settings": settings},
         **common,
     )
+    # The provider's own balance, read hourly. Free -- the endpoint returns
+    # account data, not event objects -- and it is what the whole allocation
+    # plans against, so a stale reading is the one thing that would make the
+    # budget wrong in the expensive direction.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=60,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=45),
+        id="asp-provider-usage",
+        kwargs={"job_name": "refresh-provider-usage", "settings": settings},
+        **common,
+    )
+    # Governed finals for completed games that are missing one. This is what
+    # the settlement chain was waiting on: it ran only when a person typed a
+    # command, so a finished game could sit ungoverned indefinitely and every
+    # ticket on it stayed open. Twenty minutes is frequent enough that a game
+    # settles within the hour it ends, and the job is a no-op -- no request at
+    # all -- on every run where nothing is missing.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=20,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=3),
+        id="asp-governed-final-recovery",
+        kwargs={"job_name": "recover-governed-finals", "settings": settings},
+        **common,
+    )
     # Recorded parlay tickets settle themselves once every leg's game has a
     # governed final. The job existed and was never scheduled, which is why the
     # first recorded ticket sat open with both its games finished: nothing was

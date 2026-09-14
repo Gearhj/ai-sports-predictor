@@ -74,6 +74,15 @@ class HistoricalBackfillOptions:
     skip_weather: bool = True
     terms_status: TermsStatus = "LEGAL_REVIEW_REQUIRED"
     minimum_free_bytes: int = 100_000_000_000
+    #: Fetch a game feed ONLY for these provider game ids. The schedule call is
+    #: unchanged -- one request either way -- but a date whose finals are
+    #: already governed then costs nothing further.
+    #:
+    #: This exists because re-running a whole date is not idempotent at the
+    #: record level: the payload checksum covers the acquisition time, so every
+    #: repeat mints a fresh revision of a result that has not changed. Narrowing
+    #: to the games that are actually missing is what keeps one game one final.
+    only_source_game_ids: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         if self.end_date < self.start_date:
@@ -323,6 +332,14 @@ class HistoricalBackfillRunner:
             )
 
         discovered = len(final_rows)
+        if options.only_source_game_ids is not None:
+            # Narrow AFTER discovery: the schedule still reports the whole
+            # slate, and the request plan then covers only what is missing.
+            final_rows = [
+                row for row in final_rows
+                if str(row.game.source_game_id) in options.only_source_game_ids
+            ]
+            discovered = len(final_rows)
         if options.discovery_only:
             completed_at = self.now()
             checkpoint = HistoricalCheckpoint(

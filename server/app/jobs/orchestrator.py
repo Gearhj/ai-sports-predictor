@@ -94,6 +94,8 @@ AVAILABLE_JOBS = {
     "refresh-scoreboard": "Refresh Live Scoreboard (MLB)",
     "collect-nfl-period-breakdowns": "Collect NFL Quarter Breakdowns",
     "collect-nfl-live-scores": "Collect NFL In-Game Scores (tracked games)",
+    "recover-governed-finals": "Recover Governed Finals For Completed Games",
+    "refresh-provider-usage": "Refresh SportsGameOdds Account Usage",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
     "controlled-live-validation": "Controlled Gate 2 Live Validation",
     "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
@@ -225,6 +227,8 @@ class JobOrchestrator:
             "refresh-scoreboard": self.refresh_scoreboard,
             "collect-nfl-period-breakdowns": self.collect_nfl_period_breakdowns,
             "collect-nfl-live-scores": self.collect_nfl_live_scores,
+            "recover-governed-finals": self.recover_governed_finals,
+            "refresh-provider-usage": self.refresh_provider_usage,
             "backfill-scoreboard": self.backfill_scoreboard,
             "controlled-live-validation": self.controlled_live_validation,
             "import-model-studio-forecast-bundle": self.import_forecast_bundle,
@@ -1535,6 +1539,26 @@ class JobOrchestrator:
         from app.scoreboard.nfl_live import collect_nfl_live
 
         return collect_nfl_live(self.session, self.settings)
+
+    async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:
+        """Governed finals for completed games that have none, automatically.
+
+        Runs the existing governed reconstruction under the existing recorded
+        owner decision, narrowed to the games actually missing a final so a
+        slate is never re-ingested. Once these persist, the settlement owner
+        picks them up on its own next pass.
+        """
+
+        from app.services.governed_final_recovery import recover_missing_finals
+
+        return await recover_missing_finals(self.session, self.settings)
+
+    async def refresh_provider_usage(self, event_date: date) -> dict[str, Any]:
+        """Read the provider's own balance so the allocation plans on a fact."""
+
+        from app.services.sgo_usage import refresh_usage
+
+        return refresh_usage(self.session, self.settings)
 
     async def backfill_scoreboard(self, event_date: date) -> dict[str, Any]:
         """Scoreboard state for games that finished before the collector existed.

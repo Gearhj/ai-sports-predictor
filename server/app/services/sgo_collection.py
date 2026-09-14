@@ -72,6 +72,14 @@ ENDPOINT_KEY = "sgo_mlb_events"
 #: It is excluded from the request count and included in the object count,
 #: because it describes objects spent, not a call anyone made.
 OPENING_ADJUSTMENT_KEY = "sgo_opening_adjustment"
+#: The rule that decides which games get a price when the day cannot fund them
+#: all. Declared here, before any result, and tied only to the clock.
+SELECTION_RULE = (
+    "EARLIEST_DECISION_CUTOFF_FIRST, ties broken by provider game id. The game "
+    "closest to locking is priced first; games beyond the day's allocation are "
+    "reported by id as unsupported."
+)
+
 #: The published Amateur allowance, in EVENTS returned -- the provider's own
 #: billable unit. Requests are free; events are not.
 FREE_TIER_OBJECTS = 2500
@@ -369,6 +377,7 @@ __all__ = [
     "ENDPOINT_KEY",
     "FREE_TIER_OBJECTS",
     "MIN_SECONDS_BETWEEN_FETCHES",
+    "SELECTION_RULE",
     "OBJECT_RESERVE",
     "OPENING_ADJUSTMENT_KEY",
     "ObjectBudget",
@@ -508,6 +517,7 @@ def record_request(
     budget: ObjectBudget,
     job_run_id: Any = None,
     endpoint_key: str | None = None,
+    objects_requested: int | None = None,
 ) -> Any:
     """Reserve the request in the provider ledger BEFORE it is sent.
 
@@ -533,6 +543,11 @@ def record_request(
         # as one and a per-feature daily cap stays enforceable.
         endpoint_key=endpoint_key or ENDPOINT_KEY,
         requested_at=requested_at,
+        # The count this request committed to, recorded BEFORE it is sent. A
+        # concurrent job reads it as in-flight and cannot claim the same
+        # objects; the terminal row then reconciles it against what actually
+        # came back.
+        quota_cost=max(0, int(objects_requested or 0)),
         status="RESERVED",
         request_fingerprint=sha256(
             json.dumps({**shape, "at": requested_at.isoformat()}, sort_keys=True).encode()
@@ -683,7 +698,22 @@ def collect_for_open_cutoffs(
         if not needs_moneyline:
             totals_only += 1
         window_open.append(event)
-    open_games = window_open
+    # DETERMINISTIC SELECTION, DECLARED BEFORE RESULTS.
+    #
+    # The day's allocation no longer covers every game, so which games get a
+    # price has to be decided by a rule rather than by whatever order a query
+    # returned. Earliest cutoff first: the game closest to locking is the one
+    # whose price is about to become unobtainable, and a rule tied to the clock
+    # cannot be influenced by an edge, a forecast or an outcome. Ties break on
+    # the provider's own game id, so the same slate always produces the same
+    # order.
+    #
+    # Games past the allocation are reported as unsupported by name rather than
+    # silently dropped.
+    open_games = sorted(
+        window_open,
+        key=lambda event: (event["cutoff_utc"], str(event.get("game_id") or "")),
+    )
     if not open_games:
         return {"attempted": False,
                 "reason": ("NO_GAME_INSIDE_ITS_FRESHNESS_WINDOW_NEEDS_A_QUOTE"
@@ -707,6 +737,23 @@ def collect_for_open_cutoffs(
         return {"attempted": False, "reason": "OBJECT_BUDGET_EXHAUSTED", "objects": 0,
                 "detail": refusal, "budget": budget.as_dict()}
 
+    # The shared allocation has the final say. The provider reserve above is
+    # kept as a second, cruder guard -- it protects against a bug in this
+    # planner, which is exactly the sort of thing a reserve is for.
+    from app.services.provider_allocation import request_objects
+
+    grant = request_objects(session, lane=ENDPOINT_KEY, wanted=wanted, now=moment)
+    if not grant.allowed:
+        return {"attempted": False, "reason": f"ALLOCATION_{grant.reason}",
+                "objects": 0, "allocation": grant.as_dict(),
+                "games_unsupported_today": [
+                    str(event.get("game_id")) for event in open_games],
+                "selection_rule": SELECTION_RULE}
+    # Ask for no more than the day funds. A partial grant is a smaller slate of
+    # games covered, not a smaller number of prices per game.
+    wanted = grant.granted
+    covered, unsupported = open_games[:wanted], open_games[wanted:]
+
     params = {
         "leagueID": "MLB", "limit": str(wanted),
         "startsAfter": moment.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -714,7 +761,8 @@ def collect_for_open_cutoffs(
         "finalized": "false", "oddsPresent": "true",
     }
     reservation = record_request(session, requested_at=moment, params=params,
-                                 budget=budget, job_run_id=job_run_id)
+                                 budget=budget, job_run_id=job_run_id,
+                                 objects_requested=wanted)
     session.commit()
 
     try:
@@ -736,6 +784,11 @@ def collect_for_open_cutoffs(
         "attempted": True, "reason": "FALLBACK_COLLECTED",
         "objects": fetch.objects,
         "games_open_before_cutoff": len(open_games),
+        "selection_rule": SELECTION_RULE,
+        "games_covered_this_request": [str(e.get("game_id")) for e in covered],
+        # Named, not silently dropped: a reader can see exactly which games this
+        # slate could not afford a price for.
+        "games_unsupported_today": [str(e.get("game_id")) for e in unsupported],
         "games_admitted_for_missing_total_only": totals_only,
         "uncovered_but_window_not_open": too_early,
         "events_ingested": fetch.events_ingested,

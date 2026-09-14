@@ -1559,6 +1559,23 @@ def scoreboard(
     }
 
 
+@router.get("/provider-budget", tags=["operations"])
+def provider_budget(session: DatabaseSession) -> dict:
+    """The shared provider allocation, and what it can actually cover.
+
+    One budget for every SportsGameOdds consumer, planned against the account's
+    own reported balance rather than a local guess, with each lane's share and
+    the coverage that share buys between now and replenishment.
+    """
+
+    from app.services.provider_allocation import coverage_forecast
+
+    return {
+        "schema_version": "AISP_PROVIDER_BUDGET_V1",
+        **coverage_forecast(session),
+    }
+
+
 @router.get("/scoreboard/coverage", tags=["scoreboard"])
 def scoreboard_coverage(session: DatabaseSession) -> dict:
     """What each sport's score feed actually supplies, stated plainly.

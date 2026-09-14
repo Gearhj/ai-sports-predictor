@@ -173,9 +173,12 @@ def should_run_fast(session: Session, *, now: datetime | None = None) -> bool:
 #: history, and history is read from what was already retained.
 NFL_BREAKDOWN_WINDOW = timedelta(days=8)
 
-#: Hard ceiling per run, independent of the provider's own budget guard. Two
-#: guards, because the expensive failure here is a loop that looks bounded.
+#: Hard ceiling per run, independent of the shared allocation. Two guards,
+#: because the expensive failure here is a loop that looks bounded.
 NFL_MAX_OBJECTS_PER_RUN = 16
+
+#: This lane's key in the shared allocation and in the provider ledger.
+PERIODS_LANE = "sgo_nfl_periods"
 
 
 def nfl_games_needing_breakdown(
@@ -252,18 +255,21 @@ def collect_nfl_breakdowns(
         return {"records": 0, "league": "NFL", "requests": 0, "objects": 0,
                 "reason": f"PROVIDER_NOT_ELIGIBLE:{why}"}
 
+    # The shared allocation decides, not a private floor. This lane yields to
+    # every other one: it buys presentation detail for games already over, so a
+    # partial grant simply means fewer breakdowns today and the rest tomorrow.
+    from app.services.provider_allocation import request_objects
+
     budget = object_budget(session, now=moment)
-    count = min(len(wanted), NFL_MAX_OBJECTS_PER_RUN)
-    allowed, refusal = budget.may_spend(count)
-    if not allowed:
-        # Degrade rather than fail: ask for as many as the reserve leaves room
-        # for, and report that the cadence was reduced on purpose.
-        count = max(0, budget.spendable)
-        allowed, refusal = budget.may_spend(count) if count else (False, refusal)
-        if not allowed or count == 0:
-            return {"records": 0, "league": "NFL", "requests": 0, "objects": 0,
-                    "reason": "OBJECT_BUDGET_EXHAUSTED", "detail": refusal,
-                    "budget": budget.as_dict()}
+    grant = request_objects(
+        session, lane=PERIODS_LANE,
+        wanted=min(len(wanted), NFL_MAX_OBJECTS_PER_RUN), now=moment)
+    if not grant.allowed:
+        return {"records": 0, "league": "NFL", "requests": 0, "objects": 0,
+                "reason": f"ALLOCATION_{grant.reason}",
+                "games_needing_breakdown": len(wanted),
+                "allocation": grant.as_dict()}
+    count = grant.granted
 
     earliest = min(row[1] for row in wanted[:count])
     params = {
@@ -273,7 +279,9 @@ def collect_nfl_breakdowns(
         "startsBefore": _sgo_time(moment),
         "finalized": "true",
     }
-    reservation = record_request(session, requested_at=moment, params=params, budget=budget)
+    reservation = record_request(session, requested_at=moment, params=params,
+                                 budget=budget, endpoint_key=PERIODS_LANE,
+                                 objects_requested=count)
     session.commit()
 
     try:
@@ -378,6 +386,7 @@ __all__ = [
     "ACTIVE_STATUSES",
     "NFL_BREAKDOWN_WINDOW",
     "NFL_MAX_OBJECTS_PER_RUN",
+    "PERIODS_LANE",
     "collect_mlb_scoreboard",
     "NFL_CLUB_ALIASES",
     "collect_nfl_breakdowns",

@@ -23,8 +23,6 @@ from sqlalchemy.orm import Session
 from app.models.scoreboard import GameScoreboardObservation
 from app.scoreboard.nfl import classify, periods_from, scoreboard_from_event
 from app.scoreboard.nfl_live import (
-    MAX_OBJECTS_PER_DAY,
-    MLB_PREGAME_FLOOR,
     affordability,
     collect_nfl_live,
     in_watch_window,
@@ -33,16 +31,34 @@ from app.scoreboard.nfl_live import (
 )
 
 
-def budget_with(spendable: int):
-    """A real ObjectBudget with the spendable figure the test needs."""
+def seed_balance(session: Session, *, remaining: int, now: datetime | None = None):
+    """Record a provider usage reading, so the real plan has a real balance.
 
-    from app.services.sgo_collection import FREE_TIER_OBJECTS, OBJECT_RESERVE, ObjectBudget
+    Seeding the reading rather than stubbing the planner means these tests
+    exercise the allocation AISP actually runs, including its apportionment and
+    its in-flight accounting.
+    """
 
-    return ObjectBudget(
-        window_days=30, requests=0,
-        objects_used=max(0, FREE_TIER_OBJECTS - OBJECT_RESERVE - spendable),
-        allowance=FREE_TIER_OBJECTS, reserve=OBJECT_RESERVE,
+    from app.services.provider_allocation import (
+        FALLBACK_MONTHLY_CAP, PROVIDER, USAGE_ENDPOINT_KEY)
+    from app.models import ProviderRequestLedger
+
+    moment = now or datetime.now(UTC)
+    used = max(0, FALLBACK_MONTHLY_CAP - remaining)
+    reservation = ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key=USAGE_ENDPOINT_KEY, requested_at=moment,
+        status="RESERVED", request_fingerprint="u" * 64, quota_cost=0,
     )
+    session.add(reservation)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key=USAGE_ENDPOINT_KEY, requested_at=moment,
+        status="SUCCEEDED", request_fingerprint="u" * 64, completed_at=moment,
+        reservation_id=reservation.id, records_received=0, quota_cost=0,
+        response_metadata={"usage": {
+            "monthly_cap": FALLBACK_MONTHLY_CAP, "used_this_month": used}},
+    ))
+    session.commit()
 
 
 def in_progress_event(**over):
@@ -191,28 +207,76 @@ def test_nothing_is_spent_when_no_tracked_game_is_in_its_window(session, nfl_gam
     assert result["reason"] == "NO_TRACKED_NFL_GAME_IS_IN_ITS_WATCH_WINDOW"
 
 
-def test_the_mlb_pregame_floor_refuses_and_shows_its_arithmetic(session, monkeypatch):
-    monkeypatch.setattr(
-        "app.services.sgo_collection.object_budget",
-        lambda *a, **k: budget_with(MLB_PREGAME_FLOOR - 40))
+def test_a_balance_below_the_reserve_funds_no_lane_and_says_when_it_will(session):
+    from app.services.provider_allocation import OBJECT_RESERVE
+
+    # Under the reserve entirely: nothing is spendable, so no lane has a whole
+    # object a day and the refusal names the replenishment date.
+    seed_balance(session, remaining=OBJECT_RESERVE - 10)
     money = affordability(session, wanted=2)
     assert money["allowed"] == 0
-    assert money["floor_room"] == 0
-    assert str(MLB_PREGAME_FLOOR) in money["detail"]
-    assert "held for MLB pregame odds" in money["detail"]
+    assert money["reason"] == "BUDGET_PAUSED_UNTIL_REPLENISHMENT"
+    assert "replenishes on" in money["detail"]
 
 
-def test_the_daily_cap_limits_the_spend_even_when_the_budget_is_healthy(
-        session, monkeypatch):
-    monkeypatch.setattr(
-        "app.services.sgo_collection.object_budget",
-        lambda *a, **k: budget_with(MLB_PREGAME_FLOOR + 1000))
-    monkeypatch.setattr(
-        "app.scoreboard.nfl_live.objects_spent_today",
-        lambda *a, **k: MAX_OBJECTS_PER_DAY - 1)
+def test_the_lane_gets_its_own_share_rather_than_defending_a_floor(session):
+    from app.services.provider_allocation import OBJECT_RESERVE, build_plan
+
+    seed_balance(session, remaining=OBJECT_RESERVE + 600)
+    plan = build_plan(session)
+    # Every funded lane has a share, and the shares add up to the daily total.
+    assert sum(a.daily_allowance for a in plan.allocations.values()) == plan.daily_total
+    money = affordability(session, wanted=1)
+    assert money["allowed"] == 1
+    assert money["daily_cap"] == plan.allocations["sgo_nfl_live"].daily_allowance
+
+
+def test_the_lane_is_capped_by_its_own_daily_share_not_by_the_whole_balance(
+        session):
+    from app.models import ProviderRequestLedger
+    from app.services.provider_allocation import (
+        OBJECT_RESERVE, PROVIDER, build_plan)
+
+    seed_balance(session, remaining=OBJECT_RESERVE + 600)
+    allowance = build_plan(session).allocations["sgo_nfl_live"].daily_allowance
+    assert allowance >= 2
+
+    # Spend all but one of this lane's day, leaving the balance healthy.
+    now = datetime.now(UTC)
+    reservation = ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key="sgo_nfl_live", requested_at=now,
+        status="RESERVED", request_fingerprint="s" * 64, quota_cost=allowance - 1)
+    session.add(reservation)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key="sgo_nfl_live", requested_at=now,
+        status="SUCCEEDED", request_fingerprint="s" * 64, completed_at=now,
+        reservation_id=reservation.id, records_received=allowance - 1))
+    session.commit()
+
     money = affordability(session, wanted=4)
     assert money["allowed"] == 1
-    assert "of its" in money["detail"]
+    assert "objects a day" in money["detail"]
+
+
+def test_a_reservation_in_flight_is_visible_to_a_concurrent_job(session):
+    from app.models import ProviderRequestLedger
+    from app.services.provider_allocation import (
+        OBJECT_RESERVE, PROVIDER, build_plan)
+
+    seed_balance(session, remaining=OBJECT_RESERVE + 600)
+    allowance = build_plan(session).allocations["sgo_nfl_live"].daily_allowance
+
+    # A reservation with no terminal row yet: another job is mid-request.
+    session.add(ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key="sgo_nfl_live",
+        requested_at=datetime.now(UTC), status="RESERVED",
+        request_fingerprint="f" * 64, quota_cost=allowance))
+    session.commit()
+
+    # The second job must see the whole lane as committed, not free.
+    money = affordability(session, wanted=allowance)
+    assert money["allowed"] == 0
 
 
 def test_nfl_live_spend_is_counted_separately_from_mlb_pregame(session):
@@ -247,9 +311,9 @@ def test_a_tracked_live_game_is_recorded_from_the_provider_payload(
         session, nfl_game, monkeypatch):
     during = nfl_game.starts_at + timedelta(hours=1)
 
-    monkeypatch.setattr(
-        "app.services.sgo_collection.object_budget",
-        lambda *a, **k: budget_with(MLB_PREGAME_FLOOR + 1000))
+    from app.services.provider_allocation import OBJECT_RESERVE
+
+    seed_balance(session, remaining=OBJECT_RESERVE + 900, now=during)
     monkeypatch.setattr(
         "app.services.sgo_collection.eligible", lambda *a, **k: (True, "OK"))
 
@@ -278,9 +342,9 @@ def test_an_event_for_a_different_game_is_skipped_not_attached(
         session, nfl_game, monkeypatch):
     during = nfl_game.starts_at + timedelta(hours=1)
 
-    monkeypatch.setattr(
-        "app.services.sgo_collection.object_budget",
-        lambda *a, **k: budget_with(MLB_PREGAME_FLOOR + 1000))
+    from app.services.provider_allocation import OBJECT_RESERVE
+
+    seed_balance(session, remaining=OBJECT_RESERVE + 900, now=during)
     monkeypatch.setattr(
         "app.services.sgo_collection.eligible", lambda *a, **k: (True, "OK"))
 

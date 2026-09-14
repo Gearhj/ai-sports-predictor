@@ -59,15 +59,11 @@ DEFAULT_CADENCE_MINUTES = 15
 #: number of games a reader can plausibly be following at the same time.
 MAX_TRACKED_GAMES = 4
 
-#: NFL in-game's own daily allowance, independent of the provider budget. At a
-#: fifteen-minute cadence this funds roughly two full games a day.
-MAX_OBJECTS_PER_DAY = 30
-
-#: Objects held back for MLB pregame odds, above the provider's own reserve.
-#: NFL in-game refuses rather than spending into this. It is deliberately larger
-#: than a single day of MLB collection: the point is that this feature can never
-#: be the reason a price is missing.
-MLB_PREGAME_FLOOR = 250
+#: How many objects this lane may spend in a day is no longer decided here: the
+#: shared allocation in `provider_allocation` owns it, so NFL in-game and MLB
+#: pregame are two shares of one budget rather than two budgets arguing. Both
+#: names are kept as the ceiling on a single run, not as a second allowance.
+MAX_OBJECTS_PER_RUN = MAX_TRACKED_GAMES
 
 
 def tracked_game_ids(session: Session, *, now: datetime | None = None) -> list[UUID]:
@@ -179,40 +175,44 @@ ENDPOINT_KEY = "sgo_nfl_live"
 def affordability(
     session: Session, *, wanted: int, now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Whether these objects may be spent, and the arithmetic either way."""
+    """Whether these objects may be spent, from the one shared allocation.
 
-    from app.services.sgo_collection import object_budget
+    The private floor this used to keep against MLB pregame is gone. Two
+    consumers each defending the same pool from a different direction is not a
+    budget; the allocation now decides both, and the number here is the lane's
+    own remaining daily allowance.
+    """
+
+    from app.services.provider_allocation import request_objects
 
     moment = now or datetime.now(UTC)
-    budget = object_budget(session, now=moment)
-    spent_today = objects_spent_today(session, now=moment)
-    day_room = max(0, MAX_OBJECTS_PER_DAY - spent_today)
-    # What may be spent without eating the floor MLB pregame odds depends on.
-    floor_room = max(0, budget.spendable - MLB_PREGAME_FLOOR)
-    allowed = min(wanted, day_room, floor_room)
-
+    grant = request_objects(session, lane=ENDPOINT_KEY, wanted=wanted, now=moment)
+    allocation = grant.plan.allocations[ENDPOINT_KEY]
     detail = None
-    if allowed < wanted:
-        if floor_room < wanted:
+    if grant.granted < wanted:
+        if grant.plan.daily_total == 0:
             detail = (
-                f"{budget.spendable} objects are spendable and {MLB_PREGAME_FLOOR} "
-                "are held for MLB pregame odds, so NFL in-game tracking has "
-                f"{floor_room} to work with."
+                f"{grant.plan.spendable} objects are spendable across "
+                f"{grant.plan.days_remaining} days until the balance replenishes "
+                f"on {grant.plan.replenishes_on.isoformat()}, so no lane has a "
+                "whole object a day."
             )
         else:
             detail = (
-                f"NFL in-game has spent {spent_today} of its {MAX_OBJECTS_PER_DAY} "
-                "objects today."
+                f"NFL in-game has {allocation.daily_allowance} objects a day and "
+                f"has used {allocation.spent_today}"
+                + (f" with {allocation.in_flight} in flight" if allocation.in_flight
+                   else "")
+                + "."
             )
     return {
-        "allowed": allowed,
+        "allowed": grant.granted,
         "wanted": wanted,
-        "spent_today": spent_today,
-        "daily_cap": MAX_OBJECTS_PER_DAY,
-        "daily_room": day_room,
-        "mlb_pregame_floor": MLB_PREGAME_FLOOR,
-        "floor_room": floor_room,
-        "budget": budget.as_dict(),
+        "spent_today": allocation.spent_today,
+        "daily_cap": allocation.daily_allowance,
+        "daily_room": allocation.room,
+        "reason": grant.reason,
+        "budget": grant.plan.as_dict(),
         "detail": detail,
     }
 
@@ -269,7 +269,8 @@ def collect_nfl_live(
     }
     budget = object_budget(session, now=moment)
     reservation = record_request(session, requested_at=moment, params=params,
-                                 budget=budget, endpoint_key=ENDPOINT_KEY)
+                                 budget=budget, endpoint_key=ENDPOINT_KEY,
+                                 objects_requested=count)
     session.commit()
 
     try:
@@ -329,9 +330,8 @@ def collect_nfl_live(
 __all__ = [
     "DEFAULT_CADENCE_MINUTES",
     "ENDPOINT_KEY",
-    "MAX_OBJECTS_PER_DAY",
+    "MAX_OBJECTS_PER_RUN",
     "MAX_TRACKED_GAMES",
-    "MLB_PREGAME_FLOOR",
     "WATCH_AFTER_KICKOFF",
     "affordability",
     "collect_nfl_live",
