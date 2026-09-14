@@ -22,7 +22,9 @@ quote, both of which some other owner already paid for.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import uuid
+
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -31,7 +33,8 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models import (
     Game, GameStatus, GameTeam, League, Market, MarketOutcome, OddsSnapshot,
-    ShadowExperiment, ShadowForecast, Sportsbook, Team,
+    OfficialAspPosition, PositionResult, PositionStatus, ShadowExperiment,
+    ShadowExperimentDecision, ShadowForecast, Sportsbook, Team,
 )
 from app.services import nfl_paper_policy as policy
 from app.services import nfl_paper_eligibility as eligibility
@@ -129,7 +132,7 @@ def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
     rows = session.execute(
         select(Market.id, Sportsbook.key, OddsSnapshot.source,
                MarketOutcome.outcome_key, OddsSnapshot.observed_at,
-               OddsSnapshot.american_odds)
+               OddsSnapshot.american_odds, MarketOutcome.id, OddsSnapshot.id)
         .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
@@ -140,7 +143,8 @@ def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
     # Newest snapshot per (market, book, provider, side). The query is ordered
     # newest first, so the first one seen for a key is the one that counts.
     latest: dict[tuple, dict[str, Any]] = {}
-    for market_id, book, source, outcome_key, observed_at, american in rows:
+    for (market_id, book, source, outcome_key, observed_at, american,
+         outcome_id, snapshot_id) in rows:
         side = str(outcome_key).split(":")[0].upper()
         if side not in ("HOME", "AWAY") or american is None:
             continue
@@ -148,7 +152,12 @@ def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
         if key in latest:
             continue
         latest[key] = {"observed_at": _aware(observed_at),
-                       "american_odds": int(american)}
+                       "american_odds": int(american),
+                       # Carried so a recorded position points at the exact
+                       # outcome and snapshot it was priced from, rather than
+                       # at a re-derived guess.
+                       "market_outcome_id": outcome_id,
+                       "odds_snapshot_id": snapshot_id}
 
     pairs: list[dict[str, Any]] = []
     seen: set[tuple] = set()
@@ -169,6 +178,10 @@ def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
             "source": source,
             "away_american": away["american_odds"],
             "home_american": home["american_odds"],
+            "away_outcome_id": away["market_outcome_id"],
+            "home_outcome_id": home["market_outcome_id"],
+            "away_snapshot_id": away["odds_snapshot_id"],
+            "home_snapshot_id": home["odds_snapshot_id"],
             "away_observed_at": away["observed_at"].isoformat(),
             "home_observed_at": home["observed_at"].isoformat(),
             # The one that governs freshness, named so a reader can check it.
@@ -179,6 +192,153 @@ def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
         })
     pairs.sort(key=lambda pair: pair["pair_observed_at"], reverse=True)
     return pairs
+
+
+def _jsonable(value: Any) -> Any:
+    """UUIDs and datetimes to strings, recursively. Nothing is dropped."""
+
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+#: The phase this owner writes under. One decision per game per phase, so the
+#: five-minute job firing three times inside a fifteen-minute window records
+#: one decision and one position -- not three.
+PHASE = "FINAL_PREGAME"
+
+
+def existing_decision(
+    session: Session, *, experiment_id: Any, game_id: Any,
+) -> ShadowExperimentDecision | None:
+    return session.scalar(
+        select(ShadowExperimentDecision).where(
+            ShadowExperimentDecision.experiment_id == experiment_id,
+            ShadowExperimentDecision.game_id == game_id,
+            ShadowExperimentDecision.phase == PHASE,
+        ).order_by(ShadowExperimentDecision.recommended_at.desc()).limit(1)
+    )
+
+
+def _exposure(session: Session, experiment: ShadowExperiment,
+              game_id: Any, day: date) -> tuple[float, float]:
+    """Stake already committed on this game, and across this day."""
+
+    rows = session.execute(
+        select(OfficialAspPosition.stake, ShadowExperimentDecision.game_id,
+               ShadowExperimentDecision.slate_date)
+        .join(ShadowExperimentDecision,
+              ShadowExperimentDecision.id == OfficialAspPosition.shadow_decision_id)
+        .where(OfficialAspPosition.shadow_experiment_id == experiment.id,
+               OfficialAspPosition.status == PositionStatus.OPEN)
+    ).all()
+    same_game = sum(float(stake) for stake, gid, _ in rows if gid == game_id)
+    same_day = sum(float(stake) for stake, _, slate in rows if slate == day)
+    return same_game, same_day
+
+
+def record_outcome(
+    session: Session, *, experiment: ShadowExperiment, game_id: Any,
+    decision: dict[str, Any], moment: datetime,
+) -> dict[str, Any]:
+    """Persist the decision, and a position only when one qualifies.
+
+    Every outcome is written, not only the qualifying ones. A checkpoint that
+    persists nothing when it declines leaves a reader unable to tell a declined
+    evaluation from a job that never ran, and those need different responses.
+    """
+
+    prior = existing_decision(session, experiment_id=experiment.id, game_id=game_id)
+    if prior is not None:
+        position = session.scalar(select(OfficialAspPosition).where(
+            OfficialAspPosition.shadow_decision_id == prior.id))
+        return {**decision, "decision_id": str(prior.id),
+                "position_id": str(position.id) if position else None,
+                "persisted": "REUSED_EXISTING_DECISION"}
+
+    best = decision.get("selection") or decision.get("best") or {}
+    qualified = decision["outcome"] == "QUALIFIED"
+    slate_date = moment.astimezone(UTC).date()
+
+    row = ShadowExperimentDecision(
+        experiment_id=experiment.id, game_id=game_id, slate_date=slate_date,
+        phase=PHASE, sport="NFL", market="MONEYLINE", period="full_game",
+        selection=str(best.get("side") or "NONE"),
+        sportsbook=best.get("sportsbook"),
+        american_odds=best.get("american_odds"),
+        decimal_odds=(policy.american_to_decimal(int(best["american_odds"]))
+                      if best.get("american_odds") is not None else None),
+        market_outcome_id=best.get("market_outcome_id"),
+        odds_snapshot_id=best.get("odds_snapshot_id"),
+        quote_observed_at=(datetime.fromisoformat(best["observed_at"])
+                           if best.get("observed_at") else None),
+        shadow_forecast_id=decision.get("shadow_forecast_row_id"),
+        recommended_at=moment,
+        model_probability=best.get("win_probability"),
+        expected_value=best.get("expected_value"),
+        recommendation="QUALIFIED_BET" if qualified else decision["outcome"],
+        recommendation_reason=str(decision.get("detail") or decision["reason"]),
+        qualification_reasons={"reason": decision["reason"],
+                               "outcome": decision["outcome"]},
+        source_mode="LIVE",
+        # JSON-safe: the decision carries UUIDs for the forecast row, the
+        # market outcome and the odds snapshot, and a UUID is not serialisable.
+        # They are stringified rather than dropped, because the evidence blob
+        # is where a reader looks to find exactly what was priced.
+        evidence=_jsonable({k: v for k, v in decision.items()
+                            if k not in ("eligibility",)}),
+    )
+    session.add(row)
+    session.flush()
+
+    position_id = None
+    capped_by = None
+    if qualified:
+        bankroll = float(experiment.starting_bankroll)
+        same_game, same_day = _exposure(session, experiment, game_id, slate_date)
+        raw = float(best["quarter_kelly"]) * bankroll
+        limits = {
+            "quarter_kelly": raw,
+            "position_cap": experiment.max_position_percentage * bankroll,
+            "same_game_cap": max(
+                0.0, experiment.max_same_game_percentage * bankroll - same_game),
+            "daily_cap": max(
+                0.0, experiment.max_daily_percentage * bankroll - same_day),
+        }
+        stake = round(min(limits.values()), 2)
+        capped_by = min(limits, key=limits.get)
+        if stake > 0:
+            position = OfficialAspPosition(
+                shadow_forecast_id=decision.get("shadow_forecast_row_id"),
+                market_outcome_id=best["market_outcome_id"],
+                odds_snapshot_id=best["odds_snapshot_id"],
+                placed_at=moment, stake=stake,
+                decimal_odds=policy.american_to_decimal(int(best["american_odds"])),
+                result=PositionResult.PENDING, status=PositionStatus.OPEN,
+                strategy=experiment.staking_policy_version,
+                shadow_experiment_id=experiment.id, shadow_decision_id=row.id,
+                bankroll_before_position=round(bankroll, 2),
+                recommendation_policy_version=experiment.recommendation_policy_version,
+                staking_policy_version=experiment.staking_policy_version,
+            )
+            session.add(position)
+            session.flush()
+            position_id = str(position.id)
+        else:
+            decision = {**decision, "outcome": "DECLINED",
+                        "reason": "STAKING_OR_EXPOSURE_CAP",
+                        "detail": f"Every cap resolved to zero ({limits})."}
+        decision = {**decision, "staking": {**limits, "stake": stake,
+                                            "bound_by": capped_by}}
+
+    return {**decision, "decision_id": str(row.id), "position_id": position_id,
+            "persisted": "RECORDED"}
 
 
 def evaluate(
@@ -199,7 +359,15 @@ def evaluate(
 
     decisions: list[dict[str, Any]] = []
     for game in due:
-        decisions.append(_decide(session, era, game, moment))
+        outcome = _decide(session, era, game, moment)
+        # Persisted whatever the outcome, then committed: a checkpoint that
+        # evaluated and wrote nothing is indistinguishable from one that never
+        # ran, and only one of those needs someone to look at it.
+        outcome = record_outcome(session, experiment=era,
+                                 game_id=game["game_id"], decision=outcome,
+                                 moment=moment)
+        session.commit()
+        decisions.append(outcome)
     return {
         "records": sum(1 for d in decisions if d["outcome"] == "POSITION_RECORDED"),
         "reason": "CHECKPOINT_EVALUATED",
@@ -219,6 +387,9 @@ def _decide(
     if forecast is None:
         return {**base, "outcome": "BLOCKED", "reason": "NO_FORECAST",
                 "detail": "No NFL_M1_XGBOOST forecast exists for this game."}
+    base = {**base, "forecast_id": forecast.forecast_id,
+            "shadow_forecast_row_id": forecast.id,
+            "forecast_snapshot": f"{forecast.snapshot_type} v{forecast.snapshot_version}"}
 
     # Eligibility first, deliberately. See the module docstring.
     binding = eligibility.check(
@@ -291,6 +462,10 @@ def _decide(
             if best is None or expected > best["expected_value"]:
                 best = {
                     "side": side, "american_odds": american,
+                    "market_outcome_id": pair[f"{side.lower()}_outcome_id"],
+                    "odds_snapshot_id": pair[f"{side.lower()}_snapshot_id"],
+                    "observed_at": (pair["away_observed_at"] if side == "AWAY"
+                                    else pair["home_observed_at"]),
                     "sportsbook": pair["sportsbook"], "source": pair["source"],
                     "provider_classification": pair["provider_classification"],
                     "market_id": pair["market_id"],
@@ -320,9 +495,9 @@ def _decide(
     # Everything passed. Recording the position itself is the next owner's job
     # and is deliberately not done inline here.
     return {**base, "outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED",
-            "forecast_id": forecast.forecast_id, "selection": best,
-            "eligibility": binding}
+            "selection": best, "eligibility": binding}
 
 
-__all__ = ["MAX_QUOTE_AGE_MINUTES", "WINDOW_CLOSES", "WINDOW_OPENS",
-           "evaluate", "games_at_checkpoint", "paired_quotes"]
+__all__ = ["MAX_QUOTE_AGE_MINUTES", "PHASE", "WINDOW_CLOSES", "WINDOW_OPENS",
+           "evaluate", "existing_decision", "games_at_checkpoint",
+           "paired_quotes", "record_outcome"]

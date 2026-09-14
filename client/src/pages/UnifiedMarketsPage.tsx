@@ -40,6 +40,8 @@ import { quoteDescription, resolveQuotedContract } from '../services/marketOrien
 import { availabilityNote, engineShortName } from '../services/forecastSelection'
 import { hasStarted } from '../services/statusStyle'
 import { useSportSelection } from '../hooks/useSportSelection'
+import { usePriceCoverage } from '../hooks/usePriceCoverage'
+import { PriceCoverageNotice } from '../components/markets/PriceCoverageNotice'
 import { apiRequest, endpoints } from '../services/api'
 import {
   ComparisonPlot, PlotLegend, impliedProbability, type PlotMark,
@@ -135,6 +137,9 @@ export function UnifiedMarketsPage() {
   }, [setParams])
   const setView = useCallback((next: View) => setParam('view', next === 'PRICES' ? null : next), [setParam])
   const day = params.get('date') ?? new Date().toISOString().slice(0, 10)
+  // Why each game is or is not priced. One read, no provider call: a page load
+  // must never cost a provider object.
+  const coverage = usePriceCoverage(day)
 
   // Totals and Parlay Watch state. Filters live in the URL for the same reason
   // the replay does: a board someone is looking at should be a link they can
@@ -345,8 +350,17 @@ export function UnifiedMarketsPage() {
         {view === 'PRICES' && sport !== 'NFL' && (
           <Panel eyebrow={`MLB · ${FAMILY_LABEL.MLB[family]}`} title="Baseball prices"
             action={<span className="bx-dim">{mlbRows.length} game{mlbRows.length === 1 ? '' : 's'}</span>}>
+            {/* The reason each game is unpriced, above the rows. An empty
+                board used to say only that nothing matched the filter, which
+                is true and useless: it cannot distinguish a market nobody
+                offered from one AISP never asked for. */}
+            <PriceCoverageNotice coverage={coverage.data} />
             {mlbRows.length === 0
-              ? <p className="bx-empty">No MLB game with persisted evidence matches this date and filter.</p>
+              ? <p className="bx-empty">
+                  {coverage.data && coverage.data.games.length > 0
+                    ? 'No stored price evidence for this slate yet — each game's reason is listed above.'
+                    : 'No MLB game with persisted evidence matches this date and filter.'}
+                </p>
               : <div className="bx-mkt">
                 {mlbRows.map(({ row, books }) => (
                   <MlbMarketRow key={row.game_id} row={row} books={books} family={family}

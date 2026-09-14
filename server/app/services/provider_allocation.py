@@ -294,6 +294,62 @@ def _local_month_spend(session: Session, *, now: datetime) -> int:
     return int(total or 0)
 
 
+#: The league each lane is actually allowed to buy. A row whose own retained
+#: request evidence names a different league was booked to the wrong lane.
+LANE_LEAGUE: dict[str, str] = {
+    "sgo_mlb_events": "MLB",
+    "sgo_nfl_events": "NFL",
+    "sgo_nfl_live": "NFL",
+    "sgo_nfl_periods": "NFL",
+}
+
+
+def _recorded_league(row: ProviderRequestLedger) -> str | None:
+    """The leagueID the request actually carried, from its retained evidence."""
+
+    meta = row.response_metadata or {}
+    filters = ((meta.get("request_shape") or {}).get("filters") or {})
+    league = filters.get("leagueID")
+    return str(league).upper() if league else None
+
+
+def misattributed_rows(
+    session: Session, *, now: datetime,
+) -> list[ProviderRequestLedger]:
+    """Today's rows whose retained evidence contradicts the lane they charge.
+
+    This is not hypothetical. Before the NFL collectors were taught to name
+    their own lane (2026-09-14, commits 60167ee and 8800f26), they called
+    `record_request` without an `endpoint_key` and fell through to its default
+    -- which is the MLB lane. Eighteen NFL objects were therefore booked as MLB
+    pregame spend on the evening of 2026-09-13, and because the budget day is
+    the UTC day, they exhausted the MLB allowance for the whole of 09-14 before
+    that slate had any chance to be priced.
+
+    The collector defect is fixed. The ledger rows are left exactly as written
+    -- they are the record of what was requested, and rewriting them would
+    destroy the evidence this correction depends on. Instead the ATTRIBUTION is
+    corrected here, from the rows' own retained filters.
+    """
+
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = session.scalars(
+        select(ProviderRequestLedger).where(
+            ProviderRequestLedger.provider == PROVIDER,
+            ProviderRequestLedger.status == "SUCCEEDED",
+            ProviderRequestLedger.endpoint_key != USAGE_ENDPOINT_KEY,
+            ProviderRequestLedger.requested_at >= midnight,
+        )
+    ).all()
+    out = []
+    for row in rows:
+        expected = LANE_LEAGUE.get(row.endpoint_key or "")
+        actual = _recorded_league(row)
+        if expected and actual and expected != actual:
+            out.append(row)
+    return out
+
+
 def _lane_usage(session: Session, *, now: datetime) -> dict[str, tuple[int, int]]:
     """Per lane: objects settled today, and objects reserved but not yet settled.
 
@@ -335,8 +391,19 @@ def _lane_usage(session: Session, *, now: datetime) -> dict[str, tuple[int, int]
         .group_by(ProviderRequestLedger.endpoint_key)
     ).all())
 
+    # Subtract spend that its own evidence says belongs to another league. The
+    # objects are still counted against the MONTHLY total -- they were really
+    # bought -- but a lane must not be charged for a request it never made.
+    misbooked: dict[str, int] = {}
+    for row in misattributed_rows(session, now=now):
+        key = row.endpoint_key or ""
+        misbooked[key] = misbooked.get(key, 0) + int(row.records_received or 0)
+
     return {
-        lane.key: (int(settled.get(lane.key, 0)), int(pending.get(lane.key, 0)))
+        lane.key: (
+            max(0, int(settled.get(lane.key, 0)) - misbooked.get(lane.key, 0)),
+            int(pending.get(lane.key, 0)),
+        )
         for lane in LANES
     }
 
@@ -665,6 +732,7 @@ __all__ = [
     "FALLBACK_MONTHLY_CAP",
     "LANES",
     "LANES_BY_KEY",
+    "LANE_LEAGUE",
     "OBJECT_RESERVE",
     "PROVIDER",
     "USAGE_ENDPOINT_KEY",
@@ -676,6 +744,7 @@ __all__ = [
     "build_plan",
     "coverage_forecast",
     "latest_usage_reading",
+    "misattributed_rows",
     "replenishment_date",
     "request_objects",
 ]

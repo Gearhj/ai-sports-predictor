@@ -1619,6 +1619,20 @@ def provider_budget(session: DatabaseSession) -> dict:
     }
 
 
+@router.get("/price-coverage", tags=["markets"])
+def price_coverage_route(session: DatabaseSession, date: str | None = None) -> dict:
+    """Why each MLB game on a slate does or does not have a stored price.
+
+    Reads persisted rows only. Ten blank prices rendered identically teach a
+    reader that the market is missing; these reasons distinguish "no market"
+    from "never requested", which are different problems with different fixes.
+    """
+
+    from app.services.price_coverage import price_coverage
+
+    return price_coverage(session, day=date)
+
+
 @router.get("/scoreboard/coverage", tags=["scoreboard"])
 def scoreboard_coverage(session: DatabaseSession) -> dict:
     """What each sport's score feed actually supplies, stated plainly.
