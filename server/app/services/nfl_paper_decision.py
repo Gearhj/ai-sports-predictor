@@ -106,22 +106,79 @@ def _forecast(session: Session, game_id: Any) -> ShadowForecast | None:
     return None
 
 
-def _best_quote(session: Session, game_id: Any) -> list[dict[str, Any]]:
-    """Every side's freshest stored moneyline, newest first. No provider call."""
+def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
+    """Two-sided moneylines, paired within one provider, book and market.
+
+    THE PAIR IS THE UNIT, NOT THE SIDE
+    ----------------------------------
+    A single side is not a price. Qualification compares a model probability
+    against a market, and a market needs both sides -- from the SAME provider,
+    the SAME book and the SAME market row, so the terms match by construction
+    rather than by assumption. Pairing across books, or across providers, would
+    assemble a "market" that no one was ever offering.
+
+    AND THE OLDER LEG GOVERNS
+    -------------------------
+    Each side carries the BOOK's own `observed_at`, which is the sportsbook's
+    `last_update`, never AISP's retrieval time. Those two legs can be minutes or
+    hours apart, so the pair is exactly as fresh as its staler half. Ageing a
+    pair by its newer leg would let a genuinely stale market pass because one
+    side happened to tick recently.
+    """
 
     rows = session.execute(
-        select(OddsSnapshot.observed_at, Sportsbook.key, MarketOutcome.outcome_key,
-               OddsSnapshot.american_odds, OddsSnapshot.source)
+        select(Market.id, Sportsbook.key, OddsSnapshot.source,
+               MarketOutcome.outcome_key, OddsSnapshot.observed_at,
+               OddsSnapshot.american_odds)
         .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
         .where(Market.game_id == game_id, Market.market_type == "MONEYLINE")
         .order_by(OddsSnapshot.observed_at.desc())
     ).all()
-    return [{
-        "observed_at": _aware(row[0]).isoformat(), "sportsbook": row[1],
-        "side": row[2].split(":")[0], "american_odds": row[3], "source": row[4],
-    } for row in rows]
+
+    # Newest snapshot per (market, book, provider, side). The query is ordered
+    # newest first, so the first one seen for a key is the one that counts.
+    latest: dict[tuple, dict[str, Any]] = {}
+    for market_id, book, source, outcome_key, observed_at, american in rows:
+        side = str(outcome_key).split(":")[0].upper()
+        if side not in ("HOME", "AWAY") or american is None:
+            continue
+        key = (market_id, book, source, side)
+        if key in latest:
+            continue
+        latest[key] = {"observed_at": _aware(observed_at),
+                       "american_odds": int(american)}
+
+    pairs: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
+    for (market_id, book, source, _side) in latest:
+        identity = (market_id, book, source)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        away = latest.get((market_id, book, source, "AWAY"))
+        home = latest.get((market_id, book, source, "HOME"))
+        if away is None or home is None:
+            continue  # one side is not a market
+        older = min(away["observed_at"], home["observed_at"])
+        newer = max(away["observed_at"], home["observed_at"])
+        pairs.append({
+            "market_id": str(market_id),
+            "sportsbook": book,
+            "source": source,
+            "away_american": away["american_odds"],
+            "home_american": home["american_odds"],
+            "away_observed_at": away["observed_at"].isoformat(),
+            "home_observed_at": home["observed_at"].isoformat(),
+            # The one that governs freshness, named so a reader can check it.
+            "pair_observed_at": older.isoformat(),
+            "older_leg": "AWAY" if away["observed_at"] == older else "HOME",
+            "legs_apart_minutes": round(
+                (newer - older).total_seconds() / 60, 1),
+        })
+    pairs.sort(key=lambda pair: pair["pair_observed_at"], reverse=True)
+    return pairs
 
 
 def evaluate(
@@ -173,23 +230,48 @@ def _decide(
                 "forecast_id": forecast.forecast_id,
                 "eligibility": binding}
 
-    quotes = _best_quote(session, game["game_id"])
-    if not quotes:
-        return {**base, "outcome": "DECLINED", "reason": "NO_STORED_QUOTE",
-                "detail": ("No moneyline quote has been captured for this game. "
-                           "This is AISP holding no price, not a sportsbook "
-                           "withholding one."),
+    pairs = paired_quotes(session, game["game_id"])
+    if not pairs:
+        return {**base, "outcome": "DECLINED", "reason": "NO_TWO_SIDED_QUOTE",
+                "detail": ("No moneyline pair is stored for this game from a "
+                           "single provider, book and market. AISP holds no "
+                           "price; this is not a sportsbook withholding one."),
                 "forecast_id": forecast.forecast_id}
 
-    freshest = quotes[0]
-    age_minutes = (moment - datetime.fromisoformat(
-        freshest["observed_at"])).total_seconds() / 60
-    if age_minutes > MAX_QUOTE_AGE_MINUTES:
+    # Provider permission, checked before anything is priced.
+    permitted = []
+    refused_providers: list[str] = []
+    for pair in pairs:
+        rule = policy.PERMITTED_QUOTE_PROVIDERS.get(pair["source"])
+        if rule and rule.get("permitted"):
+            permitted.append({**pair,
+                              "provider_classification": rule["registry_classification"]})
+        else:
+            refused_providers.append(pair["source"])
+    if not permitted:
+        return {**base, "outcome": "DECLINED", "reason": "NO_PERMITTED_PROVIDER",
+                "detail": ("This policy permits no quote provider that has a "
+                           f"stored pair here ({', '.join(sorted(set(refused_providers)))})."),
+                "forecast_id": forecast.forecast_id}
+
+    # Freshness, on the OLDER leg of each pair and on the book's own timestamp.
+    fresh = []
+    stale = []
+    for pair in permitted:
+        age = (moment - datetime.fromisoformat(
+            pair["pair_observed_at"])).total_seconds() / 60
+        entry = {**pair, "pair_age_minutes": round(age, 1)}
+        (fresh if age <= MAX_QUOTE_AGE_MINUTES else stale).append(entry)
+    if not fresh:
+        freshest = min(stale, key=lambda item: item["pair_age_minutes"])
         return {**base, "outcome": "DECLINED", "reason": "QUOTE_TOO_STALE",
-                "detail": (f"The freshest stored quote is {age_minutes / 60:.1f} "
-                           f"hours old, past the {MAX_QUOTE_AGE_MINUTES / 60:.0f}"
-                           "-hour freshness limit."),
-                "quote_age_minutes": round(age_minutes, 1),
+                "detail": (
+                    f"The freshest permitted pair is {freshest['pair_age_minutes'] / 60:.1f} "
+                    f"hours old on its {freshest['older_leg']} leg, past the "
+                    f"{MAX_QUOTE_AGE_MINUTES / 60:.0f}-hour limit. Age is the "
+                    "book's own timestamp on the STALER side, never AISP's "
+                    "retrieval time."),
+                "pairs_considered": stale,
                 "forecast_id": forecast.forecast_id}
 
     p_home = forecast.full_home_win_probability
@@ -197,29 +279,43 @@ def _decide(
     p_tie = max(0.0, 1.0 - (p_home or 0) - (p_away or 0))
 
     best: dict[str, Any] | None = None
-    for quote in quotes:
-        if quote["american_odds"] is None:
-            continue
-        if (moment - datetime.fromisoformat(quote["observed_at"])
-                ).total_seconds() / 60 > MAX_QUOTE_AGE_MINUTES:
-            continue
-        win = p_away if quote["side"] == "AWAY" else p_home
-        market = policy.TiedMarket(
-            win_probability=win or 0.0, tie_probability=p_tie,
-            decimal_odds=policy.american_to_decimal(int(quote["american_odds"])))
-        expected = policy.moneyline_ev(market)
-        if best is None or expected > best["expected_value"]:
-            best = {**quote, "win_probability": win, "tie_probability": p_tie,
+    for pair in fresh:
+        for side, win, american in (
+            ("AWAY", p_away, pair["away_american"]),
+            ("HOME", p_home, pair["home_american"]),
+        ):
+            market = policy.TiedMarket(
+                win_probability=win or 0.0, tie_probability=p_tie,
+                decimal_odds=policy.american_to_decimal(int(american)))
+            expected = policy.moneyline_ev(market)
+            if best is None or expected > best["expected_value"]:
+                best = {
+                    "side": side, "american_odds": american,
+                    "sportsbook": pair["sportsbook"], "source": pair["source"],
+                    "provider_classification": pair["provider_classification"],
+                    "market_id": pair["market_id"],
+                    "pair_observed_at": pair["pair_observed_at"],
+                    "away_observed_at": pair["away_observed_at"],
+                    "home_observed_at": pair["home_observed_at"],
+                    "older_leg": pair["older_leg"],
+                    "pair_age_minutes": pair["pair_age_minutes"],
+                    "opposite_american": (pair["home_american"] if side == "AWAY"
+                                          else pair["away_american"]),
+                    "win_probability": win, "tie_probability": p_tie,
+                    "loss_probability": market.loss_probability,
                     "expected_value": expected,
                     "quarter_kelly": policy.kelly_fraction(market) * policy.KELLY_FRACTION,
                     "stake": policy.proposed_stake(
-                        market, bankroll=float(era.starting_bankroll))}
+                        market, bankroll=float(era.starting_bankroll)),
+                    "settlement": policy.TIE_TREATMENT,
+                }
 
     if best is None or best["expected_value"] < policy.MIN_ADJUSTED_EDGE:
         return {**base, "outcome": "DECLINED", "reason": "NO_QUALIFYING_VALUE",
-                "detail": ("No side cleared the "
+                "detail": ("No side of any fresh permitted pair cleared the "
                            f"{policy.MIN_ADJUSTED_EDGE * 100:.1f}-point minimum."),
-                "best": best, "forecast_id": forecast.forecast_id}
+                "best": best, "pairs_considered": fresh,
+                "forecast_id": forecast.forecast_id}
 
     # Everything passed. Recording the position itself is the next owner's job
     # and is deliberately not done inline here.
@@ -229,4 +325,4 @@ def _decide(
 
 
 __all__ = ["MAX_QUOTE_AGE_MINUTES", "WINDOW_CLOSES", "WINDOW_OPENS",
-           "evaluate", "games_at_checkpoint"]
+           "evaluate", "games_at_checkpoint", "paired_quotes"]
