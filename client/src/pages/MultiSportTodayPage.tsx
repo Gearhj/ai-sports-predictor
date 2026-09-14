@@ -56,6 +56,9 @@ import { useSlateExplanations } from '../hooks/useExplanation'
 import type { DecisionExplanation } from '../types/explain'
 import type { TotalsBoard } from '../types/totals'
 import { useMlbTotals } from '../hooks/useMlbTotals'
+import { useScoreboard } from '../hooks/useScoreboard'
+import { GameScoreboard } from '../components/scoreboard/GameScoreboard'
+import type { GameScoreboard as Scoreboard } from '../types/scoreboard'
 import {
   TotalsOpportunities, collectOpportunities, type TotalsSort,
 } from '../components/markets/TotalsOpportunities'
@@ -325,6 +328,10 @@ export function MultiSportTodayPage() {
     [totals.data, oversOnly],
   )
 
+  // One read for the whole page. Every card below shares it, so eight
+  // opportunities are one request and no card polls anything by itself.
+  const scoreboard = useScoreboard({ day: slateDate })
+
   const explanations = useSlateExplanations(slateDate, true)
   const explanationByGame = useMemo(() => {
     const map = new Map<string, DecisionExplanation>()
@@ -486,7 +493,9 @@ export function MultiSportTodayPage() {
                   <OpportunityRow key={`${selection.league_code}:${selection.event_id}`}
                     rank={index + 1} selection={selection} minimumEdge={minimumEdge}
                     zone={zone} withSport={withSport}
-                    explanation={explanationByGame.get(selection.event_id) ?? null} />
+                    explanation={explanationByGame.get(selection.event_id) ?? null}
+                    scoreboard={scoreboard.games[selection.event_id] ?? null}
+                    onRefreshScore={scoreboard.refresh} />
                 ))}
                 {qualifiedNow.length === 0 && (
                   <p className="bx-dim">
@@ -635,10 +644,14 @@ export function MultiSportTodayPage() {
 
 function OpportunityRow({
   rank, selection, minimumEdge, zone, withSport, explanation,
+  scoreboard, onRefreshScore,
 }: {
   rank: number; selection: NormalizedSelection; minimumEdge: number; zone?: string
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
   explanation?: DecisionExplanation | null
+  /** Observed score for this game, when one has been collected. */
+  scoreboard?: Scoreboard | null
+  onRefreshScore?: () => void
 }) {
   const edge = selection.adjusted_edge
   const qualified = selection.decision_state === 'FINAL_QUALIFIED'
@@ -706,6 +719,25 @@ function OpportunityRow({
           </PrefetchLink>
         )}
       </div>
+      {scoreboard?.available && scoreboard.status !== 'SCHEDULED' && (
+        <div style={{ gridColumn: '1 / -1' }}>
+          <GameScoreboard game={scoreboard} onRefresh={onRefreshScore}>
+            {/* The recorded selection stays beside the live score. A team
+                leading is not a settled wager, and the two lines sitting
+                together is what keeps that visible. */}
+            <p className="scorebd__selection" data-testid="scoreboard-selection">
+              Recorded selection: <b>{selection.selection_label ?? '—'}</b>
+              {' '}{selection.market_label ?? ''}{' '}
+              <b className="bx-num">{american(selection.price_american)}</b>
+              {selection.virtual_stake != null && (
+                <> · stake <b className="bx-num">${selection.virtual_stake.toFixed(2)}</b></>
+              )}
+              <span className="bx-dim"> · progress is provisional until settlement</span>
+            </p>
+          </GameScoreboard>
+        </div>
+      )}
+
       {explanation && (
         <div style={{ gridColumn: '1 / -1' }}>
           <WagerExplanation explanation={explanation} />

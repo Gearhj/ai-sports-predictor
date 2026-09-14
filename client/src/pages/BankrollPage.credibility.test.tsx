@@ -560,6 +560,9 @@ describe('safety', () => {
       '/api/v1/experiment/funnel', '/api/v1/experiment/qualification-funnel',
       // The season-account surface. Both are reads of stored ledger rows.
       '/api/v1/experiment/accounts', '/api/v1/experiment/accounts/:sport',
+      // Observed scores for the games in the ledger. A read of AISP's own
+      // stored observations; it reaches no provider and writes nothing.
+      '/api/v1/scoreboard',
     ].sort())
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
     for (const call of fetchMock.mock.calls) {

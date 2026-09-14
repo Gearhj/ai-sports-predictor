@@ -13,6 +13,8 @@ const sections = [
   { id: 'limitations', label: 'Limitations' },
 ]
 
+import { ScoreCoverage } from '../components/scoreboard/ScoreCoverage'
+
 export function MethodologyPage() {
   const { policy, source, loading } = usePublicPolicy()
   const policySourceLabel = source === 'api' ? 'PUBLIC API POLICY' : 'CONFIGURATION UNAVAILABLE · DESCRIPTIONS ONLY'
@@ -132,8 +134,25 @@ export function MethodologyPage() {
             </div>
           </section>
 
-          <section id="limitations" className="method-section">
+          {/* Where scores come from, and what each feed simply does not
+              publish. The limits belong in the product: "no clock shown" is
+              otherwise indistinguishable from a bug. */}
+          <section id="scores" className="method-section">
             <span className="section-number">08</span>
+            <div>
+              <p className="eyebrow">LIVE SCORES</p>
+              <h2>What the score feeds actually supply</h2>
+              <p>
+                Scores are collected centrally on a fixed cadence and every
+                surface reads the same stored observation. Collection does not
+                depend on a forecast, a price or a qualifying opportunity.
+              </p>
+              <ScoreCoverage />
+            </div>
+          </section>
+
+          <section id="limitations" className="method-section">
+            <span className="section-number">09</span>
             <div>
               <p className="eyebrow">LIMITATIONS</p>
               <h2>What can go wrong</h2>

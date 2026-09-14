@@ -17,7 +17,7 @@ import { useApiResource } from './useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { apiRequest } from '../services/api'
 import type {
-  ParlayTicketCandidate, ParlayWatch, TotalsBoard,
+  ParlayTicketBoard, ParlayTicketCandidate, ParlayWatch, TotalsBoard,
 } from '../types/totals'
 
 export function readMarketFilter(value: string | null): ParlayWatch['market_filter'] {
@@ -90,6 +90,18 @@ export function useParlayWatch({
  * was created or whether the identical ticket already existed; both are success,
  * and the difference is shown rather than hidden.
  */
+/** Every recorded ticket, with its legs and their settlement status. */
+export function useRecordedTickets(enabled: boolean) {
+  const loader = useCallback(async (signal: AbortSignal) => {
+    if (!enabled) return null
+    return apiRequest<ParlayTicketBoard>('/mlb/parlays/tickets', {}, signal)
+  }, [enabled])
+  return useApiResource<ParlayTicketBoard | null>(loader, {
+    key: cacheKey('mlb/parlays/tickets', { enabled }),
+    staleTimeMs: STALE_TIME.operational,
+  })
+}
+
 export function useRecordTicket(onRecorded: () => void) {
   const [recordingKey, setRecordingKey] = useState<string | null>(null)
   const [recordedByKey, setRecorded] = useState<Record<string, string>>({})

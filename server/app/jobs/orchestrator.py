@@ -91,6 +91,9 @@ AVAILABLE_JOBS = {
     "recalculate-performance": "Recalculate Performance",
     "daily-pipeline": "Daily Pipeline",
     "finalize-games": "Refresh Finals, Settle Positions, Recalculate Performance",
+    "refresh-scoreboard": "Refresh Live Scoreboard (MLB)",
+    "collect-nfl-period-breakdowns": "Collect NFL Quarter Breakdowns",
+    "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
     "controlled-live-validation": "Controlled Gate 2 Live Validation",
     "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
     "evaluate-shadow-betting-board": "Evaluate Research-Shadow Betting Board",
@@ -218,6 +221,9 @@ class JobOrchestrator:
             "recalculate-performance": self.recalculate_performance,
             "daily-pipeline": self.daily_pipeline,
             "finalize-games": self.finalize_games,
+            "refresh-scoreboard": self.refresh_scoreboard,
+            "collect-nfl-period-breakdowns": self.collect_nfl_period_breakdowns,
+            "backfill-scoreboard": self.backfill_scoreboard,
             "controlled-live-validation": self.controlled_live_validation,
             "import-model-studio-forecast-bundle": self.import_forecast_bundle,
             "evaluate-shadow-betting-board": self.evaluate_shadow_board,
@@ -1485,6 +1491,49 @@ class JobOrchestrator:
         self._ingestion_run(envelope, archived.raw_file_reference, len(persisted), "refresh-schedule")
         self.session.commit()
         return {"records": len(persisted), "games": len(persisted), "source": envelope.source, "source_mode": mode}
+
+    async def refresh_scoreboard(self, event_date: date) -> dict[str, Any]:
+        """Observed MLB scoreboard state for the slate. Display-only.
+
+        One request against the free MLB Stats API, reading the linescore the
+        schedule call has always hydrated and the DTO has always discarded. It
+        writes nothing to game_state_observations, creates no decision and
+        settles nothing; the governed final ingest and the settlement owner are
+        untouched.
+        """
+
+        from app.scoreboard.collect import collect_mlb_scoreboard, should_run_fast
+
+        if not should_run_fast(self.session, now=datetime.now(UTC)):
+            return {"records": 0, "league": "MLB", "requests": 0,
+                    "reason": "NO_GAME_IN_WATCH_WINDOW"}
+        return await collect_mlb_scoreboard(self.session, event_date=event_date)
+
+    async def collect_nfl_period_breakdowns(self, event_date: date) -> dict[str, Any]:
+        """One budget-governed pass for NFL quarter breakdowns still missing.
+
+        Spends SportsGameOdds event objects, one per completed game, and only
+        for games recent enough to be displayed. Refuses rather than dipping
+        into the allowance reserve, and reports the budget either way.
+        """
+
+        from app.scoreboard.collect import collect_nfl_breakdowns
+
+        return collect_nfl_breakdowns(self.session, self.settings)
+
+    async def backfill_scoreboard(self, event_date: date) -> dict[str, Any]:
+        """Scoreboard state for games that finished before the collector existed.
+
+        Reads the raw archive AISP already wrote -- every schedule response ever
+        fetched, linescore included -- so a completed game's final and innings
+        cost a disk read rather than a request. Retained evidence first is both
+        the cheaper order and the right one.
+        """
+
+        from app.scoreboard.backfill import backfill_mlb_scoreboard
+
+        return backfill_mlb_scoreboard(
+            self.session, raw_root=self.settings.raw_data_root)
 
     async def bridge_mlb_canonical_events(self, event_date: date) -> dict[str, Any]:
         """Register canonical MLB events for today and the next two days.

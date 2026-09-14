@@ -17,6 +17,8 @@ import { useApiResource } from '../../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../../services/queryCache'
 import { apiRequest } from '../../services/api'
 import { WagerExplanation } from './WagerExplanation'
+import { GameScoreboard } from '../scoreboard/GameScoreboard'
+import { useScoreboard } from '../../hooks/useScoreboard'
 import type { DecisionExplanation } from '../../types/explain'
 
 interface SettledExplanations {
@@ -37,6 +39,14 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
     key: cacheKey('research/settled-explanations', { limit }),
     staleTimeMs: STALE_TIME.history,
   })
+  // One read for the whole list. Called before any early return, because hooks
+  // cannot be conditional; an empty id list simply asks for nothing.
+  const rows = Array.isArray(resource.data?.explanations)
+    ? resource.data.explanations : []
+  const board = useScoreboard({
+    gameIds: rows.map((row) => row.game_id).filter(Boolean),
+    enabled: rows.length > 0,
+  })
 
   if (resource.loading && !resource.data) {
     return <p className="muted" role="status">Loading settled wager explanations…</p>
@@ -44,9 +54,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
   // Guard on the array itself, not on the count. A payload that arrives without
   // `explanations` — an older build, a partial response — must render an empty
   // state, not throw and take the whole Historical Research page down with it.
-  const explanations = Array.isArray(resource.data?.explanations)
-    ? resource.data.explanations
-    : []
+  const explanations = rows
   if (explanations.length === 0) {
     return (
       <p className="muted" role="status">
@@ -84,6 +92,14 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
               </span>
               <span className="settled-history__date">{explanation.slate_date}</span>
             </header>
+            {/* The observed final, beside the wager it settled. Shown for a
+                completed wager because "what happened" is the question this
+                surface exists to answer, and the period breakdown is the part
+                a reader most often wants to check. */}
+            <GameScoreboard
+              game={board.games[explanation.game_id] ?? null}
+              onRefresh={board.refresh}
+            />
             {/* Collapsed by default, exactly as on the other two surfaces. */}
             <WagerExplanation explanation={explanation} />
           </article>

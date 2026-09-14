@@ -55,6 +55,7 @@ import { MlbTotalsView } from '../components/markets/MlbTotalsView'
 import { ParlayWatchView } from '../components/markets/ParlayWatchView'
 import {
   readMarketFilter, useMlbTotals, useParlayWatch, useRecordTicket,
+  useRecordedTickets,
 } from '../hooks/useMlbTotals'
 import { conditionalHomeWin } from '../services/broadcastSlate'
 import type {
@@ -151,9 +152,12 @@ export function UnifiedMarketsPage() {
   const parlay = useParlayWatch({
     day, enabled: view === 'PARLAY' && sport !== 'NFL', legCount, marketFilter,
   })
+  // Recorded tickets are fetched only while Parlay Watch is open, and are
+  // re-read after a recording so a new ticket appears without a page reload.
+  const recordedTickets = useRecordedTickets(view === 'PARLAY' && sport !== 'NFL')
   const {
     recordTicket, recordingKey, recordedByKey, recordError,
-  } = useRecordTicket(() => parlay.refresh())
+  } = useRecordTicket(() => { parlay.refresh(); recordedTickets.refresh() })
 
   const loader = useCallback(async (signal: AbortSignal): Promise<MarketsBoard> => {
     const warnings: string[] = []
@@ -398,6 +402,7 @@ export function UnifiedMarketsPage() {
               recordingKey={recordingKey}
               recordedByKey={recordedByKey}
               recordError={recordError}
+              recorded={recordedTickets.data?.tickets ?? []}
             />
           </Panel>
         )}

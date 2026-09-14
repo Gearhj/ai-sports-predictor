@@ -86,5 +86,12 @@ from app.models.parlay import (  # noqa: E402,F401
 from app.models.totals_attachment import (  # noqa: E402,F401
     TotalsIndexAttachment,
 )
+# Observed scoreboard state. Append-only and display-only: separate from
+# game_state_observations so a two-minute presentation refresh never enters the
+# evidence stream the scorer and label gate read.
+from app.models.scoreboard import (  # noqa: E402,F401
+    SCOREBOARD_STATUSES,
+    GameScoreboardObservation,
+)
 
 __all__ = [name for name in globals() if not name.startswith("_")]

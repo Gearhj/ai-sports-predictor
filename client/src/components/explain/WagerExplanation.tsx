@@ -116,7 +116,11 @@ export function WagerExplanation({
    *  wording, so every existing caller is unchanged. */
   whyLabel?: string
 }) {
-  const { why, what_happened: what } = explanation
+  const { why, what_happened: what } = explanation ?? {}
+  // A payload without a `why` is a malformed explanation, not a rendering
+  // error. It must cost the reader this panel and nothing else -- the ledger
+  // row, the game analysis or the history page around it still renders.
+  if (!why || !Array.isArray(why.bullets)) return null
   // A research opportunity must never be labelled as a wager. The default
   // stays "Why this wager?" so the ledger and decision desk are untouched,
   // and the totals listing passes the opportunity wording explicitly.

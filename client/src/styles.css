@@ -3831,3 +3831,140 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .settled-history__result--lost { background: rgba(192,57,43,.14); color: #c0392b; }
 .settled-history__result--pushed,
 .settled-history__result--open { background: rgba(122,134,153,.16); color: var(--muted, #7a8699); }
+
+/* ---- Live scores -------------------------------------------------------
+   These live in the GLOBAL stylesheet, not in broadcast.css, because the
+   scoreboard renders on pages that never load broadcast.css -- game analysis
+   and the experiment ledger among them. A shared component whose styles are
+   only present on some of its hosts is a component that looks broken on the
+   others, and the period table in particular stops scrolling and starts
+   overflowing the page. */
+/* The shared scoreboard. Appears on Daily Decisions, the experiment's
+   positions, parlay legs, game analysis and historical wagers, and looks the
+   same on all of them on purpose: a reader who learns to read it once should
+   not have to learn it again somewhere else.
+
+   The score is the only loud thing. Freshness is quiet when it is fine and
+   coloured only when it is not, because a warning that is always on is a
+   warning nobody reads. */
+.scorebd { display: grid; gap: 5px; }
+.scorebd--absent { font-size: 12px; }
+.scorebd__line {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px;
+}
+.scorebd__score { font-size: 16px; letter-spacing: .01em; white-space: nowrap; }
+.scorebd__score .bx-num { font-variant-numeric: tabular-nums; }
+.scorebd__dash { margin: 0 4px; color: var(--bx-muted, #7a8699); }
+.scorebd__progress { font-size: 12.5px; color: var(--bx-muted, #7a8699); }
+.scorebd__situation { margin: 0; font-size: 11.5px; color: var(--bx-muted, #7a8699); }
+
+.scorebd__fresh {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin: 0; font-size: 11px; line-height: 1.5;
+}
+.scorebd__fresh--ok { color: var(--bx-muted, #7a8699); }
+.scorebd__fresh--warn { color: #8f5a10; }
+.scorebd__fresh--bad { color: #a52b2b; }
+.scorebd__refresh {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; font: inherit; font-size: 10.5px; cursor: pointer;
+  border: 1px solid var(--bx-line, #e3e8ef); border-radius: 999px;
+  background: transparent; color: inherit;
+}
+.scorebd__refresh:hover { background: rgba(16, 32, 58, .05); }
+
+.scorebd__toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0; font: inherit; font-size: 11px; cursor: pointer;
+  border: 0; background: none; color: var(--bx-muted, #7a8699);
+}
+.scorebd__chevron { transition: transform .15s ease; }
+.scorebd__chevron.is-open { transform: rotate(180deg); }
+.scorebd__panel {
+  margin-top: 7px; padding: 8px 10px; border-radius: 9px;
+  border: 1px solid var(--bx-line, #e3e8ef); display: grid; gap: 7px;
+}
+/* Its own scroll container: `.bx-scroll` is defined in broadcast.css, which
+   several of this component's hosts never load, so a fifteen-inning linescore
+   would push the whole page sideways instead of scrolling inside its box. */
+.scorebd__panel .bx-scroll { min-width: 0; overflow-x: auto; }
+.scorebd__periods { border-collapse: collapse; font-size: 11.5px; }
+.scorebd__periods th, .scorebd__periods td {
+  padding: 3px 7px; text-align: right; border-bottom: 1px solid var(--bx-line, #e3e8ef);
+}
+.scorebd__periods thead th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--bx-muted, #7a8699);
+}
+.scorebd__periods tbody th { text-align: left; font-weight: 600; }
+.scorebd__periods .scorebd__unplayed { color: var(--bx-muted, #7a8699); }
+.scorebd__periods .scorebd__total { font-weight: 700; }
+.scorebd__note { margin: 0; font-size: 11px; color: var(--bx-muted, #7a8699); line-height: 1.5; }
+.scorebd__facts { margin: 0; display: grid; gap: 4px; }
+.scorebd__facts dt {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--bx-muted, #7a8699);
+}
+.scorebd__facts dd { margin: 0; font-size: 11.5px; word-break: break-word; }
+
+/* On a phone the score has to survive alone; everything else can wrap under. */
+@media (max-width: 640px) {
+  .scorebd__score { font-size: 15px; }
+  .scorebd__line { gap: 6px; }
+  .scorebd__periods th, .scorebd__periods td { padding: 3px 5px; }
+}
+.scorebd__selection { margin: 0; font-size: 12px; line-height: 1.55; }
+.ledger-score { margin-top: 6px; }
+.ledger-score--detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--bx-line, #e3e8ef); }
+.scorebd__note--flag { color: #8f5a10; }
+
+/* Recorded parlay tickets, each leg beside its own game. A parlay is where
+   "how am I doing" is genuinely hard to read, so the leg status and the score
+   sit together and the ticket's own status sits apart from both. */
+.parlay__recorded-block { margin-bottom: 18px; }
+.parlay__subhead {
+  margin: 0 0 9px; font-size: 13px; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--bx-muted, #7a8699);
+}
+.ticket__list { display: grid; gap: 11px; }
+.ticket {
+  display: grid; gap: 8px; padding: 12px 13px;
+  border: 1px solid var(--bx-line, #e3e8ef); border-radius: 11px;
+}
+.ticket__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ticket__title { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.ticket__chip--research { color: #7a5410; border-color: #edd0a0; background: var(--bx-warn-soft, #fdf4e3); }
+.ticket__result { font-size: 12px; font-weight: 600; margin-left: auto; }
+.ticket__result--win { color: #3d8b5f; }
+.ticket__result--loss { color: #a52b2b; }
+.ticket__result--pending { color: var(--bx-muted, #7a8699); }
+.ticket__price { margin: 0; font-size: 12.5px; }
+.ticket__legs { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+.ticket__leg-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.ticket__leg-status { font-size: 11px; }
+.ticket__leg-note { margin: 4px 0 0; font-size: 11px; color: #8f5a10; }
+.ticket__note { margin: 0; font-size: 11.5px; color: var(--bx-muted, #7a8699); line-height: 1.5; }
+.game-hero__score { margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bx-line, #e3e8ef); }
+
+/* Score coverage: what each feed supplies and what it does not. Written as a
+   plain table of facts rather than a status dashboard -- "not available" here
+   is a property of the source, not an incident. */
+.cov { display: grid; gap: 14px; }
+.cov__note { margin: 0; font-size: 12.5px; color: var(--bx-muted, #7a8699); }
+.cov__sport { padding: 12px 13px; border: 1px solid var(--bx-line, #e3e8ef); border-radius: 11px; }
+.cov__head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.cov__head h3 { margin: 0; font-size: 14px; }
+.cov__grid {
+  margin: 10px 0 0; display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.cov__grid dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--bx-muted, #7a8699); }
+.cov__grid dd { margin: 2px 0 0; font-size: 12.5px; }
+.cov__yes { color: #3d8b5f; }
+.cov__no { color: var(--bx-muted, #7a8699); }
+.cov__cadence, .cov__cost { margin: 8px 0 0; font-size: 11.5px; color: var(--bx-muted, #7a8699); line-height: 1.5; }
+.cov__gaps { margin-top: 9px; font-size: 12px; }
+.cov__gaps summary { cursor: pointer; color: var(--bx-muted, #7a8699); }
+.cov__gaps dl { margin: 8px 0 0; display: grid; gap: 6px; }
+.cov__gaps dt { font-weight: 600; font-size: 11.5px; }
+.cov__gaps dd { margin: 2px 0 0; font-size: 11.5px; color: var(--bx-muted, #7a8699); line-height: 1.5; }

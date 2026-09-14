@@ -22,6 +22,10 @@ import { bankrollFacts, equitySeries, narrative } from '../components/experiment
 import { WagerExplanation } from '../components/explain/WagerExplanation'
 import { usePositionExplanation } from '../hooks/useExplanation'
 
+import { useScoreboard } from '../hooks/useScoreboard'
+import { GameScoreboard } from '../components/scoreboard/GameScoreboard'
+import type { GameScoreboard as Scoreboard } from '../types/scoreboard'
+
 type PositionRow = BankrollData['positions'][number]
 type ExperimentKey = 'v1' | 'v2'
 
@@ -180,14 +184,28 @@ function LedgerExplanation({ positionId, enabled }: { positionId: string; enable
   return <WagerExplanation explanation={resource.data} />
 }
 
-function LedgerRow({ position, demo, expanded, onToggle }: { position: PositionRow; demo: boolean; expanded: boolean; onToggle: () => void }) {
+function LedgerRow({
+  position, demo, expanded, onToggle, scoreboard, onRefreshScore,
+}: {
+  position: PositionRow; demo: boolean; expanded: boolean; onToggle: () => void
+  scoreboard?: Scoreboard | null
+  onRefreshScore?: () => void
+}) {
   const detailId = `ledger-detail-${position.id}`
   return (
     <>
       <tr>
         <td className="ledger-table__seq">{position.settlement_sequence != null ? `#${position.settlement_sequence}` : '—'}</td>
         <td>{position.date}</td>
-        <td>{position.matchup ?? '—'}</td>
+        <td>
+          {position.matchup ?? '—'}
+          {position.result === 'OPEN' && scoreboard?.available
+            && scoreboard.status !== 'SCHEDULED' && (
+            <div className="ledger-score">
+              <GameScoreboard game={scoreboard} compact onRefresh={onRefreshScore} />
+            </div>
+          )}
+        </td>
         <td>
           <Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>
             <strong>{position.selection}</strong>
@@ -228,6 +246,34 @@ function LedgerRow({ position, demo, expanded, onToggle }: { position: PositionR
               <div><dt>Beat the close</dt><dd>{position.beat_close == null ? 'No closing quote recorded' : position.beat_close ? 'Yes' : 'No'}</dd></div>
               <div><dt>Game</dt><dd><Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>{position.game_id}</Link></dd></div>
             </dl>
+            {scoreboard?.available && (
+              <div className="ledger-score ledger-score--detail">
+                <GameScoreboard game={scoreboard} onRefresh={onRefreshScore}>
+                  {/* The observed score and the settlement are different
+                      records. Showing them together is what lets a reader see
+                      when they disagree, instead of trusting whichever one the
+                      page happened to render. */}
+                  <p className="scorebd__selection">
+                    Recorded: <b>{position.selection}</b> {position.market} at{' '}
+                    <b className="bx-num">{formatPrice(position.price)}</b> for{' '}
+                    <b className="bx-num">{formatCurrency(position.stake)}</b>
+                    {' · '}
+                    {position.result === 'OPEN'
+                      ? <span className="bx-dim">not settled — progress is provisional</span>
+                      : <>settled <b>{position.result}</b>
+                          {position.settled_at ? ` at ${position.settled_at}` : ''}</>}
+                  </p>
+                  {position.result !== 'OPEN' && scoreboard.is_final
+                    && !settlementAgrees(position, scoreboard) && (
+                    <p className="scorebd__note scorebd__note--flag" role="note">
+                      The latest observed final does not match the result this
+                      position was settled on. The settlement record is unchanged;
+                      this is flagged rather than reconciled here.
+                    </p>
+                  )}
+                </GameScoreboard>
+              </div>
+            )}
             {/* Why it was taken, and what happened — from the same service
                 Daily Decisions uses, so the rationale does not change once the
                 result is known. */}
@@ -239,8 +285,43 @@ function LedgerRow({ position, demo, expanded, onToggle }: { position: PositionR
   )
 }
 
+/**
+ * Whether the observed final still agrees with what this position was settled
+ * on.
+ *
+ * Deliberately conservative: it reports disagreement ONLY when the observed
+ * final contradicts the recorded result outright. A missing score, an
+ * unfamiliar market or a push is not a disagreement, because the cost of a
+ * false alarm here is a reader doubting a settlement that was correct.
+ */
+function settlementAgrees(position: PositionRow, game: Scoreboard): boolean {
+  if (!game.is_final || game.away_score == null || game.home_score == null) return true
+  if (position.result !== 'WIN' && position.result !== 'LOSS') return true
+  const away = game.teams?.away?.abbreviation
+  const home = game.teams?.home?.abbreviation
+  if (!away || !home || game.away_score === game.home_score) return true
+  const winner = game.away_score > game.home_score ? away : home
+  const selection = position.selection.toUpperCase()
+  // Only a moneyline-shaped selection naming one of the two clubs can be
+  // checked this way. Anything else is left alone.
+  const namesAway = selection.includes(away.toUpperCase())
+  const namesHome = selection.includes(home.toUpperCase())
+  if (namesAway === namesHome) return true
+  const selectedWon = namesAway ? winner === away : winner === home
+  return selectedWon === (position.result === 'WIN')
+}
+
 function PositionLedger({ positions, demo, ariaLabel = 'Complete position ledger' }: { positions: PositionRow[]; demo: boolean; ariaLabel?: string }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // One read for the ledger, shared by every row. Open positions first: those
+  // are the ones a reader is actually following.
+  // Defensive on the prop, not just on the ids: this ledger is rendered from
+  // several payload shapes, and a missing positions array must not take the
+  // whole page down for the sake of a score.
+  const scoreboard = useScoreboard({
+    gameIds: (Array.isArray(positions) ? positions : [])
+      .map((row) => row.game_id).filter(Boolean),
+  })
   // Chronological: the ledger reads oldest → newest so the sequence numbers
   // match the equity curve point-for-point.
   const ordered = useMemo(() => [...positions].sort((a, b) => {
@@ -268,6 +349,8 @@ function PositionLedger({ positions, demo, ariaLabel = 'Complete position ledger
               demo={demo}
               expanded={Boolean(expanded[position.id])}
               onToggle={() => setExpanded((prev) => ({ ...prev, [position.id]: !prev[position.id] }))}
+              scoreboard={scoreboard.games[position.game_id] ?? null}
+              onRefreshScore={scoreboard.refresh}
             />
           )) : (
             <tr><td colSpan={16} className="empty-row">No virtual positions have been frozen. A zero-position day is a valid experiment result.</td></tr>

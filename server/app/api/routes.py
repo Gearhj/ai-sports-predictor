@@ -1484,6 +1484,94 @@ def explain_position(position_id: UUID, session: DatabaseSession) -> dict:
     return payload
 
 
+@router.get("/scoreboard", tags=["scoreboard"])
+def scoreboard(
+    session: DatabaseSession,
+    settings: AppSettings,
+    game_ids: str = Query("", description="Comma-separated canonical game ids"),
+    event_date: date | None = Query(None, alias="date"),
+    league: str | None = Query(None),
+) -> dict:
+    """Observed score, progress and freshness for a set of games.
+
+    One request for a whole page. Every surface -- Daily Decisions, the
+    experiment's positions, a parlay ticket's legs, game analysis, a historical
+    wager -- reads this, so none of them can drift into a more confident story
+    than the evidence supports.
+
+    It reads stored observations only. No provider is called here however often
+    the page is refreshed; collection is the supervised job's job.
+    """
+
+    from uuid import UUID
+
+    from app.models import Game, League
+    from app.scoreboard.read_service import SCHEMA_VERSION, scoreboard_for
+
+    requested: list[UUID] = []
+    for token in (game_ids or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            requested.append(UUID(token))
+        except ValueError:
+            # A malformed id is skipped rather than failing the page: one bad
+            # token must not cost a reader every other score on the screen.
+            continue
+
+    if not requested:
+        day = _today(event_date, settings)
+        query = (
+            select(Game.id)
+            .join(League, League.id == Game.league_id)
+            .where(func.date(Game.starts_at) == day)
+        )
+        if league:
+            query = query.where(League.code == league.upper())
+        requested = list(session.scalars(query).all())
+
+    games = scoreboard_for(session, requested)
+    live = sum(1 for row in games.values() if row.get("is_live"))
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "games": games,
+        "requested": len(requested),
+        "available": sum(1 for row in games.values() if row.get("available")),
+        "live": live,
+        # What the client may do on its own. The cooldown is the shared one:
+        # a refresh button and an auto-refresh tick obey the same floor, and
+        # neither reaches a provider.
+        "refresh": {
+            "source": "AISP_CACHE",
+            "auto_refresh_seconds": 30 if live else 120,
+            "manual_cooldown_seconds": 15,
+            "provider_calls_on_refresh": 0,
+            "collection_cadence": {
+                "MLB": "every 2 minutes while a game is in its watch window",
+                "NFL": (
+                    "final score hourly from the free schedules release; "
+                    "quarter breakdown once per completed game"
+                ),
+            },
+        },
+    }
+
+
+@router.get("/scoreboard/coverage", tags=["scoreboard"])
+def scoreboard_coverage(session: DatabaseSession) -> dict:
+    """What each sport's score feed actually supplies, stated plainly.
+
+    Exists so the limits are visible in the product rather than living only in a
+    report: which fields arrive, how often, and what is simply not available.
+    """
+
+    from app.scoreboard.coverage import coverage_report
+
+    return coverage_report(session)
+
+
 @router.get("/explanations/slate", tags=["transparency"])
 def explain_slate(
     session: DatabaseSession,

@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { Link, Navigate, useParams, useSearchParams} from 'react-router-dom'
+import { useScoreboard } from '../hooks/useScoreboard'
+import { GameScoreboard } from '../components/scoreboard/GameScoreboard'
 import { MarketPulsePanel } from '../components/MarketPulsePanel'
 import { ArrowLeft, CheckCircle2, CloudSun, Database, Info, MapPin, ShieldCheck, Sparkles, ArrowRight} from 'lucide-react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
@@ -46,6 +48,10 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
     ? { demoData }
     : { key: cacheKey('game/analysis', { gameId, horizon: searchParams.get('as_of') }), staleTimeMs: STALE_TIME.game })
   const { policy } = usePublicPolicy()
+  // Before the early returns: hooks cannot be conditional, and the demo path
+  // has no observed score to read.
+  const board = useScoreboard({ gameIds: [gameId], enabled: !demo })
+  const scoreboard = board.games[gameId] ?? null
   const missingLiveGame = !demo && Boolean(error?.toLowerCase().includes('not found'))
   if (!data || state === 'empty' || state === 'unavailable' || state === 'loading') {
     const missingDemo = demo && !demoData
@@ -150,6 +156,15 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
           <span><MapPin size={13} /> {game.venue}</span>
           <span><CloudSun size={14} /> {weatherSummary}</span>
         </header>
+        {/* The observed score sits ABOVE the projection, and the projection
+            stays where it was. A reader looking at a game in progress wants
+            the score; they still need to see what was forecast beforehand, so
+            neither replaces the other. */}
+        {scoreboard?.available && scoreboard.status !== 'SCHEDULED' && (
+          <div className="game-hero__score">
+            <GameScoreboard game={scoreboard} onRefresh={board.refresh} />
+          </div>
+        )}
         <div className="game-hero__matchup">
           <TeamHero team={game.away_team} pitcher={game.away_pitcher} side="Away" />
           <div className="game-hero__forecast">

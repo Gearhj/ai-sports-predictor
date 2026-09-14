@@ -520,6 +520,38 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "finalize-games", "settings": settings},
         **common,
     )
+    # Near-live scoreboard. Two minutes is the fastest cadence the free MLB
+    # Stats API sustains comfortably and it costs no metered allowance: one
+    # request covers the whole slate. The job asks a local question first and
+    # returns immediately when nothing is in its watch window, so an empty
+    # overnight slate is not seven hundred pointless requests.
+    #
+    # Display-only. It writes to game_scoreboard_observations and nowhere else,
+    # so it cannot touch a final, a settlement, a stake or a bankroll.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=2,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=30),
+        id="asp-scoreboard-refresh",
+        kwargs={"job_name": "refresh-scoreboard", "settings": settings},
+        **common,
+    )
+    # NFL quarter breakdowns, one SportsGameOdds object per completed game.
+    # Hourly is far more often than it needs to be and costs nothing on the runs
+    # where every recent game already has its breakdown -- which is most of
+    # them. The budget guard, not this interval, is what bounds the spend.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=60,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=6),
+        id="asp-nfl-period-breakdowns",
+        kwargs={"job_name": "collect-nfl-period-breakdowns", "settings": settings},
+        **common,
+    )
     if settings.odds_polling_enabled:
         scheduler.add_job(
             execute_scheduled_job,

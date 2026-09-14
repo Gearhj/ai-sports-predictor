@@ -20,6 +20,8 @@
  */
 import { useState } from 'react'
 import { AlertTriangle, Check, Info, Trophy, Zap } from 'lucide-react'
+import { RecordedTickets } from './RecordedTickets'
+import type { RecordedParlayTicket } from '../../types/totals'
 import type {
   ParlayTicketCandidate, ParlayWatch,
 } from '../../types/totals'
@@ -166,9 +168,11 @@ function TicketCard({
 
 export function ParlayWatchView({
   watch, legCount, onLegCount, marketFilter, onMarketFilter, onRecord,
-  recordingKey, recordedByKey, recordError,
+  recordingKey, recordedByKey, recordError, recorded,
 }: {
   watch: ParlayWatch | null
+  /** Tickets already recorded, each leg shown beside its game's score. */
+  recorded?: RecordedParlayTicket[]
   legCount: 2 | 3
   onLegCount: (next: 2 | 3) => void
   marketFilter: ParlayWatch['market_filter']
@@ -187,6 +191,14 @@ export function ParlayWatchView({
 
   return (
     <section className="parlay" data-testid="parlay-watch">
+      {/* Recorded tickets first: a reader who already has one is here to
+          follow it, not to look for another. */}
+      {recorded !== undefined && (
+        <div className="parlay__recorded-block">
+          <h3 className="parlay__subhead">Recorded tickets</h3>
+          <RecordedTickets tickets={recorded} />
+        </div>
+      )}
       <div className="parlay__controls">
         <div className="parlay__legs-toggle" role="group" aria-label="Legs per ticket">
           {[2, 3].map((count) => (
