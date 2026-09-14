@@ -55,8 +55,63 @@ PROVIDER = "SPORTSGAMEODDS"
 #: carries the authoritative remaining balance.
 USAGE_ENDPOINT_KEY = "sgo_account_usage"
 
-#: Never spent, whatever the plan says. Unchanged from the previous budget.
-OBJECT_RESERVE = 400
+#: Never spent, whatever the plan says.
+#:
+#: A SCHEDULE, not a constant. The owner reduced it to 300 for the remainder of
+#: September 2026 to fund price coverage, and it returns to 400 at the October
+#: monthly reset automatically -- so the temporary relaxation expires on its own
+#: rather than depending on someone remembering to put it back. A reserve that
+#: has to be manually restored is a reserve that eventually is not.
+DEFAULT_OBJECT_RESERVE = 400
+RESERVE_SCHEDULE: tuple[dict[str, Any], ...] = (
+    {
+        "from_service_date": "2026-09-14",
+        "until_service_date": "2026-09-30",
+        "reserve": 300,
+        "authority": "project owner, 2026-09-14",
+        "reason": (
+            "Bounded owner-directed reduction from 400 to fund MLB price "
+            "coverage for the remainder of September 2026. Restores to 400 on "
+            "the October monthly reset without further action."
+        ),
+    },
+)
+
+
+def reserve_for(day: date) -> int:
+    """The protected reserve in force on one Eastern service day."""
+
+    for entry in RESERVE_SCHEDULE:
+        start = date.fromisoformat(entry["from_service_date"])
+        end = date.fromisoformat(entry["until_service_date"])
+        if start <= day <= end:
+            return int(entry["reserve"])
+    return DEFAULT_OBJECT_RESERVE
+
+
+def reserve_note(day: date) -> dict[str, Any]:
+    """The reserve and why it is what it is, for a receipt."""
+
+    for entry in RESERVE_SCHEDULE:
+        start = date.fromisoformat(entry["from_service_date"])
+        end = date.fromisoformat(entry["until_service_date"])
+        if start <= day <= end:
+            return {"reserve": int(entry["reserve"]), "scheduled": True,
+                    "restores_to": DEFAULT_OBJECT_RESERVE,
+                    "restores_on": "2026-10-01 (monthly reset)",
+                    "authority": entry["authority"], "reason": entry["reason"]}
+    return {"reserve": DEFAULT_OBJECT_RESERVE, "scheduled": False,
+            "authority": "standing", "reason": "The standing protected reserve."}
+
+
+#: Kept as a name for callers that still import it. Reads the schedule for
+#: today rather than pretending the reserve never changes.
+def _today_reserve() -> int:
+    from app.services.service_day import service_date
+    return reserve_for(service_date())
+
+
+OBJECT_RESERVE = DEFAULT_OBJECT_RESERVE
 
 #: The published amateur-tier monthly entity cap. Used only when the provider's
 #: own reading is unavailable; the reading itself is preferred every time.
@@ -332,7 +387,9 @@ def misattributed_rows(
     corrected here, from the rows' own retained filters.
     """
 
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    from app.services.service_day import service_day_start
+
+    midnight = service_day_start(now)
     rows = session.scalars(
         select(ProviderRequestLedger).where(
             ProviderRequestLedger.provider == PROVIDER,
@@ -359,7 +416,12 @@ def _lane_usage(session: Session, *, now: datetime) -> dict[str, tuple[int, int]
     cannot both claim the last object.
     """
 
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # The EASTERN service day, not the UTC day. An NFL request at 22:00 ET
+    # belongs to that evening's budget, not to the next morning's slate --
+    # which is precisely the confusion that cost 2026-09-14 its MLB prices.
+    from app.services.service_day import service_day_start
+
+    midnight = service_day_start(now)
 
     settled = dict(session.execute(
         select(
@@ -408,11 +470,90 @@ def _lane_usage(session: Session, *, now: datetime) -> dict[str, tuple[int, int]
     }
 
 
-def build_plan(session: Session, *, now: datetime | None = None) -> Plan:
-    """The current allocation, from the provider's own balance where possible."""
+def daily_snapshot(session: Session, *, now: datetime | None = None):
+    """This Eastern service day's allocation, computed once and then held.
+
+    THE BEHAVIOUR THIS REPLACES
+    ---------------------------
+    The allowance used to be recomputed from the remaining balance on every
+    read, so spending inside a day lowered that same day's allowance underneath
+    itself -- a lane told it had eight objects could draw only seven. An
+    allowance that shrinks as it is used cannot be planned against.
+
+    So the day's capacity is fixed at its first calculation, from the
+    provider's actual balance at that moment, and reconciled against
+    afterwards rather than reduced. Tomorrow reads tomorrow's balance, so a
+    heavy day still costs the next one -- which is the part that should carry.
+
+    The hard remaining balance and the reserve are enforced separately on every
+    grant, so a stale snapshot can never authorise a spend the account cannot
+    fund.
+    """
+
+    from app.models import ProviderAllocationSnapshot
+    from app.services.allocation_demand import measure
+    from app.services.service_day import ALLOCATION_DAY_SEMANTICS, service_date
 
     moment = now or datetime.now(UTC)
-    warnings: list[str] = []
+    day = service_date(moment)
+
+    existing = session.scalar(select(ProviderAllocationSnapshot).where(
+        ProviderAllocationSnapshot.provider == PROVIDER,
+        ProviderAllocationSnapshot.service_date == day))
+    if existing is not None:
+        return existing
+
+    cap, used, source, read_at = _provider_balance(session, moment)
+    reserve = reserve_for(day)
+    replenishes = replenishment_date(moment)
+    days_remaining = max(1, (replenishes - moment.date()).days)
+    spendable = max(0, cap - used - reserve)
+    daily_total = spendable // days_remaining
+
+    demand = measure(session, now=moment)
+    lanes = _demand_aware_split(daily_total, demand)
+
+    snapshot = ProviderAllocationSnapshot(
+        provider=PROVIDER, service_date=day,
+        semantics=ALLOCATION_DAY_SEMANTICS,
+        monthly_cap=cap, used_this_month=used, remaining=max(0, cap - used),
+        balance_source=source, balance_read_at=read_at,
+        reserve=reserve, days_remaining=days_remaining,
+        daily_total=daily_total, lanes=lanes, demand=demand, taken_at=moment)
+    session.add(snapshot)
+    try:
+        session.flush()
+    except Exception:  # noqa: BLE001 - another worker won the race; use theirs
+        session.rollback()
+        return session.scalar(select(ProviderAllocationSnapshot).where(
+            ProviderAllocationSnapshot.provider == PROVIDER,
+            ProviderAllocationSnapshot.service_date == day))
+    return snapshot
+
+
+def _demand_aware_split(daily_total: int, demand: dict[str, Any]) -> dict[str, int]:
+    """Reserved NFL objects first, then every remaining object to MLB.
+
+    Reservations come off the top because they are specific: one object for one
+    named game with a decision to make. What is left is price coverage, which
+    is the lane that can always use more and is never harmed by being last in
+    an order it would otherwise dominate.
+    """
+
+    reservations = dict(demand.get("reservations") or {})
+    out = {lane.key: 0 for lane in LANES}
+    budget = max(0, int(daily_total))
+    for key in ("sgo_nfl_events", "sgo_nfl_live", "sgo_nfl_periods"):
+        want = max(0, int(reservations.get(key, 0)))
+        take = min(want, budget)
+        out[key] = take
+        budget -= take
+    out["sgo_mlb_events"] = budget
+    return out
+
+
+def _provider_balance(session: Session, moment: datetime):
+    """The provider's own cap and usage, plus anything spent since the reading."""
 
     reading = latest_usage_reading(session)
     meta = dict((reading.response_metadata or {}) if reading else {})
@@ -421,64 +562,78 @@ def build_plan(session: Session, *, now: datetime | None = None) -> Plan:
     used = int(usage.get("used_this_month") or 0)
     source = "PROVIDER_ACCOUNT_USAGE"
     read_at = reading.requested_at if reading else None
-
     if not cap:
-        cap, used = FALLBACK_MONTHLY_CAP, _local_month_spend(session, now=moment)
-        source = "LOCAL_LEDGER_COUNT"
-        warnings.append(
-            "No provider usage reading is recorded, so the balance is AISP's own "
-            "count against the published cap. It cannot see a spend made "
-            "elsewhere."
-        )
-    else:
-        # The provider's reading is a point in time; add what AISP has spent
-        # since, or a heavy hour would be invisible until the next read.
-        since = session.scalar(
-            select(func.coalesce(func.sum(ProviderRequestLedger.records_received), 0))
-            .where(
-                ProviderRequestLedger.provider == PROVIDER,
-                ProviderRequestLedger.status == "SUCCEEDED",
-                ProviderRequestLedger.endpoint_key != USAGE_ENDPOINT_KEY,
-                ProviderRequestLedger.requested_at > reading.requested_at,
-            )
-        )
-        used += int(since or 0)
-        if read_at is not None:
-            aware = read_at if read_at.tzinfo else read_at.replace(tzinfo=UTC)
-            if moment - aware > timedelta(hours=6):
-                warnings.append(
-                    f"The provider balance was last read {aware.isoformat()}; a "
-                    "spend made outside AISP since then is not reflected."
-                )
+        return (FALLBACK_MONTHLY_CAP, _local_month_spend(session, now=moment),
+                "LOCAL_LEDGER_COUNT", None)
+    since = session.scalar(
+        select(func.coalesce(func.sum(ProviderRequestLedger.records_received), 0))
+        .where(
+            ProviderRequestLedger.provider == PROVIDER,
+            ProviderRequestLedger.status == "SUCCEEDED",
+            ProviderRequestLedger.endpoint_key != USAGE_ENDPOINT_KEY,
+            ProviderRequestLedger.requested_at > reading.requested_at,
+        ))
+    return cap, used + int(since or 0), source, read_at
 
-    replenishes = replenishment_date(moment)
-    days_remaining = max(1, (replenishes - moment.date()).days)
-    spendable = max(0, cap - used - OBJECT_RESERVE)
-    daily_total = spendable // days_remaining
+
+def build_plan(session: Session, *, now: datetime | None = None) -> Plan:
+    """This service day's ISSUED allocation, plus what has been spent against it.
+
+    The allowances come from the day's snapshot and do not move as objects are
+    consumed. Only `spent_today` and `room` move, which is what a reader
+    actually needs: how much of a fixed allowance is left, not a fixed-looking
+    number that is quietly falling.
+    """
+
+    moment = now or datetime.now(UTC)
+    warnings: list[str] = []
+
+    snapshot = daily_snapshot(session, now=moment)
+    cap = int(snapshot.monthly_cap)
+    reserve = int(snapshot.reserve)
+    issued = dict(snapshot.lanes or {})
+
+    if snapshot.balance_source == "LOCAL_LEDGER_COUNT":
+        warnings.append(
+            "No provider usage reading was recorded when this day's allocation "
+            "was taken, so its balance is AISP's own count against the "
+            "published cap. It cannot see a spend made elsewhere.")
+
+    # The LIVE balance, enforced on every grant regardless of the snapshot. A
+    # fixed allowance must never outlive the money behind it.
+    live_cap, live_used, live_source, live_read_at = _provider_balance(session, moment)
+    if live_read_at is not None:
+        aware = _aware_dt(live_read_at)
+        if moment - aware > timedelta(hours=6):
+            warnings.append(
+                f"The provider balance was last read {aware.isoformat()}; a "
+                "spend made outside AISP since then is not reflected.")
 
     lane_usage = _lane_usage(session, now=moment)
-    allowances = apportion(daily_total)
     allocations: dict[str, Allocation] = {}
     for lane in LANES:
         spent, flight = lane_usage.get(lane.key, (0, 0))
         allocations[lane.key] = Allocation(
-            lane=lane, daily_allowance=allowances.get(lane.key, 0),
-            spent_today=spent, in_flight=flight,
-        )
+            lane=lane, daily_allowance=int(issued.get(lane.key, 0)),
+            spent_today=spent, in_flight=flight)
 
-    if daily_total == 0:
+    if int(snapshot.daily_total) == 0:
         warnings.append(
-            f"{spendable} objects are spendable across {days_remaining} days, "
-            "so no lane has a whole object a day. Collection is paused until the "
-            f"balance replenishes on {replenishes.isoformat()}."
-        )
+            f"{max(0, live_cap - live_used - reserve)} objects are spendable "
+            f"across {snapshot.days_remaining} days, so no lane has a whole "
+            "object a day. Collection is paused until the balance replenishes "
+            f"on {snapshot.replenishes_on if hasattr(snapshot, 'replenishes_on') else replenishment_date(moment).isoformat()}.")
 
     return Plan(
-        monthly_cap=cap, used_this_month=used, reserve=OBJECT_RESERVE,
-        replenishes_on=replenishes, days_remaining=days_remaining,
-        daily_total=daily_total, allocations=allocations,
-        source=source, read_at=read_at, warnings=warnings,
-    )
+        monthly_cap=live_cap, used_this_month=live_used, reserve=reserve,
+        replenishes_on=replenishment_date(moment),
+        days_remaining=int(snapshot.days_remaining),
+        daily_total=int(snapshot.daily_total), allocations=allocations,
+        source=live_source, read_at=live_read_at, warnings=warnings)
+
+
+def _aware_dt(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True)

@@ -91,40 +91,65 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
-def _pairs(session: Session, game_id: Any) -> list[dict[str, Any]]:
-    """Complete same-provider, same-book, same-market two-sided quotes."""
+def _pairs(session: Session, game_id: Any,
+           market_type: str = "MONEYLINE") -> list[dict[str, Any]]:
+    """Complete same-provider, same-book, same-market two-sided quotes.
+
+    SIDES ARE NOT ALWAYS CALLED HOME AND AWAY
+    -----------------------------------------
+    The NFL path writes `HOME:` / `AWAY:` outcome keys; the MLB path writes the
+    team name (`cleveland guardians:None`) and totals write `over:7.0` /
+    `under:7.0`. An earlier version of this function assumed the NFL shape and
+    therefore reported fifty stored snapshots -- seven games fully priced
+    across nine books -- as INCOMPLETE_TWO_SIDED_QUOTE. Reporting real prices
+    as missing is a worse failure than reporting nothing.
+
+    So a pair is simply TWO DISTINCT sides of one market at one book from one
+    provider, whatever those sides are called, and the market row itself is what
+    guarantees the terms match.
+    """
 
     rows = session.execute(
         select(Market.id, Sportsbook.key, OddsSnapshot.source,
                MarketOutcome.outcome_key, OddsSnapshot.observed_at,
-               OddsSnapshot.american_odds)
+               OddsSnapshot.american_odds, OddsSnapshot.point)
         .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
-        .where(Market.game_id == game_id, Market.market_type == "MONEYLINE")
+        .where(Market.game_id == game_id, Market.market_type == market_type)
         .order_by(OddsSnapshot.observed_at.desc())
     ).all()
 
+    # Newest snapshot per (market, book, provider, side).
     latest: dict[tuple, dict[str, Any]] = {}
-    for market_id, book, source, outcome_key, observed_at, american in rows:
-        side = str(outcome_key).split(":")[0].upper()
-        if side not in ("HOME", "AWAY") or american is None:
+    for market_id, book, source, outcome_key, observed_at, american, point in rows:
+        if american is None:
             continue
-        latest.setdefault((market_id, book, source, side), {
-            "observed_at": _aware(observed_at), "american": int(american)})
+        latest.setdefault((market_id, book, source, str(outcome_key)), {
+            "observed_at": _aware(observed_at), "american": int(american),
+            "point": float(point) if point is not None else None,
+            "side": str(outcome_key).split(":")[0]})
+
+    grouped: dict[tuple, list[dict[str, Any]]] = {}
+    for (market_id, book, source, _key), value in latest.items():
+        grouped.setdefault((market_id, book, source), []).append(value)
 
     out: list[dict[str, Any]] = []
-    for (market_id, book, source, _side) in set(latest):
-        away = latest.get((market_id, book, source, "AWAY"))
-        home = latest.get((market_id, book, source, "HOME"))
-        if away is None or home is None:
-            continue
-        older = min(away["observed_at"], home["observed_at"])
-        out.append({"sportsbook": book, "source": source,
-                    "away_american": away["american"],
-                    "home_american": home["american"],
-                    # The staler side governs; the fresher one never rescues it.
-                    "pair_observed_at": older.isoformat()})
+    for (_market_id, book, source), sides in grouped.items():
+        if len(sides) < 2:
+            continue  # one side is not a market
+        sides.sort(key=lambda item: item["side"])
+        older = min(side["observed_at"] for side in sides)
+        out.append({
+            "sportsbook": book, "source": source,
+            "market_type": market_type,
+            "sides": [{"side": side["side"], "american": side["american"],
+                       "point": side["point"],
+                       "observed_at": side["observed_at"].isoformat()}
+                      for side in sides[:2]],
+            # The staler side governs; the fresher one never rescues it.
+            "pair_observed_at": older.isoformat(),
+        })
     return out
 
 
@@ -149,6 +174,63 @@ def _lane_state(session: Session, now: datetime) -> dict[str, Any]:
             int(row.records_received or 0) for row in misbooked),
         "misattributed_requests_today": len(misbooked),
     }
+
+
+FORECAST_PRESENT = "FORECAST_PRESENT"
+FORECAST_NOT_PUBLISHED = "FORECAST_NOT_YET_PUBLISHED"
+FORECAST_AWAITING_IMPORT = "FORECAST_AWAITING_IMPORT"
+FORECAST_CUTOFF_PASSED = "FORECAST_CUTOFF_PASSED_UNSUPPORTED"
+
+#: Where the producer publishes MLB V18 packages. Read-only. Publishing is the
+#: producer's act, and AISP never infers it from its own absence of data.
+V18_EXCHANGE_ROOT = "C:/Users/james/asp-model-exchange/mlb-v18-current"
+
+#: The controlling MLB engine. Only this counts as a controlling forecast.
+V18_ENGINE_ID = "MLB_V18_WHOLE_GAME"
+
+
+def _forecast_state(session, game_id, starts, moment, published: bool) -> str:
+    """Whether a controlling V18 forecast exists, and if not, why not.
+
+    Kept strictly apart from the price state. Prices and forecasts fail for
+    unrelated reasons, and a reader who cannot tell the two apart will spend
+    the evening chasing the wrong one.
+    """
+
+    from app.models import ShadowForecast
+
+    # Scoped to the CONTROLLING engine. Counting any forecast row would let a
+    # Gen 1 forecast be reported as the controlling V18 one, which is a
+    # substitution even though nothing was written -- a reader would act on it
+    # exactly as if V18 had published.
+    has = session.scalar(select(func.count(ShadowForecast.id)).where(
+        ShadowForecast.canonical_game_id == game_id,
+        ShadowForecast.engine_id == V18_ENGINE_ID))
+    if has:
+        return FORECAST_PRESENT
+    if not published:
+        return FORECAST_NOT_PUBLISHED
+    if starts <= moment:
+        return FORECAST_CUTOFF_PASSED
+    return FORECAST_AWAITING_IMPORT
+
+
+def _v18_package_published(day) -> bool:
+    """Whether the producer published a V18 package naming this service date."""
+
+    import pathlib as _pathlib
+
+    root = _pathlib.Path(V18_EXCHANGE_ROOT)
+    if not root.exists():
+        return False
+    stamp = day.isoformat()
+    for path in root.rglob("*.json"):
+        try:
+            if stamp in path.read_text(encoding="utf-8", errors="ignore")[:4000]:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def price_coverage(
@@ -178,6 +260,7 @@ def price_coverage(
         .order_by(Game.starts_at)
     ).all()
 
+    v18_published = _v18_package_published(window.day)
     games: list[dict[str, Any]] = []
     for game_id, starts_at, status in rows:
         starts = _aware(starts_at)
@@ -185,7 +268,9 @@ def price_coverage(
             select(GameTeam.is_home, Team.abbreviation)
             .join(Team, Team.id == GameTeam.team_id)
             .where(GameTeam.game_id == game_id)).all())
-        pairs = _pairs(session, game_id)
+        pairs = _pairs(session, game_id, "MONEYLINE")
+        totals = _pairs(session, game_id, "TOTAL")
+        spreads = _pairs(session, game_id, "SPREAD")
         any_snapshot = session.scalar(
             select(func.count(OddsSnapshot.id))
             .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
@@ -213,10 +298,14 @@ def price_coverage(
 
         games.append({
             "game_id": str(game_id),
+            "forecast_state": _forecast_state(
+                session, game_id, starts, moment, v18_published),
             "teams": {"away": sides.get(False), "home": sides.get(True)},
             "starts_at": starts.isoformat(),
             "game_status": str(status),
             "pairs": pairs,
+            "market_pairs": {"moneyline": len(pairs), "total": len(totals),
+                             "run_line": len(spreads)},
             "fresh_pairs": len(fresh),
             "stored_snapshots": int(any_snapshot or 0),
             "reason": reason,
@@ -239,8 +328,23 @@ def price_coverage(
         "lane": lane,
         "summary": {
             "games": len(games),
-            "with_stored_prices": priced,
+            "with_any_stored_price": sum(
+                1 for g in games if g["stored_snapshots"] > 0),
+            "with_decision_fresh_pair": priced,
+            "scheduled_for_collection": sum(
+                1 for g in games if g["reason"] == WINDOW_NOT_OPEN),
+            "excluded_by_capacity": sum(
+                1 for g in games
+                if g["reason"] in (ALLOCATION_EXHAUSTED, NOT_SELECTED)),
+            # Reported beside the prices, never merged with them: a game can
+            # have a price and no forecast, or a forecast and no price, and
+            # those need different people to do different things.
+            "with_controlling_forecast": sum(
+                1 for g in games if g["forecast_state"] == FORECAST_PRESENT),
             "without_prices": len(games) - priced,
+            "next_collection_at": min(
+                (g["window_opens_at"] for g in games
+                 if g["reason"] == WINDOW_NOT_OPEN), default=None),
             "headline": _headline(len(games), priced, lane),
         },
         "games": games,
@@ -248,23 +352,25 @@ def price_coverage(
 
 
 def _headline(total: int, priced: int, lane: dict[str, Any]) -> str:
-    """One line a reader can act on, naming the lane's actual state."""
+    """One line a reader can act on, describing the state as it is now.
 
-    parts = [f"{total} MLB games", f"{priced} with stored prices"]
+    Deliberately not the investigation banner it replaces. That headline was
+    true while the lane was mis-charged and became misleading the moment the
+    attribution was repaired: a stale alarm trains a reader to ignore alarms.
+    """
+
+    parts = [f"{total} MLB games", f"{priced} with decision-fresh prices"]
+    if lane["failures_today"]:
+        parts.append(f"{lane['failures_today']} collector failure(s) today")
+    parts.append(
+        f"lane {lane['spent_today']}/{lane['daily_allowance']} objects used, "
+        f"{lane['room']} left")
     if lane["objects_misattributed_today"]:
         parts.append(
-            f"provider lane was charged {lane['objects_misattributed_today']} "
-            "objects belonging to another league")
-    elif lane["room"] <= 0 and lane["daily_allowance"]:
-        parts.append(
-            f"provider lane stopped after {lane['spent_today']} objects")
-    elif lane["failures_today"]:
-        parts.append(f"{lane['failures_today']} intake failure(s) today")
-    else:
-        parts.append(f"{lane['room']} of {lane['daily_allowance']} lane objects left")
+            f"{lane['objects_misattributed_today']} object(s) charged here "
+            "belong to another league and are excluded")
     if priced < total:
-        parts.append("investigation required" if lane["objects_misattributed_today"]
-                     else "see each row for its reason")
+        parts.append("see each row for its reason")
     return " · ".join(parts)
 
 

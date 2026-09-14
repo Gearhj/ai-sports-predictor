@@ -93,6 +93,12 @@ from app.models.scoreboard import (  # noqa: E402,F401
     SCOREBOARD_STATUSES,
     GameScoreboardObservation,
 )
+# One frozen allocation per Eastern service day. Separate from the ledger: the
+# ledger records what was REQUESTED, this records what was ISSUED, and an
+# allowance that is recomputed on every read is not an allowance.
+from app.models.provider_allocation_snapshot import (  # noqa: E402,F401
+    ProviderAllocationSnapshot,
+)
 # An imported NBA research forecast that no simulator produced. Separate from
 # shadow_forecasts, whose schema mandates a simulator identity this package
 # does not have and must not be given.

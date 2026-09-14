@@ -17,7 +17,15 @@ export type PriceReason =
   | 'QUOTE_EXPIRED'
   | 'INTAKE_FAILURE'
 
+export type ForecastState =
+  | 'FORECAST_PRESENT'
+  | 'FORECAST_NOT_YET_PUBLISHED'
+  | 'FORECAST_AWAITING_IMPORT'
+  | 'FORECAST_CUTOFF_PASSED_UNSUPPORTED'
+
 export interface PriceCoverageGame {
+  forecast_state: ForecastState
+  market_pairs: { moneyline: number; total: number; run_line: number }
   game_id: string
   teams: { away: string | null; home: string | null }
   starts_at: string
@@ -50,8 +58,14 @@ export interface PriceCoverage {
   }
   summary: {
     games: number
-    with_stored_prices: number
+    with_any_stored_price: number
+    with_decision_fresh_pair: number
+    scheduled_for_collection: number
+    excluded_by_capacity: number
+    /** Reported beside prices, never merged with them. */
+    with_controlling_forecast: number
     without_prices: number
+    next_collection_at: string | null
     headline: string
   }
   games: PriceCoverageGame[]

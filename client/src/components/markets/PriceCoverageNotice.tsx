@@ -15,7 +15,15 @@
  * received. Only PROVIDER_RETURNED_NO_FULL_GAME_MARKET says anything about a
  * sportsbook, and it is the one reason backed by a returned event.
  */
-import type { PriceCoverage, PriceReason } from '../../types/priceCoverage'
+import type { ForecastState, PriceCoverage, PriceReason } from '../../types/priceCoverage'
+
+/** Forecast coverage is reported BESIDE price coverage, never merged into it. */
+const FORECAST_LABEL: Record<ForecastState, string> = {
+  FORECAST_PRESENT: 'V18 forecast',
+  FORECAST_NOT_YET_PUBLISHED: 'V18 not yet published',
+  FORECAST_AWAITING_IMPORT: 'V18 awaiting import',
+  FORECAST_CUTOFF_PASSED_UNSUPPORTED: 'V18 cutoff passed',
+}
 
 const LABEL: Record<PriceReason, string> = {
   PRICED: 'Priced',
@@ -59,6 +67,27 @@ export function PriceCoverageNotice({ coverage }: { coverage: PriceCoverage | nu
       </p>
       <small className="bx-dim">{coverage.window.description}</small>
 
+      {/* The slate at a glance. Prices and forecasts are counted separately
+          because they fail for unrelated reasons: a game can have a price and
+          no forecast, or the reverse, and each needs a different person. */}
+      <dl className="pricecov__stats" data-testid="price-coverage-stats">
+        <div><dt>Games</dt><dd>{coverage.summary.games}</dd></div>
+        <div><dt>Any stored price</dt><dd>{coverage.summary.with_any_stored_price}</dd></div>
+        <div><dt>Decision-fresh pair</dt><dd>{coverage.summary.with_decision_fresh_pair}</dd></div>
+        <div><dt>Scheduled to collect</dt><dd>{coverage.summary.scheduled_for_collection}</dd></div>
+        <div><dt>Excluded by capacity</dt><dd>{coverage.summary.excluded_by_capacity}</dd></div>
+        <div><dt>Controlling forecast</dt><dd>{coverage.summary.with_controlling_forecast}</dd></div>
+        <div>
+          <dt>Service-day allowance</dt>
+          <dd>{coverage.lane.spent_today} used · {coverage.lane.room} left of {coverage.lane.daily_allowance}</dd>
+        </div>
+        <div>
+          <dt>Next collection</dt>
+          <dd>{coverage.summary.next_collection_at
+            ? clock(coverage.summary.next_collection_at) : 'none scheduled'}</dd>
+        </div>
+      </dl>
+
       {coverage.lane.objects_misattributed_today > 0 && (
         <p className="pricecov__flag" role="note" data-testid="price-coverage-flag">
           {coverage.lane.objects_misattributed_today} object
@@ -82,7 +111,13 @@ export function PriceCoverageNotice({ coverage }: { coverage: PriceCoverage | nu
               <span className={`pricecov__tag ${TONE[game.reason]}`}>
                 {LABEL[game.reason]}
               </span>
-              <span className="pricecov__why">{game.explanation}</span>
+              <span className="pricecov__why">
+                {game.reason === 'COLLECTION_WINDOW_NOT_OPEN'
+                  ? `Collection scheduled for ${clock(game.window_opens_at)}.`
+                  : game.explanation}
+                {' '}
+                <span className="bx-dim">· {FORECAST_LABEL[game.forecast_state]}</span>
+              </span>
             </li>
           ))}
         </ul>
