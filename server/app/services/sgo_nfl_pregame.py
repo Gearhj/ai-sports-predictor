@@ -41,6 +41,10 @@ from app.services.sgo_collection import (
 #: The allocation lane. Never `sgo_nfl_live`, which buys in-game scores.
 LANE = "sgo_nfl_events"
 
+#: The provider these quotes actually come from. The registry classifies it as
+#: research rather than governed, and that classification travels with every row.
+SOURCE = "SPORTSGAMEODDS"
+
 #: How close to kickoff the object is worth spending. The producer's own
 #: FINAL_PREGAME eligibility is 30-15 minutes before kickoff; collecting inside
 #: a slightly wider band leaves room for one retry without a second object,
@@ -175,8 +179,13 @@ def collect_nfl_pregame(
         return {"attempted": True, "reason": "REQUEST_FAILED", "objects": 0,
                 "error_type": type(error).__name__, "games_due": due}
 
-    # Explicit franchise mapping, never a name-and-date join.
-    result = NFLShadowOddsService(session).ingest(
+    # Explicit franchise mapping, never a name-and-date join -- and stamped with
+    # the provider that actually supplied it. SportsGameOdds is a RESEARCH
+    # provider in the registry, so its books land under the `sgo:` namespace and
+    # its snapshots carry SPORTSGAMEODDS provenance. Writing them as
+    # THE_ODDS_API would have merged two providers' "draftkings" into one
+    # Sportsbook row, and the governed two-sided pairing keys on sportsbook_id.
+    result = NFLShadowOddsService(session, source=SOURCE).ingest(
         to_event_dtos(fetch.pairs), available_as_of=fetch.requested_at)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id)
@@ -188,11 +197,14 @@ def collect_nfl_pregame(
         "events": result["events"], "mapped_events": result["mapped_events"],
         "quotes": result["quotes"], "duplicates": result["duplicates"],
         "rejected_events": result["rejected_events"],
+        "source": SOURCE,
+        "provider_governed": False,
         "bookmakers": sorted({pair.bookmaker_key for pair in fetch.pairs}),
         "main_markets": (fetch.main.by_market() if fetch.main else {}),
         "allocation": grant.as_dict(),
     }
 
 
-__all__ = ["LANE", "WINDOW_CLOSES_BEFORE_KICKOFF", "WINDOW_OPENS_BEFORE_KICKOFF",
-           "collect_nfl_pregame", "due_games", "fetch_nfl_pregame"]
+__all__ = ["LANE", "SOURCE", "WINDOW_CLOSES_BEFORE_KICKOFF",
+           "WINDOW_OPENS_BEFORE_KICKOFF", "collect_nfl_pregame", "due_games",
+           "fetch_nfl_pregame"]

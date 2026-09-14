@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.data_sources.base import OddsEventDTO, OddsScoreEventDTO
 from app.forecast_exchange.pricing import american_to_decimal, implied_probability
+from app.data_sources.provider_registry import identity as provider_identity
 from app.gen2.exchange.canonical_json import canonical_sha256
 from app.models import (
     ExternalIdMapping, Game, GameStateObservation, GameStatus, GameTeam, Market,
@@ -44,8 +45,26 @@ class NFLShadowOddsIdentityError(RuntimeError):
 
 
 class NFLShadowOddsService:
-    def __init__(self, session: Session) -> None:
+    """NFL odds ingestion, namespaced by the provider that supplied them.
+
+    The source used to be hardcoded to THE_ODDS_API in three places: the
+    duplicate check, the snapshot's own provenance, and the external event-id
+    mapping. That was correct while one provider fed this path and silently
+    wrong the moment a second one did -- SportsGameOdds rows would have been
+    stamped THE_ODDS_API, its event ids registered in another provider's id
+    namespace, and its "draftkings" merged into the same Sportsbook row as The
+    Odds API's. Because the governed two-sided pairing keys on sportsbook_id,
+    that last one could put two providers on opposite sides of a single
+    "same-book" quote.
+
+    So the provider is a constructor argument, and the bookmaker key goes
+    through the same `provider_identity` namespacing the canonical normalizer
+    uses. The default keeps every existing caller on exactly its old behaviour.
+    """
+
+    def __init__(self, session: Session, *, source: str = "THE_ODDS_API") -> None:
         self.session = session
+        self.source = source
 
     def ingest(self, events: list[OddsEventDTO], *, available_as_of: datetime) -> dict[str, int]:
         mapped_events = quotes = duplicates = rejected = 0
@@ -254,7 +273,7 @@ class NFLShadowOddsService:
         canonical_game_id = next(iter(game_ids))
         mapping = self.session.scalar(select(ExternalIdMapping).where(
             ExternalIdMapping.entity_type == "game",
-            ExternalIdMapping.source == "THE_ODDS_API",
+            ExternalIdMapping.source == self.source,
             ExternalIdMapping.external_id == event.source_event_id,
         ))
         if mapping is not None and mapping.entity_id != canonical_game_id:
@@ -264,7 +283,7 @@ class NFLShadowOddsService:
         if mapping is None:
             self.session.add(ExternalIdMapping(
                 entity_type="game", entity_id=canonical_game_id,
-                source="THE_ODDS_API", external_id=event.source_event_id,
+                source=self.source, external_id=event.source_event_id,
             ))
             self.session.flush()
         return max(candidates, key=lambda row: (row.snapshot_version, row.available_as_of_utc or row.created_at))
@@ -280,7 +299,7 @@ class NFLShadowOddsService:
         )}
         created = existing = 0
         first_observed = self.session.scalar(select(OddsSnapshot.id).where(
-            OddsSnapshot.source == "THE_ODDS_API",
+            OddsSnapshot.source == self.source,
             OddsSnapshot.source_event_id == event.source_event_id,
         ).limit(1)) is None
         snapshot_state = _checkpoint_state(
@@ -288,10 +307,17 @@ class NFLShadowOddsService:
             available_as_of=_aware(available_as_of),
             kickoff=_aware(forecast.scheduled_start_utc),
         )
+        provider = provider_identity(self.source)
         for book_dto in event.bookmakers:
-            book = self.session.scalar(select(Sportsbook).where(Sportsbook.key == book_dto.key))
+            # Namespaced by provider, exactly as the canonical normalizer does.
+            book_key = provider.bookmaker_key(book_dto.key)
+            book_name = (
+                book_dto.title if provider.governed
+                else f"{book_dto.title} ({provider.display_name}, research)"
+            )
+            book = self.session.scalar(select(Sportsbook).where(Sportsbook.key == book_key))
             if book is None:
-                book = Sportsbook(key=book_dto.key, name=book_dto.title, region="us", active=True)
+                book = Sportsbook(key=book_key, name=book_name, region="us", active=True)
                 self.session.add(book)
                 self.session.flush()
             for market_dto in book_dto.markets:
@@ -335,7 +361,7 @@ class NFLShadowOddsService:
                         OddsSnapshot.observed_at == market_dto.last_update,
                         OddsSnapshot.american_odds == item.price,
                         OddsSnapshot.point == item.point,
-                        OddsSnapshot.source == "THE_ODDS_API",
+                        OddsSnapshot.source == self.source,
                     ).limit(1))
                     if duplicate is not None:
                         existing += 1
@@ -360,7 +386,7 @@ class NFLShadowOddsService:
                         decimal_odds=american_to_decimal(item.price),
                         point=item.point,
                         implied_probability=implied_probability(item.price),
-                        source="THE_ODDS_API",
+                        source=self.source,
                         source_event_id=event.source_event_id,
                         source_mode="LIVE",
                         raw_payload=raw,

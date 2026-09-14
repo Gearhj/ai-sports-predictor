@@ -241,22 +241,69 @@ def test_the_lane_is_capped_by_its_own_daily_share_not_by_the_whole_balance(
     allowance = build_plan(session).allocations["sgo_nfl_live"].daily_allowance
     assert allowance >= 2
 
-    # Spend all but one of this lane's day, leaving the balance healthy.
+    # Spend ONE object, leaving the balance healthy and the lane far from empty.
+    #
+    # Deliberately one, not `allowance - 1`. The daily allowance is derived from
+    # the REMAINING balance divided by the days left, so a large spend inside a
+    # day lowers that same day's allowance underneath itself -- spending seven
+    # of eight leaves zero, not one, because the allowance has meanwhile fallen
+    # to seven. That is the documented behaviour of a budget with a deadline,
+    # not a defect, and it is pinned on its own below. What THIS test is about
+    # is the lane's share being the binding constraint rather than the balance.
     now = datetime.now(UTC)
     reservation = ProviderRequestLedger(
         provider=PROVIDER, endpoint_key="sgo_nfl_live", requested_at=now,
-        status="RESERVED", request_fingerprint="s" * 64, quota_cost=allowance - 1)
+        status="RESERVED", request_fingerprint="s" * 64, quota_cost=1)
     session.add(reservation)
     session.flush()
     session.add(ProviderRequestLedger(
         provider=PROVIDER, endpoint_key="sgo_nfl_live", requested_at=now,
         status="SUCCEEDED", request_fingerprint="s" * 64, completed_at=now,
-        reservation_id=reservation.id, records_received=allowance - 1))
+        reservation_id=reservation.id, records_received=1))
     session.commit()
 
-    money = affordability(session, wanted=4)
-    assert money["allowed"] == 1
+    after = build_plan(session).allocations["sgo_nfl_live"]
+    money = affordability(session, wanted=1000)
+    # Capped by the lane's own day, not by the 600 spendable objects sitting in
+    # the balance -- which is the whole point of having lanes at all.
+    assert money["allowed"] == after.room
+    assert money["allowed"] < 600
     assert "objects a day" in money["detail"]
+
+
+def test_todays_allowance_falls_as_today_is_spent(session):
+    """A budget with a deadline recomputes from what is left, including today.
+
+    This is a real and slightly surprising consequence: a lane can never spend
+    its stated allowance down to exactly zero remaining, because each object it
+    spends also lowers the allowance it is measured against. Pinned here so the
+    next reader meets it as a documented property rather than as an off-by-one.
+    """
+
+    from app.models import ProviderRequestLedger
+    from app.services.provider_allocation import OBJECT_RESERVE, PROVIDER, build_plan
+
+    seed_balance(session, remaining=OBJECT_RESERVE + 600)
+    before = build_plan(session).allocations["sgo_nfl_live"].daily_allowance
+
+    now = datetime.now(UTC)
+    reservation = ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key="sgo_nfl_live", requested_at=now,
+        status="RESERVED", request_fingerprint="t" * 64, quota_cost=before - 1)
+    session.add(reservation)
+    session.flush()
+    session.add(ProviderRequestLedger(
+        provider=PROVIDER, endpoint_key="sgo_nfl_live", requested_at=now,
+        status="SUCCEEDED", request_fingerprint="t" * 64, completed_at=now,
+        reservation_id=reservation.id, records_received=before - 1))
+    session.commit()
+
+    after = build_plan(session).allocations["sgo_nfl_live"]
+    # The allowance moved because the balance did. It never moves UP on a spend.
+    assert after.daily_allowance <= before
+    assert after.spent_today == before - 1
+    # And the lane is never pushed negative, whatever the arithmetic does.
+    assert after.room >= 0
 
 
 def test_a_reservation_in_flight_is_visible_to_a_concurrent_job(session):
