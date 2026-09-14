@@ -358,7 +358,7 @@ export function UnifiedMarketsPage() {
             {mlbRows.length === 0
               ? <p className="bx-empty">
                   {coverage.data && coverage.data.games.length > 0
-                    ? 'No stored price evidence for this slate yet — each game's reason is listed above.'
+                    ? 'No stored price evidence for this slate yet — each game’s reason is listed above.'
                     : 'No MLB game with persisted evidence matches this date and filter.'}
                 </p>
               : <div className="bx-mkt">
