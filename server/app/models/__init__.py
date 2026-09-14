@@ -93,5 +93,11 @@ from app.models.scoreboard import (  # noqa: E402,F401
     SCOREBOARD_STATUSES,
     GameScoreboardObservation,
 )
+# An imported NBA research forecast that no simulator produced. Separate from
+# shadow_forecasts, whose schema mandates a simulator identity this package
+# does not have and must not be given.
+from app.models.nba_research_forecast import (  # noqa: E402,F401
+    NbaResearchForecast,
+)
 
 __all__ = [name for name in globals() if not name.startswith("_")]
