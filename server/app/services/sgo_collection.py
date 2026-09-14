@@ -79,7 +79,10 @@ SELECTION_RULE = (
     "provider game id. A game with no stored pair is priced before a game that "
     "already has one, because only the first can be helped by spending an "
     "object; within each group the game closest to locking goes first. Games "
-    "beyond the day's allocation are reported by id as unsupported."
+    "beyond the day's allocation are reported by id as unsupported. The "
+    "ranking is carried into the request itself: startsAfter is anchored one "
+    "second below the earliest selected first pitch, so a lower-ranked game "
+    "cannot be substituted by the provider's own ordering."
 )
 
 #: The published Amateur allowance, in EVENTS returned -- the provider's own
@@ -195,6 +198,7 @@ def to_event_dtos(pairs: list[MoneylinePair]) -> list[OddsEventDTO]:
 def fetch_pregame_moneylines(
     settings: Settings, *, limit: int = 10, now: datetime | None = None,
     starts_within_hours: int = 12, cache_path: "Path | None" = None,
+    starts_after: datetime | None = None,
 ) -> FallbackFetch:
     """Exactly one request for upcoming MLB events. No retry, no pagination.
 
@@ -206,13 +210,28 @@ def fetch_pregame_moneylines(
         raise _refuse(f"SportsGameOdds fallback is not eligible: {reason}")
     moment = now or datetime.now(UTC)
     capped = max(1, min(int(limit), MAX_EVENTS_PER_FETCH))
+    # WHICH GAMES THE PROVIDER IS ASKED FOR, NOT MERELY WHICH ONES WE WANTED.
+    #
+    # `limit` plus a start-time window does not name a game. The provider
+    # returns the earliest events in the window, so a caller that had carefully
+    # chosen SD at COL still received CWS at CLE -- the earliest game in the
+    # same window, and the one that already had a price. The selection rule ran,
+    # produced a different answer, and never reached the request.
+    #
+    # `startsAfter` is the one documented filter that can carry that choice:
+    # anchoring it just below the chosen game's first pitch excludes every
+    # earlier game, so the object cannot be spent on one of them. It is the same
+    # parameter already in use, given a value that means something.
+    anchor = starts_after or moment
+    if anchor < moment:  # never reach back to a game already under way
+        anchor = moment
     params = {
         "leagueID": "MLB",
         "limit": str(capped),
         # Documented filters only. "startsAfter" is what makes this a PREGAME
         # fetch; without it the provider returns games already in progress,
         # whose prices are unusable and whose events are past their cutoff.
-        "startsAfter": moment.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "startsBefore": (moment + timedelta(hours=starts_within_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finalized": "false",
         "oddsPresent": "true",
@@ -770,9 +789,27 @@ def collect_for_open_cutoffs(
     wanted = grant.granted
     covered, unsupported = open_games[:wanted], open_games[wanted:]
 
+    # THE CHOICE, EXPRESSED AS A FILTER.
+    #
+    # Sorting `open_games` decides nothing on its own: the request below is what
+    # the provider actually answers, and a bare limit + "from now" window hands
+    # back the earliest games in that window. On 2026-09-14 that is precisely
+    # what happened -- the collector selected SD at COL and the object bought a
+    # refresh of CWS at CLE, which starts two hours earlier and already had a
+    # price across nine books.
+    #
+    # Anchoring `startsAfter` one second below the earliest SELECTED first pitch
+    # excludes every game the rule ranked lower, so the games that can still be
+    # helped are the only ones the object can land on. The anchor is never moved
+    # backwards past `moment`, because a game already under way is not pregame.
+    anchor = min(
+        datetime.fromisoformat(event["starts_at_utc"]) for event in covered
+    ) - timedelta(seconds=1)
+    anchor = max(anchor.astimezone(UTC), moment)
+
     params = {
         "leagueID": "MLB", "limit": str(wanted),
-        "startsAfter": moment.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "startsBefore": (moment + timedelta(hours=horizon_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finalized": "false", "oddsPresent": "true",
     }
@@ -782,8 +819,12 @@ def collect_for_open_cutoffs(
     session.commit()
 
     try:
+        # `now` stays the true retrieval moment -- it becomes `available_as_of`
+        # on every ingested row, and moving it to suit a filter would be
+        # backdating retrieval. Only the start-time window carries the choice.
         fetch = fetch_pregame_moneylines(
-            settings, limit=wanted, now=moment, starts_within_hours=horizon_hours)
+            settings, limit=wanted, now=moment,
+            starts_within_hours=horizon_hours, starts_after=anchor)
     except Exception as error:  # one attempt; the cooldown owns the next one
         complete_request(session, reservation, objects=0, succeeded=False, budget=budget,
                          error=type(error).__name__, job_run_id=job_run_id)
@@ -792,6 +833,7 @@ def collect_for_open_cutoffs(
                 "error_type": type(error).__name__}
 
     ingest(session, settings, fetch)
+    ingested = _ingested_game_ids(session, fetch)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id)
     session.commit()
@@ -801,7 +843,17 @@ def collect_for_open_cutoffs(
         "objects": fetch.objects,
         "games_open_before_cutoff": len(open_games),
         "selection_rule": SELECTION_RULE,
-        "games_covered_this_request": [str(e.get("game_id")) for e in covered],
+        # WHAT WAS CHOSEN, AND WHAT THE OBJECT ACTUALLY BOUGHT.
+        #
+        # These were one field, named for the first and read as the second. On
+        # 2026-09-14 it reported SD at COL as covered by a request whose rows
+        # all landed on CWS at CLE -- a true statement about the intent and a
+        # false one about the slate. They are separate now, and the second is
+        # measured from the canonical games the normalizer actually bound.
+        "games_selected": [str(e.get("game_id")) for e in covered],
+        "games_ingested": ingested,
+        "selection_reached_provider": (
+            sorted(ingested) == sorted(str(e.get("game_id")) for e in covered)),
         # Named, not silently dropped: a reader can see exactly which games this
         # slate could not afford a price for.
         "games_unsupported_today": [str(e.get("game_id")) for e in unsupported],
@@ -821,6 +873,34 @@ def collect_for_open_cutoffs(
         "request_filters": params,
         "budget": after.as_dict(),
     }
+
+
+def _ingested_game_ids(session: Session, fetch: FallbackFetch) -> list[str]:
+    """The canonical games this response actually landed on.
+
+    Read back from the binding the normalizer made, not from the events we hoped
+    for: an event the provider substituted, or one that failed to bind to a
+    canonical game, must not be able to appear here.
+    """
+    from sqlalchemy import select
+
+    from app.models import Game, Market, MarketOutcome, OddsSnapshot
+
+    source_ids = {str(pair.event_id) for pair in fetch.pairs if pair.event_id}
+    if fetch.main is not None:
+        source_ids |= {
+            str(quote.event_id) for quote in fetch.main.quotes if quote.event_id}
+    if not source_ids:
+        return []
+    rows = session.execute(
+        select(Market.game_id)
+        .join(Game, Game.id == Market.game_id)
+        .join(MarketOutcome, MarketOutcome.market_id == Market.id)
+        .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
+        .where(OddsSnapshot.source_event_id.in_(source_ids))
+        .distinct()
+    ).all()
+    return sorted({str(game_id) for (game_id,) in rows})
 
 
 def apply_opening_adjustment(

@@ -88,3 +88,104 @@ def test_the_declared_rule_states_coverage_first():
     # The rule is published in receipts; it must say what the code does.
     assert "UNCOVERED_FIRST" in SELECTION_RULE
     assert "EARLIEST_DECISION_CUTOFF_FIRST" in SELECTION_RULE
+
+
+# ---------------------------------------------------------------------------
+# ...and the ranking has to reach the provider.
+#
+# The sort above decided nothing on 2026-09-14. The request was `limit=1` with
+# `startsAfter=now`, which names no game at all: the provider answered with the
+# earliest event in a five-hour window. The collector selected SD at COL
+# (00:40Z) and the object bought CWS at CLE (22:40Z) -- the already-priced game
+# the sort had ranked last. The receipt then reported SD at COL as covered.
+#
+# So these pin the request, not the ordering: the anchor must exclude every
+# game that starts before the chosen one, and the retrieval timestamp must not
+# move to suit the filter.
+# ---------------------------------------------------------------------------
+from datetime import UTC, datetime, timedelta
+
+import httpx
+import pytest
+
+from app.core.config import Settings
+from app.services import sgo_collection
+
+
+class _Recorder:
+    """Captures the query the collector actually sends. No network."""
+
+    def __init__(self):
+        self.params = None
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get(self, url, params=None, headers=None):
+        self.params = dict(params or {})
+        return httpx.Response(
+            200, json={"data": []}, request=httpx.Request("GET", url))
+
+
+@pytest.fixture()
+def recorder(monkeypatch):
+    rec = _Recorder()
+    monkeypatch.setattr(sgo_collection.httpx, "Client", rec)
+    monkeypatch.setattr(sgo_collection, "eligible", lambda *a, **k: (True, "ok"))
+    return rec
+
+
+def _settings():
+    return Settings(sportsgameodds_api_key="test-key")
+
+
+def test_the_anchor_excludes_a_game_that_starts_before_the_chosen_one(recorder):
+    """CWS at CLE (22:40Z) must fall outside a request chosen for SD at COL."""
+
+    now = datetime(2026, 9, 14, 20, 55, 24, tzinfo=UTC)
+    chosen_first_pitch = datetime(2026, 9, 15, 0, 40, tzinfo=UTC)
+
+    sgo_collection.fetch_pregame_moneylines(
+        _settings(), limit=1, now=now, starts_within_hours=6,
+        starts_after=chosen_first_pitch - timedelta(seconds=1))
+
+    starts_after = datetime.strptime(
+        recorder.params["startsAfter"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    assert starts_after == chosen_first_pitch - timedelta(seconds=1)
+    # The concrete regression: the earlier, already-priced game is now outside
+    # the window the object can land in.
+    assert starts_after > datetime(2026, 9, 14, 22, 40, tzinfo=UTC)
+
+
+def test_the_anchor_never_reaches_back_to_a_game_already_under_way(recorder):
+    now = datetime(2026, 9, 14, 23, 0, tzinfo=UTC)
+
+    sgo_collection.fetch_pregame_moneylines(
+        _settings(), limit=1, now=now, starts_within_hours=6,
+        starts_after=datetime(2026, 9, 14, 22, 40, tzinfo=UTC))
+
+    starts_after = datetime.strptime(
+        recorder.params["startsAfter"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    assert starts_after == now
+
+
+def test_without_an_anchor_the_window_still_opens_at_now(recorder):
+    now = datetime(2026, 9, 14, 20, 55, 24, tzinfo=UTC)
+
+    sgo_collection.fetch_pregame_moneylines(
+        _settings(), limit=1, now=now, starts_within_hours=6)
+
+    assert recorder.params["startsAfter"] == "2026-09-14T20:55:24Z"
+    # startsBefore is still measured from the true moment, so anchoring cannot
+    # quietly widen or narrow the horizon.
+    assert recorder.params["startsBefore"] == "2026-09-15T02:55:24Z"
+
+
+def test_the_declared_rule_says_the_anchor_carries_the_choice():
+    assert "startsAfter is anchored" in SELECTION_RULE
