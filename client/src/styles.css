@@ -3968,3 +3968,5 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .cov__gaps dl { margin: 8px 0 0; display: grid; gap: 6px; }
 .cov__gaps dt { font-weight: 600; font-size: 11.5px; }
 .cov__gaps dd { margin: 2px 0 0; font-size: 11.5px; color: var(--bx-muted, #7a8699); line-height: 1.5; }
+.cov__partial { color: #8f5a10; }
+.cov__unfunded { margin: 8px 0 0; font-size: 11.5px; color: #8f5a10; line-height: 1.5; }

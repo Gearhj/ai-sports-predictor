@@ -112,7 +112,8 @@ export interface ScoreboardCoverage {
   sports: Record<string, {
     source: string | null
     cost: string | null
-    live_score: boolean
+    /** True, false, or "tracked games only" — three genuinely different states. */
+    live_score: boolean | 'TRACKED_GAMES_ONLY'
     period_breakdown: boolean
     period_label: string
     situation: boolean
@@ -128,6 +129,16 @@ export interface ScoreboardCoverage {
       last_checked_at: string | null
       last_check_age_seconds: number | null
       observations_with_source_timestamp: number
+    }
+    /** Present where in-game tracking exists but has to be paid for. */
+    live_funding?: {
+      funded_now: boolean
+      cadence_minutes: number
+      daily_cap: number
+      spent_today: number
+      mlb_pregame_floor: number
+      objects_spendable: number | null
+      detail: string
     }
   }>
 }

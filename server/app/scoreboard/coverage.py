@@ -68,19 +68,21 @@ COVERAGE: dict[str, dict[str, Any]] = {
             "object against a 2,500-object rolling 30-day allowance with 400 "
             "held permanently in reserve."
         ),
-        "live_score": False,
+        "live_score": "TRACKED_GAMES_ONLY",
         "period_breakdown": True,
         "period_label": "quarters, overtime included",
         "situation": False,
         "clock": False,
         "source_score_timestamp": False,
         "player_stats": True,
-        "target_cadence_seconds": 3600,
+        "target_cadence_seconds": 900,
         "cadence_note": (
-            "Final score hourly from the free release. The quarter breakdown is "
-            "fetched once per completed game, one event object each. In-game "
-            "score is NOT collected: polling a thirteen-game Sunday would spend "
-            "the entire remaining allowance in one afternoon."
+            "Final score hourly from the free release, and the quarter breakdown "
+            "once per completed game. In-game score is collected every 15 "
+            "minutes for TRACKED games only -- a game carrying a recorded wager "
+            "or parlay leg -- and only between its kickoff and its final. The "
+            "whole slate is not polled: thirteen games at that cadence would "
+            "spend a month's allowance in one afternoon."
         ),
         "available_fields": [
             "final score", "game status flags (started, live, ended, delayed)",
@@ -88,10 +90,10 @@ COVERAGE: dict[str, dict[str, Any]] = {
             "overtime periods", "stable player ids and per-player game statistics",
         ],
         "unavailable_fields": {
-            "in-game score": (
-                "Available from the provider but not collected: the remaining "
-                "object allowance cannot sustain polling a full slate. The final "
-                "is shown when the free feed publishes it."
+            "in-game score for untracked games": (
+                "Only games carrying a recorded wager or parlay leg are polled "
+                "in play. Every other game shows its final when the free feed "
+                "publishes it, which is after the game ends."
             ),
             "game clock": (
                 "The provider's event object carries no clock field at all, so "
@@ -170,6 +172,32 @@ def measured_freshness(
     }
 
 
+def nfl_live_funding(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
+    """Whether in-game NFL tracking can actually run right now, and why not.
+
+    "Supported but unfunded today" and "not supported" look identical on a
+    screen and are completely different facts. This is the one that tells them
+    apart, straight from the same guard the collector obeys.
+    """
+
+    from app.scoreboard.nfl_live import DEFAULT_CADENCE_MINUTES, affordability
+
+    money = affordability(session, wanted=1, now=now)
+    return {
+        "funded_now": money["allowed"] > 0,
+        "cadence_minutes": DEFAULT_CADENCE_MINUTES,
+        "objects_per_game_per_hour": 4,
+        "daily_cap": money["daily_cap"],
+        "spent_today": money["spent_today"],
+        "mlb_pregame_floor": money["mlb_pregame_floor"],
+        "objects_spendable": money["budget"].get("objects_spendable"),
+        "detail": money["detail"] or (
+            "In-game tracking is funded: a tracked game in its watch window "
+            "will be scored on the next cycle."
+        ),
+    }
+
+
 def coverage_report(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
     """Declared coverage beside measured behaviour, per sport."""
 
@@ -180,6 +208,7 @@ def coverage_report(session: Session, *, now: datetime | None = None) -> dict[st
             **declared,
             "measured": measured_freshness(session, league=league, now=moment),
         }
+    sports["NFL"]["live_funding"] = nfl_live_funding(session, now=moment)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": moment.isoformat(),
@@ -192,4 +221,5 @@ def coverage_report(session: Session, *, now: datetime | None = None) -> dict[st
     }
 
 
-__all__ = ["COVERAGE", "SCHEMA_VERSION", "coverage_report", "measured_freshness"]
+__all__ = ["COVERAGE", "SCHEMA_VERSION", "coverage_report",
+           "measured_freshness", "nfl_live_funding"]

@@ -538,6 +538,37 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "refresh-scoreboard", "settings": settings},
         **common,
     )
+    # Recorded parlay tickets settle themselves once every leg's game has a
+    # governed final. The job existed and was never scheduled, which is why the
+    # first recorded ticket sat open with both its games finished: nothing was
+    # ever going to call it. It touches no provider and is a no-op when no
+    # ticket is open, so thirty minutes costs nothing and matches the cadence
+    # the straight-bet ledger settles on.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=30,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+        id="asp-settle-parlay-tickets",
+        kwargs={"job_name": "settle-parlay-tickets", "settings": settings},
+        **common,
+    )
+    # In-game NFL score for tracked games. Fifteen minutes is the fastest
+    # cadence the remaining object allowance can sustain for a bounded set of
+    # games; the collector itself refuses when a tracked game is outside its
+    # watch window, when the daily NFL cap is spent, or when spending would eat
+    # the floor held for MLB pregame odds. Most cycles cost nothing at all.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=15,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+        id="asp-nfl-live-scores",
+        kwargs={"job_name": "collect-nfl-live-scores", "settings": settings},
+        **common,
+    )
     # NFL quarter breakdowns, one SportsGameOdds object per completed game.
     # Hourly is far more often than it needs to be and costs nothing on the runs
     # where every recent game already has its breakdown -- which is most of

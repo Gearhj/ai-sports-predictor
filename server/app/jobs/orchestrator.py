@@ -93,6 +93,7 @@ AVAILABLE_JOBS = {
     "finalize-games": "Refresh Finals, Settle Positions, Recalculate Performance",
     "refresh-scoreboard": "Refresh Live Scoreboard (MLB)",
     "collect-nfl-period-breakdowns": "Collect NFL Quarter Breakdowns",
+    "collect-nfl-live-scores": "Collect NFL In-Game Scores (tracked games)",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
     "controlled-live-validation": "Controlled Gate 2 Live Validation",
     "import-model-studio-forecast-bundle": "Import Model Studio Forecast Bundle",
@@ -223,6 +224,7 @@ class JobOrchestrator:
             "finalize-games": self.finalize_games,
             "refresh-scoreboard": self.refresh_scoreboard,
             "collect-nfl-period-breakdowns": self.collect_nfl_period_breakdowns,
+            "collect-nfl-live-scores": self.collect_nfl_live_scores,
             "backfill-scoreboard": self.backfill_scoreboard,
             "controlled-live-validation": self.controlled_live_validation,
             "import-model-studio-forecast-bundle": self.import_forecast_bundle,
@@ -1520,6 +1522,19 @@ class JobOrchestrator:
         from app.scoreboard.collect import collect_nfl_breakdowns
 
         return collect_nfl_breakdowns(self.session, self.settings)
+
+    async def collect_nfl_live_scores(self, event_date: date) -> dict[str, Any]:
+        """In-game score for tracked NFL games, within a hard object budget.
+
+        Follows games a reader has something riding on, only between kickoff and
+        a recorded final, and refuses rather than spending into either the
+        provider reserve or the floor held for MLB pregame odds. Every refusal
+        reports the arithmetic that produced it.
+        """
+
+        from app.scoreboard.nfl_live import collect_nfl_live
+
+        return collect_nfl_live(self.session, self.settings)
 
     async def backfill_scoreboard(self, event_date: date) -> dict[str, Any]:
         """Scoreboard state for games that finished before the collector existed.

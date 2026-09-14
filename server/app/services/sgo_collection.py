@@ -507,6 +507,7 @@ def record_request(
     params: dict[str, str],
     budget: ObjectBudget,
     job_run_id: Any = None,
+    endpoint_key: str | None = None,
 ) -> Any:
     """Reserve the request in the provider ledger BEFORE it is sent.
 
@@ -527,7 +528,10 @@ def record_request(
     }
     ledger = ProviderRequestLedger(
         provider=SPORTSGAMEODDS,
-        endpoint_key=ENDPOINT_KEY,
+        # Defaults to the MLB pregame key. A caller that spends against a
+        # different allowance passes its own, so the two can never be added up
+        # as one and a per-feature daily cap stays enforceable.
+        endpoint_key=endpoint_key or ENDPOINT_KEY,
         requested_at=requested_at,
         status="RESERVED",
         request_fingerprint=sha256(

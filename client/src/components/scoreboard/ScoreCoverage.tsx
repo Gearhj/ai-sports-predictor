@@ -20,7 +20,12 @@ function cadence(seconds: number | null): string {
   return `every ${(seconds / 3600).toFixed(0)} hour${seconds >= 7200 ? 's' : ''}`
 }
 
-function Yes({ value }: { value: boolean }) {
+function Yes({ value }: { value: boolean | 'TRACKED_GAMES_ONLY' }) {
+  // Three states, not two. "Tracked games only" is a real answer and rendering
+  // it as either available or unavailable would be a lie in one direction.
+  if (value === 'TRACKED_GAMES_ONLY') {
+    return <span className="cov__partial">tracked games only</span>
+  }
   return value
     ? <span className="cov__yes">available</span>
     : <span className="cov__no">not available</span>
@@ -76,6 +81,19 @@ export function ScoreCoverage() {
           </dl>
 
           <p className="cov__cadence">{sport.cadence_note}</p>
+          {/* Supported-but-unfunded and unsupported look identical on screen
+              and are completely different facts, so the funding state is said
+              out loud whenever in-game tracking has to be paid for. */}
+          {sport.live_funding && (
+            <p
+              className={sport.live_funding.funded_now ? 'cov__cadence' : 'cov__unfunded'}
+              data-testid={`coverage-funding-${league}`}
+            >
+              In-game tracking is{' '}
+              <b>{sport.live_funding.funded_now ? 'funded' : 'not funded today'}</b>
+              {': '}{sport.live_funding.detail}
+            </p>
+          )}
           {sport.cost && <p className="cov__cost">{sport.cost}</p>}
 
           {Object.keys(sport.unavailable_fields).length > 0 && (
