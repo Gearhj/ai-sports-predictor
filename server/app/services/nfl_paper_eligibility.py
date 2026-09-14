@@ -91,6 +91,26 @@ def _at(doc: dict[str, Any], path: str) -> Any:
         node = node[part]
     return node
 
+
+def stored_document(record: ResearchSupplement) -> dict[str, Any]:
+    """The supplement as the IMPORTER stored it, reassembled for checking.
+
+    The importer splits one document across two columns: `binding` and
+    `governance` go to `evidence` (they are what it verified), and the
+    `summaries` go to `payload`. Reading the raw document shape from `payload`
+    alone finds no binding at all -- and reports it as a producer omission,
+    which is both wrong and the most misleading answer available. So the view
+    is reassembled from where the rows actually live.
+    """
+
+    payload = dict(record.payload or {})
+    evidence = dict(record.evidence or {})
+    return {
+        "binding": evidence.get("binding") or {},
+        "governance": evidence.get("governance") or {},
+        "summaries": payload.get("summaries") or {},
+    }
+
 #: Authority flags that must remain false, at the delivered contract's own
 #: paths. If a supplement ever arrived with one of these true it would be
 #: granting execution under the name of a paper permission, and it is refused
@@ -113,10 +133,16 @@ def eligibility_record(
 ) -> ResearchSupplement | None:
     """The producer-issued eligibility supplement for one event, if it exists."""
 
+    # `artifact_version` carries the ELIGIBILITY contract; `contract_version`
+    # carries the CONTAINER it travelled in (AISP_RESEARCH_SUPPLEMENT_V1). They
+    # are different things and the registration writes them to different
+    # columns, so matching the eligibility contract against contract_version
+    # silently finds nothing -- which reads exactly like "the producer never
+    # published it".
     return session.scalar(
         select(ResearchSupplement).where(
             ResearchSupplement.kind == KIND,
-            ResearchSupplement.contract_version == CONTRACT_VERSION,
+            ResearchSupplement.artifact_version == CONTRACT_VERSION,
             ResearchSupplement.sport == "NFL",
             ResearchSupplement.event_id == event_id,
             ResearchSupplement.forecast_id == forecast_id,
@@ -161,7 +187,7 @@ def check(
             "blocks_position": True,
         }
 
-    payload = dict(record.payload or {})
+    payload = stored_document(record)
     missing = [path for path in REQUIRED_BINDINGS if _at(payload, path) is None]
     if missing:
         return {
@@ -309,4 +335,4 @@ def producer_request() -> dict[str, Any]:
 
 __all__ = ["CONTRACT_VERSION", "KIND", "MUST_REMAIN_FALSE", "MUST_REMAIN_TRUE",
            "REQUIRED_BINDINGS", "check", "eligibility_record", "experiment_key",
-           "producer_request"]
+           "producer_request", "stored_document"]

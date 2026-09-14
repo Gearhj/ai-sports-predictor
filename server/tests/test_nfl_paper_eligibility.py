@@ -31,7 +31,7 @@ from app.services import nfl_paper_eligibility as gate
 
 DELIVERED = pathlib.Path(
     r"C:\Users\james\asp-model-exchange\nfl-labs-supplements\sha256"
-    r"\391240384408f975febde5c8ac369cd55a814c9d8bd652c4880e5be16aea7c9f"
+    r"\c533de6a1d714615552a2055d52d45cebc40799ccfe14767156165c73207bb69"
     r"\supplement.json")
 
 EVENT = "2026_01_DEN_KC"
@@ -50,19 +50,35 @@ def document() -> dict:
 
 
 def store(session, doc, *, research_shadow_only=True):
+    """Store through the REAL importer's column mapping.
+
+    Twice now a fixture of my own shape hid a gate bug that the real storage
+    layout would have caught immediately: the eligibility contract lives in
+    `artifact_version` (not `contract_version`, which names the container), and
+    the importer splits the document -- `binding` and `governance` into
+    `evidence`, `summaries` into `payload`. A fixture that dumps the whole
+    document into `payload` makes both mistakes invisible.
+    """
+
     session.add(ResearchSupplement(
-        supplement_sha256="3912403844" + "0" * 54,
+        supplement_sha256="c533de6a1d" + "0" * 54,
         supplement_id=doc["supplementId"],
-        contract_version=gate.CONTRACT_VERSION,
+        # The container, not the eligibility contract.
+        contract_version="AISP_RESEARCH_SUPPLEMENT_V1",
         kind=doc["kind"], sport=doc["sport"],
         event_id=doc["binding"]["eventId"],
         engine_id=doc["binding"]["engineId"],
         forecast_id=doc["binding"]["forecastId"],
+        # The eligibility contract.
         artifact_version=doc["artifactVersion"],
         simulation_kind=doc["simulation"]["kind"],
-        imported_at=NOW, status="IMPORTED",
+        imported_at=NOW, status="RESEARCH_SHADOW",
         research_shadow_only=research_shadow_only,
-        payload=doc, evidence={}))
+        payload={"summaries": doc.get("summaries") or {},
+                 "producer": doc.get("producer") or {}},
+        evidence={"binding": doc["binding"],
+                  "governance": doc.get("governance"),
+                  "files": {}}))
     session.flush()
 
 
@@ -165,3 +181,28 @@ def test_a_non_virtual_mode_is_refused(session):
     doc["summaries"]["authorization"]["mode"] = "FUNDED"
     store(session, doc)
     assert check(session)["reason"] == "ELIGIBILITY_MODE_IS_NOT_VIRTUAL_RESEARCH"
+
+
+def test_the_gate_reads_the_columns_the_importer_actually_writes(session):
+    """The bug this locks out, stated directly.
+
+    The importer puts `binding` and `governance` in `evidence` and `summaries`
+    in `payload`. A gate that read the raw document shape from `payload` alone
+    found no binding and reported it as a producer omission -- the most
+    misleading answer available, because it blames the publisher for the
+    consumer's own mapping error.
+    """
+
+    from app.services.nfl_paper_eligibility import stored_document
+
+    store(session, document())
+    record = gate.eligibility_record(session, event_id=EVENT, forecast_id=FORECAST)
+    assert record is not None, "the gate must find it by artifact_version"
+    # contract_version names the CONTAINER, not the eligibility contract.
+    assert record.contract_version == "AISP_RESEARCH_SUPPLEMENT_V1"
+    assert record.artifact_version == gate.CONTRACT_VERSION
+
+    view = stored_document(record)
+    assert view["binding"]["eventId"] == EVENT
+    assert view["governance"]["researchShadowOnly"] is True
+    assert view["summaries"]["authorization"]["policyVersion"] == "AISP_NFL_PAPER_POLICY_V1"
