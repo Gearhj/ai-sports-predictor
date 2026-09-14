@@ -50,6 +50,23 @@ A1_GOVERNANCE_DECISION: dict[str, Any] = {
 }
 
 
+#: The result facts a final actually asserts. Everything else in the DTO is
+#: metadata about the READ -- when it was fetched, by which run -- and including
+#: any of it in the identity is what turned one game into a stream of
+#: "corrections" that all said the same thing. The nflverse path has always
+#: drawn this line; the MLB path did not, and eleven revisions on 2026-09-13 are
+#: the evidence: byte-identical scores, innings and final_at, differing only in
+#: retrieval clocks.
+_RETRIEVAL_METADATA = frozenset({"acquired_at"})
+
+
+def _result_content(payload: dict[str, Any]) -> dict[str, Any]:
+    """The payload with retrieval metadata removed, for identity purposes."""
+
+    return {key: value for key, value in payload.items()
+            if key not in _RETRIEVAL_METADATA}
+
+
 class HistoricalPersistenceError(RuntimeError):
     """Raised when a chunk cannot be persisted without guessing identity."""
 
@@ -707,7 +724,7 @@ class HistoricalCanonicalPersistenceService:
         if final.source_game_id != row.game.source_game_id:
             raise HistoricalPersistenceError("Final source ID does not match schedule source ID")
         payload = final.model_dump(mode="json")
-        payload_checksum = _checksum(payload)
+        payload_checksum = _checksum(_result_content(payload))
         existing = self.session.scalar(
             select(GameFinalOutcome).where(
                 GameFinalOutcome.game_id == game.id,
@@ -718,6 +735,31 @@ class HistoricalCanonicalPersistenceService:
         )
         if existing is not None:
             return existing, True
+
+        # Revisions written before the checksum excluded acquisition time carry
+        # a digest computed over content PLUS the retrieval clock, so an
+        # unchanged result will not match the checksum above. Compare the result
+        # columns themselves before minting a successor: a re-read of a game
+        # whose score, innings and completion time are identical is the same
+        # final, not a correction of it.
+        same_result = self.session.scalar(
+            select(GameFinalOutcome)
+            .where(
+                GameFinalOutcome.game_id == game.id,
+                GameFinalOutcome.source_version_id == source_version.id,
+                GameFinalOutcome.source_mode == "LIVE",
+                GameFinalOutcome.outcome_status == "FINAL",
+                GameFinalOutcome.home_score == final.home_score,
+                GameFinalOutcome.away_score == final.away_score,
+                GameFinalOutcome.innings_played.is_not_distinct_from(
+                    final.innings_played),
+                GameFinalOutcome.final_at == _final_time(row),
+            )
+            .order_by(GameFinalOutcome.revision.desc())
+            .limit(1)
+        )
+        if same_result is not None:
+            return same_result, True
         previous = self.session.scalar(
             select(GameFinalOutcome)
             .where(

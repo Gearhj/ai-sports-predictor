@@ -108,6 +108,15 @@ class SportDefinition(BaseModel):
     # Backend-owned destination for governed navigation. Planned/unavailable
     # entries keep this null so clients never invent a route from league code.
     navigation_href: str | None = None
+    # A read-only research surface, which is NOT a governed day surface.
+    #
+    # Kept apart from `navigation_href` on purpose. `navigable` means this
+    # league has a read adapter and can report its day; a league can hold
+    # imported research evidence long before that is true, and folding the two
+    # together would either hide the evidence or claim a day surface that does
+    # not exist. A league with only this set stays out of `active_leagues()`,
+    # out of the supported filters, and out of every governed section.
+    research_href: str | None = None
 
     @property
     def key(self) -> str:
@@ -302,6 +311,9 @@ class AvailabilityEntry(BaseModel):
     display_name: str
     availability: SportAvailabilityState
     navigable: bool
+    # Present only where read-only research evidence exists. Never implies a
+    # governed surface, a market, a policy or a position.
+    research_href: str | None = None
     note: str | None = None
 
 

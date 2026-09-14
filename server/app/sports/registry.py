@@ -71,8 +71,15 @@ NBA = SportDefinition(
     display_name="NBA",
     short_label="NBA",
     official_positions_supported=False,
-    official_positions_note="Planned. No model, no data acquisition, and no surface in this phase.",
+    official_positions_note=(
+        "Planned. AISP holds imported research forecasts for NBA and nothing else: "
+        "no day surface, no read adapter, no odds, no policy and no position. The "
+        "research forecasts are readable at the research href; they are research "
+        "output and can never be funded."
+    ),
     navigable=False,
+    # Read-only evidence, deliberately not a day surface. See SportDefinition.
+    research_href="/nba/research",
 )
 
 WNBA = SportDefinition(

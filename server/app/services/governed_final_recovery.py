@@ -20,13 +20,18 @@ provider, the same scope, invoked by the supervisor instead of by hand.
 
 ONLY WHAT IS MISSING
 --------------------
-It never re-ingests a date. Re-running one is not idempotent at the record
-level -- the payload checksum covers the acquisition time, so a repeat mints a
-new revision of a result that did not change, and a game becomes a stream of
-corrections that all say the same thing. So the recovery asks which completed
-games have no governed final, and fetches exactly those, one feed each. A slate
-already governed costs one schedule call and nothing more; a slate entirely
-governed is skipped before any call at all.
+It never re-ingests a date, and asks instead which completed games have no
+governed final, fetching exactly those, one feed each. A slate already governed
+costs one schedule call and nothing more; a slate entirely governed is skipped
+before any call at all.
+
+That bound is about cost and blast radius. It is no longer also holding back a
+correctness problem: the record-level identity now excludes the acquisition
+clock, so a re-read of an unchanged result reuses its revision instead of
+minting a successor that says the same thing. Both layers matter and neither
+replaces the other -- the chunk key catches unchanged schedule BYTES, while the
+per-final check catches the unchanged GAMES inside a slate whose bytes did
+change, which is how the 2026-09-13 games acquired a spurious revision 2.
 
 BOUNDS
 ------

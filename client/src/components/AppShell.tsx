@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useSportRegistry } from '../hooks/useSportRegistry'
@@ -28,7 +28,27 @@ export function AppShell() {
   const { user } = useAuth()
   const { sport, setSport, withSport } = useSportSelection()
   const { registry, state } = useSportRegistry()
+  const navigate = useNavigate()
   const sports = resolveAllSports(registry?.sports)
+  /**
+   * A league with a research surface but no day surface is selectable, and
+   * choosing it goes to that surface.
+   *
+   * Without this the NBA option is disabled and its imported forecasts are
+   * unreachable from the selector — a reader would conclude AISP holds no NBA
+   * evidence at all. It does not make NBA navigable: the backend still reports
+   * navigable=false, NBA stays out of the supported filters, and no governed
+   * section is created for it.
+   */
+  const researchOnly = new Map(
+    sports.filter((item) => !item.navigable && item.researchHref)
+      .map((item) => [item.leagueCode as string, item.researchHref as string]),
+  )
+  const chooseSport = (next: SelectedSport) => {
+    const research = researchOnly.get(next)
+    setSport(next)
+    if (research) navigate(research)
+  }
   const demoMode = location.pathname === '/demo' || location.pathname.startsWith('/demo/')
   useEffect(() => { setMenuOpen(false) }, [location.pathname, location.search])
   return (
@@ -61,12 +81,20 @@ export function AppShell() {
       <main className="main-content" id="main-content">
         <div className="workspace-toolbar">
           <label className="global-sport-selector" htmlFor="workspace-sport"><span>SPORT</span>
-            <select id="workspace-sport" aria-label="Sport" value={sport} onChange={(e) => setSport(e.target.value as SelectedSport)}>
+            <select id="workspace-sport" aria-label="Sport" value={sport} onChange={(e) => chooseSport(e.target.value as SelectedSport)}>
               <option value="ALL">All sports</option>
-              {sports.map((item) => <option key={item.leagueCode} value={item.leagueCode} disabled={!item.navigable || !['LIVE', 'RESEARCH_SHADOW'].includes(item.availability)}>{item.shortName}{item.navigable ? '' : ' · Planned'}</option>)}
+              {sports.map((item) => {
+                const research = researchOnly.has(item.leagueCode)
+                const active = item.navigable && ['LIVE', 'RESEARCH_SHADOW'].includes(item.availability)
+                return (
+                  <option key={item.leagueCode} value={item.leagueCode} disabled={!active && !research}>
+                    {item.shortName}{active ? '' : research ? ' · Research only' : ' · Planned'}
+                  </option>
+                )
+              })}
             </select>
           </label>
-          <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? 'NFL · Research forecasts and simulations' : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : `${sport} · Planned`}</p>
+          <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? 'NFL · Research forecasts and simulations' : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : researchOnly.has(sport) ? `${sport} · Imported research forecasts only — no market, policy or position` : `${sport} · Planned`}</p>
           {state === 'unavailable' && <span role="status">Sport availability could not be loaded</span>}
         </div>
         {demoMode && <div className="demo-context-strip" role="status"><strong>{ILLUSTRATIVE_DEMO_LABEL}</strong><span>Static examples only.</span><NavLink to="/">View live application</NavLink></div>}

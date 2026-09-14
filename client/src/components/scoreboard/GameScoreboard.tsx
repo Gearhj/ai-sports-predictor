@@ -43,7 +43,10 @@ function clockLabel(seconds: number | null | undefined): string | null {
 /** "Q3, 6:42 remaining", "Top 9th", "Final" — only from what was supplied. */
 export function progressLabel(game: Scoreboard): string | null {
   if (game.status === 'FINAL') return game.status_detail || 'Final'
-  if (game.status === 'SCHEDULED') return null
+  // Named rather than left blank. A row with two dashes and no word beside
+  // them reads as a score that failed to load; "Scheduled" says the game has
+  // not started, which is a different thing and the true one.
+  if (game.status === 'SCHEDULED') return 'Scheduled'
   if (game.status && game.status !== 'IN_PROGRESS') {
     // Delayed, suspended, postponed, cancelled: the source's own word is the
     // most informative thing available and is never replaced by a guess.
@@ -160,6 +163,9 @@ export function GameScoreboard({
           </span>
         )}
         {game.status === 'FINAL' && <span className="bx-chip">FINAL</span>}
+        {game.status === 'IN_PROGRESS' && (
+          <span className="bx-chip bx-chip--good" data-testid="scoreboard-live">LIVE</span>
+        )}
       </div>
 
       {/* Baseball situation, only where the source actually supplied it. */}

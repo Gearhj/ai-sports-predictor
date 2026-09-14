@@ -57,6 +57,8 @@ import type { DecisionExplanation } from '../types/explain'
 import type { TotalsBoard } from '../types/totals'
 import { useMlbTotals } from '../hooks/useMlbTotals'
 import { useScoreboard } from '../hooks/useScoreboard'
+import { useSlateStatus } from '../hooks/useSlateStatus'
+import { SlateBoard, type SlateFilter } from '../components/decisions/SlateBoard'
 import { GameScoreboard } from '../components/scoreboard/GameScoreboard'
 import type { GameScoreboard as Scoreboard } from '../types/scoreboard'
 import {
@@ -89,6 +91,11 @@ type BlockerKey =
 const EMPTY_SCENARIOS: Record<string, string> = {}
 
 type MarketFilterValue = 'ALL' | 'MONEYLINE' | 'TOTALS'
+
+export function readSlateFilter(value: string | null): SlateFilter {
+  const upper = (value ?? '').toUpperCase()
+  return upper === 'OPPORTUNITIES' || upper === 'POSITIONS' ? upper : 'ALL'
+}
 
 export function readMarket(value: string | null): MarketFilterValue {
   const upper = (value ?? '').toUpperCase()
@@ -307,7 +314,12 @@ export function MultiSportTodayPage() {
   // The slate the board is showing. `today` carries the date the server used,
   // so the explanations are fetched for the same day the cards describe rather
   // than for the browser's idea of today.
-  const slateDate = model?.operational_date ?? new Date().toISOString().slice(0, 10)
+  // The user's chosen day wins over the operational date, so completed games
+  // are reachable at all. Everything below reads this one value, so the
+  // scoreboard, the slate and the explanations can never disagree about which
+  // day is on screen.
+  const slateDate = params.get('date')
+    ?? model?.operational_date ?? new Date().toISOString().slice(0, 10)
   // Which market the desk is showing. It lives in the URL for the same reason
   // the markets page keeps its view there: a board someone is looking at should
   // be a link they can send rather than a set of clicks they have to describe.
@@ -331,6 +343,13 @@ export function MultiSportTodayPage() {
   // One read for the whole page. Every card below shares it, so eight
   // opportunities are one request and no card polls anything by itself.
   const scoreboard = useScoreboard({ day: slateDate })
+
+  // Every scheduled game, which is what the default view shows. A board that
+  // listed only opportunities answered "what should I look at" and refused to
+  // answer "what is happening today" -- so a quiet slate rendered as an empty
+  // page, which reads as a broken product rather than as a quiet day.
+  const slate = useSlateStatus(slateDate)
+  const slateFilter = readSlateFilter(params.get('games'))
 
   const explanations = useSlateExplanations(slateDate, true)
   const explanationByGame = useMemo(() => {
@@ -468,6 +487,29 @@ export function MultiSportTodayPage() {
             )}
           </Panel>
         )}
+
+        <Panel
+          eyebrow="Today's slate"
+          title="Every scheduled game"
+          className="bx-panel--slate"
+        >
+          {slate.loading && !slate.data
+            ? <p className="bx-dim" role="status">Loading the slate…</p>
+            : <SlateBoard
+                slate={slate.data}
+                sport={sport}
+                filter={slateFilter}
+                onFilter={(next) => setParam('games', next === 'ALL' ? null : next)}
+                // The page's single scoreboard read, shared by every row. No
+                // row fetches anything, so opening this page costs one request
+                // and buys no provider objects: MLB scores come from the free
+                // MLB Stats API and NFL from the free nflverse release.
+                scores={scoreboard.games}
+                onRefreshScore={scoreboard.refresh}
+                day={slateDate}
+                onDay={(next) => setParam('date', next)}
+              />}
+        </Panel>
 
         <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)', alignItems: 'start' }}
           className="bx-decisions__split">

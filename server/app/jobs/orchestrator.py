@@ -94,6 +94,8 @@ AVAILABLE_JOBS = {
     "refresh-scoreboard": "Refresh Live Scoreboard (MLB)",
     "collect-nfl-period-breakdowns": "Collect NFL Quarter Breakdowns",
     "collect-nfl-live-scores": "Collect NFL In-Game Scores (tracked games)",
+    "collect-nfl-pregame-odds": "Collect NFL Pregame Odds (one object, near the checkpoint)",
+    "evaluate-nfl-paper-checkpoint": "Evaluate the NFL Paper Policy at its Final-Pregame Checkpoint",
     "recover-governed-finals": "Recover Governed Finals For Completed Games",
     "refresh-provider-usage": "Refresh SportsGameOdds Account Usage",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
@@ -227,6 +229,8 @@ class JobOrchestrator:
             "refresh-scoreboard": self.refresh_scoreboard,
             "collect-nfl-period-breakdowns": self.collect_nfl_period_breakdowns,
             "collect-nfl-live-scores": self.collect_nfl_live_scores,
+            "collect-nfl-pregame-odds": self.collect_nfl_pregame_odds,
+            "evaluate-nfl-paper-checkpoint": self.evaluate_nfl_paper_checkpoint,
             "recover-governed-finals": self.recover_governed_finals,
             "refresh-provider-usage": self.refresh_provider_usage,
             "backfill-scoreboard": self.backfill_scoreboard,
@@ -1539,6 +1543,33 @@ class JobOrchestrator:
         from app.scoreboard.nfl_live import collect_nfl_live
 
         return collect_nfl_live(self.session, self.settings)
+
+    async def collect_nfl_pregame_odds(self, event_date: date) -> dict[str, Any]:
+        """One SportsGameOdds event object for an NFL game near its checkpoint.
+
+        The NFL paper policy qualifies against a quote that must still be fresh
+        at its final pregame checkpoint, and the 240-minute freshness rule means
+        a price captured earlier in the day is already disqualified by kickoff.
+        So the object is spent late and only once, charged to the NFL pregame
+        lane the owner funded on 2026-09-14 -- never to the live-score lane.
+        """
+
+        from app.services.sgo_nfl_pregame import collect_nfl_pregame
+
+        return collect_nfl_pregame(self.session, self.settings)
+
+    async def evaluate_nfl_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """The NFL paper policy's decision, at the final-pregame window.
+
+        Always produces an outcome per game in the window -- qualified, declined
+        or blocked, each with its exact reason -- because a checkpoint that came
+        and went with no record is indistinguishable from a job that never ran.
+        Reads the frozen forecast and the stored quote; calls no provider.
+        """
+
+        from app.services.nfl_paper_decision import evaluate
+
+        return evaluate(self.session, self.settings)
 
     async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:
         """Governed finals for completed games that have none, automatically.

@@ -182,6 +182,8 @@ export interface SportRegistryEntry {
   stored_league_aliases: string[]
   navigable: boolean
   navigation_href: string | null
+  /** A read-only research surface. Never a governed day surface, market or policy. */
+  research_href?: string | null
 }
 
 export interface SportRegistryResponse {

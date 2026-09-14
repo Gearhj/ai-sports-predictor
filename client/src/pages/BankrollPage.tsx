@@ -199,12 +199,15 @@ function LedgerRow({
         <td>{position.date}</td>
         <td>
           {position.matchup ?? '—'}
-          {position.result === 'OPEN' && scoreboard?.available
-            && scoreboard.status !== 'SCHEDULED' && (
-            <div className="ledger-score">
-              <GameScoreboard game={scoreboard} compact onRefresh={onRefreshScore} />
-            </div>
-          )}
+          {/* The observed score, on the row, whatever the position's state.
+              It used to render only while the position was OPEN, so a settled
+              position -- which is nearly all of them -- showed the final score
+              only if the reader thought to expand the row. The result of the
+              GAME and the result of the WAGER are different records, and the
+              one a reader is looking for here is the game's. */}
+          <div className="ledger-score">
+            <GameScoreboard game={scoreboard} compact onRefresh={onRefreshScore} />
+          </div>
         </td>
         <td>
           <Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>

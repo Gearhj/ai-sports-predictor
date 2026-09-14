@@ -38,6 +38,8 @@ import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, opportunityStyle } from '../services/statusStyle'
 import { availabilityNote, engineShortName, isCurrent, type ForecastIdentity } from '../services/forecastSelection'
 import { useSportSelection } from '../hooks/useSportSelection'
+import { useSportRegistry } from '../hooks/useSportRegistry'
+import { resolveAllSports } from '../services/sportExperience'
 import { apiRequest, endpoints } from '../services/api'
 import { byStartTime, mlbSlate, nflSlate, type SlateGame } from '../services/broadcastSlate'
 import {
@@ -72,6 +74,10 @@ const stateOf = (game: SlateGame): StateFilter => {
 export function UnifiedGamesPage() {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
+  const { registry } = useSportRegistry()
+  // Backend authority, not a route guessed from a league code.
+  const researchHref = resolveAllSports(registry?.sports)
+    .find((item) => item.leagueCode === sport)?.researchHref ?? null
   const [params, setParams] = useSearchParams()
   const dateParam = params.get('date')
   const [stateFilter, setStateFilter] = useState<StateFilter>('ALL')
@@ -255,8 +261,20 @@ export function UnifiedGamesPage() {
           />
         )}
 
+        {/* A league off the governed board is not automatically a league with
+            nothing in it. NBA holds imported research forecasts and no market;
+            saying "no forecasts" here would contradict the surface that shows
+            them. The registry's own research href decides which sentence runs. */}
         {!['ALL', 'MLB', 'NFL'].includes(sport) && (
-          <p className="bx-empty">{sport} is planned. No forecasts or markets are published yet.</p>
+          researchHref ? (
+            <p className="bx-empty">
+              {sport} has no slate, market or position in AISP. Its imported research
+              forecasts are on the{' '}
+              <Link to={researchHref}>{sport} research page</Link>.
+            </p>
+          ) : (
+            <p className="bx-empty">{sport} is planned. No forecasts or markets are published yet.</p>
+          )
         )}
       </div>
     </div>

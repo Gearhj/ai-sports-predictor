@@ -357,6 +357,9 @@ class TodayAllSportsReadService:
                 navigable=definition.navigable and definition.availability in (
                     SportAvailabilityState.LIVE, SportAvailabilityState.RESEARCH_SHADOW,
                 ),
+                # Independent of `navigable`: read-only research evidence may
+                # exist for a league that has no day surface at all.
+                research_href=definition.research_href,
                 note=definition.official_positions_note or None,
             )
             for definition in SPORT_REGISTRY

@@ -1,0 +1,71 @@
+{
+  "request": "PUBLISH_PAPER_RESEARCH_ELIGIBILITY_SUPPLEMENT",
+  "kind": "PAPER_RESEARCH_ELIGIBILITY",
+  "contract_version": "ASP_NFL_PAPER_RESEARCH_ELIGIBILITY_V1",
+  "mechanism": "The existing AISP_RESEARCH_SUPPLEMENT_V1 container: <exchange>/nfl-labs-supplements/sha256/<64-hex>/{manifest.json,supplement.json} plus the index entry. Content-addressed and byte-verified exactly like the joint-score supplements.",
+  "required_payload_fields": [
+    "paperExperimentId",
+    "authorizationReceiptSha256",
+    "cohortIdentity",
+    "eventId",
+    "forecastId",
+    "bundleSha256",
+    "modelBinarySha256",
+    "featureContractSha256",
+    "technicalEligibility",
+    "originalClocks",
+    "evidenceClocks"
+  ],
+  "flags_that_must_be_false": [
+    "executionAllowed",
+    "modelPromotionAllowed",
+    "parlaysAllowed"
+  ],
+  "flags_that_must_be_true": [
+    "researchShadowOnly"
+  ],
+  "bind_to": {
+    "paperExperimentId": "c25f7272-39ef-4ad6-a196-bfae55efd3f2",
+    "authorizationReceiptSha256": "the owner's approval receipt, so the permission is traceable to the decision that granted it",
+    "cohortIdentity": "which games this permission covers, and until when",
+    "eventId": "2026_01_DEN_KC",
+    "forecastId": "asp-sports-game-forecast:sha256:2d9d0197aa7ef02c15a110cf7ce5f36ad2a87d2f1c2a92601d9989d5c487aec9",
+    "originalClocks": "source cutoff, forecast cutoff and frozen-at, unchanged from the forecast",
+    "evidenceClocks": "when the evidence was gathered and published"
+  },
+  "must_not": [
+    "grant execution or promotion authority",
+    "change any forecast's existing restrictions",
+    "reuse or rename an existing supplement kind"
+  ],
+  "consumer_status": "Implemented and verifying. AISP checks for this record at every NFL final-pregame checkpoint and declines to record a position without it, retaining NO_PAPER_RESEARCH_ELIGIBILITY_RECORD as the reason.",
+  "consumer_context": {
+    "account_id": "7f2b7e69-9df4-4815-bcd9-e682fda013d3",
+    "experiment_id": "c25f7272-39ef-4ad6-a196-bfae55efd3f2",
+    "policy_version": "AISP_NFL_PAPER_POLICY_V1",
+    "staking_version": "AISP_QUARTER_KELLY_NFL_V1",
+    "virtual_bankroll": 1000.0,
+    "owner_approval": {
+      "authority": "project owner",
+      "granted_utc": "2026-09-14T16:50:39+00:00",
+      "scope": "Open the NFL 2026 virtual research experiment and reallocate one daily SportsGameOdds event object from NFL live scores to NFL pregame odds.",
+      "real_money": "NEVER \u2014 virtual research only, no sportsbook execution",
+      "producer_handoff_sha256": "45d2d835fb9b8963f461ed03fec6cf915cada2fea6452a9d1efc03498dbbe5c9"
+    },
+    "model_binding": {
+      "engine_id": "NFL_M1_XGBOOST",
+      "engine_version": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "candidate_id": "nfl-m1-xgboost-fixed-research-challenger-2026-shadow",
+      "producer_revision": "5d114f5502d875b012dc75672db975166e09e561",
+      "model_binary_sha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "model_manifest_sha256": "ab9c066052b288f3f6162d8f8558e673988fb52172c72fe00aa855aa800a45e9",
+      "feature_contract_sha256": "ef5c4f9ce8c3dd04a473e7ecb2ea3a255154f65a1bb3fda9d2ebc19bf1cb8f4d",
+      "training": "7,276 games, 1999-2025 seasons, cutoff 2026-02-08",
+      "calibration": "NONE",
+      "simulator_id": "NFL_M1_EMPIRICAL_PAIRED_RESIDUAL",
+      "simulator_version": "NFL_M1_EMPIRICAL_CORRELATED_RESIDUAL_V1"
+    },
+    "first_checkpoint_utc": "2026-09-15T00:00:00Z",
+    "blocking_reason_today": "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD"
+  }
+}

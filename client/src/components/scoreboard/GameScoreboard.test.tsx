@@ -82,12 +82,21 @@ describe('the score line', () => {
     expect(line.indexOf('COL')).toBeLessThan(line.indexOf('DET'))
   })
 
-  it('shows dashes rather than zeros before a game starts', () => {
+  it('shows dashes rather than zeros before a game starts, and says so', () => {
     render(<GameScoreboard game={game({
       status: 'SCHEDULED', is_live: false, away_score: null, home_score: null,
     })} />)
     expect(screen.getByTestId('scoreboard-score').textContent).toMatch(/–/)
-    expect(screen.queryByTestId('scoreboard-progress')).toBeNull()
+    // A dash with no word beside it reads as a score that failed to load. The
+    // game has not started, which is a different thing and has to be said.
+    expect(screen.getByTestId('scoreboard-progress').textContent).toBe('Scheduled')
+    expect(screen.getByTestId('scoreboard-score').textContent).not.toMatch(/0/)
+  })
+
+  it('marks a game in progress as live', () => {
+    render(<GameScoreboard game={game({ status: 'IN_PROGRESS', is_live: true })} />)
+    expect(screen.getByTestId('scoreboard-live').textContent).toBe('LIVE')
+    expect(screen.queryByText('FINAL')).toBeNull()
   })
 })
 

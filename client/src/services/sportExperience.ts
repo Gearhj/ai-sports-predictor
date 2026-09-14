@@ -217,7 +217,12 @@ const LEAGUE_SEEDS: LeagueSeed[] = [
     displayName: 'National Basketball Association', shortName: 'NBA',
     accent: { base: '#d36d2b', soft: '#fff1e5', ink: '#8a4415' },
     forecastOutputs: [], labAvailable: false, labRoute: null, plannedStatus: 'PLANNED',
-    emptyStateGuidance: 'NBA is planned. No NBA model, market or forecast exists in AISP yet.',
+    // Corrected: an imported research forecast now exists. Everything else this
+    // line used to claim about NBA is still true, so only the forecast clause
+    // changes — NBA has no market, no policy and no position.
+    emptyStateGuidance:
+      'NBA is planned. AISP holds imported research forecasts only — no NBA market, '
+      + 'policy or position exists, and no NBA game appears on this operational date.',
   },
   {
     leagueCode: 'WNBA', sportCode: 'BASKETBALL',
@@ -318,6 +323,15 @@ export interface ResolvedSport extends SportExperience {
   officialPositionsSupported: boolean
   engineLabel: string | null
   navigationHref: string | null
+  /**
+   * A read-only research surface, kept apart from `navigationHref`.
+   *
+   * A league can hold imported research evidence long before it has a day
+   * surface. Folding the two together would either hide that evidence or
+   * advertise a governed surface that does not exist, so this stays its own
+   * field and never makes a sport navigable.
+   */
+  researchHref: string | null
 }
 
 function explain(
@@ -369,6 +383,7 @@ export function resolveSport(
     officialPositionsSupported: Boolean(entry?.official_positions_supported),
     engineLabel: entry?.engine_label ?? null,
     navigationHref: entry?.navigation_href ?? null,
+    researchHref: entry?.research_href ?? null,
   }
 }
 

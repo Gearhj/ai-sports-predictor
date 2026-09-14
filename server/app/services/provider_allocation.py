@@ -94,19 +94,20 @@ LANES: tuple[Lane, ...] = (
     Lane(
         key="sgo_nfl_events", label="NFL pregame quotes", share=0.08,
         rationale=(
-            "NFL is a research shadow with no wagering authority, so its pregame "
-            "prices are evidence rather than input to a stake. No collector "
-            "consumes this lane today, so it is unfunded and its share goes to "
-            "the lanes that do -- funding it would strand objects nothing spends."
+            "Funded on the project owner's explicit 2026-09-14 approval, which "
+            "opened the NFL virtual research experiment and moved one object a "
+            "day out of NFL live scores. A funded paper policy needs a quote "
+            "that is fresh AT ITS CHECKPOINT, and no other lane may buy one for "
+            "it: pregame retrieval is charged here, never to the live lane."
         ),
-        funded=False,
     ),
     Lane(
         key="sgo_nfl_live", label="NFL in-game score", share=0.22,
         rationale=(
-            "Explicitly funded, and deliberately small. Four concurrent games is "
-            "a ceiling on how many may be followed at once, not a promise that "
-            "the day can pay for four complete games."
+            "Explicitly funded, and deliberately small -- one object a day "
+            "smaller since 2026-09-14, when the owner moved it to NFL pregame. "
+            "Four concurrent games is a ceiling on how many may be followed at "
+            "once, not a promise that the day can pay for four complete games."
         ),
     ),
     Lane(
@@ -119,6 +120,31 @@ LANES: tuple[Lane, ...] = (
 )
 
 LANES_BY_KEY = {lane.key: lane for lane in LANES}
+
+#: Allocation changes, recorded rather than silently applied. A budget that
+#: changes shape with no record is one nobody can audit later, and "why does
+#: NFL have an object today" needs an answer that outlives this conversation.
+ALLOCATION_CHANGES: tuple[dict[str, Any], ...] = (
+    {
+        "effective_utc": "2026-09-14T16:50:39+00:00",
+        "authority": "project owner, explicit approval 2026-09-14",
+        "change": "FUND_NFL_PREGAME_FROM_NFL_LIVE",
+        "detail": (
+            "NFL pregame quotes moved from unfunded to funded, which at the "
+            "current 11-object daily total yields MLB pregame 7, NFL pregame 1, "
+            "NFL live 2, NFL final periods 1 -- the approved split. The declared "
+            "shares are unchanged; only the funded flag moved, so the split is a "
+            "consequence of the existing apportionment rather than a hand-set "
+            "table that could drift from it."
+        ),
+        "scope": "virtual research only; no real-money wagering or execution",
+        "preserved": [
+            "the 400-object reserve",
+            "all incurred and in-flight usage",
+            "the shared reservation controls",
+        ],
+    },
+)
 
 
 @dataclass(frozen=True)
@@ -201,7 +227,7 @@ def replenishment_date(now: datetime | None = None) -> date:
     return (moment.date().replace(day=1) + timedelta(days=days_in_month)).replace(day=1)
 
 
-def apportion(daily_total: int) -> dict[str, int]:
+def apportion(daily_total: int, *, include_unfunded: bool = False) -> dict[str, int]:
     """Whole objects per funded lane, summing exactly to the daily total.
 
     Largest remainder rather than truncation. At eleven objects a day a lane
@@ -210,9 +236,15 @@ def apportion(daily_total: int) -> dict[str, int]:
     up to the whole. Ties break on the declared lane order, so the same total
     always produces the same split -- a budget that reshuffles between two reads
     is not one anybody can reason about.
+
+    `include_unfunded` answers a reporting question only: what an unfunded lane
+    WOULD receive if it were switched on. It exists so a zero allowance can be
+    shown as the policy choice it is rather than read as rounding, and it never
+    grants anything -- `request_objects` refuses an unfunded lane by name
+    whatever this returns.
     """
 
-    funded = [lane for lane in LANES if lane.funded]
+    funded = [lane for lane in LANES if lane.funded or include_unfunded]
     if not funded or daily_total <= 0:
         return {lane.key: 0 for lane in LANES}
 
@@ -444,6 +476,52 @@ def request_objects(
     return Grant(lane=lane, wanted=wanted, granted=granted, plan=plan, reason=reason)
 
 
+def quote_affordability(
+    session: Session, *, lane: str = "sgo_nfl_events", objects: int = 1,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Whether one more capture on a lane fits the authorised allowance.
+
+    Asks the enforcement point the same question a collector would, and reports
+    the answer. It reserves nothing, writes nothing and moves no accounting: a
+    refusal here is the guard working, not an obstacle to route around.
+    """
+
+    grant = request_objects(session, lane=lane, wanted=objects, now=now)
+    allocation = grant.plan.allocations.get(lane)
+    reasons = {
+        "GRANTED": "The lane has room today and the capture fits.",
+        "GRANTED_PARTIAL": (
+            "The lane has some room but less than requested, so only part of "
+            "the capture fits."
+        ),
+        "LANE_NOT_FUNDED": (
+            "The lane is switched off by policy, so it has no allowance to "
+            "spend. This is a funding decision, not a depleted balance, and "
+            "turning it on changes every other lane's share."
+        ),
+        "LANE_DAILY_ALLOWANCE_SPENT": (
+            "The lane's allowance for today is already spent or reserved. It "
+            "replenishes at the next UTC day, not at the next request."
+        ),
+        "BUDGET_PAUSED_UNTIL_REPLENISHMENT": (
+            "No lane has a whole object a day at the current balance, so "
+            "collection is paused until the monthly balance replenishes."
+        ),
+    }
+    return {
+        "lane": lane,
+        "objects_requested": objects,
+        "fits": grant.allowed,
+        "objects_granted": grant.granted,
+        "reason": grant.reason,
+        "explanation": reasons.get(grant.reason, grant.reason),
+        "allocation": allocation.as_dict() if allocation else None,
+        "replenishes_on": grant.plan.replenishes_on.isoformat(),
+        "reserved_nothing": True,
+    }
+
+
 def coverage_forecast(
     session: Session, *, now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -498,32 +576,76 @@ def coverage_forecast(
             "games_registered_ahead": mlb_games,
             "registered_days_ahead": horizon_days,
             "typical_games_per_day": round(mlb_per_day, 1),
-            "pregame_captures_per_day": mlb_daily,
-            "pregame_captures_fundable_through_replenishment": mlb_fundable,
+            "objects_per_day": mlb_daily,
+            "objects_fundable_through_replenishment": mlb_fundable,
+            # The unit is an EVENT OBJECT, not a request and not a game. One
+            # slate request today returned fourteen event objects and was billed
+            # fourteen, so counting requests would have read as one.
+            "distinct_games_per_day_if_never_recaptured": mlb_daily,
+            "distinct_games_per_day_if_each_game_captured_twice": mlb_daily // 2,
             "daily_coverage_fraction": (
                 round(mlb_daily / mlb_per_day, 3) if mlb_per_day else None),
             "checkpoints_per_game": 1,
             "note": (
-                "One capture per game, at the checkpoint nearest its decision "
-                "cutoff. The fraction is per day, against the slate size AISP "
-                "actually has registered -- canonical events exist only a short "
-                "horizon ahead, so a whole-window game count would understate "
-                "the shortfall badly. Games beyond the day's allocation are "
-                "reported by id as unsupported rather than dropped silently."
+                f"{mlb_daily} objects a day covers {mlb_daily} DISTINCT games "
+                "only while no game is captured more than once. The provider "
+                "bills per event object, so a second capture of a game already "
+                "captured -- a refresh after a staleness expiry, a re-read of a "
+                "slate that includes games already priced -- costs another "
+                "object and takes a distinct game off the day one for one. The "
+                "coverage fraction below assumes the no-repeat case, which is "
+                "the most favourable one and not the observed one."
             ),
+            "coverage_fraction_assumes": "NO_REPEAT_CAPTURES",
         },
         "nfl_in_game": {
             "games_scheduled": nfl_games,
-            "objects_fundable": live_daily * plan.days_remaining,
-            "objects_per_game_at_15_minutes": 13,
-            "complete_games_fundable": round(
-                (live_daily * plan.days_remaining) / 13, 1) if live_daily else 0.0,
+            "objects_per_day": live_daily,
+            # An in-game check is only worth anything WHILE the game is being
+            # played, so the honest unit is objects available on the one day the
+            # game runs. The previous figure multiplied the daily allowance by
+            # the days left in the month and divided by thirteen, which reported
+            # "3.9 complete games fundable" from an allowance that cannot fund
+            # thirteen checks in any single game. Objects do not roll forward
+            # into a game that has already ended.
+            "checks_in_one_game_today": live_daily,
+            "objects_for_one_complete_game_at_15_minutes": 13,
+            "complete_games_fundable_today": live_daily // 13,
+            "objects_unspent_through_replenishment": live_daily * plan.days_remaining,
             "note": (
-                "Four concurrent games is a ceiling on how many may be followed "
-                "at once, not a promise the budget pays for four. At this "
-                "allowance the day funds part of one game, so a tracked game is "
-                "followed until its allocation is spent and then reports its "
-                "last confirmed score with its real age."
+                f"{live_daily} objects a day buys {live_daily} in-game checks "
+                "during one game on the day it is played -- not thirteen, and "
+                "not a complete game. Fifteen-minute coverage of one full game "
+                "needs 13 objects on a single day. Unspent objects from earlier "
+                "days do not accumulate into a later game: the month's total is "
+                "what limits how many days can be funded, while this per-day "
+                "number is what limits any single game. Four concurrent games "
+                "is a ceiling on how many may be TRACKED at once, never a claim "
+                "the day pays for four. A tracked game is followed until the "
+                "day's allocation is spent and then reports its last confirmed "
+                "score with its real age."
+            ),
+        },
+        "nfl_pregame": {
+            # Named explicitly because a reader who sees 0 next to a 0.08 share
+            # will assume rounding, and would then expect the zero to fix itself
+            # as the budget grows. It will not: the lane is switched off.
+            "objects_per_day": plan.allocations["sgo_nfl_events"].daily_allowance,
+            "funded": LANES_BY_KEY["sgo_nfl_events"].funded,
+            "objects_per_day_if_funded": apportion(
+                plan.daily_total, include_unfunded=True).get("sgo_nfl_events", 0),
+            "zero_is": "AN_EXPLICIT_POLICY_CHOICE",
+            "note": (
+                "NFL pregame receives nothing because the lane is declared "
+                "unfunded, not because its share rounded down. Its declared "
+                "share is "
+                f"{LANES_BY_KEY['sgo_nfl_events'].share:.2f} of the daily total, "
+                "and at today's total a funded lane at that share would receive "
+                f"{apportion(plan.daily_total, include_unfunded=True).get('sgo_nfl_events', 0)} "
+                "objects a day. Turning it on is James's decision and changes "
+                "every other lane's allowance, because the shares are of one "
+                "fixed total. Nothing here bypasses the reservation guard: an "
+                "unfunded lane is refused by name at the enforcement point."
             ),
         },
         "free_and_unaffected": {
@@ -539,6 +661,7 @@ def coverage_forecast(
 
 
 __all__ = [
+    "ALLOCATION_CHANGES",
     "FALLBACK_MONTHLY_CAP",
     "LANES",
     "LANES_BY_KEY",

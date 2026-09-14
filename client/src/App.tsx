@@ -28,6 +28,8 @@ const UnifiedResearchPage = lazy(() => import('./pages/UnifiedResearchPage').the
 const NflGamePage = lazy(() => import('./pages/NflGamePage').then((module) => ({ default: module.NflGamePage })))
 const NflLabPage = lazy(() => import('./pages/NflLabPage').then((module) => ({ default: module.NflLabPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
+const NbaResearchPage = lazy(() => import('./pages/NbaResearchPage').then((module) => ({ default: module.NbaResearchPage })))
+const NbaResearchGamePage = lazy(() => import('./pages/NbaResearchGamePage').then((module) => ({ default: module.NbaResearchGamePage })))
 
 function LegacySportRoute() {
   const { pathname, search, hash } = useLocation()
@@ -82,6 +84,10 @@ export default function App() {
                   <Route path="nfl" element={<LegacySportRoute />} />
                   <Route path="nfl/games/:gameId" element={<LegacySportRoute />} />
                   <Route path="nfl/games/:gameId/lab" element={<LegacySportRoute />} />
+                  {/* NBA is research-only: a read of imported forecasts, deliberately
+                      not routed through the governed game analysis view. */}
+                  <Route path="nba/research" element={<NbaResearchPage />} />
+                  <Route path="nba/games/:gameId" element={<NbaResearchGamePage />} />
                   <Route path="research/history" element={<UnifiedResearchPage historical />} />
                   <Route path="games" element={<UnifiedGamesPage />} />
                   <Route path="games/:gameId" element={<GameRoute />} />

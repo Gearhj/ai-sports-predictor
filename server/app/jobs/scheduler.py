@@ -599,6 +599,34 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "collect-nfl-live-scores", "settings": settings},
         **common,
     )
+    # NFL pregame odds: one object, spent close to a game's decision
+    # checkpoint so the quote is still inside the 240-minute freshness window
+    # when the policy evaluates it. Every cycle outside a game's 75-minute
+    # collection window costs nothing and makes no request at all.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=15,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+        id="asp-nfl-pregame-odds",
+        kwargs={"job_name": "collect-nfl-pregame-odds", "settings": settings},
+        **common,
+    )
+    # The NFL paper policy's checkpoint. Five minutes matches the existing
+    # final-pregame cadence, and the 30-15 minute window means a game is
+    # evaluated two or three times rather than once -- which is what makes a
+    # single slow tick harmless. Every run outside a window is a no-op.
+    scheduler.add_job(
+        execute_scheduled_job,
+        "interval",
+        minutes=5,
+        jitter=None,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=3),
+        id="asp-nfl-paper-checkpoint",
+        kwargs={"job_name": "evaluate-nfl-paper-checkpoint", "settings": settings},
+        **common,
+    )
     # NFL quarter breakdowns, one SportsGameOdds object per completed game.
     # Hourly is far more often than it needs to be and costs nothing on the runs
     # where every recent game already has its breakdown -- which is most of

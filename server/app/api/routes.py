@@ -1559,6 +1559,42 @@ def scoreboard(
     }
 
 
+@router.get("/nba/research-forecasts", tags=["forecasts"])
+def nba_research_forecasts(
+    session: DatabaseSession,
+    game_id: str | None = Query(None),
+) -> dict:
+    """Imported NBA research forecasts. Research only; nothing here is funded.
+
+    Ridge expected points and the Elo win probability are returned under
+    separate names, as separate model outputs, with probabilities as the
+    delivered fractions -- the single multiplication by 100 belongs at display.
+    """
+
+    from app.models import NbaResearchForecast
+    from app.services.nba_research_read import nba_research_board
+
+    return nba_research_board(session, game_id=game_id)
+
+
+@router.get("/slate-status", tags=["forecasts"])
+def slate_status_endpoint(
+    session: DatabaseSession,
+    event_date: date | None = Query(None, alias="date"),
+    timezone: str = Query("America/New_York"),
+) -> dict:
+    """Every scheduled game on one local slate, and why each has no position.
+
+    The window is a local calendar day and the payload names it, because a
+    two-day UTC span and "today" can both be true of the same database and mean
+    very different counts.
+    """
+
+    from app.services.slate_status import slate_status
+
+    return slate_status(session, day=event_date, timezone=timezone)
+
+
 @router.get("/provider-budget", tags=["operations"])
 def provider_budget(session: DatabaseSession) -> dict:
     """The shared provider allocation, and what it can actually cover.
@@ -1568,11 +1604,18 @@ def provider_budget(session: DatabaseSession) -> dict:
     the coverage that share buys between now and replenishment.
     """
 
-    from app.services.provider_allocation import coverage_forecast
+    from app.services.provider_allocation import (
+        LANES, coverage_forecast, quote_affordability,
+    )
 
     return {
         "schema_version": "AISP_PROVIDER_BUDGET_V1",
         **coverage_forecast(session),
+        # "does one more capture fit right now", asked of the enforcement point
+        # itself rather than inferred from the plan. Reserves nothing.
+        "affordability": [
+            quote_affordability(session, lane=lane.key) for lane in LANES
+        ],
     }
 
 
