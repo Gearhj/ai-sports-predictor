@@ -113,4 +113,11 @@ from app.models.nba_research_forecast import (  # noqa: E402,F401
     NbaResearchForecast,
 )
 
+# A latched stop on one collection lane. Not a setting and not a cache: a halt
+# survives a restart and carries the response that caused it, because the fault
+# it guards against leaves a receipt that otherwise reads as success.
+from app.models.collection_lane_halt import (  # noqa: E402,F401
+    CollectionLaneHalt,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

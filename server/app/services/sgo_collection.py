@@ -680,6 +680,24 @@ def collect_for_open_cutoffs(
     if not ok:
         return {"attempted": False, "reason": reason, "objects": 0}
 
+    # A LATCHED LANE SPENDS NOTHING, AND IS NOT RETRIED.
+    #
+    # Checked before the cooldown and before the budget, because a halt is not a
+    # rate limit: it means the last object bought an answer to a question this
+    # lane did not ask, and the owner has not yet decided whether the provider
+    # can be trusted to answer it. Nothing here lifts it.
+    from app.services.collection_halt import active_halt
+
+    halt = active_halt(session, lane=ENDPOINT_KEY)
+    if halt is not None:
+        return {"attempted": False, "reason": "LANE_HALTED", "objects": 0,
+                "halt": {"lane": halt.lane, "halt_reason": halt.reason,
+                         "halted_at": halt.halted_at.isoformat(),
+                         "detail": halt.detail,
+                         "evidence": halt.evidence},
+                "detail": ("This lane is stopped pending an owner decision. No "
+                           "object is spent and no retry is attempted.")}
+
     # No retry storms. The free tier refreshes every ten minutes, so a tighter
     # cadence re-requests prices that cannot have changed -- and a failing
     # provider must not be hammered by a five-minute scheduler tick, so the
@@ -791,6 +809,9 @@ def collect_for_open_cutoffs(
     # The shared allocation has the final say. The provider reserve above is
     # kept as a second, cruder guard -- it protects against a bug in this
     # planner, which is exactly the sort of thing a reserve is for.
+    from app.services.collection_halt import (
+        SELECTION_MISMATCH, halt_lane, mismatch as selection_mismatch,
+    )
     from app.services.provider_allocation import request_objects
 
     grant = request_objects(session, lane=ENDPOINT_KEY, wanted=wanted, now=moment)
@@ -852,6 +873,35 @@ def collect_for_open_cutoffs(
     ingested = _ingested_game_ids(session, fetch)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id)
+
+    # THE FIRST MISMATCH STOPS THE LANE.
+    #
+    # The request now names the games it wants, so a response carrying a game
+    # that was never selected means an object was charged for a question nobody
+    # asked. Retrying spends a second object to re-ask a question the provider
+    # has just declined to answer, so nothing is retried and the lane latches
+    # shut on the single occurrence.
+    #
+    # The rows already written stay. They are real prices from a real response
+    # and deleting them would destroy the evidence of what happened. The
+    # completed reservation stays too: the object WAS charged, and a ledger that
+    # hid that would be worse than the fault it was hiding.
+    selected_ids = [str(event.get("game_id")) for event in covered]
+    divergence = selection_mismatch(selected_ids, ingested)
+    halted = None
+    if divergence is not None:
+        halted = halt_lane(
+            session, lane=ENDPOINT_KEY, reason=SELECTION_MISMATCH,
+            evidence={"request_filters": params, "mismatch": divergence,
+                      "objects_charged": fetch.objects,
+                      "events_returned": fetch.events_ingested,
+                      "selection_rule": SELECTION_RULE,
+                      "requested_at": moment.isoformat()},
+            detail=("The provider returned a game this request did not select. "
+                    "The lane is stopped after this single occurrence; no "
+                    "object was spent on a retry."),
+            now=moment,
+        )
     session.commit()
     after = object_budget(session, now=moment)
     return {
@@ -868,8 +918,9 @@ def collect_for_open_cutoffs(
         # measured from the canonical games the normalizer actually bound.
         "games_selected": [str(e.get("game_id")) for e in covered],
         "games_ingested": ingested,
-        "selection_reached_provider": (
-            sorted(ingested) == sorted(str(e.get("game_id")) for e in covered)),
+        "selection_reached_provider": divergence is None,
+        "lane_halted": halted is not None,
+        "selection_mismatch": divergence,
         # Named, not silently dropped: a reader can see exactly which games this
         # slate could not afford a price for.
         "games_unsupported_today": [str(e.get("game_id")) for e in unsupported],
