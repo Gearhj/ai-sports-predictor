@@ -16,6 +16,8 @@ Four kinds are supported, each with its own required summaries:
     DRIVE_SIMULATION         persisted possessions for one simulated game
     SCENARIO_COMPARISON      precomputed alternate-assumption results
     MODEL_BENCHMARK_STUDY    machine-readable model comparison results
+    PAPER_RESEARCH_ELIGIBILITY  producer attestation that one forecast may be
+                             used by one authorised VIRTUAL paper experiment
 
 WHAT IT MAY NOT DO
 ------------------
@@ -68,8 +70,20 @@ KIND_JOINT = "JOINT_SCORE_SIMULATION"
 KIND_DRIVE = "DRIVE_SIMULATION"
 KIND_SCENARIO = "SCENARIO_COMPARISON"
 KIND_STUDY = "MODEL_BENCHMARK_STUDY"
-KINDS = frozenset({KIND_JOINT, KIND_DRIVE, KIND_SCENARIO, KIND_STUDY})
-EVENT_BOUND_KINDS = frozenset({KIND_JOINT, KIND_DRIVE, KIND_SCENARIO})
+#: Producer attestation that one forecast may be used by one authorised paper
+#: experiment. Admitted explicitly, as its own kind: reusing JOINT_SCORE_
+#: SIMULATION would make a distribution and a permission indistinguishable in
+#: the same column, and an older importer that does not know this name must
+#: keep rejecting it rather than importing a permission it cannot check.
+KIND_PAPER_ELIGIBILITY = "PAPER_RESEARCH_ELIGIBILITY"
+KINDS = frozenset({KIND_JOINT, KIND_DRIVE, KIND_SCENARIO, KIND_STUDY,
+                   KIND_PAPER_ELIGIBILITY})
+EVENT_BOUND_KINDS = frozenset({KIND_JOINT, KIND_DRIVE, KIND_SCENARIO,
+                               KIND_PAPER_ELIGIBILITY})
+
+#: The artifactVersion a paper-eligibility supplement must declare. A different
+#: version is a different contract and is refused rather than read loosely.
+PAPER_ELIGIBILITY_VERSION = "ASP_NFL_PAPER_RESEARCH_ELIGIBILITY_V1"
 
 SIMULATION_KINDS = frozenset({"EXACT_DISTRIBUTION", "MONTE_CARLO", "DETERMINISTIC", "NONE"})
 DRIVE_RESULTS = frozenset({
@@ -239,6 +253,74 @@ def _verify_kind(kind: str, supplement: dict[str, Any], summaries: dict[str, Any
         _verify_scenarios(summaries)
     elif kind == KIND_STUDY:
         _verify_study(summaries)
+    elif kind == KIND_PAPER_ELIGIBILITY:
+        _verify_paper_eligibility(supplement, summaries)
+
+
+def _verify_paper_eligibility(
+    supplement: dict[str, Any], summaries: dict[str, Any],
+) -> None:
+    """A permission must name what it permits, and permit nothing more.
+
+    Two separate things are checked. That the document actually binds an
+    experiment, a policy and a model -- a permission that names none of them is
+    a general authority wearing a specific label. And that it grants no
+    execution: the governance block is already verified by `_governance_ok`,
+    but a paper eligibility document is exactly the place someone would put a
+    wagering flag, so it is checked again here against its own declarations.
+    """
+
+    if supplement.get("artifactVersion") != PAPER_ELIGIBILITY_VERSION:
+        raise SupplementImportError(
+            "A paper-eligibility supplement must declare artifactVersion "
+            f"{PAPER_ELIGIBILITY_VERSION}")
+
+    authorization = _require(summaries, "authorization",
+                             label="paper-eligibility summaries")
+    for key in ("experimentId", "policyVersion", "mode",
+                "consumerVirtualExperimentAuthorized"):
+        _require(authorization, key, label="paper-eligibility authorization")
+
+    if authorization.get("consumerVirtualExperimentAuthorized") is not True:
+        raise SupplementImportError(
+            "A paper-eligibility supplement must state that the consumer "
+            "virtual experiment is authorised")
+    if str(authorization.get("mode")) != "VIRTUAL_RESEARCH_ONLY":
+        raise SupplementImportError(
+            "A paper-eligibility supplement may only authorise "
+            "VIRTUAL_RESEARCH_ONLY")
+    if authorization.get("realMoneyAuthorized") is not False:
+        raise SupplementImportError(
+            "A paper-eligibility supplement may never authorise real money")
+
+    # The frozen model it attests to, and the probabilities it freezes.
+    frozen = _require(summaries, "frozenConfiguration",
+                      label="paper-eligibility summaries")
+    for key in ("forecastId", "homeWinProbability", "awayWinProbability",
+                "tieProbability"):
+        _require(frozen, key, label="paper-eligibility frozenConfiguration")
+    if frozen.get("executionAllowed") is not False:
+        raise SupplementImportError(
+            "A paper-eligibility supplement may not report executionAllowed")
+    if frozen.get("modelPromotionAllowed") is not False:
+        raise SupplementImportError(
+            "A paper-eligibility supplement may not promote a model")
+
+    # Three masses, and they must be a probability distribution. A permission
+    # that carries renormalised or two-way probabilities would quietly change
+    # the settlement arithmetic downstream of it.
+    total = (float(frozen["homeWinProbability"])
+             + float(frozen["awayWinProbability"])
+             + float(frozen["tieProbability"]))
+    if abs(total - 1.0) > _PROBABILITY_TOLERANCE:
+        raise SupplementImportError(
+            f"The frozen three-way probabilities sum to {total}, not 1")
+
+    semantics = _require(summaries, "probabilitySemantics",
+                         label="paper-eligibility summaries")
+    if semantics.get("settlementMustBeExplicit") is not True:
+        raise SupplementImportError(
+            "A paper-eligibility supplement must require explicit settlement")
 
 
 def joint_outcomes(cells: list[dict[str, Any]]) -> dict[str, float]:

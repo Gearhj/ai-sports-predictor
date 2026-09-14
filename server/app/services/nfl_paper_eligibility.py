@@ -49,28 +49,63 @@ from app.models import ResearchSupplement
 KIND = "PAPER_RESEARCH_ELIGIBILITY"
 CONTRACT_VERSION = "ASP_NFL_PAPER_RESEARCH_ELIGIBILITY_V1"
 
-#: What the record must bind, from the handoff's own enumeration. A record that
-#: is missing any of these is rejected rather than accepted with a gap.
+#: The experiment key the producer binds to.
+#:
+#: NOT an AISP database UUID. The delivered package states this explicitly --
+#: `experimentIdMeaning: STABLE_POLICY_SPORT_SEASON_KEY_NOT_AISP_DATABASE_UUID`
+#: -- and it is the right call: the producer cannot observe AISP's database, so
+#: a UUID in a producer document would be a claim it could not have verified.
+#: The consumer therefore checks the stable key it CAN verify, and separately
+#: resolves that key to its own era.
+def experiment_key(policy_version: str, sport: str, season_id: str) -> str:
+    return f"{policy_version}:{sport}:{season_id}"
+
+
+#: What the record must bind, at the paths the DELIVERED contract uses. These
+#: are dotted paths into the supplement document, not flat keys: the producer's
+#: shape is the contract, and reshaping it here would be inventing a second one.
 REQUIRED_BINDINGS: tuple[str, ...] = (
-    "paperExperimentId",
-    "authorizationReceiptSha256",
-    "cohortIdentity",
-    "eventId",
-    "forecastId",
-    "bundleSha256",
-    "modelBinarySha256",
-    "featureContractSha256",
-    "technicalEligibility",
-    "originalClocks",
-    "evidenceClocks",
+    "binding.eventId",
+    "binding.engineId",
+    "binding.forecastId",
+    "binding.modelArtifactSha256",
+    "summaries.authorization.experimentId",
+    "summaries.authorization.policyVersion",
+    "summaries.authorization.mode",
+    "summaries.authorization.consumerVirtualExperimentAuthorized",
+    "summaries.frozenConfiguration.forecastId",
+    "summaries.frozenConfiguration.homeWinProbability",
+    "summaries.frozenConfiguration.awayWinProbability",
+    "summaries.frozenConfiguration.tieProbability",
+    "summaries.probabilitySemantics.settlementMustBeExplicit",
 )
 
-#: Authority flags that must remain false in the record. If a supplement were
-#: ever to arrive with one of these true, it would be granting execution under
-#: the name of a paper permission, and it is refused.
+
+def _at(doc: dict[str, Any], path: str) -> Any:
+    """Read a dotted path, returning None at the first missing step."""
+
+    node: Any = doc
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+#: Authority flags that must remain false, at the delivered contract's own
+#: paths. If a supplement ever arrived with one of these true it would be
+#: granting execution under the name of a paper permission, and it is refused
+#: outright rather than narrowed to something acceptable.
 MUST_REMAIN_FALSE: tuple[str, ...] = (
-    "executionAllowed", "modelPromotionAllowed", "parlaysAllowed",
+    "governance.executionAllowedInAisp",
+    "governance.modelPromotionAllowed",
+    "governance.wageringAuthority",
+    "summaries.authorization.realMoneyAuthorized",
+    "summaries.frozenConfiguration.executionAllowed",
+    "summaries.frozenConfiguration.modelPromotionAllowed",
 )
+
+#: And the one that must remain true.
+MUST_REMAIN_TRUE: tuple[str, ...] = ("governance.researchShadowOnly",)
 
 
 def eligibility_record(
@@ -92,11 +127,20 @@ def eligibility_record(
 def check(
     session: Session, *, event_id: str, forecast_id: str,
     experiment_id: str, now: datetime | None = None,
+    policy_version: str = "AISP_NFL_PAPER_POLICY_V1",
+    sport: str = "NFL", season_id: str = "2026",
 ) -> dict[str, Any]:
     """Whether this forecast may be used by this paper experiment.
 
-    Fails closed and says why. "No record exists" and "a record exists but does
-    not bind this experiment" are different answers and are reported as such.
+    Fails closed and says why. "No record exists", "a record exists but omits a
+    binding" and "a record exists but binds another experiment" are different
+    answers and are reported as such, because each sends a reader somewhere
+    different.
+
+    `experiment_id` is AISP's own era UUID and is reported for the receipt. It
+    is deliberately NOT what the producer document is matched on: the producer
+    cannot observe AISP's database, so it binds the stable
+    `policy:sport:season` key instead, and that is what is compared.
     """
 
     moment = now or datetime.now(UTC)
@@ -106,12 +150,11 @@ def check(
             "eligible": False,
             "reason": "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD",
             "detail": (
-                "No producer-issued "
-                f"{CONTRACT_VERSION} supplement binds forecast {forecast_id} to a "
-                "paper experiment. The producer's own handoff names this as the "
-                "missing wire capability. AISP will not mint one: the supplement "
-                "mechanism is content-addressed producer evidence, and writing it "
-                "here would be fabricating provenance."
+                f"No producer-issued {CONTRACT_VERSION} supplement binds "
+                f"forecast {forecast_id} to a paper experiment. AISP will not "
+                "mint one: the supplement mechanism is content-addressed "
+                "producer evidence, and writing it here would be fabricating "
+                "provenance."
             ),
             "required_bindings": list(REQUIRED_BINDINGS),
             "checked_at": moment.isoformat(),
@@ -119,7 +162,7 @@ def check(
         }
 
     payload = dict(record.payload or {})
-    missing = [field for field in REQUIRED_BINDINGS if not payload.get(field)]
+    missing = [path for path in REQUIRED_BINDINGS if _at(payload, path) is None]
     if missing:
         return {
             "eligible": False, "reason": "ELIGIBILITY_RECORD_INCOMPLETE",
@@ -129,34 +172,68 @@ def check(
             "checked_at": moment.isoformat(), "blocks_position": True,
         }
 
-    granted = [flag for flag in MUST_REMAIN_FALSE if payload.get(flag)]
+    granted = [path for path in MUST_REMAIN_FALSE if _at(payload, path) is not False]
     if granted:
         return {
             "eligible": False, "reason": "ELIGIBILITY_RECORD_GRANTS_EXECUTION",
             "detail": (
-                f"The record sets {', '.join(granted)} true. A paper permission "
-                "may not carry execution or promotion authority, and one that "
-                "does is refused rather than narrowed."
+                f"The record does not hold {', '.join(granted)} false. A paper "
+                "permission may not carry execution, promotion or real-money "
+                "authority, and one that does is refused rather than narrowed."
             ),
             "supplement_sha256": record.supplement_sha256,
             "checked_at": moment.isoformat(), "blocks_position": True,
         }
 
-    if str(payload.get("paperExperimentId")) != str(experiment_id):
+    withheld = [path for path in MUST_REMAIN_TRUE if _at(payload, path) is not True]
+    if withheld or not record.research_shadow_only:
+        return {
+            "eligible": False, "reason": "RECORD_NOT_RESEARCH_SHADOW_ONLY",
+            "detail": f"Not asserted: {', '.join(withheld) or 'research_shadow_only'}.",
+            "supplement_sha256": record.supplement_sha256,
+            "checked_at": moment.isoformat(), "blocks_position": True,
+        }
+
+    authorization = _at(payload, "summaries.authorization") or {}
+    expected = experiment_key(policy_version, sport, season_id)
+    if str(authorization.get("experimentId")) != expected:
         return {
             "eligible": False, "reason": "ELIGIBILITY_BOUND_TO_ANOTHER_EXPERIMENT",
             "detail": (
-                f"The record binds {payload.get('paperExperimentId')}, not "
-                f"{experiment_id}. A binding to one experiment is not a binding "
-                "to another."
+                f"The record binds {authorization.get('experimentId')}, not "
+                f"{expected}. A binding to one experiment is not a binding to "
+                "another."
             ),
             "supplement_sha256": record.supplement_sha256,
             "checked_at": moment.isoformat(), "blocks_position": True,
         }
 
-    if not record.research_shadow_only:
+    if str(authorization.get("policyVersion")) != policy_version:
         return {
-            "eligible": False, "reason": "RECORD_NOT_RESEARCH_SHADOW_ONLY",
+            "eligible": False, "reason": "ELIGIBILITY_BOUND_TO_ANOTHER_POLICY",
+            "detail": (
+                f"The record binds policy {authorization.get('policyVersion')}, "
+                f"not {policy_version}."
+            ),
+            "supplement_sha256": record.supplement_sha256,
+            "checked_at": moment.isoformat(), "blocks_position": True,
+        }
+
+    if str(authorization.get("mode")) != "VIRTUAL_RESEARCH_ONLY":
+        return {
+            "eligible": False, "reason": "ELIGIBILITY_MODE_IS_NOT_VIRTUAL_RESEARCH",
+            "supplement_sha256": record.supplement_sha256,
+            "checked_at": moment.isoformat(), "blocks_position": True,
+        }
+
+    frozen = _at(payload, "summaries.frozenConfiguration") or {}
+    if str(frozen.get("forecastId")) != forecast_id:
+        return {
+            "eligible": False, "reason": "ELIGIBILITY_FREEZES_ANOTHER_FORECAST",
+            "detail": (
+                f"The frozen configuration names {frozen.get('forecastId')}, "
+                f"not the forecast being evaluated ({forecast_id})."
+            ),
             "supplement_sha256": record.supplement_sha256,
             "checked_at": moment.isoformat(), "blocks_position": True,
         }
@@ -165,9 +242,18 @@ def check(
         "eligible": True, "reason": "PAPER_RESEARCH_ELIGIBILITY_BOUND",
         "supplement_sha256": record.supplement_sha256,
         "supplement_id": record.supplement_id,
-        "paper_experiment_id": payload.get("paperExperimentId"),
-        "cohort_identity": payload.get("cohortIdentity"),
-        "authorization_receipt_sha256": payload.get("authorizationReceiptSha256"),
+        "paper_experiment_key": authorization.get("experimentId"),
+        "aisp_experiment_id": str(experiment_id),
+        "policy_version": authorization.get("policyVersion"),
+        "producer_disposition": _at(payload, "summaries.producerDisposition"),
+        # The frozen masses, carried through untouched. Every one of the three
+        # travels: a downstream reader that sees only two cannot tell whether
+        # the third was zero or was dropped.
+        "frozen_probabilities": {
+            "away_win": frozen.get("awayWinProbability"),
+            "home_win": frozen.get("homeWinProbability"),
+            "tie": frozen.get("tieProbability"),
+        },
         "checked_at": moment.isoformat(), "blocks_position": False,
     }
 
@@ -221,5 +307,6 @@ def producer_request() -> dict[str, Any]:
     }
 
 
-__all__ = ["CONTRACT_VERSION", "KIND", "MUST_REMAIN_FALSE", "REQUIRED_BINDINGS",
-           "check", "eligibility_record", "producer_request"]
+__all__ = ["CONTRACT_VERSION", "KIND", "MUST_REMAIN_FALSE", "MUST_REMAIN_TRUE",
+           "REQUIRED_BINDINGS", "check", "eligibility_record", "experiment_key",
+           "producer_request"]

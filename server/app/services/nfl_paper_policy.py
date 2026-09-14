@@ -80,6 +80,80 @@ MIN_ADJUSTED_EDGE = 0.02
 TIE_TREATMENT = "STAKE_REFUNDED_PUSH"
 
 
+#: WHICH PROVIDERS' PRICES THIS POLICY MAY QUALIFY AGAINST.
+#:
+#: Before 2026-09-14 the policy had no field for this at all, which meant the
+#: question "may a research-provider price qualify a paper position?" had no
+#: answer in the policy -- only an absence that could be read either way. The
+#: project owner answered it explicitly, so it is a field now.
+#:
+#: SportsGameOdds remains classified as a RESEARCH provider in the provider
+#: registry. This permission does not change that classification, does not make
+#: it governed, and grants no real-money authority. Its books keep their own
+#: `sgo:` bookmaker namespace so a research price can never be paired against a
+#: governed one as though both came from the same book.
+PERMITTED_QUOTE_PROVIDERS: dict[str, dict[str, Any]] = {
+    "SPORTSGAMEODDS": {
+        "registry_classification": "RESEARCH",
+        "permitted": True,
+        "approved_utc": "2026-09-14T17:48:45+00:00",
+        "authority": "project owner",
+        "scope": (
+            "Verified SportsGameOdds research-provider prices may qualify a "
+            "position under AISP_NFL_PAPER_POLICY_V1, for the NFL virtual "
+            "research experiment only."
+        ),
+        "grants": [],
+        "does_not_grant": [
+            "governed-provider status",
+            "real-money or sportsbook execution authority",
+            "use by any other policy or sport",
+        ],
+    },
+    "THE_ODDS_API": {
+        "registry_classification": "GOVERNED",
+        "permitted": True,
+        "approved_utc": None,
+        "authority": "pre-existing governed provider",
+        "scope": "Governed quotes were never in question.",
+        "grants": [],
+        "does_not_grant": ["real-money or sportsbook execution authority"],
+    },
+}
+
+#: Requirements every qualifying quote must satisfy, whatever its provider.
+#: These are the owner's stated conditions, written where the evaluator reads
+#: them rather than left in a message.
+QUOTE_REQUIREMENTS: dict[str, Any] = {
+    "identity": (
+        "Correct game, selection and market, bound through the explicit "
+        "franchise mapping -- never a join on team names and a date."
+    ),
+    "bookmaker_identity": (
+        "Source-specific. A provider's books live in that provider's namespace "
+        "(`sgo:draftkings` is not `draftkings`), so two providers can never "
+        "share one Sportsbook row."
+    ),
+    "pairing": (
+        "Two-sided, from the SAME provider, the SAME book and the SAME market, "
+        "with matching market terms. A pair assembled across providers or books "
+        "is not a price."
+    ),
+    "freshness": (
+        "A valid source timestamp, inside the existing 240-minute limit AT the "
+        "checkpoint -- not merely at collection."
+    ),
+    "settlement": (
+        "Explicit refund-on-tie terms. A market whose tie handling is unstated "
+        "cannot settle this policy's positions."
+    ),
+    "eligibility": (
+        "The published producer eligibility binding, plus the existing "
+        "qualification and staking checks. None is waived by the others."
+    ),
+}
+
+
 @dataclass(frozen=True)
 class TiedMarket:
     """One side of a two-way moneyline on an event that can end in a tie."""
@@ -257,6 +331,8 @@ AUTHORITY = {
 __all__ = [
     "ACTIVATED",
     "AUTHORITY",
+    "PERMITTED_QUOTE_PROVIDERS",
+    "QUOTE_REQUIREMENTS",
     "KELLY_FRACTION",
     "MAX_DAILY_PERCENTAGE",
     "MAX_SAME_GAME_PERCENTAGE",
