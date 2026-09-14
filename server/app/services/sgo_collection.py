@@ -75,9 +75,11 @@ OPENING_ADJUSTMENT_KEY = "sgo_opening_adjustment"
 #: The rule that decides which games get a price when the day cannot fund them
 #: all. Declared here, before any result, and tied only to the clock.
 SELECTION_RULE = (
-    "EARLIEST_DECISION_CUTOFF_FIRST, ties broken by provider game id. The game "
-    "closest to locking is priced first; games beyond the day's allocation are "
-    "reported by id as unsupported."
+    "UNCOVERED_FIRST, then EARLIEST_DECISION_CUTOFF_FIRST, ties broken by "
+    "provider game id. A game with no stored pair is priced before a game that "
+    "already has one, because only the first can be helped by spending an "
+    "object; within each group the game closest to locking goes first. Games "
+    "beyond the day's allocation are reported by id as unsupported."
 )
 
 #: The published Amateur allowance, in EVENTS returned -- the provider's own
@@ -710,9 +712,23 @@ def collect_for_open_cutoffs(
     #
     # Games past the allocation are reported as unsupported by name rather than
     # silently dropped.
+    # COVERAGE BEFORE REFRESH, then earliest cutoff.
+    #
+    # Ordering by cutoff alone re-buys the nearest game every run. On
+    # 2026-09-14 that spent two objects refreshing CWS at CLE -- already priced
+    # across nine books -- while SD at COL, SEA at LAA and MIA at AZ had no
+    # price at all and the lane had seven objects spare. A game with no stored
+    # pair cannot be helped by anything except a request; a game that already
+    # has one is only being made slightly fresher. So an uncovered game sorts
+    # first, and within each group the rule is unchanged: earliest cutoff, ties
+    # on the provider's game id, decided before any result is seen.
     open_games = sorted(
         window_open,
-        key=lambda event: (event["cutoff_utc"], str(event.get("game_id") or "")),
+        key=lambda event: (
+            bool(event.get("covered")),
+            event["cutoff_utc"],
+            str(event.get("game_id") or ""),
+        ),
     )
     if not open_games:
         return {"attempted": False,

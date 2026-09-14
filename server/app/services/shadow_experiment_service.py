@@ -517,8 +517,21 @@ class ShadowExperimentService:
             )
             forecasts.append(view)
             if view is None:
-                skips.append({"game_id": str(game.id), "reason": reason,
-                              "cutoff_utc": cutoff.isoformat()})
+                # Both clocks, and the UTC field actually in UTC.
+                #
+                # This used to emit `cutoff.isoformat()` under the name
+                # `cutoff_utc`, and `cutoff` keeps the tzinfo of the game's
+                # start -- so a field called UTC rendered "…T19:25:00-04:00",
+                # which is Eastern. The instant was always right; the label was
+                # not, and reconciling it against a producer inventory in real
+                # UTC is exactly where that costs somebody an hour.
+                skips.append({
+                    "game_id": str(game.id), "reason": reason,
+                    "cutoff_utc": cutoff.astimezone(UTC).isoformat(),
+                    "cutoff_local": cutoff.astimezone(
+                        ZoneInfo("America/New_York")).isoformat(),
+                    "cutoff_minutes_before_start": FINAL_PREGAME_CUTOFF_MINUTES,
+                })
         return forecasts, skips
 
     def _refresh_for_newly_stable_identity(self, game: Game, v2: Any) -> bool:
