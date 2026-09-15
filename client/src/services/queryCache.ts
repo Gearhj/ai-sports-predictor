@@ -161,7 +161,7 @@ const STORAGE_PREFIX = 'aisp-query:v1:'
 const STORAGE_INDEX = 'aisp-query:v1:index'
 const PERSISTABLE = [
   'home', 'games', 'markets', 'decisions', 'today', 'bankroll', 'sport-readiness', 'sport-registry',
-  'command-', 'slate-status', 'experiment', 'scoreboard', 'nfl-', 'nba-', 'cfb-', 'research',
+  'command-', 'show-board', 'slate-status', 'experiment', 'scoreboard', 'nfl-', 'nba-', 'cfb-', 'research',
 ]
 const MAX_PERSISTED = 40
 const MAX_PERSISTED_CHARS = 1_500_000

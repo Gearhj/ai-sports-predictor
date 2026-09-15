@@ -17,6 +17,7 @@ const GameSimulationPage = lazy(() => import('./pages/GameSimulationPage').then(
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
 const PerformancePage = lazy(() => import('./pages/PerformancePage').then((module) => ({ default: module.PerformancePage })))
 const BankrollPage = lazy(() => import('./pages/BankrollPage').then((module) => ({ default: module.BankrollPage })))
+const ShowBoardPage = lazy(() => import('./pages/ShowBoardPage').then((module) => ({ default: module.ShowBoardPage })))
 const DecisionsRoute = lazy(() => import('./pages/DecisionsRoute').then((module) => ({ default: module.DecisionsRoute })))
 const ExperimentRoute = lazy(() => import('./pages/ExperimentRoute').then((module) => ({ default: module.ExperimentRoute })))
 const MethodologyPage = lazy(() => import('./pages/MethodologyPage').then((module) => ({ default: module.MethodologyPage })))
@@ -85,6 +86,7 @@ export default function App() {
                       content, not a front door, so it is no longer what a
                       first-time visitor lands on. */}
                   <Route path="decisions" element={<DecisionsRoute />} />
+                  <Route path="show-board" element={<ShowBoardPage />} />
                   <Route path="mlb" element={<LegacySportRoute />} />
                   <Route path="nfl" element={<LegacySportRoute />} />
                   <Route path="nfl/games/:gameId" element={<LegacySportRoute />} />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck } from 'lucide-react'
+import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck, Clapperboard } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { PrefetchNavLink } from './PrefetchLink'
@@ -14,6 +14,7 @@ const primaryNav = [
   { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/games', label: 'Games & Forecasts', icon: Trophy },
   { to: '/decisions', label: 'Daily Decisions', icon: ClipboardCheck },
+  { to: '/show-board', label: 'Show Prep', icon: Clapperboard },
   { to: '/markets', label: 'Markets & Crowd', icon: Radio },
   { to: '/labs', label: 'Interactive Labs', icon: Beaker },
   { to: '/performance', label: 'Model Performance', icon: Activity },

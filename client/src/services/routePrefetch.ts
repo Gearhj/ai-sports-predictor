@@ -43,6 +43,7 @@ const ROUTES: Record<string, RouteWarmer> = {
     chunk: () => import('../pages/HomePage'),
     data: () => { warmLedger(); warmMarkets(); warmDecisions() },
   },
+  '/show-board': { chunk: () => import('../pages/ShowBoardPage') },
   '/decisions': {
     chunk: () => import('../pages/DecisionsRoute'),
     data: () => { warmDecisions(); warmMarkets(); warmReadiness() },
