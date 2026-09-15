@@ -4174,3 +4174,27 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   letter-spacing: .04em; color: var(--muted, #7a8699); font-weight: 600;
   padding-bottom: 3px; }
 .nbajoint__totals td { padding: 2px 0; }
+
+/* ---- Recorded position entry terms --------------------------------------
+   Its own band, visually apart from the latest-market cell. Green-edged like
+   the POSITION_RECORDED chip, because it is the same fact stated in full. */
+.slate__recorded { grid-column: 1 / -1; display: grid; gap: 8px; }
+.recorded-entry {
+  border-left: 3px solid #3d8b5f; background: #f2faf5;
+  border-radius: 0 9px 9px 0; padding: 8px 11px;
+}
+.recorded-entry__headline { margin: 0; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.recorded-entry__eyebrow { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #0d6b49; font-weight: 700; }
+.recorded-entry__book { color: var(--muted, #7a8699); font-size: 12px; }
+.recorded-entry__terms { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 5px 0 0; }
+.recorded-entry__terms div { display: flex; gap: 5px; align-items: baseline; }
+.recorded-entry__terms dt { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #7a8699); }
+.recorded-entry__terms dd { margin: 0; font-size: 12px; }
+.recorded-entry__provenance, .recorded-entry__tie { margin: 4px 0 0; font-size: 11px; line-height: 1.45; }
+.recorded-entry__tie { color: #0d6b49; }
+.ledger-entry b { display: block; }
+.ledger-entry small { display: block; font-size: 10.5px; color: var(--muted, #7a8699); line-height: 1.45; }
+@media (prefers-color-scheme: dark) {
+  .recorded-entry { background: rgba(61, 139, 95, .12); }
+  .recorded-entry__eyebrow, .recorded-entry__tie { color: #8fd1ab; }
+}

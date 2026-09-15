@@ -150,9 +150,12 @@ def slate_status(
 
     quotes: dict[Any, Any] = {}
     for row in session.execute(
+        # The side is selected too: this query takes whichever outcome sorts
+        # first, and a price with no side named is a number nobody can use.
         select(Market.game_id, OddsSnapshot.observed_at, Sportsbook.key,
-               OddsSnapshot.american_odds, OddsSnapshot.source)
+               OddsSnapshot.american_odds, OddsSnapshot.source, Team.abbreviation)
         .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .outerjoin(Team, Team.id == MarketOutcome.participant_team_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
         .where(Market.game_id.in_(game_ids), Market.market_type == "MONEYLINE")
@@ -169,13 +172,24 @@ def slate_status(
     ).all():
         decisions.setdefault(row.game_id, row)
 
-    positions = dict(session.execute(
-        select(Market.game_id, func.count(OfficialAspPosition.id))
+    # Entry terms come from the positions themselves. The row's `quote` is the
+    # latest market for the game -- a different number, and the one that used
+    # to sit beside "Position recorded" as though it were the execution price.
+    from app.services.position_entry_terms import entry_terms
+
+    position_rows = session.execute(
+        select(Market.game_id, OfficialAspPosition.id)
         .join(MarketOutcome, MarketOutcome.id == OfficialAspPosition.market_outcome_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .where(Market.game_id.in_(game_ids))
-        .group_by(Market.game_id)
-    ).all())
+        .order_by(OfficialAspPosition.placed_at)
+    ).all()
+    terms = entry_terms(session, [pid for _, pid in position_rows])
+    recorded: dict[Any, list[dict[str, Any]]] = {}
+    for gid, pid in position_rows:
+        if str(pid) in terms:
+            recorded.setdefault(gid, []).append(terms[str(pid)])
+    positions = {gid: len(items) for gid, items in recorded.items()}
 
     rows: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
@@ -223,8 +237,11 @@ def slate_status(
                 "sportsbook": quote[2],
                 "american_odds": quote[3],
                 "source": quote[4],
+                "side": quote[5],
                 "satisfies_policy_freshness": quote_fresh,
                 "freshness_limit_minutes": MAX_QUOTE_STALENESS_MINUTES,
+                # Named for what it is. Not the price any recorded position took.
+                "role": "LATEST_MARKET_PRICE",
             },
             "policy": {
                 "active_for_sport": league in active_policies,
@@ -242,6 +259,7 @@ def slate_status(
             },
             "next_checkpoint": _next_checkpoint(starts, moment),
             "positions": held,
+            "recorded_positions": recorded.get(game_id, []),
             "state": state,
             "explanation": explanation,
         })

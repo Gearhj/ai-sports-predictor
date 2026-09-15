@@ -210,7 +210,25 @@ function PositionRow({ position }: { position: AccountPosition }) {
       <td>{formatTimestamp(position.placed_at)}</td>
       <td>{position.era ?? '—'}</td>
       <td>{formatCurrency(position.stake)}</td>
-      <td>{position.decimal_odds.toFixed(3)}</td>
+      {/* Entry terms from the position's own snapshot and decision. A bare
+          decimal told the reader the price and nothing about the side, the
+          book or who supplied it. */}
+      <td className="ledger-entry">
+        {position.entry
+          ? <>
+              <b data-testid={`ledger-entry-${position.id}`}>
+                {position.entry.side ?? 'Selection'} {position.entry.american_label ?? position.decimal_odds.toFixed(3)}
+              </b>
+              <small>
+                {position.entry.sportsbook_key ?? '—'} · decimal {position.decimal_odds.toFixed(3)}
+              </small>
+              {position.entry.provider.label && <small>{position.entry.provider.label}</small>}
+              {position.entry.tie_settlement_label && (
+                <small data-testid={`ledger-tie-${position.id}`}>{position.entry.tie_settlement_label}</small>
+              )}
+            </>
+          : position.decimal_odds.toFixed(3)}
+      </td>
       <td>
         {open
           ? <span className="bx-chip">Open</span>
@@ -357,7 +375,7 @@ function AccountDetail({ account }: { account: SeasonAccount }) {
               <thead>
                 <tr>
                   <th scope="col">Placed</th><th scope="col">Era</th><th scope="col">Stake</th>
-                  <th scope="col">Odds</th><th scope="col">Result</th>
+                  <th scope="col">Entry terms</th><th scope="col">Result</th>
                   <th scope="col">P&amp;L</th><th scope="col">Settled</th>
                 </tr>
               </thead>

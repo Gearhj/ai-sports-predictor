@@ -740,9 +740,16 @@ class ExperimentAccountService:
                 select(ShadowExperiment).where(ShadowExperiment.id.in_(funded_ids))
             )
         }
+        # The ledger showed a bare decimal 2.150. The side, the American price,
+        # the book and the provider are entry terms, read from the position's own
+        # snapshot and decision -- never from a later quote for the same game.
+        from app.services.position_entry_terms import entry_terms
+
+        terms = entry_terms(self.session, [row[0] for row in rows])
         return [
             {
                 "id": str(row[0]),
+                "entry": terms.get(str(row[0])),
                 "placed_at": row[1].isoformat(),
                 "stake": float(row[2]),
                 "decimal_odds": float(row[3]),

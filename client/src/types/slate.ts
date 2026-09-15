@@ -14,6 +14,32 @@ export type SlateState =
   | 'NOT_YET_EVALUATED'
   | 'POLICY_INACTIVE'
 
+/**
+ * The terms a position was actually taken at, from the position itself.
+ * Never the latest quote for the game -- that is `SlateGame.quote`.
+ */
+export interface PositionEntryTerms {
+  position_id: string
+  decision_id: string | null
+  side: string | null
+  market: string | null
+  american_odds: number | null
+  american_label: string | null
+  decimal_odds: number
+  sportsbook_key: string | null
+  sportsbook_name: string | null
+  provider: { source: string | null; name: string | null; classification: string | null; label: string | null }
+  entry_quote_observed_at: string | null
+  stake: number
+  placed_at: string
+  recorded_at: string | null
+  status: string
+  result: string
+  tie_settlement: string | null
+  tie_settlement_label: string | null
+  headline: string | null
+}
+
 export interface SlateGame {
   game_id: string
   league_code: string
@@ -34,6 +60,9 @@ export interface SlateGame {
     sportsbook: string
     american_odds: number | null
     source: string
+    /** The team this latest price is for. */
+    side?: string | null
+    role?: 'LATEST_MARKET_PRICE'
     /** False means it exists but is too old to qualify — not that it is absent. */
     satisfies_policy_freshness: boolean
     freshness_limit_minutes: number
@@ -53,6 +82,7 @@ export interface SlateGame {
     window_open: boolean
   } | null
   positions: number
+  recorded_positions?: PositionEntryTerms[]
   state: SlateState
   explanation: string
 }

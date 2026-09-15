@@ -20,6 +20,7 @@
  * Each card says which, in a sentence, and never implies a sportsbook withheld
  * a line AISP simply has not captured.
  */
+import { RecordedEntry } from '../positions/RecordedEntry'
 import { useMemo } from 'react'
 import { AlertTriangle, Clock, CheckCircle2 } from 'lucide-react'
 import { GameScoreboard } from '../scoreboard/GameScoreboard'
@@ -144,11 +145,15 @@ function GameRow({ game, score, onRefreshScore }: {
       </div>
 
       <div className="slate__cell">
-        <dt>Price</dt>
+        {/* The latest stored quote for this game, on whichever side it was
+            observed. Not the price any recorded position took -- that is the
+            recorded-position block below, read from the position itself. */}
+        <dt>Latest market price</dt>
         <dd>
           {game.quote
             ? <>
-                <b className="bx-num">
+                <b className="bx-num" data-testid={`slate-latest-${game.game_id}`}>
+                  {game.quote.side ? `${game.quote.side} ` : ''}
                   {game.quote.american_odds != null && game.quote.american_odds > 0 ? '+' : ''}
                   {game.quote.american_odds ?? '—'}
                 </b>
@@ -206,6 +211,18 @@ function GameRow({ game, score, onRefreshScore }: {
         </span>
         <p className="slate__why">{game.explanation}</p>
       </div>
+
+      {/* Recorded positions sit on their own full-width band, apart from the
+          latest-market cell above. Side by side, the latest price read as the
+          execution price -- for four of September 14's six positions it was a
+          price on the other team entirely. */}
+      {(game.recorded_positions?.length ?? 0) > 0 && (
+        <div className="slate__recorded" data-testid={`slate-recorded-${game.game_id}`}>
+          {game.recorded_positions!.map((entry) => (
+            <RecordedEntry key={entry.position_id} entry={entry} compact />
+          ))}
+        </div>
+      )}
     </article>
   )
 }

@@ -1,3 +1,5 @@
+import type { PositionEntryTerms } from './slate'
+
 /**
  * Per-sport, per-season $1,000 paper accounts.
  *
@@ -46,6 +48,8 @@ export interface AccountPosition {
   placed_at: string
   stake: number
   decimal_odds: number
+  /** Entry terms from the position's own snapshot and decision. */
+  entry?: PositionEntryTerms | null
   status: string
   result: string
   era: string | null
