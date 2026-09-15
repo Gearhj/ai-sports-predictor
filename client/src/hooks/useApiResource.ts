@@ -48,7 +48,14 @@ export function resolveDataMode(payload: DataProvenance): DataMode {
 
 let localKeySequence = 0
 
-export function useApiResource<T extends DataProvenance>(
+// Unconstrained on purpose. `DataProvenance` has only optional fields, so as a
+// constraint TypeScript's weak-type check rejected every payload that did not
+// happen to share one -- and failed inference then collapsed T to the
+// constraint itself, which is how a `TotalsBoard` became `DataProvenance` at
+// every call site. The production build (`tsc -b`) failed on this for a week
+// while the dev server, which strips types without checking, ran normally.
+// Nothing in this hook reads provenance fields from T.
+export function useApiResource<T>(
   loader: (signal: AbortSignal) => Promise<T>,
   options: ApiResourceOptions<T> = {},
 ): ApiResource<T> {

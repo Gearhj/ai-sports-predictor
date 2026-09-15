@@ -115,6 +115,12 @@ def create_app(settings=None) -> FastAPI:
             content={"detail": str(exc), "source": exc.source, "retryable": exc.retryable},
         )
 
+    # Last, so the SPA fallback can never answer an API, probe or docs path.
+    if settings.app_env != "test":
+        from app.frontend import mount_frontend
+
+        mount_frontend(application)
+
     return application
 
 

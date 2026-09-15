@@ -45,9 +45,11 @@ export function SimulationProvenance({
     }
     : {
       label: 'Gen 1 baseline',
-      engine: simulation?.model_label ?? 'AISP_BASELINE',
-      identity: simulation?.forecast_id ?? null,
-      cutoff: simulation?.generated_at ?? null,
+      // These live under `identity`. Read from the top level they were always
+      // undefined, so the baseline showed a generic engine and no identity.
+      engine: simulation?.identity?.model_name ?? 'AISP_BASELINE',
+      identity: simulation?.identity?.forecast_id ?? null,
+      cutoff: simulation?.identity?.generated_at ?? null,
       basis: 'Baseline final-score distribution.',
     }
 

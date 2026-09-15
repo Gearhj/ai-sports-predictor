@@ -41,8 +41,9 @@ export function OddsCollectionPanel() {
   // A response without a budget is not a zero budget. Rendering the panel from
   // a payload that lacks it would either invent figures or, as it did, throw
   // and take the whole admin page down with it.
-  const complete = Boolean(data?.budget && data.projection)
-  if (!complete) {
+  // Written as a narrowing check, not `Boolean(...)`, so the compiler knows
+  // `data` below is present -- the runtime behaviour is identical.
+  if (!data || !data.budget || !data.projection) {
     return (
       <Panel title="Odds credit budget" eyebrow="PROVIDER OPERATIONS" className="section-panel">
         <p className="muted">

@@ -9,7 +9,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MlbTotalsView } from './MlbTotalsView'
-import type { TotalsBoard, TotalsRow } from '../../types/totals'
+import type { TotalsBoard, TotalsRow, TotalsSelection } from '../../types/totals'
 
 const FORECAST = {
   engine_id: 'MLB_V18_WHOLE_GAME',
@@ -89,7 +89,12 @@ function mount(over: Partial<Parameters<typeof MlbTotalsView>[0]> = {}) {
   )
 }
 
-const PRICED_SELECTIONS = [
+// These view tests never read a selection's explanation; the type gained the
+// required field after the fixtures were written. Declared once, typed, rather
+// than casting the whole selection.
+const NO_EXPLANATION = {} as unknown as TotalsSelection['explanation']
+
+const PRICED_SELECTIONS: TotalsSelection[] = [
   {
     side: 'OVER' as const, line: 8.5, line_source: 'RECORDED_SPORTSBOOK_LINE' as const,
     win_probability_pct: 51.16, push_probability_pct: 0, loss_probability_pct: 48.84,
@@ -103,6 +108,7 @@ const PRICED_SELECTIONS = [
       estimate_basis: 'p_win x (decimal odds - 1) - p_loss',
     },
     price_unavailable_reason: null,
+    explanation: NO_EXPLANATION,
   },
   {
     side: 'UNDER' as const, line: 8.5, line_source: 'RECORDED_SPORTSBOOK_LINE' as const,
@@ -110,6 +116,7 @@ const PRICED_SELECTIONS = [
     probability_units: 'PERCENT' as const, push_possible: false,
     model_fair_decimal_odds: 2.0475, model_fair_american_odds: 105,
     price: null, price_unavailable_reason: 'NO_RECORDED_PRICE_FOR_THIS_SIDE',
+    explanation: NO_EXPLANATION,
   },
 ]
 
@@ -170,6 +177,7 @@ describe('a scenario line is never presented as a quote', () => {
         push_possible: true, model_fair_decimal_odds: 2.19,
         model_fair_american_odds: 119, price: null,
         price_unavailable_reason: 'NO_RECORDED_TOTAL_LINE',
+        explanation: NO_EXPLANATION,
       },
     ],
   })

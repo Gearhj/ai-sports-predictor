@@ -73,7 +73,9 @@ export function GameSimulationPage() {
     const controller = new AbortController()
     let live = true
     endpoints
-      .gameShadowForecasts(gameId, controller.signal)
+      // The second parameter is `configuration`. Passing the signal there sent
+      // `?configuration=[object AbortSignal]` and left the request unabortable.
+      .gameShadowForecasts(gameId, null, controller.signal)
       .then((payload) => {
         if (!live) return
         setShadowTracks(

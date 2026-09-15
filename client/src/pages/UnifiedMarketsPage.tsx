@@ -1024,7 +1024,9 @@ function NflMarketRow({
                 ? <p className="bx-dim">
                   Home-win contracts are not spread or total prices and are not shown on this tab.
                 </p>
-                : <CrowdTable providers={crowd} home={event.home.abbreviation} now={now} note={null} />}
+                : <CrowdTable providers={crowd} home={event.home.abbreviation}
+                    away={event.away.abbreviation} homeProbability={modelHome}
+                    now={now} note={null} />}
               <PlotLegend marks={marks} range={range} />
               <p className="bx-dim" style={{ marginTop: 6 }}>{caption}</p>
               <p className="bx-dim" style={{ marginTop: 8 }}>
