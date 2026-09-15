@@ -1109,3 +1109,10 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
   .totals-op__markets, .totals-op__controls { gap: 7px; }
   .totals-op__actions .bx-btn { flex: 1 1 auto; justify-content: center; }
 }
+
+/* Five views do not fit a 375px screen side by side; the switcher ran 116px past
+   the page edge. It scrolls within its own box instead, so the page never
+   scrolls sideways and no view is hidden behind a wrap. */
+.bx-segment--views { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.bx-segment--views::-webkit-scrollbar { display: none; }
+.bx-segment--views button { flex: 0 0 auto; white-space: nowrap; }

@@ -4204,3 +4204,7 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .scorebd__governed small { flex-basis: 100%; font-size: 10.5px; }
 .scorebd__line--superseded { opacity: .62; }
 .scorebd__superseded { flex-basis: 100%; font-size: 10.5px; color: var(--muted, #7a8699); }
+
+/* A configuration identity is one unbreakable token and pushed the NBA page 4px
+   past a 375px screen. It is an identifier, so it may break anywhere. */
+.nbajoint__arm header small { overflow-wrap: anywhere; }
