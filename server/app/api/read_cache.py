@@ -50,7 +50,7 @@ ALLOWLIST: tuple[str, ...] = (
     "/prediction-markets/board", "/experiment/funnel", "/experiment/qualification-funnel",
     "/sports/readiness", "/sports/registry", "/markets/board", "/markets/rff", "/mlb/totals",
     "/bankroll", "/command-center/", "/slate-status", "/coverage/price-funnel",
-    "/research/model-era", "/cfb/research", "/price-coverage", "/public/config",
+    "/research/model-era", "/research/model-performance", "/cfb/research", "/price-coverage", "/public/config",
 )
 
 
@@ -94,6 +94,7 @@ def first_viewport_paths(today: str) -> list[str]:
         f"/markets/board?date={today}", "/nfl/weeks", "/bankroll?experiment=v2", "/experiment/funnel",
         "/experiment/comparison", f"/prediction-markets/board?date={today}&sport=MLB",
         f"/slate-status?date={today}", "/markets/rff?limit=1",
+        "/research/model-performance?league=MLB", "/research/model-performance?league=NFL",
     ]
 
 

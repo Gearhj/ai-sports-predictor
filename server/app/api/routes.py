@@ -669,6 +669,22 @@ def nfl_prospective_results(session: DatabaseSession) -> dict:
     return ForecastEvaluationReadService(session).nfl_prospective()
 
 
+@router.get("/research/model-performance", tags=["transparency"])
+def model_performance(session: DatabaseSession, league: str = Query("MLB")) -> dict:
+    """Consolidated model-quality evidence for one league.
+
+    Read-only: computed from current stored outcome evaluations, per model
+    identity, with metric conventions stated. Leagues are never pooled.
+    """
+
+    from app.services.model_performance_read import LEAGUES, ModelPerformanceReadService
+
+    code = league.upper()
+    if code not in LEAGUES:
+        raise HTTPException(status_code=404, detail=f"Unknown league {league}")
+    return ModelPerformanceReadService(session).league(code)
+
+
 @router.get("/information-events/contract", tags=["markets"])
 def information_event_contract(session: DatabaseSession) -> dict:
     """The versioned contract an information-event producer must satisfy."""
