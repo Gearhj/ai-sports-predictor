@@ -25,7 +25,7 @@ const ShadowBoardPage = lazy(() => import('./pages/ShadowBoardPage').then((modul
 const MarketPulsePage = lazy(() => import('./pages/MarketPulsePage').then((module) => ({ default: module.MarketPulsePage })))
 const MarketPulseGamePage = lazy(() => import('./pages/MarketPulseGamePage').then((module) => ({ default: module.MarketPulseGamePage })))
 const UnifiedGamesPage = lazy(() => import('./pages/UnifiedGamesPage').then((module) => ({ default: module.UnifiedGamesPage })))
-const UnifiedMarketsPage = lazy(() => import('./pages/UnifiedMarketsPage').then((module) => ({ default: module.UnifiedMarketsPage })))
+const MarketsRoute = lazy(() => import('./pages/MarketsRoute').then((module) => ({ default: module.MarketsRoute })))
 const UnifiedResearchPage = lazy(() => import('./pages/UnifiedResearchPage').then((module) => ({ default: module.UnifiedResearchPage })))
 const NflGamePage = lazy(() => import('./pages/NflGamePage').then((module) => ({ default: module.NflGamePage })))
 const NflLabPage = lazy(() => import('./pages/NflLabPage').then((module) => ({ default: module.NflLabPage })))
@@ -101,7 +101,7 @@ export default function App() {
                   <Route path="games" element={<UnifiedGamesPage />} />
                   <Route path="games/:gameId" element={<GameRoute />} />
                   <Route path="games/:gameId/simulation" element={<GameRoute simulation />} />
-                  <Route path="markets" element={<UnifiedMarketsPage />} />
+                  <Route path="markets" element={<MarketsRoute />} />
                   <Route path="performance" element={<UnifiedResearchPage />} />
                   <Route path="labs" element={<LabsPage />} />
                   <Route path="shadow-board" element={<ShadowBoardPage />} />

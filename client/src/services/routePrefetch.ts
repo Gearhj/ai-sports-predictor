@@ -48,7 +48,7 @@ const ROUTES: Record<string, RouteWarmer> = {
     data: () => { warmDecisions(); warmMarkets(); warmReadiness() },
   },
   '/games': { chunk: () => import('../pages/UnifiedGamesPage'), data: () => { warmLedger() } },
-  '/markets': { chunk: () => import('../pages/UnifiedMarketsPage'), data: () => { warmMarkets(); warmLedger() } },
+  '/markets': { chunk: () => import('../pages/MarketsRoute'), data: () => { warmMarkets(); warmLedger() } },
   '/labs': { chunk: () => import('../pages/LabsPage') },
   '/performance': { chunk: () => import('../pages/UnifiedResearchPage') },
   '/research/history': { chunk: () => import('../pages/UnifiedResearchPage') },

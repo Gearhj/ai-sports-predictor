@@ -17,20 +17,32 @@
  * Nothing here fabricates crowd percentages, intervals or closing lines.
  */
 import * as d3 from 'd3'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, etTime, gameHref, money, relative, signedMoney,
   useLedger, useMarketCoverage, type CoverageGame, type SportCode,
 } from '../../services/commandCenter'
+import { useApiResource } from '../../hooks/useApiResource'
+import { apiRequest } from '../../services/api'
+import { STALE_TIME, cacheKey } from '../../services/queryCache'
+import type { RffBoard } from '../../types/marketIntelligence'
 import { BookSpread } from './BookSpread'
+import { LazyDetails } from './LazyDetails'
+import { MarketDetail } from './MarketDetail'
 import { ChartTable, Tooltip, activate, useTooltip, useWidth } from './chartKit'
 import { AsOf } from './RegionState'
 import { todayEt } from './CommandHome'
 import { countdown } from './CommandDecisions'
 import './command.css'
 
+// Research families load their (heavier) views only when their tab is opened.
+const ParlaysPanel = lazy(() => import('./MarketResearch').then((m) => ({ default: m.ParlaysPanel })))
+const RffPanel = lazy(() => import('./MarketResearch').then((m) => ({ default: m.RffPanel })))
+const TotalsModelPanel = lazy(() => import('./MarketResearch').then((m) => ({ default: m.TotalsModelPanel })))
+
 type Market = 'MONEYLINE' | 'SPREAD' | 'TOTAL'
+type FamilyTab = Market | 'PARLAYS' | 'RFF'
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
@@ -52,7 +64,8 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
   const evidence = useSnapshot ? snapshot : today
   const ledger = useLedger()
   const [sport, setSport] = useState<SportCode | 'ALL'>('ALL')
-  const [market, setMarket] = useState<Market>('MONEYLINE')
+  const [tab, setTab] = useState<FamilyTab>('MONEYLINE')
+  const market: Market = tab === 'SPREAD' || tab === 'TOTAL' ? tab : 'MONEYLINE'
   const [selected, setSelected] = useState<string | null>(null)
   const [showAllScheduled, setShowAllScheduled] = useState(false)
   const now = Date.now()
@@ -71,6 +84,34 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
   const positions = useMemo(() => (ledger.data?.sports ?? []).flatMap((s) => s.positions.map((p) => ({ ...p, sport: s.sport }))), [ledger.data])
   const recorded = chosen ? positions.filter((p) => p.game_id === chosen.game_id) : []
   const sports = SPORT_CODES.filter((c) => evidenceGames.some((g) => asSport(g.league) === c))
+  const rffDay = evidence.data?.date ?? day
+  const rffBoard = useApiResource(useCallback((signal: AbortSignal) =>
+    apiRequest<RffBoard>(`/markets/rff?date=${rffDay}&market=MONEYLINE`, {}, signal), [rffDay]),
+    { key: cacheKey('markets/rff', { day: rffDay, league: null, family: 'MONEYLINE' }), staleTimeMs: STALE_TIME.slate })
+  const rffByGame = useMemo(() => Object.fromEntries((rffBoard.data?.games ?? []).map((g) => [g.game_id, g])), [rffBoard.data])
+
+  const scheduledPanel = scheduled.length > 0 && (
+        <section className="cc-mpanel" aria-label="Scheduled for collection">
+          <h3>Scheduled for collection · {scheduled.length} games today</h3>
+          <ul className="cc-sched">
+            {(showAllScheduled ? scheduled : scheduled.slice(0, 4)).map((g) => {
+              const code = asSport(g.league) ?? 'MLB'
+              return (
+                <li key={g.game_id} style={{ ['--sport' as string]: SPORT_COLORS[code] }}>
+                  <Link to={gameHref(code, g.game_id)}><i className="cc-dot" /><b>{g.matchup}</b></Link>
+                  <span>{etTime(g.starts_at).replace(' ET', '')} start</span>
+                  <span className="is-gold">{Date.parse(g.checkpoints.collection_opens_at) <= now ? 'collection open' : `collect in ${countdown(g.checkpoints.collection_opens_at, now)}`}</span>
+                </li>
+              )
+            })}
+          </ul>
+          {scheduled.length > 4 && (
+            <button type="button" className="cc-more" onClick={() => setShowAllScheduled((v) => !v)}>
+              {showAllScheduled ? 'Show fewer' : `Show all ${scheduled.length}`}
+            </button>
+          )}
+        </section>
+  )
 
   return (
     <section className="cc-markets" aria-label="Markets and crowd">
@@ -112,11 +153,9 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
       )}
 
       <div className="cc-feedbar">
-        <div className="cc-tabs" role="group" aria-label="Market">
-          {(['MONEYLINE', 'SPREAD', 'TOTAL'] as const).map((m) => (
-            <button key={m} type="button" aria-selected={market === m} onClick={() => setMarket(m)}>
-              {m === 'MONEYLINE' ? 'Moneyline' : m === 'SPREAD' ? 'Handicap' : 'Total'}
-            </button>
+        <div className="cc-tabs" role="tablist" aria-label="Market family">
+          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays'], ['RFF', 'RFF lens']] as const).map(([key, label]) => (
+            <button key={key} role="tab" type="button" aria-selected={tab === key} onClick={() => setTab(key)}>{label}</button>
           ))}
         </div>
         {sports.length > 1 && (
@@ -130,18 +169,33 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
         )}
       </div>
 
-      {!evidence.data
+      {tab === 'PARLAYS' && <Suspense fallback={<p className="cc-empty">Loading parlays…</p>}><ParlaysPanel day={evidence.data?.date ?? day} /></Suspense>}
+      {tab === 'RFF' && <Suspense fallback={<p className="cc-empty">Loading RFF…</p>}><RffPanel day={evidence.data?.date ?? day} league={sport === 'MLB' || sport === 'NFL' ? sport : null} /></Suspense>}
+
+      {(tab === 'MONEYLINE' || tab === 'SPREAD' || tab === 'TOTAL') && (!evidence.data
         ? <p className="cc-empty" role="status">{evidence.error ? `Market evidence is unavailable: ${evidence.error}` : 'Loading stored quotes…'}</p>
         : withQuotes.length === 0
-          ? <p className="cc-empty">No stored sportsbook quote exists for {SPORT_NAMES[sport as SportCode] ?? 'any sport'} in AISP yet.</p>
+          ? <><p className="cc-empty">No stored sportsbook quote exists for {SPORT_NAMES[sport as SportCode] ?? 'any sport'} in AISP yet.</p>{scheduledPanel}</>
           : (
             <div className="cc-mgrid">
-              <section className="cc-mpanel" aria-label="Model versus consensus">
-                <h3>Model vs no-vig consensus · {withQuotes.length} priced games</h3>
-                <ConsensusBoard games={games} selected={chosen?.game_id ?? null} onSelect={setSelected} />
+              <div className="cc-mcol">
+              <section className="cc-mpanel" aria-label={market === 'MONEYLINE' ? 'Model versus consensus' : 'Lines by game'}>
+                <h3>{market === 'MONEYLINE' ? `Model vs no-vig consensus · ${withQuotes.length} priced games` : `${market === 'TOTAL' ? 'Total' : 'Spread / run line'} by game · book range and median`}</h3>
+                {market === 'MONEYLINE'
+                  ? <ConsensusBoard games={games} selected={chosen?.game_id ?? null} onSelect={setSelected} rff={rffByGame} />
+                  : <LinesBoard games={games} market={market} selected={chosen?.game_id ?? null} onSelect={setSelected} />}
+                {market === 'TOTAL' && (
+                  <LazyDetails className="cc-inline-details" summary="V18 run distribution against the recorded total (MLB)">
+                    <TotalsModelPanel day={evidence.data?.date ?? day} />
+                  </LazyDetails>
+                )}
               </section>
-              <section className="cc-mpanel" aria-label="By book">
-                <h3>{chosen ? <>By book · <Link to={gameHref(asSport(chosen.league) ?? 'MLB', chosen.game_id)}>{chosen.matchup}</Link></> : 'By book'}</h3>
+              {scheduledPanel}
+              </div>
+              <section className="cc-mpanel" aria-label="Selected game">
+                <h3>{chosen ? <>Selected game · <Link to={gameHref(asSport(chosen.league) ?? 'MLB', chosen.game_id)}>{chosen.matchup}</Link></> : 'Selected game'}</h3>
+                {chosen && <MarketDetail game={chosen} family={market} />}
+                {chosen && <h3 style={{ marginTop: 12 }}>By book · {market === 'MONEYLINE' ? 'moneyline' : market === 'TOTAL' ? 'total' : 'spread / run line'}</h3>}
                 {chosen && <BookSpread game={chosen} market={market} />}
                 {recorded.length > 0 && (
                   <div className="cc-recorded">
@@ -156,30 +210,7 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
                 )}
               </section>
             </div>
-          )}
-
-      {scheduled.length > 0 && (
-        <section className="cc-mpanel" aria-label="Scheduled for collection">
-          <h3>Scheduled for collection · {scheduled.length} games today</h3>
-          <ul className="cc-sched">
-            {(showAllScheduled ? scheduled : scheduled.slice(0, 4)).map((g) => {
-              const code = asSport(g.league) ?? 'MLB'
-              return (
-                <li key={g.game_id} style={{ ['--sport' as string]: SPORT_COLORS[code] }}>
-                  <Link to={gameHref(code, g.game_id)}><i className="cc-dot" /><b>{g.matchup}</b></Link>
-                  <span>{etTime(g.starts_at).replace(' ET', '')} start</span>
-                  <span className="is-gold">collect in {countdown(g.checkpoints.collection_opens_at, now)}</span>
-                </li>
-              )
-            })}
-          </ul>
-          {scheduled.length > 4 && (
-            <button type="button" className="cc-more" onClick={() => setShowAllScheduled((v) => !v)}>
-              {showAllScheduled ? 'Show fewer' : `Show all ${scheduled.length}`}
-            </button>
-          )}
-        </section>
-      )}
+          ))}
 
       <p className="cc-note">Prediction-market (crowd) evidence is shown only where it was captured; see the detailed boards below. Model output is never shown as a price.</p>
     </section>
@@ -193,7 +224,7 @@ function shiftDay(iso: string, days: number): string {
 }
 
 /** One row per game: book range, consensus tick, model dot, gap stem; largest gaps highlighted. */
-const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect }: { games: CoverageGame[]; selected: string | null; onSelect: (id: string) => void }) {
+const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect, rff = {} }: { games: CoverageGame[]; selected: string | null; onSelect: (id: string) => void; rff?: Record<string, { score: number | null; band?: { label: string } | null }> }) {
   const { ref, width } = useWidth<HTMLDivElement>()
   const { tip, show, hide, frame } = useTooltip()
   const axis = useRef<SVGGElement | null>(null)
@@ -201,7 +232,7 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect 
     .sort((a, b) => Math.abs(gapOf(b) ?? -1) - Math.abs(gapOf(a) ?? -1)), [games])
   const top = new Set(rows.filter((g) => gapOf(g) != null).slice(0, 3).map((g) => g.game_id))
   const rowH = 26
-  const m = { top: 26, right: 16, bottom: 6, left: width < 560 ? 86 : 108 }
+  const m = { top: 26, right: 52, bottom: 6, left: width < 560 ? 86 : 108 }
   const height = m.top + Math.max(1, rows.length) * rowH + m.bottom
   const values = rows.flatMap((g) => [g.consensus_no_vig_home, g.model?.home_two_way, ...(bookRange(g) ?? [])]).filter((v): v is number => v != null)
   const lo = Math.max(0, (d3.min(values) ?? 0.3) - 0.05)
@@ -224,6 +255,7 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect 
           <dt>Consensus</dt><dd>{pct(g.consensus_no_vig_home)}{g.consensus_is_current ? '' : ' · stale'}</dd>
           <dt>Gap</dt><dd>{gapOf(g) != null ? `${(gapOf(g)! * 100).toFixed(1)} pts` : '—'}</dd>
           <dt>Book range</dt><dd>{range ? `${pct(range[0])}–${pct(range[1])}` : '—'} ({g.books} books)</dd>
+          {rff[g.game_id]?.score != null && <><dt>RFF lens</dt><dd>{Math.round(rff[g.game_id].score as number)} · {rff[g.game_id].band?.label ?? 'scored'}</dd></>}
           {best && <><dt>Latest</dt><dd>{shortBook(best.sportsbook)} {am(best.sides.AWAY?.american)}/{am(best.sides.HOME?.american)}</dd>
             <dt>Provider</dt><dd>{best.provider} · {best.classification.toLowerCase()}</dd>
             <dt>Observed</dt><dd>{etTime(best.observed_at, true)} ({relative(best.observed_at)})</dd></>}
@@ -253,6 +285,12 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect 
                 className={gap >= 0 ? 'cc-stem cc-stem--up' : 'cc-stem cc-stem--down'} strokeWidth={hot ? 3 : 1.5} />}
               <line x1={x(g.consensus_no_vig_home!)} x2={x(g.consensus_no_vig_home!)} y1={cy - 8} y2={cy + 8} className="cc-consensus" />
               {g.model?.home_two_way != null && <circle cx={x(g.model.home_two_way)} cy={cy} r={hot ? 7 : 5.5} fill={SPORT_COLORS[code]} className="cc-dot__mark" />}
+              {rff[g.game_id]?.score != null && (
+                <g transform={`translate(${width - 22}, ${cy})`} className="cc-rffchip">
+                  <rect x={-18} y={-9} width={36} height={18} rx={9} style={{ opacity: 0.25 + 0.75 * Math.min(1, (rff[g.game_id].score as number) / 100) }} />
+                  <text textAnchor="middle" y={4}>{Math.round(rff[g.game_id].score as number)}</text>
+                </g>
+              )}
             </g>
           )
         })}
@@ -262,11 +300,92 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect 
         <li><i className="cc-key cc-key--book" style={{ borderRadius: 4, width: 16 }} />Book range</li>
         <li><i className="cc-key cc-key--consensus" />No-vig consensus</li>
         <li><i className="cc-key cc-key--forecast" />Model (home, two-way)</li>
+        <li><i className="cc-key cc-key--rff" />RFF market-risk score (research lens)</li>
         <li>Largest gaps in bold · select a row for its books</li>
       </ul>
       <ChartTable caption="Model and consensus by game">
         <thead><tr><th>Game</th><th>Model</th><th>Consensus</th><th>Gap</th><th>Range</th></tr></thead>
         <tbody>{rows.map((g) => { const r = bookRange(g); return <tr key={g.game_id}><td>{g.matchup}</td><td>{pct(g.model?.home_two_way)}</td><td>{pct(g.consensus_no_vig_home)}</td><td>{gapOf(g) != null ? (gapOf(g)! * 100).toFixed(1) : '—'}</td><td>{r ? `${pct(r[0])}–${pct(r[1])}` : '—'}</td></tr> })}</tbody>
+      </ChartTable>
+    </div>
+  )
+})
+
+/** Spread / total by game: each book's line, the median, and the model's projection. */
+const LinesBoard = memo(function LinesBoard({ games, market, selected, onSelect }: {
+  games: CoverageGame[]; market: 'SPREAD' | 'TOTAL'; selected: string | null; onSelect: (id: string) => void
+}) {
+  const { ref, width } = useWidth<HTMLDivElement>()
+  const { tip, show, hide, frame } = useTooltip()
+  const axis = useRef<SVGGElement | null>(null)
+  const rows = useMemo(() => games.map((g) => {
+    const quotes = g.quotes.filter((q) => (q.market === market || (market === 'SPREAD' && q.market === 'RUN_LINE')) && q.line != null)
+    const lines = quotes.map((q) => q.line as number)
+    const newest = [...quotes].sort((a, b) => b.observed_at.localeCompare(a.observed_at))[0]
+    return { g, quotes, lines, median: d3.median(lines) ?? null, newest, fresh: quotes.some((q) => q.fresh) }
+  }).filter((r) => r.lines.length > 0), [games, market])
+  const rowH = 26
+  const m = { top: 26, right: 16, bottom: 6, left: width < 560 ? 86 : 108 }
+  const height = m.top + Math.max(1, rows.length) * rowH + m.bottom
+  const projection = (g: CoverageGame) => (g.model?.expected_home != null && g.model?.expected_away != null
+    ? (market === 'TOTAL' ? g.model.expected_home + g.model.expected_away : g.model.expected_away - g.model.expected_home)
+    : null)
+  const all = rows.flatMap((r) => [...r.lines, projection(r.g)]).filter((v): v is number => v != null)
+  const x = d3.scaleLinear().domain([(d3.min(all) ?? 0) - 1, (d3.max(all) ?? 0) + 1]).range([m.left, width - m.right])
+  useEffect(() => {
+    if (axis.current) d3.select(axis.current).call(d3.axisTop(x).ticks(width < 560 ? 4 : 8) as never)
+  }, [x, width])
+  const name = market === 'TOTAL' ? 'total' : 'home spread / run line'
+  if (rows.length === 0) return <p className="cc-muted">No stored {name} quote for these games.</p>
+  const tipFor = (r: (typeof rows)[number]) => {
+    const proj = projection(r.g)
+    return (
+      <>
+        <b>{r.g.matchup}</b> · {r.g.league}
+        <dl>
+          <dt>Median {name}</dt><dd>{r.median}</dd>
+          <dt>Range</dt><dd>{d3.min(r.lines)} to {d3.max(r.lines)} ({r.quotes.length} books)</dd>
+          {proj != null && <><dt>{market === 'TOTAL' ? 'Model projected total' : `Model line (${r.g.home?.abbreviation})`}</dt><dd>{proj.toFixed(1)}</dd></>}
+          {r.newest && <><dt>Newest</dt><dd>{shortBook(r.newest.sportsbook)} · {r.newest.provider} · {r.newest.classification.toLowerCase()}</dd>
+            <dt>Observed</dt><dd>{etTime(r.newest.observed_at, true)} ({relative(r.newest.observed_at)}){r.fresh ? '' : ' · not current'}</dd></>}
+        </dl>
+      </>
+    )
+  }
+  return (
+    <div className="cc-chart" ref={(node) => { ref.current = node; frame.current = node }}>
+      <svg width={width} height={height} role="img" aria-label={`${name} by book for ${rows.length} games`}>
+        <g ref={axis} className="cc-axis" transform={`translate(0, ${m.top - 6})`} />
+        {rows.map((r, i) => {
+          const cy = m.top + i * rowH + rowH / 2
+          const code = asSport(r.g.league) ?? 'MLB'
+          const proj = projection(r.g)
+          const lo = d3.min(r.lines)!
+          const hi = d3.max(r.lines)!
+          return (
+            <g key={r.g.game_id} className={`cc-lane${r.g.game_id === selected ? ' is-selected' : ''}`} tabIndex={0} role="button"
+              aria-label={`${r.g.matchup}: median ${name} ${r.median}, ${r.quotes.length} books`}
+              onMouseMove={(e) => show(e, tipFor(r))} onMouseLeave={hide} onFocus={(e) => show(e, tipFor(r))} onBlur={hide}
+              {...activate(() => onSelect(r.g.game_id))}>
+              <rect x={0} y={cy - rowH / 2} width={width} height={rowH} className="cc-lane__hit" />
+              <text x={m.left - 8} y={cy + 4} textAnchor="end" className="cc-lane__label">{r.g.matchup}</text>
+              <rect x={x(lo) - 3} y={cy - 5} width={Math.max(6, x(hi) - x(lo) + 6)} height={10} rx={5} className="cc-range" />
+              {r.lines.map((v, k) => <circle key={k} cx={x(v)} cy={cy} r={2.5} className="cc-bookpt" />)}
+              {r.median != null && <line x1={x(r.median)} x2={x(r.median)} y1={cy - 8} y2={cy + 8} className="cc-consensus" style={{ opacity: r.fresh ? 1 : 0.45 }} />}
+              {proj != null && <circle cx={x(proj)} cy={cy} r={5} fill={SPORT_COLORS[code]} className="cc-dot__mark" />}
+            </g>
+          )
+        })}
+      </svg>
+      <Tooltip tip={tip} width={width} />
+      <ul className="cc-legend">
+        <li><i className="cc-key cc-key--book" style={{ borderRadius: 4, width: 16 }} />Book range (dots: each book)</li>
+        <li><i className="cc-key cc-key--consensus" />Median line (faded when not current)</li>
+        <li><i className="cc-key cc-key--forecast" />Model projection{market === 'SPREAD' ? ' expressed as a home line' : ''}</li>
+      </ul>
+      <ChartTable caption={`${name} by game`}>
+        <thead><tr><th>Game</th><th>Median</th><th>Range</th><th>Books</th><th>Model</th><th>Newest</th></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.g.game_id}><td>{r.g.matchup}</td><td>{r.median}</td><td>{d3.min(r.lines)} to {d3.max(r.lines)}</td><td>{r.quotes.length}</td><td>{projection(r.g)?.toFixed(1) ?? '—'}</td><td>{r.newest ? etTime(r.newest.observed_at, true) : '—'}</td></tr>)}</tbody>
       </ChartTable>
     </div>
   )
