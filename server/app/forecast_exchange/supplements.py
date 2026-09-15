@@ -85,6 +85,24 @@ EVENT_BOUND_KINDS = frozenset({KIND_JOINT, KIND_DRIVE, KIND_SCENARIO,
 #: version is a different contract and is refused rather than read loosely.
 PAPER_ELIGIBILITY_VERSION = "ASP_NFL_PAPER_RESEARCH_ELIGIBILITY_V1"
 
+#: One exact eligibility contract per sport. The version is dispatched on the
+#: supplement's OWN declared sport, so an NBA document carrying the CFB version
+#: -- or the NFL version -- is refused rather than checked against the wrong
+#: rules.
+PAPER_ELIGIBILITY_VERSIONS = {
+    "NFL": PAPER_ELIGIBILITY_VERSION,
+    "NBA": "ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1",
+    "CFB": "ASP_CFB_PAPER_RESEARCH_ELIGIBILITY_V1",
+}
+
+#: Every tree a research supplement may live in. The NFL tree is unchanged; the
+#: NBA and CFB eligibility trees are where Model Studio publishes those sports.
+SUPPLEMENT_ROOTS = (
+    SUPPLEMENT_ROOT,
+    "nba-gen1-research-v1/paper-eligibility",
+    "cfb-gen1-research-v1/paper-eligibility",
+)
+
 SIMULATION_KINDS = frozenset({"EXACT_DISTRIBUTION", "MONTE_CARLO", "DETERMINISTIC", "NONE"})
 DRIVE_RESULTS = frozenset({
     "TOUCHDOWN", "FIELD_GOAL", "MISSED_FIELD_GOAL", "PUNT", "TURNOVER", "TURNOVER_ON_DOWNS",
@@ -270,10 +288,15 @@ def _verify_paper_eligibility(
     wagering flag, so it is checked again here against its own declarations.
     """
 
-    if supplement.get("artifactVersion") != PAPER_ELIGIBILITY_VERSION:
+    sport = str(supplement.get("sport") or "").upper()
+    expected_version = PAPER_ELIGIBILITY_VERSIONS.get(sport)
+    if expected_version is None:
+        raise SupplementImportError(
+            f"No paper-eligibility contract is registered for sport '{sport}'")
+    if supplement.get("artifactVersion") != expected_version:
         raise SupplementImportError(
             "A paper-eligibility supplement must declare artifactVersion "
-            f"{PAPER_ELIGIBILITY_VERSION}")
+            f"{expected_version}")
 
     authorization = _require(summaries, "authorization",
                              label="paper-eligibility summaries")
@@ -321,6 +344,87 @@ def _verify_paper_eligibility(
     if semantics.get("settlementMustBeExplicit") is not True:
         raise SupplementImportError(
             "A paper-eligibility supplement must require explicit settlement")
+
+    if sport in ("NBA", "CFB"):
+        _verify_research_paper_terms(supplement, summaries, authorization, frozen, sport)
+
+
+def _verify_research_paper_terms(
+    supplement: dict[str, Any], summaries: dict[str, Any],
+    authorization: dict[str, Any], frozen: dict[str, Any], sport: str,
+) -> None:
+    """NBA and CFB: the document must bind AISP's own registered policy, exactly.
+
+    Checked against the consumer's policy constants rather than against the
+    document itself, so a supplement cannot authorise a larger cap, a second
+    market or a different controlling model by stating one. NFL is not routed
+    here; its path above is unchanged.
+    """
+
+    from app.services.nfl_paper_eligibility import experiment_key
+    from app.services.research_paper_policy import POLICIES
+
+    policy = POLICIES[sport]
+    expected_key = experiment_key(policy.policy_version, policy.sport, policy.season_id)
+    if authorization.get("experimentId") != expected_key:
+        raise SupplementImportError(
+            f"Eligibility binds experiment {authorization.get('experimentId')}, not {expected_key}")
+    if authorization.get("policyVersion") != policy.policy_version:
+        raise SupplementImportError(
+            f"Eligibility names policy {authorization.get('policyVersion')}, not {policy.policy_version}")
+    for flag in ("realMoneyExecutionAllowed", "wageringOutsideAispAllowed"):
+        if authorization.get(flag) is not False:
+            raise SupplementImportError(f"Eligibility must declare {flag}=false")
+    if list(authorization.get("marketScope") or []) != list(policy.markets):
+        raise SupplementImportError(
+            f"Eligibility market scope {authorization.get('marketScope')} is not {list(policy.markets)}")
+    terms = {
+        "kellyFraction": policy.kelly_fraction,
+        "positionCapFraction": policy.max_position_percentage,
+        "initialPositionCapUsd": policy.max_stake,
+        "sameGameCapFraction": policy.max_same_game_percentage,
+        "dailyCapFraction": policy.max_daily_percentage,
+        "minimumAdjustedEdgeFraction": policy.min_adjusted_edge,
+    }
+    for key, value in terms.items():
+        if authorization.get(key) is None or abs(float(authorization[key]) - float(value)) > 1e-12:
+            raise SupplementImportError(
+                f"Eligibility {key}={authorization.get(key)} does not match the policy's {value}")
+
+    if abs(float(frozen["tieProbability"])) > _PROBABILITY_TOLERANCE:
+        raise SupplementImportError(f"{sport} finals have no tie; tieProbability must be 0")
+    if frozen.get("engineId") != policy.controlling_engine:
+        raise SupplementImportError(
+            f"Eligibility controls on {frozen.get('engineId')}, not {policy.controlling_engine}")
+    if frozen.get("configurationIdentity") != policy.controlling_configuration:
+        raise SupplementImportError(
+            f"Eligibility configuration {frozen.get('configurationIdentity')} is not "
+            f"{policy.controlling_configuration}")
+
+    binding = _require(supplement, "binding", label="supplement.json")
+    for key in ("forecastId", "engineId", "configurationIdentity", "modelArtifactSha256"):
+        if binding.get(key) != frozen.get(key):
+            raise SupplementImportError(f"binding.{key} and frozenConfiguration.{key} disagree")
+
+    channels = _require(summaries, "probabilityChannels", label="paper-eligibility summaries")
+    joint = channels.get("controllingJoint") or {}
+    for mine, theirs in (("homeWinProbability", "homeWin"), ("awayWinProbability", "awayWin"),
+                         ("tieProbability", "tie")):
+        if joint.get(theirs) is None or abs(float(joint[theirs]) - float(frozen[mine])) > _PROBABILITY_TOLERANCE:
+            raise SupplementImportError(
+                f"controllingJoint.{theirs} does not equal frozenConfiguration.{mine}")
+
+    # Chronology: evidence, then forecast, then its publication, then this
+    # permission. A permission dated before the forecast it permits is refused.
+    clocks = _require(summaries, "originalClocks", label="paper-eligibility summaries")
+    names = ("sourceCutoffUtc", "forecastCreatedAtUtc", "originalExchangePublishedAtUtc",
+             "eligibilityPublishedAtUtc")
+    order = [(name, _iso(clocks.get(name), label=name)) for name in names]
+    for (earlier, first), (later, second) in zip(order, order[1:]):
+        if first > second:
+            raise SupplementImportError(f"Chronology violated: {earlier} is after {later}")
+    if _iso(supplement["sourceCutoffUtc"], label="sourceCutoffUtc") != order[0][1]:
+        raise SupplementImportError("supplement sourceCutoffUtc disagrees with originalClocks")
 
 
 def joint_outcomes(cells: list[dict[str, Any]]) -> dict[str, float]:
@@ -473,19 +577,37 @@ def current_supplement_addresses(root: Path) -> set[str] | None:
 
 
 def discover_supplements(root: Path) -> list[Path]:
-    base = (Path(root) / SUPPLEMENT_ROOT / "sha256")
-    if not base.is_dir():
-        return []
+    """Every content-addressed supplement directory across all supplement trees."""
+
     resolved_root = Path(root).resolve()
     found: list[Path] = []
-    for entry in sorted(base.iterdir()):
-        if not _ADDRESS.fullmatch(entry.name.lower()):
+    for tree in SUPPLEMENT_ROOTS:
+        base = Path(root) / tree / "sha256"
+        if not base.is_dir():
             continue
-        candidate = entry.resolve()
-        if resolved_root not in candidate.parents or not candidate.is_dir():
-            continue
-        found.append(candidate)
+        for entry in sorted(base.iterdir()):
+            if not _ADDRESS.fullmatch(entry.name.lower()):
+                continue
+            candidate = entry.resolve()
+            if resolved_root not in candidate.parents or not candidate.is_dir():
+                continue
+            found.append(candidate)
     return found
+
+
+def chain_heads(verified: list[VerifiedSupplement]) -> tuple[list[VerifiedSupplement], list[str]]:
+    """Split verified supplements into successor-chain heads and superseded addresses.
+
+    Model Studio publishes an eligibility successor beside its predecessor, in
+    the same tree, with no index saying which is current. Importing both would
+    leave two permissions for one forecast. A supplement named as another's
+    ``predecessorSupplementAddress`` is superseded and is not imported.
+    """
+
+    named = {str(v.supplement.get("predecessorSupplementAddress") or "").lower() for v in verified}
+    heads = [v for v in verified if v.address not in named]
+    superseded = sorted(v.address for v in verified if v.address in named)
+    return heads, superseded
 
 
 # ---------------------------------------------------------------------------
@@ -504,8 +626,22 @@ def register_supplement(session: Session, verified: VerifiedSupplement) -> dict[
 
     doc = verified.supplement
     binding = verified.binding
+    sport = str(doc.get("sport") or "").upper()
+
+    # Different bytes under a supplement id AISP already holds is a producer
+    # conflict, not an update. A successor carries a new id and names its
+    # predecessor; anything else is refused.
+    same_id = session.scalar(select(ResearchSupplement).where(
+        ResearchSupplement.supplement_id == str(doc["supplementId"])))
+    if same_id is not None:
+        raise SupplementImportError(
+            f"supplementId {doc['supplementId']} is already registered at "
+            f"{same_id.supplement_sha256}; conflicting bytes at {verified.address} are refused")
+
     forecast: ShadowForecast | None = None
-    if verified.kind in EVENT_BOUND_KINDS:
+    if verified.kind == KIND_PAPER_ELIGIBILITY and sport in ("NBA", "CFB"):
+        _bind_research_forecast(session, verified, sport)
+    elif verified.kind in EVENT_BOUND_KINDS:
         forecast = session.scalar(select(ShadowForecast).where(
             ShadowForecast.forecast_id == str(binding["forecastId"]),
             ShadowForecast.event_id == str(binding["eventId"]),
@@ -560,8 +696,129 @@ def register_supplement(session: Session, verified: VerifiedSupplement) -> dict[
             "forecast_id": row.forecast_id, "idempotent_reuse": False}
 
 
+def _bind_research_forecast(session: Session, verified: VerifiedSupplement, sport: str) -> None:
+    """NBA and CFB forecasts live in their own research tables, not shadow_forecasts.
+
+    Every identity the document asserts is compared with what AISP imported:
+    forecast digest, source package, configuration, probabilities, cutoff,
+    provider game and model artifact. A document that binds a forecast AISP does
+    not hold -- or holds differently -- is refused.
+    """
+
+    from sqlalchemy import text
+
+    doc = verified.supplement
+    binding = verified.binding
+    summaries = doc["summaries"]
+    frozen = summaries["frozenConfiguration"]
+    frozen_forecast = summaries.get("frozenForecast") or {}
+    cutoff = _iso(doc["sourceCutoffUtc"], label="sourceCutoffUtc")
+
+    def close(a: Any, b: Any) -> bool:
+        return a is not None and b is not None and abs(float(a) - float(b)) <= _PROBABILITY_TOLERANCE
+
+    if sport == "NBA":
+        row = session.execute(text(
+            "select a.forecast_sha256, a.package_sha256, a.configuration_identity, a.arm, "
+            "a.home_win_probability, a.away_win_probability, a.tie_probability, "
+            "a.source_cutoff_utc, a.canonical_game_id, a.supplements_forecast_id "
+            "from nba_joint_comparison_arms a where a.forecast_id = :f"),
+            {"f": str(binding["forecastId"])}).mappings().first()
+        if row is None:
+            raise SupplementImportError(
+                f"NBA eligibility binds forecast {binding['forecastId']}, which AISP has not imported")
+        mapped = session.execute(text(
+            "select entity_id from external_id_mappings where entity_type = 'game' "
+            "and source = 'NBA_ESPN' and external_id = :x"),
+            {"x": str(binding.get("providerGameId"))}).scalar()
+        artifact = session.execute(text(
+            "select detail->'bindings'->'pointModelAndPreprocessor'->>'sha256' "
+            "from nba_research_forecasts where forecast_id = :f"),
+            {"f": str(row["supplements_forecast_id"])}).scalar()
+        checks = {
+            "arm is the baseline": row["arm"] == "baseline",
+            "forecast digest": row["forecast_sha256"] == frozen_forecast.get("forecastSha256"),
+            "source package": row["package_sha256"] == binding.get("sourcePackageAddress"),
+            "configuration": row["configuration_identity"] == binding.get("configurationIdentity"),
+            "home probability": close(row["home_win_probability"], frozen["homeWinProbability"]),
+            "away probability": close(row["away_win_probability"], frozen["awayWinProbability"]),
+            "tie probability": close(row["tie_probability"] or 0.0, frozen["tieProbability"]),
+            "source cutoff": (row["source_cutoff_utc"] is not None
+                              and row["source_cutoff_utc"].astimezone(UTC) == cutoff),
+            "provider game": (str(binding.get("eventId")) == f"nba-espn:game:{binding.get('providerGameId')}"
+                              and mapped is not None and str(mapped) == str(row["canonical_game_id"])),
+            "model artifact": artifact == binding.get("modelArtifactSha256"),
+        }
+    else:
+        row = session.execute(text(
+            "select forecast_sha256, package_index_sha256, baseline_configuration, source_game_id, "
+            "joint_home_win_probability, joint_away_win_probability, tie_probability, "
+            "source_cutoff_utc, model_bindings->'selectedModel'->>'physicalSha256' as artifact "
+            "from cfb_research_forecasts where forecast_id = :f"),
+            {"f": str(binding["forecastId"])}).mappings().first()
+        if row is None:
+            raise SupplementImportError(
+                f"CFB eligibility binds forecast {binding['forecastId']}, which AISP has not imported")
+        checks = {
+            "forecast digest": row["forecast_sha256"] == frozen_forecast.get("forecastSha256"),
+            "source package": row["package_index_sha256"] == binding.get("sourcePackageAddress"),
+            "configuration": row["baseline_configuration"] == binding.get("configurationIdentity"),
+            "home probability": close(row["joint_home_win_probability"], frozen["homeWinProbability"]),
+            "away probability": close(row["joint_away_win_probability"], frozen["awayWinProbability"]),
+            "tie probability": close(row["tie_probability"], frozen["tieProbability"]),
+            "source cutoff": row["source_cutoff_utc"].astimezone(UTC) == cutoff,
+            "provider game": (str(binding.get("providerGameId")) == row["source_game_id"]
+                              and str(binding.get("eventId")) == f"cfbd:{row['source_game_id']}"),
+            "model artifact": row["artifact"] == binding.get("modelArtifactSha256"),
+        }
+    failed = [name for name, ok in checks.items() if not ok]
+    if failed:
+        raise SupplementImportError(
+            f"{sport} eligibility does not match AISP's imported forecast: {', '.join(failed)}")
+
+
+def import_named_supplements(session: Session, root: Path, addresses: list[str]) -> dict[str, Any]:
+    """Import exactly the named supplement addresses, successor-aware and idempotent.
+
+    Each address is located under the known supplement trees, verified in full
+    and registered through the same path the consumer uses. A named address that
+    another present supplement supersedes is refused rather than imported.
+    """
+
+    wanted = [a.lower() for a in addresses]
+    directories = {d.name.lower(): d for d in discover_supplements(root)}
+    present: list[VerifiedSupplement] = []
+    for directory in directories.values():
+        try:
+            present.append(verify_supplement(directory))
+        except SupplementImportError:
+            continue
+    _, superseded = chain_heads(present)
+    receipts: list[dict[str, Any]] = []
+    for address in wanted:
+        if address not in directories:
+            receipts.append({"supplement_sha256": address, "result": "REJECTED",
+                             "reason": "not found under any supplement tree"})
+            continue
+        item = verify_supplement(directories[address])
+        if address in superseded:
+            receipts.append({"supplement_sha256": address, "result": "REJECTED",
+                             "reason": "superseded by a successor present in the exchange"})
+            continue
+        record = register_supplement(session, item)
+        receipts.append({**record,
+                         "result": "ALREADY_PRESENT" if record["idempotent_reuse"] else "IMPORTED",
+                         "supplement_id": item.supplement.get("supplementId"),
+                         "sport": item.supplement.get("sport"),
+                         "artifact_version": item.supplement.get("artifactVersion"),
+                         "predecessor": item.supplement.get("predecessorSupplementAddress"),
+                         "files": item.files})
+    return {"receipts": receipts, "superseded_present": superseded}
+
+
 __all__ = [
     "CONTRACT_VERSION", "INDEX_SCHEMA", "KIND_DRIVE", "KIND_JOINT", "KIND_SCENARIO", "KIND_STUDY",
     "SupplementImportError", "VerifiedSupplement", "current_supplement_addresses",
-    "discover_supplements", "joint_outcomes", "register_supplement", "verify_supplement",
+    "PAPER_ELIGIBILITY_VERSIONS", "SUPPLEMENT_ROOTS", "chain_heads", "discover_supplements",
+    "import_named_supplements", "joint_outcomes", "register_supplement", "verify_supplement",
 ]
