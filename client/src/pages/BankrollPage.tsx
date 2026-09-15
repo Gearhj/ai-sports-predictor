@@ -442,7 +442,7 @@ function ExperimentSelector({ experimentKey, challengerVersion, onSelect }: { ex
   )
 }
 
-export function BankrollPage({ demo = false }: { demo?: boolean }) {
+export function BankrollPage({ demo = false, withoutSummary = false }: { demo?: boolean; withoutSummary?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const experimentKey = resolveExperimentKey(searchParams.get('experiment'))
   const loader = useMemo(
@@ -507,7 +507,7 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     const shownState = stale ? 'loading' : !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
     return (
       <div className="page bankroll-page">
-        {!demo && <RegionBoundary label="experiment summary"><CommandExperiment highlight={searchParams.get('position')} /></RegionBoundary>}
+        {!demo && !withoutSummary && <RegionBoundary label="experiment summary"><CommandExperiment highlight={searchParams.get('position')} /></RegionBoundary>}
         <PageHeader eyebrow={headerEyebrow} title={demo ? '$1,000 Experiment' : 'Model-era detail'} description={contractSentence} actions={<ExperimentBadge />} />
         {seasonAccounts}
         {selector}
@@ -565,7 +565,7 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
 
   return (
     <div className="page bankroll-page">
-      {!demo && <RegionBoundary label="experiment summary"><CommandExperiment highlight={searchParams.get('position')} /></RegionBoundary>}
+      {!demo && !withoutSummary && <RegionBoundary label="experiment summary"><CommandExperiment highlight={searchParams.get('position')} /></RegionBoundary>}
       {!demo && (
         <details className="cc-below">
           <summary>Season-account detail, eligibility and per-sport readiness</summary>

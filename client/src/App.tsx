@@ -17,6 +17,7 @@ const GameSimulationPage = lazy(() => import('./pages/GameSimulationPage').then(
 const MarketBoardPage = lazy(() => import('./pages/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
 const PerformancePage = lazy(() => import('./pages/PerformancePage').then((module) => ({ default: module.PerformancePage })))
 const BankrollPage = lazy(() => import('./pages/BankrollPage').then((module) => ({ default: module.BankrollPage })))
+const ExperimentRoute = lazy(() => import('./pages/ExperimentRoute').then((module) => ({ default: module.ExperimentRoute })))
 const MethodologyPage = lazy(() => import('./pages/MethodologyPage').then((module) => ({ default: module.MethodologyPage })))
 const HealthPage = lazy(() => import('./pages/HealthPage').then((module) => ({ default: module.HealthPage })))
 const ShadowBoardPage = lazy(() => import('./pages/ShadowBoardPage').then((module) => ({ default: module.ShadowBoardPage })))
@@ -105,7 +106,7 @@ export default function App() {
                   <Route path="shadow-board" element={<ShadowBoardPage />} />
                   <Route path="market-pulse" element={<LegacyMarketsRoute />} />
                   <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />
-                  <Route path="experiment" element={<BankrollPage />} />
+                  <Route path="experiment" element={<ExperimentRoute />} />
                   <Route path="methodology" element={<MethodologyPage />} />
                   <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
                   <Route path="account" element={<AuthPage />} />

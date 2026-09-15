@@ -12,9 +12,11 @@
  * quote, spend an odds credit, record a decision or run a model: those happen
  * in backend jobs, and nothing on this path posts.
  */
-import { apiRequest, endpoints } from './api'
+import { endpoints } from './api'
 import { STALE_TIME, cacheKey, prefetchQuery } from './queryCache'
-import type { ExperimentFunnelData } from '../types/domain'
+import { operationalToday } from './operationalDate'
+import { decisionsKey, ledgerKey, loadDecisions, loadLedger, loadMarkets, marketsKey } from './commandCenter'
+import { loadReadiness, readinessKey } from '../components/readiness/SportReadiness'
 
 type Warm = () => void
 
@@ -30,47 +32,50 @@ interface RouteWarmer {
  * everything would turn one hover into a slate-wide fan-out, which is how a
  * prefetch stops being free.
  */
+const today = () => operationalToday()
+const warmLedger = () => prefetchQuery(ledgerKey(), loadLedger, STALE_TIME.operational)
+const warmReadiness = () => prefetchQuery(readinessKey(), loadReadiness, STALE_TIME.slate)
+const warmDecisions = () => prefetchQuery(decisionsKey(today()), loadDecisions(today()), STALE_TIME.slate)
+const warmMarkets = () => prefetchQuery(marketsKey(today()), loadMarkets(today()), STALE_TIME.slate)
+
 const ROUTES: Record<string, RouteWarmer> = {
   '/': {
     chunk: () => import('../pages/HomePage'),
+    data: () => { warmLedger(); warmMarkets(); warmDecisions() },
   },
   '/decisions': {
     chunk: () => import('../pages/MultiSportTodayPage'),
-    data: () => prefetchQuery(
-      'today/all-sports',
-      async (signal) => {
-        const warnings: string[] = []
-        const [today, funnel] = await Promise.all([
-          endpoints.today(signal),
-          apiRequest<ExperimentFunnelData>('/experiment/funnel', {}, signal).catch(() => {
-            warnings.push('Experiment funnel unavailable')
-            return null
-          }),
-        ])
-        return { data_mode: 'live' as const, today, funnel, warnings }
-      },
-      STALE_TIME.slate,
-    ),
+    data: () => { warmDecisions(); warmMarkets(); warmReadiness() },
   },
-  '/games': { chunk: () => import('../pages/UnifiedGamesPage') },
-  '/markets': { chunk: () => import('../pages/UnifiedMarketsPage') },
+  '/games': { chunk: () => import('../pages/UnifiedGamesPage'), data: () => { warmLedger() } },
+  '/markets': { chunk: () => import('../pages/UnifiedMarketsPage'), data: () => { warmMarkets(); warmLedger() } },
   '/labs': { chunk: () => import('../pages/LabsPage') },
   '/performance': { chunk: () => import('../pages/UnifiedResearchPage') },
   '/research/history': { chunk: () => import('../pages/UnifiedResearchPage') },
   '/shadow-board': { chunk: () => import('../pages/ShadowBoardPage') },
   '/methodology': { chunk: () => import('../pages/MethodologyPage') },
   '/experiment': {
-    chunk: () => import('../pages/BankrollPage'),
-    data: () => prefetchQuery(
-      cacheKey('bankroll', { experimentKey: 'v2' }),
-      (signal) => endpoints.bankroll(signal, 'v2'),
-      STALE_TIME.operational,
-    ),
+    chunk: () => import('../pages/ExperimentRoute'),
+    data: () => { warmLedger(); warmReadiness() },
   },
   '/mlb': {
     chunk: () => import('../pages/TodayPage'),
     data: () => prefetchQuery('dashboard/today', endpoints.dashboard, STALE_TIME.slate),
   },
+}
+
+/**
+ * Once the browser is idle after the first paint, warm the primary routes'
+ * code and first reads, so the first click on each is already local. Reads
+ * only, bounded by the cache's prefetch concurrency; never a provider call.
+ */
+export function warmPrimaryRoutesWhenIdle(): void {
+  const run = () => ['/', '/decisions', '/markets', '/experiment', '/games'].forEach((path, index) => {
+    window.setTimeout(() => prefetchRoute(path), index * 400)
+  })
+  const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback
+  if (idle) idle(run, { timeout: 3000 })
+  else window.setTimeout(run, 1500)
 }
 
 /** Chunks are warmed once; a second hover must not re-enter the import graph. */

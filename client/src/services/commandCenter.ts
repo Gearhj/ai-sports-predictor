@@ -105,12 +105,12 @@ export interface Ledger {
   sports: LedgerSport[]
 }
 
+export const ledgerKey = () => cacheKey('command-ledger')
+export const loadLedger = async (signal: AbortSignal) =>
+  expectSchema(await apiRequest<Ledger>('/command-center/ledger', {}, signal), 'AISP_COMMAND_CENTER_LEDGER_V1')
+
 export function useLedger() {
-  const loader = useCallback(async (signal: AbortSignal) =>
-    expectSchema(await apiRequest<Ledger>('/command-center/ledger', {}, signal), 'AISP_COMMAND_CENTER_LEDGER_V1'), [])
-  return useApiResource<Ledger>(loader, {
-    key: cacheKey('command-ledger'), staleTimeMs: STALE_TIME.operational,
-  })
+  return useApiResource<Ledger>(loadLedger, { key: ledgerKey(), staleTimeMs: STALE_TIME.operational })
 }
 
 // --------------------------------------------------------------- decisions --
@@ -157,11 +157,14 @@ export interface DecisionBoard {
   items: DecisionItem[]
 }
 
+export const decisionsKey = (day: string) => cacheKey('command-decisions', { day })
+export const loadDecisions = (day: string) => async (signal: AbortSignal) =>
+  expectSchema(await apiRequest<DecisionBoard>(`/command-center/decisions?date=${encodeURIComponent(day)}`, {}, signal), 'AISP_COMMAND_CENTER_DECISIONS_V1')
+
 export function useDecisionBoard(day: string) {
-  const loader = useCallback(async (signal: AbortSignal) =>
-    expectSchema(await apiRequest<DecisionBoard>(`/command-center/decisions?date=${encodeURIComponent(day)}`, {}, signal), 'AISP_COMMAND_CENTER_DECISIONS_V1'), [day])
+  const loader = useCallback((signal: AbortSignal) => loadDecisions(day)(signal), [day])
   return useApiResource<DecisionBoard>(loader, {
-    key: cacheKey('command-decisions', { day }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: 120_000,
+    key: decisionsKey(day), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: 120_000,
   })
 }
 
@@ -224,11 +227,14 @@ export interface MarketCoverage {
   games: CoverageGame[]
 }
 
+export const marketsKey = (day: string) => cacheKey('command-markets', { day })
+export const loadMarkets = (day: string) => async (signal: AbortSignal) =>
+  expectSchema(await apiRequest<MarketCoverage>(`/command-center/markets?date=${encodeURIComponent(day)}`, {}, signal), 'AISP_COMMAND_CENTER_MARKET_COVERAGE_V1')
+
 export function useMarketCoverage(day: string) {
-  const loader = useCallback(async (signal: AbortSignal) =>
-    expectSchema(await apiRequest<MarketCoverage>(`/command-center/markets?date=${encodeURIComponent(day)}`, {}, signal), 'AISP_COMMAND_CENTER_MARKET_COVERAGE_V1'), [day])
+  const loader = useCallback((signal: AbortSignal) => loadMarkets(day)(signal), [day])
   return useApiResource<MarketCoverage>(loader, {
-    key: cacheKey('command-markets', { day }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: 120_000,
+    key: marketsKey(day), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: 120_000,
   })
 }
 

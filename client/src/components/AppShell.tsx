@@ -4,6 +4,7 @@ import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap,
 import { useAuth } from '../hooks/useAuth'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { PrefetchNavLink } from './PrefetchLink'
+import { warmPrimaryRoutesWhenIdle } from '../services/routePrefetch'
 import { useSportSelection, type SelectedSport } from '../hooks/useSportSelection'
 import { resolveAllSports } from '../services/sportExperience'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../config/publicModel'
@@ -51,6 +52,8 @@ export function AppShell() {
   }
   const demoMode = location.pathname === '/demo' || location.pathname.startsWith('/demo/')
   useEffect(() => { setMenuOpen(false) }, [location.pathname, location.search])
+  // Once, after first paint: warm the primary routes' code and first reads while idle.
+  useEffect(() => { warmPrimaryRoutesWhenIdle() }, [])
   return (
     <div className={`app-shell ${demoMode ? 'app-shell--demo' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to content</a>

@@ -15,7 +15,6 @@
  * disposition yet, and the panel says when it opens.
  */
 import { Link } from 'react-router-dom'
-import { useCallback } from 'react'
 import { useApiResource } from '../../hooks/useApiResource'
 import { apiRequest } from '../../services/api'
 import { cacheKey, STALE_TIME } from '../../services/queryCache'
@@ -47,13 +46,11 @@ interface ReadinessPayload {
   sports: SportReadinessEntry[]
 }
 
+export const readinessKey = () => cacheKey('sport-readiness', {})
+export const loadReadiness = (signal: AbortSignal) => apiRequest<ReadinessPayload>('/sports/readiness', {}, signal)
+
 export function useSportReadiness() {
-  const loader = useCallback(
-    (signal: AbortSignal) => apiRequest<ReadinessPayload>('/sports/readiness', {}, signal), [])
-  return useApiResource<ReadinessPayload>(loader, {
-    key: cacheKey('sport-readiness', {}),
-    staleTimeMs: STALE_TIME.slate,
-  })
+  return useApiResource<ReadinessPayload>(loadReadiness, { key: readinessKey(), staleTimeMs: STALE_TIME.slate })
 }
 
 const RESEARCH_ROUTES: Record<string, string> = {
