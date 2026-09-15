@@ -244,13 +244,17 @@ def _nfl(session: Session, now: datetime) -> dict[str, Any]:
 
     gid, starts = game
     window = _window(starts)
-    forecast = session.execute(text("""
-        select forecast_id, snapshot_type, snapshot_version, engine_version, event_id from shadow_forecasts
-        where canonical_game_id = :g and engine_id = 'NFL_M1_XGBOOST'
-        order by created_at desc limit 1"""), {"g": str(gid)}).first()
+    # The same forecast the decision owner will evaluate (FINAL_PREGAME first,
+    # then the newest CURRENT), so readiness and the checkpoint cannot disagree
+    # about which object the permission has to bind.
+    from app.services.nfl_paper_decision import _forecast
+    row = _forecast(session, gid)
+    forecast = ((row.forecast_id, row.snapshot_type, row.snapshot_version, row.engine_version, row.event_id)
+                if row is not None else None)
     if forecast:
         fc = _state("RESEARCH_FORECAST_AVAILABLE",
-                    f"NFL M1 {forecast[1]} v{forecast[2]} available; final-pregame forecast generated near kickoff",
+                    f"NFL M1 {forecast[1]} v{forecast[2]} available; a FINAL_PREGAME successor may be "
+                    "generated inside the decision window",
                     identity=forecast[0], engine_version=forecast[3])
     else:
         fc = _state("FORECAST_AWAITING_PRODUCER", "Forecast awaiting producer publication")
@@ -273,25 +277,37 @@ def _nfl(session: Session, now: datetime) -> dict[str, Any]:
 
     elig = (eligibility.check(session, event_id=forecast[4], forecast_id=forecast[0], experiment_id="readiness")
             if forecast and forecast[4] else {"eligible": False, "reason": "NO_FORECAST"})
+    if forecast and forecast[4]:
+        elig = eligibility.successor_gap(session, event_id=forecast[4], forecast_id=forecast[0], binding=elig)
     if now < window["_opens"]:
         decision = _state("WINDOW_NOT_OPEN", f"Decision window {window['label']}", window=_strip(window))
     else:
         decision = _state("WINDOW_OPEN" if now <= window["_closes"] else "WINDOW_CLOSED",
                           "Decision window open now" if now <= window["_closes"] else "Decision window closed",
                           window=_strip(window))
-    blocker = None if elig.get("eligible") else (
-        "Paper policy awaiting the producer's eligibility record for this game's forecast "
-        f"({elig.get('reason')}).")
+    if elig.get("eligible"):
+        blocker = None
+        could = ("Yes, if the separately collected SportsGameOdds pair (same provider, book and market, "
+                 "both sides) is fresh on its older leg inside the window and the tie-adjusted edge clears "
+                 "2 points. A FINAL_PREGAME successor generated in the window needs its own supplement.")
+    elif elig.get("reason") == "AWAITING_SUCCESSOR_ELIGIBILITY":
+        blocker = ("A newer forecast replaced the authorized object; awaiting the producer's successor "
+                   "eligibility supplement (AWAITING_SUCCESSOR_ELIGIBILITY).")
+        could = "Only once the successor supplement for the newer forecast is imported."
+    else:
+        blocker = ("Paper policy awaiting the producer's eligibility record for this game's forecast "
+                   f"({elig.get('reason')}).")
+        could = ("Only once a producer eligibility record binds this game's forecast; then a fresh "
+                 "two-sided price inside the window and a qualifying edge.")
     return {**base,
             "next_game": {"game_id": str(gid), "matchup": _matchup(session, gid),
                           "starts_at": _iso(starts), "starts_label": _et_label(starts)},
             "forecast": fc, "price": price, "decision": decision,
-            "eligibility": {"eligible": bool(elig.get("eligible")), "reason": elig.get("reason")},
+            "eligibility": {"eligible": bool(elig.get("eligible")), "reason": elig.get("reason"),
+                            "supplement_sha256": elig.get("supplement_sha256"),
+                            "forecast_id": forecast[0] if forecast else None},
             "position": _state("NONE_YET", "No position for the next game", **_positions(session, "NFL", gid)),
-            "pipeline": {"ready": True, "blocker": blocker,
-                         "could_qualify": ("Only once a producer eligibility record binds this game's "
-                                           "final-pregame forecast; then a fresh two-sided price inside "
-                                           "the window and a qualifying edge.")}}
+            "pipeline": {"ready": True, "blocker": blocker, "could_qualify": could}}
 
 
 # ------------------------------------------------------------ NBA / CFB ----

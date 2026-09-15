@@ -243,6 +243,20 @@ def _exposure(session: Session, experiment: ShadowExperiment,
     return same_game, same_day
 
 
+def _superseded_permission_block(
+    session: Session, prior: ShadowExperimentDecision, decision: dict[str, Any],
+) -> bool:
+    prior_reason = (prior.qualification_reasons or {}).get("reason")
+    if prior.recommendation != "BLOCKED" or prior_reason not in eligibility.MISSING_PERMISSION_REASONS:
+        return False
+    if session.scalar(select(OfficialAspPosition.id).where(
+            OfficialAspPosition.shadow_decision_id == prior.id)) is not None:
+        return False
+    # Only a now-eligible evaluation replaces the block; a repeat of the same
+    # missing permission reuses the stored decision as before.
+    return decision.get("reason") not in eligibility.MISSING_PERMISSION_REASONS
+
+
 def record_outcome(
     session: Session, *, experiment: ShadowExperiment, game_id: Any,
     decision: dict[str, Any], moment: datetime,
@@ -255,6 +269,15 @@ def record_outcome(
     """
 
     prior = existing_decision(session, experiment_id=experiment.id, game_id=game_id)
+    if prior is not None and _superseded_permission_block(session, prior, decision):
+        # The earlier tick was blocked ONLY because the producer's exact
+        # permission was absent: no price was read and no position exists. The
+        # exact supplement has since been imported inside the same window, so
+        # this evaluation is recorded as its own decision rather than being
+        # discarded in favour of a block whose premise no longer holds. Every
+        # other gate is unchanged, and a priced or positioned decision is never
+        # re-evaluated.
+        prior = None
     if prior is not None:
         position = session.scalar(select(OfficialAspPosition).where(
             OfficialAspPosition.shadow_decision_id == prior.id))
@@ -428,6 +451,8 @@ def _decide(
     binding = eligibility.check(
         session, event_id=forecast.event_id, forecast_id=forecast.forecast_id,
         experiment_id=str(era.id), now=moment)
+    binding = eligibility.successor_gap(
+        session, event_id=forecast.event_id, forecast_id=forecast.forecast_id, binding=binding)
     if not binding["eligible"]:
         return {**base, "outcome": "BLOCKED", "reason": binding["reason"],
                 "detail": binding.get("detail"),

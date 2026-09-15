@@ -113,3 +113,26 @@ def test_a_predecessor_beside_its_successor_is_superseded():
     heads, superseded = chain_heads([successor, Fake()])
     assert superseded == [Fake.address]
     assert [h.address for h in heads] == [successor.address]
+
+
+def test_the_consumer_allowlist_admits_nba_and_cfb_heads_and_skips_predecessors():
+    """NBA/CFB eligibility has no index; the five-minute consumer must not ignore it."""
+    from app.jobs.model_exchange_consumer import ConsumeOutcome, _allowlisted_eligibility
+
+    outcome = ConsumeOutcome(root=str(EXCHANGE), dry_run=True)
+    admitted = _allowlisted_eligibility(EXCHANGE, set(), outcome)
+    assert NBA.name in admitted and CFB.name in admitted
+    # Only the exact registered eligibility version, and only chain heads.
+    assert all(item.supplement["artifactVersion"] == PAPER_ELIGIBILITY_VERSIONS[item.supplement["sport"]]
+               for item in admitted.values())
+    predecessors = {admitted[NBA.name].supplement["predecessorSupplementAddress"],
+                    admitted[CFB.name].supplement["predecessorSupplementAddress"]}
+    assert predecessors <= set(outcome.supplements_skipped)
+    assert not predecessors & set(admitted)
+
+
+def test_the_consumer_allowlist_admits_nothing_already_registered():
+    from app.jobs.model_exchange_consumer import ConsumeOutcome, _allowlisted_eligibility
+
+    outcome = ConsumeOutcome(root=str(EXCHANGE), dry_run=True)
+    assert _allowlisted_eligibility(EXCHANGE, {NBA.name, CFB.name}, outcome) == {}

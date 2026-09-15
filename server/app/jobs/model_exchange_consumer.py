@@ -335,23 +335,26 @@ def _consume_supplements(session: Session, settings: Settings, exchange_root: Pa
 
     # The supplement tree lives beside the bundle tree in the exchange.
     supplement_root = exchange_root.parent if exchange_root.name == "aisp-daily-forecast-bundles" else exchange_root
-    current = current_supplement_addresses(supplement_root)
-    if current is None:
-        return  # no index => nothing is declared current => nothing imported
+    current = current_supplement_addresses(supplement_root) or set()
     registered = {
         str(value).lower()
         for value in session.scalars(select(ResearchSupplement.supplement_sha256)).all()
     }
+    # NBA and CFB paper eligibility have no index of their own. They are
+    # admitted by an explicit allowlist instead of being silently ignored: only
+    # their dedicated eligibility trees, only the exact registered eligibility
+    # version for that sport, and only successor-chain heads.
+    allowlisted = _allowlisted_eligibility(supplement_root, registered, outcome)
     for directory in discover_supplements(supplement_root):
         address = directory.name.lower()
-        if address not in current:
+        if address not in current and address not in allowlisted:
             continue
         outcome.supplements_scanned += 1
         if address in registered:
             outcome.supplements_skipped.append(address)
             continue
         try:
-            verified = verify_supplement(directory)
+            verified = allowlisted.get(address) or verify_supplement(directory)
             if dry_run:
                 outcome.supplements_accepted.append({
                     "supplement_sha256": address, "kind": verified.kind,
@@ -372,6 +375,76 @@ def _consume_supplements(session: Session, settings: Settings, exchange_root: Pa
         record["imported_at_utc"] = datetime.now(UTC).isoformat()
         outcome.supplements_accepted.append(record)
         registered.add(address)
+
+
+#: Exchange trees whose paper-eligibility supplements are admitted without an
+#: index, keyed to the one sport each may carry.
+ALLOWLISTED_ELIGIBILITY_TREES = {
+    "nba-gen1-research-v1/paper-eligibility": "NBA",
+    "cfb-gen1-research-v1/paper-eligibility": "CFB",
+}
+
+
+def _allowlisted_eligibility(root: Path, registered: set[str], outcome: ConsumeOutcome) -> dict[str, Any]:
+    """Verified, unregistered NBA/CFB eligibility heads under the allowlisted trees.
+
+    Everything else found there is recorded as skipped with its reason, so a
+    refusal is visible in the job receipt rather than being an absence.
+    """
+
+    from app.forecast_exchange.supplements import (
+        KIND_PAPER_ELIGIBILITY, PAPER_ELIGIBILITY_VERSIONS, SupplementImportError,
+        chain_heads, verify_supplement,
+    )
+
+    verified_by_address: dict[str, Any] = {}
+    for tree, sport in ALLOWLISTED_ELIGIBILITY_TREES.items():
+        base = root / tree / "sha256"
+        if not base.is_dir():
+            continue
+        entries = [e for e in sorted(base.iterdir()) if e.is_dir() and _is_address(e.name)]
+        # Pass 1: every verifiable document in the tree, registered or not, so a
+        # predecessor is recognised as superseded even when only its successor
+        # is present in AISP.
+        verified: dict[str, Any] = {}
+        errors: dict[str, str] = {}
+        for entry in entries:
+            try:
+                verified[entry.name.lower()] = verify_supplement(entry)
+            except (SupplementImportError, OSError, ValueError) as error:
+                errors[entry.name.lower()] = str(error)
+        _, superseded = chain_heads(list(verified.values()))
+        superseded_set = set(superseded) | {
+            str(item.supplement.get("predecessorSupplementAddress") or "").lower()
+            for item in verified.values()}
+        # Pass 2: admit unregistered heads of the exact version only.
+        for entry in entries:
+            address = entry.name.lower()
+            if address in registered:
+                continue
+            if address in superseded_set:
+                outcome.supplements_skipped.append(address)
+                continue
+            if address in errors:
+                outcome.supplements_rejected.append({
+                    "supplement_sha256": address, "tree": tree,
+                    "reason": f"allowlisted tree, not admissible: {errors[address]}"})
+                continue
+            item = verified[address]
+            doc = item.supplement
+            if (item.kind != KIND_PAPER_ELIGIBILITY or str(doc.get("sport")).upper() != sport
+                    or doc.get("artifactVersion") != PAPER_ELIGIBILITY_VERSIONS[sport]):
+                outcome.supplements_rejected.append({
+                    "supplement_sha256": address, "tree": tree,
+                    "reason": (f"allowlisted tree admits only {PAPER_ELIGIBILITY_VERSIONS[sport]} "
+                               f"for {sport}; found {item.kind}/{doc.get('artifactVersion')}/{doc.get('sport')}")})
+                continue
+            verified_by_address[address] = item
+    return verified_by_address
+
+
+def _is_address(name: str) -> bool:
+    return len(name) == 64 and all(c in "0123456789abcdef" for c in name.lower())
 
 
 def _consume_lab_study(session: Session, settings: Settings, outcome: ConsumeOutcome,

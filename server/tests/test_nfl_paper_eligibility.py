@@ -183,6 +183,35 @@ def test_a_non_virtual_mode_is_refused(session):
     assert check(session)["reason"] == "ELIGIBILITY_MODE_IS_NOT_VIRTUAL_RESEARCH"
 
 
+#: The real DEN at KC FINAL_PREGAME that superseded the authorized CURRENT v7.
+SUCCESSOR = ("asp-sports-game-forecast:sha256:"
+             "1d7b73e58cdf5f1ce547525faf7dc0d6ad60efed2719be51b5c522949c19c4e6")
+
+
+def test_a_newer_forecast_awaits_its_own_successor_eligibility(session):
+    store(session, document())
+    raw = gate.check(session, event_id=EVENT, forecast_id=SUCCESSOR,
+                     experiment_id=EXPERIMENT_UUID, now=NOW)
+    assert raw["reason"] == "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD"
+
+    named = gate.successor_gap(session, event_id=EVENT, forecast_id=SUCCESSOR, binding=raw)
+    # Eligibility does not transfer, and the state says exactly why.
+    assert named["eligible"] is False and named["blocks_position"] is True
+    assert named["reason"] == "AWAITING_SUCCESSOR_ELIGIBILITY"
+    assert named["eligible_predecessor"]["forecast_id"] == FORECAST
+    assert "does not transfer" in named["detail"]
+
+
+def test_successor_gap_leaves_other_answers_untouched(session):
+    # No record for the event at all: still the plain absence.
+    raw = check(session)
+    assert gate.successor_gap(session, event_id=EVENT, forecast_id=FORECAST, binding=raw) is raw
+    # The exact authorized object: still bound.
+    store(session, document())
+    bound = check(session)
+    assert gate.successor_gap(session, event_id=EVENT, forecast_id=FORECAST, binding=bound) is bound
+
+
 def test_the_gate_reads_the_columns_the_importer_actually_writes(session):
     """The bug this locks out, stated directly.
 

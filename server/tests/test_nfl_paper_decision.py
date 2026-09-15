@@ -53,6 +53,55 @@ def test_an_inactive_policy_is_named_rather_than_treated_as_no_games(session, se
     assert result["records"] == 0
 
 
+class _Session:
+    """Answers the one lookup the replacement rule makes: an existing position."""
+
+    def __init__(self, position_id=None):
+        self.position_id = position_id
+
+    def scalar(self, _statement):
+        return self.position_id
+
+
+def _prior(recommendation, reason):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(id="decision-1", recommendation=recommendation,
+                           qualification_reasons={"reason": reason, "outcome": recommendation})
+
+
+def test_a_missing_permission_block_yields_to_a_now_eligible_evaluation():
+    # A tick that found no exact supplement read no price and recorded no
+    # position; once the supplement is imported inside the same window, the
+    # eligible evaluation is recorded instead of being discarded.
+    for reason in ("NO_PAPER_RESEARCH_ELIGIBILITY_RECORD", "AWAITING_SUCCESSOR_ELIGIBILITY"):
+        assert decision._superseded_permission_block(
+            _Session(), _prior("BLOCKED", reason),
+            {"outcome": "DECLINED", "reason": "QUOTE_TOO_STALE"}) is True
+
+
+def test_a_repeated_missing_permission_reuses_the_stored_block():
+    assert decision._superseded_permission_block(
+        _Session(), _prior("BLOCKED", "AWAITING_SUCCESSOR_ELIGIBILITY"),
+        {"outcome": "BLOCKED", "reason": "AWAITING_SUCCESSOR_ELIGIBILITY"}) is False
+
+
+def test_a_priced_or_positioned_decision_is_never_re_evaluated():
+    eligible = {"outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED"}
+    # Any other stored outcome stays the one decision for the phase.
+    assert decision._superseded_permission_block(
+        _Session(), _prior("DECLINED", "NO_QUALIFYING_VALUE"), eligible) is False
+    assert decision._superseded_permission_block(
+        _Session(), _prior("QUALIFIED_BET", "ALL_GATES_PASSED"), eligible) is False
+    # A defective permission is not a missing one.
+    assert decision._superseded_permission_block(
+        _Session(), _prior("BLOCKED", "ELIGIBILITY_RECORD_GRANTS_EXECUTION"), eligible) is False
+    # And a block that somehow carries a position is never replaced.
+    assert decision._superseded_permission_block(
+        _Session(position_id="p-1"), _prior("BLOCKED", "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD"),
+        eligible) is False
+
+
 def test_expected_value_uses_the_push_and_the_conditioned_kelly(session):
     """The two NFL-specific pieces of arithmetic, on the real DEN at KC numbers."""
 

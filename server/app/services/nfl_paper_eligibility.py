@@ -284,6 +284,55 @@ def check(
     }
 
 
+#: Reasons that mean "the producer's permission is missing", as opposed to a
+#: permission that exists but is defective. Only these can be superseded later
+#: in the same window by a newly imported exact supplement.
+MISSING_PERMISSION_REASONS = frozenset({
+    "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD", "AWAITING_SUCCESSOR_ELIGIBILITY",
+})
+
+
+def successor_gap(
+    session: Session, *, event_id: str, forecast_id: str, binding: dict[str, Any],
+) -> dict[str, Any]:
+    """Name the successor case instead of reporting a generic absence.
+
+    Eligibility is exact-object-specific. When a newer forecast (a later CURRENT
+    revision or a FINAL_PREGAME) has replaced an object the producer DID
+    authorize, the newer object is not eligible and the older one is not
+    evaluated in its place: the producer only mints a successor when the
+    verified feature vector changed, so the older object no longer describes the
+    game. The honest state is AWAITING_SUCCESSOR_ELIGIBILITY, naming both.
+    """
+
+    if binding.get("eligible") or binding.get("reason") != "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD":
+        return binding
+    prior = session.scalar(
+        select(ResearchSupplement).where(
+            ResearchSupplement.kind == KIND,
+            ResearchSupplement.artifact_version == CONTRACT_VERSION,
+            ResearchSupplement.sport == "NFL",
+            ResearchSupplement.event_id == event_id,
+            ResearchSupplement.forecast_id != forecast_id,
+        ).order_by(ResearchSupplement.imported_at.desc()).limit(1)
+    )
+    if prior is None:
+        return binding
+    return {
+        **binding,
+        "reason": "AWAITING_SUCCESSOR_ELIGIBILITY",
+        "detail": (
+            f"Forecast {forecast_id} supersedes {prior.forecast_id}, which the producer "
+            f"authorized (supplement {prior.supplement_sha256}). Eligibility is exact-object-"
+            "specific and does not transfer; the superseded object is not evaluated in its "
+            "place. A position requires the producer's successor supplement for the newer object."
+        ),
+        "eligible_predecessor": {"forecast_id": prior.forecast_id,
+                                 "supplement_sha256": prior.supplement_sha256},
+        "blocks_position": True,
+    }
+
+
 def producer_request() -> dict[str, Any]:
     """The exact artifact AISP needs the producer to publish.
 
@@ -333,6 +382,6 @@ def producer_request() -> dict[str, Any]:
     }
 
 
-__all__ = ["CONTRACT_VERSION", "KIND", "MUST_REMAIN_FALSE", "MUST_REMAIN_TRUE",
-           "REQUIRED_BINDINGS", "check", "eligibility_record", "experiment_key",
-           "producer_request", "stored_document"]
+__all__ = ["CONTRACT_VERSION", "KIND", "MISSING_PERMISSION_REASONS", "MUST_REMAIN_FALSE",
+           "MUST_REMAIN_TRUE", "REQUIRED_BINDINGS", "check", "eligibility_record",
+           "experiment_key", "producer_request", "stored_document", "successor_gap"]

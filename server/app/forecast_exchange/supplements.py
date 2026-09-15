@@ -800,12 +800,21 @@ def import_named_supplements(session: Session, root: Path, addresses: list[str])
             receipts.append({"supplement_sha256": address, "result": "REJECTED",
                              "reason": "not found under any supplement tree"})
             continue
-        item = verify_supplement(directories[address])
+        try:
+            item = verify_supplement(directories[address])
+        except SupplementImportError as error:
+            receipts.append({"supplement_sha256": address, "result": "REJECTED", "reason": str(error)})
+            continue
         if address in superseded:
             receipts.append({"supplement_sha256": address, "result": "REJECTED",
                              "reason": "superseded by a successor present in the exchange"})
             continue
-        record = register_supplement(session, item)
+        try:
+            with session.begin_nested():
+                record = register_supplement(session, item)
+        except SupplementImportError as error:
+            receipts.append({"supplement_sha256": address, "result": "REJECTED", "reason": str(error)})
+            continue
         receipts.append({**record,
                          "result": "ALREADY_PRESENT" if record["idempotent_reuse"] else "IMPORTED",
                          "supplement_id": item.supplement.get("supplementId"),
