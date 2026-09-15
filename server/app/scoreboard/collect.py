@@ -98,11 +98,32 @@ async def collect_mlb_scoreboard(
     if adapter is None:
         from app.data_sources.mlb import MLBStatsAPIAdapter
         adapter = MLBStatsAPIAdapter()
-    response = await adapter.get_schedule(day)
-    raw = (response.raw_payload or {}).get("schedule") or {}
-    retrieved_at = response.envelope.fetched_at
 
-    states = scoreboards_from_schedule(raw, retrieved_at=retrieved_at)
+    # EVERY WATCHED GAME'S OWN SCHEDULE DATE, NOT ONLY TODAY'S.
+    #
+    # The job passes today's local date. At midnight that turns over, and the
+    # one schedule request starts returning tomorrow's slate -- which does not
+    # contain the games still being played. On 2026-09-14 SEA at LAA (9th) and
+    # MIA at AZ (7th) both stopped updating at 23:59:04 and never recorded a
+    # final score: still in the watch window, no longer in the response. MIA at
+    # AZ stayed frozen at 7-4 against a real final of 7-8.
+    #
+    # So the dates requested are the union of the passed day and the local
+    # dates of the games actually being watched. That is one request on any
+    # ordinary cycle and two only in the hours after midnight -- against a free,
+    # unmetered endpoint.
+    dates = sorted({day, *_watched_dates(session, watched.values())})
+
+    states: dict[str, Any] = {}
+    retrieved_at = None
+    for requested in dates:
+        response = await adapter.get_schedule(requested)
+        raw = (response.raw_payload or {}).get("schedule") or {}
+        fetched = response.envelope.fetched_at
+        retrieved_at = fetched if retrieved_at is None else max(retrieved_at, fetched)
+        # Each observation keeps the retrieval time of the response it came from.
+        states.update(scoreboards_from_schedule(raw, retrieved_at=fetched))
+
     pairs = [
         (game_id, states[source_id])
         for source_id, game_id in watched.items()
@@ -115,7 +136,7 @@ async def collect_mlb_scoreboard(
     return {
         "records": result["observations_written"],
         "league": "MLB",
-        "requests": 1,
+        "requests": len(dates),
         "provider_cost": "none (free unmetered endpoint)",
         "games_watched": len(watched),
         "games_matched": len(pairs),
@@ -123,6 +144,22 @@ async def collect_mlb_scoreboard(
         "states_confirmed": result["states_confirmed"],
         "retrieved_at": retrieved_at.isoformat(),
         "event_date": day.isoformat(),
+        "schedule_dates_requested": [d.isoformat() for d in dates],
+    }
+
+
+def _watched_dates(session: Session, game_ids: Any) -> set[date]:
+    """The local calendar dates the watched games are scheduled on."""
+
+    from zoneinfo import ZoneInfo
+
+    ids = list(game_ids)
+    if not ids:
+        return set()
+    zone = ZoneInfo("America/New_York")
+    return {
+        (starts if starts.tzinfo else starts.replace(tzinfo=UTC)).astimezone(zone).date()
+        for (starts,) in session.execute(select(Game.starts_at).where(Game.id.in_(ids))).all()
     }
 
 

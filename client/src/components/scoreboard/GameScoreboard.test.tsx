@@ -143,7 +143,7 @@ describe('freshness', () => {
     render(<GameScoreboard game={game({
       freshness: {
         state: 'UNAVAILABLE',
-        detail: 'Updates have not reached AISP for 2.0 hours ago. The score below '
+        detail: 'No update has reached AISP since 2.0 hours ago. The score below '
           + 'is the last one confirmed and is probably out of date.',
         checked_age_seconds: 7200,
         source_timestamp_available: false,

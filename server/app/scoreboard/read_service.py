@@ -112,7 +112,8 @@ def assess_freshness(
         )
     else:
         state, detail = "UNAVAILABLE", (
-            f"Updates have not reached AISP for {_ago(age)}. The score below is "
+            # "for 9.0 hours ago" -- _ago() already ends in "ago".
+            f"No update has reached AISP since {_ago(age)}. The score below is "
             "the last one confirmed and is probably out of date."
         )
     return Freshness(
@@ -230,19 +231,29 @@ def scoreboard_for(
         .where(Game.id.in_(ids))
     ).all())
 
+    governed = _governed_finals(session, ids)
+
     payload: dict[str, dict[str, Any]] = {}
     for game_id in ids:
         row = rows.get(game_id)
         identity = teams.get(game_id, {})
+        final = governed.get(game_id)
         if row is None:
             payload[str(game_id)] = {
                 "schema_version": SCHEMA_VERSION,
                 "game_id": str(game_id),
                 "league_code": leagues.get(game_id),
                 "available": False,
+                # "No score has been collected" was true of the scoreboard and
+                # false of the game: DEN at KC was officially final 10-31 and
+                # already settled while this line still said it. With a governed
+                # final present the reason names what is actually missing.
                 "unavailable_reason": (
-                    "No score has been collected for this game yet."),
+                    "No live scoreboard was collected for this game; the official "
+                    "final is shown from the governed record."
+                    if final else "No score has been collected for this game yet."),
                 "teams": identity or None,
+                "governed_final": final,
             }
             continue
 
@@ -304,8 +315,56 @@ def scoreboard_for(
                 "This is the observed score. Whether a wager is settled is "
                 "recorded separately and may still be pending."
             ),
+            # Kept beside the observation, never merged into it. The scoreboard
+            # can stop before a game ends -- SEA at LAA's last observation is the
+            # 9th inning -- and relabelling that snapshot FINAL would be
+            # inventing an observation. So the official result travels as its
+            # own block, and `scoreboard_behind_final` says the two disagree.
+            "governed_final": final,
+            "scoreboard_behind_final": bool(final) and row.status != "FINAL",
         }
     return payload
+
+
+def _governed_finals(session: Session, ids: Sequence[UUID]) -> dict[UUID, dict[str, Any]]:
+    """The official final for each game that has one -- settlement's evidence.
+
+    Read from the canonical game row and the final game-state observation both
+    sports' final ingests write. Nothing here reads the scoreboard, so a
+    scoreboard FINAL can never appear in this block by relabelling.
+    """
+
+    from app.models import GameStateObservation
+
+    finals: dict[UUID, dict[str, Any]] = {}
+    games = session.execute(
+        select(Game.id, Game.status, Game.away_score, Game.home_score, Game.final_at)
+        .where(Game.id.in_(ids))
+    ).all()
+    for game_id, status, away, home, final_at in games:
+        label = status.value if hasattr(status, "value") else str(status)
+        if label.upper() != "FINAL" or away is None or home is None:
+            continue
+        evidence = session.execute(
+            select(GameStateObservation.id, GameStateObservation.source,
+                   GameStateObservation.observed_at)
+            .where(GameStateObservation.game_id == game_id,
+                   GameStateObservation.status == "final")
+            .order_by(GameStateObservation.observed_at)
+            .limit(1)
+        ).first()
+        finals[game_id] = {
+            "away_score": away,
+            "home_score": home,
+            # The event's own completion time as the finals path recorded it --
+            # not when AISP retrieved it, and not when anything was settled.
+            "final_at": _iso(final_at),
+            "evidence_observation_id": str(evidence[0]) if evidence else None,
+            "evidence_source": evidence[1] if evidence else None,
+            "first_confirmed_at": _iso(evidence[2]) if evidence else None,
+            "label": "Official final · governed record",
+        }
+    return finals
 
 
 def _periods_note(

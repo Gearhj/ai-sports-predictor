@@ -35,12 +35,30 @@ export interface ScoreboardSituation {
   runners: Record<string, string | null>
 }
 
+/**
+ * The official final settlement uses, from the canonical game record.
+ * Never derived from a scoreboard observation.
+ */
+export interface GovernedFinal {
+  away_score: number
+  home_score: number
+  /** The event's own completion time as the finals path recorded it. */
+  final_at: string | null
+  evidence_observation_id: string | null
+  evidence_source: string | null
+  first_confirmed_at: string | null
+  label: string
+}
+
 export interface GameScoreboard {
   schema_version: 'AISP_GAME_SCOREBOARD_V1'
   game_id: string
   league_code: string | null
   available: boolean
   unavailable_reason?: string
+  governed_final?: GovernedFinal | null
+  /** The last scoreboard reading predates an official final. */
+  scoreboard_behind_final?: boolean
   teams: {
     home?: { abbreviation: string; name: string }
     away?: { abbreviation: string; name: string }

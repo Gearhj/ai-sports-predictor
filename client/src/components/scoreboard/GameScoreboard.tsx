@@ -115,6 +115,26 @@ function PeriodTable({ game }: { game: Scoreboard }) {
   )
 }
 
+function GovernedFinalLine({ game }: { game: Scoreboard }) {
+  const final = game.governed_final
+  if (!final) return null
+  const away = game.teams?.away?.abbreviation ?? '—'
+  const home = game.teams?.home?.abbreviation ?? '—'
+  return (
+    <p className="scorebd__governed" data-testid="scoreboard-governed-final">
+      <span className="scorebd__score">
+        <b>{away}</b> <b className="bx-num">{final.away_score}</b>
+        <span className="scorebd__dash">–</span>
+        <b className="bx-num">{final.home_score}</b> <b>{home}</b>
+      </span>
+      <span className="bx-chip">FINAL</span>
+      <small className="bx-dim">
+        {final.label}{final.evidence_source ? ` · ${final.evidence_source}` : ''}
+      </small>
+    </p>
+  )
+}
+
 export function GameScoreboard({
   game, compact = false, onRefresh, children,
 }: {
@@ -130,6 +150,9 @@ export function GameScoreboard({
   if (!game || !game.available) {
     return (
       <div className="scorebd scorebd--absent" data-testid="scoreboard-unavailable">
+        {/* An officially final game with no scoreboard used to read "No score
+            has been collected" beside a settled wager. */}
+        {game && <GovernedFinalLine game={game} />}
         <span className="bx-dim">
           {game?.unavailable_reason ?? 'No score has been collected for this game yet.'}
         </span>
@@ -137,6 +160,11 @@ export function GameScoreboard({
       </div>
     )
   }
+
+  // The scoreboard stopped before the game ended. Its last reading is kept, but
+  // labelled as history: a LIVE chip or a base-runner line would claim the game
+  // is still being played when it is officially over.
+  const behind = Boolean(game.scoreboard_behind_final && game.governed_final)
 
   const away = game.teams?.away?.abbreviation ?? '—'
   const home = game.teams?.home?.abbreviation ?? '—'
@@ -149,7 +177,13 @@ export function GameScoreboard({
       className={compact ? 'scorebd scorebd--compact' : 'scorebd'}
       data-testid={`scoreboard-${game.game_id}`}
     >
-      <div className="scorebd__line">
+      {behind && <GovernedFinalLine game={game} />}
+      <div className={behind ? 'scorebd__line scorebd__line--superseded' : 'scorebd__line'}>
+        {behind && (
+          <small className="scorebd__superseded" data-testid="scoreboard-superseded">
+            Last scoreboard reading, before the final:
+          </small>
+        )}
         <span className="scorebd__score" data-testid="scoreboard-score">
           <b>{away}</b>{' '}
           <b className="bx-num">{started ? game.away_score ?? '–' : '–'}</b>
@@ -163,13 +197,13 @@ export function GameScoreboard({
           </span>
         )}
         {game.status === 'FINAL' && <span className="bx-chip">FINAL</span>}
-        {game.status === 'IN_PROGRESS' && (
+        {game.status === 'IN_PROGRESS' && !behind && (
           <span className="bx-chip bx-chip--good" data-testid="scoreboard-live">LIVE</span>
         )}
       </div>
 
       {/* Baseball situation, only where the source actually supplied it. */}
-      {game.status === 'IN_PROGRESS' && game.situation && (
+      {game.status === 'IN_PROGRESS' && !behind && game.situation && (
         <p className="scorebd__situation" data-testid="scoreboard-situation">
           {game.situation.outs != null && `${game.situation.outs} out`}
           {game.situation.outs != null && game.situation.outs !== 1 && 's'}

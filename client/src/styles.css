@@ -4198,3 +4198,9 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
   .recorded-entry { background: rgba(61, 139, 95, .12); }
   .recorded-entry__eyebrow, .recorded-entry__tie { color: #8fd1ab; }
 }
+
+/* Official final beside, never inside, a scoreboard reading. */
+.scorebd__governed { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0 0 4px; }
+.scorebd__governed small { flex-basis: 100%; font-size: 10.5px; }
+.scorebd__line--superseded { opacity: .62; }
+.scorebd__superseded { flex-basis: 100%; font-size: 10.5px; color: var(--muted, #7a8699); }
