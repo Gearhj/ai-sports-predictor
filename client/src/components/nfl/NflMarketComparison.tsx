@@ -23,6 +23,14 @@ function quoteLabel(q: NflQuote, homeTeam: string, awayTeam: string): string {
   return q.market_type === 'SPREAD' ? `${side} ${q.point > 0 ? `+${q.point}` : q.point}` : `${side} ${q.point}`
 }
 
+/** "16 days", "3 hours", "12 minutes" -- an age a reader can act on. */
+export function ageText(minutes: number | null | undefined): string {
+  if (minutes == null) return 'age unknown'
+  if (minutes < 90) return `${Math.round(minutes)} minutes old`
+  if (minutes < 60 * 48) return `${Math.round(minutes / 60)} hours old`
+  return `${Math.floor(minutes / 1440)} days old`
+}
+
 function Block({ block, homeTeam, awayTeam }: { block: NflMarketBlock; homeTeam: string; awayTeam: string }) {
   const title = { MONEYLINE: 'Moneyline', SPREAD: 'Point spread', TOTAL: 'Total points' }[block.market_type]
   if (!block.quote) {
@@ -35,11 +43,22 @@ function Block({ block, homeTeam, awayTeam }: { block: NflMarketBlock; homeTeam:
   }
   const { a, b } = block.quote
   return (
-    <article className={`market-block ${block.comparison_available ? '' : 'market-block--reference'}`}>
+    <article className={`market-block ${block.comparison_available ? '' : 'market-block--reference'}`}
+             data-testid={`nfl-market-${block.market_type}`}>
       <header>
         <h4>{title}</h4>
-        <span className="muted">
-          {block.book} · observed {block.observed_at ? formatTimestamp(block.observed_at) : 'time not recorded'} · {block.fresh ? 'fresh' : 'stale — reference only'}
+        {/* Role first: a sixteen-day-old line must read as a stored reference
+            before anyone reads the number. */}
+        <span className={block.role === 'DECISION_ELIGIBLE_PRICE' ? 'market-role market-role--fresh' : 'market-role market-role--reference'}
+              data-testid="nfl-market-role">
+          {block.role_label ?? (block.fresh ? 'Fresh two-sided price' : 'Stored reference quote — not a current price')}
+        </span>
+        <span className="muted" data-testid="nfl-market-provenance">
+          {block.book}{block.book_key ? ` (${block.book_key})` : ''}
+          {block.provider_label ? ` · ${block.provider_label}` : ''}
+          {block.provider_classification ? ` · ${block.provider_classification.toLowerCase()} provider` : ''}
+          {' · observed '}{block.observed_at ? formatTimestamp(block.observed_at) : 'time not recorded'}
+          {' · '}{ageText(block.age_minutes)}
           {block.books_with_two_sided_quote ? ` · ${block.books_with_two_sided_quote} book(s) two-sided` : ''}
         </span>
       </header>

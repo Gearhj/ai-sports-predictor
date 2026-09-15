@@ -216,6 +216,11 @@ class NflReadService:
                 "market_type": market_type,
                 "book": book.name,
                 "book_key": book.key,
+                # Who supplied it, kept beside the book: a DraftKings price from
+                # The Odds API and one relayed by SportsGameOdds are different
+                # evidence with different authority.
+                "provider": snapshot.source,
+                "retrieved_at": _iso(snapshot.available_as_of),
                 "side": side,
                 "outcome_key": outcome.outcome_key,
                 "point": float(snapshot.point) if snapshot.point is not None else None,
@@ -275,9 +280,12 @@ class NflReadService:
     def _market_block(self, market_type: str, entries: list[dict[str, Any]],
                       cells: list[arithmetic.Cell] | None, outcomes: dict[str, float] | None,
                       freshness_floor: datetime) -> dict[str, Any]:
+        # Paired on the book KEY, which carries the provider namespace
+        # ("draftkings" vs "sgo:draftkings"), so two providers relaying the same
+        # book can never be combined into one pair.
         by_book: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for entry in entries:
-            by_book[entry["book"]].append(entry)
+            by_book[entry.get("book_key") or entry["book"]].append(entry)
 
         pairs: list[dict[str, Any]] = []
         for book, sides in by_book.items():
@@ -285,7 +293,7 @@ class NflReadService:
                 home = next((s for s in sides if s["side"] == "HOME"), None)
                 away = next((s for s in sides if s["side"] == "AWAY"), None)
                 if home and away:
-                    pairs.append({"book": book, "a": home, "b": away, "line": None})
+                    pairs.append({"book": home["book"], "a": home, "b": away, "line": None})
             else:
                 # Pair each line with its opposite on the same book.
                 for a in sides:
@@ -298,7 +306,7 @@ class NflReadService:
                     b = next((s for s in sides if s["side"] == opposite_side
                               and s["point"] is not None and abs(s["point"] - expected_point) < 1e-9), None)
                     if b:
-                        pairs.append({"book": book, "a": a, "b": b, "line": a["point"]})
+                        pairs.append({"book": a["book"], "a": a, "b": b, "line": a["point"]})
         if not pairs:
             return {"market_type": market_type, "comparison_available": False,
                     "reason": "No complete two-sided quote on one book", "quotes": entries and [
@@ -315,9 +323,31 @@ class NflReadService:
             side["_observed"] is not None and side["_observed"] <= reference
             for side in (selected["a"], selected["b"])
         )
+        now = freshness_floor + timedelta(minutes=QUOTE_FRESHNESS_MINUTES)
+        provider = selected["a"].get("provider")
+        book_key = selected["a"].get("book_key") or ""
         block: dict[str, Any] = {
             "market_type": market_type,
             "book": selected["book"],
+            "book_key": book_key,
+            # Every displayed line names its provider, that provider's standing,
+            # its own observation time and age, and whether it is a stored
+            # reference or something a decision could use. On 2026-09-15 the
+            # Week 2 cards carried DraftKings lines from a single The Odds API
+            # fetch on August 29 -- real quotes, sixteen days old.
+            "provider": provider,
+            "provider_label": _provider_label(provider),
+            "provider_classification": _provider_classification(provider, book_key),
+            "age_minutes": (round((now - observed).total_seconds() / 60.0, 1)
+                            if observed and observed > datetime.min.replace(tzinfo=UTC) else None),
+            "retrieved_at": selected["a"].get("retrieved_at"),
+            "role": "DECISION_ELIGIBLE_PRICE" if fresh else "STORED_REFERENCE",
+            "role_label": ("Fresh two-sided price" if fresh else
+                           "Stored reference quote — not a current price"),
+            "market_identity": {
+                "market_type": market_type, "period": "full_game", "line": selected["line"],
+                "selections": [selected["a"]["outcome_key"], selected["b"]["outcome_key"]],
+            },
             "line": selected["line"],
             "observed_at": _iso(observed),
             "fresh": fresh,
@@ -867,3 +897,20 @@ def _quantiles(mass: dict[int, float]) -> dict[str, int | None]:
 
 
 __all__ = ["NflReadService", "QUOTE_FRESHNESS_MINUTES", "SCHEMA_VERSION", "CONSUMER_JOB_NAME"]
+
+
+_PROVIDER_LABELS = {"THE_ODDS_API": "The Odds API", "SPORTSGAMEODDS": "SportsGameOdds"}
+
+
+def _provider_label(provider: str | None) -> str | None:
+    return _PROVIDER_LABELS.get((provider or "").upper(), provider)
+
+
+def _provider_classification(provider: str | None, book_key: str) -> str:
+    """GOVERNED for the governed odds provider; RESEARCH for a namespaced relay."""
+
+    if book_key.startswith("sgo:") or (provider or "").upper() == "SPORTSGAMEODDS":
+        return "RESEARCH"
+    if (provider or "").upper() == "THE_ODDS_API":
+        return "GOVERNED"
+    return "UNCLASSIFIED"

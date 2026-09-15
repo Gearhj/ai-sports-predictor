@@ -28,6 +28,7 @@
  *  - The Odds API and the temporary SportsGameOdds research fallback are
  *    labelled separately on every price. They are not one "source".
  */
+import { ageText } from '../components/nfl/NflMarketComparison'
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
@@ -959,6 +960,20 @@ function NflMarketRow({
           <div className="bx-mkt__drawer-grid">
             <div>
               <h4 style={{ margin: '10px 0 8px', fontSize: 13 }}>Quoted market</h4>
+              {/* Role, provider and age before the table, so a stored reference
+                  line is never read as the current price. */}
+              {block?.quote && (
+                <p className="bx-dim" data-testid={`markets-nfl-provenance-${event.event_id}`}>
+                  <span className={block.role === 'DECISION_ELIGIBLE_PRICE' ? 'market-role market-role--fresh' : 'market-role market-role--reference'}>
+                    {block.role_label ?? (block.fresh ? 'Fresh two-sided price' : 'Stored reference quote — not a current price')}
+                  </span>{' '}
+                  {block.book}{block.book_key ? ` (${block.book_key})` : ''}
+                  {block.provider_label ? ` · ${block.provider_label}` : ''}
+                  {block.provider_classification ? ` · ${block.provider_classification.toLowerCase()} provider` : ''}
+                  {block.observed_at ? ` · observed ${new Date(block.observed_at).toLocaleString()}` : ''}
+                  {` · ${ageText(block.age_minutes)}`}
+                </p>
+              )}
               {!block?.quote
                 ? <p className="bx-dim">
                   {block?.reason ?? 'No same-book two-sided quote is persisted, so no edge is calculated.'}

@@ -56,6 +56,17 @@ export interface NflQuote {
 export interface NflMarketBlock {
   market_type: 'MONEYLINE' | 'SPREAD' | 'TOTAL'
   book?: string
+  book_key?: string
+  /** Who supplied the quote, and that provider's standing in AISP. */
+  provider?: string | null
+  provider_label?: string | null
+  provider_classification?: 'GOVERNED' | 'RESEARCH' | 'UNCLASSIFIED'
+  age_minutes?: number | null
+  retrieved_at?: string | null
+  /** A stored reference is never a current price. */
+  role?: 'DECISION_ELIGIBLE_PRICE' | 'STORED_REFERENCE'
+  role_label?: string
+  market_identity?: { market_type: string; period: string; line: number | null; selections: string[] }
   line?: number | null
   observed_at?: string | null
   fresh?: boolean

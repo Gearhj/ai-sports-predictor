@@ -3,6 +3,7 @@
  * selector when more than one engine has published. Home, away and tie are
  * shown as three separate outcomes.
  */
+import { ageText } from './NflMarketComparison'
 import { ArrowRight, FlaskConical } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -68,7 +69,11 @@ export function NflEventCard({ event }: { event: NflEvent }) {
           <p className="nfl-card__market">Home margin {engine.expected_margin_home >= 0 ? '+' : ''}{engine.expected_margin_home.toFixed(1)} · Total {engine.expected_total_score.toFixed(1)}</p>
           <p className="nfl-card__market">{moneyline?.comparison_available && moneyline.fresh
             ? `${moneyline.book}: ${home.abbreviation} ${moneyline.quote?.a.american ?? '—'} / ${away.abbreviation} ${moneyline.quote?.b.american ?? '—'} · Home edge ${moneyline.edge?.a == null ? '—' : (100*moneyline.edge.a).toFixed(1)+' pts'}`
-            : moneyline?.quote ? 'Sportsbook quote stale · no current priced edge' : 'Sportsbook price unavailable · model forecast still available'}</p>
+            : moneyline?.quote
+              // Named as what it is, with its provider and age, instead of
+              // printing a sixteen-day-old price under a generic "stale".
+              ? `Stored reference only: ${moneyline.book} ${home.abbreviation} ${moneyline.quote.a.american ?? '—'} via ${moneyline.provider_label ?? 'unknown provider'} · ${ageText(moneyline.age_minutes)} · not a current price`
+              : 'Sportsbook price unavailable · model forecast still available'}</p>
           <p className="nfl-card__market">Source evidence {engine.timestamps.source_evidence_utc ? formatTimestamp(engine.timestamps.source_evidence_utc) : 'time not recorded'}</p>
           <details><summary>Model & evidence</summary><dl className="nfl-card__meta">
             <div><dt>Model</dt><dd>{engine.model_label} · {engine.snapshot_type.replaceAll('_', ' ').toLowerCase()} v{engine.snapshot_version}</dd></div>

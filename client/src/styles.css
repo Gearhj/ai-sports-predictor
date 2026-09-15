@@ -4208,3 +4208,8 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 /* A configuration identity is one unbreakable token and pushed the NBA page 4px
    past a 375px screen. It is an identifier, so it may break anywhere. */
 .nbajoint__arm header small { overflow-wrap: anywhere; }
+
+/* A market line's role, stated before its number. */
+.market-role { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin: 2px 0; }
+.market-role--reference { color: #8f5a10; background: #fdf3e4; border: 1px solid #f0d6ab; }
+.market-role--fresh { color: #0d6b49; background: #eaf7f1; border: 1px solid #a9dfc6; }
