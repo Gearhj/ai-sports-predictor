@@ -15,6 +15,9 @@ import { ChartTable, Tooltip, useTooltip, useWidth } from './chartKit'
 const american = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
 const shortBook = (name: string | null) => (name ?? 'Unknown book').replace(/\s*\(.*\)\s*$/, '')
+/** Two providers can report the same book; the row names which one this is. */
+const providerTag = (provider: string | null) => (provider === 'SportsGameOdds' ? 'SGO' : provider === 'The Odds API' ? 'TOA' : provider ?? '')
+const rowLabel = (q: CoverageQuote) => `${shortBook(q.sportsbook)} · ${providerTag(q.provider)}`
 
 export const BookSpread = memo(function BookSpread({ game, market }: { game: CoverageGame; market: 'MONEYLINE' | 'SPREAD' | 'TOTAL' }) {
   const { ref, width } = useWidth<HTMLDivElement>()
@@ -28,7 +31,7 @@ export const BookSpread = memo(function BookSpread({ game, market }: { game: Cov
   const valueOf = (q: CoverageQuote): number | null => market === 'MONEYLINE' ? (q.no_vig_home ?? null) : q.line
   const plotted = quotes.filter((q) => valueOf(q) != null)
   const rowH = 26
-  const m = { top: 30, right: 20, bottom: 12, left: width < 560 ? 92 : 150 }
+  const m = { top: 30, right: 20, bottom: 12, left: width < 560 ? 118 : 160 }
   const height = m.top + Math.max(1, plotted.length) * rowH + m.bottom
   const values = plotted.map((q) => valueOf(q) as number)
   const modelValue = market === 'MONEYLINE' ? game.model?.home_two_way ?? null : null
@@ -98,7 +101,7 @@ export const BookSpread = memo(function BookSpread({ game, market }: { game: Cov
               onMouseMove={(e) => show(e, tipFor(q))} onMouseLeave={hide}
               onFocus={(e) => show(e, tipFor(q))} onBlur={hide}>
               <rect x={0} y={cy - rowH / 2} width={width} height={rowH} className="cc-lane__hit" />
-              <text x={m.left - 10} y={cy + 4} textAnchor="end" className="cc-lane__label">{shortBook(q.sportsbook)}</text>
+              <text x={m.left - 10} y={cy + 4} textAnchor="end" className="cc-lane__label">{rowLabel(q)}</text>
               <circle cx={x(valueOf(q) as number)} cy={cy} r={6} className={q.fresh ? 'cc-bookdot' : 'cc-bookdot cc-bookdot--stale'} />
               {market === 'MONEYLINE' && width >= 560 && (
                 <text x={x(valueOf(q) as number) + 11} y={cy + 4} className="cc-muted-text">
