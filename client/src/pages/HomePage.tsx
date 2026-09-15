@@ -242,7 +242,10 @@ export function HomePage() {
             <p className="bx-empty">The experiment ledger is unavailable.</p>
           </Panel>}
 
-        <div className="bx-home__grid" style={{ gridTemplateColumns: 'minmax(0,1.25fr) minmax(0,1fr)' }}>
+        {/* A class, not an inline style: the inline two-column template beat the
+            stylesheet's single-column rule at every width, and at 375px the Labs
+            panel ran 29px past the screen. */}
+        <div className="bx-home__grid bx-home__grid--pair">
           <Panel eyebrow="Spiciest market tonight" title="RFF Index — Ripe For Fuckery"
             action={<Link className="bx-btn bx-btn--ghost" to={withSport('/markets?view=RFF')}>
               Open the RFF Lab <ArrowRight size={14} /></Link>}>

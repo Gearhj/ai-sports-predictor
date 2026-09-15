@@ -1116,3 +1116,6 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
 .bx-segment--views { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .bx-segment--views::-webkit-scrollbar { display: none; }
 .bx-segment--views button { flex: 0 0 auto; white-space: nowrap; }
+
+/* Two panels side by side only where there is room for both. */
+@media (min-width: 1100px) { .bx-home__grid--pair { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
