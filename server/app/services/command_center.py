@@ -329,6 +329,19 @@ def _side(outcome_key: str | None, participant: str | None, teams: dict[str, Any
     return None, None
 
 
+def _latest_snapshot(session: Session, before: datetime) -> dict[str, Any] | None:
+    row = session.execute(text("""
+        select g.starts_at, os.observed_at from odds_snapshots os
+        join market_outcomes mo on mo.id = os.market_outcome_id
+        join markets mk on mk.id = mo.market_id
+        join games g on g.id = mk.game_id
+        where os.source_mode = 'LIVE' and g.starts_at < :before
+        order by os.observed_at desc limit 1"""), {"before": before}).first()
+    if row is None:
+        return None
+    return {"date": _aware(row[0]).astimezone(ET).date().isoformat(), "observed_at": _iso(row[1])}
+
+
 def _best(quotes: list[dict[str, Any]], side: str) -> dict[str, Any] | None:
     if not quotes:
         return None
@@ -370,7 +383,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None) ->
 
     forecasts = {str(r[0]): r[1:] for r in session.execute(text("""
         select distinct on (canonical_game_id) canonical_game_id, engine_id,
-               full_home_win_probability, full_away_win_probability, created_at
+               full_home_win_probability, full_away_win_probability, created_at,
+               full_expected_home_score, full_expected_away_score
         from shadow_forecasts
         where canonical_game_id = any(cast(:ids as uuid[])) and engine_id = any(:engines)
         order by canonical_game_id, created_at desc"""),
@@ -435,10 +449,12 @@ def market_coverage(session: Session, day: date, now: datetime | None = None) ->
         forecast = forecasts.get(gid)
         model = None
         if forecast is not None:
-            engine, home_p, away_p, created = forecast
+            engine, home_p, away_p, created, exp_home, exp_away = forecast
             two_way = (home_p or 0) + (away_p or 0)
             model = {"engine_id": engine, "home": home_p, "away": away_p,
                      "home_two_way": round(home_p / two_way, 4) if two_way else None,
+                     "expected_home": round(exp_home, 2) if exp_home is not None else None,
+                     "expected_away": round(exp_away, 2) if exp_away is not None else None,
                      "created_at": _iso(created)}
         start = _aware(starts_at)
         closes = start - WINDOW_CLOSES
@@ -491,6 +507,10 @@ def market_coverage(session: Session, day: date, now: datetime | None = None) ->
             "freshest_observed_at": max((q["observed_at"] for q in all_quotes), default=None),
             "stalest_usable_observed_at": min((q["observed_at"] for q in fresh), default=None),
             "next_collection_at": next_collection,
+            # The most recent legitimate stored market evidence, for a page that
+            # must show SOMETHING when this date is not priced yet. Its date and
+            # observation time travel with it so it is never mistaken for today.
+            "latest_snapshot": _latest_snapshot(session, hi),
         },
         "provider_calls_made": 0,
         "games": out_games,
