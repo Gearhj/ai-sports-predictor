@@ -206,7 +206,8 @@ export function CommandDecisions({ day }: { day: string }) {
   const actionable = visible.filter((c) => c.tab === 'ACTIONABLE' || c.tab === 'POSITIONS')
   const completed = visible.filter((c) => isCard(c) && !actionable.includes(c))
   const waiting = visible.filter((c) => !isCard(c) && !actionable.includes(c))
-  const attention = nextAttention(agenda.filter((e) => sport === 'ALL' || e.sport === sport), now, 3)
+  // Open windows are "requires attention now"; "what's next" is the next milestone that has not begun.
+  const upcoming = nextAttention(agenda.filter((e) => (sport === 'ALL' || e.sport === sport) && e.status !== 'open'), now, 1)
   const settledToday = (ledger.data?.sports ?? []).flatMap((s) => s.positions)
     .filter((pos) => pos.status === 'SETTLED' && pos.settled_at
       && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(pos.settled_at)) === day)
@@ -242,9 +243,9 @@ export function CommandDecisions({ day }: { day: string }) {
           </div>
           <div className="cc-dnow__block cc-dnow__block--wide">
             <small>What’s next</small>
-            {attention[0]
-              ? <><b className="is-gold">{KIND_LABEL[attention[0].event.kind]} · {countdown(new Date(attention[0].event.status === 'open' ? (attention[0].event.until ?? attention[0].event.at) : attention[0].event.at).toISOString(), now)}</b>
-                <span>{etTime(new Date(attention[0].event.at).toISOString())} · {attention[0].matchups.length > 1 ? `${attention[0].matchups.length} games` : attention[0].matchups[0]}</span></>
+            {upcoming[0]
+              ? <><b className="is-gold">{KIND_LABEL[upcoming[0].event.kind]} · {upcoming[0].event.at <= now ? 'due now' : `in ${countdown(new Date(upcoming[0].event.at).toISOString(), now)}`}</b>
+                <span>{etTime(new Date(upcoming[0].event.at).toISOString())} · {upcoming[0].matchups.length > 1 ? `${upcoming[0].matchups.length} games` : upcoming[0].matchups[0]}</span></>
               : <><b>No milestone scheduled</b><span>Today’s slate is complete</span></>}
           </div>
           <div className="cc-dnow__block"><small>Qualified positions</small><b className={qualifiedPositions ? 'is-up' : ''}>{qualifiedPositions}</b><span>open</span></div>
