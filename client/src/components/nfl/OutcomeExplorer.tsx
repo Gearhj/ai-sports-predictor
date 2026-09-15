@@ -304,7 +304,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
 
       <div className="explorer__queries">
         <article className="explorer__query">
-          <h3>Point spread query</h3>
+          <h3>Point spread query <small className="explorer__scenario">Modeled reference scenario · not a sportsbook quote</small></h3>
           <div className="explorer__line">
             <label htmlFor="spread-line">{homeTeam} line <em>(hypothetical)</em></label>
             <button type="button" className="secondary-button" onClick={() => setSpreadLine((v) => step(v, -0.5))} aria-label="Lower the line">−</button>
@@ -319,7 +319,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
           </dl>
         </article>
         <article className="explorer__query">
-          <h3>Total points query</h3>
+          <h3>Total points query <small className="explorer__scenario">Modeled reference scenario · not a sportsbook quote</small></h3>
           <div className="explorer__line">
             <label htmlFor="total-line">Total line <em>(hypothetical)</em></label>
             <button type="button" className="secondary-button" onClick={() => setTotalLine((v) => step(v, -0.5))} aria-label="Lower the total">−</button>
