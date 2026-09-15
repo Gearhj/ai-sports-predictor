@@ -44,7 +44,7 @@ const ROUTES: Record<string, RouteWarmer> = {
     data: () => { warmLedger(); warmMarkets(); warmDecisions() },
   },
   '/decisions': {
-    chunk: () => import('../pages/MultiSportTodayPage'),
+    chunk: () => import('../pages/DecisionsRoute'),
     data: () => { warmDecisions(); warmMarkets(); warmReadiness() },
   },
   '/games': { chunk: () => import('../pages/UnifiedGamesPage'), data: () => { warmLedger() } },

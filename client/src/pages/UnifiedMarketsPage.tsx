@@ -116,7 +116,7 @@ const isFresh = (observedAt: string | null | undefined, now: number): boolean | 
   return Number.isFinite(age) ? age <= FRESH_MINUTES : null
 }
 
-export function UnifiedMarketsPage() {
+export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean } = {}) {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
   const [params, setParams] = useSearchParams()
@@ -261,10 +261,9 @@ export function UnifiedMarketsPage() {
   return (
     <div className="bx bx-markets">
       <div className="bx__inner">
-        <RegionBoundary label="market command center"><CommandMarkets day={day} onDay={(next) => setParam('date', next)} /></RegionBoundary>
+        {!auditOnly && <RegionBoundary label="market command center"><CommandMarkets day={day} onDay={(next) => setParam('date', next)} /></RegionBoundary>}
 
-        <details className="cc-below" open={view !== 'PRICES' || undefined}>
-        <summary>Detailed boards — every price row, totals, parlay watch, replay, RFF Lab and prediction markets</summary>
+        <BoardsWrap auditOnly={auditOnly} open={view !== 'PRICES'}>
         <header className="bx-head">
           <div>
             <span className="bx-eyebrow"><Radio size={13} aria-hidden="true" /> Detailed market views</span>
@@ -455,7 +454,7 @@ export function UnifiedMarketsPage() {
           <RffView day={day} league={sport === 'MLB' || sport === 'NFL' ? sport : null} family={family}
             selected={rffGame} onSelect={(id) => setParam('rff', id)} />
         )}
-        </details>
+        </BoardsWrap>
       </div>
     </div>
   )
@@ -1199,5 +1198,15 @@ function CrowdTable({
       </details>
       {note && <p className="bx-dim" style={{ marginTop: 6 }}>{note}</p>}
     </>
+  )
+}
+
+function BoardsWrap({ auditOnly, open, children }: { auditOnly: boolean; open: boolean; children: import('react').ReactNode }) {
+  if (auditOnly) return <>{children}</>
+  return (
+    <details className="cc-below" open={open || undefined}>
+      <summary>Detailed boards — every price row, totals, parlay watch, replay, RFF Lab and prediction markets</summary>
+      {children}
+    </details>
   )
 }

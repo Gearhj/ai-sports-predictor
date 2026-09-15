@@ -234,7 +234,7 @@ function distinctSelections(sections: SportSection[]): NormalizedSelection[] {
   return [...byEvent.values()]
 }
 
-export function MultiSportTodayPage() {
+export function MultiSportTodayPage({ auditOnly = false }: { auditOnly?: boolean } = {}) {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
   const { registry, state: registryState } = useSportRegistry()
@@ -418,10 +418,9 @@ export function MultiSportTodayPage() {
   return (
     <div className="bx bx-decisions">
       <div className="bx__inner">
-        <RegionBoundary label="decision command center"><CommandDecisions day={resolveOperationalDate(slateDate)} /></RegionBoundary>
+        {!auditOnly && <RegionBoundary label="decision command center"><CommandDecisions day={resolveOperationalDate(slateDate)} /></RegionBoundary>}
 
-        <details className="cc-below">
-        <summary>Governance evidence and full audit — funnel counts, every selection, blockers and explanations</summary>
+        <AuditWrap auditOnly={auditOnly} summary="Governance evidence and full audit — funnel counts, every selection, blockers and explanations">
         <header className="bx-head">
           <div>
             <span className="bx-eyebrow"><ClipboardCheck size={13} aria-hidden="true" /> Daily Decisions audit</span>
@@ -688,7 +687,7 @@ export function MultiSportTodayPage() {
           {registry ? ` Registry ${model?.registry_version ?? ''}.` : ''}
           {hasNoCrossSportRanking(model) ? ' Selections are ranked within a sport only; no cross-sport score exists.' : ''}
         </p>
-        </details>
+        </AuditWrap>
       </div>
     </div>
   )
@@ -871,4 +870,10 @@ function ModelEra() {
     )
   }
   return <ModelEraBadge data={resource.data} />
+}
+
+/** The audit renders directly when it is already inside a lazy disclosure. */
+function AuditWrap({ auditOnly, summary, children }: { auditOnly: boolean; summary: string; children: import('react').ReactNode }) {
+  if (auditOnly) return <>{children}</>
+  return <details className="cc-below"><summary>{summary}</summary>{children}</details>
 }

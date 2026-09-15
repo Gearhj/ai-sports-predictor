@@ -30,6 +30,7 @@ import { ChartTable, DeferUntilVisible, Tooltip, useReducedMotion, useTooltip, u
 import { EdgeMap } from './EdgeMap'
 import { AsOf } from './RegionState'
 import { todayEt } from './CommandHome'
+import { buildAgenda, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
@@ -150,10 +151,37 @@ export function countdown(iso: string | null, now: number): string {
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`
 }
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'ALL', label: 'All' }, { key: 'ACTIONABLE', label: 'Actionable' }, { key: 'POSITIONS', label: 'Positions' },
-  { key: 'WATCHING', label: 'Watching' }, { key: 'PASSED', label: 'Passed / declined' }, { key: 'COMPLETED', label: 'Completed' },
-]
+const STAGES = ['Scheduled', 'Forecast', 'Market', 'Evaluation', 'Position', 'Settled'] as const
+
+/** How far a game has progressed (0-based index into STAGES) and each stage's state. */
+export function progress(card: FeedCard, now: number): { reached: number; states: ('done' | 'wait' | 'miss' | 'na')[]; labels: string[] } {
+  const { item, game } = card
+  const started = card.startsAt ? Date.parse(card.startsAt) <= now : false
+  const forecast = game ? Boolean(game.model) : Boolean(item?.model_probability != null)
+  const priced = game ? game.price_state === 'CURRENT_PRICE' || (game.quotes.length > 0 && started) : item?.american != null
+  const evaluated = item?.phase === 'FINAL_PREGAME' && item.recommendation !== 'NOT_YET_EVALUATED'
+  const positioned = Boolean(item?.position)
+  const settled = item?.position?.status === 'SETTLED'
+  const states: ('done' | 'wait' | 'miss' | 'na')[] = [
+    'done',
+    forecast ? 'done' : started ? 'miss' : 'wait',
+    priced ? 'done' : started ? 'miss' : 'wait',
+    evaluated ? 'done' : started ? 'miss' : 'wait',
+    positioned ? 'done' : evaluated || started ? 'na' : 'wait',
+    settled ? 'done' : positioned ? 'wait' : 'na',
+  ]
+  const labels = [
+    'Scheduled',
+    forecast ? 'Forecast available' : started ? 'No forecast' : 'Forecast preparing',
+    priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only' : started ? 'No price collected' : 'Collection scheduled',
+    evaluated ? (item?.recommendation === 'QUALIFIED_BET' ? 'Qualified' : item?.recommendation === 'NO_BET' ? 'Evaluated · no bet' : 'Evaluated') : started ? 'Not evaluated' : 'Evaluation pending',
+    positioned ? 'Position recorded' : 'No position',
+    settled ? `Settled ${item?.position?.result ?? ''}` : positioned ? 'Awaiting settlement' : '—',
+  ]
+  let reached = 0
+  states.forEach((s, i) => { if (s === 'done') reached = i })
+  return { reached, states, labels }
+}
 
 export function CommandDecisions({ day }: { day: string }) {
   const board = useDecisionBoard(day)
@@ -161,7 +189,6 @@ export function CommandDecisions({ day }: { day: string }) {
   const ledger = useLedger()
   const readiness = useSportReadiness()
   const now = useNow()
-  const [tab, setTab] = useState<Tab>('ALL')
   const [sport, setSport] = useState<SportCode | 'ALL'>('ALL')
 
   const items = useMemo(() => board.data?.items ?? [], [board.data])
@@ -169,80 +196,138 @@ export function CommandDecisions({ day }: { day: string }) {
   const readinessSports = useMemo(() => readiness.data?.sports ?? [], [readiness.data])
   const isToday = day === todayEt()
   const feed = useMemo(() => buildFeed(items, games, isToday ? readinessSports : [], now), [items, games, readinessSports, isToday, now])
-  const inSport = (c: FeedCard) => sport === 'ALL' || c.sport === sport
-  const visible = feed.filter((c) => inSport(c) && (tab === 'ALL' || c.tab === tab))
-  const count = (t: Tab) => feed.filter((c) => inSport(c) && (t === 'ALL' || c.tab === t)).length
+  const agenda = useMemo(() => buildAgenda(games, items, ledger.data, now), [games, items, ledger.data, now])
+  const visible = feed.filter((c) => sport === 'ALL' || c.sport === sport)
 
-  const next = feed.find((c) => c.tab === 'ACTIONABLE') ?? feed.find((c) => c.tab === 'POSITIONS')
-    ?? feed.filter((c) => c.tab === 'WATCHING' && c.windowOpens).sort((a, b) => (a.windowOpens ?? '').localeCompare(b.windowOpens ?? ''))[0] ?? null
-  const nextOpen = next?.windowOpens ? Date.parse(next.windowOpens) <= now : false
-  const todayPnl = (ledger.data?.sports ?? []).flatMap((s) => s.positions)
-    .filter((p) => p.status === 'SETTLED' && p.settled_at
-      && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(p.settled_at)) === todayEt())
-    .reduce((s, p) => s + (p.profit_loss ?? 0), 0)
+  // A game graduates from an agenda row to a decision card once there is a
+  // decision to read: a final evaluation, a position, or a started game.
+  const isCard = (c: FeedCard) => Boolean(c.item?.position) || c.item?.phase === 'FINAL_PREGAME'
+    || (c.startsAt != null && Date.parse(c.startsAt) <= now && Boolean(c.game))
+  const actionable = visible.filter((c) => c.tab === 'ACTIONABLE' || c.tab === 'POSITIONS')
+  const completed = visible.filter((c) => isCard(c) && !actionable.includes(c))
+  const waiting = visible.filter((c) => !isCard(c) && !actionable.includes(c))
+  const attention = nextAttention(agenda.filter((e) => sport === 'ALL' || e.sport === sport), now, 3)
+  const settledToday = (ledger.data?.sports ?? []).flatMap((s) => s.positions)
+    .filter((pos) => pos.status === 'SETTLED' && pos.settled_at
+      && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(pos.settled_at)) === day)
+  const todayPnl = settledToday.reduce((s, pos) => s + (pos.profit_loss ?? 0), 0)
+  const qualifiedPositions = visible.filter((c) => c.item?.position && c.item.position.status !== 'SETTLED').length
+  const openWindows = agenda.filter((e) => e.status === 'open' && (e.kind === 'decision' || e.kind === 'collection'))
   const sportsInFeed = SPORT_CODES.filter((c) => feed.some((f) => f.sport === c))
+  const nextByGame = useMemo(() => {
+    const out = new Map<string, AgendaEvent>()
+    for (const e of agenda) {
+      if (e.status === 'done' || e.status === 'missed') continue
+      if (e.status === 'open' || e.at >= now) { if (!out.has(e.gameId)) out.set(e.gameId, e) }
+    }
+    return out
+  }, [agenda, now])
 
   return (
     <section className="cc-decisions" aria-label="Daily Decisions">
-      <section className="cc-dark cc-pulse" aria-label="Decision pulse">
-        <div className="cc-pulse__next">
-          <span className="cc-kicker">Decision pulse · {new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
-          {next ? (
-            <Link to={next.href} className="cc-pulse__game" style={{ ['--sport' as string]: SPORT_COLORS[next.sport] }}>
-              <span className="cc-pulse__sport"><i className="cc-dot" />{SPORT_NAMES[next.sport]} · {next.startsAt ? etTime(next.startsAt, true) : next.nextLabel}</span>
-              <b>{next.matchup}</b>
-              <span className={`cc-pulse__status cc-tone--${next.status.tone}`}>{next.status.label}</span>
-            </Link>
-          ) : <b className="cc-pulse__game">No decision is scheduled on this slate</b>}
-          <div className="cc-pulse__countdown">
-            <small>{nextOpen ? 'Window closes in' : 'Decision window in'}</small>
-            <strong>{next ? countdown(nextOpen ? next.windowCloses : next.windowOpens, now) : '—'}</strong>
-            <small>{next?.windowOpens ? `${etTime(next.windowOpens).replace(' ET', '')}–${etTime(next.windowCloses)}` : ''}</small>
-          </div>
+      <section className="cc-dark cc-dnow" aria-label="Decisions now">
+        <div className="cc-dnow__head">
+          <span className="cc-kicker">Daily Decisions · {new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+          <AsOf resource={board} label="decisions" />
         </div>
-        <dl className="cc-pulse__stats">
-          <div><dt>Actionable</dt><dd className={count('ACTIONABLE') ? 'is-up' : ''}>{count('ACTIONABLE')}</dd></div>
-          <div><dt>Open positions</dt><dd>{ledger.data ? ledger.data.totals.open_count : '—'}</dd></div>
-          <div><dt>Capital at risk</dt><dd>{money(ledger.data?.totals.open_exposure)}</dd></div>
-          <div><dt>Today's P&amp;L</dt><dd className={todayPnl > 0 ? 'is-up' : todayPnl < 0 ? 'is-down' : ''}>{signedMoney(todayPnl)}</dd></div>
-        </dl>
-        <div className="cc-pulse__funnel"><DecisionFunnel items={items} games={games} /></div>
-        <div className="cc-pulse__asof"><AsOf resource={board} label="decisions" /></div>
+        <div className="cc-dnow__grid">
+          <div className="cc-dnow__block cc-dnow__block--wide">
+            <small>Requires attention now</small>
+            {actionable.length
+              ? <b className="is-up">{actionable.length} {actionable.length === 1 ? 'decision' : 'decisions'} actionable</b>
+              : openWindows.length
+                ? <b className="is-gold">{openWindows.length} window{openWindows.length === 1 ? '' : 's'} open</b>
+                : <b>Nothing right now</b>}
+            <span>{actionable[0] ? `${actionable[0].matchup} · ${actionable[0].status.label}` : openWindows[0] ? `${openWindows[0].matchup} · ${openWindows[0].label}` : 'No decision or collection window is open'}</span>
+          </div>
+          <div className="cc-dnow__block cc-dnow__block--wide">
+            <small>What’s next</small>
+            {attention[0]
+              ? <><b className="is-gold">{KIND_LABEL[attention[0].event.kind]} · {countdown(new Date(attention[0].event.status === 'open' ? (attention[0].event.until ?? attention[0].event.at) : attention[0].event.at).toISOString(), now)}</b>
+                <span>{etTime(new Date(attention[0].event.at).toISOString())} · {attention[0].matchups.length > 1 ? `${attention[0].matchups.length} games` : attention[0].matchups[0]}</span></>
+              : <><b>No milestone scheduled</b><span>Today’s slate is complete</span></>}
+          </div>
+          <div className="cc-dnow__block"><small>Qualified positions</small><b className={qualifiedPositions ? 'is-up' : ''}>{qualifiedPositions}</b><span>open</span></div>
+          <div className="cc-dnow__block"><small>Capital exposed</small><b>{money(ledger.data?.totals.open_exposure)}</b><span>{ledger.data?.totals.open_count ?? 0} open</span></div>
+          <div className="cc-dnow__block"><small>{isToday ? 'Completed today' : 'Completed this slate day'}</small><b className={todayPnl > 0 ? 'is-up' : todayPnl < 0 ? 'is-down' : ''}>{signedMoney(todayPnl)}</b><span>{settledToday.length} settled · {completed.length} decided</span></div>
+        </div>
       </section>
 
-      <div className="cc-feedbar">
-        <div className="cc-tabs" role="tablist" aria-label="Decision status">
-          {TABS.map((t) => {
-            const n = count(t.key)
-            return (
-              <button key={t.key} role="tab" type="button" aria-selected={tab === t.key}
-                disabled={t.key !== 'ALL' && n === 0} onClick={() => setTab(t.key)}>
-                {t.label} <span>{n}</span>
-              </button>
-            )
-          })}
+      {sportsInFeed.length > 1 && (
+        <div className="cc-filters" role="group" aria-label="Sport">
+          {(['ALL', ...sportsInFeed] as const).map((code) => (
+            <button key={code} type="button" aria-pressed={sport === code} onClick={() => setSport(code)}>
+              {code === 'ALL' ? 'All sports' : SPORT_NAMES[code]}
+            </button>
+          ))}
         </div>
-        {sportsInFeed.length > 1 && (
-          <div className="cc-filters" role="group" aria-label="Sport" style={{ margin: 0 }}>
-            {(['ALL', ...sportsInFeed] as const).map((code) => (
-              <button key={code} type="button" aria-pressed={sport === code} onClick={() => setSport(code)}>
-                {code === 'ALL' ? 'All sports' : SPORT_NAMES[code]}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
-      {!board.data && !coverage.data
-        ? <p className="cc-empty" role="status">{board.error ? `Decisions are unavailable: ${board.error}` : 'Loading decisions…'}</p>
-        : visible.length === 0
-          ? <p className="cc-empty">Nothing in this view.</p>
-          : <div className="cc-feed" role="tabpanel">{visible.map((c) => <DecisionCard key={c.key} card={c} now={now} />)}</div>}
+      {!board.data && !coverage.data && (
+        <p className="cc-empty" role="status">{board.error ? `Decisions are unavailable: ${board.error}` : 'Loading decisions…'}</p>
+      )}
+
+      {actionable.length > 0 && (
+        <section aria-label="Actionable and open positions">
+          <h2 className="cc-section-title">Actionable · open positions <span>{actionable.length}</span></h2>
+          <div className="cc-feed">{actionable.map((c) => <DecisionCard key={c.key} card={c} now={now} />)}</div>
+        </section>
+      )}
+
+      {waiting.length > 0 && (
+        <section className="cc-agenda-rows" aria-label="Upcoming decisions">
+          <h2 className="cc-section-title">Upcoming · by next required event <span>{waiting.length}</span></h2>
+          <div className="cc-rows" role="table" aria-label="Upcoming decisions">
+            <div className="cc-rows__head" role="row">
+              <span role="columnheader">Start</span><span role="columnheader">Game</span><span role="columnheader">Progress</span>
+              <span role="columnheader">Forecast</span><span role="columnheader">Collection</span><span role="columnheader">Decision window</span>
+              <span role="columnheader">Next required event</span>
+            </div>
+            {waiting.map((c) => <AgendaRow key={c.key} card={c} now={now} next={nextByGame.get(c.key) ?? null} />)}
+          </div>
+        </section>
+      )}
+
+      {completed.length > 0 && (
+        <section aria-label="Completed decisions">
+          <h2 className="cc-section-title">Completed today <span>{completed.length}</span></h2>
+          <div className="cc-feed">{completed.map((c) => <DecisionCard key={c.key} card={c} now={now} />)}</div>
+        </section>
+      )}
 
       <SupportingVisuals items={items} ledger={ledger.data} />
     </section>
   )
 }
+
+const AgendaRow = memo(function AgendaRow({ card, now, next }: { card: FeedCard; now: number; next: AgendaEvent | null }) {
+  const { game } = card
+  const pr = progress(card, now)
+  const model = game?.model
+  const homeP = model?.home_two_way ?? null
+  return (
+    <Link role="row" to={card.href} className="cc-row2" style={{ ['--sport' as string]: SPORT_COLORS[card.sport] }}
+      aria-label={`${card.matchup}, ${pr.labels[pr.reached]}`}>
+      <span role="cell" className="cc-row2__time"><i className="cc-dot" />{card.startsAt ? etTime(card.startsAt).replace(' ET', '') : card.nextLabel?.split(', ').slice(-1)[0]}</span>
+      <span role="cell" className="cc-row2__game"><b>{card.matchup}</b><small>{SPORT_NAMES[card.sport]}{card.game ? '' : ` · ${card.nextLabel ?? ''}`}</small></span>
+      <span role="cell" className="cc-row2__progress" title={pr.labels.join(' → ')}>
+        {pr.states.map((s, i) => <i key={STAGES[i]} className={`cc-pip cc-pip--${s}`} aria-hidden="true" />)}
+        <small>{pr.labels[Math.min(pr.reached + 1, 5)]}</small>
+      </span>
+      <span role="cell">{model && homeP != null
+        ? <><b>{homeP >= 0.5 ? game?.home?.abbreviation : game?.away?.abbreviation} {pct(homeP >= 0.5 ? homeP : 1 - homeP, 0)}</b><small>{model.expected_away != null && model.expected_home != null ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)}` : 'forecast'}</small></>
+        : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
+      <span role="cell">{game
+        ? game.price_state === 'CURRENT_PRICE' ? <b className="is-up">Collected</b>
+          : <><b>{etTime(game.checkpoints.collection_opens_at).replace(' ET', '')}</b><small>{Date.parse(game.checkpoints.collection_opens_at) > now ? `in ${countdown(game.checkpoints.collection_opens_at, now)}` : 'open'}</small></>
+        : '—'}</span>
+      <span role="cell">{card.windowOpens ? <><b>{etTime(card.windowOpens).replace(' ET', '')}–{etTime(card.windowCloses).replace(' ET', '')}</b><small>{Date.parse(card.windowOpens) > now ? `in ${countdown(card.windowOpens, now)}` : 'open'}</small></> : '—'}</span>
+      <span role="cell" className="cc-row2__next">{next
+        ? <><b>{next.label}</b><small>{next.status === 'open' ? `closes in ${countdown(new Date(next.until ?? next.at).toISOString(), now)}` : `${etTime(new Date(next.at).toISOString()).replace(' ET', '')} · in ${countdown(new Date(next.at).toISOString(), now)}`}</small></>
+        : <b>{card.status.label}</b>}</span>
+    </Link>
+  )
+})
 
 const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard; now: number }) {
   const { item, game } = card
@@ -255,6 +340,10 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
       ? { text: `${game.away?.abbreviation} ${am(game.best.AWAY.american)} · ${game.home?.abbreviation} ${am(game.best.HOME.american)}`, book: 'best current', when: game.best.HOME.observed_at }
       : null
   const marketP = item?.market_probability ?? (game?.consensus_is_current ? game.consensus_no_vig_home : null)
+  // Both sides of the market the decision was priced from, same book only.
+  const bookKey = item?.sportsbook ?? null
+  const twoSided = game?.quotes.filter((q) => q.market === 'MONEYLINE' && (!bookKey || shortBook(q.sportsbook).toLowerCase() === shortBook(bookKey).toLowerCase()))
+    .sort((a, b) => b.observed_at.localeCompare(a.observed_at))[0] ?? null
   const windowOpen = card.windowOpens ? Date.parse(card.windowOpens) <= now : false
   const started = card.startsAt ? Date.parse(card.startsAt) <= now : false
   const final = item?.phase === 'FINAL_PREGAME'
@@ -292,6 +381,11 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
         <div><dt>Edge · EV</dt><dd className={item?.edge != null ? (item.edge >= 0 ? 'is-up' : 'is-down') : ''}>{item?.edge != null ? `${(item.edge * 100).toFixed(1)} pts` : '—'}</dd>
           <small>{item?.expected_value != null ? `EV ${(item.expected_value * 100).toFixed(1)}%` : '—'}</small></div>
       </dl>
+      {twoSided && (
+        <p className="cc-dcard__market">
+          Market · {game?.away?.abbreviation} {am(twoSided.sides.AWAY?.american)} / {game?.home?.abbreviation} {am(twoSided.sides.HOME?.american)} at {shortBook(twoSided.sportsbook)} ({twoSided.provider}, {twoSided.classification.toLowerCase()}) · observed {relative(twoSided.observed_at)}{twoSided.fresh ? '' : ' · not current'}
+        </p>
+      )}
       {item?.position && (
         <p className="cc-dcard__entry">
           <b>Entry {item.selection} {am(item.american)}</b> · {shortBook(item.sportsbook)} · stake {money(item.position.stake)}
@@ -316,60 +410,6 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
         </Link>
       </footer>
     </article>
-  )
-})
-
-/** scheduled → forecast → priced → evaluated → qualified → positioned, by game. Compact. */
-const DecisionFunnel = memo(function DecisionFunnel({ items, games }: { items: DecisionItem[]; games: CoverageGame[] }) {
-  const reduced = useReducedMotion()
-  const { ref, width } = useWidth<HTMLDivElement>(320)
-  const { tip, show, hide, frame } = useTooltip()
-  const bars = useRef<SVGGElement | null>(null)
-  const stages = useMemo(() => {
-    const ids = (pred: (i: DecisionItem) => boolean) => new Set(items.filter(pred).map((i) => i.game_id)).size
-    return [
-      { key: 'scheduled', label: 'Scheduled', value: games.length, note: 'Games on this slate.' },
-      { key: 'forecast', label: 'Forecast', value: games.filter((g) => g.model).length, note: 'Controlling forecast published.' },
-      { key: 'priced', label: 'Priced', value: games.filter((g) => g.price_state === 'CURRENT_PRICE').length, note: 'A current two-sided sportsbook price is stored.' },
-      { key: 'evaluated', label: 'Evaluated', value: ids((i) => i.phase === 'FINAL_PREGAME' && i.recommendation !== 'NOT_YET_EVALUATED'), note: 'Final-pregame evaluation recorded.' },
-      { key: 'qualified', label: 'Qualified', value: ids((i) => i.phase === 'FINAL_PREGAME' && i.recommendation === 'QUALIFIED_BET'), note: 'Cleared every policy gate.' },
-      { key: 'positioned', label: 'Positioned', value: ids((i) => Boolean(i.position)), note: 'Virtual position recorded.' },
-    ]
-  }, [items, games])
-  const max = Math.max(1, ...stages.map((s) => s.value))
-  const rowH = 20
-  const labelW = 78
-  const height = stages.length * rowH
-  const x = d3.scaleLinear().domain([0, max]).range([0, Math.max(40, width - labelW - 30)])
-
-  useEffect(() => {
-    if (!bars.current || reduced) return
-    d3.select(bars.current).selectAll<SVGRectElement, unknown>('rect.cc-fbar')
-      .attr('width', 0).transition().duration(500).ease(d3.easeCubicOut)
-      .attr('width', function () { return Number((this as SVGRectElement).dataset.w) })
-  }, [stages, width, reduced])
-
-  return (
-    <div className="cc-chart" ref={(node) => { ref.current = node; frame.current = node }}>
-      <svg width={width} height={height} role="img" aria-label={stages.map((s) => `${s.label} ${s.value}`).join(', ')}>
-        <g ref={bars}>
-          {stages.map((s, i) => {
-            const w = s.value ? Math.max(3, x(s.value)) : 0
-            const body = <><b>{s.label}: {s.value}</b><p style={{ margin: '3px 0 0' }}>{s.note}</p></>
-            return (
-              <g key={s.key} transform={`translate(0, ${i * rowH})`} tabIndex={0} className="cc-lane cc-lane--static"
-                aria-label={`${s.label}: ${s.value}`} onMouseMove={(e) => show(e, body)} onMouseLeave={hide} onFocus={(e) => show(e, body)} onBlur={hide}>
-                <rect x={0} y={0} width={width} height={rowH} className="cc-lane__hit" />
-                <text x={labelW - 6} y={rowH / 2 + 4} textAnchor="end" className="cc-lane__label">{s.label}</text>
-                <rect x={labelW} y={4} width={w} data-w={w} height={rowH - 8} rx={3} className={`cc-fbar cc-fbar--${i}`} />
-                <text x={labelW + w + 6} y={rowH / 2 + 4} className="cc-funnel__value">{s.value}</text>
-              </g>
-            )
-          })}
-        </g>
-      </svg>
-      <Tooltip tip={tip} width={width} />
-    </div>
   )
 })
 
