@@ -27,6 +27,7 @@ import { useApiResource } from '../../hooks/useApiResource'
 import { apiRequest } from '../../services/api'
 import { STALE_TIME, cacheKey } from '../../services/queryCache'
 import type { RffBoard } from '../../types/marketIntelligence'
+import { bookRange, gapOf } from '../../services/marketMath'
 import { BookSpread } from './BookSpread'
 import { LazyDetails } from './LazyDetails'
 import { MarketDetail } from './MarketDetail'
@@ -47,12 +48,6 @@ const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v 
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
 
-function bookRange(game: CoverageGame): [number, number] | null {
-  const values = game.quotes.filter((q) => q.market === 'MONEYLINE' && q.no_vig_home != null).map((q) => q.no_vig_home as number)
-  return values.length ? [d3.min(values)!, d3.max(values)!] : null
-}
-const gapOf = (g: CoverageGame) => (g.model?.home_two_way != null && g.consensus_no_vig_home != null
-  ? g.model.home_two_way - g.consensus_no_vig_home : null)
 
 export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: string) => void }) {
   const today = useMarketCoverage(day)
