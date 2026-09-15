@@ -1265,11 +1265,31 @@ def _abbreviation(name: str) -> str:
     return "".join(word[0] for word in words[-3:]).upper()[:4]
 
 
+#: MLB detailedState values that mean play has started but the game is not
+#: officially final. They matched none of the substrings below and fell
+#: through to SCHEDULED -- on 2026-09-14 CWS at CLE went live 7-1, then
+#: SCHEDULED 7-3 on "Game Over", then FINAL. A finished game with a score
+#: presented as not yet started.
+#:
+#: "Game Over" is deliberately LIVE, not FINAL: MLB sends it between the last
+#: out and the official "Final", and this row feeds settlement. Promoting it
+#: here would settle on an unofficial result -- the scoreboard may call it
+#: FINAL for display, but the canonical status waits for MLB to.
+_IN_PLAY_STATES = ("game over", "manager challenge", "umpire review",
+                   "review", "challenge")
+
+
 def _game_status(value: str) -> GameStatus:
     lowered = value.lower()
     if "final" in lowered or "completed" in lowered:
         return GameStatus.FINAL
     if "progress" in lowered or "live" in lowered:
+        return GameStatus.LIVE
+    if any(state in lowered for state in _IN_PLAY_STATES):
+        return GameStatus.LIVE
+    # A mid-game delay is play interrupted, not a game that has not begun.
+    # "Delayed Start" is the one delay that genuinely precedes first pitch.
+    if "delay" in lowered and "start" not in lowered:
         return GameStatus.LIVE
     if "postpon" in lowered:
         return GameStatus.POSTPONED
