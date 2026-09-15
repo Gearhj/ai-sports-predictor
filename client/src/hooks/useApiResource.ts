@@ -23,6 +23,10 @@ interface ApiResource<T> {
   updatedAt: number | null
   /** Content is being shown past its refresh interval, or after a failure. */
   stale: boolean
+  /** When the server generated the displayed data (epoch ms). */
+  asOf: number | null
+  /** The displayed data was restored from browser storage and not yet refreshed. */
+  restored: boolean
 }
 
 interface ApiResourceOptions<T> {
@@ -132,7 +136,7 @@ export function useApiResource<T>(
     if (demoData) {
       return {
         data: demoData, state: 'demo', loading: false, error: null,
-        refresh, refreshing: false, updatedAt: null, stale: false,
+        refresh, refreshing: false, updatedAt: null, stale: false, asOf: null, restored: false,
       }
     }
     const data = entry?.data ?? null
@@ -151,6 +155,8 @@ export function useApiResource<T>(
       refreshing: Boolean(entry?.isRefreshing),
       updatedAt: entry?.updatedAt ?? null,
       stale: Boolean(entry?.error) || (data !== null && isStale(entry)),
+      asOf: entry?.asOf ?? null,
+      restored: Boolean(entry?.restored),
     }
   }, [demoData, entry, refresh])
 }

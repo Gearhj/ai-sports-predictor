@@ -102,7 +102,33 @@ export async function apiRequest<T>(
   }
 
   if (response.status === 204) return undefined as T
-  return unwrap<T>(await response.json())
+  const value = unwrap<T>(await response.json())
+  // When the server served this read model, carried non-enumerably so it can
+  // never leak into rendering or comparisons. A server-cached body keeps its
+  // original generation time; the UI shows that, never the fetch time.
+  const generated = response.headers.get('X-AISP-Generated-At')
+  if (generated && value && typeof value === 'object') {
+    try {
+      Object.defineProperty(value, AS_OF, { value: Date.parse(generated), enumerable: false, configurable: true })
+    } catch { /* frozen payloads simply carry no clock */ }
+  }
+  return value
+}
+
+/** Property holding a response's server generation time (epoch ms). */
+export const AS_OF = '__aispAsOf'
+
+/** The oldest server generation time found on a payload or its top-level parts. */
+export function asOfOf(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null
+  const own = (value as Record<string, unknown>)[AS_OF]
+  if (typeof own === 'number' && Number.isFinite(own)) return own
+  let oldest: number | null = null
+  for (const part of Object.values(value as Record<string, unknown>)) {
+    const clock = part && typeof part === 'object' ? (part as Record<string, unknown>)[AS_OF] : null
+    if (typeof clock === 'number' && Number.isFinite(clock)) oldest = oldest == null ? clock : Math.min(oldest, clock)
+  }
+  return oldest
 }
 
 export const endpoints = {

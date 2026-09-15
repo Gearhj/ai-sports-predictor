@@ -222,3 +222,32 @@ describe('prefetchQuery', () => {
     gate.resolve({ value: 1 })
   })
 })
+
+describe('server clock and persistence', () => {
+  it('keeps the server generation time as the "as of", never the fetch time', async () => {
+    const payload = { rows: [] }
+    Object.defineProperty(payload, '__aispAsOf', { value: 1_000, enumerable: false })
+    await fetchQuery('command-ledger', async () => payload, { force: true })
+    const entry = peek('command-ledger')
+    expect(entry?.asOf).toBe(1_000)
+    expect(entry?.updatedAt).toBeGreaterThan(1_000)
+  })
+
+  it('restores a saved read model after a reload as stale, with its original clock', async () => {
+    const payload = { total: 3 }
+    Object.defineProperty(payload, '__aispAsOf', { value: 42_000, enumerable: false })
+    await fetchQuery('command-markets?day=2026-09-15', async () => payload, { force: true })
+    clearCache() // a reload: memory is gone, storage is not
+    const restored = peek<{ total: number }>('command-markets?day=2026-09-15')
+    expect(restored?.data).toEqual({ total: 3 })
+    expect(restored?.asOf).toBe(42_000)
+    expect(restored?.restored).toBe(true)
+    expect(isStale(restored)).toBe(true)
+  })
+
+  it('never persists an account or admin response', async () => {
+    await fetchQuery('admin/jobs', async () => ({ secret: true }), { force: true })
+    clearCache()
+    expect(peek('admin/jobs')).toBeUndefined()
+  })
+})

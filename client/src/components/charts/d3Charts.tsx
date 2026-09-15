@@ -24,6 +24,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
+import { useNavigate } from 'react-router-dom'
 import './d3Charts.css'
 
 /** True when the viewer has asked the OS for less motion. */
@@ -105,6 +106,8 @@ export function ModelVsMarketChart({
   highlight?: string | null
 }) {
   const reduced = useReducedMotion()
+  // Client-side navigation: a full document load would discard the app shell.
+  const navigate = useNavigate()
   const [ref, width] = useMeasuredWidth<HTMLDivElement>(720)
   const svgRef = useRef<SVGSVGElement | null>(null)
   // The label gutter and the gap readout both shrink on a narrow panel: a
@@ -165,7 +168,7 @@ export function ModelVsMarketChart({
       .style('cursor', (d) => (d.href ? 'pointer' : 'default'))
       .on('mouseenter', (_, d) => onHover?.(d.key))
       .on('mouseleave', () => onHover?.(null))
-      .on('click', (_, d) => { if (d.href) window.location.assign(d.href) })
+      .on('click', (_, d) => { if (d.href) navigate(d.href) })
 
     merged.select<SVGTextElement>('text.label')
       .attr('y', rowHeight / 2 + 5)

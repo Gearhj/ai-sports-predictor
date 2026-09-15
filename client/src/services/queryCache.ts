@@ -45,6 +45,14 @@ export interface CacheEntry<T = unknown> {
   sequence: number
   /** How long this entry stays fresh before a background refresh is due. */
   staleTimeMs: number
+  /**
+   * When the SERVER generated `data` (epoch ms), from X-AISP-Generated-At, or
+   * when it was fetched if the server sent no clock. This is the "as of" a page
+   * shows; it is never advanced by reading the value back out of a cache.
+   */
+  asOf: number | null
+  /** True when `data` was restored from browser storage and not yet refreshed. */
+  restored: boolean
 }
 
 type Listener = () => void
@@ -125,7 +133,7 @@ function write<T>(key: string, patch: Partial<CacheEntry<T>>): CacheEntry<T> {
   const previous = entries.get(key) as CacheEntry<T> | undefined
   const base: CacheEntry<T> = previous ?? {
     key, status: 'idle', data: null, error: null, updatedAt: null,
-    isRefreshing: false, sequence: 0, staleTimeMs: STALE_TIME.slate,
+    isRefreshing: false, sequence: 0, staleTimeMs: STALE_TIME.slate, asOf: null, restored: false,
   }
   const next: CacheEntry<T> = { ...base, ...patch }
   entries.set(key, next as CacheEntry)
@@ -133,17 +141,102 @@ function write<T>(key: string, patch: Partial<CacheEntry<T>>): CacheEntry<T> {
 }
 
 function ensure<T>(key: string, staleTimeMs: number): CacheEntry<T> {
-  const existing = entries.get(key) as CacheEntry<T> | undefined
+  const existing = (entries.get(key) ?? restore(key)) as CacheEntry<T> | undefined
   if (existing && existing.staleTimeMs === staleTimeMs) return existing
   return write<T>(key, { staleTimeMs })
 }
 
 export function peek<T>(key: string): CacheEntry<T> | undefined {
-  return entries.get(scoped(key)) as CacheEntry<T> | undefined
+  const resolved = scoped(key)
+  return (entries.get(resolved) ?? restore(resolved)) as CacheEntry<T> | undefined
+}
+
+/* -- persistence -----------------------------------------------------------
+ * The last successful answer for the primary read models survives a reload,
+ * so a cold navigation shows the last known view at once (with its real "as
+ * of") while a background refresh runs. Only public read models are stored --
+ * never an admin, account or auth response -- and only per signed-in scope. */
+
+const STORAGE_PREFIX = 'aisp-query:v1:'
+const STORAGE_INDEX = 'aisp-query:v1:index'
+const PERSISTABLE = [
+  'home', 'games', 'markets', 'decisions', 'today', 'bankroll', 'sport-readiness', 'sport-registry',
+  'command-', 'slate-status', 'experiment', 'scoreboard', 'nfl-', 'nba-', 'cfb-', 'research',
+]
+const MAX_PERSISTED = 40
+const MAX_PERSISTED_CHARS = 1_500_000
+
+function persistable(scopedKey: string): boolean {
+  const name = scopedKey.split('|').slice(1).join('|')
+  return !/admin|auth|account|token|user/i.test(name) && PERSISTABLE.some((p) => name.startsWith(p))
+}
+
+function storageKey(scopedKey: string): string {
+  // The generation number is session-local; storage is keyed by the scope id.
+  return `${STORAGE_PREFIX}${scopeId}|${scopedKey.split('|').slice(1).join('|')}`
+}
+
+function storage(): Storage | null {
+  try { return typeof window !== 'undefined' ? window.localStorage : null } catch { return null }
+}
+
+function restore(scopedKey: string): CacheEntry | undefined {
+  if (!persistable(scopedKey)) return undefined
+  const store = storage()
+  if (!store) return undefined
+  try {
+    const raw = store.getItem(storageKey(scopedKey))
+    if (!raw) return undefined
+    const saved = JSON.parse(raw) as { data: unknown; updatedAt: number; asOf: number | null; staleTimeMs: number }
+    const entry: CacheEntry = {
+      key: scopedKey, status: 'success', data: saved.data, error: null,
+      // Restored content is never fresh: a refresh is always due.
+      updatedAt: 0, isRefreshing: false, sequence: 0,
+      staleTimeMs: saved.staleTimeMs ?? STALE_TIME.slate, asOf: saved.asOf ?? saved.updatedAt ?? null, restored: true,
+    }
+    entries.set(scopedKey, entry)
+    return entry
+  } catch {
+    return undefined
+  }
+}
+
+function persist(scopedKey: string, entry: CacheEntry): void {
+  if (!persistable(scopedKey) || entry.data == null) return
+  const store = storage()
+  if (!store) return
+  try {
+    const body = JSON.stringify({ data: entry.data, updatedAt: entry.updatedAt, asOf: entry.asOf, staleTimeMs: entry.staleTimeMs })
+    if (body.length > MAX_PERSISTED_CHARS) return
+    const name = storageKey(scopedKey)
+    const index = (JSON.parse(store.getItem(STORAGE_INDEX) ?? '[]') as string[]).filter((k) => k !== name)
+    index.push(name)
+    while (index.length > MAX_PERSISTED) store.removeItem(index.shift() as string)
+    store.setItem(name, body)
+    store.setItem(STORAGE_INDEX, JSON.stringify(index))
+  } catch {
+    // Quota or privacy mode: persistence is a convenience, never a requirement.
+  }
+}
+
+function serverClock(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null
+  const read = (v: unknown) => {
+    const clock = v && typeof v === 'object' ? (v as Record<string, unknown>).__aispAsOf : null
+    return typeof clock === 'number' && Number.isFinite(clock) ? clock : null
+  }
+  const own = read(value)
+  if (own != null) return own
+  let oldest: number | null = null
+  for (const part of Object.values(value as Record<string, unknown>)) {
+    const clock = read(part)
+    if (clock != null) oldest = oldest == null ? clock : Math.min(oldest, clock)
+  }
+  return oldest
 }
 
 export function isStale(entry: CacheEntry | undefined, now = Date.now()): boolean {
-  if (!entry || entry.updatedAt === null) return true
+  if (!entry || entry.updatedAt === null || entry.restored) return true
   return now - entry.updatedAt >= entry.staleTimeMs
 }
 
@@ -209,11 +302,14 @@ export function fetchQuery<T>(
       const current = entries.get(key)
       // A slower earlier request must not overwrite a newer answer.
       if (!current || current.sequence !== sequence) return result
-      write<T>(key, {
+      const fetchedAt = Date.now()
+      const next = write<T>(key, {
         data: result, status: 'success', error: null,
-        updatedAt: Date.now(), isRefreshing: false,
+        updatedAt: fetchedAt, isRefreshing: false,
+        asOf: serverClock(result) ?? fetchedAt, restored: false,
       })
       emit(key)
+      persist(key, next as CacheEntry)
       return result
     })
     .catch((reason: unknown) => {
