@@ -50,7 +50,7 @@ const ROUTES: Record<string, RouteWarmer> = {
   '/games': { chunk: () => import('../pages/UnifiedGamesPage'), data: () => { warmLedger() } },
   '/markets': { chunk: () => import('../pages/MarketsRoute'), data: () => { warmMarkets(); warmLedger() } },
   '/labs': { chunk: () => import('../pages/LabsPage') },
-  '/performance': { chunk: () => import('../pages/UnifiedResearchPage') },
+  '/performance': { chunk: () => import('../pages/PerformanceRoute') },
   '/research/history': { chunk: () => import('../pages/UnifiedResearchPage') },
   '/shadow-board': { chunk: () => import('../pages/ShadowBoardPage') },
   '/methodology': { chunk: () => import('../pages/MethodologyPage') },
