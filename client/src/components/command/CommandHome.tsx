@@ -1,31 +1,33 @@
 /**
  * Home: today's command center, about one desktop viewport.
  *
- *   1. A dark financial hero: combined virtual bankroll, change from starting
- *      capital, today's P&L, open exposure, record and the bankroll chart
- *      (combined or by sport). The only bankroll visual on Home.
- *   2. Today's Agenda: the clock, the present operational state, counts, and
- *      the next three milestones that need attention.
- *   3. Four compact sport bankroll cards (bankroll, P&L, record, open, sparkline).
- *   4. The day on one D3 axis: forecast, collection, decision, game, position
- *      and settlement milestones per sport.
+ *   1. Today's Edge Board: up to four game cards -- the best evaluated edges,
+ *      the closest plays, the model's leans before prices, or the games on
+ *      deck -- chosen by `services/edgeBoard`.
+ *   2. The condensed virtual bankroll (with its D3 curve and the four sport
+ *      accounts as chips) beside Today's Agenda: operational state, counts and
+ *      the next three items needing attention.
+ *   3. The day on one D3 axis, clustered and packed so a full MLB slate stays
+ *      legible.
  *
- * Everything is persisted AISP state read through the shared cache; nothing on
- * this page reaches a provider.
+ * Every region reads the shared cache first and refreshes in the background;
+ * nothing on this page reaches a provider.
  */
 import { ArrowRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSportReadiness, type SportReadinessEntry } from '../readiness/SportReadiness'
 import {
-  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, money, signedMoney,
+  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, gameHref, money, signedMoney,
   useDecisionBoard, useLedger, useMarketCoverage, type Ledger, type SportCode,
 } from '../../services/commandCenter'
 import { BankrollHistory } from './BankrollHistory'
 import { AsOf } from './RegionState'
-import { Sparkline } from './Sparkline'
+import { RegionBoundary } from './RegionBoundary'
+import { EdgeBoard } from './EdgeBoard'
 import { AgendaTimeline } from './AgendaTimeline'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
+import { buildEdgeBoard } from '../../services/edgeBoard'
 import './command.css'
 
 export const todayEt = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
@@ -82,55 +84,61 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     }
     return out
   }, [readiness.data, games])
+  const decisionsHref = withSport('/decisions')
+  const board = useMemo(() => buildEdgeBoard({
+    decisions: items, games, ledger: ledger.data, now,
+    decisionsHref: (sport) => withSport('/decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
+    analyzeHref: (sport, gameId) => gameHref(sport, gameId),
+  }), [items, games, ledger.data, now, withSport])
+  const dateLabel = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+  const ret = totals && totals.starting_capital ? (totals.profit_loss / totals.starting_capital) * 100 : null
+
   return (
     <section className="cc-home" aria-label="Command center">
-      <div className="cc-home__top">
-        <section className="cc-dark cc-hero-bank" aria-label="Combined virtual bankroll">
-          <header className="cc-hero-bank__head">
+      <RegionBoundary label="today's edge board">
+        <EdgeBoard board={board} now={now} loading={!decisions.data || !coverage.data} dateLabel={dateLabel}
+          allHref={decisionsHref} asOf={<AsOf resource={decisions.data ? decisions : coverage} label="decisions" />} />
+      </RegionBoundary>
+
+      <div className="cc-home__mid">
+        <section className="cc-dark cc-bank" aria-label="Combined virtual bankroll">
+          <header className="cc-bank__head">
             <div>
-              <span className="cc-kicker">Virtual bankroll · MLB · NFL · NBA · CFB</span>
-              <div className="cc-hero-bank__value">{money(totals?.realized_bankroll)}</div>
-              <div className={`cc-hero-bank__change ${tone(totals?.profit_loss)}`}>
-                {totals ? `${signedMoney(totals.profit_loss)} (${((totals.profit_loss / totals.starting_capital) * 100).toFixed(2)}%) from ${money(totals.starting_capital, 0)} starting capital` : 'Reading the ledger…'}
+              <span className="cc-kicker">Virtual bankroll · four sport accounts</span>
+              <div className="cc-bank__value">{money(totals?.realized_bankroll)}</div>
+              <div className={`cc-bank__change ${tone(totals?.profit_loss)}`}>
+                {totals && ret != null ? `${signedMoney(totals.profit_loss)} (${ret >= 0 ? '+' : '−'}${Math.abs(ret).toFixed(2)}%) net` : 'Reading the ledger…'}
               </div>
             </div>
             <AsOf resource={ledger} />
           </header>
-          <dl className="cc-hero-bank__stats">
-            <div><dt>Today's P&amp;L</dt><dd className={tone(today.pnl)}>{signedMoney(today.pnl)}</dd><small>{today.count} settled today</small></div>
-            <div><dt>Open exposure</dt><dd>{money(totals?.open_exposure)}</dd><small>{totals?.open_count ?? 0} open</small></div>
-            <div><dt>Record</dt><dd>{totals ? `${totals.record.WIN}–${totals.record.LOSS}${totals.record.PUSH ? `–${totals.record.PUSH}` : ''}` : '—'}</dd><small>{totals?.settled_count ?? 0} settled</small></div>
-            <div><dt>Available</dt><dd>{money(totals?.available_capital)}</dd><small>virtual capital</small></div>
+          <dl className="cc-bank__stats">
+            <div><dt>Starting</dt><dd>{money(totals?.starting_capital, 0)}</dd></div>
+            <div><dt title={`${today.count} settled today`}>Today</dt><dd className={tone(today.pnl)}>{signedMoney(today.pnl)}</dd></div>
+            <div><dt title={`${totals?.open_count ?? 0} open positions`}>Exposure</dt><dd>{money(totals?.open_exposure)}</dd></div>
+            <div><dt>Record</dt><dd>{totals ? `${totals.record.WIN}–${totals.record.LOSS}${totals.record.PUSH ? `–${totals.record.PUSH}` : ''}` : '—'}</dd></div>
+            <div><dt>Available</dt><dd>{money(totals?.available_capital, 0)}</dd></div>
           </dl>
+          <ul className="cc-bank__sports" aria-label="Sport accounts">
+            {SPORT_CODES.map((code) => {
+              const s = ledger.data?.sports.find((x) => x.sport === code)
+              return (
+                <li key={code} style={{ ['--sport' as string]: SPORT_COLORS[code] }}>
+                  <i className="cc-dot" /><span>{code}</span>
+                  <b>{money(s?.realized_bankroll, 0)}</b>
+                  <small className={tone(s?.profit_loss)}>{s ? signedMoney(s.profit_loss) : '—'}</small>
+                </li>
+              )
+            })}
+          </ul>
           {ledger.data
-            ? <BankrollHistory ledger={ledger.data} compactHeight={150} hideTable />
-            : <div className="cc-hero-bank__placeholder" />}
+            ? <BankrollHistory ledger={ledger.data} compactHeight={112} hideTable />
+            : <div className="cc-hero-bank__placeholder cc-bank__placeholder" />}
           <p className="cc-hero-bank__foot">Virtual research only · no real-money wagering · <Link to="/experiment">$1,000 Experiment <ArrowRight size={12} /></Link></p>
         </section>
 
         <TodayAgenda events={agenda} now={now} positionsOpen={openPositions.length}
           qualified={qualified.length} gamesToday={coverage.data ? games.length : null} withSport={withSport} />
-      </div>
-
-      <div className="cc-sportcards" role="list" aria-label="Sport bankrolls">
-        {SPORT_CODES.map((code) => {
-          const s = ledger.data?.sports.find((x) => x.sport === code)
-          const todaySport = todaysSettlements(ledger.data, day, code)
-          return (
-            <Link role="listitem" key={code} className="cc-sportcard" style={{ ['--sport' as string]: SPORT_COLORS[code] }}
-              to="/experiment" aria-label={`${SPORT_NAMES[code]} bankroll ${money(s?.realized_bankroll)}`}>
-              <span className="cc-sportcard__name">{SPORT_NAMES[code]}</span>
-              <span className="cc-sportcard__value">{money(s?.realized_bankroll)}</span>
-              <span className={`cc-sportcard__pnl ${tone(todaySport.count ? todaySport.pnl : s?.profit_loss)}`}>
-                {todaySport.count ? `${signedMoney(todaySport.pnl)} today` : `${signedMoney(s?.profit_loss)} total`}
-              </span>
-              <span className="cc-sportcard__meta">
-                {s ? `${s.record.WIN}–${s.record.LOSS}${s.record.PUSH ? `–${s.record.PUSH}` : ''}` : '—'} · {s?.open_count ?? 0} open
-              </span>
-              <span className="cc-sportcard__spark">{s && <Sparkline series={s.series} color={SPORT_COLORS[code]} width={96} height={30} />}</span>
-            </Link>
-          )
-        })}
       </div>
 
       <section className="cc-agenda-panel" aria-label="Today's timeline">
@@ -139,7 +147,7 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
           <AsOf resource={coverage} label="slate" />
         </header>
         {coverage.data
-          ? <AgendaTimeline events={agenda} now={now} idle={idle} />
+          ? <AgendaTimeline events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} />
           : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
       </section>
     </section>

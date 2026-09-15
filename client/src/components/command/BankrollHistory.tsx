@@ -66,7 +66,7 @@ export const BankrollHistory = memo(function BankrollHistory({ ledger, compactHe
 
   useEffect(() => {
     if (xAxis.current) d3.select(xAxis.current).call(d3.axisBottom(x).ticks(width < 560 ? 3 : 6).tickSizeOuter(0) as never)
-    if (yAxis.current) d3.select(yAxis.current).call(d3.axisLeft(y).ticks(5).tickFormat((v) => `$${d3.format(',.0f')(v as number)}`) as never)
+    if (yAxis.current) d3.select(yAxis.current).call(d3.axisLeft(y).ticks(height < 140 ? 3 : 5).tickFormat((v) => `$${d3.format(',.0f')(v as number)}`) as never)
     if (reduced) return
     for (const path of Object.values(pathRefs.current)) {
       if (!path) continue

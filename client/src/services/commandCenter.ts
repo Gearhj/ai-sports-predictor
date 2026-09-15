@@ -143,6 +143,37 @@ export interface DecisionItem {
   decision_window: { opens_at: string; closes_at: string } | null
   group: DecisionGroup
   position: { position_id: string; stake: number | null; status: string; result: string | null; profit_loss: number | null } | null
+  /** Re-derived from the stored snapshot: the same-book, same-provider pair the decision priced. */
+  market_integrity?: MarketIntegrity | null
+  /** The forecast the decision used, and whether it was the controlling one at the time. */
+  forecast_check?: ForecastCheck | null
+  /** The policy's own adjusted edge and expected value, when it recorded them. */
+  adjusted?: { edge: number | null; expected_value: number | null; probability: number | null } | null
+  /** Human-readable qualification reasons only (machine codes removed server-side). */
+  plain_reasons?: string[]
+}
+
+export interface MarketIntegrity {
+  two_sided_same_book: boolean
+  market_matches: boolean
+  provider: string | null
+  provider_permitted: boolean
+  classification: 'GOVERNED' | 'RESEARCH' | 'UNCLASSIFIED'
+  sportsbook: string | null
+  sportsbook_key: string | null
+  selected_american: number | null
+  opposite_american: number | null
+  older_leg_observed_at: string | null
+  older_leg_age_minutes_at_decision: number | null
+  fresh_at_decision: boolean
+}
+
+export interface ForecastCheck {
+  engine_id: string
+  controlling: boolean
+  latest_at_decision: boolean
+  superseded_since_decision: boolean
+  published_at: string | null
 }
 
 export interface DecisionBoard {
