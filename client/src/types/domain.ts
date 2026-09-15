@@ -78,6 +78,10 @@ export interface ForecastGame {
   projected_run_difference?: number | null
   uncertainty?: number | null
   market_total: number | null
+  /** Older side of the freshest persisted two-sided pair; null when none was collected. */
+  market_quote_observed_at?: string | null
+  market_providers?: string[]
+  market_books?: string[]
   away_win_probability: number | null
   home_win_probability: number | null
   fair_away_moneyline: number | null

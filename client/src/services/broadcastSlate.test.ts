@@ -5,7 +5,7 @@
  * market comparison out of half a quote.
  */
 import { describe, expect, it } from 'vitest'
-import { conditionalHomeWin, isUpcoming, mlbSlate, nflSlate } from './broadcastSlate'
+import { conditionalHomeWin, isUpcoming, mlbSlate, nflSlate, priceStatusOf } from './broadcastSlate'
 import type { DashboardData, ForecastGame } from '../types/domain'
 import type { NflEngine, NflEvent } from '../types/nfl'
 
@@ -84,6 +84,18 @@ describe('mlbSlate', () => {
     expect(row.bestAwayPrice).toBeNull()
   })
 
+  it('judges freshness from the persisted price time, not the forecast data time', () => {
+    const now = Date.parse('2026-09-15T18:00:00Z')
+    expect(priceStatusOf('2026-09-15T17:00:00Z', true, now)).toEqual({ status: 'CURRENT', ageMinutes: 60 })
+    expect(priceStatusOf('2026-08-29T22:08:45Z', true, now).status).toBe('STORED_REFERENCE')
+    expect(priceStatusOf(null, true, now).status).toBe('STORED_REFERENCE')
+    expect(priceStatusOf(null, false, now).status).toBe('NOT_COLLECTED')
+    // No quote time on the payload means the row cannot call the price current.
+    const [row] = mlbSlate(dashboard([mlbGame()]))
+    expect(row.priceStatus).toBe('STORED_REFERENCE')
+    expect(row.priceObservedAt).toBeNull()
+  })
+
   it('carries no tie for baseball', () => {
     const [row] = mlbSlate(dashboard([mlbGame()]))
     expect(row.tie).toBeNull()
@@ -119,8 +131,15 @@ describe('nflSlate', () => {
     const [row] = nflSlate([nflEvent(engine)])
     expect(row.marketHome).toBeNull()
     expect(row.edgePoints).toBeNull()
-    // The quoted prices are still shown; they are evidence, just not a comparison.
+    // The stored quote is retained as evidence, but it is never a current price.
     expect(row.bestHomePrice).toBe(-185)
+    expect(row.priceStatus).toBe('STORED_REFERENCE')
+  })
+
+  it('reports no sportsbook price when no quote was persisted', () => {
+    const [row] = nflSlate([nflEvent(nflEngine())])
+    expect(row.priceStatus).toBe('NOT_COLLECTED')
+    expect(row.bestHomePrice).toBeNull()
   })
 
   it('never reports a decision for a research-shadow league', () => {

@@ -1262,6 +1262,9 @@ class ReadService:
             projected_run_difference=forecast.expected_run_difference if forecast else None,
             uncertainty=forecast.uncertainty if forecast else None,
             market_total=market["total"],
+            market_quote_observed_at=market["quote_observed_at"],
+            market_providers=market["providers"],
+            market_books=market["books"],
             away_win_probability=away_probability * 100 if away_probability is not None else None,
             home_win_probability=home_probability * 100 if home_probability is not None else None,
             fair_away_moneyline=forecast.fair_away_moneyline if forecast else None,
@@ -3608,11 +3611,19 @@ class ReadService:
         best_home = best_away = 0
         best_home_decimal = best_away_decimal = 0.0
         last_updates: list[datetime] = []
+        # Price time of each usable pair is its OLDER side: a pair is only as
+        # fresh as the stalest price in it. Retrieval time is never substituted.
+        pair_times: list[datetime] = []
+        providers: set[str] = set()
+        book_names: set[str] = set()
         for outcomes in by_book.values():
             if home_team_id not in outcomes or away_team_id not in outcomes:
                 continue
             home_snapshot, book = outcomes[home_team_id]
             away_snapshot, _ = outcomes[away_team_id]
+            pair_times.append(min(_aware(home_snapshot.observed_at), _aware(away_snapshot.observed_at)))
+            providers.update(str(s.source) for s in (home_snapshot, away_snapshot) if s.source)
+            book_names.add(book.name)
             result = no_vig_probabilities({"home": home_snapshot.decimal_odds, "away": away_snapshot.decimal_odds}, american=False)
             market_probabilities.append(result.probabilities["home"])
             if home_snapshot.decimal_odds > best_home_decimal:
@@ -3638,6 +3649,9 @@ class ReadService:
             "book_count": len(prices), "market_prices": prices,
             "total": sum(total_lines) / len(total_lines) if total_lines else None,
             "last_update": max(last_updates) if last_updates else None,
+            "quote_observed_at": max(pair_times) if pair_times else None,
+            "providers": sorted(providers),
+            "books": sorted(book_names),
         }
 
     def _metric(

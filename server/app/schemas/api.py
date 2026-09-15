@@ -98,6 +98,13 @@ class ForecastGame(BaseModel):
     projected_run_difference: float | None
     uncertainty: float | None
     market_total: float | None
+    #: Persisted sportsbook provenance for the prices above: the older side of
+    #: the freshest two-sided pair, the providers and the books. Null/empty when
+    #: no quote was collected. A consumer judges freshness from this, never
+    #: from `last_update` or retrieval time.
+    market_quote_observed_at: datetime | None = None
+    market_providers: list[str] = []
+    market_books: list[str] = []
     away_win_probability: float | None
     home_win_probability: float | None
     fair_away_moneyline: int | None

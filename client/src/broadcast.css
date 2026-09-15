@@ -426,7 +426,9 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
   display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px;
   color: #fff; background: var(--bx-team, #2a3f5c); font: 800 14px/1 inherit; letter-spacing: -.01em;
 }
-.bx-slate__prices { display: flex; gap: 9px; flex-wrap: nowrap; min-width: 0; }
+.bx-slate__prices { display: flex; gap: 6px 9px; flex-wrap: wrap; min-width: 0; }
+.bx-slate__prices > .bx-price { flex: 1 1 0; }
+.bx-price__source { flex: 1 0 100%; color: var(--bx-dim); font-size: 11.5px; line-height: 1.35; overflow-wrap: anywhere; }
 .bx-price {
   display: grid; gap: 4px; padding: 9px 10px; border-radius: 10px; min-width: 0; flex: 1 1 0;
   background: var(--bx-s3); border: 1px solid var(--bx-line);

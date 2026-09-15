@@ -72,6 +72,26 @@ const stateOf = (game: SlateGame): StateFilter => {
   return 'UPCOMING'
 }
 
+/** Quote age as a reader says it. Null age means the price time was not usable. */
+export function ageText(minutes: number | null): string {
+  if (minutes == null) return 'price time not recorded'
+  if (minutes < 1) return 'observed just now'
+  if (minutes < 90) return `observed ${Math.round(minutes)} min ago`
+  if (minutes < 48 * 60) return `observed ${Math.round(minutes / 60)} h ago`
+  return `observed ${Math.round(minutes / 1440)} days ago`
+}
+
+/** The next checkpoint a missing price is waiting on: the T-30 decision window. */
+export function nextCheckpoint(startsAt: string | null, now: number = Date.now()): string {
+  const start = startsAt ? Date.parse(startsAt) : Number.NaN
+  if (!Number.isFinite(start)) return 'Next price checkpoint not scheduled'
+  const opens = start - 30 * 60_000
+  if (now >= start) return 'Game started · no pregame price was collected'
+  if (now >= opens) return 'Decision window open now · awaiting a collected price'
+  return `Next checkpoint: decision window opens ${new Date(opens).toLocaleString([], {
+    weekday: 'short', hour: 'numeric', minute: '2-digit' })}`
+}
+
 export function UnifiedGamesPage() {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
@@ -359,20 +379,42 @@ function GameRow({
         </p>
       </div>
 
-      <div className="bx-slate__prices">
-        <span className={`bx-price${game.bestAwayPrice == null && game.bestHomePrice == null ? ' bx-price--muted' : ''}`}>
-          <small>Moneyline</small>
-          <b className="bx-num">{american(game.bestAwayPrice)} / {american(game.bestHomePrice)}</b>
-        </span>
-        <span className={`bx-price${handicap == null ? ' bx-price--muted' : ''}`}>
-          <small>{handicapLabel}</small>
-          <b className="bx-num">{handicap == null ? 'none' : signedPoints(handicap, 1)}</b>
-        </span>
-        <span className={`bx-price${totalLine == null ? ' bx-price--muted' : ''}`}>
-          <small>{totalLabel}</small>
-          <b className="bx-num">{totalLine == null ? 'none' : decimals(totalLine, 1)}</b>
-        </span>
-      </div>
+      {/* Sportsbook boxes hold persisted CURRENT quotes only. A stale stored
+          quote is shown as a labelled reference, and model output never fills
+          a price box. */}
+      {game.priceStatus === 'CURRENT' ? (
+        <div className="bx-slate__prices">
+          <span className={`bx-price${game.bestAwayPrice == null && game.bestHomePrice == null ? ' bx-price--muted' : ''}`}>
+            <small>Moneyline</small>
+            <b className="bx-num">{american(game.bestAwayPrice)} / {american(game.bestHomePrice)}</b>
+          </span>
+          <span className={`bx-price${handicap == null ? ' bx-price--muted' : ''}`}>
+            <small>{handicapLabel}</small>
+            <b className="bx-num">{handicap == null ? 'none' : signedPoints(handicap, 1)}</b>
+          </span>
+          <span className={`bx-price${totalLine == null ? ' bx-price--muted' : ''}`}>
+            <small>{totalLabel}</small>
+            <b className="bx-num">{totalLine == null ? 'none' : decimals(totalLine, 1)}</b>
+          </span>
+          <small className="bx-price__source">
+            Sportsbook · {[game.priceBook, game.priceProvider].filter(Boolean).join(' via ') || 'provider not recorded'}
+            {' · '}{ageText(game.priceAgeMinutes)}
+          </small>
+        </div>
+      ) : (
+        <div className="bx-slate__prices bx-slate__prices--none">
+          <span className="bx-price bx-price--muted bx-price--wide">
+            <small>Sportsbook price</small>
+            <b>Not collected</b>
+          </span>
+          <small className="bx-price__source">
+            {game.priceStatus === 'STORED_REFERENCE'
+              ? `Stored reference only · ${[game.priceBook, game.priceProvider].filter(Boolean).join(' via ')}`
+                + ` ${american(game.bestAwayPrice)} / ${american(game.bestHomePrice)} · ${ageText(game.priceAgeMinutes)} · not a current price`
+              : nextCheckpoint(game.startsAt)}
+          </small>
+        </div>
+      )}
 
       <div className="bx-slate__decision">
         <DecisionChip game={game} />

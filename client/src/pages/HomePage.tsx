@@ -360,9 +360,10 @@ function FeatureCard({
         <Stat label="Model − market"
           value={game.edgePoints == null ? 'no market' : `${signedPoints(game.edgePoints, 1)} pp`}
           tone={game.edgePoints == null ? undefined : Math.abs(game.edgePoints) >= 2 ? 'good' : 'warn'} />
-        <Stat label="Best price"
-          value={game.bestHomePrice == null && game.bestAwayPrice == null
-            ? 'none' : `${american(game.bestAwayPrice)} / ${american(game.bestHomePrice)}`} />
+        <Stat label="Sportsbook price"
+          value={game.priceStatus === 'CURRENT'
+            ? `${american(game.bestAwayPrice)} / ${american(game.bestHomePrice)}`
+            : game.priceStatus === 'STORED_REFERENCE' ? 'stale · not current' : 'not collected'} />
       </div>
 
       <div className="bx-feature__foot">

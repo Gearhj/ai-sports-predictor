@@ -75,6 +75,15 @@ export interface SlateGame {
   priceFresh: boolean | null
   handicap: number | null
   totalLine: number | null
+  /**
+   * What the price boxes are allowed to say. CURRENT: a persisted quote inside
+   * the freshness window. STORED_REFERENCE: a persisted quote that is too old
+   * to be a current price. NOT_COLLECTED: no persisted sportsbook quote. Model
+   * output never fills a price box, whatever this is.
+   */
+  priceStatus: PriceStatus
+  priceProvider: string | null
+  priceAgeMinutes: number | null
   /** Model minus market, in percentage points of home-win probability. */
   edgePoints: number | null
   /** Which side the published band describes. The band and `edgePoints`
@@ -93,6 +102,28 @@ export interface SlateGame {
   researchOnly: boolean
 }
 
+export type PriceStatus = 'CURRENT' | 'STORED_REFERENCE' | 'NOT_COLLECTED'
+
+/** The governed quote freshness window, in minutes (FINAL_PREGAME reads 240). */
+export const QUOTE_FRESHNESS_MINUTES = 240
+
+const PROVIDER_LABELS: Record<string, string> = {
+  THE_ODDS_API: 'The Odds API',
+  SPORTSGAMEODDS: 'SportsGameOdds',
+}
+export const providerLabel = (code: string | null | undefined): string | null =>
+  code ? PROVIDER_LABELS[code] ?? code.replace(/_/g, ' ') : null
+
+export function priceStatusOf(observedAt: string | null | undefined, hasQuote: boolean,
+  now: number = Date.now()): { status: PriceStatus; ageMinutes: number | null } {
+  if (!hasQuote) return { status: 'NOT_COLLECTED', ageMinutes: null }
+  const at = observedAt ? Date.parse(observedAt) : Number.NaN
+  // A quote without a usable price time is a reference, never a current price.
+  if (!Number.isFinite(at) || at > now + 60_000) return { status: 'STORED_REFERENCE', ageMinutes: null }
+  const ageMinutes = (now - at) / 60_000
+  return { status: ageMinutes <= QUOTE_FRESHNESS_MINUTES ? 'CURRENT' : 'STORED_REFERENCE', ageMinutes }
+}
+
 const fraction = (percent: number | null | undefined): number | null =>
   percent == null || !Number.isFinite(percent) ? null : percent / 100
 
@@ -101,6 +132,7 @@ export function mlbSlate(data: DashboardData | null): SlateGame[] {
   return games.map((game: ForecastGame) => {
     const homeWin = fraction(game.home_win_probability)
     const marketHome = fraction(game.market_home_probability)
+    const price = priceStatusOf(game.market_quote_observed_at, Boolean(game.market_available))
     return {
       key: `MLB:${game.id}`,
       league: 'MLB' as const,
@@ -120,11 +152,17 @@ export function mlbSlate(data: DashboardData | null): SlateGame[] {
       marketHome,
       bestHomePrice: game.market_available ? game.best_home_moneyline ?? null : null,
       bestAwayPrice: game.market_available ? game.best_away_moneyline ?? null : null,
-      priceBook: null,
-      priceObservedAt: game.data_as_of ?? null,
-      priceFresh: game.market_available ? null : false,
+      priceBook: game.market_books?.length
+        ? (game.market_books.length === 1 ? game.market_books[0] : `${game.market_books.length} books`) : null,
+      // The price time, never the forecast's data time.
+      priceObservedAt: game.market_quote_observed_at ?? null,
+      priceFresh: price.status === 'CURRENT',
       handicap: null,
       totalLine: game.market_total ?? null,
+      priceStatus: price.status,
+      priceProvider: game.market_providers?.length
+        ? game.market_providers.map((code) => providerLabel(code)).join(' + ') : null,
+      priceAgeMinutes: price.ageMinutes,
       // Home-side model minus market, in points. `model_edge` is published
       // against `edge_side`, so it is not reused here: a signed home-side
       // number is what the row renders and it must mean exactly that.
@@ -187,6 +225,19 @@ export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST')
       priceFresh: moneyline ? Boolean(moneyline.fresh) : null,
       handicap: spread?.line ?? null,
       totalLine: total?.line ?? null,
+      ...(() => {
+        const hasQuote = Boolean(moneyline?.quote || spread?.quote || total?.quote)
+        const price = priceStatusOf(moneyline?.observed_at ?? spread?.observed_at ?? total?.observed_at, hasQuote)
+        // The server's role is authoritative: a stored reference is never current.
+        const status: PriceStatus = price.status === 'CURRENT'
+          && [moneyline, spread, total].some((b) => b?.role === 'STORED_REFERENCE')
+          ? 'STORED_REFERENCE' : price.status
+        return {
+          priceStatus: status,
+          priceProvider: moneyline?.provider_label ?? providerLabel(moneyline?.provider) ?? null,
+          priceAgeMinutes: price.ageMinutes,
+        }
+      })(),
       edgePoints: modelHome != null && marketHome != null ? (modelHome - marketHome) * 100 : null,
       // NFL publishes no decision band, so it publishes no edge side either.
       edgeSide: null,
