@@ -320,6 +320,41 @@ class CanonicalNormalizer:
             "rating": round(rating, 6),
         }
         checksum = _checksum(payload)
+
+        # ONE RATING PER TEAM PER KNOWLEDGE TIME -- the constraint's own key.
+        #
+        # The existence check used to include payload_checksum; the unique
+        # constraint does not. A doubleheader lists the same team twice in one
+        # schedule response with different records (71-70 before game one,
+        # 72-70 after), so the check said "not a duplicate", the second insert
+        # collided with the first inside the same batch, and the whole
+        # finalize transaction rolled back -- game status included. TB at TEX
+        # sat LIVE for eleven days that way, with its position unsettled, and
+        # finalize-games failed 213 times across ten dates.
+        #
+        # When two records arrive at one knowledge time the one reflecting more
+        # completed games is the later, more complete record, so it wins. That
+        # is decided identically whichever order the games appear in.
+        key = (team_id, source, source_mode, available_as_of)
+        # Scoped to the current transaction: a row committed earlier is an
+        # immutable observation and must never be corrected in place.
+        # get_transaction() is None before a session's first statement, which
+        # would give two calls in one transaction different identities.
+        transaction = self.session.get_transaction() or self.session.begin()
+        if (not hasattr(self, "_pending_team_ratings")
+                or self._pending_team_ratings_txn is not transaction):
+            self._pending_team_ratings_txn = transaction
+            self._pending_team_ratings = {}
+        pending = self._pending_team_ratings
+        held = pending.get(key)
+        if held is not None:
+            if games > held.sample_size:
+                held.rating = rating
+                held.sample_size = float(games)
+                held.components = payload
+                held.source_record_id = f"{team_id}:{wins}-{losses}"
+                held.payload_checksum = checksum
+            return
         duplicate = self.session.scalar(
             select(TeamRatingObservation.id).where(
                 TeamRatingObservation.team_id == team_id,
@@ -328,12 +363,11 @@ class CanonicalNormalizer:
                 TeamRatingObservation.available_as_of == available_as_of,
                 TeamRatingObservation.source == source,
                 TeamRatingObservation.source_mode == source_mode,
-                TeamRatingObservation.payload_checksum == checksum,
             ).limit(1)
         )
         if duplicate is not None:
             return
-        self.session.add(TeamRatingObservation(
+        observation = TeamRatingObservation(
             team_id=team_id,
             rating=rating,
             method="record_log_odds_shrunk",
@@ -348,7 +382,9 @@ class CanonicalNormalizer:
             source_record_id=f"{team_id}:{wins}-{losses}",
             payload_checksum=checksum,
             ingestion_run_id=ingestion_run_id,
-        ))
+        )
+        self.session.add(observation)
+        pending[key] = observation
 
     def _append_schedule_observations(
         self,
