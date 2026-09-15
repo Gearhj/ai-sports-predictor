@@ -130,4 +130,18 @@ from app.models.cfb_research_forecast import (  # noqa: E402,F401
     CfbResearchForecast,
 )
 
+# AISP DAY-BEFORE SHOW PREVIEW V1: research/editorial only, never read by the
+# governed decision, staking, bankroll or settlement code.
+from app.models.show_preview import (  # noqa: E402,F401
+    APPEND_ONLY_SHOW_PREVIEW_TYPES,
+    SHOW_PREVIEW,
+    ShowBoardDraft,
+    ShowPreviewDisclosure,
+    ShowPreviewFinalComparison,
+    ShowPreviewForecast,
+    ShowPreviewGameBinding,
+    ShowPreviewMarketBinding,
+    ShowPreviewSnapshot,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

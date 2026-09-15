@@ -158,6 +158,11 @@ _APPEND_ONLY_TYPES = (
     ExistingEvidenceDerivedUseDecision,
 )
 
+# Frozen Show Preview snapshots and everything bound into them.
+from app.models.show_preview import APPEND_ONLY_SHOW_PREVIEW_TYPES  # noqa: E402
+
+_APPEND_ONLY_TYPES = _APPEND_ONLY_TYPES + APPEND_ONLY_SHOW_PREVIEW_TYPES
+
 
 # Model identity, lineage, fitted-state, and promotion evidence are immutable
 # once a registry row has been inserted. ``metrics`` is intentionally absent:

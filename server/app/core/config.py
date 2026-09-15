@@ -79,6 +79,27 @@ class Settings(BaseSettings):
         default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
     )
     model_exchange_auto_import_enabled: bool = False
+    # --- AISP DAY-BEFORE SHOW PREVIEW V1 ----------------------------------------
+    # A research/editorial Show Board for the day-before 5:00 PM ET recording.
+    # All three switches default OFF and fail closed: a missing or unparseable
+    # value is False. Even when on, preview provider collection is not
+    # implemented in V1 and refuses by name (see app/show_preview/collection.py).
+    show_preview_enabled: bool = False
+    show_preview_provider_collection_enabled: bool = False
+    show_preview_auto_freeze_enabled: bool = False
+    #: The show-production clock, local times on the day BEFORE the slate, in
+    #: ``show_preview_timezone``. Documentation of intent until the flags above
+    #: are enabled by the owner; nothing is registered from them while off.
+    show_preview_timezone: str = "America/New_York"
+    show_preview_schedule_sync_time: str = Field(default="15:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    show_preview_forecast_import_time: str = Field(default="15:15", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    show_preview_market_collection_time: str = Field(default="16:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    show_preview_build_time: str = Field(default="16:15", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    show_preview_freeze_time: str = Field(default="16:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    show_preview_recording_time: str = Field(default="17:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    #: A preview pair whose OLDER leg is older than this at the board's evidence
+    #: time is shown with its capture time but is not used for a comparison.
+    show_preview_quote_max_age_hours: float = Field(default=18.0, gt=0, le=96)
     #: The MLB V18 package path has its own switch. The flag above also
     #: turns on the NFL bundle, supplement and lab-study consumers, and
     #: enabling MLB must not silently enable those too.
