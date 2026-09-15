@@ -82,7 +82,7 @@ export const ProbabilityRail = memo(function ProbabilityRail({
   return (
     <div className="cc-rail" ref={(node) => { ref.current = node; frame.current = node }}>
       <svg width={width} height={height} role="img" aria-label={summary}>
-        <g tabIndex={0} className="cc-rail__focus" onMouseMove={(e) => show(e, tipContent)} onMouseLeave={hide}
+        <g tabIndex={0} className="cc-rail__focus" aria-label={summary} onMouseMove={(e) => show(e, tipContent)} onMouseLeave={hide}
           onFocus={(e) => show(e, tipContent)} onBlur={hide}>
           <rect x={0} y={0} width={width} height={height} fill="transparent" />
           <line x1={pad} x2={width - pad} y1={cy} y2={cy} className="cc-rail__track" />
