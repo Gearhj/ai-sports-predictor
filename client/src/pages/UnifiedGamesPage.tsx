@@ -53,6 +53,7 @@ import {
 import type { DashboardData, MarketBoardData, MarketBoardRow } from '../types/domain'
 import type { NflEvent, NflWeeks } from '../types/nfl'
 import '../broadcast.css'
+import '../components/command/command.css'
 
 type NflMarketsBoard = { season: number; week: number; events: NflEvent[] }
 type StateFilter = 'ALL' | 'UPCOMING' | 'STARTED' | 'FINAL'
@@ -202,10 +203,6 @@ export function UnifiedGamesPage() {
           <div>
             <span className="bx-eyebrow"><LineChart size={13} aria-hidden="true" /> Games &amp; Forecasts</span>
             <h1>The <em>slate</em></h1>
-            <p className="bx-muted" style={{ marginTop: 8, maxWidth: '58ch' }}>
-              Every game, its projected score, the win split behind it and the price it can be
-              measured against. Open the analysis or the simulation from any row.
-            </p>
           </div>
           <div className="bx-head__meta">
             {(sport === 'ALL' || sport === 'MLB') && (
@@ -243,7 +240,6 @@ export function UnifiedGamesPage() {
             )}
           </div>
         </header>
-        <SportReadiness sport={sport} title="Forecast and price readiness by sport" />
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="bx-segment" role="group" aria-label="Game state filter">
@@ -315,6 +311,11 @@ export function UnifiedGamesPage() {
             researchNote="NFL M1 research forecasts. A virtual paper position is recorded only under the NFL paper policy, with producer eligibility and a fresh price inside the decision window."
           />
         )}
+
+        <details className="cc-below">
+          <summary>Forecast and price readiness for each sport</summary>
+          <SportReadiness sport={sport} title="Forecast and price readiness by sport" />
+        </details>
 
         {/* A league off the governed board is not automatically a league with
             nothing in it. NBA holds imported research forecasts and no market;
