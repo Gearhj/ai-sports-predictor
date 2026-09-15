@@ -1634,6 +1634,66 @@ def nba_joint_comparison_route(session: DatabaseSession, game_id: str | None = N
     return joint_comparison(session, game_id=game_id)
 
 
+@router.get("/cfb/research", tags=["forecasts"])
+def cfb_research_board(
+    session: DatabaseSession,
+    date: str | None = Query(None),
+) -> dict:
+    """Imported College Football research forecasts. Research only, unfunded.
+
+    Separate from the generic multi-sport reads on purpose: College Football is
+    not a registered sport, has no admitted schedule source and no odds adapter,
+    so serving it through a feed built for MLB/NFL/NBA would either break that
+    feed or show a degraded section pretending to be one.
+
+    Probabilities are the delivered fractions. The single multiplication by 100
+    belongs at display, and doing it here would let it happen twice.
+    """
+
+    from app.cfb.read_service import research_board
+
+    return research_board(session, date_iso=date)
+
+
+@router.get("/cfb/games/{source_game_id}", tags=["forecasts"])
+def cfb_game_detail(session: DatabaseSession, source_game_id: str) -> dict:
+    """One College Football game's research forecast, addressed by CFBD game id.
+
+    Addressed by the producer's own identifier rather than an AISP game id,
+    because there is no canonical College Football game row to mint one from and
+    inventing one would put the sport into feeds that cannot serve it.
+    """
+
+    from app.cfb.read_service import game_detail
+
+    found = game_detail(session, source_game_id=source_game_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No College Football research forecast for that game id")
+    return found
+
+
+@router.get("/cfb/games/{source_game_id}/total-scenario", tags=["forecasts"])
+def cfb_total_scenario(
+    session: DatabaseSession,
+    source_game_id: str,
+    line: float = Query(..., description="Integer or half-point total"),
+) -> dict:
+    """Over/push/under for one illustrative total line.
+
+    Read off the complete retained distribution, never off the expected total: a
+    curve drawn around 52.58 would answer the same question differently and look
+    just as convincing. No sportsbook offered this line, so nothing here is a
+    price, an expected return or a recommendation.
+    """
+
+    from app.cfb.read_service import total_scenario
+
+    found = total_scenario(session, source_game_id=source_game_id, line=line)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No College Football research forecast for that game id")
+    return found
+
+
 @router.get("/price-coverage", tags=["markets"])
 def price_coverage_route(session: DatabaseSession, date: str | None = None) -> dict:
     """Why each MLB game on a slate does or does not have a stored price.

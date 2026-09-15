@@ -120,4 +120,14 @@ from app.models.collection_lane_halt import (  # noqa: E402,F401
     CollectionLaneHalt,
 )
 
+# The first College Football forecast. Its own table: the NBA research table
+# exists BECAUSE its package had no distributions, and this one carries ten
+# thousand draws, four PMFs and twelve intervals.
+from app.models.cfb_research_forecast import (  # noqa: E402,F401
+    CFB_RESEARCH_LABEL,
+    CFB_SPORT_CODE,
+    CFB_SPORT_LABEL,
+    CfbResearchForecast,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]
