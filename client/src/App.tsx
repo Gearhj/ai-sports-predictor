@@ -30,6 +30,8 @@ const NflLabPage = lazy(() => import('./pages/NflLabPage').then((module) => ({ d
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const NbaResearchPage = lazy(() => import('./pages/NbaResearchPage').then((module) => ({ default: module.NbaResearchPage })))
 const NbaResearchGamePage = lazy(() => import('./pages/NbaResearchGamePage').then((module) => ({ default: module.NbaResearchGamePage })))
+const CfbResearchPage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchPage })))
+const CfbResearchGamePage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchGamePage })))
 
 function LegacySportRoute() {
   const { pathname, search, hash } = useLocation()
@@ -88,6 +90,11 @@ export default function App() {
                       not routed through the governed game analysis view. */}
                   <Route path="nba/research" element={<NbaResearchPage />} />
                   <Route path="nba/games/:gameId" element={<NbaResearchGamePage />} />
+                  {/* College Football is research-only and has no admitted schedule
+                      source, so it uses the same read-only research route NBA does
+                      rather than a degraded section of the governed game surface. */}
+                  <Route path="college-football/research" element={<CfbResearchPage />} />
+                  <Route path="college-football/games/:gameId" element={<CfbResearchGamePage />} />
                   <Route path="research/history" element={<UnifiedResearchPage historical />} />
                   <Route path="games" element={<UnifiedGamesPage />} />
                   <Route path="games/:gameId" element={<GameRoute />} />

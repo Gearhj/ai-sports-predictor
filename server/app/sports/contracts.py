@@ -30,6 +30,11 @@ class LeagueCode(StrEnum):
     MLB = "MLB"
     NFL = "NFL"
     NBA = "NBA"
+    #: College Football. ONE code for this sport. "NCAAF" is an alias other
+    #: systems use and is deliberately not a second member here -- two members
+    #: would become two registry entries, two selector rows and two sets of
+    #: forecasts that never reconcile.
+    CFB = "CFB"
     WNBA = "WNBA"
     UFC = "UFC"
 

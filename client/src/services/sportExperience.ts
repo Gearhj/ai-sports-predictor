@@ -20,7 +20,7 @@
  */
 import type { SportAvailabilityState, SportRegistryEntry } from '../types/multisport'
 
-export type ExperienceLeagueCode = 'MLB' | 'NFL' | 'NBA' | 'WNBA' | 'NHL' | 'UFC'
+export type ExperienceLeagueCode = 'MLB' | 'NFL' | 'NBA' | 'CFB' | 'WNBA' | 'NHL' | 'UFC'
 
 /** The sport itself. A league or promotion belongs to one of these. */
 export type SportCode = 'BASEBALL' | 'FOOTBALL' | 'BASKETBALL' | 'HOCKEY' | 'MMA'
@@ -225,6 +225,20 @@ const LEAGUE_SEEDS: LeagueSeed[] = [
       + 'policy or position exists, and no NBA game appears on this operational date.',
   },
   {
+    // One code for this sport. NCAAF is an alias other systems use; adding it
+    // as a second entry would give College Football two selector rows and two
+    // sets of forecasts that never reconcile.
+    leagueCode: 'CFB', sportCode: 'FOOTBALL',
+    displayName: 'College Football', shortName: 'CFB',
+    accent: { base: '#4a7c59', soft: '#ecf5ef', ink: '#2c5138' },
+    forecastOutputs: ['Research win probability', 'Expected points', 'Score distribution'],
+    labAvailable: false, labRoute: null, plannedStatus: 'PLANNED',
+    emptyStateGuidance:
+      'College Football is research-only. AISP holds one imported research forecast — '
+      + 'there is no College Football bankroll, wagering policy, sportsbook price or '
+      + 'schedule source, and none was created by importing it.',
+  },
+  {
     leagueCode: 'WNBA', sportCode: 'BASKETBALL',
     displayName: 'Women’s National Basketball Association', shortName: 'WNBA',
     accent: { base: '#a2568f', soft: '#f8ecf5', ink: '#6d2f5d' },
@@ -282,7 +296,7 @@ export const SPORT_EXPERIENCES: Record<ExperienceLeagueCode, SportExperience> =
     LEAGUE_SEEDS.map((seed) => [seed.leagueCode, composeLeague(seed)]),
   ) as Record<ExperienceLeagueCode, SportExperience>
 
-export const SPORT_ORDER: ExperienceLeagueCode[] = ['MLB', 'NFL', 'NBA', 'WNBA', 'NHL', 'UFC']
+export const SPORT_ORDER: ExperienceLeagueCode[] = ['MLB', 'NFL', 'NBA', 'CFB', 'WNBA', 'NHL', 'UFC']
 
 /** Leagues grouped under their sport, for sport-first navigation. */
 export function leaguesBySport(): Array<{ sport: SportDefinition; leagues: SportExperience[] }> {

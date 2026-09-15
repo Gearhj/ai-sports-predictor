@@ -1,0 +1,278 @@
+/* College Football research surface.
+   Scoped under .cfbpage / .cfbcard so nothing here reaches MLB, NFL or NBA. */
+
+.cfbpage {
+  --cfb-accent: #4a7c59;
+  --cfb-soft: #ecf5ef;
+  --cfb-ink: #2c5138;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.cfbpage__list { display: flex; flex-direction: column; gap: 1.5rem; }
+.cfbpage__empty {
+  border: 1px dashed currentColor;
+  border-radius: 12px;
+  padding: 1.5rem;
+  opacity: 0.85;
+}
+.cfbpage__authority,
+.cfbpage__coverage { font-size: 0.85rem; line-height: 1.5; }
+.cfbpage__error { color: #a33; }
+
+.cfbcard {
+  --cfb-accent: #4a7c59;
+  --cfb-soft: #ecf5ef;
+  border: 1px solid rgba(74, 124, 89, 0.28);
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  background: linear-gradient(180deg, var(--cfb-soft) 0%, transparent 140px);
+}
+
+.cfbcard__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.cfbcard__eyebrow {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.cfbcard__matchup { margin: 0.2rem 0 0; font-size: 1.3rem; line-height: 1.2; }
+.cfbcard__kick { margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8; }
+.cfbcard__badge {
+  border: 1px solid var(--cfb-accent);
+  color: var(--cfb-ink);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* The pick leads. */
+.cfbcard__pick {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--cfb-ink);
+}
+
+.cfbcard__score {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.cfbcard__team {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.cfbcard__team--lead {
+  border-color: var(--cfb-accent);
+  background: var(--cfb-soft);
+}
+.cfbcard__team b { font-size: 1.5rem; }
+.cfbcard__teamname { font-weight: 600; }
+
+.cfbcard__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+.cfbcard__figures div {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding-top: 0.5rem;
+}
+.cfbcard__figures dt { font-size: 0.78rem; opacity: 0.75; }
+.cfbcard__figures dd { margin: 0.15rem 0 0; font-size: 1.1rem; font-weight: 600; }
+
+.cfbcard__probs h4,
+.cfbcard__intervals h4,
+.cfbdist h4,
+.cfbtotals h4 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+.cfbcard__probs ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.cfbcard__probs li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+}
+.cfbcard__method { font-weight: 600; }
+.cfbcard__primarytag {
+  margin-left: 0.4rem;
+  font-size: 0.66rem;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--cfb-accent);
+  color: var(--cfb-ink);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+.cfbcard__alt { opacity: 0.7; }
+.cfbcard__note,
+.cfbcard__precision,
+.cfbdist__basis { margin: 0.5rem 0 0; font-size: 0.85rem; line-height: 1.5; opacity: 0.9; }
+
+/* The sentence that keeps the win probability honest. */
+.cfbcard__range {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-left: 3px solid var(--cfb-accent);
+  background: var(--cfb-soft);
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 0 8px 8px 0;
+}
+
+/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+.cfbcard__intervals,
+.cfbtotals { overflow-x: auto; }
+.cfbcard__intervals table,
+.cfbtotals__table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.cfbcard__intervals th,
+.cfbcard__intervals td,
+.cfbtotals__table th,
+.cfbtotals__table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.cfbcard__intervals td:not(:first-child),
+.cfbtotals__table td:not(:first-child) { text-align: right; }
+.cfbcard__intervals th:not(:first-child),
+.cfbtotals__table th:not(:first-child) { text-align: right; }
+
+.cfbdist__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+.cfbdist__figure { margin: 0; }
+.cfbdist__figure figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  flex-wrap: wrap;
+}
+.cfbdist__figure svg {
+  width: 100%;
+  height: 92px;
+  display: block;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+.cfbdist__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  opacity: 0.7;
+  margin-top: 0.2rem;
+}
+
+.cfbtotals__label {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cfb-ink);
+  font-weight: 700;
+}
+.cfbtotals__custom { background: var(--cfb-soft); }
+.cfbtotals__form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.cfbtotals__form input { width: 7rem; padding: 0.35rem 0.5rem; }
+.cfbtotals__note { margin: 0.5rem 0 0; font-size: 0.82rem; line-height: 1.5; }
+.cfbtotals__error { color: #a33; margin: 0.5rem 0 0; }
+
+.cfbcard__toggle {
+  background: none;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.cfbcard__bullets { margin: 0.75rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.4rem; }
+.cfbcard__bullets li { font-size: 0.88rem; line-height: 1.5; }
+
+.cfbcard__authority {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.cfbcard__authority span {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+}
+
+.cfbcard__tech {
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+.cfbcard__tech div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 0.5rem; }
+.cfbcard__tech dt { opacity: 0.75; }
+.cfbcard__tech dd { margin: 0; }
+.cfbcard__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  word-break: break-all;
+}
+
+.cfbcard__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding-top: 0.6rem;
+  opacity: 0.75;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 600px) {
+  .cfbcard { padding: 1rem; }
+  .cfbcard__matchup { font-size: 1.1rem; }
+  .cfbcard__pick { font-size: 1.2rem; }
+  .cfbcard__score { grid-template-columns: 1fr; }
+  /* Three columns at 375px would shrink the method label to nothing, so the
+     probability rows stack rather than compress. */
+  .cfbcard__probs li { grid-template-columns: 1fr; gap: 0.15rem; }
+  .cfbcard__alt { justify-self: start; }
+  .cfbcard__tech div { grid-template-columns: 1fr; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .cfbpage:not([data-theme='light']) { --cfb-soft: rgba(74, 124, 89, 0.14); --cfb-ink: #9ed4ad; }
+  .cfbcard { --cfb-soft: rgba(74, 124, 89, 0.14); background: none; }
+  .cfbcard__probs li,
+  .cfbcard__team { background: rgba(255, 255, 255, 0.04); }
+}

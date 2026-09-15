@@ -82,6 +82,28 @@ NBA = SportDefinition(
     research_href="/nba/research",
 )
 
+CFB = SportDefinition(
+    sport_code=SportCode.FOOTBALL,
+    league_code=LeagueCode.CFB,
+    participant_type=ParticipantType.TEAM,
+    availability=SportAvailabilityState.PLANNED,
+    display_name="College Football",
+    short_label="CFB",
+    official_positions_supported=False,
+    official_positions_note=(
+        "Planned. AISP holds an imported research forecast for College Football and "
+        "nothing else: no admitted schedule source, no day surface, no read adapter, "
+        "no odds, no bankroll, no policy and no position. The forecast is readable at "
+        "the research href; it is research output and can never be funded."
+    ),
+    # navigable=False is the whole point. A navigable sport is wired into the
+    # day surface, scoreboard and odds adapters, none of which can serve College
+    # Football -- so it gets the same read-only research href NBA uses rather
+    # than a degraded section of a feed built for something else.
+    navigable=False,
+    research_href="/college-football/research",
+)
+
 WNBA = SportDefinition(
     sport_code=SportCode.BASKETBALL,
     league_code=LeagueCode.WNBA,
@@ -108,7 +130,7 @@ UFC = SportDefinition(
     navigable=False,
 )
 
-SPORT_REGISTRY: tuple[SportDefinition, ...] = (MLB, NFL, NBA, WNBA, UFC)
+SPORT_REGISTRY: tuple[SportDefinition, ...] = (MLB, NFL, NBA, CFB, WNBA, UFC)
 
 _BY_LEAGUE = {str(entry.league_code): entry for entry in SPORT_REGISTRY}
 
