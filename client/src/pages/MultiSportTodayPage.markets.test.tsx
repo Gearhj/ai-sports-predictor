@@ -1,10 +1,10 @@
-﻿/**
+/**
  * The Daily Decisions market filter.
  *
  * The filter decides which of two very different things the desk is showing:
  * recorded moneyline decisions, and totals research that is not a decision at
  * all. Two mistakes matter here. Selecting Totals must not make the moneyline
- * rows vanish into an "empty slate" message â€” that would report a filter as a
+ * rows vanish into an "empty slate" message — that would report a filter as a
  * finding. And an empty totals listing must name its own cause, because "no
  * book has posted a total" and "the model has nothing" are different facts that
  * a shared blank would merge.
