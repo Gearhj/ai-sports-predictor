@@ -493,6 +493,11 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             next_run_time=datetime.now(UTC),
             **common,
         )
+    # AISP DAY-BEFORE SHOW PREVIEW V1: registers the 4:30 PM ET freeze only when
+    # both Show Preview switches are on. Never a provider request, and no
+    # preview collection job exists to register.
+    from app.show_preview.jobs import register_show_preview_jobs
+    register_show_preview_jobs(scheduler, settings, common)
     if not settings.scheduler_core_jobs_enabled:
         return scheduler
     # Canonical events for the NEXT slate, registered before anything needs to

@@ -685,6 +685,70 @@ def model_performance(session: DatabaseSession, league: str = Query("MLB")) -> d
     return ModelPerformanceReadService(session).league(code)
 
 
+@router.get("/show-board", tags=["show-preview"])
+def show_board(session: DatabaseSession, settings: AppSettings,
+               event_date: date | None = Query(None, alias="date")) -> dict:
+    """AISP DAY-BEFORE SHOW PREVIEW V1: the Show Board for one slate. Read-only.
+
+    Research/editorial only. Calls no provider, generates no forecast, applies no
+    wagering policy and writes nothing; a frozen snapshot is served as stored.
+    """
+
+    from app.show_preview.read import show_board_response
+
+    return show_board_response(session, settings, slate_date=event_date)
+
+
+@router.get("/show-board/game", tags=["show-preview"])
+def show_board_game_detail(session: DatabaseSession, settings: AppSettings,
+                           game_key: str = Query(..., max_length=120),
+                           event_date: date = Query(..., alias="date")) -> dict:
+    """Every preview leg for one game: snapshot ids, retrieval times, request match. Read-only."""
+
+    from app.show_preview.read import show_board_game
+
+    detail = show_board_game(session, settings, slate_date=event_date, game_key=game_key)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Game not on this Show Board")
+    return detail
+
+
+@router.get("/show-board/contract", tags=["show-preview"])
+def show_board_contract(settings: AppSettings) -> dict:
+    """The preview forecast consumer contract and the planned show clock."""
+
+    from app.show_preview.read import contract_document
+
+    return contract_document(settings)
+
+
+class ShowBoardFreezeRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    slate_date: date = Field(alias="date")
+    supersede_reason: str | None = Field(default=None, max_length=400)
+
+
+@router.post("/show-board/freeze", tags=["show-preview"])
+def show_board_freeze(request: ShowBoardFreezeRequest, session: DatabaseSession, settings: AppSettings,
+                      user: AdminUser) -> dict:
+    """Freeze the Show Board for a slate. Administrator only; refused while the workflow is off."""
+
+    from app.show_preview.freeze import ShowPreviewDisabled, SnapshotAlreadyFrozen, freeze_show_board
+
+    try:
+        result = freeze_show_board(session, request.slate_date, settings, now=datetime.now(UTC), trigger="ADMIN_FREEZE",
+                                   supersede_reason=request.supersede_reason)
+    except ShowPreviewDisabled as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except SnapshotAlreadyFrozen as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    session.commit()
+    return {"snapshot_sha256": result.snapshot.snapshot_sha256, "created": result.created,
+            "superseded_sha256": result.superseded.snapshot_sha256 if result.superseded else None,
+            "frozen_utc": result.snapshot.frozen_utc.isoformat()}
+
+
 @router.get("/information-events/contract", tags=["markets"])
 def information_event_contract(session: DatabaseSession) -> dict:
     """The versioned contract an information-event producer must satisfy."""
