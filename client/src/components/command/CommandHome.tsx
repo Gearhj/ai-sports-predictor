@@ -49,7 +49,7 @@ export function sportStatus(entry: SportReadinessEntry | undefined): { text: str
   return { text: 'Awaiting price window', tone: '' }
 }
 
-function todaysSettlements(ledger: Ledger | null, day: string, sport?: SportCode) {
+export function todaysSettlements(ledger: Ledger | null, day: string, sport?: SportCode) {
   const settled = (ledger?.sports ?? [])
     .filter((s) => !sport || s.sport === sport)
     .flatMap((s) => s.positions.filter((p) => p.status === 'SETTLED' && sameEtDay(p.settled_at, day)))

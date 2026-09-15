@@ -1,7 +1,9 @@
 /**
- * The $1,000 Experiment, first viewport: the aggregate virtual bankroll, the
- * four sport accounts, the realized bankroll curve, then open positions,
- * recent settlements and the transaction ledger.
+ * The $1,000 Experiment. First viewport: a dark aggregate headline -- combined
+ * bankroll, starting capital, net P&L and return, today's P&L, available and
+ * reserved capital, open positions and the per-sport breakdown -- with the
+ * interactive bankroll curve inside it. Then the four sport accounts, open
+ * positions, recent settlements and the transaction ledger.
  *
  * Every figure is from `/command-center/ledger` (account contribution plus
  * settled P&L; open stakes are reserved capital, never counted as won or lost)
@@ -16,8 +18,7 @@ import {
   type LedgerPosition, type SportCode,
 } from '../../services/commandCenter'
 import { BankrollHistory } from './BankrollHistory'
-import { DeferUntilVisible } from './chartKit'
-import { sportStatus } from './CommandHome'
+import { sportStatus, todayEt, todaysSettlements } from './CommandHome'
 import { AsOf } from './RegionState'
 import './command.css'
 
@@ -41,42 +42,52 @@ export function CommandExperiment({ highlight }: { highlight?: string | null }) 
   const open = rows.filter((p) => p.status !== 'SETTLED')
   const settled = rows.filter((p) => p.status === 'SETTLED').sort((a, b) => (b.settled_at ?? '').localeCompare(a.settled_at ?? ''))
   const record = totals?.record
+  const today = todaysSettlements(data ?? null, todayEt())
+  const tone = (v: number | null | undefined) => (v == null || v === 0 ? '' : v > 0 ? 'is-up' : 'is-down')
+  const ret = totals && totals.starting_capital ? (totals.profit_loss / totals.starting_capital) * 100 : null
 
   return (
-    <section className="cc-top cc-tokens" aria-label="$1,000 Experiment summary">
-      <header className="cc-panel__head" style={{ marginBottom: 0 }}>
-        <div>
-          <span className="bx-eyebrow">$1,000 Experiment · four season accounts</span>
-          <h1 className="cc-title">Virtual bankroll</h1>
-          <AsOf resource={ledger} label="ledger" />
-        </div>
-        <span className="cc-chip">Virtual research · no real money</span>
-      </header>
-
-      {ledger.error && !data && <p className="cc-empty" role="alert">The ledger is unavailable: {ledger.error}</p>}
-
-      <div className="cc-kpis">
-        <div className="cc-kpi cc-kpi--hero">
-          <small>Aggregate virtual bankroll</small>
-          <b>{money(totals?.realized_bankroll)}</b>
-          <span>{totals ? `from ${money(totals.starting_capital, 0)} starting capital across MLB, NFL, NBA and CFB` : 'Reading the ledger…'}</span>
-        </div>
-        <div className={`cc-kpi ${(totals?.profit_loss ?? 0) > 0 ? 'cc-kpi--good' : (totals?.profit_loss ?? 0) < 0 ? 'cc-kpi--bad' : ''}`}>
-          <small>Realized P&amp;L</small>
-          <b>{signedMoney(totals?.profit_loss)}</b>
-          <span>{totals ? `${((totals.profit_loss / totals.starting_capital) * 100).toFixed(2)}% of starting capital` : ''}</span>
-        </div>
-        <div className="cc-kpi">
-          <small>Available capital</small>
-          <b>{money(totals?.available_capital)}</b>
-          <span>{money(totals?.open_exposure)} reserved in {totals?.open_count ?? 0} open position{totals?.open_count === 1 ? '' : 's'}</span>
-        </div>
-        <div className="cc-kpi">
-          <small>Record</small>
-          <b>{record ? `${record.WIN}–${record.LOSS}${record.PUSH ? `–${record.PUSH}` : ''}` : '—'}</b>
-          <span>{totals?.settled_count ?? 0} settled · far too few to show an edge</span>
-        </div>
-      </div>
+    <section className="cc-top cc-tokens cc-experiment" aria-label="$1,000 Experiment summary">
+      <section className="cc-dark cc-hero-bank cc-xhero" aria-label="Combined virtual bankroll">
+        <header className="cc-hero-bank__head">
+          <div>
+            <span className="cc-kicker">$1,000 Experiment · combined virtual bankroll · MLB · NFL · NBA · CFB</span>
+            <h1 className="cc-xhero__value cc-hero-bank__value">{money(totals?.realized_bankroll)}</h1>
+            <div className={`cc-hero-bank__change ${tone(totals?.profit_loss)}`}>
+              {totals && ret != null ? `${signedMoney(totals.profit_loss)} (${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%) net from ${money(totals.starting_capital, 0)} starting capital` : 'Reading the ledger…'}
+            </div>
+          </div>
+          <div className="cc-xhero__side">
+            <span className="cc-chip cc-chip--dark">Virtual research · no real money</span>
+            <AsOf resource={ledger} label="ledger" />
+          </div>
+        </header>
+        {ledger.error && !data && <p className="cc-empty" role="alert">The ledger is unavailable: {ledger.error}</p>}
+        <dl className="cc-hero-bank__stats cc-xhero__stats">
+          <div><dt>Starting capital</dt><dd>{money(totals?.starting_capital, 0)}</dd><small>four season accounts</small></div>
+          <div><dt>Net P&amp;L · return</dt><dd className={tone(totals?.profit_loss)}>{signedMoney(totals?.profit_loss)}</dd><small>{ret == null ? '—' : `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}% of starting`}</small></div>
+          <div><dt>Today’s P&amp;L</dt><dd className={tone(today.pnl)}>{signedMoney(today.pnl)}</dd><small>{today.count} settled today</small></div>
+          <div><dt>Available</dt><dd>{money(totals?.available_capital)}</dd><small>virtual capital free</small></div>
+          <div><dt>Reserved</dt><dd>{money(totals?.open_exposure)}</dd><small>in open stakes</small></div>
+          <div><dt>Open · record</dt><dd>{totals?.open_count ?? '—'}</dd><small>{record ? `${record.WIN}–${record.LOSS}${record.PUSH ? `–${record.PUSH}` : ''} from ${totals?.settled_count ?? 0} settled` : ''}</small></div>
+        </dl>
+        <ul className="cc-xhero__sports" aria-label="Sport breakdown">
+          {SPORT_CODES.map((code) => {
+            const s = data?.sports.find((x) => x.sport === code)
+            return (
+              <li key={code} style={{ ['--sport' as string]: SPORT_COLORS[code] }}>
+                <i className="cc-dot" /><span>{SPORT_NAMES[code]}</span>
+                <b>{money(s?.realized_bankroll)}</b>
+                <small className={tone(s?.profit_loss)}>{s ? signedMoney(s.profit_loss) : '—'}{s?.open_count ? ` · ${s.open_count} open` : ''}</small>
+              </li>
+            )
+          })}
+        </ul>
+        {data
+          ? <BankrollHistory ledger={data} compactHeight={190} hideTable />
+          : <div className="cc-hero-bank__placeholder" />}
+        <p className="cc-hero-bank__foot">Realized bankroll steps once per settlement; open stakes are reserved, never counted as won or lost. Hover or tab to a marker.</p>
+      </section>
 
       <div className="cc-sports">
         {SPORT_CODES.map((code) => {
@@ -100,13 +111,6 @@ export function CommandExperiment({ highlight }: { highlight?: string | null }) 
           )
         })}
       </div>
-
-      {data && (
-        <div className="cc-panel">
-          <div className="cc-panel__head"><h2>Bankroll curve</h2><span className="cc-note" style={{ margin: 0 }}>Steps once per settlement · hover or tab to a marker</span></div>
-          <DeferUntilVisible minHeight={320}><BankrollHistory ledger={data} /></DeferUntilVisible>
-        </div>
-      )}
 
       <div className="cc-panel">
         <div className="cc-panel__head"><h2>Open positions</h2><span className="cc-note" style={{ margin: 0 }}>Recorded entry terms, not the latest market price</span></div>
