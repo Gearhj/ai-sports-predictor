@@ -336,10 +336,13 @@ def _nba(session: Session, now: datetime) -> dict[str, Any]:
             "position": _state("NONE_YET", "No NBA position", **_positions(session, "NBA")),
             "pipeline": {"ready": True,
                          "blocker": ("Research forecast available; paper policy awaiting producer eligibility "
-                                     f"evidence ({NBA.eligibility_contract}).") if not elig["eligible"] else None,
-                         "could_qualify": ("Not while eligibility is missing. With it: a verified SportsGameOdds "
-                                           "NBA league identity, a fresh same-book two-sided price inside the "
-                                           "window, and an edge of at least 2 points.")}}
+                                     f"evidence ({NBA.eligibility_contract}).") if not elig["eligible"] else
+                                    ("Eligible forecast; price intake blocked until SportsGameOdds' NBA league "
+                                     "identity is verified (SGO_LEAGUE_IDENTITY_UNVERIFIED)."),
+                         "could_qualify": (("Not while eligibility is missing. With it: " if not elig["eligible"]
+                                            else "Yes, once there is ")
+                                           + "a verified SportsGameOdds NBA league identity, a fresh same-book "
+                                           "two-sided price inside the window, and an edge of at least 2 points.")}}
 
 
 def _cfb(session: Session, now: datetime) -> dict[str, Any]:

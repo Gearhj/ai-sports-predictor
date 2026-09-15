@@ -1648,6 +1648,28 @@ def sports_readiness(session: DatabaseSession) -> dict:
     return sport_readiness(session)
 
 
+@router.get("/command-center/ledger", tags=["operations"])
+def command_center_ledger(session: DatabaseSession) -> dict:
+    """Every sport account's recorded positions and realized bankroll path. Read-only."""
+
+    from app.services.command_center import experiment_ledger
+
+    return experiment_ledger(session)
+
+
+@router.get("/command-center/markets", tags=["markets"])
+def command_center_markets(
+    session: DatabaseSession,
+    event_date: date | None = Query(None, alias="date"),
+) -> dict:
+    """Persisted sportsbook coverage for one Eastern slate date. No provider call."""
+
+    from app.core.time import local_today
+    from app.services.command_center import market_coverage
+
+    return market_coverage(session, event_date or local_today("America/New_York"))
+
+
 @router.get("/cfb/research", tags=["forecasts"])
 def cfb_research_board(
     session: DatabaseSession,
