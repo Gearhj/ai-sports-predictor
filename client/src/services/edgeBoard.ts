@@ -338,7 +338,10 @@ export function buildEdgeBoard({ decisions, games, ledger, now, decisionsHref, a
   return {
     state: 'ON_DECK',
     title: HERO_TITLE.ON_DECK,
-    subtitle: cards.length ? 'Forecasts and sportsbook markets still to arrive' : 'No game remains on today’s slate',
+    subtitle: !cards.length ? 'No game remains on today’s slate'
+      : upcoming.some((g) => g.price_state === 'CURRENT_PRICE')
+        ? `Forecasts pending · markets collected for ${upcoming.filter((g) => g.price_state === 'CURRENT_PRICE').length} of ${upcoming.length} games`
+        : 'Forecasts and sportsbook markets still to arrive',
     cards: cards.slice(0, MAX_CARDS),
     available: cards.length,
   }

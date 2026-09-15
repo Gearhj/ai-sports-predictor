@@ -166,7 +166,11 @@ describe('hero states', () => {
   it('Games on Deck when neither forecasts nor evaluations exist, ordered by decision window', () => {
     const board = buildEdgeBoard(input([], [game('1', { homeP: null, startIn: 300 }), game('2', { homeP: null, startIn: 120 })]))
     expect(board.state).toBe('ON_DECK')
+    expect(board.subtitle).toBe('Forecasts and sportsbook markets still to arrive')
     expect(board.cards.map((c) => c.gameId)).toEqual(['2', '1'])
+    const collected = buildEdgeBoard(input([], [priced(game('1', { homeP: null, startIn: 300 })), game('2', { homeP: null, startIn: 120 })]))
+    expect(collected.subtitle).toBe('Forecasts pending · markets collected for 1 of 2 games')
+    expect(collected.cards.every((c) => c.edge == null && c.range == null)).toBe(true)
     expect(board.cards.every((c) => c.status === 'ON_DECK' && c.edge == null && c.modelProbability == null)).toBe(true)
   })
 

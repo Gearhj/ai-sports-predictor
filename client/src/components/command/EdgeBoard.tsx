@@ -103,7 +103,7 @@ export const EdgeBoard = memo(function EdgeBoard({ board, now, loading, asOf, al
                 </div>
               )}
               {board.available > count && (
-                <p className="cc-edge__more"><Link to={allHref}>+{board.available - count} more on Daily Decisions</Link></p>
+                <p className="cc-edge__more"><Link to={allHref}>+{board.available - count} more {board.state === 'BEST_EDGES' || board.state === 'CLOSEST' ? '' : 'games '}on Daily Decisions</Link></p>
               )}
             </>
           )}
