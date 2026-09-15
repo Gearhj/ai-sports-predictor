@@ -44,6 +44,9 @@ import { resolveAllSports } from '../services/sportExperience'
 import { apiRequest, endpoints } from '../services/api'
 import { byStartTime, mlbSlate, nflSlate, type SlateGame } from '../services/broadcastSlate'
 import {
+  etDateOf, useCoverageForDates, useLedger, type CoverageGame, type CoverageQuote, type LedgerPosition,
+} from '../services/commandCenter'
+import {
   LeagueTag, SplitBar, TeamMark, agoOf, american, clockOf, dayOf, decimals,
   pct, signedPoints, useBroadcastTheme,
 } from '../components/broadcast/primitives'
@@ -103,43 +106,69 @@ export function UnifiedGamesPage() {
   const dateParam = params.get('date')
   const [stateFilter, setStateFilter] = useState<StateFilter>('ALL')
 
-  const loader = useCallback(async (signal: AbortSignal): Promise<GamesBoard> => {
-    const warnings: string[] = []
-    const safe = async <T,>(name: string, run: () => Promise<T>): Promise<T | null> => {
-      try { return await run() } catch (error) {
-        if (signal.aborted) throw error
-        warnings.push(`${name} unavailable`)
-        return null
-      }
-    }
-    const wantsMlb = sport === 'ALL' || sport === 'MLB'
-    const wantsNfl = sport === 'ALL' || sport === 'NFL'
+  // Two independent regions: the MLB slate never waits for the slower NFL week
+  // board, and either one failing leaves the other usable.
+  const wantsMlb = sport === 'ALL' || sport === 'MLB'
+  const wantsNfl = sport === 'ALL' || sport === 'NFL'
+  const seasonParam = params.get('season')
+  const weekParam = params.get('week')
+  const mlbRes = useApiResource(useCallback(async (signal: AbortSignal) => {
+    if (!wantsMlb) return { data_mode: 'live' as const, mlb: null, books: null, warnings: [] as string[] }
     const query = dateParam ? `?date=${encodeURIComponent(dateParam)}` : ''
-    const [mlb, books, weeks] = await Promise.all([
-      wantsMlb ? safe('MLB slate', () => apiRequest<DashboardData>(`/games/slate${query}`, {}, signal)) : null,
-      wantsMlb ? safe('MLB prices', () => apiRequest<MarketBoardData>(`/markets/board${query}`, {}, signal)) : null,
-      wantsNfl ? safe('NFL schedule', () => endpoints.nflWeeks(signal)) : null,
+    const warnings: string[] = []
+    const [mlb, books] = await Promise.all([
+      apiRequest<DashboardData>(`/games/slate${query}`, {}, signal),
+      apiRequest<MarketBoardData>(`/markets/board${query}`, {}, signal).catch((error) => {
+        if (signal.aborted) throw error
+        warnings.push('MLB prices unavailable')
+        return null
+      }),
     ])
-    const season = Number(params.get('season')) || weeks?.current?.season
-    const week = Number(params.get('week')) || weeks?.current?.week
-    const nfl = season && week
-      ? await safe('NFL week', () => apiRequest<NflMarketsBoard>(`/nfl/markets/${season}/${week}`, {}, signal))
-      : null
-    return { data_mode: 'live', scope: sport, date: mlb?.date ?? dateParam, mlb, books, weeks, nfl, warnings }
-    // `params` is read for season/week only; date drives its own dependency.
-  }, [sport, dateParam, params])
+    return { data_mode: 'live' as const, mlb, books, warnings }
+  }, [wantsMlb, dateParam]), { key: cacheKey('games-mlb', { wantsMlb, date: dateParam }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
+  const nflRes = useApiResource(useCallback(async (signal: AbortSignal) => {
+    if (!wantsNfl) return { data_mode: 'live' as const, weeks: null, nfl: null }
+    const weeks = await endpoints.nflWeeks(signal)
+    const season = Number(seasonParam) || weeks?.current?.season
+    const week = Number(weekParam) || weeks?.current?.week
+    const nfl = season && week ? await apiRequest<NflMarketsBoard>(`/nfl/markets/${season}/${week}`, {}, signal) : null
+    return { data_mode: 'live' as const, weeks, nfl }
+  }, [wantsNfl, seasonParam, weekParam]), { key: cacheKey('games-nfl', { wantsNfl, season: seasonParam, week: weekParam }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
+  const board: GamesBoard = {
+    data_mode: 'live', scope: sport, date: mlbRes.data?.mlb?.date ?? dateParam,
+    mlb: mlbRes.data?.mlb ?? null, books: mlbRes.data?.books ?? null,
+    weeks: nflRes.data?.weeks ?? null, nfl: nflRes.data?.nfl ?? null,
+    warnings: [
+      ...(mlbRes.data?.warnings ?? []),
+      ...(mlbRes.error && !mlbRes.data ? ['MLB slate unavailable'] : []),
+      ...(nflRes.error && !nflRes.data ? ['NFL week unavailable'] : []),
+    ],
+  }
+  const resource = {
+    loading: (wantsMlb ? mlbRes.loading : true) && (wantsNfl ? nflRes.loading : true),
+    error: mlbRes.data || nflRes.data ? null : (mlbRes.error ?? nflRes.error),
+    updatedAt: mlbRes.updatedAt ?? nflRes.updatedAt,
+    refreshing: mlbRes.refreshing || nflRes.refreshing,
+    stale: mlbRes.stale || nflRes.stale,
+    refresh: () => { mlbRes.refresh(); nflRes.refresh() },
+  }
+  const mlbPending = wantsMlb && mlbRes.loading
+  const nflPending = wantsNfl && nflRes.loading
 
-  const resource = useApiResource(loader, {
-    key: cacheKey('unified/games', {
-      sport, date: dateParam, season: params.get('season'), week: params.get('week'),
-    }),
-    staleTimeMs: STALE_TIME.slate,
-    refreshIntervalMs: STALE_TIME.slate,
-  })
-  const board = resource.data?.scope === sport ? resource.data : null
-
-  const mlbGames = useMemo(() => mlbSlate(board?.mlb ?? null).sort(byStartTime), [board])
-  const nflGames = useMemo(() => nflSlate(board?.nfl?.events ?? []).sort(byStartTime), [board])
+  const mlbGames = useMemo(() => mlbSlate(board?.mlb ?? null).sort(byStartTime), [mlbRes.data])
+  const nflGames = useMemo(() => nflSlate(board?.nfl?.events ?? []).sort(byStartTime), [nflRes.data])
+  // Stored sportsbook evidence for every date on screen, from the coverage read
+  // model (all persisted LIVE quotes, with provider classification), and the
+  // ledger for recorded entry terms. Both are cached, provider-free reads.
+  const evidenceDates = useMemo(() => [...new Set([...mlbGames, ...nflGames]
+    .map((g) => etDateOf(g.startsAt)).filter((d): d is string => Boolean(d)))], [mlbGames, nflGames])
+  const evidence = useCoverageForDates(evidenceDates)
+  const ledger = useLedger()
+  const entriesByGame = useMemo(() => {
+    const out: Record<string, LedgerPosition[]> = {}
+    for (const s of ledger.data?.sports ?? []) for (const pos of s.positions) (out[pos.game_id] ??= []).push(pos)
+    return out
+  }, [ledger.data])
   const all = useMemo(() => [...mlbGames, ...nflGames].sort(byStartTime), [mlbGames, nflGames])
   const visible = useCallback(
     (games: SlateGame[]) => stateFilter === 'ALL' ? games : games.filter((game) => stateOf(game) === stateFilter),
@@ -265,8 +294,10 @@ export function UnifiedGamesPage() {
             subtitle={displayedDate ? dayOf(`${displayedDate}T12:00:00Z`) : 'Daily slate'}
             games={visible(mlbGames)}
             books={board?.books?.rows ?? []}
+            evidence={evidence.data?.byGame ?? null}
+            entries={entriesByGame}
             withSport={withSport}
-            emptyNote="No MLB game is recorded for this date."
+            emptyNote={mlbPending ? 'Loading the MLB slate…' : 'No MLB game is recorded for this date.'}
           />
         )}
 
@@ -277,9 +308,11 @@ export function UnifiedGamesPage() {
             subtitle={board?.nfl ? `${board.nfl.season} · Week ${board.nfl.week}` : 'Selected week'}
             games={visible(nflGames)}
             books={[]}
+            evidence={evidence.data?.byGame ?? null}
+            entries={entriesByGame}
             withSport={withSport}
-            emptyNote="No NFL game is recorded for this week."
-            researchNote="Research shadow. NFL forecasts create no position and carry no wagering authority."
+            emptyNote={nflPending ? 'Loading the NFL week…' : 'No NFL game is recorded for this week.'}
+            researchNote="NFL M1 research forecasts. A virtual paper position is recorded only under the NFL paper policy, with producer eligibility and a fresh price inside the decision window."
           />
         )}
 
@@ -304,10 +337,12 @@ export function UnifiedGamesPage() {
 }
 
 function LeagueSection({
-  league, title, subtitle, games, books, withSport, emptyNote, researchNote,
+  league, title, subtitle, games, books, withSport, emptyNote, researchNote, evidence, entries,
 }: {
   league: 'MLB' | 'NFL'; title: string; subtitle: string; games: SlateGame[]
   books: MarketBoardRow[]; emptyNote: string; researchNote?: string
+  evidence: Record<string, CoverageGame> | null
+  entries: Record<string, LedgerPosition[]>
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
 }) {
   return (
@@ -327,7 +362,9 @@ function LeagueSection({
         : <div className="bx-slate">
           {games.map((game) => (
             <GameRow key={game.key} game={game} withSport={withSport}
-              books={books.filter((row) => row.game_id === game.gameId)} />
+              books={books.filter((row) => row.game_id === game.gameId)}
+              evidence={game.gameId ? evidence?.[game.gameId] ?? null : null}
+              entries={game.gameId ? entries[game.gameId] ?? [] : []} />
           ))}
         </div>}
     </section>
@@ -335,8 +372,11 @@ function LeagueSection({
 }
 
 function GameRow({
-  game, books, withSport,
-}: { game: SlateGame; books: MarketBoardRow[]; withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
+  game, books, withSport, evidence, entries,
+}: {
+  game: SlateGame; books: MarketBoardRow[]; withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  evidence: CoverageGame | null; entries: LedgerPosition[]
+}) {
   const [open, setOpen] = useState(false)
   const state = stateOf(game)
   const homeLead = (game.homeWin ?? 0) >= (game.awayWin ?? 0)
@@ -379,42 +419,8 @@ function GameRow({
         </p>
       </div>
 
-      {/* Sportsbook boxes hold persisted CURRENT quotes only. A stale stored
-          quote is shown as a labelled reference, and model output never fills
-          a price box. */}
-      {game.priceStatus === 'CURRENT' ? (
-        <div className="bx-slate__prices">
-          <span className={`bx-price${game.bestAwayPrice == null && game.bestHomePrice == null ? ' bx-price--muted' : ''}`}>
-            <small>Moneyline</small>
-            <b className="bx-num">{american(game.bestAwayPrice)} / {american(game.bestHomePrice)}</b>
-          </span>
-          <span className={`bx-price${handicap == null ? ' bx-price--muted' : ''}`}>
-            <small>{handicapLabel}</small>
-            <b className="bx-num">{handicap == null ? 'none' : signedPoints(handicap, 1)}</b>
-          </span>
-          <span className={`bx-price${totalLine == null ? ' bx-price--muted' : ''}`}>
-            <small>{totalLabel}</small>
-            <b className="bx-num">{totalLine == null ? 'none' : decimals(totalLine, 1)}</b>
-          </span>
-          <small className="bx-price__source">
-            Sportsbook · {[game.priceBook, game.priceProvider].filter(Boolean).join(' via ') || 'provider not recorded'}
-            {' · '}{ageText(game.priceAgeMinutes)}
-          </small>
-        </div>
-      ) : (
-        <div className="bx-slate__prices bx-slate__prices--none">
-          <span className="bx-price bx-price--muted bx-price--wide">
-            <small>Sportsbook price</small>
-            <b>Not collected</b>
-          </span>
-          <small className="bx-price__source">
-            {game.priceStatus === 'STORED_REFERENCE'
-              ? `Stored reference only · ${[game.priceBook, game.priceProvider].filter(Boolean).join(' via ')}`
-                + ` ${american(game.bestAwayPrice)} / ${american(game.bestHomePrice)} · ${ageText(game.priceAgeMinutes)} · not a current price`
-              : nextCheckpoint(game.startsAt)}
-          </small>
-        </div>
-      )}
+      <PriceCell game={game} evidence={evidence} entries={entries} handicapLabel={handicapLabel}
+        totalLabel={totalLabel} fallbackHandicap={handicap} fallbackTotal={totalLine} />
 
       <div className="bx-slate__decision">
         <DecisionChip game={game} />
@@ -557,4 +563,109 @@ function DecisionChip({ game }: { game: SlateGame }) {
       sub={started ? 'last pregame reading' : undefined}
     />
   )
+}
+
+const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
+const median = (values: number[]) => {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/**
+ * The price column, in exactly one of five honest states:
+ *  - CURRENT: persisted quotes inside the freshness window (best price per side
+ *    across books, never mixing sides from different books into one quote);
+ *  - STALE REFERENCE: the latest persisted quote from ONE book, labelled as not
+ *    current, with its age;
+ *  - NOT COLLECTED: no persisted quote, with the next checkpoint;
+ *  - plus, separately, any RECORDED ENTRY -- the price a position was taken at,
+ *    which is never replaced by a later market price.
+ * Provider, sportsbook, observation time, age and research/governed class are
+ * always named. Model output never fills a price box.
+ */
+function PriceCell({ game, evidence, entries, handicapLabel, totalLabel, fallbackHandicap, fallbackTotal }: {
+  game: SlateGame; evidence: CoverageGame | null; entries: LedgerPosition[]
+  handicapLabel: string; totalLabel: string; fallbackHandicap: number | null; fallbackTotal: number | null
+}) {
+  const quotes = evidence?.quotes ?? []
+  const fresh = quotes.filter((q) => q.fresh)
+  const current = evidence ? evidence.price_state === 'CURRENT_PRICE' : game.priceStatus === 'CURRENT'
+  const ml = (list: CoverageQuote[]) => list.filter((q) => q.market === 'MONEYLINE')
+  const latestMl = [...ml(quotes)].sort((a, b) => b.observed_at.localeCompare(a.observed_at))[0] ?? null
+  const refBook = latestMl?.sportsbook_key ?? null
+  const fromBook = (market: string) => quotes.filter((q) => q.market === market && q.sportsbook_key === refBook)
+    .sort((a, b) => b.observed_at.localeCompare(a.observed_at))[0] ?? null
+  const source = (q: CoverageQuote | null, books?: number) => q
+    ? `${books && books > 1 ? `${books} books` : shortBook(q.sportsbook)} · ${q.provider} (${q.classification.toLowerCase()}) · observed ${etTimeShort(q.observed_at)} · ${ageText(q.age_minutes)}`
+    : null
+
+  let away: number | null = null
+  let home: number | null = null
+  let spread: number | null = null
+  let total: number | null = null
+  let line: string | null = null
+  let state: 'CURRENT' | 'STALE' | 'NONE' = 'NONE'
+
+  if (evidence && current && fresh.length) {
+    state = 'CURRENT'
+    away = evidence.best.AWAY?.american ?? null
+    home = evidence.best.HOME?.american ?? null
+    spread = median(fresh.filter((q) => q.market === 'SPREAD' || q.market === 'RUN_LINE').map((q) => q.line as number).filter((v) => v != null))
+    total = median(fresh.filter((q) => q.market === 'TOTAL').map((q) => q.line as number).filter((v) => v != null))
+    const newest = [...ml(fresh)].sort((a, b) => a.observed_at.localeCompare(b.observed_at))[0] ?? fresh[0]
+    line = `Best current price · ${source(newest, evidence.fresh_books)}`
+  } else if (evidence && latestMl) {
+    state = 'STALE'
+    away = latestMl.sides.AWAY?.american ?? null
+    home = latestMl.sides.HOME?.american ?? null
+    spread = fromBook('SPREAD')?.line ?? fromBook('RUN_LINE')?.line ?? null
+    total = fromBook('TOTAL')?.line ?? null
+    line = `Last stored price, not current · ${source(latestMl)}`
+  } else if (!evidence && game.priceStatus !== 'NOT_COLLECTED') {
+    state = game.priceStatus === 'CURRENT' ? 'CURRENT' : 'STALE'
+    away = game.bestAwayPrice
+    home = game.bestHomePrice
+    spread = fallbackHandicap
+    total = fallbackTotal
+    line = `${state === 'CURRENT' ? 'Current' : 'Last stored price, not current'} · ${[game.priceBook, game.priceProvider].filter(Boolean).join(' via ')} · ${ageText(game.priceAgeMinutes)}`
+  }
+
+  return (
+    <div className={`bx-slate__prices bx-slate__prices--${state.toLowerCase()}`}>
+      {state === 'NONE' ? (
+        <span className="bx-price bx-price--muted bx-price--wide">
+          <small>Sportsbook price</small>
+          <b>Not collected</b>
+        </span>
+      ) : (
+        <>
+          <span className="bx-price">
+            <small>Moneyline{state === 'STALE' ? ' · stale' : ''}</small>
+            <b className="bx-num">{american(away)} / {american(home)}</b>
+          </span>
+          <span className={`bx-price${spread == null ? ' bx-price--muted' : ''}`}>
+            <small>{handicapLabel}</small>
+            <b className="bx-num">{spread == null ? 'none' : signedPoints(spread, 1)}</b>
+          </span>
+          <span className={`bx-price${total == null ? ' bx-price--muted' : ''}`}>
+            <small>{totalLabel}</small>
+            <b className="bx-num">{total == null ? 'none' : decimals(total, 1)}</b>
+          </span>
+        </>
+      )}
+      <small className="bx-price__source">{state === 'NONE' ? nextCheckpoint(game.startsAt) : line}</small>
+      {entries.map((e) => (
+        <small key={e.position_id} className="bx-price__entry">
+          Recorded entry {e.selection} {american(e.entry.american)} · {shortBook(e.entry.sportsbook)} ({e.entry.classification.toLowerCase()}) · stake ${(e.stake ?? 0).toFixed(2)}
+          {e.status === 'SETTLED' ? ` · ${e.result} ${(e.profit_loss ?? 0) >= 0 ? '+' : '−'}$${Math.abs(e.profit_loss ?? 0).toFixed(2)}` : ' · open'}
+        </small>
+      ))}
+    </div>
+  )
+}
+
+function etTimeShort(iso: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)) + ' ET'
 }
