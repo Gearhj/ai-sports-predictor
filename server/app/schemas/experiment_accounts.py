@@ -62,6 +62,42 @@ class EraSummary(BaseModel):
     settled_positions: int
 
 
+class EntryProvider(BaseModel):
+    source: str | None = None
+    name: str | None = None
+    classification: str | None = None
+    label: str | None = None
+
+
+class PositionEntry(BaseModel):
+    """The terms a position was taken at, from its own snapshot and decision.
+
+    Declared here because this schema is the response filter: the service
+    attached entry terms and FastAPI dropped them on the way out, leaving the
+    ledger showing a bare decimal 2.150.
+    """
+
+    position_id: str
+    decision_id: str | None = None
+    side: str | None = None
+    market: str | None = None
+    american_odds: int | None = None
+    american_label: str | None = None
+    decimal_odds: float
+    sportsbook_key: str | None = None
+    sportsbook_name: str | None = None
+    provider: EntryProvider
+    entry_quote_observed_at: str | None = None
+    stake: float
+    placed_at: str
+    recorded_at: str | None = None
+    status: str
+    result: str
+    tie_settlement: str | None = None
+    tie_settlement_label: str | None = None
+    headline: str | None = None
+
+
 class AccountPosition(BaseModel):
     id: str
     placed_at: str
@@ -74,6 +110,7 @@ class AccountPosition(BaseModel):
     era: str | None
     profit_loss: float | None
     settled_at: str | None
+    entry: PositionEntry | None = None
 
 
 class EquityPoint(BaseModel):
