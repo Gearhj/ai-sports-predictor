@@ -258,9 +258,34 @@ def record_outcome(
     if prior is not None:
         position = session.scalar(select(OfficialAspPosition).where(
             OfficialAspPosition.shadow_decision_id == prior.id))
-        return {**decision, "decision_id": str(prior.id),
-                "position_id": str(position.id) if position else None,
-                "persisted": "REUSED_EXISTING_DECISION"}
+        # _jsonable at the RECEIPT boundary, not on the stored columns.
+        # Stringifying `decision_id` alone was not enough: the receipt carries
+        # `shadow_forecast_row_id` -- and anything else the evaluator adds
+        # later -- nested inside, and one raw UUID anywhere in the tree fails
+        # the whole json.dumps. Converting at the boundary covers the fields
+        # that exist today and the ones that do not yet.
+        # The reused branch re-evaluates before it discovers the prior row, so
+        # the surrounding fields describe THIS evaluation while the ids describe
+        # the stored one. Left as-is that reads as though the position had been
+        # taken on a forecast row it never saw -- the re-evaluation can pick up
+        # a newer forecast generated since. So what was actually persisted is
+        # reported explicitly, next to the live recomputation rather than
+        # blended into it.
+        return _jsonable({**decision, "decision_id": str(prior.id),
+                          "position_id": str(position.id) if position else None,
+                          "persisted": "REUSED_EXISTING_DECISION",
+                          "persisted_record": {
+                              "decision_id": prior.id,
+                              "recommendation": prior.recommendation,
+                              "recommended_at": prior.recommended_at,
+                              "shadow_forecast_id": prior.shadow_forecast_id,
+                              "odds_snapshot_id": prior.odds_snapshot_id,
+                              "american_odds": prior.american_odds,
+                              "sportsbook": prior.sportsbook,
+                              "position_id": position.id if position else None,
+                              "stake": (float(position.stake)
+                                        if position is not None else None),
+                          }})
 
     best = decision.get("selection") or decision.get("best") or {}
     qualified = decision["outcome"] == "QUALIFIED"
@@ -337,8 +362,8 @@ def record_outcome(
         decision = {**decision, "staking": {**limits, "stake": stake,
                                             "bound_by": capped_by}}
 
-    return {**decision, "decision_id": str(row.id), "position_id": position_id,
-            "persisted": "RECORDED"}
+    return _jsonable({**decision, "decision_id": str(row.id),
+                      "position_id": position_id, "persisted": "RECORDED"})
 
 
 def evaluate(
@@ -368,13 +393,21 @@ def evaluate(
                                  moment=moment)
         session.commit()
         decisions.append(outcome)
-    return {
-        "records": sum(1 for d in decisions if d["outcome"] == "POSITION_RECORDED"),
+    # The job receipt itself. Converted here as well as in `record_outcome`,
+    # because this is the object that reaches `job_runs.result`, and a future
+    # key added to this dict must not be able to break the receipt again.
+    #
+    # `records` counted an outcome string that is never produced -- the
+    # evaluator emits QUALIFIED, DECLINED or BLOCKED -- so a run that created a
+    # real position reported "records": 0. It counts positions now, which is
+    # what a reader of this receipt is actually asking.
+    return _jsonable({
+        "records": sum(1 for d in decisions if d.get("position_id")),
         "reason": "CHECKPOINT_EVALUATED",
         "experiment_id": str(era.id),
         "policy_version": policy.POLICY_VERSION,
         "decisions": decisions,
-    }
+    })
 
 
 def _decide(
