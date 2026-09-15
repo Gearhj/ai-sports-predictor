@@ -206,6 +206,106 @@ def experiment_ledger(session: Session, now: datetime | None = None) -> dict[str
             "totals": totals, "combined_series": combined, "sports": sports}
 
 
+# ------------------------------------------------------------- decisions ---
+
+DECISIONS_SCHEMA = "AISP_COMMAND_CENTER_DECISIONS_V1"
+PHASE_ORDER = {"MORNING": 0, "LINEUP_CONFIRMED": 1, "FINAL_PREGAME": 2}
+
+
+def decision_board(session: Session, day: date, now: datetime | None = None) -> dict[str, Any]:
+    """The governed evaluations of one slate date, for the funded eras only.
+
+    One row per (experiment, game, selection): its latest phase. A MORNING row
+    is labelled as a morning evaluation -- it can never become a position on
+    its own -- and a stored NO_BET from a phase whose quote was missing is
+    reported as NOT_YET_EVALUATED, not as a pass.
+    """
+
+    now = now or datetime.now(UTC)
+    rows = session.execute(text("""
+        select d.id, d.experiment_id, e.name, a.sport, d.game_id, d.phase, d.market, d.selection,
+               d.line, d.sportsbook, d.american_odds, d.quote_observed_at, d.model_probability,
+               d.no_vig_probability, d.edge, d.expected_value, d.recommendation,
+               d.recommendation_reason, d.recommended_at, g.starts_at, g.status,
+               p.id, p.stake, p.status, pr.result, pr.profit_loss
+        from shadow_experiment_decisions d
+        join shadow_experiments e on e.id = d.experiment_id
+        join experiment_account_memberships m on m.experiment_id = e.id and m.role = 'FUNDED_ERA'
+        join experiment_accounts a on a.id = m.account_id
+        join games g on g.id = d.game_id
+        join leagues l on l.id = g.league_id
+        left join official_asp_positions p on p.shadow_decision_id = d.id
+        left join position_results pr on pr.position_id = p.id
+        -- A decision counts for a sport only on that sport's games. The NFL
+        -- experiment's retained rows on MLB games (2026-09-14, frozen since)
+        -- stay in the ledger and never surface as NFL evaluations.
+        where d.slate_date = :day and l.code = a.sport"""), {"day": day}).all()
+    matchups = _matchups(session, sorted({str(r[4]) for r in rows}))
+
+    latest: dict[tuple, Any] = {}
+    for row in rows:
+        key = (str(row[1]), str(row[4]), row[7])
+        rank = (PHASE_ORDER.get(str(row[5]), -1), _aware(row[18]) or datetime.min.replace(tzinfo=UTC))
+        if key not in latest or rank > latest[key][0] or (row[21] is not None and latest[key][1][21] is None):
+            latest[key] = (rank, row)
+
+    items: list[dict[str, Any]] = []
+    for _, row in latest.values():
+        (did, exp_id, exp_name, sport, game_id, phase, market, selection, line, book, american,
+         quote_at, model_p, no_vig, edge, ev, rec, reason, rec_at, starts_at, status,
+         pid, stake, pstatus, result, pnl) = row
+        start = _aware(starts_at)
+        started = start is not None and start <= now
+        missing_quote = no_vig is None or american is None
+        presented = str(rec)
+        if presented == "NO_BET" and missing_quote:
+            presented = "NOT_YET_EVALUATED"
+        if pid is not None:
+            group = "POSITION"
+        elif started or str(status).split(".")[-1].upper() in ("FINAL", "IN_PROGRESS"):
+            group = "CLOSED"
+        elif presented == "QUALIFIED_BET" and str(phase) == "FINAL_PREGAME":
+            group = "READY"
+        elif presented == "NO_BET" and str(phase) == "FINAL_PREGAME":
+            group = "PASSED"
+        else:
+            group = "WATCHING"
+        age = ((now - _aware(quote_at)).total_seconds() / 60) if quote_at else None
+        items.append({
+            "decision_id": str(did), "sport": sport, "experiment": exp_name,
+            "game_id": str(game_id), "matchup": matchups.get(str(game_id), {}).get("label"),
+            "starts_at": _iso(starts_at), "phase": str(phase), "market": str(market),
+            "selection": selection, "line": line, "sportsbook": book, "american": american,
+            "quote_observed_at": _iso(quote_at), "quote_age_minutes": round(age, 1) if age is not None else None,
+            "model_probability": model_p, "market_probability": no_vig,
+            "edge": edge, "expected_value": ev,
+            "recommendation": presented, "stored_recommendation": str(rec),
+            "reason": reason, "recommended_at": _iso(rec_at),
+            "decision_window": {"opens_at": _iso(start - WINDOW_OPENS), "closes_at": _iso(start - WINDOW_CLOSES)}
+            if start else None,
+            "group": group,
+            "position": {"position_id": str(pid), "stake": float(stake) if stake is not None else None,
+                         "status": "SETTLED" if pnl is not None else str(pstatus).upper(),
+                         "result": str(result).upper() if result else None,
+                         "profit_loss": float(pnl) if pnl is not None else None} if pid else None,
+        })
+    items.sort(key=lambda i: (i["starts_at"] or "", i["matchup"] or "", i["selection"] or ""))
+    upcoming_windows = sorted(i["decision_window"]["closes_at"] for i in items
+                              if i["decision_window"] and i["decision_window"]["closes_at"] > _iso(now))
+    positions = [i for i in items if i["position"]]
+    return {
+        "schema_version": DECISIONS_SCHEMA, "date": day.isoformat(), "generated_at": _iso(now),
+        "counts": {g: sum(1 for i in items if i["group"] == g)
+                   for g in ("READY", "WATCHING", "POSITION", "PASSED", "CLOSED")},
+        "exposure": round(sum((i["position"]["stake"] or 0) for i in positions
+                              if i["position"]["status"] != "SETTLED"), 2),
+        "staked": round(sum((i["position"]["stake"] or 0) for i in positions), 2),
+        "realized_profit_loss": round(sum((i["position"]["profit_loss"] or 0) for i in positions), 2),
+        "next_decision_deadline": upcoming_windows[0] if upcoming_windows else None,
+        "items": items,
+    }
+
+
 # -------------------------------------------------------------- coverage ---
 
 def _side(outcome_key: str | None, participant: str | None, teams: dict[str, Any]) -> tuple[str | None, float | None]:

@@ -1657,6 +1657,19 @@ def command_center_ledger(session: DatabaseSession) -> dict:
     return experiment_ledger(session)
 
 
+@router.get("/command-center/decisions", tags=["operations"])
+def command_center_decisions(
+    session: DatabaseSession,
+    event_date: date | None = Query(None, alias="date"),
+) -> dict:
+    """Funded-era governed evaluations for one slate date, grouped for the heartbeat."""
+
+    from app.core.time import local_today
+    from app.services.command_center import decision_board
+
+    return decision_board(session, event_date or local_today("America/New_York"))
+
+
 @router.get("/command-center/markets", tags=["markets"])
 def command_center_markets(
     session: DatabaseSession,
