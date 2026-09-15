@@ -26,6 +26,7 @@
  * so an NFL row reports research status rather than a decision it was never
  * allowed to make.
  */
+import { SportReadiness } from '../components/readiness/SportReadiness'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable, SignalPill } from '../components/ui'
@@ -193,6 +194,7 @@ export function UnifiedGamesPage() {
             )}
           </div>
         </header>
+        <SportReadiness sport={sport} title="Forecast and price readiness by sport" />
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="bx-segment" role="group" aria-label="Game state filter">

@@ -1,3 +1,4 @@
+import { SportReadiness } from '../components/readiness/SportReadiness'
 import { useEffect, useMemo, useState } from 'react'
 import { Beaker, BookOpenText, CalendarClock, ChevronDown, ChevronRight, ShieldAlert, TrendingDown } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -498,7 +499,7 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
   // holds the money. The per-era experiment view below it stays, because a
   // model era is still worth reading on its own -- it just no longer decides
   // what the bankroll is.
-  const seasonAccounts = demo ? null : <SeasonAccounts />
+  const seasonAccounts = demo ? null : <><SeasonAccounts /><SportReadiness title="Paper-policy readiness by sport" /></>
 
   if (!data || stale || state === 'unavailable' || state === 'loading' || (!experimentIsActive && (state === 'empty' || data.experiment_status === 'NOT_STARTED'))) {
     const shownState = stale ? 'loading' : !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state

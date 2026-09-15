@@ -4213,3 +4213,37 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .market-role { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin: 2px 0; }
 .market-role--reference { color: #8f5a10; background: #fdf3e4; border: 1px solid #f0d6ab; }
 .market-role--fresh { color: #0d6b49; background: #eaf7f1; border: 1px solid #a9dfc6; }
+
+/* ---- Sport readiness --------------------------------------------------- */
+.readiness { display: grid; gap: 12px; margin: 16px 0; }
+.readiness__intro h2 { margin: 0; font-size: 18px; }
+.readiness__intro p { margin: 2px 0 0; font-size: 12px; }
+.readiness__grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); }
+.readiness__card { border: 1px solid var(--line, #e3e8ef); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.readiness__card--failed { border-color: #f0c2b4; }
+.readiness__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.readiness__head h3 { margin: 0; font-size: 16px; }
+.readiness__chip { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
+.readiness__chip--ready { color: #0d6b49; background: #eaf7f1; border-color: #a9dfc6; }
+.readiness__chip--blocked { color: #8f5a10; background: #fdf3e4; border-color: #f0d6ab; }
+.readiness__game { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.readiness__game span { font-weight: 400; color: var(--muted, #7a8699); }
+.readiness__rows { margin: 0; display: grid; gap: 5px; }
+.readiness__row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; font-size: 12px; }
+.readiness__row dt { color: var(--muted, #7a8699); text-transform: uppercase; font-size: 10px; letter-spacing: .04em; padding-top: 2px; }
+.readiness__row dd { margin: 0; overflow-wrap: anywhere; line-height: 1.45; }
+.readiness__ok { color: #0d6b49; }
+.readiness__warn { color: #8f5a10; }
+.readiness__blocker { margin: 0; font-size: 12px; line-height: 1.45; padding: 6px 9px; border-radius: 8px; background: #fdf3e4; color: #6d4509; overflow-wrap: anywhere; }
+.readiness__could, .readiness__policy { margin: 0; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) {
+  .readiness__blocker { background: rgba(240, 214, 171, .12); color: #f0d6ab; }
+}
+
+/* Eight independent pipeline facts per game. */
+.slate__checklist { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 6px; list-style: none; margin: 0; padding: 0; }
+.slate__checklist li { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line, #e3e8ef); white-space: nowrap; }
+.slate__checklist li span { color: var(--muted, #7a8699); }
+.slate-check--yes b, .slate-check--done b { color: #0d6b49; }
+.slate-check--no b { color: #8f5a10; }
+.slate-check--pending b { color: var(--muted, #7a8699); font-weight: 600; }

@@ -28,6 +28,7 @@
  * phase, so an NFL row reports research status and is never counted as a
  * decision the policy declined to make.
  */
+import { SportReadiness } from '../components/readiness/SportReadiness'
 import { useCallback, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PrefetchLink } from '../components/PrefetchLink'
@@ -445,6 +446,7 @@ export function MultiSportTodayPage() {
             />
           </div>
         </header>
+        <SportReadiness sport={sport} title="Decision readiness by sport" />
 
         {resource.loading && !model && (
           <>

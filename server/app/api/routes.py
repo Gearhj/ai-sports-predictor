@@ -1634,6 +1634,20 @@ def nba_joint_comparison_route(session: DatabaseSession, game_id: str | None = N
     return joint_comparison(session, game_id=game_id)
 
 
+@router.get("/sports/readiness", tags=["operations"])
+def sports_readiness(session: DatabaseSession) -> dict:
+    """Where MLB, NFL, NBA and College Football each stand, with the exact blocker.
+
+    Reads persisted state only: no policy is evaluated, no price requested and
+    no record created. A sport with nothing to do yet says what it is waiting
+    for instead of rendering blank, and "not evaluated" is never "no bet".
+    """
+
+    from app.services.sport_readiness import sport_readiness
+
+    return sport_readiness(session)
+
+
 @router.get("/cfb/research", tags=["forecasts"])
 def cfb_research_board(
     session: DatabaseSession,

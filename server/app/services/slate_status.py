@@ -163,14 +163,42 @@ def slate_status(
     ).all():
         quotes.setdefault(row[0], row)
 
+    # Decisions from the GAME'S OWN SPORT only. The newest decision from any
+    # experiment used to win, and by 2026-09-15 the NFL paper experiment had 76
+    # rows on MLB games -- so an MLB game's "latest evaluation" could be an NFL
+    # policy's opinion of it.
+    from app.models import ShadowExperiment
+
+    league_of = {row[0]: row[1] for row in games}
     decisions: dict[Any, Any] = {}
-    for row in session.scalars(
-        select(ShadowExperimentDecision)
+    #: (game, phase) -> the CONTROLLING experiment's latest disposition. For MLB
+    #: that is the V18 era; a baseline or control experiment's view of the same
+    #: game is context, not the governed answer.
+    controlling_phase: dict[tuple[Any, str], str] = {}
+    for row, experiment in session.execute(
+        select(ShadowExperimentDecision, ShadowExperiment)
+        .join(ShadowExperiment, ShadowExperiment.id == ShadowExperimentDecision.experiment_id)
         .where(ShadowExperimentDecision.game_id.in_(game_ids))
         .order_by(ShadowExperimentDecision.game_id,
                   ShadowExperimentDecision.recommended_at.desc())
     ).all():
+        league = league_of.get(row.game_id)
+        if (experiment.sport or "MLB").upper() != (league or "").upper():
+            continue
         decisions.setdefault(row.game_id, row)
+        controlling = (experiment.controlling_engine == "MLB_V18_WHOLE_GAME"
+                       if league == "MLB" else True)
+        if controlling:
+            phase = str(getattr(row.phase, "value", row.phase))
+            controlling_phase.setdefault(
+                (row.game_id, phase), presented_disposition(row.recommendation, row.recommendation_reason))
+
+    v18_games = set(session.scalars(
+        select(ShadowForecast.canonical_game_id).where(
+            ShadowForecast.canonical_game_id.in_(game_ids),
+            ShadowForecast.engine_id == "MLB_V18_WHOLE_GAME",
+        )
+    ).all())
 
     # Entry terms come from the positions themselves. The row's `quote` is the
     # latest market for the game -- a different number, and the one that used
@@ -252,12 +280,28 @@ def slate_status(
                 ),
             },
             "latest_evaluation": None if decision is None else {
-                "recommendation": decision.recommendation,
+                "recommendation": presented_disposition(
+                    decision.recommendation, decision.recommendation_reason),
+                "stored_recommendation": decision.recommendation,
                 "reason": decision.recommendation_reason,
                 "phase": decision.phase,
                 "recommended_at": _iso(decision.recommended_at),
             },
             "next_checkpoint": _next_checkpoint(starts, moment),
+            # Eight separate facts, each true or false on its own. A game can be
+            # scheduled, projected and priced and still have no controlling
+            # forecast -- which is a different reason for no position than a
+            # FINAL_PREGAME NO_BET, and the two must not read alike.
+            "checklist": {
+                "schedule": True,
+                "displayed_projection": forecast is not None,
+                "controlling_forecast": game_id in v18_games if league == "MLB" else None,
+                "stored_price": quote is not None,
+                "decision_fresh_price": bool(quote_fresh),
+                "morning_disposition": controlling_phase.get((game_id, "MORNING")),
+                "final_pregame_disposition": controlling_phase.get((game_id, "FINAL_PREGAME")),
+                "recorded_position": held > 0,
+            },
             "positions": held,
             "recorded_positions": recorded.get(game_id, []),
             "state": state,
@@ -334,8 +378,7 @@ def _classify(
             "", "NONE", "NOT_YET_EVALUATED"}:
         reason = decision.recommendation_reason or ""
         # A NO_BET whose reason is a missing input is not a declined wager.
-        missing = any(word in reason.lower() for word in (
-            "unavailable", "not_yet_evaluated", "no complete", "not reached"))
+        missing = any(word in reason.lower() for word in MISSING_INPUT_MARKERS)
         if missing:
             return "NOT_YET_EVALUATED", reason
         return "NO_QUALIFYING_VALUE", (
@@ -345,6 +388,33 @@ def _classify(
         "The game has a forecast and a usable price but has not been evaluated "
         "yet."
     )
+
+
+#: Reason text that means an input was missing, not that a price was evaluated
+#: and declined. One list, used by both the game state and every displayed
+#: disposition, so the two can never disagree about the same row.
+MISSING_INPUT_MARKERS = ("unavailable", "not_yet_evaluated", "no complete", "not reached")
+
+
+def presented_disposition(recommendation: Any, reason: str | None) -> str | None:
+    """The disposition a reader should see, from the row's own stated reason.
+
+    The V2 evaluator persists a game it has not evaluated yet as
+    recommendation=NO_BET with the reason "V2 NOT_YET_EVALUATED: the game has
+    not reached its evaluation window". Every September 15 MLB game carried
+    that row by 00:02 -- before any forecast, price or window existed. The rows
+    are immutable and stay as stored; what is shown is what the row itself says
+    happened, which is that nothing was evaluated. A NO_BET is shown as NO_BET
+    only when its reason is an actual evaluation.
+    """
+
+    if recommendation is None:
+        return None
+    text_reason = (reason or "").lower()
+    if str(recommendation).upper() == "NO_BET" and any(
+            marker in text_reason for marker in MISSING_INPUT_MARKERS):
+        return "NOT_YET_EVALUATED"
+    return str(recommendation)
 
 
 def _next_checkpoint(starts: datetime, moment: datetime) -> dict[str, Any] | None:

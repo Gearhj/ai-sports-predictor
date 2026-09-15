@@ -28,6 +28,7 @@
  *  - The Odds API and the temporary SportsGameOdds research fallback are
  *    labelled separately on every price. They are not one "source".
  */
+import { SportReadiness } from '../components/readiness/SportReadiness'
 import { ageText } from '../components/nfl/NflMarketComparison'
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -291,6 +292,7 @@ export function UnifiedMarketsPage() {
             </button>
           </div>
         </header>
+        <SportReadiness sport={sport} title="Price readiness by sport" />
 
         <div className="bx-segment bx-segment--views" role="group" aria-label="Market view">
           {VIEWS.map((entry) => (

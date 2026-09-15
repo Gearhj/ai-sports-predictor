@@ -212,6 +212,8 @@ function GameRow({ game, score, onRefreshScore }: {
         <p className="slate__why">{game.explanation}</p>
       </div>
 
+      {game.checklist && <Checklist checklist={game.checklist} />}
+
       {/* Recorded positions sit on their own full-width band, apart from the
           latest-market cell above. Side by side, the latest price read as the
           execution price -- for four of September 14's six positions it was a
@@ -224,6 +226,41 @@ function GameRow({ game, score, onRefreshScore }: {
         </div>
       )}
     </article>
+  )
+}
+
+const CHECK_LABELS: Array<[keyof NonNullable<SlateGame['checklist']>, string]> = [
+  ['schedule', 'Schedule'],
+  ['displayed_projection', 'Projection'],
+  ['controlling_forecast', 'Controlling forecast'],
+  ['stored_price', 'Stored price'],
+  ['decision_fresh_price', 'Fresh price'],
+  ['morning_disposition', 'Morning'],
+  ['final_pregame_disposition', 'Final pregame'],
+  ['recorded_position', 'Position'],
+]
+
+/** A disposition that has not happened reads as pending, never as "no bet". */
+function checkValue(value: boolean | string | null | undefined): { text: string; tone: string } {
+  if (value === true) return { text: 'yes', tone: 'slate-check--yes' }
+  if (value === false) return { text: 'no', tone: 'slate-check--no' }
+  if (value == null) return { text: 'not yet', tone: 'slate-check--pending' }
+  const label = value.replaceAll('_', ' ').toLowerCase()
+  return { text: label, tone: value === 'NOT_YET_EVALUATED' ? 'slate-check--pending' : 'slate-check--done' }
+}
+
+function Checklist({ checklist }: { checklist: NonNullable<SlateGame['checklist']> }) {
+  return (
+    <ul className="slate__checklist" aria-label="Pipeline checklist" data-testid="slate-checklist">
+      {CHECK_LABELS.map(([key, label]) => {
+        const value = checkValue(checklist[key])
+        return (
+          <li key={key} className={value.tone} data-testid={`slate-check-${key}`}>
+            <span>{label}</span> <b>{value.text}</b>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

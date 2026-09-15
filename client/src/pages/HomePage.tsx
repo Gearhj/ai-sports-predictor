@@ -23,6 +23,7 @@
  * game the front door before -- and never by result, which is not knowable at
  * selection time and would make the page a highlight reel of its own hindsight.
  */
+import { SportReadiness } from '../components/readiness/SportReadiness'
 import { useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
@@ -152,6 +153,7 @@ export function HomePage() {
               stale={resource.stale} error={board ? resource.error : null} onRetry={resource.refresh} />
           </div>
         </header>
+        <SportReadiness sport={sport} />
 
         {resource.loading && !board && (
           <>

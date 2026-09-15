@@ -83,6 +83,17 @@ export interface SlateGame {
   } | null
   positions: number
   recorded_positions?: PositionEntryTerms[]
+  /** Eight independent facts; a null disposition means none recorded yet. */
+  checklist?: {
+    schedule: boolean
+    displayed_projection: boolean
+    controlling_forecast: boolean | null
+    stored_price: boolean
+    decision_fresh_price: boolean
+    morning_disposition: string | null
+    final_pregame_disposition: string | null
+    recorded_position: boolean
+  }
   state: SlateState
   explanation: string
 }
