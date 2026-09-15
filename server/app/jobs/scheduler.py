@@ -778,8 +778,14 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
                 kwargs={"job_name": "generate-nfl-shadow-forecasts", "settings": settings},
                 **common,
             )
+            # Poll the existing event gate every minute.  The Model Studio
+            # producer can take roughly eight minutes and the eligibility
+            # consumer polls every five; a five-minute producer cadence could
+            # therefore finish too late for the fixed T-15 decision cutoff.
+            # This remains the sole owner, and the event/frozen checks keep
+            # repeated ticks provider-free and idempotent.
             scheduler.add_job(
-                execute_nfl_final_pregame_generation, "interval", minutes=5,
+                execute_nfl_final_pregame_generation, "interval", minutes=1,
                 id="asp-nfl-shadow-producer-final",
                 kwargs={"settings": settings},
                 **common,

@@ -196,6 +196,9 @@ async def test_locator_family_import_and_scheduler_jobs_are_idempotent(session, 
         "asp-nfl-shadow-performance", "asp-nfl-shadow-producer-current",
         "asp-nfl-shadow-producer-final",
     } - {"asp-nfl-shadow-odds"} <= job_ids
+    final_producer = scheduler.get_job("asp-nfl-shadow-producer-final")
+    assert final_producer is not None
+    assert final_producer.trigger.interval == timedelta(minutes=1)
 
 
 @pytest.mark.asyncio
