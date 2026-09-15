@@ -1683,10 +1683,34 @@ class JobOrchestrator:
         warnings: list[str] = []
         seen: set[Any] = set()
         live_adapter = MLBStatsAPIAdapter()
+        # One structured receipt per source family. Team stats, the active
+        # roster and bullpen workload are independent evidence with independent
+        # failures: a ConnectTimeout on team stats used to end the whole team's
+        # try block, so the roster and bullpen were never even attempted -- the
+        # 2026-09-14 Chicago Cubs warning. Each family now gets exactly one
+        # attempt per team, its own failure record, no retry, and no stale
+        # substitute; the governed 30-hour freshness gate is untouched.
+        families: dict[str, dict[str, Any]] = {
+            name: {"attempted": 0, "completed": 0, "failed": 0, "failures": []}
+            for name in ("TEAM_STATS", "ACTIVE_ROSTER", "BULLPEN_WORKLOAD")
+        }
+
+        def _attempt(family: str) -> None:
+            families[family]["attempted"] += 1
+
+        def _completed(family: str) -> None:
+            families[family]["completed"] += 1
+
+        def _failed(family: str, team_name: str, exc: Exception) -> None:
+            families[family]["failed"] += 1
+            families[family]["failures"].append(
+                {"team": team_name, "error_type": type(exc).__name__, "error": str(exc)})
+
         for team, source, external_id in team_rows:
             if team.id in seen:
                 continue
             seen.add(team.id)
+            _attempt("TEAM_STATS")
             try:
                 if source == self.demo.source or self.settings.app_env == "test":
                     envelope = await self.demo.get_team_stats(external_id, event_date.year)
@@ -1703,55 +1727,63 @@ class JobOrchestrator:
                         dto.available_as_of = min(dto.available_as_of, _aware(first_pitch) - timedelta(hours=2))
                 if self.normalizer.ingest_team_stats(dto, source):
                     processed += 1
-                if source != self.demo.source and self.settings.app_env != "test":
-                    try:
-                        roster_response = await live_adapter.get_active_roster(external_id, event_date)
-                        self.archive.write(roster_response.envelope.source, roster_response.raw_payload)
-                        roster_rows = [
-                            RosterAvailabilityDTO.model_validate(item)
-                            for item in roster_response.envelope.data
-                        ]
-                        roster_processed += self.normalizer.ingest_roster_availability(
-                            roster_rows,
-                            roster_response.envelope.source,
-                        )
-                    except SourceError as exc:
-                        warnings.append(f"{team.name} roster: {exc}")
-
-                    try:
-                        bullpen_response = await live_adapter.get_bullpen_workload(
-                            external_id,
-                            event_date,
-                        )
-                        self.archive.write(
-                            bullpen_response.envelope.source,
-                            bullpen_response.raw_payload,
-                        )
-                        bullpen_rows = [
-                            BullpenAvailabilityDTO.model_validate(item)
-                            for item in bullpen_response.envelope.data
-                        ]
-                        target_games = list(self.session.scalars(
-                            select(Game)
-                            .join(GameTeam, GameTeam.game_id == Game.id)
-                            .where(
-                                GameTeam.team_id == team.id,
-                                Game.starts_at >= self._day_bounds(event_date)[0],
-                                Game.starts_at < self._day_bounds(event_date)[1],
-                                Game.source_mode == "LIVE",
-                            )
-                            .order_by(Game.starts_at)
-                        ))
-                        for game in target_games:
-                            bullpen_processed += self.normalizer.ingest_bullpen_availability(
-                                game.id,
-                                bullpen_rows,
-                                bullpen_response.envelope.source,
-                            )
-                    except SourceError as exc:
-                        warnings.append(f"{team.name} bullpen workload: {exc}")
+                _completed("TEAM_STATS")
             except SourceError as exc:
-                warnings.append(f"{team.name}: {exc}")
+                warnings.append(f"{team.name} team stats: {exc}")
+                _failed("TEAM_STATS", team.name, exc)
+            if source != self.demo.source and self.settings.app_env != "test":
+                _attempt("ACTIVE_ROSTER")
+                try:
+                    roster_response = await live_adapter.get_active_roster(external_id, event_date)
+                    self.archive.write(roster_response.envelope.source, roster_response.raw_payload)
+                    roster_rows = [
+                        RosterAvailabilityDTO.model_validate(item)
+                        for item in roster_response.envelope.data
+                    ]
+                    roster_processed += self.normalizer.ingest_roster_availability(
+                        roster_rows,
+                        roster_response.envelope.source,
+                    )
+                    _completed("ACTIVE_ROSTER")
+                except SourceError as exc:
+                    warnings.append(f"{team.name} roster: {exc}")
+                    _failed("ACTIVE_ROSTER", team.name, exc)
+
+                _attempt("BULLPEN_WORKLOAD")
+                try:
+                    bullpen_response = await live_adapter.get_bullpen_workload(
+                        external_id,
+                        event_date,
+                    )
+                    self.archive.write(
+                        bullpen_response.envelope.source,
+                        bullpen_response.raw_payload,
+                    )
+                    bullpen_rows = [
+                        BullpenAvailabilityDTO.model_validate(item)
+                        for item in bullpen_response.envelope.data
+                    ]
+                    target_games = list(self.session.scalars(
+                        select(Game)
+                        .join(GameTeam, GameTeam.game_id == Game.id)
+                        .where(
+                            GameTeam.team_id == team.id,
+                            Game.starts_at >= self._day_bounds(event_date)[0],
+                            Game.starts_at < self._day_bounds(event_date)[1],
+                            Game.source_mode == "LIVE",
+                        )
+                        .order_by(Game.starts_at)
+                    ))
+                    for game in target_games:
+                        bullpen_processed += self.normalizer.ingest_bullpen_availability(
+                            game.id,
+                            bullpen_rows,
+                            bullpen_response.envelope.source,
+                        )
+                    _completed("BULLPEN_WORKLOAD")
+                except SourceError as exc:
+                    warnings.append(f"{team.name} bullpen workload: {exc}")
+                    _failed("BULLPEN_WORKLOAD", team.name, exc)
         if self.settings.app_env != "test":
             game_mappings = list(self.session.scalars(
                 select(ExternalIdMapping)
@@ -1781,7 +1813,9 @@ class JobOrchestrator:
             source_mode="DEMO" if mode_source == self.demo.source else "LIVE",
             fetched_at=datetime.now(UTC),
             data=[],
-            metadata={"team_count": len(seen), "warnings": warnings},
+            metadata={"team_count": len(seen), "warnings": warnings,
+                      "source_families": families, "automatic_retries_added": 0,
+                      "stale_evidence_substituted": False},
         )
         failed = bool(seen and processed == 0 and warnings)
         self._ingestion_run(
@@ -1802,6 +1836,9 @@ class JobOrchestrator:
             "lineup_observations": lineup_processed,
             "teams": len(seen),
             "warnings": warnings,
+            "source_families": families,
+            "automatic_retries_added": 0,
+            "stale_evidence_substituted": False,
         }
 
     def odds_pregame_window_open(self, now: datetime) -> bool:
