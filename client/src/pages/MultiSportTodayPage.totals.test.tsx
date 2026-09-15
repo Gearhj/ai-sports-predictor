@@ -23,6 +23,9 @@ import { sportRegistryFixture } from '../test/sportRegistryFixture'
 import type { TodayAllSportsReadModel } from '../types/multisport'
 import type { TotalsBoard } from '../types/totals'
 import { MultiSportTodayPage } from './MultiSportTodayPage'
+// The four-sport CommandDecisions region has its own tests; these cover the page's audit view.
+vi.mock('../components/command/CommandDecisions', () => ({ CommandDecisions: () => null }))
+
 
 vi.mock('../services/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/api')>()

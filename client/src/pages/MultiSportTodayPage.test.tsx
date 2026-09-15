@@ -15,6 +15,9 @@ import { apiRequest, endpoints } from '../services/api'
 import { sportRegistryFixture } from '../test/sportRegistryFixture'
 import type { NormalizedSelection, SportSection, TodayAllSportsReadModel } from '../types/multisport'
 import { firstBlocker, hasNoCrossSportRanking, MultiSportTodayPage } from './MultiSportTodayPage'
+// The four-sport CommandDecisions region has its own tests; these cover the page's audit view.
+vi.mock('../components/command/CommandDecisions', () => ({ CommandDecisions: () => null }))
+
 
 vi.mock('../services/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/api')>()

@@ -48,4 +48,8 @@ Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
 beforeEach(() => {
   setCacheScope('anon')
   clearCache()
+  // The cache also persists read models to browser storage so a reload shows
+  // the last good view. jsdom keeps that storage across tests in a file, which
+  // would restore one test's mocked response into the next.
+  try { window.localStorage.clear() } catch { /* storage unavailable */ }
 })

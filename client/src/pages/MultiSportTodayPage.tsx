@@ -42,6 +42,9 @@ import { useSportSelection } from '../hooks/useSportSelection'
 import { TeamLogo } from '../components/TeamLogo'
 import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
 import { apiRequest, endpoints } from '../services/api'
+import { resolveOperationalDate } from '../services/operationalDate'
+import { CommandDecisions } from '../components/command/CommandDecisions'
+import { RegionBoundary } from '../components/command/RegionBoundary'
 import {
   LeagueTag, Panel, agoOf, american, clockOf, dayOf, pctPoints, signedPoints, useBroadcastTheme,
 } from '../components/broadcast/primitives'
@@ -415,10 +418,14 @@ export function MultiSportTodayPage() {
   return (
     <div className="bx bx-decisions">
       <div className="bx__inner">
+        <RegionBoundary label="decision command center"><CommandDecisions day={resolveOperationalDate(slateDate)} /></RegionBoundary>
+
+        <details className="cc-below">
+        <summary>Governance evidence and full audit — funnel counts, every selection, blockers and explanations</summary>
         <header className="bx-head">
           <div>
-            <span className="bx-eyebrow"><ClipboardCheck size={13} aria-hidden="true" /> Daily Decisions</span>
-            <h1>What <em>qualifies</em> today</h1>
+            <span className="bx-eyebrow"><ClipboardCheck size={13} aria-hidden="true" /> Daily Decisions audit</span>
+            <h2>What <em>qualifies</em> today</h2>
             <p className="bx-muted" style={{ marginTop: 8, maxWidth: '58ch' }}>
               Persisted decisions, counted. Nothing here re-runs the policy, re-prices a game or
               calls a provider.
@@ -681,6 +688,7 @@ export function MultiSportTodayPage() {
           {registry ? ` Registry ${model?.registry_version ?? ''}.` : ''}
           {hasNoCrossSportRanking(model) ? ' Selections are ranked within a sport only; no cross-sport score exists.' : ''}
         </p>
+        </details>
       </div>
     </div>
   )

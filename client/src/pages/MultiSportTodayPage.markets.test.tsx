@@ -1,19 +1,22 @@
-/**
+﻿/**
  * The Daily Decisions market filter.
  *
  * The filter decides which of two very different things the desk is showing:
  * recorded moneyline decisions, and totals research that is not a decision at
  * all. Two mistakes matter here. Selecting Totals must not make the moneyline
- * rows vanish into an "empty slate" message — that would report a filter as a
+ * rows vanish into an "empty slate" message â€” that would report a filter as a
  * finding. And an empty totals listing must name its own cause, because "no
  * book has posted a total" and "the model has nothing" are different facts that
  * a shared blank would merge.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   readMarket, readTotalsSort, totalsUnavailableReason,
 } from './MultiSportTodayPage'
 import type { TotalsBoard } from '../types/totals'
+// The four-sport CommandDecisions region has its own tests; these cover the page's audit view.
+vi.mock('../components/command/CommandDecisions', () => ({ CommandDecisions: () => null }))
+
 
 function board(coverage: Partial<TotalsBoard['coverage']>): TotalsBoard {
   return {

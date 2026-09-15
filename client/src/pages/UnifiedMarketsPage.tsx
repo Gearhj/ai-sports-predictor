@@ -29,6 +29,9 @@
  *    labelled separately on every price. They are not one "source".
  */
 import { SportReadiness } from '../components/readiness/SportReadiness'
+import { CommandMarkets } from '../components/command/CommandMarkets'
+import { RegionBoundary } from '../components/command/RegionBoundary'
+import { resolveOperationalDate } from '../services/operationalDate'
 import { ageText } from '../components/nfl/NflMarketComparison'
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -138,7 +141,8 @@ export function UnifiedMarketsPage() {
     }, { replace: true })
   }, [setParams])
   const setView = useCallback((next: View) => setParam('view', next === 'PRICES' ? null : next), [setParam])
-  const day = params.get('date') ?? new Date().toISOString().slice(0, 10)
+  // The Eastern operational date, never the UTC date (after 8 PM ET those differ).
+  const day = resolveOperationalDate(params.get('date'))
   // Why each game is or is not priced. One read, no provider call: a page load
   // must never cost a provider object.
   const coverage = usePriceCoverage(day)
@@ -166,38 +170,44 @@ export function UnifiedMarketsPage() {
     recordTicket, recordingKey, recordedByKey, recordError,
   } = useRecordTicket(() => { parlay.refresh(); recordedTickets.refresh() })
 
-  const loader = useCallback(async (signal: AbortSignal): Promise<MarketsBoard> => {
-    const warnings: string[] = []
-    const safe = async <T,>(name: string, run: () => Promise<T>): Promise<T | null> => {
-      try { return await run() } catch (error) {
-        if (signal.aborted) throw error
-        warnings.push(`${name} unavailable`)
-        return null
-      }
-    }
-    const wantsMlb = sport === 'ALL' || sport === 'MLB'
-    const wantsNfl = sport === 'ALL' || sport === 'NFL'
-    const [books, crowd, weeks] = await Promise.all([
-      wantsMlb ? safe('Sportsbook board', () => apiRequest<MarketBoardData>(`/markets/board?date=${day}`, {}, signal)) : null,
-      wantsMlb ? safe('Prediction markets', () => endpoints.marketPulse(day, signal, 'MLB')) : null,
-      wantsNfl ? safe('NFL schedule', () => endpoints.nflWeeks(signal)) : null,
-    ])
-    const season = Number(params.get('season')) || weeks?.current?.season
-    const week = Number(params.get('week')) || weeks?.current?.week
-    const nfl = season && week
-      ? await safe('NFL markets', () => apiRequest<NflBoard>(`/nfl/markets/${season}/${week}`, {}, signal))
-      : null
-    return { data_mode: 'live', scope: sport, date: day, books, crowd, weeks, nfl, warnings }
-  }, [sport, day, params])
-
-  const resource = useApiResource(loader, {
-    key: cacheKey('unified/markets', {
-      sport, date: day, season: params.get('season'), week: params.get('week'),
-    }),
-    staleTimeMs: STALE_TIME.slate,
-    refreshIntervalMs: STALE_TIME.slate,
-  })
-  const board = resource.data?.scope === sport ? resource.data : null
+  // Independent regions: the sportsbook board, the prediction-market board (the
+  // slowest read) and the NFL week each render as soon as they land.
+  const wantsMlb = sport === 'ALL' || sport === 'MLB'
+  const wantsNfl = sport === 'ALL' || sport === 'NFL'
+  const seasonParam = params.get('season')
+  const weekParam = params.get('week')
+  const booksRes = useApiResource(useCallback((signal: AbortSignal) => (wantsMlb
+    ? apiRequest<MarketBoardData>(`/markets/board?date=${day}`, {}, signal) : Promise.resolve(null)), [wantsMlb, day]),
+    { key: cacheKey('markets-books', { wantsMlb, day }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
+  const crowdRes = useApiResource(useCallback((signal: AbortSignal) => (wantsMlb
+    ? endpoints.marketPulse(day, signal, 'MLB') : Promise.resolve(null)), [wantsMlb, day]),
+    { key: cacheKey('markets-crowd', { wantsMlb, day }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
+  const nflRes = useApiResource(useCallback(async (signal: AbortSignal) => {
+    if (!wantsNfl) return { data_mode: 'live' as const, weeks: null, nfl: null }
+    const weeks = await endpoints.nflWeeks(signal)
+    const season = Number(seasonParam) || weeks?.current?.season
+    const week = Number(weekParam) || weeks?.current?.week
+    const nfl = season && week ? await apiRequest<NflBoard>(`/nfl/markets/${season}/${week}`, {}, signal) : null
+    return { data_mode: 'live' as const, weeks, nfl }
+  }, [wantsNfl, seasonParam, weekParam]), { key: cacheKey('markets-nfl', { wantsNfl, season: seasonParam, week: weekParam }), staleTimeMs: STALE_TIME.slate, refreshIntervalMs: STALE_TIME.slate })
+  const board: MarketsBoard = {
+    data_mode: 'live', scope: sport, date: day,
+    books: booksRes.data ?? null, crowd: crowdRes.data ?? null,
+    weeks: nflRes.data?.weeks ?? null, nfl: nflRes.data?.nfl ?? null,
+    warnings: [
+      ...(booksRes.error && !booksRes.data ? ['Sportsbook board unavailable'] : []),
+      ...(crowdRes.error && !crowdRes.data ? ['Prediction markets unavailable'] : []),
+      ...(nflRes.error && !nflRes.data ? ['NFL markets unavailable'] : []),
+    ],
+  }
+  const resource = {
+    loading: booksRes.loading && crowdRes.loading && nflRes.loading,
+    error: booksRes.data || crowdRes.data || nflRes.data ? null : (booksRes.error ?? crowdRes.error ?? nflRes.error),
+    updatedAt: booksRes.updatedAt ?? crowdRes.updatedAt ?? nflRes.updatedAt,
+    refreshing: booksRes.refreshing || crowdRes.refreshing || nflRes.refreshing,
+    stale: booksRes.stale || crowdRes.stale || nflRes.stale,
+    refresh: () => { booksRes.refresh(); crowdRes.refresh(); nflRes.refresh() },
+  }
   const now = board?.nfl?.now_utc ? new Date(board.nfl.now_utc).getTime() : Date.now()
 
   const mlbRows = useMemo(() => {
@@ -251,13 +261,16 @@ export function UnifiedMarketsPage() {
   return (
     <div className="bx bx-markets">
       <div className="bx__inner">
+        <RegionBoundary label="market command center"><CommandMarkets day={day} onDay={(next) => setParam('date', next)} /></RegionBoundary>
+
+        <details className="cc-below" open={view !== 'PRICES' || undefined}>
+        <summary>Detailed boards — every price row, totals, parlay watch, replay, RFF Lab and prediction markets</summary>
         <header className="bx-head">
           <div>
-            <span className="bx-eyebrow"><Radio size={13} aria-hidden="true" /> Markets &amp; Crowd</span>
-            <h1>The <em>price</em> of the game</h1>
+            <span className="bx-eyebrow"><Radio size={13} aria-hidden="true" /> Detailed market views</span>
+            <h2 style={{ margin: 0 }}>Totals, parlays, replay and the <em>RFF Lab</em></h2>
             <p className="bx-muted" style={{ marginTop: 8, maxWidth: '60ch' }}>
-              Model expectation, best available price, book consensus and the spread between books —
-              one row per game. Sportsbooks and prediction markets stay separate.
+              One row per game. Sportsbooks and prediction markets stay separate.
             </p>
           </div>
           <div className="bx-head__meta">
@@ -292,7 +305,10 @@ export function UnifiedMarketsPage() {
             </button>
           </div>
         </header>
-        <SportReadiness sport={sport} title="Price readiness by sport" />
+        <details className="cc-below">
+          <summary>Price readiness and intake blockers for each sport</summary>
+          <SportReadiness sport={sport} title="Price readiness by sport" />
+        </details>
 
         <div className="bx-segment bx-segment--views" role="group" aria-label="Market view">
           {VIEWS.map((entry) => (
@@ -439,6 +455,7 @@ export function UnifiedMarketsPage() {
           <RffView day={day} league={sport === 'MLB' || sport === 'NFL' ? sport : null} family={family}
             selected={rffGame} onSelect={(id) => setParam('rff', id)} />
         )}
+        </details>
       </div>
     </div>
   )

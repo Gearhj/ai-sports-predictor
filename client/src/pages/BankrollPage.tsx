@@ -1,4 +1,6 @@
 import { SportReadiness } from '../components/readiness/SportReadiness'
+import { CommandExperiment } from '../components/command/CommandExperiment'
+import { RegionBoundary } from '../components/command/RegionBoundary'
 import { useEffect, useMemo, useState } from 'react'
 import { Beaker, BookOpenText, CalendarClock, ChevronDown, ChevronRight, ShieldAlert, TrendingDown } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -505,7 +507,8 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
     const shownState = stale ? 'loading' : !demo && data?.experiment_status === 'NOT_STARTED' ? 'empty' : state
     return (
       <div className="page bankroll-page">
-        <PageHeader eyebrow={headerEyebrow} title="$1,000 Experiment" description={contractSentence} actions={<ExperimentBadge />} />
+        {!demo && <RegionBoundary label="experiment summary"><CommandExperiment highlight={searchParams.get('position')} /></RegionBoundary>}
+        <PageHeader eyebrow={headerEyebrow} title={demo ? '$1,000 Experiment' : 'Model-era detail'} description={contractSentence} actions={<ExperimentBadge />} />
         {seasonAccounts}
         {selector}
         <DataModeBanner state={shownState} loading={loading} error={error} onRetry={refresh} />
@@ -562,9 +565,16 @@ export function BankrollPage({ demo = false }: { demo?: boolean }) {
 
   return (
     <div className="page bankroll-page">
-      {/* A. Hero: title, role, contract sentence, honest badges */}
-      <PageHeader eyebrow={headerEyebrow} title="$1,000 Experiment" description={contractSentence} actions={<ExperimentBadge />} />
-      {seasonAccounts}
+      {!demo && <RegionBoundary label="experiment summary"><CommandExperiment highlight={searchParams.get('position')} /></RegionBoundary>}
+      {!demo && (
+        <details className="cc-below">
+          <summary>Season-account detail, eligibility and per-sport readiness</summary>
+          {seasonAccounts}
+        </details>
+      )}
+      {/* A. Per-era view: title, role, contract sentence, honest badges */}
+      <PageHeader eyebrow={headerEyebrow} title={demo ? '$1,000 Experiment' : 'Model-era detail'} description={contractSentence} actions={<ExperimentBadge />} />
+      {demo && seasonAccounts}
       {selector}
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
       <div className="experiment-badge-row" aria-label="Experiment status badges">

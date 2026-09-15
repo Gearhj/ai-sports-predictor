@@ -15,6 +15,9 @@ import { apiRequest, endpoints } from '../services/api'
 import { impliedProbability } from '../components/broadcast/ComparisonPlot'
 import type { MarketBoardData, MarketPulseBoard } from '../types/domain'
 import { bookName, UnifiedMarketsPage } from './UnifiedMarketsPage'
+// The four-sport CommandMarkets region has its own tests; these cover the page's audit view.
+vi.mock('../components/command/CommandMarkets', () => ({ CommandMarkets: () => null }))
+
 
 vi.mock('../services/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/api')>()
