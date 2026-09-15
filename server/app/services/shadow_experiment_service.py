@@ -371,6 +371,18 @@ class ShadowExperimentService:
         experiment = experiment or self.active_experiment()
         if experiment is None:
             return {"note": "no active experiment", "frozen": 0, "primary": 0}
+        # THIS OWNER FREEZES THE MLB SLATE, AND ONLY MLB EXPERIMENTS.
+        #
+        # It reads MLB games and never checked the experiment's own sport, so
+        # every active experiment was evaluated against baseball: by 2026-09-15
+        # the NFL paper experiment had written 76 decision rows on MLB games.
+        # None became a position, but nothing prevented an MLB wager being
+        # recorded against the NFL account. Each non-MLB paper policy has its
+        # own checkpoint owner; this one declines them by name.
+        if (experiment.sport or "MLB").upper() != "MLB":
+            return {"note": "not an MLB experiment; evaluated by its own sport's checkpoint",
+                    "frozen": 0, "primary": 0, "policy": experiment.decision_policy,
+                    "sport": experiment.sport}
         now = now or datetime.now(UTC)
         if event_date < experiment.start_date:
             return {"note": "no historical backfill", "frozen": 0, "primary": 0,

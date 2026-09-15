@@ -127,6 +127,20 @@ SPORT_SEASON_RULES: dict[str, SeasonRule] = {
             "and is identified by both years."
         ),
     ),
+    "CFB": SeasonRule(
+        sport="CFB",
+        display_name="College Football",
+        id_style=SeasonIdStyle.CALENDAR_YEAR,
+        opens_on=(8, 1),
+        closes_on=(1, 31),
+        basis=(
+            "Configured accounting window. Identified by the year it begins, "
+            "and running through January so bowl and playoff games settle "
+            "inside the season they complete. AISP ingests no official "
+            "College Football calendar, so this is an accounting boundary, "
+            "not a claim about the schedule."
+        ),
+    ),
     "NHL": SeasonRule(
         sport="NHL",
         display_name="Hockey (NHL)",
@@ -159,7 +173,7 @@ SPORT_SEASON_RULES: dict[str, SeasonRule] = {
 def supported_sports() -> list[str]:
     """Program sports, in the order the overview presents them."""
 
-    return ["MLB", "NFL", "NBA", "NHL", "MMA"]
+    return ["MLB", "NFL", "NBA", "CFB", "NHL", "MMA"]
 
 
 def rule_for(sport: str) -> SeasonRule:

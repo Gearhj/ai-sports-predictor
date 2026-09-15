@@ -81,9 +81,14 @@ SPORT_READINESS: dict[str, str] = {
         "account opens until a governed NFL decision policy is activated."
     ),
     "NBA": (
-        "NBA data ingestion is built but blocked at its access boundary "
-        "(NBA_REAL_DATA_PILOT_ACCESS_BLOCKED). No real NBA game has been "
-        "ingested, so there is nothing to forecast or price."
+        "NBA holds imported research forecasts. A paper account opens under "
+        "AISP_NBA_PAPER_POLICY_V1; positions additionally require the "
+        "producer's eligibility record for the exact forecast."
+    ),
+    "CFB": (
+        "College Football holds an imported research forecast. A paper account "
+        "opens under AISP_CFB_PAPER_POLICY_V1; positions additionally require "
+        "the producer's eligibility record for the exact forecast."
     ),
     "NHL": "No NHL ingestion, forecasting or decision policy exists yet.",
     "MMA": "No MMA ingestion, forecasting or decision policy exists yet.",
