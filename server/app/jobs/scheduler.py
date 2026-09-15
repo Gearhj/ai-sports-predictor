@@ -418,8 +418,56 @@ def select_event_relative_refresh_states(settings: Settings) -> None:
             logger.error("event_relative_state_selection_failed", error=str(exc))
 
 
+#: One worker thread runs every scheduled coroutine, in submission order.
+#:
+#: WHY: job bodies are `async def` but do synchronous database, file-hashing and
+#: CPU work. Awaited on the web server's event loop they froze HTTP for their
+#: whole duration -- on 2026-09-15 a 392-second `finalize-games` run held the
+#: NBA research page's HTML response for 116 seconds, and the five-minute
+#: exchange consumer blocked every page for 40-60 seconds each cycle. Moving
+#: the bodies to a single dedicated thread (with its own event loop) frees the
+#: web loop while keeping the jobs as serial as they effectively were: one at
+#: a time, first come first served, each still `max_instances=1`. Schedules,
+#: ownership and job logic are unchanged.
+_JOB_EXECUTOR = None
+
+
+def _job_executor():
+    global _JOB_EXECUTOR
+    if _JOB_EXECUTOR is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aisp-scheduled-job")
+    return _JOB_EXECUTOR
+
+
+def off_event_loop(func):
+    """Run a scheduled coroutine function on the job thread, not the web loop."""
+
+    import asyncio
+    import functools
+    import inspect
+
+    if not inspect.iscoroutinefunction(func):
+        return func
+
+    @functools.wraps(func)
+    async def runner(*args: Any, **kwargs: Any) -> Any:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_job_executor(), lambda: asyncio.run(func(*args, **kwargs)))
+
+    runner.__aisp_off_event_loop__ = True  # type: ignore[attr-defined]
+    return runner
+
+
 def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=settings.display_timezone)
+    _add_job = scheduler.add_job
+
+    def add_job(func, *args: Any, **kwargs: Any):
+        return _add_job(off_event_loop(func), *args, **kwargs)
+
+    scheduler.add_job = add_job  # type: ignore[method-assign]
     common: dict[str, Any] = {
         "max_instances": 1,
         "coalesce": True,

@@ -36,7 +36,16 @@ async def lifespan(application: FastAPI):
         scheduler.start()
         application.state.scheduler = scheduler
         mark_scheduler_started(scheduler)
+    warmer = None
+    if settings.app_env != "test":
+        import asyncio
+
+        from app.api.read_cache import warm_forever
+
+        warmer = asyncio.create_task(warm_forever(settings.api_v1_prefix))
     yield
+    if warmer:
+        warmer.cancel()
     if scheduler:
         mark_scheduler_stopped()
         scheduler.shutdown(wait=False)
@@ -60,6 +69,11 @@ def create_app(settings=None) -> FastAPI:
         lifespan=lifespan,
         **docs_kwargs,
     )
+    if settings.app_env != "test":
+        # Innermost: security headers and CORS still wrap every cached response.
+        from app.api.read_cache import ReadCacheMiddleware
+
+        application.add_middleware(ReadCacheMiddleware, prefix=settings.api_v1_prefix)
     application.add_middleware(SecurityHeadersMiddleware, hsts=is_production)
     application.add_middleware(
         CORSMiddleware,

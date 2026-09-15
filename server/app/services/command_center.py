@@ -241,6 +241,9 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
         -- stay in the ledger and never surface as NFL evaluations.
         where d.slate_date = :day and l.code = a.sport"""), {"day": day}).all()
     matchups = _matchups(session, sorted({str(r[4]) for r in rows}))
+    book_names = dict(session.execute(text(
+        "select key, name from sportsbooks where key = any(:k)"),
+        {"k": sorted({str(r[9]) for r in rows if r[9]})}).all()) if rows else {}
 
     latest: dict[tuple, Any] = {}
     for row in rows:
@@ -270,7 +273,12 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
             group = "PASSED"
         else:
             group = "WATCHING"
-        age = ((now - _aware(quote_at)).total_seconds() / 60) if quote_at else None
+        # Age AT THE DECISION, which is what the policy judged -- not age now.
+        age = ((_aware(rec_at) - _aware(quote_at)).total_seconds() / 60) if quote_at and rec_at else None
+        teams = matchups.get(str(game_id), {})
+        if str(selection or "").upper() in ("HOME", "AWAY"):
+            selection = f"{(teams.get(str(selection).lower()) or {}).get('abbreviation', selection)} ML"
+        book = book_names.get(book, book)
         items.append({
             "decision_id": str(did), "sport": sport, "experiment": exp_name,
             "game_id": str(game_id), "matchup": matchups.get(str(game_id), {}).get("label"),
