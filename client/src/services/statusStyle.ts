@@ -114,6 +114,63 @@ export function decisionStyle(state: string | null | undefined): StatusStyle & {
   }
 }
 
+/** Minutes before first pitch that the MLB/NFL decision cutoff falls (T-15). */
+const DECISION_CUTOFF_MINUTES = 15
+/** The quote freshness window: collection for a game opens this long before its cutoff. */
+const QUOTE_FRESHNESS_MINUTES = 240
+
+/** When sportsbook collection for a game opens: cutoff (T-15) minus the 240-minute freshness window. */
+export function collectionOpensAt(startsAt: string | null | undefined): string | null {
+  const start = startsAt ? Date.parse(startsAt) : Number.NaN
+  if (!Number.isFinite(start)) return null
+  return new Date(start - (DECISION_CUTOFF_MINUTES + QUOTE_FRESHNESS_MINUTES) * 60_000).toISOString()
+}
+
+export type MarketWaitState = 'AWAITING_MARKET' | 'COLLECTING_MARKET' | 'NO_PREGAME_PRICE'
+
+/**
+ * "NO BET" is a policy disposition. It may be shown only after an evaluation
+ * with a price returned it. Before any sportsbook price exists the honest state
+ * is that the market has not been collected yet -- with when it will be.
+ *
+ * Returns null when a price exists (the caller shows its real band/decision).
+ */
+export function marketWait(input: {
+  hasPrice: boolean
+  startsAt: string | null | undefined
+  collectionOpensAt?: string | null
+  now?: number
+}): { state: MarketWaitState; label: string; detail: string; title: string } | null {
+  if (input.hasPrice) return null
+  const now = input.now ?? Date.now()
+  const start = input.startsAt ? Date.parse(input.startsAt) : Number.NaN
+  const opens = input.collectionOpensAt ?? collectionOpensAt(input.startsAt)
+  const opensAt = opens ? Date.parse(opens) : Number.NaN
+  const clock = (ms: number) => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(ms) + ' ET'
+  const until = (ms: number) => {
+    const minutes = Math.max(0, Math.round((ms - now) / 60_000))
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` : `${minutes}m`
+  }
+  if (Number.isFinite(start) && now >= start) {
+    return {
+      state: 'NO_PREGAME_PRICE', label: 'No pregame price collected', detail: 'Game started without a stored pregame price',
+      title: 'No sportsbook price was stored before first pitch, so no policy evaluation could run. This is not a no-bet decision.',
+    }
+  }
+  if (Number.isFinite(opensAt) && now >= opensAt) {
+    return {
+      state: 'COLLECTING_MARKET', label: 'Collecting market', detail: 'Collection window open · awaiting a stored price',
+      title: 'The sportsbook collection window is open; no price has been stored yet. No policy evaluation has run.',
+    }
+  }
+  return {
+    state: 'AWAITING_MARKET', label: 'Market collection scheduled',
+    detail: Number.isFinite(opensAt) ? `Collects ${clock(opensAt)} · in ${until(opensAt)}` : 'Collection time not scheduled',
+    title: 'No sportsbook price has been collected yet, so no policy evaluation has run. This is not a no-bet decision.',
+  }
+}
+
 export function closedStyle(): StatusStyle {
   return {
     tone: 'closed',

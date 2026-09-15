@@ -36,7 +36,7 @@ import {
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
-import { closedStyle, edgeDescription, hasStarted, opportunityStyle } from '../services/statusStyle'
+import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
 import { availabilityNote, engineShortName, isCurrent, type ForecastIdentity } from '../services/forecastSelection'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { useSportRegistry } from '../hooks/useSportRegistry'
@@ -424,7 +424,7 @@ function GameRow({
         totalLabel={totalLabel} fallbackHandicap={handicap} fallbackTotal={totalLine} />
 
       <div className="bx-slate__decision">
-        <DecisionChip game={game} />
+        <DecisionChip game={game} evidence={evidence} />
         {/* The band is a comparison against the market, made by one specific
             forecast. Naming that forecast is what stops a Gen 1 judgement
             sitting beside a V18 number. */}
@@ -537,7 +537,19 @@ function ForecastChip(
 }
 
 
-function DecisionChip({ game }: { game: SlateGame }) {
+function DecisionChip({ game, evidence }: { game: SlateGame; evidence?: CoverageGame | null }) {
+  // A band computed without a price is not a decision. Before a sportsbook
+  // price is stored the game is awaiting its market, never "NO BET".
+  const hasPrice = evidence ? evidence.quotes.length > 0 : game.priceStatus !== 'NOT_COLLECTED'
+  const wait = hasStarted(game.status) && hasPrice ? null : marketWait({
+    hasPrice, startsAt: game.startsAt, collectionOpensAt: evidence?.checkpoints.collection_opens_at ?? null,
+  })
+  if (wait) {
+    return (
+      <SignalPill label={wait.label} className={`signal-pill ${wait.state === 'NO_PREGAME_PRICE' ? 'signal-pill--closed' : 'signal-pill--watch'}`}
+        title={wait.title} sub={wait.detail} />
+    )
+  }
   if (game.researchOnly) {
     return (
       <SignalPill

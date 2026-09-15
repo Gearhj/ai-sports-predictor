@@ -6,6 +6,7 @@ import type { GameOpportunity, ForecastGame, OpportunitySelection, Recommendatio
 import { formatTime, formatTimestamp } from '../services/format'
 import { formatCurrency, formatMoneyline, formatNumber, formatPct, TeamLogo } from './ui'
 import { PregameEvidenceBadges } from './PregameEvidenceBadges'
+import { marketWait } from '../services/statusStyle'
 
 const LIFECYCLE_LABEL: Record<string, string> = {
   NOT_YET_EVALUATED: 'Not yet evaluated',
@@ -105,6 +106,11 @@ export function OpportunityCard({
     navigate(analysisHref)
   }
 
+  // NO_BET is shown only when an evaluation with a stored price returned it.
+  // A game with no market yet is awaiting collection, not declined.
+  const wait = state === 'NO_BET' && !bet?.recommendation
+    ? marketWait({ hasPrice: Boolean(game.market_available), startsAt: game.start_time })
+    : null
   const showBet = bet != null && state !== 'NO_BET'
   const hasPosition = (bet?.virtual_stake ?? 0) > 0
 
@@ -120,7 +126,9 @@ export function OpportunityCard({
           <span className="opportunity-card__time"><Clock3 size={13} /> {formatTime(game.start_time)}</span>
           <span className="opportunity-card__venue"><MapPin size={13} /> {game.venue.split(' · ')[0]}</span>
         </div>
-        <span className={`rec-badge rec-badge--${state.toLowerCase()}`}>{STATE_LABEL[state]}</span>
+        {wait
+          ? <span className="rec-badge rec-badge--watch" title={wait.title}>{wait.label.toUpperCase()}</span>
+          : <span className={`rec-badge rec-badge--${state.toLowerCase()}`}>{STATE_LABEL[state]}</span>}
         {experimentStatus && experimentStatus !== 'NOT_IN_EXPERIMENT' && (
           <span className={`rec-badge rec-badge--experiment rec-badge--experiment-${experimentStatus.toLowerCase()}`}>
             {EXPERIMENT_LABEL[experimentStatus]}
@@ -225,7 +233,9 @@ export function OpportunityCard({
         ) : (
           <div className="opportunity-payout__none">
             <span>No virtual position</span>
-            <small>{state === 'NO_BET'
+            <small>{wait
+              ? `${wait.detail}. No policy evaluation has run yet.`
+              : state === 'NO_BET'
               ? reason
               : state === 'EXTREME_DISAGREEMENT'
                 ? 'Flagged for review — confirmed inputs, a fresh quote, and a rescore are required to qualify.'
