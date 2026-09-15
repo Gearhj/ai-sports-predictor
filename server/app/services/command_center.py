@@ -227,7 +227,8 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
                d.line, d.sportsbook, d.american_odds, d.quote_observed_at, d.model_probability,
                d.no_vig_probability, d.edge, d.expected_value, d.recommendation,
                d.recommendation_reason, d.recommended_at, g.starts_at, g.status,
-               p.id, p.stake, p.status, pr.result, pr.profit_loss
+               p.id, p.stake, p.status, pr.result, pr.profit_loss,
+               d.odds_snapshot_id, d.evidence, d.qualification_reasons
         from shadow_experiment_decisions d
         join shadow_experiments e on e.id = d.experiment_id
         join experiment_account_memberships m on m.experiment_id = e.id and m.role = 'FUNDED_ERA'
@@ -252,11 +253,14 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
         if key not in latest or rank > latest[key][0] or (row[21] is not None and latest[key][1][21] is None):
             latest[key] = (rank, row)
 
+    shown = [str(row[0]) for _, row in latest.values()]
+    integrity = _market_integrity(session, shown)
+    forecasts_used = _forecast_check(session, shown, now)
     items: list[dict[str, Any]] = []
     for _, row in latest.values():
         (did, exp_id, exp_name, sport, game_id, phase, market, selection, line, book, american,
          quote_at, model_p, no_vig, edge, ev, rec, reason, rec_at, starts_at, status,
-         pid, stake, pstatus, result, pnl) = row
+         pid, stake, pstatus, result, pnl, _snapshot_id, evidence, qualification) = row
         start = _aware(starts_at)
         started = start is not None and start <= now
         missing_quote = no_vig is None or american is None
@@ -289,6 +293,12 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
             "edge": edge, "expected_value": ev,
             "recommendation": presented, "stored_recommendation": str(rec),
             "reason": reason, "recommended_at": _iso(rec_at),
+            # Independently re-derived from persisted rows, for surfaces that
+            # rank or headline a decision: never inferred from the disposition.
+            "market_integrity": integrity.get(str(did)),
+            "forecast_check": forecasts_used.get(str(did)),
+            "adjusted": _adjusted(evidence),
+            "plain_reasons": _plain_reasons(qualification),
             "decision_window": {"opens_at": _iso(start - WINDOW_OPENS), "closes_at": _iso(start - WINDOW_CLOSES)}
             if start else None,
             "group": group,
@@ -312,6 +322,129 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
         "next_decision_deadline": upcoming_windows[0] if upcoming_windows else None,
         "items": items,
     }
+
+
+PERMITTED_SOURCES = ("THE_ODDS_API", "SPORTSGAMEODDS")
+
+
+def _market_integrity(session: Session, decision_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Re-derive the quote pair a decision priced against, from the stored snapshot.
+
+    The selected leg is the decision's own odds snapshot. The opposite leg is
+    the latest snapshot of the other outcome of the SAME market, from the SAME
+    sportsbook and the SAME provider, observed no later than the decision. Pair
+    time is the older leg; its age is measured at the decision, which is what
+    the policy judged. A decision with no stored snapshot has no integrity row.
+    """
+
+    if not decision_ids:
+        return {}
+    rows = session.execute(text("""
+        select d.id, os.observed_at, os.source, os.source_mode, os.american_odds,
+               sb.key, sb.name, mo.outcome_key, mk.market_type, d.market, d.recommended_at,
+               leg.observed_at, leg.american_odds, leg.outcome_key, leg.others
+        from shadow_experiment_decisions d
+        join odds_snapshots os on os.id = d.odds_snapshot_id
+        join market_outcomes mo on mo.id = os.market_outcome_id
+        join markets mk on mk.id = mo.market_id
+        join sportsbooks sb on sb.id = os.sportsbook_id
+        left join lateral (
+            select os2.observed_at, os2.american_odds, mo2.outcome_key,
+                   (select count(*) from market_outcomes m3
+                     where m3.market_id = mo.market_id and m3.id <> mo.id) as others
+            from market_outcomes mo2
+            join odds_snapshots os2 on os2.market_outcome_id = mo2.id
+            where mo2.market_id = mo.market_id and mo2.id <> mo.id
+              and os2.sportsbook_id = os.sportsbook_id and os2.source = os.source
+              and os2.source_mode = 'LIVE'
+              and os2.observed_at <= coalesce(d.recommended_at, d.created_at)
+            order by os2.observed_at desc limit 1
+        ) leg on true
+        where d.id = any(cast(:ids as uuid[]))"""), {"ids": decision_ids}).all()
+    out: dict[str, dict[str, Any]] = {}
+    for (did, observed, source, mode, american, book_key, book_name, _outcome, market_type,
+         decision_market, rec_at, opp_observed, opp_american, _opp_outcome, others) in rows:
+        two_sided = opp_observed is not None and int(others or 0) == 1
+        older = min(_aware(observed), _aware(opp_observed)) if two_sided else _aware(observed)
+        age = ((_aware(rec_at) - older).total_seconds() / 60) if rec_at and older else None
+        market_matches = str(market_type).split(".")[-1].upper() == str(decision_market or "").upper()
+        permitted = str(source or "").upper() in PERMITTED_SOURCES and str(mode or "").upper() == "LIVE"
+        out[str(did)] = {
+            "two_sided_same_book": two_sided,
+            "market_matches": market_matches,
+            "provider": _provider_label(source),
+            "provider_permitted": permitted,
+            "classification": _classification(source, book_key),
+            "sportsbook": book_name, "sportsbook_key": book_key,
+            "selected_american": american,
+            "opposite_american": opp_american if two_sided else None,
+            "older_leg_observed_at": _iso(older),
+            "older_leg_age_minutes_at_decision": round(age, 1) if age is not None else None,
+            "fresh_at_decision": age is not None and 0 <= age <= QUOTE_FRESHNESS_MINUTES,
+        }
+    return out
+
+
+def _forecast_check(session: Session, decision_ids: list[str], now: datetime) -> dict[str, dict[str, Any]]:
+    """Which forecast a decision used, and whether it was the controlling one."""
+
+    if not decision_ids:
+        return {}
+    rows = session.execute(text("""
+        with used as (
+            select d.id, d.game_id, d.recommended_at, a.sport,
+                   coalesce(d.shadow_forecast_id,
+                            case when (d.evidence->>'shadow_forecast_row_id') ~ '^[0-9a-f-]{36}$'
+                                 then cast(d.evidence->>'shadow_forecast_row_id' as uuid) end) as fid
+            from shadow_experiment_decisions d
+            join experiment_account_memberships m on m.experiment_id = d.experiment_id and m.role = 'FUNDED_ERA'
+            join experiment_accounts a on a.id = m.account_id
+            where d.id = any(cast(:ids as uuid[]))
+        )
+        select u.id, u.sport, sf.engine_id, sf.created_at,
+               (select max(s2.created_at) from shadow_forecasts s2
+                 where s2.canonical_game_id = u.game_id and s2.engine_id = sf.engine_id
+                   and s2.created_at <= u.recommended_at) as latest_at_decision,
+               (select max(s3.created_at) from shadow_forecasts s3
+                 where s3.canonical_game_id = u.game_id and s3.engine_id = sf.engine_id) as latest_now
+        from used u join shadow_forecasts sf on sf.id = u.fid"""), {"ids": decision_ids}).all()
+    out: dict[str, dict[str, Any]] = {}
+    for did, sport, engine, created, latest_at_decision, latest_now in rows:
+        out[str(did)] = {
+            "engine_id": engine,
+            "controlling": CONTROLLING_ENGINES.get(str(sport)) == engine,
+            "latest_at_decision": latest_at_decision is not None and _aware(created) >= _aware(latest_at_decision),
+            "superseded_since_decision": latest_now is not None and _aware(latest_now) > _aware(created),
+            "published_at": _iso(created),
+        }
+    return out
+
+
+def _adjusted(evidence: Any) -> dict[str, Any] | None:
+    """The policy's own adjusted edge and expected value, when it recorded them."""
+
+    if not isinstance(evidence, dict):
+        return None
+    edge, ev = evidence.get("adjusted_edge"), evidence.get("adjusted_expected_value")
+    if edge is None and ev is None:
+        return None
+    return {"edge": edge, "expected_value": ev, "probability": evidence.get("adjusted_probability")}
+
+
+def _plain_reasons(qualification: Any) -> list[str]:
+    """Human sentences only; machine codes (ALL_CAPS_WITH_UNDERSCORES) are dropped."""
+
+    if isinstance(qualification, str):
+        qualification = [qualification]
+    if isinstance(qualification, dict):
+        qualification = list(qualification.values())
+    out = []
+    for item in qualification or []:
+        text_item = str(item).strip()
+        if not text_item or " " not in text_item or text_item.upper() == text_item:
+            continue
+        out.append(text_item)
+    return out
 
 
 # -------------------------------------------------------------- coverage ---
