@@ -27,7 +27,7 @@ from app.models import (
 from app.models.show_preview import ShowPreviewForecast
 from app.show_preview.clock import SHOW_SPORTS, clock_for, planned_freeze_utc
 from app.show_preview.contract import (
-    KICKOFF_TOLERANCE, SHOW_PREVIEW, lines_compatible, no_vig, preview_difference, settlement_rule,
+    KICKOFF_TOLERANCE, SHOW_PREVIEW, lines_compatible, mandatory_disclosures, no_vig, preview_difference, settlement_rule,
 )
 
 BOARD_SCHEMA = "AISP_SHOW_BOARD_V1"
@@ -446,6 +446,13 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
                 candidates.sort(key=lambda c: (-c["difference"], -c["expected_return"]))
                 comparison = {**candidates[0], "other_side": candidates[1] if len(candidates) > 1 else None}
 
+        # Consumer-side obligations, attached wherever the forecast is shown
+        # rather than left to whatever the producer chose to declare. Today this
+        # is empty for every row -- no genuine MLB preview package exists -- and
+        # it is written now so the first one that arrives cannot be displayed
+        # without them.
+        model_disclosures = mandatory_disclosures(sport, view)
+
         has_forecast = view is not None
         has_market = bool(ml and ml["complete_books"])
         readiness = "READY" if has_forecast and has_market else "FORECAST_ONLY" if has_forecast else "MARKET_ONLY" if has_market else "NEITHER"
@@ -460,6 +467,7 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
             "readiness": readiness, "readiness_label": READINESS_LABEL[readiness],
             "forecast_status": "AVAILABLE" if has_forecast else "AWAITING_PRODUCER",
             "forecast": view,
+            "disclosures": model_disclosures,
             "markets": markets,
             "market_summary": {"moneyline": ml, "spread": _line_summary(markets["SPREAD"]), "total": _line_summary(markets["TOTAL"])},
             "comparison": comparison,
@@ -468,6 +476,10 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
         }
         games.append(record)
         for item in missing:
+            disclosures.append({"game_key": key, **item})
+        # The model's own limitations belong on the board's disclosure list too,
+        # not only on the row: the print view and the rundown read from here.
+        for item in model_disclosures:
             disclosures.append({"game_key": key, **item})
 
     for entry in slate:

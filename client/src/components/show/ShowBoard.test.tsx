@@ -96,6 +96,26 @@ describe('Show Board', () => {
     expect(requests).toContain('/show-board?date=2026-09-17')
   })
 
+  it('an MLB preview forecast is never shown without its stated limitations', async () => {
+    const board = await renderBoard(frozenFull(Date.now()))
+    const notes = within(board).getAllByText('Read this with the forecast:')
+    expect(notes.length).toBeGreaterThan(0)
+    const first = notes[0].parentElement!
+    expect(first).toHaveTextContent('Team score history only')
+    expect(first).toHaveTextContent('not one joint distribution')
+    expect(first).toHaveTextContent('Expected runs are not an Over/Under')
+    expect(first).toHaveTextContent('no decision, stake, position or wagering authority')
+    expect(first).toHaveTextContent('Not the Final V18 forecast')
+  })
+
+  it('the limitations survive the print view, which is what goes into the studio', () => {
+    const print = css.slice(css.indexOf('@media print'))
+    expect(print).toMatch(/\.sb-row__disclosures/)
+    // Hidden in print is exactly what must not happen to them.
+    const hidden = print.slice(print.indexOf('display: none'))
+    expect(hidden.slice(0, hidden.indexOf('}'))).not.toMatch(/sb-row__disclosures/)
+  })
+
   it('print stylesheet hides navigation and keeps the rundown on white', () => {
     const print = css.slice(css.indexOf('@media print'))
     expect(print).toMatch(/\.sidebar/)

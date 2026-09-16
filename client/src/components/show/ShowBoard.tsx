@@ -306,6 +306,14 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
           <span className="sb-muted">RFF: not computed at the preview horizon</span>
         </p>
       )}
+      {/* What the model must be shown with, never abbreviated away. A number
+          read as more than it is does more damage on air than a missing one. */}
+      {game.disclosures.length > 0 && (
+        <p className="sb-row__disclosures">
+          <b>Read this with the forecast:</b>
+          {game.disclosures.map((d) => <span key={d.code}>{d.message}</span>)}
+        </p>
+      )}
       <LazyDetails className="sb-evidence" summary={`Evidence · ${game.matchup}`}>
         <GameEvidence slate={slate} gameKey={game.game_key} />
       </LazyDetails>

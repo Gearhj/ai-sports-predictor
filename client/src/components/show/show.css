@@ -127,6 +127,11 @@
 .sb-ready { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #fbf1dc; color: #8a6a1f; justify-self: start; }
 .sb-ready--READY { background: #e2f5ec; color: var(--sb-good); }
 .sb-row__notes { margin: 0; padding: 0 12px 8px 85px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--sb-muted); }
+/* Model limitations. Deliberately not muted like the other notes: these are
+   the lines that keep a team-history number from being read as a simulation. */
+.sb-row__disclosures { margin: 0; padding: 0 12px 8px 85px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--sb-ink); }
+.sb-row__disclosures b { color: var(--sb-gold); font-weight: 600; }
+.sb-row__disclosures span::before { content: "\2022"; margin-right: 6px; color: var(--sb-muted); }
 .sb-evidence { padding: 0 12px 6px 85px; }
 .sb-evidence > summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--sb-teal); }
 .sb-evtable { overflow-x: auto; background: #fff; border: 1px solid var(--sb-line); border-radius: 12px; }
@@ -161,7 +166,7 @@
   .sb-row > :nth-child(n+3) { grid-column: 2; }
   .sb-row > :nth-child(6), .sb-row > :nth-child(7) { display: none; }
   .sb-row > :nth-child(8) { display: grid; font-size: 12px; color: var(--sb-dim); }
-  .sb-row__notes, .sb-evidence { padding-left: 12px; }
+  .sb-row__notes, .sb-row__disclosures, .sb-evidence { padding-left: 12px; }
   .sb-footer dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -185,4 +190,8 @@
   .sb-row > * { display: grid !important; }
   .sb-row--head { display: grid !important; }
   .sb-table, .sb-points ul, .sb-footer, .sb-evtable { border-color: #999; }
+  /* Model limitations print. They are the reason the printed sheet cannot be
+     read as more than it is, so they are never the thing that gets dropped. */
+  .sb-row__disclosures { color: #000 !important; }
+  .sb-row__disclosures b { color: #000 !important; }
 }

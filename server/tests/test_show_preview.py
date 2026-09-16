@@ -136,17 +136,51 @@ def test_collection_never_requests_even_when_switched_on(session, settings) -> N
     on = enabled(settings, show_preview_provider_collection_enabled=True)
     result = collection.collect_preview_markets(on)
     assert result["attempted"] is False and result["objects"] == 0 and result["reservations"] == 0
-    assert result["reason"] == collection.NOT_IMPLEMENTED
+    # The collector is complete, so switching it on no longer answers "not
+    # implemented". It answers that it was given no session to read or write
+    # with -- and it still requests nothing and reserves nothing.
+    assert result["reason"] == collection.NO_SESSION
     assert session.scalar(select(func.count()).select_from(ProviderRequestLedger)) == before
 
 
+FORBIDDEN_IMPORTS = ("sgo_collection", "provider_allocation", "odds_api", "the_odds_api",
+                     "httpx", "requests", "sportsgameodds")
+
+
+def _imported_names(tree: ast.AST) -> list[str]:
+    names = [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
+    return names + [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+
+
 def test_show_preview_code_imports_no_provider_or_http_client() -> None:
-    forbidden = ("sgo_collection", "provider_allocation", "odds_api", "the_odds_api", "httpx", "requests", "sportsgameodds")
+    """Every module except the collector, which is the only one that may spend."""
+
     for path in Path("app/show_preview").glob("*.py"):
+        if path.name == "collection.py":
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        names = [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
-        names += [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-        assert not [n for n in names if any(bad in n for bad in forbidden)], path
+        assert not [n for n in _imported_names(tree)
+                    if any(bad in n for bad in FORBIDDEN_IMPORTS)], path
+
+
+def test_the_collector_reaches_a_provider_only_from_inside_a_function() -> None:
+    """The one module that may spend imports nothing provider-shaped at import time.
+
+    Importing ``app.show_preview.collection`` -- which the API, the read layer
+    and this test suite all do -- must not pull in an HTTP client or the
+    allocation machinery. Every provider import lives inside a function, below
+    the switch check, so reaching one at all means both switches were true.
+    """
+
+    tree = ast.parse(Path("app/show_preview/collection.py").read_text(encoding="utf-8"))
+    functions = {node for node in ast.walk(tree)
+                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    nested = {child for function in functions for child in ast.walk(function)}
+    module_level = [node for node in ast.walk(tree)
+                    if isinstance(node, (ast.Import, ast.ImportFrom)) and node not in nested]
+    offenders = [name for node in module_level for name in _imported_names(node)
+                 if any(bad in name for bad in FORBIDDEN_IMPORTS)]
+    assert offenders == [], offenders
 
 
 def test_auto_freeze_is_registered_only_when_both_switches_are_on(settings) -> None:
@@ -242,6 +276,43 @@ def test_evidence_after_the_cut_is_invisible(world, settings) -> None:
     assert "MARKET_NOT_POSTED" in {m["code"] for m in game["missing"]}
     assert game["forecast_status"] == "AWAITING_PRODUCER"
     assert game["missing"][0]["message"] == "Preview forecast awaiting producer"
+
+
+def test_an_mlb_preview_forecast_reaches_the_board_with_its_limitations(world, settings) -> None:
+    """The wiring, end to end: the disclosures are on the row and on the board.
+
+    They are not optional presentation. The MLB preview model estimates its win
+    probability and its two scores separately, so a projected total shown beside
+    a sportsbook total is the exact number a viewer would otherwise read as an
+    Over/Under opinion nobody formed.
+    """
+
+    session = world["session"]
+    import_preview_forecast(session, forecast_doc(world), enabled(settings), now=FREEZE)
+    board = build_board(session, SLATE, settings, evidence_as_of=FREEZE)
+    game = board["games"][0]
+    codes = [item["code"] for item in game["disclosures"]]
+    assert codes == ["TEAM_HISTORY_MODEL_ONLY", "NO_JOINT_SCORE_DISTRIBUTION",
+                     "NO_TOTAL_OR_RUN_LINE_PROBABILITY", "RESEARCH_ONLY", "NOT_FINAL_V18"]
+    # This package states PROBABLE starters, so the "unknown" line is dropped
+    # and the existing PROBABLE_STARTERS note carries what it does say.
+    assert "STARTERS_AND_LINEUPS_UNKNOWN" not in codes
+    assert "PROBABLE_STARTERS" in {item["code"] for item in game["missing"]}
+    # And the board-level list, which the print view reads, carries them too.
+    assert {(d["game_key"], d["code"]) for d in board["disclosures"]} >= {
+        (game["game_key"], code) for code in codes}
+    # The pre-existing board disclosures are still there: the per-game list must
+    # not have displaced them.
+    assert "PREVIEW_COLLECTION_DISABLED" in {d["code"] for d in board["disclosures"]}
+
+
+def test_a_game_without_a_preview_forecast_is_given_no_limitations_to_read(world, settings) -> None:
+    """An absent forecast is reported as absent, never described."""
+
+    board = build_board(world["session"], SLATE, settings, evidence_as_of=FREEZE)
+    game = board["games"][0]
+    assert game["forecast_status"] == "AWAITING_PRODUCER"
+    assert game["disclosures"] == []
 
 
 def test_a_stale_preview_price_is_shown_but_not_compared(world, settings) -> None:

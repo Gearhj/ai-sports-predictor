@@ -79,6 +79,15 @@ function build(now: number, spec: GameSpec): ShowGame {
     },
     comparison,
     rff: { supported: false, note: 'RFF is not computed at the preview horizon: its inputs have no evidence-time cut.' },
+    // MLB preview forecasts carry the model's own limitations; the other
+    // sports' producers state theirs inside missing_evidence.
+    disclosures: f && spec.sport === 'MLB' ? [
+      { code: 'TEAM_HISTORY_MODEL_ONLY', message: 'Team score history only. No pitchers, lineups, injuries, park, rest or market inputs.' },
+      { code: 'NO_JOINT_SCORE_DISTRIBUTION', message: 'Win probability and the two expected scores are estimated separately. They are not one joint distribution and must not be read as a simulated population.' },
+      { code: 'NO_TOTAL_OR_RUN_LINE_PROBABILITY', message: 'No total or run-line probability is produced. Expected runs are not an Over/Under or run-line probability.' },
+      { code: 'RESEARCH_ONLY', message: 'Research and editorial only. It carries no decision, stake, position or wagering authority.' },
+      { code: 'NOT_FINAL_V18', message: 'Not the Final V18 forecast, and never a substitute for one.' },
+    ] : [],
     missing,
   }
 }

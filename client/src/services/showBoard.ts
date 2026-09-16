@@ -55,6 +55,8 @@ export interface ShowGame {
   }
   comparison: ShowComparison | null
   rff: { supported: boolean; note: string }
+  /** Consumer-side obligations the forecast must be shown with. */
+  disclosures: { code: string; message: string }[]
   missing: { code: string; message: string }[]
 }
 

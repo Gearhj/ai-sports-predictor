@@ -184,6 +184,74 @@ def validate_forecast(document: dict[str, Any], *, now: datetime) -> PreviewFore
     )
 
 
+# ----------------------------------------------------------- disclosures ----
+
+#: What an MLB preview forecast must say about itself wherever it is shown.
+#:
+#: These are consumer-side obligations, not a summary of whatever the producer
+#: chose to declare. The MLB preview model is a TEAM-HISTORY model -- sixteen
+#: score/date features, a logistic winner head and two independent Poisson score
+#: heads -- and it is easy to read its expected runs as something it is not: a
+#: joint score distribution, an Over/Under probability, or Final V18. Each line
+#: below exists because the number beside it would otherwise be read as more
+#: than it is.
+#:
+#: Producer statement of record: asp-model-studio
+#: outputs/mlb-show-preview-feasibility-v1 (CLAUDE_HANDOFF.md, MODEL_CARD.md,
+#: FROZEN_DESIGN.json), configuration
+#: MLB_TEAM_LOGISTIC_C1_POISSON_A1_SHOW_PREVIEW_V1.
+MLB_PREVIEW_DISCLOSURES: tuple[dict[str, str], ...] = (
+    {"code": "TEAM_HISTORY_MODEL_ONLY",
+     "message": ("Team score history only. No pitchers, lineups, injuries, park, "
+                 "rest or market inputs.")},
+    {"code": "STARTERS_AND_LINEUPS_UNKNOWN",
+     "message": "Starters and lineups are unknown, not merely unconfirmed."},
+    {"code": "NO_JOINT_SCORE_DISTRIBUTION",
+     "message": ("Win probability and the two expected scores are estimated "
+                 "separately. They are not one joint distribution and must not be "
+                 "read as a simulated population.")},
+    {"code": "NO_TOTAL_OR_RUN_LINE_PROBABILITY",
+     "message": ("No total or run-line probability is produced. Expected runs are "
+                 "not an Over/Under or run-line probability.")},
+    {"code": "RESEARCH_ONLY",
+     "message": ("Research and editorial only. It carries no decision, stake, "
+                 "position or wagering authority.")},
+    {"code": "NOT_FINAL_V18",
+     "message": "Not the Final V18 forecast, and never a substitute for one.",
+     },
+)
+
+#: Codes whose claim is conditional on what the package actually says. A
+#: disclosure that contradicts the evidence is not a safeguard, it is a second
+#: inaccuracy, so each of these is dropped when the package supplies the thing
+#: it says is absent.
+_CONDITIONAL = {"STARTERS_AND_LINEUPS_UNKNOWN", "NO_JOINT_SCORE_DISTRIBUTION"}
+
+
+def mandatory_disclosures(sport: str, view: dict[str, Any] | None) -> list[dict[str, str]]:
+    """What this sport's preview forecast must disclose wherever it is shown.
+
+    Returns nothing when there is no forecast: an absent forecast is already
+    reported as awaiting the producer, and attaching a model's limitations to a
+    model nobody published would be describing something that does not exist.
+    """
+
+    if view is None or str(sport).upper() != "MLB":
+        return []
+    starters_known = str(view.get("starters") or "UNKNOWN").upper() != "UNKNOWN"
+    lineups_known = str(view.get("lineups") or "UNKNOWN").upper() != "UNKNOWN"
+    has_distribution = bool(view.get("distribution"))
+    out: list[dict[str, str]] = []
+    for item in MLB_PREVIEW_DISCLOSURES:
+        code = item["code"]
+        if code == "STARTERS_AND_LINEUPS_UNKNOWN" and (starters_known or lineups_known):
+            continue
+        if code == "NO_JOINT_SCORE_DISTRIBUTION" and has_distribution:
+            continue
+        out.append(dict(item))
+    return out
+
+
 # --------------------------------------------------------------- markets ----
 
 def settlement_rule(sport: str, market_type: str, line: float | None) -> str:
