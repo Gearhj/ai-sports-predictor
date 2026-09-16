@@ -77,6 +77,11 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Agent worktrees are full nested checkouts of this repository (each has its own
+# .git). A broad `git add` would record them as embedded repositories; their
+# work belongs on their own branches instead. See docs/REPOSITORY_AND_BACKUP.md.
+.claude/worktrees/
+
 # Research study cohort exports (immutable, but too large to track; the
 # compressed copy and its SHA-256 manifest are committed alongside).
 outputs/**/cohort.json
