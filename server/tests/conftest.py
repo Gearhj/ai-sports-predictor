@@ -55,6 +55,14 @@ def settings(artifact_root: Path) -> Settings:
         secret_key="test-secret-with-at-least-thirty-two-characters",
         admin_email="admin@example.com",
         admin_password="TestAdministrator123!",
+        # Stated rather than inherited. Pydantic reads the deployed .env for
+        # anything this fixture leaves out, so when the owner switched Show
+        # Preview on for the package import, tests asserting the off-state
+        # started failing on the environment rather than on the code. A test
+        # that wants a switch on says so; the fixture is the off-state.
+        show_preview_enabled=False,
+        show_preview_provider_collection_enabled=False,
+        show_preview_auto_freeze_enabled=False,
     )
 
 
