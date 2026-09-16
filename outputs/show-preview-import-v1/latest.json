@@ -1,0 +1,632 @@
+{
+  "alreadyHeld": 17,
+  "authority": {
+    "createsPositions": false,
+    "finalPregameEvidence": false,
+    "grantsWageringAuthority": false,
+    "note": "Show Preview research for the day-before recording. These forecasts inform no decision, stake, position, bankroll or settlement, and are not final-pregame evidence.",
+    "researchOnly": true
+  },
+  "consumerAcknowledgedUtc": "2026-09-16T01:00:01.115437+00:00",
+  "discoveryIndexSchemaVersion": "ASP_SHOW_PREVIEW_DISCOVERY_V1",
+  "discoveryIndexSha256": "146fd0c48a0dab68fbd7acb279a417c48d989a289034925d58dd86aa69bdee59",
+  "horizon": "SHOW_PREVIEW",
+  "importedThisRun": 0,
+  "packages": [
+    {
+      "canonicalGameId": "e5f9bf07-3108-4fdd-80f5-0c06d9496405",
+      "contentSha256": "9dd2d7f683b0aa6df0d594749d361f0e7740e1b46347d553455831dd49b5027b",
+      "forecastId": "asp-show-preview:sha256:92c518bf1bcd353a13c6c0933bc629b00337f479ff26487921a9510dc7d3a1aa",
+      "forecastSha256": "bea2bd5b51602f7c61552d3ac05e84e980d3a04ac221abccd25da93a4c61cfff",
+      "kickoffUtc": "2026-09-18T00:15:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/1f3cecd4e3bcc3e6618d338c7604752c03829bcc3afd22fcf72f61dda5d20afa",
+      "packageSha256": "1f3cecd4e3bcc3e6618d338c7604752c03829bcc3afd22fcf72f61dda5d20afa",
+      "physicalFiles": [
+        {
+          "bytes": 121637,
+          "path": "source-0.json",
+          "sha256": "d9c8269ce6e2af681b2bd4cfe73c72d80316651874be390b7f708a0a1c7f8e8c"
+        },
+        {
+          "bytes": 741,
+          "path": "source-1.json",
+          "sha256": "aa49ed19a0fc0e2bd5e7ab0be7c4273872e17e4506e69c1cd3b1f5381037463f"
+        },
+        {
+          "bytes": 4448,
+          "path": "source-binding.json",
+          "sha256": "7887068fc48cf25810558b16ef7c227b10affc70bad09644cd4bcc57ffd7bfcf"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:30.086626Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-17",
+      "sourceGameRef": "2026_02_DET_BUF",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "8ba3e58b-e02f-4ec1-be38-69ae05b75a75",
+      "contentSha256": "194f415498b02e2f978108b25bc2bd76bd552dfe1417d416524038a86b1e65da",
+      "forecastId": "asp-show-preview:sha256:911e8d7e9839ce79ede5cfafb0a93e8a7e2211dc1dab71106b24052c1f7aa31b",
+      "forecastSha256": "1a4aed8cec4cf2633b9d641b19d81c400b5fd50e3eaab969e2f0848b9ce6c4c5",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/ca89a582042389e3569c17dc64c86570cf9b8b947285d01219fa919ea46f06cf",
+      "packageSha256": "ca89a582042389e3569c17dc64c86570cf9b8b947285d01219fa919ea46f06cf",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4837,
+          "path": "source-binding.json",
+          "sha256": "59055359c9ea21a19e801f5e489bb1481c1f44732c2fb1a71b98b90f4ab888f8"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:33.531347Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_CAR_ATL",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "c6a8dbad-33fb-4b36-8fa3-bf7ef5886950",
+      "contentSha256": "128276c573c61420953eed75099baef3127780c586155a9cb0eccb812e136f3f",
+      "forecastId": "asp-show-preview:sha256:2d52e4b731902c26beb71d312661676b9396a93c506bbf1435a474890d184f4f",
+      "forecastSha256": "1a485f005f08bc709e12f0cd56f94e783b8a55b857db61cfd8dfc1b3b0d41266",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/4771c097af7fb69ab41b27edaba2091ff0ae272af2333ca007d48687cfa26b7f",
+      "packageSha256": "4771c097af7fb69ab41b27edaba2091ff0ae272af2333ca007d48687cfa26b7f",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4456,
+          "path": "source-binding.json",
+          "sha256": "1c93c9d902ce724edfb1e61d9c19d773aab0fa3ca9dad9242b431c94fad73100"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:37.440331Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_CIN_HOU",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "e6704e33-5250-4977-ade4-fad9ad9acd7e",
+      "contentSha256": "660ac040d965465f329f68fc99b7af67a9c7996177fed21282d3950608a81580",
+      "forecastId": "asp-show-preview:sha256:66b57d0032de0ee22f6b50035014f8de18365a5793b0e8000448ccee835e656b",
+      "forecastSha256": "16ccd84b4f1a5b433cd5563b1b5b16ad34c13d1c65d60d1032a9c7b6114ab719",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/ea222b229e9f907f160ac92c716ff804c29ffa4d54f764c56fa048b43d0e5e93",
+      "packageSha256": "ea222b229e9f907f160ac92c716ff804c29ffa4d54f764c56fa048b43d0e5e93",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4458,
+          "path": "source-binding.json",
+          "sha256": "208fb89a16f5260f921260d49ec68d97b0f889e6ae6b602602c06e912e8ef4f3"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:41.410407Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_CLE_TB",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "29f66878-2d9d-4c03-b607-9f49734116c7",
+      "contentSha256": "776927c435b3610883f138e9768fefa4869a66fed038860db9f4490e61672bbb",
+      "forecastId": "asp-show-preview:sha256:80214f2f649f26630e4a1d11d439a4b9f08528e76792d222d7f3dfc23bf9972b",
+      "forecastSha256": "d926c883fae07d99b8d825f36dcef19311a5a94aa3bd37d2c55de00966203963",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/c728fe456ac30f7d29dc7f7ddf9cd207a8b48941ddcd4a5a6c931c9dc141139d",
+      "packageSha256": "c728fe456ac30f7d29dc7f7ddf9cd207a8b48941ddcd4a5a6c931c9dc141139d",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4451,
+          "path": "source-binding.json",
+          "sha256": "caed66b38a0db836198fca9762bf67546db216c0eea2f8514e8fa92b66cba2ee"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:45.100952Z",
+      "producerSourceCutoffUtc": "2026-09-15T09:31:25.329915Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_GB_NYJ",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "9d26fc86-d894-4303-8a5e-9cc3990c7e14",
+      "contentSha256": "10feaaec67b9f789c56cf40981704dcd68ec1079a8d13d7bf8431e10adce89eb",
+      "forecastId": "asp-show-preview:sha256:3a69f23e9b5892d88724951abc942be3afd8f19373f7b6872ec2b1518e5e3b46",
+      "forecastSha256": "dae2f475c1faabde9e50c16b4eda990be8cd97205f6b4d0d05c394abf570368e",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/8cf6f7bb02029d40804befac1f8f09435c9aedea542acbb5d101bc671ef732a0",
+      "packageSha256": "8cf6f7bb02029d40804befac1f8f09435c9aedea542acbb5d101bc671ef732a0",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4454,
+          "path": "source-binding.json",
+          "sha256": "016a645ddfdb8dde5386294778eb07e51d964cb79cde7e86a61924ff10b06138"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:48.710761Z",
+      "producerSourceCutoffUtc": "2026-09-15T09:31:25.329915Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_MIN_CHI",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "f8c8e9d0-e0cf-4013-ba69-6240313f69c9",
+      "contentSha256": "ca3f584cc7b3457b9d0315f1645c4e687d5ac7cd8df17fe995501bf57426a951",
+      "forecastId": "asp-show-preview:sha256:a3f4f00bb67f11b22d61181a8f510c76cebb55abb16d60877df1919a64b34db9",
+      "forecastSha256": "1c178d294f866dbf1cb7ded0cd96071d321469638acc3d7a712e2b44150a615c",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/6fdfd9ed28640b3af2604c62fe5da90d99a5c1fd0470ffac42ff5c7a88319cbe",
+      "packageSha256": "6fdfd9ed28640b3af2604c62fe5da90d99a5c1fd0470ffac42ff5c7a88319cbe",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4455,
+          "path": "source-binding.json",
+          "sha256": "e10d9d4b39d305b646fc5bc2a9e2e94c13639caabebcce87fc7363a1e507a5fa"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:52.435788Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_NO_BAL",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "81005264-fd02-4787-a718-3aad3f6e00fc",
+      "contentSha256": "9cf0a4d945906c07d79dd67d1adef5dc87fcb390d2d2e05ae191f2e350291d2c",
+      "forecastId": "asp-show-preview:sha256:18fb521219c69d0bb285deacfa932ce4e8bccaf569bc2789561d4524be60dfbc",
+      "forecastSha256": "576bcd5fbf79fa19e6b516d49d3705c1b44d40b08aa15f66b626ad9245c7ca31",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/b63629a18f74c6cbc228084011494bf99950ac84bebe65255944e89bf525e39d",
+      "packageSha256": "b63629a18f74c6cbc228084011494bf99950ac84bebe65255944e89bf525e39d",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4459,
+          "path": "source-binding.json",
+          "sha256": "bc73f9ddf0480f4fe6fcdb2a8db0262affb5a1952aa91edb9afedcd7fe11c3a9"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:55.789194Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_PHI_TEN",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "8e3b33b1-891a-41d2-9f9e-7eee2fc148fa",
+      "contentSha256": "1357deff6fb6f4eb7cf70c16080be33b72fe462a5f213efe3f0d44a765b8fa00",
+      "forecastId": "asp-show-preview:sha256:bf38ddd64e0986f704288f8869b885d87c8cc0d938b4aada3f5211f46a3b70f2",
+      "forecastSha256": "b95583498712812ccd596a679515bb4d90de981aca0d9d06acde545afce133b7",
+      "kickoffUtc": "2026-09-20T17:00:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/f4d0999a47e063978ee3d26fbdbbd4ad8388ac0117a1a88e9a208b53070b675e",
+      "packageSha256": "f4d0999a47e063978ee3d26fbdbbd4ad8388ac0117a1a88e9a208b53070b675e",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4460,
+          "path": "source-binding.json",
+          "sha256": "e3800e2e7d05bc8f12bec81a5d7496e99bcc14f57e3f259eabafae19937f1232"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:34:59.612279Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_PIT_NE",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "c8b96fca-78c9-4c3c-881b-72064707676d",
+      "contentSha256": "5637f5710533ef6e1ae361ed148303ad7712c7f90949df922ea0ec82f872f8d5",
+      "forecastId": "asp-show-preview:sha256:7762c51ec1858fb58f94d2e39c3769c3bcd75542ffb54e98afc3f3f9c5d74d90",
+      "forecastSha256": "b79df73c063c7a0cbd67a87ade62349a7e4036bd789f0c05b64f7bd784b81961",
+      "kickoffUtc": "2026-09-20T20:05:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/90fb6aac24c46aed7c149d5e39e4f140cf9a3e9837be1d500fd029917e1c779f",
+      "packageSha256": "90fb6aac24c46aed7c149d5e39e4f140cf9a3e9837be1d500fd029917e1c779f",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4458,
+          "path": "source-binding.json",
+          "sha256": "0365e34300586044cd81b0cfd259f1884cdca4e6d359dd9335d9685220881af5"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:03.015187Z",
+      "producerSourceCutoffUtc": "2026-09-15T09:31:25.329915Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_JAX_DEN",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "b019eb12-41a4-4be1-a229-15f68dca3a75",
+      "contentSha256": "31def93c4db05d2db9c6518c655266560c1a320212a7bc62c843423143953ee2",
+      "forecastId": "asp-show-preview:sha256:acd7f58b5b3f376c46715e5c96d93cbc56d183a97926898418b2203330e74cec",
+      "forecastSha256": "b091735737cb8461548b8d451e1b0aa7cab09e2c354c393ed2afeccb9271bfb9",
+      "kickoffUtc": "2026-09-20T20:05:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/5d2ceed86292bb100a33365501bfa1f8d1b0f79e9b9ba5efe1a68d1297bd155d",
+      "packageSha256": "5d2ceed86292bb100a33365501bfa1f8d1b0f79e9b9ba5efe1a68d1297bd155d",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4455,
+          "path": "source-binding.json",
+          "sha256": "0fe9e4f6cd1e620ffb92eeb08a569bd0489c856f19d7c720b81a2aacd5c0d527"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:06.989278Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_LV_LAC",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "1193932a-5ac5-49e5-9136-c8d9ac317f92",
+      "contentSha256": "15e003bfa4b38b418b23af077461755b13e32482e82e43cb3669d1e3276538b7",
+      "forecastId": "asp-show-preview:sha256:981d1bef57f9340608a6b6405069bea1216b4b4902ffdb5f91b05b2f469f2044",
+      "forecastSha256": "5e4e039b3cea4d3f77fc69ed01f9b4656780b9ebac6c6ec41d45439068a54c84",
+      "kickoffUtc": "2026-09-20T20:25:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/353f175687c551f804f50c4a56ced071150e9bd840a7a23930a1b58b494206a2",
+      "packageSha256": "353f175687c551f804f50c4a56ced071150e9bd840a7a23930a1b58b494206a2",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4454,
+          "path": "source-binding.json",
+          "sha256": "709ac56493e339f17a67c8dd3062d5981e6259ed5c20bfaabf093e928d7f8e1f"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:10.560680Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_MIA_SF",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "ab584fa0-fbd6-4411-92fc-6cf8c62db96a",
+      "contentSha256": "d9fb9327cfe2c539b01ac7e4f05e555a1459fb00b5af27f94f3d85ad159931cc",
+      "forecastId": "asp-show-preview:sha256:f0e894f910b9c4bf25d8bf429ec93fb5b96dff71a928fc2eecc3a83c59c3a652",
+      "forecastSha256": "e95a81d2c7ea1a00cd0eee0903d78c181ea33b64053da8bb5d371d2c8da63ec4",
+      "kickoffUtc": "2026-09-20T20:25:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/fbf86cda5f6e559ad29c2047fc8a265b90e0b8a794e7345662a0edb16920b4bb",
+      "packageSha256": "fbf86cda5f6e559ad29c2047fc8a265b90e0b8a794e7345662a0edb16920b4bb",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4457,
+          "path": "source-binding.json",
+          "sha256": "9f3c9e58da601b7a32bac7169a3344103d64a19e1840488d8ee1046a6c47aa54"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:14.683636Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_SEA_ARI",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "26177ebd-1dc9-4b83-abde-eb749020191c",
+      "contentSha256": "b537739ed67a6a9b1a240c660cd98faf63f4c280ba55ba694e2a1984570392d6",
+      "forecastId": "asp-show-preview:sha256:eb341cad3de46f439cac7915b74eff8738cf258a1c2bb12d2898b13aeb74de25",
+      "forecastSha256": "6c2c9bd5b51990f7ae5f0a336028df3f6686cc0cb76c84f7d5fc5eca93b5ad7b",
+      "kickoffUtc": "2026-09-20T20:25:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/88efd23bcfbed8dc82e10248f0001fd87541133314fa2f3ffdfd33121b07635c",
+      "packageSha256": "88efd23bcfbed8dc82e10248f0001fd87541133314fa2f3ffdfd33121b07635c",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4457,
+          "path": "source-binding.json",
+          "sha256": "8b3e1eeffeac4ecced13a517357fc9689578440caaeb2a2b4069d57cd0ca2920"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:18.118055Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_WAS_DAL",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "18562ce4-a5a0-46ce-855d-67bec0070213",
+      "contentSha256": "21878cb635493444b1da8bb1ec9f221027d75ca81f041632c6f364726ca0f370",
+      "forecastId": "asp-show-preview:sha256:66d1af9a33e82984d5fd63abcafe83d6c5f0d1836f2e160f400b3d2b1782b4d1",
+      "forecastSha256": "dfb7eefcddc8f6d6af67cf15357344cf7f46a8a1ff2bde2d7b5b08c1d6ee4d92",
+      "kickoffUtc": "2026-09-21T00:20:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/8abe8c37c7438a344a8abecb3abe2c082ffe1152e3c55cbb101aacc5938d6b28",
+      "packageSha256": "8abe8c37c7438a344a8abecb3abe2c082ffe1152e3c55cbb101aacc5938d6b28",
+      "physicalFiles": [
+        {
+          "bytes": 1683883,
+          "path": "source-0.json",
+          "sha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117"
+        },
+        {
+          "bytes": 742,
+          "path": "source-1.json",
+          "sha256": "9465da48d911e7b404905675b3f74168a3bbfc767ae67d3611296a043df97fbd"
+        },
+        {
+          "bytes": 4457,
+          "path": "source-binding.json",
+          "sha256": "d581c68b6a6f5f92e3f15f85ea62eb771d41f094dba774a883d00c2635a642c3"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:22.053345Z",
+      "producerSourceCutoffUtc": "2026-09-15T09:31:25.329915Z",
+      "slateDate": "2026-09-20",
+      "sourceGameRef": "2026_02_IND_KC",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": "313d2a19-b05e-4b9a-88ef-4f9115342d9f",
+      "contentSha256": "dd596e4805cce0b54c57e6abab2e57cb1ec21a0a50c6a0071f244a6d5ae08edb",
+      "forecastId": "asp-show-preview:sha256:743b948751b1357b22d0314d327718bf931689cc10fe1b4a98882134a7b3b5b4",
+      "forecastSha256": "b40929506c68f7c1af37a1292916b8549fd9a92cf634e7ac1af82c73daf09c73",
+      "kickoffUtc": "2026-09-22T00:15:00Z",
+      "modelArtifactSha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+      "modelId": "NFL_M1_XGBOOST",
+      "modelVersion": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "packagePath": "sha256/e524567e0b6c19d1505cbfd145d3719b93eb5f10375277bdf0ccee45a8e42309",
+      "packageSha256": "e524567e0b6c19d1505cbfd145d3719b93eb5f10375277bdf0ccee45a8e42309",
+      "physicalFiles": [
+        {
+          "bytes": 122150,
+          "path": "source-0.json",
+          "sha256": "1538e66798300da0e209aa7b8f91419343549041e9321c01727fad0baa4eeca1"
+        },
+        {
+          "bytes": 741,
+          "path": "source-1.json",
+          "sha256": "f532688d38298629e2d30b82aa15a56416e710aeec797d9bafd647ba9685ffd9"
+        },
+        {
+          "bytes": 4451,
+          "path": "source-binding.json",
+          "sha256": "b6a3ede744c0ed444e0139f7d7c2c1d222fa5b9719f5f7961c1c343dd79fd4c0"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:25.464309Z",
+      "producerSourceCutoffUtc": "2026-09-14T09:31:35.465218Z",
+      "slateDate": "2026-09-21",
+      "sourceGameRef": "2026_02_NYG_LA",
+      "sport": "NFL",
+      "state": "ALREADY_HELD"
+    },
+    {
+      "canonicalGameId": null,
+      "contentSha256": "9dc822386088a56613e69d0125461c3341bddacccd7c08e00ab515e11a2a52f7",
+      "forecastId": "asp-show-preview:sha256:a2e8a2496f6527887c8623677bcbc303f8433fd82dedb320dd0d4b2c75396584",
+      "forecastSha256": "6be0072035c55b6052073b9c1642ea3e87f9f712000d854f5ed6e2567ad82271",
+      "kickoffUtc": "2026-09-17T23:30:00Z",
+      "modelArtifactSha256": "cb3f20293477100c202d48c174f1c3e706c943728697e1089bbb742453876bb6",
+      "modelId": "CFB_GEN1_RIDGE",
+      "modelVersion": "CFB_GEN1_RIDGE_A100_PAIRED_RESIDUAL_V1",
+      "packagePath": "sha256/1e02950856172cd3ff22d5ddf5c1f7369a05b574845633a70f7103f61c07643d",
+      "packageSha256": "1e02950856172cd3ff22d5ddf5c1f7369a05b574845633a70f7103f61c07643d",
+      "physicalFiles": [
+        {
+          "bytes": 7886,
+          "path": "source-0.json",
+          "sha256": "ef1b5323d67338603d169e534400ab75927b67d82e183025daeec65b5853c631"
+        },
+        {
+          "bytes": 918,
+          "path": "source-1.json",
+          "sha256": "72a91840c7f0a88a7248d3a36c9723e4011dd75969859e05d65b7be971ae298f"
+        },
+        {
+          "bytes": 97541,
+          "path": "source-2.parquet",
+          "sha256": "84daea0cc28aa849feda0f156d54fe364148110690dafdf177d654ad447f0e2f"
+        },
+        {
+          "bytes": 5492,
+          "path": "source-3.parquet",
+          "sha256": "ade292b31f296adf4b9bfb638411d8536b20f284e0ecdb83bb5fba917dbd123c"
+        },
+        {
+          "bytes": 2124,
+          "path": "source-4.json",
+          "sha256": "5dd4e3b5e9799a2702beab4b0b5acd8268587cdf4b19741c67185de083455c89"
+        },
+        {
+          "bytes": 5557,
+          "path": "source-binding.json",
+          "sha256": "fd5a020390a86ad37b750f311282aa653587bcb76261ce5bac6745db959e3929"
+        }
+      ],
+      "producerCreatedUtc": "2026-09-15T22:35:25.764090Z",
+      "producerSourceCutoffUtc": "2026-09-14T21:59:02.691510+00:00",
+      "slateDate": "2026-09-17",
+      "sourceGameRef": "cfbd:401858225",
+      "sport": "CFB",
+      "state": "ALREADY_HELD"
+    }
+  ],
+  "packagesInIndex": 17,
+  "packagesVerified": 17,
+  "producerIndexCreatedUtc": "2026-09-15T22:35:58.797690Z",
+  "rejected": [],
+  "schemaVersion": "AISP_SHOW_PREVIEW_CONSUMER_ACK_V1"
+}
