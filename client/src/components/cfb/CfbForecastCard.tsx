@@ -75,6 +75,14 @@ export function CfbForecastCard({ forecast }: { forecast: CfbResearchForecast })
         </span>
       </header>
 
+      {(forecast.horizon_label || forecast.canonical_game || forecast.paper_eligibility) && (
+        <ul className="cfbcard__status" data-testid="cfb-status">
+          {forecast.horizon_label && <li data-testid="cfb-horizon">{forecast.horizon_label}</li>}
+          {forecast.canonical_game && <li data-testid="cfb-binding">{forecast.canonical_game.label}</li>}
+          {forecast.paper_eligibility && <li data-testid="cfb-eligibility">{forecast.paper_eligibility.label}</li>}
+        </ul>
+      )}
+
       {/* The pick. A forecast, and labelled as one. */}
       <p className="cfbcard__pick" data-testid="cfb-pick">{pick.label}</p>
 
@@ -117,6 +125,7 @@ export function CfbForecastCard({ forecast }: { forecast: CfbResearchForecast })
               <span className="cfbcard__alt bx-num">
                 {game.away_team} {pct(entry.away)}
               </span>
+              {entry.meaning && <small className="cfbcard__meaning">{entry.meaning}</small>}
             </li>
           ))}
         </ul>

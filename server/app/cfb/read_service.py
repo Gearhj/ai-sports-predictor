@@ -65,14 +65,65 @@ METHOD_LABELS = {
     "elo": "Elo benchmark",
 }
 
+#: What each channel is, so none is read as another's number.
+METHOD_MEANINGS = {
+    "joint": "Winner share of the paired-residual joint score draws; the distributions below come from these draws.",
+    "ridge": "Calibrated winner probability from the Ridge expected-margin model.",
+    "elo": "Winner probability from the Elo rating benchmark, estimated separately.",
+}
+
 #: Which probability the distribution section is keyed to, named explicitly
 #: rather than silently chosen.
 PRIMARY_METHOD = "joint"
-PRIMARY_METHOD_NOTE = (
-    "All three methods favor Pittsburgh. The joint simulation is the primary "
-    "probability used for the score-distribution display; Ridge and Elo are "
-    "independent comparisons."
+PRIMARY_METHOD_TAIL = (
+    "The joint simulation is the primary probability used for the "
+    "score-distribution display; Ridge and Elo are independent comparisons."
 )
+
+
+def _primary_method_note(row: CfbResearchForecast) -> str:
+    """Which team each method favors, computed from this row -- never hard-coded."""
+
+    home, away = row.home_team_name, row.away_team_name
+    picks = {
+        method: home if h >= 0.5 else away
+        for method, h in (("joint", row.joint_home_win_probability),
+                          ("ridge", row.ridge_home_win_probability),
+                          ("elo", row.elo_home_win_probability))
+    }
+    if len(set(picks.values())) == 1:
+        lead = f"All three methods favor {picks['joint']}."
+    else:
+        lead = "The methods disagree: " + "; ".join(
+            f"{METHOD_LABELS[m]} favors {team}" for m, team in picks.items()) + "."
+    return f"{lead} {PRIMARY_METHOD_TAIL}"
+
+
+def _binding_and_eligibility(session: Session, row: CfbResearchForecast) -> dict[str, Any]:
+    from app.cfb.game_binding import canonical_game_id
+    from app.services.research_paper_policy import CFB, eligibility_status
+
+    game_id = canonical_game_id(session, row.source_game_id)
+    elig = eligibility_status(session, CFB, forecast_id=row.forecast_id, event_id=row.source_game_id)
+    return {
+        "canonical_game": {
+            "bound": game_id is not None,
+            "game_id": str(game_id) if game_id else None,
+            "source": "CFBD",
+            "source_game_id": row.source_game_id,
+            "label": (f"Bound to AISP's canonical schedule by CFBD game {row.source_game_id}"
+                      if game_id else "Not admitted to AISP's canonical schedule"),
+        },
+        "paper_eligibility": {
+            "eligible": bool(elig["eligible"]),
+            "state": elig["state"],
+            "label": ("A producer paper-eligibility record binds this exact forecast; "
+                      "any assessment still needs a verified price"
+                      if elig["eligible"] else
+                      "Research only: no paper-eligibility record binds this forecast, so it "
+                      "cannot be assessed or positioned"),
+        },
+    }
 
 EXPLANATION = (
     "Different methods estimate the same game differently. The score "
@@ -80,7 +131,7 @@ EXPLANATION = (
 )
 
 
-def _fmt(row: CfbResearchForecast) -> dict[str, Any]:
+def _fmt(row: CfbResearchForecast, session: Session | None = None) -> dict[str, Any]:
     home, away = row.home_team_name, row.away_team_name
     favourite = home if row.joint_home_win_probability >= 0.5 else away
 
@@ -98,6 +149,11 @@ def _fmt(row: CfbResearchForecast) -> dict[str, Any]:
         "publication_receipt_sha256": row.publication_receipt_sha256,
         "baseline_configuration": row.baseline_configuration,
         "engine_label": "College Football Gen 1 — Early research forecast",
+        # Every imported CFB package is a PROSPECTIVE_RESEARCH snapshot taken at
+        # its source cutoff, never a final-pregame forecast.
+        "horizon": "PROSPECTIVE_RESEARCH",
+        "horizon_label": "Prospective research snapshot · not a final pregame forecast",
+        **(_binding_and_eligibility(session, row) if session is not None else {}),
 
         "game": {
             "source_provider": row.source_provider,
@@ -129,18 +185,18 @@ def _fmt(row: CfbResearchForecast) -> dict[str, Any]:
 
         # Three methods, three entries, never averaged and never merged.
         "win_probabilities": [
-            {"method": "joint", "label": METHOD_LABELS["joint"],
+            {"method": "joint", "label": METHOD_LABELS["joint"], "meaning": METHOD_MEANINGS["joint"],
              "home": row.joint_home_win_probability,
              "away": row.joint_away_win_probability, "primary": True},
-            {"method": "ridge", "label": METHOD_LABELS["ridge"],
+            {"method": "ridge", "label": METHOD_LABELS["ridge"], "meaning": METHOD_MEANINGS["ridge"],
              "home": row.ridge_home_win_probability,
              "away": row.ridge_away_win_probability, "primary": False},
-            {"method": "elo", "label": METHOD_LABELS["elo"],
+            {"method": "elo", "label": METHOD_LABELS["elo"], "meaning": METHOD_MEANINGS["elo"],
              "home": row.elo_home_win_probability,
              "away": row.elo_away_win_probability, "primary": False},
         ],
         "primary_method": PRIMARY_METHOD,
-        "primary_method_note": PRIMARY_METHOD_NOTE,
+        "primary_method_note": _primary_method_note(row),
         "explanation": EXPLANATION,
         "tie_probability": row.tie_probability,
 
@@ -148,7 +204,7 @@ def _fmt(row: CfbResearchForecast) -> dict[str, Any]:
         "simulation_precision_note": (
             f"{row.draw_count:,} simulated games. That is the precision of the "
             "simulation itself, which is not a statement about how accurate the "
-            "model is — this is its first prospective College Football forecast."
+            "model is — it has no established prospective College Football record."
         ),
         "simulation_mcse": row.simulation_mcse,
 
@@ -236,7 +292,7 @@ def research_board(session: Session, *, date_iso: str | None = None) -> dict[str
 
     rows = list(session.scalars(
         select(CfbResearchForecast).order_by(CfbResearchForecast.captured_kickoff_utc)))
-    forecasts = [_fmt(row) for row in rows]
+    forecasts = [_fmt(row, session) for row in rows]
     if date_iso:
         forecasts = [f for f in forecasts
                      if f["game"]["kickoff_utc"][:10] == date_iso
@@ -252,8 +308,8 @@ def research_board(session: Session, *, date_iso: str | None = None) -> dict[str
         # "nothing published for this date" rather than "the page is broken".
         "empty_state": (
             "No College Football research forecast has been published for this date. "
-            "AISP has no admitted College Football schedule source, so games without "
-            "a published forecast are not listed."),
+            "AISP admits a College Football game only from a verified research forecast, "
+            "so games without one are not listed."),
         "coverage_note": (
             "One imported forecast does not mean the College Football slate has "
             "model coverage."),
@@ -265,7 +321,7 @@ def research_board(session: Session, *, date_iso: str | None = None) -> dict[str
 def game_detail(session: Session, *, source_game_id: str) -> dict[str, Any] | None:
     row = session.scalar(select(CfbResearchForecast).where(
         CfbResearchForecast.source_game_id == str(source_game_id)))
-    return _fmt(row) if row else None
+    return _fmt(row, session) if row else None
 
 
 def total_scenario(session: Session, *, source_game_id: str, line: float) -> dict[str, Any] | None:
@@ -307,5 +363,5 @@ def _local_date(kickoff_iso: str) -> str:
 
 
 __all__ = ["ATTRIBUTION", "AUTHORITY", "EXPLANATION", "METHOD_LABELS",
-           "PRIMARY_METHOD", "PRIMARY_METHOD_NOTE", "RAW_SOURCE_POLICY",
+           "PRIMARY_METHOD", "PRIMARY_METHOD_TAIL", "RAW_SOURCE_POLICY",
            "SCHEMA_VERSION", "game_detail", "research_board", "total_scenario"]

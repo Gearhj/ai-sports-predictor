@@ -114,6 +114,16 @@ def _clock_text(value: datetime | None, tz: ZoneInfo) -> str:
 
 # ------------------------------------------------------------------ games ----
 
+def _display_code(team: dict[str, Any] | None) -> str:
+    """A team's short label. College Football teams admitted from a research
+    package carry their CFBD id as the stored abbreviation (no abbreviation is
+    invented), so their name is shown instead."""
+    if not team:
+        return "?"
+    code = str(team.get("abbreviation") or "")
+    return team.get("name") or code if code.startswith("CFBD") else code or "?"
+
+
 def _slate_games(session: Session, slate_date: date, tz: ZoneInfo) -> list[dict[str, Any]]:
     lo = datetime.combine(slate_date, time.min, tz).astimezone(UTC)
     hi = lo + timedelta(days=1)
@@ -135,7 +145,7 @@ def _slate_games(session: Session, slate_date: date, tz: ZoneInfo) -> list[dict[
         side = teams.get(game.id, {})
         out.append({
             "game": game, "league": league, "teams": side,
-            "away": side.get("away", {}).get("abbreviation", "?"), "home": side.get("home", {}).get("abbreviation", "?"),
+            "away": _display_code(side.get("away")), "home": _display_code(side.get("home")),
         })
     return out
 

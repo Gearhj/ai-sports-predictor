@@ -2310,7 +2310,9 @@ class JobOrchestrator:
             Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1]
         ).order_by(Game.starts_at)))
         live = [game for game in games if game.source_mode == "LIVE"]
-        return live or games
+        # Research-shadow games (NFL, College Football) are never MLB pipeline
+        # input, even on a date with no LIVE MLB game yet.
+        return live or [game for game in games if game.source_mode != "RESEARCH_SHADOW"]
 
     def _ingestion_run(
         self,

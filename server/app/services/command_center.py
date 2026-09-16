@@ -35,6 +35,8 @@ ET = ZoneInfo("America/New_York")
 LEDGER_SCHEMA = "AISP_COMMAND_CENTER_LEDGER_V1"
 COVERAGE_SCHEMA = "AISP_COMMAND_CENTER_MARKET_COVERAGE_V1"
 SPORTS = ("MLB", "NFL", "NBA", "CFB")
+#: Leagues whose games carry governed price collection and decision windows.
+PRICED_LEAGUES = ("MLB", "NFL")
 SPORT_LABELS = {"MLB": "MLB", "NFL": "NFL", "NBA": "NBA", "CFB": "College Football"}
 QUOTE_FRESHNESS_MINUTES = 240
 WINDOW_OPENS = timedelta(minutes=30)
@@ -499,11 +501,16 @@ def market_coverage(session: Session, day: date, now: datetime | None = None) ->
     now = now or datetime.now(UTC)
     lo = datetime.combine(day, datetime.min.time(), ET)
     hi = lo + timedelta(days=1)
+    # Only leagues with governed sportsbook collection. NBA and College Football
+    # games are admitted for research identity only; listing them here would
+    # advertise a collection checkpoint and decision window they do not have.
+    # Their next game reaches the command surfaces through /sports/readiness.
     games = session.execute(text("""
         select g.id, l.code, g.starts_at, g.status, g.source_mode
         from games g join leagues l on l.id = g.league_id
         where g.starts_at >= :lo and g.starts_at < :hi
-        order by g.starts_at, g.id"""), {"lo": lo, "hi": hi}).all()
+          and l.code = any(:leagues)
+        order by g.starts_at, g.id"""), {"lo": lo, "hi": hi, "leagues": list(PRICED_LEAGUES)}).all()
     ids = [str(g[0]) for g in games]
     teams = _matchups(session, ids)
 

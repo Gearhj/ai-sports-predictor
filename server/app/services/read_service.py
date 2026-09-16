@@ -3047,7 +3047,9 @@ class ReadService:
         live = [game for game in games if game.source_mode == "LIVE"]
         if live:
             return live
-        return games if self.settings.demo_mode else []
+        # Research-shadow games (NFL, College Football) never stand in for an
+        # empty MLB slate; the fallback exists for demo fixtures only.
+        return [game for game in games if game.source_mode != "RESEARCH_SHADOW"] if self.settings.demo_mode else []
 
     def _live_games_for_date(self, event_date: date) -> list[Game]:
         start, end = local_day_bounds(event_date, self.settings.display_timezone)

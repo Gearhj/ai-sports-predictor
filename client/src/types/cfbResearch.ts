@@ -19,6 +19,8 @@ export interface CfbWinProbability {
   /** Fraction 0–1. */
   away: number
   primary: boolean
+  /** What this channel is, so it is never read as another method's number. */
+  meaning?: string
 }
 
 export interface CfbPmf {
@@ -60,6 +62,10 @@ export interface CfbResearchForecast {
   publication_receipt_sha256: string | null
   baseline_configuration: string
   engine_label: string
+  horizon?: string
+  horizon_label?: string
+  canonical_game?: { bound: boolean; game_id: string | null; source: string; source_game_id: string; label: string }
+  paper_eligibility?: { eligible: boolean; state: string; label: string }
   game: {
     source_provider: string
     source_game_id: string
