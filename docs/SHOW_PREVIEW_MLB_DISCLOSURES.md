@@ -52,14 +52,18 @@ The other four are unconditional. Nothing in the display path can suppress
 them, and they are attached by the consumer rather than copied from whatever the
 producer chose to declare.
 
-## What the producer still owes
+## Whose side of the line this is
 
-Per `CURRENT_INPUT_REQUEST.json`
-(`MLB_SHOW_PREVIEW_MINIMUM_CURRENT_INPUT_REQUEST_V1`, status
-`NOT_EXECUTED_NO_SOURCE_SCOPE_EXPANSION`): a certified, complete, timestamped,
-unsealed current-input export. `docs/MLB_SHOW_PREVIEW_INPUT_INVENTORY.md` records
-what AISP holds against that request — every identity input, and none of the
-2026 season history that the `recent60` window needs.
+AISP's side is display: the forecast is imported through the existing validator
+and shown with the disclosures above, and until a genuine package exists the MLB
+rows say "Preview forecast awaiting producer."
+
+Everything upstream of that belongs to Model Studio: `CURRENT_INPUT_REQUEST.json`,
+historical and current modeling-data acquisition, source admissibility and
+chronology, feature engineering, the MLB matchup/starter shrinkage research,
+model fitting and evaluation, and producing genuine MLB preview packages. AISP
+does not assess whether its own data could satisfy those requirements and does
+not build or propose a model-input export.
 
 ## What is pinned in tests
 
