@@ -1,5 +1,4 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { readFileSync } from 'node:fs'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CoverageGame } from '../../services/commandCenter'
@@ -33,6 +32,9 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 import { AssessmentBoard, classifyAssessments, primaryQuote, type AssessmentSource } from './AssessmentBoard'
 import { ParlayLab } from './ParlayLab'
+import parlaySource from './ParlayLab.tsx?raw'
+import boardSource from './AssessmentBoard.tsx?raw'
+import probabilitySource from '../../services/probability.ts?raw'
 
 afterEach(() => { cleanup(); calls.length = 0 })
 
@@ -149,8 +151,8 @@ describe('Parlay Lab', () => {
   })
 
   it('never multiplies probabilities or exposes the independence calculation in client code', () => {
-    for (const file of ['./ParlayLab.tsx', './AssessmentBoard.tsx', '../../services/probability.ts']) {
-      const source = readFileSync(new URL(file, import.meta.url), 'utf8')
+    for (const source of [parlaySource, boardSource, probabilitySource]) {
+      expect(source.length).toBeGreaterThan(1000)
       expect(source).not.toMatch(/INDEPENDENCE_ASSUMPTION|evaluate_cross_game|cross-game['"]\s*,/)
       // No product of two probability values anywhere in these modules.
       expect(source).not.toMatch(/(probabilit\w*|\.win|conditional|no_vig)\s*(\)|\])?\s*\*\s*[\w.(]*(probabilit|\.win|conditional|no_vig)/)
