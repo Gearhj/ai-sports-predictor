@@ -87,9 +87,12 @@
 
 /* Collapsible audit queue */
 .cc-decisions { grid-template-columns: minmax(0, 1fr); }
-.as-audit { margin-top: 18px; border-top: 1px solid var(--bx-line, #e4e1dc); padding-top: 8px; min-width: 0; display: grid; gap: 14px; }
-.as-audit > section, .as-audit > div { min-width: 0; }
-.as-audit .cc-rows { overflow-x: auto; }
+/* Block layout: a <details> element's children live in its content slot, so
+   grid rules on the element never reach them. The wide timing table scrolls
+   inside its own box instead of widening the page. */
+.as-audit { display: block; margin-top: 18px; border-top: 1px solid var(--bx-line, #e4e1dc); padding-top: 8px; min-width: 0; max-width: 100%; }
+.as-audit > section, .as-audit > div { min-width: 0; max-width: 100%; margin-top: 14px; }
+.as-audit .cc-rows { overflow-x: auto; max-width: 100%; }
 .as-audit > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--bx-muted, #55677d); padding: 6px 0; }
 
 /* Home: AISP Today */
