@@ -9,14 +9,15 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | | |
 |---|---|
 | Release branch | `claude/aisp-scotty-demo-release-v1` |
-| Backend running | pid **36700**, restarted 2026-09-16 11:11 ET by the *ASP Backend 8010* task, from original commit `5a3872a` (the later commits are client and docs only) |
-| Frontend served | `client/dist` built at original commit `fb7090a` (check `/frontendz`, field `build.commit`) |
+| Backend running | pid **11248**, restarted 2026-09-16 12:08 ET by the *ASP Backend 8010* task, from original commit `7861a53` |
+| Frontend served | `client/dist` built at original commit `7861a53` (check `/frontendz`, field `build.commit`) |
+| Model Studio release | `demo-releases-v1` logical address `f0e87d7a…8889a`, manifest SHA-256 `05250af2…56fc8`, verified and reconciled 2026-09-16. The consumer receipt is under `asp-model-exchange/demo-releases-v1/consumer-receipts/`. |
 | Database | PostgreSQL 16, `asp`, Alembic head `20260915_0043` |
-| Release rehearsal | 2026-09-16, 11:15–11:25 ET |
+| Release rehearsal | 2026-09-16, 11:15–11:25 ET (full); 12:00–12:15 ET (affected pages after the release import) |
 | Published SHAs | Original SHAs above are the ones that ran. Their GitHub equivalents are listed in `docs/REPOSITORY_AND_BACKUP.md`. |
 
 **Before the demo:**
-- Open `http://127.0.0.1:8010/frontendz`. The commit must be `fb7090a…` or later from this branch.
+- Open `http://127.0.0.1:8010/frontendz`. The commit must be `7861a53…` or later from this branch.
 - Open `http://127.0.0.1:8010/readyz`. It must read `ready / reachable / running`.
 
 ## Demo path
@@ -27,7 +28,7 @@ virtual $1,000-per-sport paper experiment. There is no real money.
 | # | URL | What it demonstrates | Expected honest states |
 |---|---|---|---|
 | 1 | `/` | Today's Edge Board, the combined $4,000 virtual bankroll, and the agenda timeline across MLB/NFL/NBA/CFB | Cards before about T-60 read "Forecast expected by …". Markets show their own capture time. |
-| 2 | `/show-board` | Show Prep: the next day's rundown by sport, projected scores for NFL and CFB, and talking points | Day-before collection is **off**, so moneylines read "No preview price held" or "Stale only · captured …". CFB reads "Forecast held · not in AISP schedule, so no price can be bound". "Market not posted" is never shown. |
+| 2 | `/show-board` (Saturday: `/show-board?date=2026-09-19`) | Show Prep: the next day's rundown by sport, projected scores for NFL and CFB, and talking points | Day-before collection is **off**, so moneylines read "No preview price held" or "Stale only · captured …". "Market not posted" is never shown. For Saturday, Coastal Carolina @ Delaware shows "No Show Preview" plus its **research forecast** (Delaware 73%, research only), and **Analyze** opens its CFB research page. |
 | 3a | `/games/<mlb-id>?sport=MLB` | MLB analysis: V18 projected score, win probability, fair price, sportsbook table with observation times, and model-vs-market | Before V18 publishes, the page shows **Forecast pending** with the reason and no numbers. Gen 1 appears only as a labelled baseline comparison. |
 | 3b | `/games/<mlb-id>/simulation?sport=MLB` | The V18 Monte Carlo Diamond Theater, which opens by default. Try Broadcast Replay, Play Geometry and Simulation Population, and the playback speed controls. | Games without a saved V18 simulation fall back to the Gen 1 distribution, labelled as the baseline. |
 | 4a | `/games/<nfl-id>?sport=NFL` | NFL M1: expected score, home/away/tie probabilities, snapshot provenance, and market comparison | Outside the price window, the quote is "Stored reference quote — not a current price" and no edge is computed. |
@@ -38,7 +39,14 @@ virtual $1,000-per-sport paper experiment. There is no real money.
 
 Supporting research pages:
 - `/nba/research`: the BOS @ DET early research example, with its season-not-started and price-blocker strip.
-- `/college-football/research`: the Syracuse @ Pittsburgh forecast, with its market-blocker strip.
+- `/college-football/research`: both imported CFB research forecasts.
+  - Syracuse @ Pittsburgh (Thu 17 Sep) has an exact paper-eligibility record but no canonical game binding.
+  - **Coastal Carolina @ Delaware** (Sat 19 Sep, 11:30 ET) is bound to AISP's schedule by CFBD game 401869940. It is research only: it has no eligibility record.
+  - Each card shows the three channels separately:
+    - joint simulation (primary, drives the distributions);
+    - calibrated Ridge-margin winner probability;
+    - Elo benchmark.
+  - The expected score is labelled as the Ridge point channel.
 
 ## Best games to show
 
@@ -46,14 +54,19 @@ Supporting research pages:
   - Reliable fallback with a full story: NYY @ MIN, 15 Sep: `/games/36c6b673-852d-47d9-bdb0-e4545b5dc580?sport=MLB`. It has a V18 forecast (MIN 44.1%), a qualified paper position (MIN +150 at PointsBet via SportsGameOdds, stake $2.49, LOSS) and a V18 simulation.
 - **NFL, Sunday 20 Sep.** Week 2 games have M1 forecasts, for example IND @ KC: `/games/18562ce4-a5a0-46ce-855d-67bec0070213?sport=NFL`. Current prices exist only after each game's collection window opens, about 75 minutes before kickoff.
   - Lab: DEN @ KC, as in step 4b.
-- **College Football.** Syracuse @ Pittsburgh (Thu 17 Sep) is the only imported CFB forecast. By the weekend it is a past game. Show it as the retained champion example with its blocker.
+- **College Football, Saturday 19 Sep.** Coastal Carolina @ Delaware, 11:30 ET: `/college-football/games/401869940`. It is the upcoming weekend research example.
+  - **Figures.** Joint Delaware 73.15%, Ridge 72.40%, Elo 55.82%. Ridge expected points are Coastal Carolina 22.77, Delaware 32.95.
+  - **Status.** It is a prospective research snapshot from 14 Sep inputs, not a final pregame forecast. It has no assessment and no paper position.
+  - **Syracuse @ Pittsburgh.** Thu 17 Sep; a past game by the weekend. Show it only as the example that carries an exact paper-eligibility record.
 - **NBA.** BOS @ DET (captured for 20 Oct) is a research example only.
 
 ## Expected unavailable states (say these plainly)
 
-- **CFB market comparison is blocked** (`SGO_LEAGUE_IDENTITY_UNVERIFIED;NO_CANONICAL_GAME_IDENTITY`).
-  - SportsGameOdds' public docs list College Football as `NCAAF`, but AISP has no admitted CFB schedule, so a price could not be bound to a game.
+- **CFB market comparison is blocked.**
+  - **Coastal Carolina @ Delaware** (`SGO_LEAGUE_IDENTITY_UNVERIFIED`): the game is now bound to AISP's schedule. There is still no verified SportsGameOdds `NCAAF` access, no reviewed provider team mapping and no CFB quote-ingestion path.
+  - **Syracuse @ Pittsburgh** (`…;NO_CANONICAL_GAME_IDENTITY`): not bound. It has an exact paper-eligibility record, so it is deliberately left as it was.
   - No object was spent (see the dry run below).
+- **The weekend CFB forecast is research only.** It has no paper-eligibility record, so it cannot be assessed or positioned, and it does not inherit Syracuse–Pittsburgh's record.
 - **NBA has no price and no live season.** The regular season has not started. BOS @ DET is not live or final.
 - **Show Prep holds no day-before prices.** Day-before collection is disabled by policy. Its absence is AISP's capture state, not a statement about sportsbooks.
 - **MLB before V18 publishes shows "Forecast pending".** No Gen 1 number is substituted.
@@ -66,7 +79,8 @@ Supporting research pages:
 | Identity check | `GET https://api.sportsgameodds.com/v2/leagues?leagueID=NCAAF`, 1 object (SportsGameOdds bills every response at least 1 object) |
 | Price capture | `GET /v2/events?leagueID=NCAAF&startsAfter=<game day 00:00Z>&startsBefore=<+1 day>&oddsAvailable=true&limit=1`, at most 1 object per returned event (`limit=1`) |
 | Maximum charge | 2 objects |
-| Decision value today | **None.** Without an admitted CFB schedule, a returned quote cannot be bound to a canonical game, so no comparison, assessment or position could follow. Admit a CFB schedule first. |
+| Matching after binding | A returned `NCAAF` event for Coastal Carolina @ Delaware at 15:30Z would have exactly **one** candidate AISP game (checked on 16 Sep). But AISP has no reviewed SportsGameOdds→CFBD team mapping and no CFB quote-ingestion path. NFL deliberately never matches on names and a date. |
+| Decision value today | **None.** The weekend forecast has no paper-eligibility record, so no assessment or position could follow even with a price. At most, a price could support a research-only model-vs-market display, and only after a reviewed CFB ingestion path exists. |
 | Status | **Not requested.** It needs James's explicit approval. |
 
 ## If a page fails during the demo
@@ -99,6 +113,13 @@ Supporting research pages:
 
 ## Known disclosures
 
-- **No release manifest.** Codex's four-sport release manifest had not been published by 16 Sep. The demo uses the champion and forecast imports AISP had already verified: MLB V18 champion authority, NFL M1 bundles, and the NBA/CFB research packages with their paper-eligibility supplements.
+- **Model Studio release reconciled (16 Sep).** The release declares objects and grants no authority. Reconciliation found:
+  - **NFL:** 16 Week 2 CURRENT forecasts and 16 eligibility supplements, all reused exactly.
+  - **NBA:** both packages reused (point/Elo `85e3d741`, joint `00cd4990`). Only the paired-residual baseline is the selected arm; the close-score arm is retained, not promoted.
+  - **CFB:** Syracuse–Pittsburgh reused; Coastal Carolina–Delaware newly imported and bound.
+  - **MLB:** the champion declaration matches AISP's active V18 authority. The release's MIA–AZ object is a historical 15 Sep example and was not imported as a weekend forecast.
+- **MLB weekend forecasts come from the natural V18 owner**, about 60 minutes before each game. Until one arrives the page correctly reads "Forecast pending".
 - **MLB decision-time quote age.** MLB paper positions were judged fresh at decision time under the existing policy, even where the quote was up to about 4 hours old. Entry quotes show their own capture time.
-- **Pre-existing test failures remain.** 10 in the focused backend set and 125 in the client suite, identical before and after this release.
+- **Pre-existing test failures remain.** They are identical before and after this release:
+  - backend: 10 in the focused set, plus 3 others;
+  - client: 125, of which two are flaky.
