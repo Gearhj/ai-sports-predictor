@@ -57,11 +57,38 @@ def _row(session, *, lane, league, objects, at, fingerprint, metadata=...):
     session.flush()
 
 
-def test_every_lane_declares_the_league_it_may_buy():
+def test_every_lane_declares_the_leagues_it_may_buy():
     # If a lane is ever added without a league, the correction silently stops
     # protecting it, so the mapping is asserted to cover all of them.
-    from app.services.provider_allocation import LANES
-    assert {lane.key for lane in LANES} == set(LANE_LEAGUE)
+    from app.services.provider_allocation import LANE_LEAGUES, LANES
+    assert {lane.key for lane in LANES} == set(LANE_LEAGUES)
+    assert all(leagues for leagues in LANE_LEAGUES.values()), "an open set protects nothing"
+    # One day-before show run covers whatever show sports are on the slate, so
+    # the preview lane is the one lane with more than one permitted league --
+    # and it is still closed. NBA and College Football are absent because
+    # SportsGameOdds' identifiers for them are in no retained evidence.
+    assert LANE_LEAGUES["sgo_show_preview_events"] == frozenset({"MLB", "NFL"})
+    assert LANE_LEAGUE["sgo_show_preview_events"] is None, "a multi-league lane names no single league"
+    assert LANE_LEAGUE["sgo_mlb_events"] == "MLB"
+
+
+def test_a_preview_run_may_buy_either_show_sport_but_not_a_third(session):
+    """A closed set, not an exemption."""
+
+    from app.services.provider_allocation import LANE_LEAGUES
+
+    _row(session, lane="sgo_show_preview_events", league="MLB", objects=2,
+         at=SAME_DAY, fingerprint="p" * 64)
+    _row(session, lane="sgo_show_preview_events", league="NFL", objects=1,
+         at=SAME_DAY, fingerprint="q" * 64)
+    assert misattributed_rows(session, now=NOW) == []
+
+    _row(session, lane="sgo_show_preview_events", league="NBA", objects=1,
+         at=SAME_DAY, fingerprint="r" * 64)
+    bad = misattributed_rows(session, now=NOW)
+    assert len(bad) == 1
+    assert bad[0].response_metadata["request_shape"]["filters"]["leagueID"] == "NBA"
+    assert "NBA" not in LANE_LEAGUES["sgo_show_preview_events"]
 
 
 def test_an_nfl_request_booked_to_the_mlb_lane_is_detected(session):

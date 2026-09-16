@@ -363,13 +363,28 @@ def _local_month_spend(session: Session, *, now: datetime) -> int:
     return int(total or 0)
 
 
-#: The league each lane is actually allowed to buy. A row whose own retained
-#: request evidence names a different league was booked to the wrong lane.
-LANE_LEAGUE: dict[str, str] = {
-    "sgo_mlb_events": "MLB",
-    "sgo_nfl_events": "NFL",
-    "sgo_nfl_live": "NFL",
-    "sgo_nfl_periods": "NFL",
+#: The leagues each lane is actually allowed to buy. A row whose own retained
+#: request evidence names a league outside its lane's set was booked to the
+#: wrong lane.
+#:
+#: Most lanes buy exactly one league. The Show Preview lane is the exception:
+#: one day-before run covers whatever show sports are on the slate, so MLB and
+#: NFL are both legitimate there. It is still a closed set -- NBA and College
+#: Football are absent because SportsGameOdds' identifiers for them are in no
+#: retained evidence, so a row claiming one would be evidence of a guess.
+LANE_LEAGUES: dict[str, frozenset[str]] = {
+    "sgo_mlb_events": frozenset({"MLB"}),
+    "sgo_nfl_events": frozenset({"NFL"}),
+    "sgo_nfl_live": frozenset({"NFL"}),
+    "sgo_nfl_periods": frozenset({"NFL"}),
+    "sgo_show_preview_events": frozenset({"MLB", "NFL"}),
+}
+
+#: The single-league view, kept for callers and receipts that read one name. A
+#: multi-league lane reports None rather than picking one of its leagues.
+LANE_LEAGUE: dict[str, str | None] = {
+    key: (next(iter(leagues)) if len(leagues) == 1 else None)
+    for key, leagues in LANE_LEAGUES.items()
 }
 
 
@@ -414,9 +429,9 @@ def misattributed_rows(
     ).all()
     out = []
     for row in rows:
-        expected = LANE_LEAGUE.get(row.endpoint_key or "")
+        permitted = LANE_LEAGUES.get(row.endpoint_key or "")
         actual = _recorded_league(row)
-        if expected and actual and expected != actual:
+        if permitted and actual and actual not in permitted:
             out.append(row)
     return out
 
@@ -951,6 +966,7 @@ __all__ = [
     "LANES",
     "LANES_BY_KEY",
     "LANE_LEAGUE",
+    "LANE_LEAGUES",
     "OBJECT_RESERVE",
     "PROVIDER",
     "USAGE_ENDPOINT_KEY",

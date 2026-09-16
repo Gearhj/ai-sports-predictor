@@ -203,9 +203,19 @@ class PreviewPlan:
 
 
 def _aware(value: Any) -> datetime:
+    """The same instant, in UTC. A field named ``_utc`` has to actually be UTC.
+
+    The database hands back Eastern-offset datetimes, which are the right
+    instant and the wrong label; printing one under a ``kickoff_utc`` key is a
+    small lie that becomes a four-hour one as soon as anybody does arithmetic
+    on the string.
+    """
+
     if isinstance(value, str):
         value = datetime.fromisoformat(value)
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _slate_bounds(slate_date: date, settings: Settings) -> tuple[datetime, datetime]:
