@@ -96,7 +96,7 @@ export function ModelVsMarket({ story, away, home }: { story: Story; away: strin
     <section className="gs-card" aria-label="Model versus market">
       <h3>Model vs market</h3>
       <p className="gs-sub">
-        {modelHome == null ? 'No AISP forecast is bound to this game; the market is shown alone.' : `AISP two-way win probability${mvm.model_source === 'STORED_CONTROLLING_FORECAST' ? ' (stored controlling forecast)' : ''}`}
+        {modelHome == null ? 'No AISP forecast is bound to this game; the market is shown alone.' : `AISP two-way win probability${mvm.model_source === 'STORED_CONTROLLING_FORECAST' ? ' (stored controlling forecast)' : ''}${marketHome == null ? '.' : ''}`}
         {marketHome == null
           ? ' No two-sided sportsbook market is stored for this game, so there is nothing to compare against.'
           : `${modelHome == null ? ' The' : ' against the'} ${mvm.market_is_current ? 'current' : 'last stored, not current,'} no-vig consensus of ${mvm.market_books} book${mvm.market_books === 1 ? '' : 's'}.`}
