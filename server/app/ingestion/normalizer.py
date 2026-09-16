@@ -7,6 +7,8 @@ from math import log10
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.data_sources.base import (
@@ -319,6 +321,10 @@ class CanonicalNormalizer:
             "rating": round(rating, 6),
         }
         checksum = _checksum(payload)
+        # uq_team_rating_observation admits one row per knowledge-time key, so
+        # a same-key duplicate must be skipped even when the payload differs
+        # (a split doubleheader reports two records at one fetch time; the
+        # first observation wins).
         duplicate = self.session.scalar(
             select(TeamRatingObservation.id).where(
                 TeamRatingObservation.team_id == team_id,
@@ -327,27 +333,41 @@ class CanonicalNormalizer:
                 TeamRatingObservation.available_as_of == available_as_of,
                 TeamRatingObservation.source == source,
                 TeamRatingObservation.source_mode == source_mode,
-                TeamRatingObservation.payload_checksum == checksum,
             ).limit(1)
         )
         if duplicate is not None:
             return
-        self.session.add(TeamRatingObservation(
-            team_id=team_id,
-            rating=rating,
-            method="record_log_odds_shrunk",
-            version="gate2_v1",
-            evidence_cutoff=available_as_of,
-            sample_size=float(games),
-            components=payload,
-            observed_at=available_as_of,
-            available_as_of=available_as_of,
-            source=source,
-            source_mode=source_mode,
-            source_record_id=f"{team_id}:{wins}-{losses}",
-            payload_checksum=checksum,
-            ingestion_run_id=ingestion_run_id,
-        ))
+        # ON CONFLICT DO NOTHING closes the check-then-insert race between
+        # concurrent finalize paths without mutating any existing row.
+        insert_for_dialect = (
+            postgresql_insert
+            if self.session.get_bind().dialect.name == "postgresql"
+            else sqlite_insert
+        )
+        self.session.execute(
+            insert_for_dialect(TeamRatingObservation)
+            .values(
+                team_id=team_id,
+                rating=rating,
+                method="record_log_odds_shrunk",
+                version="gate2_v1",
+                evidence_cutoff=available_as_of,
+                sample_size=float(games),
+                components=payload,
+                observed_at=available_as_of,
+                available_as_of=available_as_of,
+                source=source,
+                source_mode=source_mode,
+                source_record_id=f"{team_id}:{wins}-{losses}",
+                payload_checksum=checksum,
+                ingestion_run_id=ingestion_run_id,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    "team_id", "method", "version", "source", "source_mode", "available_as_of",
+                ],
+            )
+        )
 
     def _append_schedule_observations(
         self,
