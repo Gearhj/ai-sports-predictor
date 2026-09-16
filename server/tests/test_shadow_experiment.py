@@ -51,6 +51,8 @@ from app.services.shadow_experiment_service import (
 async def _live_slate(session, settings):
     """Seed the demo slate as a fresh LIVE forward slate three hours out.
 
+    Seeding uses yesterday's event date so the fixture works at any wall-clock
+    hour; the games are then shifted onto today's slate via starts_at.
     Odds snapshots are append-only, so they are never mutated: the moneyline
     edge is provided by inserting a new labelled synthetic-test price. The board
     itself is bypassed in these tests (its recommendation state is injected),
@@ -60,7 +62,11 @@ async def _live_slate(session, settings):
     event_date = datetime.now(zone).date()
     now = datetime.combine(event_date, time(12, 0), tzinfo=zone).astimezone(UTC)
     start = now + timedelta(hours=3)
-    await seed_demo_data(session, settings, event_date)
+    # Seed yesterday's slate: the demo forecast cutoff (first pitch − 90 min,
+    # 21:35 UTC on the seeded date) must already be in the past at any
+    # wall-clock hour, and the starts_at rewrite below moves the games onto
+    # today's slate anyway.
+    await seed_demo_data(session, settings, event_date - timedelta(days=1))
     for model in (Game, GameFeatureSnapshot, WeatherSnapshot, GameRefreshState):
         session.execute(update(model).values(source_mode="LIVE"))
     session.execute(update(Game).values(starts_at=start, status=GameStatus.SCHEDULED))
