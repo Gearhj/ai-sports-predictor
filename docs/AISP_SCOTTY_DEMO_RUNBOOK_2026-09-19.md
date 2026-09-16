@@ -9,8 +9,8 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | | |
 |---|---|
 | Release branch | `claude/aisp-scotty-demo-release-v1` |
-| Backend running | pid **43280**, restarted 2026-09-16 16:32 ET by the *ASP Backend 8010* task, from original commit `2c45fc1` (server tree identical at `5bea782`; GitHub `d9919a5`, branch `claude/aisp-probability-and-consumer-experience-v1`). It adds the verified-population probability adapter (Model Studio contract `e0d1638`), the Daily Decisions assessment read model and the fail-closed cross-game refusal, on top of market integrity (`92ee648`) and league isolation (`49409ee`). |
-| Frontend served | `client/dist` built at original commit `5bea782` (check `/frontendz`, field `build.commit`): AISP Today on Home, assessment cards and the same-game Parlay Lab on Daily Decisions, and the scoped Experiment summary. |
+| Backend running | pid **46848**, restarted 2026-09-16 18:57 ET by the *ASP Backend 8010* task, from original commit `7dbd07a` (server tree unchanged through `e0533f9`; GitHub `b38dc07`/`d819ce2`, branch `claude/aisp-launch-experience-v2`). It adds the read-only Game Story endpoint and the player-prop availability contract on top of the probability integration (`2c45fc1`), market integrity (`92ee648`) and league isolation (`49409ee`). |
+| Frontend served | `client/dist` built at original commit `e0533f9` (check `/frontendz`, field `build.commit`): launch experience v2 — dark Home first with AISP Today last, the trimmed Experiment, Games sorting, the D3 Game Center, Daily Decisions views (AISP Decisions / All Markets / My Card) and the Markets & Crowd visuals. |
 | Probability acknowledgement | `asp-model-exchange/consumer-acknowledgements/aisp-market-probability-contract-v1/aisp-market-probability-acknowledgement-d9919a5b960a-20260916T203852Z.json`, SHA-256 `7246dd5cbc5f2086abb2fc608b0b239a0d5612c6aa9ee7b7fa894548d6e27ed3`. Additive only: not a model import or promotion. |
 | Model Studio release | `demo-releases-v1` logical address `f0e87d7a…8889a`, manifest SHA-256 `05250af2…56fc8`, verified and reconciled 2026-09-16. The consumer receipt is under `asp-model-exchange/demo-releases-v1/consumer-receipts/`. |
 | Database | PostgreSQL 16, `asp`, Alembic head `20260915_0043` |
@@ -18,7 +18,7 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | Published SHAs | Original SHAs above are the ones that ran. Their GitHub equivalents are listed in `docs/REPOSITORY_AND_BACKUP.md`. |
 
 **Before the demo:**
-- Open `http://127.0.0.1:8010/frontendz`. The commit must be `5bea782…` or later from `claude/aisp-probability-and-consumer-experience-v1`.
+- Open `http://127.0.0.1:8010/frontendz`. The commit must be `e0533f9…` or later from `claude/aisp-launch-experience-v2`.
 - Open `http://127.0.0.1:8010/readyz`. It must read `ready / reachable / running`.
 
 ## Demo path
@@ -34,7 +34,7 @@ virtual $1,000-per-sport paper experiment. There is no real money.
 | 3b | `/games/<mlb-id>/simulation?sport=MLB` | The V18 Monte Carlo Diamond Theater, which opens by default. Try Broadcast Replay, Play Geometry and Simulation Population, and the playback speed controls. | Games without a saved V18 simulation fall back to the Gen 1 distribution, labelled as the baseline. |
 | 4a | `/games/<nfl-id>?sport=NFL` | NFL M1: expected score, home/away/tie probabilities, snapshot provenance, and market comparison | Outside the price window, the quote is "Stored reference quote — not a current price" and no edge is computed. |
 | 4b | `/games/14a64986-3d92-48af-ba69-15731e936d54/simulation?sport=NFL` | NFL Simulation Lab (DEN @ KC, Week 1): Simulation Population, Watch one game, Outcome Explorer and Scenario Comparison | Week 2 games have no play-level evidence yet. For them the lab opens on the Outcome Explorer. |
-| 5 | `/decisions` | Daily Decisions: assessment cards (qualified, closest, passed, research) with both sides of each market, model/no-vig/fair/push, the same-game Parlay Lab, then the collapsible timing audit queue | NBA: "Season not started · research example". CFB: "Market comparison blocked". NFL: "Stale reference only" until its collection window opens. |
+| 5 | `/decisions` | Daily Decisions in three views — AISP Decisions (official, immutable), All Markets (stored quotes by game; only current prices selectable; working behind "Why?") and My Card (browser-local virtual picks). AISP Decisions shows assessment cards (qualified, closest, passed, research) with both sides of each market, model/no-vig/fair/push, the same-game Parlay Lab, then the collapsible timing audit queue | NBA: "Season not started · research example". CFB: "Market comparison blocked". NFL: "Stale reference only" until its collection window opens. |
 | 6 | `/performance` (tabs MLB / NFL / NBA / College Football) | Champion identity and prospective scores: MLB V18 (n=85 as of 16 Sep) and NFL M1 (n=16) | NBA and CFB have no scored prospective games. |
 | 7 | `/experiment` | Immutable paper results with a Combined / MLB / NFL / NBA / College Football scope: bankroll hero, "Where the experiment stands", progress to the ~50-position review, settlement-order chart, The Tape, accounts, positions, settlements and the transaction ledger | Positions exist only where a forecast, eligible policy and fresh price qualified inside a window. |
 
@@ -96,8 +96,8 @@ Supporting research pages:
 
    - Wait for a new listener pid on 8010 (about 20–60 s) before trusting `/readyz`. Never start uvicorn or Vite by hand.
 3. **NFL lab blank.** Open the Outcome Explorer directly with `…/simulation?sport=NFL&view=explorer`.
-4. **Frontend rollback.** The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
-5. **Backend rollback.** Check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
+4. **Frontend rollback.** The previous release build is `.runtime/frontend-rollback/dist-5bea782` (first v2 build: `dist-7dbd07a`). The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
+5. **Backend rollback.** For launch v2, check out `2feeca2`'s `server/` (`git checkout 2feeca2 -- server`) and restart through the task, together with the `dist-5bea782` frontend; the new Game Story endpoint is then gone. For the earlier release, check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
 
 ## Fixed for this release
 
@@ -137,3 +137,16 @@ Supporting research pages:
   the authority.
 - **MLB populations** are re-read from the V18 exchange objects, which only the task's elevated account can open.
   From a normal shell an MLB binding reads `POPULATION_SOURCE_UNREADABLE`; that is expected.
+
+## Launch experience v2 (2026-09-16 evening)
+
+- **Game Center.** `/games/<id>` (and the NBA / College Football research game pages) open on a D3 Game Story:
+  model vs market, the verified score-population heatmap (arrow keys move the cursor; a completed game shows its final as
+  an after-the-fact cross), a margin/total explorer (type a line and the server evaluates it), a sportsbook ladder and
+  "What matters". Pitchers, bullpen, Statcast, model detail and source readiness are in the collapsed "Evidence & audit".
+- **My Card is browser-local.** Picks live only in the browser (key `aisp.my-card.v1`), are labelled "Your virtual pick — not an
+  AISP decision.", never call the API and never touch decisions, positions or the $1,000 Experiment. Only a current price
+  (within 4 hours) can be added; when no quote is current, every outcome shows "Not current" and nothing can be added.
+- **Player props.** AISP stores none; All Markets says so once, and each game's Player Props section is informational only.
+- **Evening pricing gap.** On 16 Sep the newest stored quote was 14:51 ET, so after about 18:51 no current price existed
+  and no outcome was selectable. That is the governed freshness rule, not a fault.
