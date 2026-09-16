@@ -109,6 +109,7 @@ from app.schemas.api import (
 )
 from app.services.historical_research_read_service import HistoricalResearchReadService
 from app.services.game_state_service import GameStateService, GameStateUnavailableError
+from app.services.league_scope import MLB, in_league
 from app.services.opportunity_service import (
     EXTREME_DISAGREEMENT,
     PROVISIONAL_EDGE,
@@ -219,7 +220,7 @@ class ReadService:
 
         if attached_context(self.session) is None:
             begin_read_snapshot(self.session)
-        games = self._live_games_for_date(event_date)
+        games = self._live_games_for_date(event_date, MLB)
         # The Today board walks the same per-game helpers as the funnels; serve
         # them from one set-based read context (business contract unchanged).
         owns_context = attached_context(self.session) is None
@@ -1604,7 +1605,7 @@ class ReadService:
     def market_board(self, event_date: date) -> MarketBoardData:
         rows: list[MarketBoardRow] = []
         all_books: set[str] = set()
-        for game in self._games_for_date(event_date):
+        for game in self._games_for_date(event_date, MLB):
             home_side, home, away_side, away = self._sides(game.id)
             forecast = self._latest_forecast(game.id)
             snapshots = self._latest_market_snapshots(game.id)
@@ -2945,7 +2946,7 @@ class ReadService:
 
     def health(self, event_date: date) -> HealthData:
         now = datetime.now(UTC)
-        games = self._games_for_date(event_date)
+        games = self._games_for_date(event_date, MLB)
         game_ids = [game.id for game in games]
         latest_forecast = self.session.scalar(
             select(Forecast)
@@ -3041,17 +3042,22 @@ class ReadService:
             simulation={"iterations": 0, "home_cover_probability": 0, "over_probability": 0, "most_likely_score": "Unavailable"},
         )
 
-    def _games_for_date(self, event_date: date) -> list[Game]:
+    def _games_for_date(self, event_date: date, league_code: str) -> list[Game]:
+        """One league's slate: its LIVE games, else (demo mode only) its DEMO fixtures.
+
+        Another league's game never appears, whatever its source mode, and a
+        date with none of this league's games is an empty slate.
+        """
         start, end = local_day_bounds(event_date, self.settings.display_timezone)
-        games = list(self.session.scalars(select(Game).where(Game.starts_at >= start, Game.starts_at < end).order_by(Game.starts_at)))
+        games = list(self.session.scalars(select(Game).where(
+            Game.starts_at >= start, Game.starts_at < end, in_league(league_code),
+        ).order_by(Game.starts_at)))
         live = [game for game in games if game.source_mode == "LIVE"]
         if live:
             return live
-        # Research-shadow games (NFL, College Football) never stand in for an
-        # empty MLB slate; the fallback exists for demo fixtures only.
-        return [game for game in games if game.source_mode != "RESEARCH_SHADOW"] if self.settings.demo_mode else []
+        return [game for game in games if game.source_mode == "DEMO"] if self.settings.demo_mode else []
 
-    def _live_games_for_date(self, event_date: date) -> list[Game]:
+    def _live_games_for_date(self, event_date: date, league_code: str) -> list[Game]:
         start, end = local_day_bounds(event_date, self.settings.display_timezone)
         return list(self.session.scalars(
             select(Game)
@@ -3059,6 +3065,7 @@ class ReadService:
                 Game.starts_at >= start,
                 Game.starts_at < end,
                 Game.source_mode == "LIVE",
+                in_league(league_code),
             )
             .order_by(Game.starts_at)
         ))
@@ -3909,7 +3916,7 @@ class ReadService:
         return "demo" if "DEMO" in current_market_modes else "live"
 
     def _data_mode(self, event_date: date) -> str:
-        games = self._games_for_date(event_date)
+        games = self._games_for_date(event_date, MLB)
         if not games:
             return "empty"
         return "demo" if any(self._game_data_mode(game.id) == "demo" for game in games) else "live"
@@ -3919,7 +3926,7 @@ class ReadService:
             return "empty"
         modes = {
             snapshot.source_mode
-            for game in self._games_for_date(event_date)
+            for game in self._games_for_date(event_date, MLB)
             for _, _, snapshot, _ in self._latest_market_snapshots(game.id)
         }
         return "demo" if "DEMO" in modes else "live"

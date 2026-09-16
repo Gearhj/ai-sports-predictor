@@ -38,6 +38,7 @@ from app.models import (
     MarketType,
     OddsSnapshot,
 )
+from app.services.league_scope import MLB, in_league
 from app.services.evidence_states import (
     STARTER_CONFIRMED,
     lineup_evidence,
@@ -122,7 +123,7 @@ class PolicyCounterfactualService:
     def _evaluate_date(self, day: date) -> dict[str, Any]:
         start, end = local_day_bounds(day, self.settings.display_timezone)
         games = list(self.session.scalars(select(Game).where(
-            Game.starts_at >= start, Game.starts_at < end, Game.source_mode == "LIVE",
+            Game.starts_at >= start, Game.starts_at < end, Game.source_mode == "LIVE", in_league(MLB),
         ).order_by(Game.starts_at)))
         policy_blocks = {p: self._empty_policy_block(len(games)) for p in POLICIES}
         market_scope = {"games": len(games), "moneyline_priced": 0, "spread_priced": 0,

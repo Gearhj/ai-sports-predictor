@@ -11,11 +11,10 @@ second admission finds the same game instead of creating another.
 
 WHY THE GAME IS STORED AS RESEARCH_SHADOW
 -----------------------------------------
-The MLB jobs (forecast generation, the shadow experiment, the pregame evidence
-monitor, the MLB slate reads) select ``source_mode == 'LIVE'`` games without a
-league filter. NFL games stay out of them because they are RESEARCH_SHADOW rows;
-a College Football game is admitted the same way, so it cannot be forecast by
-the MLB pipeline, evaluated by an MLB experiment or listed on an MLB slate.
+RESEARCH_SHADOW is the game's provenance: research, not an operating slate. It
+is not what keeps the game out of MLB work. The MLB jobs and slate reads select
+by league (``app.services.league_scope``), and their entry points refuse
+another league's game. NFL games are stored the same way.
 
 WHAT ADMISSION DOES NOT DO
 --------------------------
@@ -38,7 +37,7 @@ from app.models import CfbResearchForecast
 #: The identity space the research package speaks.
 SOURCE_CFBD = "CFBD"
 LEAGUE_CODE = "CFB"
-#: See the module docstring: keeps the game out of the MLB LIVE paths.
+#: See the module docstring: research provenance, never an operating slate.
 SOURCE_MODE = "RESEARCH_SHADOW"
 
 

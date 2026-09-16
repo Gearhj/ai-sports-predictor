@@ -35,7 +35,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.entities import ShadowForecast
+from app.models.entities import Game, ShadowForecast
+from app.services.league_scope import MLB, LeagueMismatchError, require_league
 
 ENGINE_ID = "MLB_V18_WHOLE_GAME"
 
@@ -46,6 +47,7 @@ NOT_READY = "V18_FORECAST_IS_NOT_MARKED_READY"
 NO_PROBABILITY = "V18_FORECAST_CARRIES_NO_WHOLE_GAME_WIN_PROBABILITY"
 EVIDENCE_AFTER_CUTOFF = "V18_EVIDENCE_CUTOFF_IS_AFTER_THE_DECISION_CUTOFF"
 PUBLISHED_AFTER_CUTOFF = "V18_FORECAST_WAS_PUBLISHED_AFTER_THE_DECISION_CUTOFF"
+NOT_AN_MLB_GAME = "V18_DECIDES_MLB_GAMES_ONLY"
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -236,6 +238,12 @@ def resolve_for_decision(
     that arrived too late".
     """
 
+    game = session.get(Game, game_id if isinstance(game_id, UUID) else UUID(str(game_id)))
+    if game is not None:
+        try:
+            require_league(session, game, MLB, process="V18 decision input")
+        except LeagueMismatchError:
+            return None, NOT_AN_MLB_GAME
     row = latest_v18_forecast(session, game_id, engine_id=engine_id)
     if row is None:
         return None, NO_V18_FORECAST
@@ -271,6 +279,6 @@ def v18_coverage(session: Session, event_date: date, *, engine_id: str = ENGINE_
 
 __all__ = [
     "ENGINE_ID", "EVIDENCE_AFTER_CUTOFF", "NOT_READY", "NO_PROBABILITY",
-    "NO_V18_FORECAST", "PUBLISHED_AFTER_CUTOFF", "V18ForecastView",
+    "NOT_AN_MLB_GAME", "NO_V18_FORECAST", "PUBLISHED_AFTER_CUTOFF", "V18ForecastView",
     "latest_v18_forecast", "resolve_for_decision", "v18_coverage",
 ]

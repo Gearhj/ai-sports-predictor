@@ -126,5 +126,5 @@ def test_an_admitted_game_never_fills_an_empty_mlb_slate(session: Session, setti
     admit_game(session, _forecast(session))
     reader = ReadService(session, settings)
     # No LIVE game exists on this date; the demo fallback must still skip research rows.
-    assert reader._games_for_date(date(2026, 9, 19)) == []
-    assert reader._live_games_for_date(date(2026, 9, 19)) == []
+    assert reader._games_for_date(date(2026, 9, 19), "MLB") == []
+    assert reader._live_games_for_date(date(2026, 9, 19), "MLB") == []

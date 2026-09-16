@@ -250,6 +250,10 @@ class _FakeSession:
     def scalar(self, _statement):
         return self._row
 
+    def get(self, _entity, _ident):
+        # No canonical game row: the resolver's league gate has nothing to refuse.
+        return None
+
 
 @pytest.mark.parametrize(("row", "expected"), [
     (None, NO_V18_FORECAST),

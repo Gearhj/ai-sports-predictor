@@ -147,5 +147,5 @@ async def test_live_games_suppress_demo_games_and_features(session, settings) ->
     )
     session.add(live)
     session.commit()
-    games = ReadService(session, settings)._games_for_date(date(2026, 8, 12))
+    games = ReadService(session, settings)._games_for_date(date(2026, 8, 12), "MLB")
     assert games == [live]

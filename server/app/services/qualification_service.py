@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models import Game, GameTeam, StarterObservation, Team
 from app.services.opportunity_service import MAX_QUOTE_STALENESS_MINUTES
+from app.services.league_scope import MLB
 from app.services.read_service import ReadService
 from app.services.shadow_experiment_service import (
     FINAL_PREGAME_CUTOFF_MINUTES,
@@ -126,7 +127,7 @@ class QualificationService:
         if prefetch:
             begin_read_snapshot(self.session)
         read = ReadService(self.session, self.settings)
-        games = read._live_games_for_date(event_date)
+        games = read._live_games_for_date(event_date, MLB)
         with self._read_scope(games, now=now, prefetch=prefetch) as ctx:
             result = self._funnel_v2_body(event_date, games, read, now=now)
             result["read_model"] = self._read_model_meta(ctx, games)
@@ -370,7 +371,7 @@ class QualificationService:
         if prefetch:
             begin_read_snapshot(self.session)
         read = ReadService(self.session, self.settings)
-        games = read._live_games_for_date(event_date)
+        games = read._live_games_for_date(event_date, MLB)
         with self._read_scope(games, now=None, prefetch=prefetch) as ctx:
             result = self._funnel_body(event_date, games, read)
             result["read_model"] = self._read_model_meta(ctx, games)
@@ -441,7 +442,7 @@ class QualificationService:
     # -- starter-gate audit + probable-stable research comparison --------
     def starter_gate_analysis(self, event_date: date) -> dict[str, Any]:
         read = ReadService(self.session, self.settings)
-        games = read._live_games_for_date(event_date)
+        games = read._live_games_for_date(event_date, MLB)
         cards = [read.game_card(g) for g in games]
         forecasts = [read._latest_forecast(g.id) for g in games]
         opportunities, _ = read._daily_opportunities(games, cards, forecasts)

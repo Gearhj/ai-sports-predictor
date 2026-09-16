@@ -40,6 +40,7 @@ from app.models import (
     ShadowExperimentDecision,
     StarterObservation,
 )
+from app.services.league_scope import MLB, in_league
 from app.services.shadow_experiment_service import FINAL_PREGAME_CUTOFF_MINUTES
 
 MONITOR_VERSION = "AISP_PREGAME_EVIDENCE_MONITOR_V1"
@@ -65,7 +66,7 @@ class PregameEvidenceMonitor:
         now = _aware(now) or datetime.now(UTC)
         start, end = local_day_bounds(event_date, self.settings.display_timezone)
         games = list(self.session.scalars(select(Game).where(
-            Game.starts_at >= start, Game.starts_at < end, Game.source_mode == "LIVE",
+            Game.starts_at >= start, Game.starts_at < end, Game.source_mode == "LIVE", in_league(MLB),
         ).order_by(Game.starts_at)))
         found: list[dict[str, Any]] = []
         fast_window = timedelta(hours=self.settings.pregame_fast_window_hours)

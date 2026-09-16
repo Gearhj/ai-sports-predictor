@@ -55,6 +55,7 @@ from app.models import (
     ShadowExperiment,
     ShadowExperimentDecision,
 )
+from app.services.league_scope import MLB, LeagueMismatchError, require_league
 
 FINAL_PREGAME_CUTOFF_MINUTES = 15
 # The FINAL_PREGAME phase may only be frozen inside this window before the
@@ -402,7 +403,7 @@ class ShadowExperimentService:
         from app.services.read_service import ReadService
 
         read = ReadService(self.session, self.settings)
-        games = read._live_games_for_date(event_date)
+        games = read._live_games_for_date(event_date, MLB)
         games = [game for game in games if _aware(game.starts_at) >= _aware(experiment.started_at)]
         if not games:
             return {"note": "no live games", "frozen": 0, "primary": 0}
@@ -638,9 +639,21 @@ class ShadowExperimentService:
             reasons.append(f"Exact MONEYLINE selection classified {state}")
         return reason, list(dict.fromkeys(reasons))[:8]
 
+    def _is_mlb_game(self, game: Game, process: str) -> bool:
+        """Every decision and position here is MLB; another league's game is
+        refused (and logged) even if a caller hands it in directly."""
+
+        try:
+            require_league(self.session, game, MLB, process=process)
+        except LeagueMismatchError:
+            return False
+        return True
+
     def _append_decision(
         self, experiment, game, forecast, phase, opportunity, now, *, v2=None,
     ) -> ShadowExperimentDecision | None:
+        if not self._is_mlb_game(game, "MLB experiment decision"):
+            return None
         bet = self._moneyline_selection(opportunity)
         if v2 is not None:
             # V2 challenger: the recommendation and reasons come from the
@@ -836,6 +849,8 @@ class ShadowExperimentService:
     ) -> bool:
         """Create exactly one canonical virtual position from cutoff-safe evidence."""
 
+        if not self._is_mlb_game(game, "MLB experiment position"):
+            return False
         cutoff = _aware(game.starts_at) - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
         decision = self.session.scalar(
             select(ShadowExperimentDecision).where(

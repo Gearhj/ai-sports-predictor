@@ -36,6 +36,7 @@ from app.models import (
 from app.prospective.contracts import MLB_STATS_API_SOURCE, AvailabilityEventInput
 from app.prospective.sportsdataio import SportsDataIOAvailabilityAdapter
 from app.prospective.event_sources import MLBDerivedAvailabilityEventSource
+from app.services.league_scope import MLB, in_league
 from app.services.prospective_shadow_service import ProspectiveShadowService
 
 ODDS_CONFIG_VARIABLE = "THE_ODDS_API_KEY"
@@ -67,10 +68,11 @@ class LiveShadowOperator:
         return self.settings.availability_poll_slow_minutes * 60
 
     def monitored_games(self, now: datetime) -> list[Game]:
-        """Current/future LIVE games still before first pitch (polling stops at start)."""
+        """Current/future LIVE MLB games still before first pitch (polling stops at start)."""
         return list(self.session.scalars(
             select(Game).where(
                 Game.source_mode == "LIVE",
+                in_league(MLB),
                 Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE)),
                 Game.starts_at > now,
             ).order_by(Game.starts_at)

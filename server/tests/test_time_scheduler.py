@@ -104,7 +104,7 @@ def test_finalize_carries_an_incomplete_prior_local_slate(settings, monkeypatch)
     monkeypatch.setattr(scheduler_module, "local_today", lambda _timezone: today)
 
     orchestrator = SimpleNamespace(
-        _games_for_date=lambda event_date: (
+        _games_for_date=lambda event_date, _league: (
             [SimpleNamespace(status=GameStatus.LIVE)] if event_date == previous else []
         )
     )
@@ -119,7 +119,7 @@ def test_finalize_does_not_reopen_a_terminal_prior_slate(settings, monkeypatch) 
     today = date(2026, 8, 29)
     monkeypatch.setattr(scheduler_module, "local_today", lambda _timezone: today)
     orchestrator = SimpleNamespace(
-        _games_for_date=lambda _event_date: [
+        _games_for_date=lambda _event_date, _league: [
             SimpleNamespace(status=GameStatus.FINAL),
             SimpleNamespace(status=GameStatus.CANCELED),
         ]
@@ -132,7 +132,7 @@ def test_nonfinalization_jobs_remain_on_current_local_date(settings, monkeypatch
     today = date(2026, 8, 29)
     monkeypatch.setattr(scheduler_module, "local_today", lambda _timezone: today)
     orchestrator = SimpleNamespace(
-        _games_for_date=lambda _event_date: (_ for _ in ()).throw(
+        _games_for_date=lambda _event_date, _league: (_ for _ in ()).throw(
             AssertionError("non-finalization jobs must not inspect another slate")
         )
     )

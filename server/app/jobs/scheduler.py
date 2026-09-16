@@ -20,6 +20,7 @@ from app.models.entities import (
 )
 from sqlalchemy import select
 from app.services.game_refresh_state_service import GameRefreshStateService
+from app.services.league_scope import MLB
 
 # Local (display-timezone) hour at which the daily pipeline is scheduled.
 DAILY_PIPELINE_HOUR = 6
@@ -204,7 +205,7 @@ def _scheduled_event_dates(
     previous = today - timedelta(days=1)
     previous_incomplete = any(
         game.status in (GameStatus.SCHEDULED, GameStatus.LIVE)
-        for game in orchestrator._games_for_date(previous)
+        for game in orchestrator._games_for_date(previous, MLB)
     )
     return (previous, today) if previous_incomplete else (today,)
 

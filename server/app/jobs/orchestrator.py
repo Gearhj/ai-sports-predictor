@@ -44,6 +44,7 @@ from app.models import (
     GameTeam,
     IngestionRun,
     JobRun,
+    League,
     MarketOutcome,
     ModelVersion,
     OddsSnapshot,
@@ -56,6 +57,8 @@ from app.models import (
     ShadowForecastBundle,
 )
 from app.services.forecast_service import ForecastNotReadyError, ForecastService, ForecastWindowClosedError
+from app.services.game_state_service import GameStateUnavailableError
+from app.services.league_scope import MLB, LeagueMismatchError, in_league
 from app.services.read_service import ReadService
 
 
@@ -512,7 +515,9 @@ class JobOrchestrator:
         if not team_abbrev:
             return None
         team = self.session.scalar(
-            select(Team).where(func.upper(Team.abbreviation) == team_abbrev.upper())
+            select(Team)
+            .join(League, League.id == Team.league_id)
+            .where(League.code == MLB, func.upper(Team.abbreviation) == team_abbrev.upper())
         )
         if team is None:
             return None
@@ -521,7 +526,7 @@ class JobOrchestrator:
             select(Game)
             .join(GameTeam, GameTeam.game_id == Game.id)
             .where(
-                GameTeam.team_id == team.id, Game.source_mode == "LIVE",
+                GameTeam.team_id == team.id, Game.source_mode == "LIVE", in_league(MLB),
                 Game.starts_at >= start, Game.starts_at < end,
             )
             .limit(1)
@@ -1656,6 +1661,7 @@ class JobOrchestrator:
                 Game.starts_at >= self._day_bounds(event_date)[0],
                 Game.starts_at < self._day_bounds(event_date)[1],
                 Game.source_mode == "LIVE",
+                in_league(MLB),
             ).limit(1)
         ) is not None
         # Never mix provenance within a refresh. Live games take precedence;
@@ -1670,6 +1676,7 @@ class JobOrchestrator:
                 Game.starts_at >= self._day_bounds(event_date)[0],
                 Game.starts_at < self._day_bounds(event_date)[1],
                 Game.source_mode == target_mode,
+                in_league(MLB),
                 ExternalIdMapping.source == (
                     "MLB_STATS_API" if target_mode == "LIVE" else self.demo.source
                 ),
@@ -1794,6 +1801,7 @@ class JobOrchestrator:
                     Game.starts_at >= self._day_bounds(event_date)[0],
                     Game.starts_at < self._day_bounds(event_date)[1],
                     Game.source_mode == "LIVE",
+                    in_league(MLB),
                 )
             ))
             for mapping in game_mappings:
@@ -1852,6 +1860,7 @@ class JobOrchestrator:
         upcoming = self.session.scalars(
             select(Game).where(
                 Game.source_mode == "LIVE",
+                in_league(MLB),
                 Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE)),
                 Game.starts_at > now,
             )
@@ -1995,6 +2004,7 @@ class JobOrchestrator:
                 Game.starts_at >= self._day_bounds(event_date)[0],
                 Game.starts_at < self._day_bounds(event_date)[1],
                 Game.source_mode == ("DEMO" if demo_only else "LIVE"),
+                in_league(MLB),
             )
         ))
         count = 0
@@ -2089,14 +2099,14 @@ class JobOrchestrator:
     async def rebuild_features(self, event_date: date) -> dict[str, Any]:
         # Team features are normalized as part of MLB data ingestion. This job is
         # idempotent and validates readiness rather than copying observations.
-        games = self._games_for_date(event_date)
+        games = self._games_for_date(event_date, MLB)
         return {"records": len(games), "status": "validated", "games": len(games)}
 
     async def generate_forecasts(self, event_date: date, *, data_as_of: datetime | None = None) -> dict[str, Any]:
         service = ForecastService(self.session, self.settings)
         created = 0
         skipped: list[dict[str, Any]] = []
-        for game in self._games_for_date(event_date):
+        for game in self._games_for_date(event_date, MLB):
             try:
                 service.generate_for_game(game, data_as_of=data_as_of)
                 created += 1
@@ -2104,6 +2114,12 @@ class JobOrchestrator:
                 skipped.append({"game_id": str(game.id), "reason": str(exc), "score": exc.score})
             except ForecastWindowClosedError as exc:
                 skipped.append({"game_id": str(game.id), "reason": str(exc), "score": None})
+            except GameStateUnavailableError as exc:
+                # No point-in-time game state yet. One game without evidence must
+                # not abort the pipeline before positions and the shadow freeze.
+                skipped.append({"game_id": str(game.id), "reason": str(exc), "score": None})
+            except LeagueMismatchError as exc:
+                skipped.append({**exc.receipt(), "score": None})
         self.session.commit()
         return {"records": created, "forecasts": created, "skipped": skipped}
 
@@ -2116,7 +2132,7 @@ class JobOrchestrator:
         return {"records": len(settlements), "final_games_seen": len(final_games), "status": "settlement complete"}
 
     async def publish_positions(self, event_date: date) -> dict[str, Any]:
-        positions = publish_official_positions(self.session, self.settings, self._games_for_date(event_date))
+        positions = publish_official_positions(self.session, self.settings, self._games_for_date(event_date, MLB))
         self.session.commit()
         return {
             "records": len(positions),
@@ -2161,7 +2177,7 @@ class JobOrchestrator:
         steps["weather"] = await self.refresh_weather(event_date)
         if self.settings.odds_polling_enabled:
             steps["odds"] = await self.refresh_odds(event_date)
-        elif demo_only and self.settings.demo_mode and all(game.source_mode == "DEMO" for game in self._games_for_date(event_date)):
+        elif demo_only and self.settings.demo_mode and all(game.source_mode == "DEMO" for game in self._games_for_date(event_date, MLB)):
             steps["odds"] = await self.refresh_odds(event_date, demo_only=True)
         else:
             steps["odds"] = {
@@ -2270,6 +2286,7 @@ class JobOrchestrator:
             Game.starts_at >= bounds[0],
             Game.starts_at < bounds[1],
             Game.source_mode == "LIVE",
+            in_league(MLB),
         )) or 0
         if live_games == 0:
             raise SourceError(
@@ -2305,14 +2322,18 @@ class JobOrchestrator:
             "steps": steps,
         }
 
-    def _games_for_date(self, event_date: date) -> list[Game]:
+    def _games_for_date(self, event_date: date, league_code: str) -> list[Game]:
+        """One league's pipeline slate: its LIVE games, else its DEMO fixtures.
+
+        The league is required. Another league's game never enters, whatever
+        its source mode, and a date with none of this league's games is empty.
+        """
         games = list(self.session.scalars(select(Game).where(
-            Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1]
+            Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1],
+            in_league(league_code),
         ).order_by(Game.starts_at)))
         live = [game for game in games if game.source_mode == "LIVE"]
-        # Research-shadow games (NFL, College Football) are never MLB pipeline
-        # input, even on a date with no LIVE MLB game yet.
-        return live or [game for game in games if game.source_mode != "RESEARCH_SHADOW"]
+        return live or [game for game in games if game.source_mode == "DEMO"]
 
     def _ingestion_run(
         self,
