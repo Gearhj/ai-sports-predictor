@@ -9,15 +9,16 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | | |
 |---|---|
 | Release branch | `claude/aisp-scotty-demo-release-v1` |
-| Backend running | pid **39968**, restarted 2026-09-16 13:58 ET by the *ASP Backend 8010* task, from original commit `92ee648` (GitHub `c48c480`, branch `claude/aisp-market-league-integrity-v1`). It adds league-scoped odds binding, the market-board and NFL-quote fixes, and the funnel read-model repair, on top of league isolation (`49409ee`). The client is unchanged since `7861a53`. |
-| Frontend served | `client/dist` built at original commit `7861a53` (check `/frontendz`, field `build.commit`) |
+| Backend running | pid **43280**, restarted 2026-09-16 16:32 ET by the *ASP Backend 8010* task, from original commit `2c45fc1` (server tree identical at `5bea782`; GitHub `d9919a5`, branch `claude/aisp-probability-and-consumer-experience-v1`). It adds the verified-population probability adapter (Model Studio contract `e0d1638`), the Daily Decisions assessment read model and the fail-closed cross-game refusal, on top of market integrity (`92ee648`) and league isolation (`49409ee`). |
+| Frontend served | `client/dist` built at original commit `5bea782` (check `/frontendz`, field `build.commit`): AISP Today on Home, assessment cards and the same-game Parlay Lab on Daily Decisions, and the scoped Experiment summary. |
+| Probability acknowledgement | `asp-model-exchange/consumer-acknowledgements/aisp-market-probability-contract-v1/aisp-market-probability-acknowledgement-d9919a5b960a-20260916T203852Z.json`, SHA-256 `7246dd5cbc5f2086abb2fc608b0b239a0d5612c6aa9ee7b7fa894548d6e27ed3`. Additive only: not a model import or promotion. |
 | Model Studio release | `demo-releases-v1` logical address `f0e87d7a…8889a`, manifest SHA-256 `05250af2…56fc8`, verified and reconciled 2026-09-16. The consumer receipt is under `asp-model-exchange/demo-releases-v1/consumer-receipts/`. |
 | Database | PostgreSQL 16, `asp`, Alembic head `20260915_0043` |
 | Release rehearsal | 2026-09-16, 11:15–11:25 ET (full); 12:00–12:15 ET (affected pages after the release import) |
 | Published SHAs | Original SHAs above are the ones that ran. Their GitHub equivalents are listed in `docs/REPOSITORY_AND_BACKUP.md`. |
 
 **Before the demo:**
-- Open `http://127.0.0.1:8010/frontendz`. The commit must be `7861a53…` or later from this branch.
+- Open `http://127.0.0.1:8010/frontendz`. The commit must be `5bea782…` or later from `claude/aisp-probability-and-consumer-experience-v1`.
 - Open `http://127.0.0.1:8010/readyz`. It must read `ready / reachable / running`.
 
 ## Demo path
@@ -33,9 +34,9 @@ virtual $1,000-per-sport paper experiment. There is no real money.
 | 3b | `/games/<mlb-id>/simulation?sport=MLB` | The V18 Monte Carlo Diamond Theater, which opens by default. Try Broadcast Replay, Play Geometry and Simulation Population, and the playback speed controls. | Games without a saved V18 simulation fall back to the Gen 1 distribution, labelled as the baseline. |
 | 4a | `/games/<nfl-id>?sport=NFL` | NFL M1: expected score, home/away/tie probabilities, snapshot provenance, and market comparison | Outside the price window, the quote is "Stored reference quote — not a current price" and no edge is computed. |
 | 4b | `/games/14a64986-3d92-48af-ba69-15731e936d54/simulation?sport=NFL` | NFL Simulation Lab (DEN @ KC, Week 1): Simulation Population, Watch one game, Outcome Explorer and Scenario Comparison | Week 2 games have no play-level evidence yet. For them the lab opens on the Outcome Explorer. |
-| 5 | `/decisions` | Daily Decisions: forecast → price → evaluated → qualified → positioned, with plain reasons | NBA: "Season not started · research example". CFB: "Market comparison blocked". NFL: "Stale reference only" until its collection window opens. |
+| 5 | `/decisions` | Daily Decisions: assessment cards (qualified, closest, passed, research) with both sides of each market, model/no-vig/fair/push, the same-game Parlay Lab, then the collapsible timing audit queue | NBA: "Season not started · research example". CFB: "Market comparison blocked". NFL: "Stale reference only" until its collection window opens. |
 | 6 | `/performance` (tabs MLB / NFL / NBA / College Football) | Champion identity and prospective scores: MLB V18 (n=85 as of 16 Sep) and NFL M1 (n=16) | NBA and CFB have no scored prospective games. |
-| 7 | `/experiment` | Immutable paper results: four virtual accounts, open positions, settlements with entry price, book and provider | Positions exist only where a forecast, eligible policy and fresh price qualified inside a window. |
+| 7 | `/experiment` | Immutable paper results with a Combined / MLB / NFL / NBA / College Football scope: bankroll hero, "Where the experiment stands", progress to the ~50-position review, settlement-order chart, The Tape, accounts, positions, settlements and the transaction ledger | Positions exist only where a forecast, eligible policy and fresh price qualified inside a window. |
 
 Supporting research pages:
 - `/nba/research`: the BOS @ DET early research example, with its season-not-started and price-blocker strip.
@@ -95,8 +96,8 @@ Supporting research pages:
 
    - Wait for a new listener pid on 8010 (about 20–60 s) before trusting `/readyz`. Never start uvicorn or Vite by hand.
 3. **NFL lab blank.** Open the Outcome Explorer directly with `…/simulation?sport=NFL&view=explorer`.
-4. **Frontend rollback.** The previous build is in `.runtime/frontend-rollback/dist-a3223ec`. Copy it over `client/dist`; no restart is needed.
-5. **Backend rollback.** Check out `781e46e`'s `server/` in the original checkout (`git checkout 781e46e -- server`) and restart through the task; that is league isolation without the market-integrity change. Earlier fallbacks are `b454697` (before league isolation) and `6f4f01f`.
+4. **Frontend rollback.** The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
+5. **Backend rollback.** Check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
 
 ## Fixed for this release
 
@@ -123,3 +124,16 @@ Supporting research pages:
 - **Pre-existing test failures remain.** They are identical before and after this release:
   - backend: 10 in the focused set, plus 3 others;
   - client: 125, of which two are flaky.
+
+## Probability integration (2026-09-16)
+
+- **Same-game only.** Parlay Lab results are per-draw intersections over one verified population. No sportsbook parlay
+  price is stored, so every result reads "Model probability available. Sportsbook parlay price unavailable, so edge and
+  expected return cannot be assessed." No parlay creates a decision, position or ledger entry.
+- **Cross-game is disabled.** The panel states the combinations are not yet validated and lists nothing; the API
+  returns 422 `CROSS_GAME_CALIBRATION_NOT_VALIDATED` (frozen study `d5702cb`).
+- **Card edges.** An edge and expected return appear only for a current two-sided quote from a provider the decision
+  policy permits; stale or reference quotes are labelled and carry none. The governed decision status and reason remain
+  the authority.
+- **MLB populations** are re-read from the V18 exchange objects, which only the task's elevated account can open.
+  From a normal shell an MLB binding reads `POPULATION_SOURCE_UNREADABLE`; that is expected.

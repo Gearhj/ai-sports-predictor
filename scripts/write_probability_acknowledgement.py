@@ -29,6 +29,17 @@ from app.probability.market_probabilities import (  # noqa: E402
 )
 
 FIXTURES = ROOT / "server" / "tests" / "fixtures" / "market_probability_contract_v1"
+#: populationSha256 per forecast from the producer's source-validation.json (e0d1638).
+PRODUCER_AUDIT = {
+    "mlb-v18-daily-2f07648c51e830736d65ff37689c563bb2195ec767090d14ecc8e905968cbdac":
+        "a302b39e17922a208ac90b14310d82fefa60451734704a45e26d4f34f7282faa",
+    "asp-sports-game-forecast:sha256:26204eb184de348c3f3256a2da2769550a3906392dca5de4aa6cd83357772d81":
+        "bbd41e37ec7576d9e407173f65385144bf4b7fbefde801cca360b42b9087d7eb",
+    "nba-joint:3ee2c1a130aa621a787b5094b990228d2c612f9fbeb9a3c22071c0b4a46828a0":
+        "6ed7ab4d05022103df689293ec6b03663a657167d091e621647b3418f31fd18c",
+    "cfb-gen1:06b73d838a1a21fae7fa1087954057df0c38ec522b84324924cb2bf706cc1f32":
+        "da5eab2d9d7186a55411b2fef3d8c6a9c1fe5a315e5f2b5026bdc17a6ce25d60",
+}
 
 
 def sha(path: Path) -> str:
@@ -56,14 +67,21 @@ def live_binding(game_id: str) -> dict:
         body = json.loads(response.read())
     out = []
     for channel in body["channels"]:
-        out.append({k: channel.get(k) for k in ("channel", "status", "binding", "authority", "error", "forecast_id",
-                                                  "draw_count", "capabilities")})
+        row = {k: channel.get(k) for k in ("channel", "status", "binding", "authority", "error", "forecast_id",
+                                             "draw_count", "capabilities")}
+        binding = channel.get("binding") or {}
+        expected = PRODUCER_AUDIT.get(binding.get("forecastId"))
+        if expected:
+            row["producerAuditPopulationSha256"] = expected
+            row["matchesProducerAudit"] = binding.get("populationSha256") == expected
+        out.append(row)
     return {"gameId": game_id, "sport": body["sport"], "channels": out, "crossGame": body["cross_game"]}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--implementation-sha", required=True)
+    parser.add_argument("--original-sha", required=True, help="the SHA the deployed checkout ran")
     parser.add_argument("--branch", required=True)
     parser.add_argument("--tested-at", required=True)
     parser.add_argument("--tests", required=True, help="short test summary")
@@ -109,6 +127,7 @@ def main() -> None:
             "repository": "Gearhj/ai-sports-predictor",
             "branch": args.branch,
             "implementationSha": args.implementation_sha,
+            "deployedOriginalCheckoutSha": args.original_sha,
             "vendoredModule": "server/app/probability/market_probabilities.py (byte-identical)",
             "adapter": "server/app/probability/adapter.py",
             "testedAtUtc": args.tested_at,
