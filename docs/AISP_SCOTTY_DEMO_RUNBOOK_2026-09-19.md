@@ -9,7 +9,7 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | | |
 |---|---|
 | Release branch | `claude/aisp-scotty-demo-release-v1` |
-| Backend running | pid **43956**, restarted 2026-09-16 13:09 ET by the *ASP Backend 8010* task, from original commit `49409ee` (GitHub `7f79360`, branch `claude/aisp-mlb-league-safety-v1`). This adds league isolation: MLB jobs and slates select and accept only MLB games. The client is unchanged since `7861a53`. |
+| Backend running | pid **39968**, restarted 2026-09-16 13:58 ET by the *ASP Backend 8010* task, from original commit `92ee648` (GitHub `c48c480`, branch `claude/aisp-market-league-integrity-v1`). It adds league-scoped odds binding, the market-board and NFL-quote fixes, and the funnel read-model repair, on top of league isolation (`49409ee`). The client is unchanged since `7861a53`. |
 | Frontend served | `client/dist` built at original commit `7861a53` (check `/frontendz`, field `build.commit`) |
 | Model Studio release | `demo-releases-v1` logical address `f0e87d7a…8889a`, manifest SHA-256 `05250af2…56fc8`, verified and reconciled 2026-09-16. The consumer receipt is under `asp-model-exchange/demo-releases-v1/consumer-receipts/`. |
 | Database | PostgreSQL 16, `asp`, Alembic head `20260915_0043` |
@@ -96,7 +96,7 @@ Supporting research pages:
    - Wait for a new listener pid on 8010 (about 20–60 s) before trusting `/readyz`. Never start uvicorn or Vite by hand.
 3. **NFL lab blank.** Open the Outcome Explorer directly with `…/simulation?sport=NFL&view=explorer`.
 4. **Frontend rollback.** The previous build is in `.runtime/frontend-rollback/dist-a3223ec`. Copy it over `client/dist`; no restart is needed.
-5. **Backend rollback.** Check out `b454697`'s `server/` in the original checkout (`git checkout b454697 -- server`) and restart through the task. That was the backend before league isolation. The earlier fallback is `6f4f01f`.
+5. **Backend rollback.** Check out `781e46e`'s `server/` in the original checkout (`git checkout 781e46e -- server`) and restart through the task; that is league isolation without the market-integrity change. Earlier fallbacks are `b454697` (before league isolation) and `6f4f01f`.
 
 ## Fixed for this release
 
