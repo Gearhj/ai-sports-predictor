@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -41,6 +42,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.config import get_settings  # noqa: E402
 from app.services.odds_budget_lanes import (  # noqa: E402
     DEFAULT_LANES,
     LANE_MLB_RECOVERY,
@@ -78,7 +80,14 @@ from app.services.shadow_experiment_service import (  # noqa: E402
 )
 
 TICK_MINUTES = 5
-DB = "postgresql://asp_user:REDACTED-CREDENTIAL@localhost:5432/asp"
+
+
+def _database_dsn() -> str:
+    """The installation's own database URL, as a libpq DSN. No credential is shipped."""
+    url = os.getenv("DATABASE_URL") or get_settings().database_url
+    if not url:
+        raise SystemExit("DATABASE_URL is not configured; this replay needs the installation's own database.")
+    return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +373,7 @@ def replay_day(
 def load_slate(slate: date) -> dict[str, tuple[str, datetime]]:
     import psycopg
 
-    with psycopg.connect(DB) as cn, cn.cursor() as cur:
+    with psycopg.connect(_database_dsn()) as cn, cn.cursor() as cur:
         cur.execute(
             """
             select g.id::text,
@@ -390,7 +399,7 @@ def duplicate_snapshot_count() -> dict[str, Any]:
 
     import psycopg
 
-    with psycopg.connect(DB) as cn, cn.cursor() as cur:
+    with psycopg.connect(_database_dsn()) as cn, cn.cursor() as cur:
         cur.execute(
             """
             select count(*) from (
@@ -453,7 +462,7 @@ def month_projection() -> dict[str, Any]:
     import psycopg
 
     demand: dict[str, list[int]] = {"MLB": [], "NFL": []}
-    with psycopg.connect(DB) as cn, cn.cursor() as cur:
+    with psycopg.connect(_database_dsn()) as cn, cn.cursor() as cur:
         for league, policy in (("MLB", MLB_POLICY), ("NFL", NFL_POLICY)):
             cur.execute(
                 """

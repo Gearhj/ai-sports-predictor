@@ -112,7 +112,7 @@ Observations: there are **no routes that accept a user/forecast/bet/subscription
 
 ### P3-5 — Password policy and default admin credentials
 
-**Where:** `password: min_length=8` ([schemas/api.py:538](../server/app/schemas/api.py#L538)); default `admin@example.com` / `REDACTED-CREDENTIAL` ([config.py:77-78](../server/app/core/config.py#L77)).
+**Where:** `password: min_length=8` ([schemas/api.py:538](../server/app/schemas/api.py#L538)); default `admin@example.com` / `<redacted>` ([config.py:77-78](../server/app/core/config.py#L77)).
 **Analysis:** 8-char minimum with no breach/complexity check is on the weak side. The **production guard already blocks** the default admin password and short secrets in prod ([config.py:85-95](../server/app/core/config.py#L85)) — good. **Recommendation:** raise to ≥12 and add a breached-password (k-anonymity) check before public launch; Argon2 via `pwdlib` recommended defaults are already used ([security.py:11](../server/app/core/security.py#L11)).
 
 ### P3-6 — OpenAPI docs public

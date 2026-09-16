@@ -37,7 +37,7 @@ Can it support thousands of users today? **No.** Measured ceiling ≈ 0.6 heavy 
 | Migration head (source / live DB) | `20260831_0024` / `20260831_0024` — in sync; 24 revisions, 1 head, linear |
 | Dependencies | `requirements.txt` ranges (no lockfile); `package-lock.json` present; Python 3.12.4 venv |
 | Commands | backend `python -m uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 8010`; frontend `npm run dev` (Vite, `--host 0.0.0.0`); tests `pytest` (server), `vitest run` (client) |
-| CI / deploy | No CI. `docker-compose.yml` (local: hard-coded `REDACTED-CREDENTIAL` password, migrations + `create-admin` at container start, API on `0.0.0.0:8000`, root user), `server/Dockerfile`, `client/Dockerfile` + `nginx.conf` (CSP/frame/nosniff headers). No IaC, no reverse-proxy config for production. |
+| CI / deploy | No CI. `docker-compose.yml` (local: hard-coded `<redacted>` password, migrations + `create-admin` at container start, API on `0.0.0.0:8000`, root user), `server/Dockerfile`, `client/Dockerfile` + `nginx.conf` (CSP/frame/nosniff headers). No IaC, no reverse-proxy config for production. |
 | Scheduler | APScheduler `AsyncIOScheduler` inside the API `lifespan`; 18 jobs registered with the current flags |
 
 Baseline test run **before any source change** (isolated in-memory SQLite fixtures; no live-DB mutation; provider egress monkeypatched in the tests that cover it):

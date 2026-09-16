@@ -155,7 +155,7 @@ Severity uses the audit's P0–P3 scale. "Control" cites the exact code that imp
 | Weak defaults | Production validator rejects default secret/admin password/demo/CORS | OBSERVED + tested | Development mode has no such guard; **never** expose a dev-mode process. |
 | Python deps | `pip-audit`: 1 advisory — `pytest 8.4.2` PYSEC-2026-1845 (UNIX `/tmp` DoS; dev-only) | REPRODUCED | Not exploitable in production image. No lockfile/hash pinning (**P3**). |
 | npm deps | `npm audit`: 1 moderate — `echarts <6.1.0` (fix available) | REPRODUCED | Upgrade in a normal change window. **P3** |
-| Container | Runs as root; migrations + `create-admin` at container start; hard-coded `REDACTED-CREDENTIAL` DB password in compose | OBSERVED | Local-only compose; must not be the production shape. **P2** |
+| Container | Runs as root; migrations + `create-admin` at container start; hard-coded `<redacted>` DB password in compose | OBSERVED | Local-only compose; must not be the production shape. **P2** |
 | CI | No `.github` / pipeline exists | OBSERVED | No automated gate on merge. **P2** |
 
 ### 5.7 Operational availability

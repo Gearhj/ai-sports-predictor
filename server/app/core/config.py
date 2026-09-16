@@ -29,7 +29,10 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     api_v1_prefix: str = "/api/v1"
     display_timezone: str = "America/New_York"
-    database_url: str = "postgresql+psycopg://asp:REDACTED-CREDENTIAL@localhost:5433/asp"
+    # No shared credential is shipped. Every non-test installation must supply an
+    # explicit DATABASE_URL (environment or .env); startup fails closed without one
+    # (see ``require_explicit_credentials``). Tests inject an explicit disposable URL.
+    database_url: str = ""
     # Connection pool for PostgreSQL. FastAPI runs sync ``def`` handlers on a
     # 40-slot threadpool; SQLAlchemy's default pool (5 + 10 overflow) is smaller
     # than that, so modest concurrency queued on ``pool_timeout`` (30 s default)
@@ -38,7 +41,9 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10, ge=1, le=100)
     db_max_overflow: int = Field(default=20, ge=0, le=200)
     db_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
-    secret_key: str = "change-me-before-any-shared-deployment"
+    # No signing key is shipped: a published default would let anyone mint tokens.
+    # Required outside tests (see ``require_explicit_credentials``).
+    secret_key: str = ""
     access_token_minutes: int = Field(default=60, ge=5, le=1440)
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
@@ -293,12 +298,37 @@ class Settings(BaseSettings):
     gate3_feature_min_coverage: float = Field(default=0.70, ge=0, le=1)
     gate3_calibration_ece_threshold: float = Field(default=0.05, ge=0, le=0.25)
     admin_email: str = "admin@example.com"
-    admin_password: str = "REDACTED-CREDENTIAL"
+    # No administrator password is shipped. It is only used to bootstrap an absent
+    # administrator (``ensure_admin`` refuses a missing or short value); the live
+    # credential is the stored hash, not this setting.
+    admin_password: str = ""
 
     @field_validator("the_odds_api_key", mode="before")
     @classmethod
     def normalize_optional_key(cls, value: object) -> str:
         return "" if value is None else str(value).strip()
+
+    @model_validator(mode="after")
+    def require_explicit_credentials(self) -> "Settings":
+        """Fail closed when credentials are not supplied outside tests (SEC-DB-001).
+
+        Only ``app_env == "test"`` may run without explicit values; the test harness
+        always injects a disposable URL and key. Development and production must be
+        given installation-specific values rather than inheriting shipped defaults.
+        """
+        if self.app_env != "test":
+            if not self.database_url.strip():
+                raise ValueError(
+                    "DATABASE_URL must be set explicitly; no shared database default is "
+                    "shipped. Provide an installation-specific PostgreSQL URL via the "
+                    "environment or .env before starting the application."
+                )
+            if not self.secret_key.strip():
+                raise ValueError(
+                    "SECRET_KEY must be set explicitly; no signing key is shipped. "
+                    "Provide a unique value of at least 32 characters via the environment or .env."
+                )
+        return self
 
     @model_validator(mode="after")
     def production_guards(self) -> "Settings":
@@ -309,7 +339,7 @@ class Settings(BaseSettings):
                 raise ValueError("Production DATABASE_URL must use PostgreSQL")
             if self.demo_mode:
                 raise ValueError("DEMO_MODE must be false in production")
-            if self.admin_password == "REDACTED-CREDENTIAL" or len(self.admin_password) < 12:
+            if len(self.admin_password) < 12:
                 raise ValueError("Production ADMIN_PASSWORD must be a unique value of at least 12 characters")
             # CORS must fail closed in production: no wildcard (especially with
             # credentials enabled) and no plaintext-HTTP external origins.

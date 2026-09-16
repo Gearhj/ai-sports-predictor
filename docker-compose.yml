@@ -4,15 +4,18 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: asp
-      POSTGRES_USER: asp
-      POSTGRES_PASSWORD: REDACTED-CREDENTIAL
+      POSTGRES_DB: ${POSTGRES_DB:-asp}
+      POSTGRES_USER: ${POSTGRES_USER:-asp}
+      # Required: no shared default is shipped. Set POSTGRES_PASSWORD in your shell
+      # or a local .env consumed by Docker Compose; interpolation fails closed when
+      # it is unset, so the stack will not start with a shared password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (no shared default)}
     ports:
       - "5433:5432"
     volumes:
       - asp_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U asp -d asp"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-asp}\" -d \"$${POSTGRES_DB:-asp}\""]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -24,7 +27,9 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://asp:REDACTED-CREDENTIAL@db:5432/asp
+      # Required: no shared default is shipped. Built from the same operator-supplied
+      # POSTGRES_PASSWORD; interpolation fails closed when it is unset.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-asp}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (no shared default)}@db:5432/${POSTGRES_DB:-asp}
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
     command: >-
       sh -c "python -m alembic upgrade head &&

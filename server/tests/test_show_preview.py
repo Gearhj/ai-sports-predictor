@@ -124,7 +124,10 @@ def complete_moneyline(world, at=BEFORE):
 # ------------------------------------------------------------ flags & scope --
 
 def test_every_switch_defaults_false_and_a_missing_setting_is_not_enabled() -> None:
-    settings = Settings(_env_file=None)
+    # app_env="test": outside tests, Settings now refuses to start without an
+    # explicit DATABASE_URL and SECRET_KEY (SEC-DB-001), which is not what this
+    # test is about. The switch defaults are the same in every environment.
+    settings = Settings(_env_file=None, app_env="test")
     assert settings.show_preview_enabled is False
     assert settings.show_preview_provider_collection_enabled is False
     assert settings.show_preview_auto_freeze_enabled is False

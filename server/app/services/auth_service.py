@@ -76,6 +76,11 @@ def ensure_admin(session: Session, settings: Settings) -> User:
                 "ADMIN_EMAIL already belongs to a non-admin account; refusing automatic privilege escalation"
             )
         return user
+    if len(settings.admin_password or "") < 12:
+        raise BootstrapConflictError(
+            "ADMIN_PASSWORD must be set to a unique value of at least 12 characters before an "
+            "administrator can be created; no default password is shipped"
+        )
     user = User(
         email=email,
         password_hash=hash_password(settings.admin_password),
