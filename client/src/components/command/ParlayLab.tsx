@@ -31,7 +31,7 @@ export interface LabGame {
   examples: DailyAssessments['games'][number]['parlay_lab']
 }
 
-export function labGames(data: DailyAssessments | null, coverage: CoverageGame[]): LabGame[] {
+export function labGames(data: DailyAssessments | null, coverage: CoverageGame[], now = Date.now()): LabGame[] {
   const byId = new Map(coverage.map((g) => [g.game_id, g]))
   const out: LabGame[] = []
   for (const g of data?.games ?? []) {
@@ -52,7 +52,10 @@ export function labGames(data: DailyAssessments | null, coverage: CoverageGame[]
       channel: paired as LabGame['channel'], examples: [],
     })
   }
-  return out
+  // Games still to start come first, soonest first; started games follow.
+  const started = (g: LabGame) => (g.startsAt ? Date.parse(g.startsAt) <= now : false)
+  return out.sort((a, b) => Number(started(a)) - Number(started(b))
+    || (started(a) ? (b.startsAt ?? '').localeCompare(a.startsAt ?? '') : (a.startsAt ?? '').localeCompare(b.startsAt ?? '')))
 }
 
 interface Shown {

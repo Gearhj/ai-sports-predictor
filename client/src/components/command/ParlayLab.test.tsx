@@ -90,7 +90,7 @@ function payload(): DailyAssessments {
         { fresh: true, state: 'CURRENT' })], false),
     ],
     research: [{
-      game_id: 'cfb1', sport: 'CFB', matchup: 'Coastal Carolina @ Delaware', starts_at: '2026-09-19T15:30:00Z',
+      game_id: 'cfb1', sport: 'CFB', matchup: 'Coastal Carolina @ Delaware', starts_at: '2026-09-26T15:30:00Z',
       home: { abbreviation: 'CFBD48', name: 'Delaware' }, away: { abbreviation: 'CFBD324', name: 'Coastal Carolina' },
       channels: [{ channel: 'PAIRED_POPULATION', status: 'SUPPORTED', binding: { ...BINDING, sport: 'CFB', gameId: 'cfb1' }, authority: 'RESEARCH_ONLY',
         authority_label: 'College Football paired-residual baseline — research only', winner: { home: 0.7315, away: 0.2685, tie: 0 },

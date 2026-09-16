@@ -71,16 +71,16 @@ export function buildTodaySummary({ games, items, ledger, now }: {
 }
 
 const FORECAST_SHORT: Record<string, string> = {
-  CONTROLLING_FORECAST_AVAILABLE: 'Forecast held',
-  RESEARCH_FORECAST_AVAILABLE: 'Research forecast held',
-  FORECAST_AWAITING_PRODUCER: 'Awaiting forecast',
-  FORECAST_UNAVAILABLE: 'No forecast',
+  CONTROLLING_FORECAST_AVAILABLE: 'held',
+  RESEARCH_FORECAST_AVAILABLE: 'research held',
+  FORECAST_AWAITING_PRODUCER: 'awaiting',
+  FORECAST_UNAVAILABLE: 'none',
 }
 const PRICE_SHORT: Record<string, string> = {
-  FRESH_PRICE: 'Current price',
-  STORED_REFERENCE_ONLY: 'Stale reference only',
-  COLLECTION_NOT_OPEN: 'Collection not open',
-  COLLECTION_BLOCKED: 'Price intake blocked',
+  FRESH_PRICE: 'current',
+  STORED_REFERENCE_ONLY: 'stale reference only',
+  COLLECTION_NOT_OPEN: 'collection not open',
+  COLLECTION_BLOCKED: 'intake blocked',
 }
 const RESEARCH_SPORTS = new Set<SportCode>(['NBA', 'CFB'])
 
@@ -92,7 +92,9 @@ export function readinessLine(entry: SportReadinessEntry | undefined, code: Spor
       : research ? 'Research only' : '—',
     forecast: entry?.forecast ? FORECAST_SHORT[entry.forecast.state] ?? entry.forecast.state.replace(/_/g, ' ').toLowerCase() : '—',
     price: entry?.price ? PRICE_SHORT[entry.price.state] ?? entry.price.state.replace(/_/g, ' ').toLowerCase() : '—',
-    eligibility: entry?.eligibility ? (entry.eligibility.eligible ? 'Eligible' : 'Not eligible') : research ? 'Not eligible' : '—',
+    eligibility: entry?.eligibility
+      ? (entry.eligibility.eligible ? (research ? 'Paper research eligible' : 'Eligible') : 'Not eligible')
+      : research ? 'Not eligible' : 'Decided by policy at the window',
     next: entry?.next_game ? `${entry.next_game.matchup} · ${entry.next_game.starts_label}` : 'No game scheduled',
   }
 }

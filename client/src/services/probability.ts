@@ -203,7 +203,7 @@ export const AUTHORITY_TEXT: Record<string, string> = {
 
 export const EDGE_REASON_TEXT: Record<string, string> = {
   QUOTE_NOT_CURRENT: 'Price is not current — no edge assessed',
-  QUOTE_NOT_GOVERNED: 'Research-classified book — no edge assessed',
+  PROVIDER_NOT_PERMITTED: 'Provider not permitted by the decision policy — no edge assessed',
   NO_VIG_UNAVAILABLE: 'No two-sided price — no edge assessed',
   NO_VERIFIED_POPULATION: 'No verified simulation population',
   LINE_MISSING: 'Line missing — not assessed',

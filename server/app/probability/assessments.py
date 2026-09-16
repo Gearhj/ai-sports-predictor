@@ -4,7 +4,8 @@ For each governed-price game on an Eastern slate date (the same games and
 quotes ``command_center.market_coverage`` lists) this reports, per quoted
 side, the verified population's win/loss/push mass, the push-aware fair
 price, the same-book no-vig probability and -- only for a CURRENT quote -- a
-research edge and expected return. It never infers a missing side or line:
+research edge and expected return, and only from a provider the decision
+policy permits. It never infers a missing side or line:
 a side is assessed only where the stored quote pair has it.
 
 Same-game Parlay Lab examples use only lines that were actually quoted, and
@@ -78,8 +79,8 @@ def _quote_assessment(channel: adapter.VerifiedChannel | None, quote: dict[str, 
             entry["model"] = masses
             if not quote.get("fresh"):
                 entry["edge_reason"] = "QUOTE_NOT_CURRENT"
-            elif quote.get("classification") != "GOVERNED":
-                entry["edge_reason"] = "QUOTE_NOT_GOVERNED"
+            elif quote.get("provider") not in _permitted_providers():
+                entry["edge_reason"] = "PROVIDER_NOT_PERMITTED"
             elif entry["no_vig"] is None or masses["conditional"] is None:
                 entry["edge_reason"] = "NO_VIG_UNAVAILABLE"
             else:
@@ -87,6 +88,14 @@ def _quote_assessment(channel: adapter.VerifiedChannel | None, quote: dict[str, 
                 entry["expected_return"] = masses["win"] * (price["decimal"] - 1) - masses["loss"]
         out["sides"][side] = entry
     return out
+
+
+def _permitted_providers() -> set[str]:
+    """Provider labels the decision policy itself accepts (command_center.PERMITTED_SOURCES)."""
+
+    from app.services.command_center import PERMITTED_SOURCES, _provider_label
+
+    return {_provider_label(source) for source in PERMITTED_SOURCES}
 
 
 def _consensus_line(quotes: list[dict[str, Any]], market: str) -> float | None:

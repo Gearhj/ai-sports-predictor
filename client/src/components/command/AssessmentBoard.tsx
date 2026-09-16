@@ -60,6 +60,7 @@ const MARKETS: { key: string; label: string; sides: [string, string] }[] = [
   { key: 'TOTAL', label: 'Total', sides: ['OVER', 'UNDER'] },
 ]
 
+const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
 const marketOf = (q: AssessedQuote) => (q.market === 'RUN_LINE' ? 'SPREAD' : q.market)
 
 /** The one quote a card shows per market: current and governed first, then the newest. */
@@ -138,28 +139,31 @@ export function MarketBlock({ market, quote, game }: { market: typeof MARKETS[nu
   }
   const state = quote.state === 'CURRENT' ? 'Current' : 'Stored reference only'
   const reasons = new Set(Object.values(quote.sides).map((s) => s.edge_reason).filter(Boolean) as string[])
+  // Without a verified population only the market's own numbers exist.
+  const modeled = Object.values(quote.sides).some((s) => s.model)
+  const rows = modeled ? ['Price', 'Model', 'No-vig', 'Fair', 'Push', 'Edge · EV'] : ['Price', 'No-vig']
   return (
     <div className={`as-market ${quote.state === 'CURRENT' ? '' : 'is-stale'}`} aria-label={`${market.label} at ${quote.sportsbook ?? 'book'}`}>
       <h5>{market.label}<span className={`as-state ${quote.state === 'CURRENT' ? 'is-current' : 'is-stale'}`}>{state}</span></h5>
-      <p className="as-market__src">{quote.sportsbook ?? 'Sportsbook'} · {quote.provider ?? 'provider'} · {etTime(quote.observed_at, true)}</p>
+      <p className="as-market__src">{shortBook(quote.sportsbook) || 'Sportsbook'} · {quote.provider ?? 'provider'}{quote.classification === 'RESEARCH' ? ' (research-classified)' : ''} · {etTime(quote.observed_at, true)}</p>
       <table>
         <thead><tr><th scope="col"><span className="sr-only">Measure</span></th>
           {market.sides.map((s) => <th key={s} scope="col">{sideName(s, game)}{lineFor(market.key, s, quote.line)}</th>)}</tr></thead>
         <tbody>
           <tr><th scope="row">Price</th>{market.sides.map((s) => <td key={s} className="as-price">{quote.sides[s] ? american(quote.sides[s].american) : <span className="as-missing">not quoted</span>}</td>)}</tr>
-          <tr><th scope="row">Model</th>{market.sides.map((s) => <td key={s}>{pct(quote.sides[s]?.model?.conditional)}</td>)}</tr>
+          {rows.includes('Model') && <tr><th scope="row">Model</th>{market.sides.map((s) => <td key={s}>{pct(quote.sides[s]?.model?.conditional)}</td>)}</tr>}
           <tr><th scope="row">No-vig</th>{market.sides.map((s) => <td key={s}>{pct(quote.sides[s]?.no_vig)}</td>)}</tr>
-          <tr><th scope="row">Fair</th>{market.sides.map((s) => <td key={s}>{american(quote.sides[s]?.model?.fair_american)}</td>)}</tr>
-          <tr><th scope="row">Push</th>{market.sides.map((s) => <td key={s}>{quote.sides[s]?.model ? pct(quote.sides[s].model?.push) : '—'}</td>)}</tr>
-          <tr><th scope="row">Edge · EV</th>{market.sides.map((s) => {
+          {modeled && <tr><th scope="row">Fair</th>{market.sides.map((s) => <td key={s}>{american(quote.sides[s]?.model?.fair_american)}</td>)}</tr>}
+          {modeled && <tr><th scope="row">Push</th>{market.sides.map((s) => <td key={s}>{quote.sides[s]?.model ? pct(quote.sides[s].model?.push) : '—'}</td>)}</tr>}
+          {modeled && <tr><th scope="row">Edge · EV</th>{market.sides.map((s) => {
             const side = quote.sides[s]
             return <td key={s} className={side?.edge != null ? (side.edge >= 0 ? 'is-up' : 'is-down') : ''}>
               {edgeText(side)}{side?.expected_return != null ? <small> · EV {(side.expected_return * 100).toFixed(1)}%</small> : null}
             </td>
-          })}</tr>
+          })}</tr>}
         </tbody>
       </table>
-      {[...reasons].map((r) => <p key={r} className="as-market__note">{EDGE_REASON_TEXT[r] ?? r}</p>)}
+      {[...reasons].filter((r) => modeled || r !== 'NO_VERIFIED_POPULATION').map((r) => <p key={r} className="as-market__note">{EDGE_REASON_TEXT[r] ?? r}</p>)}
     </div>
   )
 }
@@ -218,13 +222,13 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
         {MARKETS.map((m) => <MarketBlock key={m.key} market={m} quote={primaryQuote(quotes, m.key, book)} game={game} />)}
       </div>
       {best?.AWAY && best.HOME && (
-        <p className="as-best">Best current moneyline · {game?.away?.abbreviation} {american(best.AWAY.american)} ({best.AWAY.sportsbook}) · {game?.home?.abbreviation} {american(best.HOME.american)} ({best.HOME.sportsbook})</p>
+        <p className="as-best">Best current moneyline · {game?.away?.abbreviation} {american(best.AWAY.american)} ({shortBook(best.AWAY.sportsbook)}) · {game?.home?.abbreviation} {american(best.HOME.american)} ({shortBook(best.HOME.sportsbook)})</p>
       )}
       <div className="as-decision">
         <small>Decision</small>
-        <b>{card.status.label}{item?.selection ? ` · ${item.selection}` : ''}</b>
+        <b>{card.status.label}{item?.selection && item.selection !== '—' ? ` · ${item.selection}` : ''}</b>
         {reasons.slice(0, 3).map((r) => <p key={r}>{r}</p>)}
-        {item?.edge != null && <p className="as-dim">Governed evaluation: edge {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · EV ${(item.expected_value * 100).toFixed(1)}%` : ''} at {item.sportsbook ?? 'the recorded book'}</p>}
+        {item?.edge != null && <p className="as-dim">Governed evaluation: edge {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · EV ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'}</p>}
       </div>
       <footer className="as-actions">
         <Link to={gameHref(sport, card.key)}>Analyze</Link>
@@ -257,7 +261,7 @@ export const ResearchCard = memo(function ResearchCard({ row }: { row: ResearchC
       {paired?.status === 'SUPPORTED' ? <ForecastStrip channel={paired} game={null} sport={row.sport} labels={{ away: awayName, home: homeName }} />
         : <p className="as-forecast__warn">Joint simulation unavailable: {paired?.error?.message ?? 'no verified population'}</p>}
       {paired?.status === 'SUPPORTED' && paired.winner && (
-        <p className="as-dim">{paired.authority_label} · {awayName} {pct(paired.winner.away)} · {homeName} {pct(paired.winner.home)} · {paired.binding?.drawCount.toLocaleString()} paired draws</p>
+        <p className="as-dim">{paired.authority_label} · {paired.binding?.drawCount.toLocaleString()} paired final scores</p>
       )}
       {point && (
         <p className="as-dim">Separate Elo winner channel (not a simulation): {awayName} {pct(point.winner?.away)} · {homeName} {pct(point.winner?.home)} — no spread, total or parlay support.</p>

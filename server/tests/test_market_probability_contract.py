@@ -576,8 +576,14 @@ def test_stale_quotes_are_labelled_and_carry_no_edge(session, settings):
     assert stale["state"] == "STORED_REFERENCE_ONLY"
     assert all(s["edge"] is None and s["edge_reason"] == "QUOTE_NOT_CURRENT" for s in stale["sides"].values())
     assert stale["sides"]["HOME"]["model"]["push"] == pytest.approx(0.25)
-    research = _quote_assessment(channel, _quote("MONEYLINE", sides, classification="RESEARCH"))
-    assert research["sides"]["HOME"]["edge_reason"] == "QUOTE_NOT_GOVERNED"
+    # A research-classified book from a provider the policy permits is assessed
+    # (the governed decisions price there too); an unpermitted provider is not.
+    research = _quote_assessment(channel, {**_quote("MONEYLINE", sides, classification="RESEARCH"),
+                                           "provider": "SportsGameOdds"})
+    assert research["sides"]["HOME"]["edge"] is not None
+    foreign = _quote_assessment(channel, {**_quote("MONEYLINE", sides), "provider": "Unlisted Feed"})
+    assert foreign["sides"]["HOME"]["edge"] is None
+    assert foreign["sides"]["HOME"]["edge_reason"] == "PROVIDER_NOT_PERMITTED"
     current = _quote_assessment(channel, _quote("MONEYLINE", sides))
     assert current["state"] == "CURRENT"
     assert current["sides"]["HOME"]["edge"] == pytest.approx(0.5 - 0.5)

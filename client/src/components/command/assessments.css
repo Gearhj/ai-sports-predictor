@@ -57,14 +57,14 @@
 .as-actions a:hover, .as-actions a:focus-visible { border-color: var(--sport); outline: none; }
 
 /* Parlay Lab */
-.pl-lab { display: grid; gap: 10px; margin-block: 18px 8px; }
+.pl-lab { display: grid; gap: 10px; margin-block: 18px 8px; min-width: 0; }
 .pl-lab__head p { margin: 0; font-size: 13px; color: var(--bx-muted, #55677d); }
 .pl-lab__grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
 @media (max-width: 900px) { .pl-lab__grid { grid-template-columns: minmax(0, 1fr); } }
 .pl-panel { background: var(--bx-s1, #fff); border: 1px solid var(--bx-line, #e4e1dc); border-radius: 16px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; align-content: start; }
 .pl-panel h3 { margin: 0; font-size: 15px; }
 .pl-panel h4 { margin: 4px 0; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--bx-muted, #55677d); }
-.pl-panel--disabled { background: var(--bx-s3, #f1efec); color: var(--bx-muted, #55677d); }
+.pl-panel--disabled { overflow-wrap: anywhere; background: var(--bx-s3, #f1efec); color: var(--bx-muted, #55677d); }
 .pl-disabled { margin: 0; font-weight: 600; color: var(--bx-text, #10203a); }
 .pl-field { display: grid; gap: 3px; font-size: 12px; font-weight: 600; color: var(--bx-muted, #55677d); min-width: 0; }
 .pl-field select, .pl-field input { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--bx-line-strong, #cfcbc4); background: var(--bx-s1, #fff); color: var(--bx-text, #10203a); min-width: 0; max-width: 100%; }
@@ -86,7 +86,10 @@
 .pl-error { margin: 0; color: var(--bx-bad, #c33636); font-size: 13px; }
 
 /* Collapsible audit queue */
-.as-audit { margin-top: 18px; border-top: 1px solid var(--bx-line, #e4e1dc); padding-top: 8px; }
+.cc-decisions { grid-template-columns: minmax(0, 1fr); }
+.as-audit { margin-top: 18px; border-top: 1px solid var(--bx-line, #e4e1dc); padding-top: 8px; min-width: 0; display: grid; gap: 14px; }
+.as-audit > section, .as-audit > div { min-width: 0; }
+.as-audit .cc-rows { overflow-x: auto; }
 .as-audit > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--bx-muted, #55677d); padding: 6px 0; }
 
 /* Home: AISP Today */
