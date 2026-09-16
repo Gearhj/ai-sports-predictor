@@ -1,214 +1,310 @@
 # AISP repository, publication and backup
 
-Status as of **2026-09-16**. Read this before pushing anything.
+Status as of **2026-09-16**. Read this before committing, pushing, deploying or
+restoring anything.
 
-> **Do not push this repository yet.** Every branch — its history *and* its
-> current files — contains database and admin credentials. The GitHub remote is
-> configured with pushing **disabled** on purpose. §4 lists what has to happen
-> first. A private repository limits who can read those credentials; it does
-> not make publishing them safe.
+## 1. The two checkouts
 
-## 1. Versions
-
-| What | Branch / source | Commit |
+| | Clean checkout | Original checkout |
 |---|---|---|
-| **Active development** | `claude/aisp-v18-and-price-coverage-v1` | the branch tip (moves as work lands) |
-| **Deployed backend** | supervised task *ASP Backend 8010*, process started 2026-09-15 22:44:45 ET from a clean working tree | `6f4f01ffbe20255e0e289f618ee03723d7bee8b5` |
-| **Deployed frontend** | `client/dist`, served by the backend; `/frontendz` build stamp | `a3223ec8bc56a262c07f712add7eb54a33fd8182` |
+| Path | `C:\Users\james\ai-sports-predictor-github` | `C:\Users\james\ai-sports-predictor` |
+| History | the **sanitized** history published on GitHub | the original history, which contains three old credentials |
+| Push | ordinary pushes to `origin`, guarded by the secret-guard hooks (§5) | **disabled on purpose** (push URL points nowhere) and must stay that way |
+| Used for | **all development, commits and pushes from now on** | the running deployment, `.env`, `data/`, `.runtime/`, and the existing agent worktrees until they are wound down |
 
-The frontend stamp and the backend commit differ only because `client/` was not
-rebuilt for later server-only commits: `client/` is byte-identical between
-`a3223ec` and `6f4f01f`, so the served UI is exactly what `6f4f01f` would build.
+The two histories share **no commits**: every SHA was rewritten, starting with
+the first commit. Git will refuse to merge them, and nobody should force it
+(`--allow-unrelated-histories` is never correct here). Work moves between them
+only as patches, as described in §6.
 
-Commits after `6f4f01f` on the development branch that are documentation or
-ignore-rule only do not change the deployed application. To confirm what is
-actually running, compare the 8010 listener's start time with the commit time,
-and read `/frontendz` — never rely on `/readyz` alone (see the runtime memory on
-restart behaviour).
+A background fetch has created `origin/claude/aisp-v18-and-price-coverage-v1`
+in the original checkout. That ref points at sanitized history. It is harmless
+and useful for comparing trees (§6), but never merge, rebase onto or pull it
+there.
 
-`main` (`92f92dd`, 2026-08-18) is **not** the current line. It is far behind and
-must not be read as production.
+```bash
+git -C C:/Users/james/ai-sports-predictor remote get-url --push origin
+# PUSH-DISABLED-history-contains-credentials-see-docs-REPOSITORY_AND_BACKUP
+```
 
-## 2. Remote
+## 2. GitHub and version mapping
 
 | | |
 |---|---|
-| URL | `https://github.com/Gearhj/ai-sports-predictor` |
-| Visibility | **Private** (verified 2026-09-16: owner `Gearhj`, anonymous API request returns 404) |
-| Contents | **Empty.** Nothing has been published. |
-| Local remote | `origin` — fetch URL set; **push URL deliberately set to a non-existent path** so an ordinary `git push` fails instead of publishing credentials |
+| Repository | `https://github.com/Gearhj/ai-sports-predictor` |
+| Visibility | **Private** (checked 2026-09-16: owner `Gearhj`; an anonymous request returns 404) |
+| Contents | 35 branches, 0 tags, 286 commits, published 2026-09-16 by ordinary (non-force, non-mirror) pushes from an isolated sanitized copy |
+| Default branch | `claude/aisp-v18-and-price-coverage-v1` (active development) |
+
+Published SHAs are **not** the SHAs that were built, tested or deployed. The
+mapping is authoritative:
+
+| What | Original SHA (as run, tested and recorded) | Published SHA |
+|---|---|---|
+| Development tip at publication | `e0a7e306bf5fed43bf09da9d5e98c2036c104341` | `f220c2d6bb47a036c849b8e1c77f8a05398c3f58` |
+| **Deployed backend** (task *ASP Backend 8010*, started 2026-09-15 22:44:45 ET) | `6f4f01ffbe20255e0e289f618ee03723d7bee8b5` | `973a53fab43825131cfc20a70406fcf5f048fa3d` |
+| **Deployed frontend** (`/frontendz` build stamp) | `a3223ec8bc56a262c07f712add7eb54a33fd8182` | `693a15eb0bc0bfbc1b392af1b997e60d25ae3517` |
+| Previous development tip | `81e8e7c202626ad4a866eae5830808eb2fffca93` | `844792145bc7a916eac2d5f94cbc9e4d9f3d4132` |
+| `main` (2026-08-18, far behind, not production) | `92f92dde5d5ec6b8d1d68e9d69284368dbd0525b` | `fb3d9ab0f57b64d4d9940603b33abd4a7feacbd3` |
+
+- Every commit: [`docs/provenance/sanitized-history-commit-map.txt`](provenance/sanitized-history-commit-map.txt).
+- Every branch tip: [`docs/provenance/sanitized-history-branch-map.tsv`](provenance/sanitized-history-branch-map.tsv).
+
+**Evidence identifiers are unchanged.** Commit SHAs quoted in reports, receipts,
+forecast lineage, the `/frontendz` stamp and the Model Exchange are *original*
+SHAs. Translate them with the commit map; never reinterpret a published SHA as
+the commit that ran. Forecast receipts, evidence hashes and exchange artifacts
+live outside Git and were not modified.
+
+The deployed frontend stamp and backend commit differ only because `client/`
+was not rebuilt for later server-only commits (`client/` is byte-identical
+between `a3223ec` and `6f4f01f`). To confirm what is running, compare the 8010
+listener's start time with the commit time and read `/frontendz`; never rely on
+`/readyz` alone.
+
+## 3. What sanitization changed
+
+The original history contained three real credentials: the shared default
+database password (role `asp`), an earlier operational database password (role
+`asp_user`) and the default administrator password. On an isolated bare copy
+fetched with `refs/heads/*` only, `git filter-repo --replace-text
+--replace-message` replaced each literal value with `REDACTED-CREDENTIAL` in
+every commit of the 35 branches. Nothing else changed:
+
+- File sets are identical at every branch tip. Where a file differs, undoing
+  the redaction reproduces the original bytes exactly (checked at all 35 tips).
+- A full rescan of the published copy (2,639 blobs, all commit messages and
+  author/committer fields) found **none** of the three values and **none** of
+  the live `.env` values.
+- No committed evidence receipt records a hash of a changed file.
+  `docs/AISP_CRITICAL_REPAIR_TEST_RECEIPT.json`, a test receipt that records no
+  file hashes, had the credential in two scanner-evidence strings. They now read
+  `REDACTED-CREDENTIAL`.
+- Branch names are unchanged. Not published: the two `refs/codex/turn-diffs/*`
+  tool refs and the original worktree `HEAD`s. Both are preserved in the
+  encrypted original-history archive (§8).
+
+Current source no longer ships any credential. `DATABASE_URL` and `SECRET_KEY`
+must be set explicitly, and startup fails with a clear message when they are
+missing. An administrator is created only with a password of at least 12
+characters (SEC-DB-001, `server/tests/test_sec_db_001_database_credentials.py`).
+
+## 4. Credential status (2026-09-16)
+
+| Credential | State |
+|---|---|
+| Administrator login (`admin@example.com`) | **Rotated** 2026-09-16 13:07 UTC to a generated 32-character password. The old password and every token issued before rotation are rejected (the stored password hash and `token_version` changed). No restart was needed. |
+| Where James finds it | Windows Credential Manager entry `AISP admin login (http://127.0.0.1:8010)`, shown in a dialog by `C:\Users\james\AISP-Recovery\Show AISP admin password.cmd`, and in the live `.env`. **James must also store it off this PC** (password manager). |
+| Database password (`asp_user`), `SECRET_KEY`, provider API keys | Not rotated. None of these values ever appeared in any commit. |
+| Old `asp_user` password found in history | Differs from the current one. The live login does not use it. |
+| Shared default `asp` password | The role `asp` does not exist on this server. Any other installation using that default must change it. |
+
+## 5. Everyday development (clean checkout)
+
+One-time setup per clone:
 
 ```bash
-git remote -v
-# origin  https://github.com/Gearhj/ai-sports-predictor.git (fetch)
-# origin  PUSH-DISABLED-history-contains-credentials-see-docs-REPOSITORY_AND_BACKUP (push)
+cd C:/Users/james/ai-sports-predictor-github
 ```
-
-## 3. Why publication is blocked
-
-A full-history scan on 2026-09-16 (values held in memory only, never printed)
-found three real credentials. `docs/AISP_DATABASE_CREDENTIAL_HISTORY_SANITIZATION_PLAN.md`
-(on `claude/aisp-critical-integrity-repair-v1`) already records the first two
-and requires that **only sanitized history is ever pushed**.
-
-| Credential | Current files that still contain it (development tip) | In history since |
-|---|---|---|
-| Shared default database password (role `asp`) | `.env.example`, `docker-compose.yml`, `server/alembic.ini`, `server/app/core/config.py`, `server/app/db/session.py`, `docs/AISP_FABLE51_FINDINGS.json`, `docs/AISP_FABLE51_PRODUCTION_READINESS_AUDIT.md`, `docs/AISP_FABLE51_THREAT_MODEL.md` | first commit |
-| Earlier operational database password (role `asp_user`) | `server/scripts/odds_acceptance_replay.py` | — |
-| Default administrator password | `.env.example`, `server/app/core/config.py`, `docs/AISP_SECURITY_AUDIT_FINDINGS_2026-08-18.md` | first commit (`fca2ef2`) |
-
-What the scan established:
-
-- **All 33 branches are affected in their history, and all 33 branch tips are
-  affected in their current files.** No branch, and no snapshot of any branch,
-  is clean.
-- The credential cleanup on `claude/aisp-critical-integrity-repair-v1`
-  (SEC-DB-001) was **never merged** into the development line, so the
-  development tip still carries every item above.
-- None of the provider API keys, the application `SECRET_KEY` or the current
-  operational database password appears anywhere in history.
-- The remaining scanner hits were test fixtures and ordinary code (variable
-  names such as `token`, `api_key = <expression>`), not credentials.
-
-The administrator default is guarded only in production:
-`Settings.production_guards` rejects it when `APP_ENV=production`, and this
-installation runs with `APP_ENV=development`.
-
-## 4. What has to happen before the first push
-
-These are owner decisions and are **not** part of routine work.
-
-1. **Rotate the administrator password** to a unique value, in `.env`. This is
-   needed regardless of GitHub: the default is known to anyone who can read the
-   repository.
-2. **Rotate the operational database password** if the value in
-   `server/scripts/odds_acceptance_replay.py` was ever valid, and confirm no
-   installation still uses the shared `asp` default.
-3. **Remove credentials from the current files** on the development line — by
-   porting the SEC-DB-001 cleanup from `claude/aisp-critical-integrity-repair-v1`
-   and replacing the administrator default — as a reviewed engineering change.
-4. **Sanitize history** exactly as the sanitization plan describes (on a
-   disposable mirror, with `git filter-repo --replace-text`, verified before
-   publishing). This rewrites every commit SHA in the repository.
-5. **Publish the sanitized result as the first push.** The remote is still empty,
-   so that first push lands cleanly. Afterwards, re-clone; do not fetch
-   sanitized history into this checkout.
-
-Only then restore the push URL:
 
 ```bash
-git remote set-url --push origin https://github.com/Gearhj/ai-sports-predictor.git
+sh scripts/install-git-hooks.sh
 ```
 
-## 5. Branch inventory (2026-09-16)
+The hooks run `scripts/secret_guard.py` before every commit (on staged lines)
+and before every push (on the new commits and their messages). A finding blocks
+the operation and names the file, line and rule, never the value. A genuine
+test fixture may be accepted only by a trailing `secret-guard: test-fixture`
+comment on that exact line. Never bypass the hooks with `--no-verify`.
 
-35 local branches, 0 tags, 0 stashes. **None is published.** After sanitization
-each should map one-to-one to a remote branch of the same name.
+The clean checkout has no `.env`, virtual environment or `node_modules`. To run
+code there, create them locally; never commit them. Copy `.env` by hand from
+the original checkout and keep it out of Git (it is already ignored).
 
-- **Active development:** `claude/aisp-v18-and-price-coverage-v1`
-- **Oldest line:** `main`
-- **Historical feature and repair lines** (31): every other `claude/*`,
-  `codex/*` and `feature/*` branch. Several are checked out in their own
-  worktrees; see `git worktree list`.
-- **Checkpoints of uncommitted worktree work** (2, created 2026-09-16, local only):
+Workflow:
 
-| Checkpoint branch | Commit | Preserves |
-|---|---|---|
-| `checkpoint/wip-dreamy-heyrovsky-c5873b-2026-09-16` | `79b74ba3fa531e690f9975ed610f4f1a786cfb2b` | the uncommitted fix to `server/tests/test_shadow_experiment.py` (time-of-day fixture) |
-| `checkpoint/wip-intelligent-williamson-38f096-2026-09-16` | `eea6b3dadfd766d3ff527a33bc6f92c38616fd5f` | the uncommitted `server/app/ingestion/normalizer.py` duplicate-key fix and its new regression test |
-
-Both are **unfinished and untested**, and were copied without touching their
-source worktrees — those worktrees still hold the same uncommitted changes.
-They exist so the work survives if a worktree is removed.
-
-Also present but not project history: two `refs/codex/turn-diffs/*` refs (Codex
-tool state). They add no commits beyond the branches and are not published.
-
-## 6. Local-only material
-
-Files that exist only on this disk and are not in any commit:
-
-- `docs/AISP_PROJECT_HANDOFF.md` — untracked handoff note (2026-09-08).
-- `docs/MONTE_CARLO_SIMULATION_THEATER.md`, `install-supervision.ps1` —
-  deliberately untracked operator files (the sanitization plan relies on this).
-- `.claude/launch.json` — local preview-server configuration.
-- `.env` — live secrets. Never commit.
-- Uncommitted changes in the two worktrees above (checkpointed, see §5).
-- `audit-output/` and `_audit_tmp/` in the detached Codex audit worktree under
-  `C:\Users\james\.codex\visualizations\...` — generated audit output, not source.
-
-## 7. Committing and pushing future work
-
-Use this once §4 is complete and pushing is re-enabled.
+```bash
+git switch <branch>
+```
 
 ```bash
 git status --short
-git diff
 ```
 
-Stage files **by explicit path**, never with `git add .` or `git add -A`:
+Stage **by explicit path**, never `git add .` or `git add -A`:
 
 ```bash
-git add path/to/changed_file.py path/to/its_test.py
+git add path/to/file.py path/to/test_file.py
 ```
 
 ```bash
 git diff --cached --stat
 ```
 
-Before every commit, check the staged content for credentials. The SEC-DB-001
-scanner test on the cleanup branch exists for this; once merged, run it.
-
 ```bash
 git commit
 ```
 
-Push the branch you worked on, by name, with an ordinary push:
-
 ```bash
-git push origin <branch-name>
+git push origin <branch>
 ```
 
-Then confirm GitHub holds the same commit:
+Then confirm that GitHub holds the same commit:
 
 ```bash
-git rev-parse <branch-name>
+git ls-remote origin refs/heads/<branch>
+```
+
+Rules:
+
+- Never `push --force`, `push --mirror`, delete a remote branch or rewrite
+  published history.
+- Keep unfinished work on its own named branch. Uncommitted changes and stashes
+  are not backed up by a push.
+- For parallel work, use worktrees of the **clean** checkout
+  (`git worktree add ../aisp-wt-<name> <branch>`), not of the original.
+
+## 6. Moving work out of the original checkout
+
+Until every active session has moved, some work may still land in the original
+checkout or its worktrees (`.claude/worktrees/*`). Ordinary commit-and-push is
+**not** possible or safe there. Transfer each change deliberately, as a patch:
+
+1. **Stop the session** that is working in the original checkout, or let it
+   finish its commit. Do not start new sessions there.
+2. **Find the base.** Look up the original SHA of the published starting point
+   in the commit map (for the development line, the last transferred commit;
+   at publication, `e0a7e306bf5f`).
+3. **Scan the new commits** (run from the original checkout; the scanner also
+   checks the live `.env` values):
+
+   ```bash
+   python C:/Users/james/ai-sports-predictor-github/scripts/secret_guard.py --range <base>..<branch>
+   ```
+
+4. **Export them as patches** to a folder outside both repositories:
+
+   ```bash
+   git format-patch <base>..<branch> -o C:/Users/james/aisp-transfer/<branch>
+   ```
+
+   For uncommitted work, use `git diff > C:/Users/james/aisp-transfer/<name>.patch`.
+5. **Apply them in the clean checkout** on the mapped branch:
+
+   ```bash
+   git -C C:/Users/james/ai-sports-predictor-github am --3way C:/Users/james/aisp-transfer/<branch>/*.patch
+   ```
+
+6. **Verify the transfer.** The source trees must be identical, unless the
+   change deliberately touched a redacted line.
+
+   ```bash
+   git rev-parse <branch>^{tree}
+   ```
+
+   Run that in both checkouts and compare the two tree IDs.
+7. **Push from the clean checkout** (§5). The pre-push hook rescans. Record the
+   new original→published pair when it matters for evidence.
+8. Delete the transfer folder.
+
+Never fetch, merge, cherry-pick or pull between the two repositories, and never
+add the original checkout as a remote of the clean one.
+
+Two unfinished worktree changes are preserved on
+`checkpoint/wip-dreamy-heyrovsky-c5873b-2026-09-16` and
+`checkpoint/wip-intelligent-williamson-38f096-2026-09-16`. Both are published
+and **unfinished and untested**. Continue them from the clean checkout.
+
+## 7. Deployment is separate
+
+The running deployment still uses the **original checkout**, its `.env`, its
+`.venv` and its `client/dist`, supervised by the scheduled task *ASP Backend
+8010*. Publication did not change it.
+
+To deploy a change that was committed in the clean checkout, bring the same
+patch into the original checkout (`git format-patch` in the clean checkout,
+then `git am` in the original). Confirm that the tree IDs match, then follow
+the existing restart and verification procedure. Moving the deployment itself
+onto the clean checkout is a separate, planned change that needs its own
+`.env`, virtual environment, frontend build and task definition.
+
+## 8. Backups and recovery
+
+A source clone cannot restore AISP. The recovery set made on 2026-09-16 is in
+`C:\Users\james\OneDrive\ASP-Platform-Backups\2026-09-16\AISP\`. The earlier
+2026-09-05 and 2026-09-06 sets remain untouched beside it.
+
+**Format.** Each archive is `tar` → `zstd` → GnuPG symmetric **AES-256**
+(`*.tar.zst.gpg`). File names and headers are inside the encrypted stream.
+Archives were built and fully verified outside OneDrive before being copied.
+
+**Passphrase.** The passphrase is stored in the Windows Credential Manager
+entry `AISP recovery archive key 2026-09-16`. It is shown in a dialog by
+`C:\Users\james\AISP-Recovery\Show AISP recovery archive key.cmd`. It is not in
+any archive, file, repository or document. **James must copy it off this PC**;
+until then, losing this PC makes the set unreadable.
+
+| Archive | Contents |
+|---|---|
+| `aisp-database-20260916T131407Z` | `pg_dump -Fc` of `asp`, taken from one exported REPEATABLE READ snapshot at 13:14:07 UTC; roles and globals (`pg_dumpall --globals-only`, no role passwords); per-table row counts and checksums; restore-test record |
+| `aisp-data-open-and-derived-20260916` | `data/raw/open-data` (Retrosheet, Chadwick, Lahman), `open_meteo` (CC BY 4.0), `nflverse` (CC BY 4.0), demo fixtures, `data/curated` (Retrosheet and Lahman derived) |
+| `aisp-config-and-untracked-20260916` | live `.env`, untracked operator files, scheduled-task XML, supervisor launcher, dependency and runtime versions, deployment receipt, administrator-rotation rollback record |
+| `aisp-git-original-history-20260916` | **credential-bearing** bundles of the complete original history (all 35 branches, checkpoints, worktree HEADs, tool refs), ref and worktree inventories, the uncommitted worktree files, the sanitization manifest and commit map |
+| `aisp-recovery-file-manifests-20260916` | per-file SHA-256 lists for every archive (encrypted, because they name files) |
+
+`RECOVERY-MANIFEST.json` in the same folder lists each archive's size,
+SHA-256, file count, snapshot window and verification result. `RESTORE.md`
+there gives the restore steps.
+
+**Restore test.** The database dump was restored into a disposable PostgreSQL
+16 cluster (port 55433, then deleted): 142 of 142 tables, 17,094,420 rows,
+with zero row-count or checksum mismatches, and matching extensions and Alembic
+revision. Production was never touched.
+
+**Not in OneDrive.** These items are held under their recorded terms, not by
+default:
+
+| Excluded | Size | Why | Where it is |
+|---|---|---|---|
+| SportsGameOdds captures (`data/raw/sportsgameodds`, `outputs/sportsgameodds-validation` payloads) | 1.3 MB + 39 MB | Recorded terms forbid redistribution and bulk export; payloads stay local | local only, plus an encrypted local archive |
+| The Odds API captures (`data/raw/the_odds_api`) | 72 MB | Storage and retention terms are recorded as unverified; "unverified" is not permission | same |
+| MLB Stats API captures (`data/raw/mlb_stats_api`, `data/raw/historical/mlb_stats_api`) | 319 MB + ~330 MB | Retention not approved; historical evidence authorized for local/private research only | same |
+| Baseball Savant trial (`data/raw/historical/baseball_savant_statcast`) | 2.5 MB | Archival and retention terms unconfirmed | same |
+| Model Exchange (`C:\Users\james\asp-model-exchange`) | 1.9 GB | Backed up by its owner (Codex/Model Studio) to avoid duplication | its owner's set |
+| `.runtime/`, `.venv/`, `node_modules/`, `client/dist`, logs, pytest scratch | — | Disposable or regenerable | — |
+
+The encrypted local archive of the excluded captures is
+`C:\Users\james\AISP-Recovery\staging\archives\aisp-data-licensed-captures-20260916.tar.zst.gpg`.
+It is on the same disk, so it does **not** protect against losing this PC. If
+an owner decision records that private, encrypted off-machine storage is
+allowed for a provider, copy that archive, or a per-provider split of it.
+
+The database dump includes normalized provider observations (prices, schedules,
+scores) as rows. It was included because the owner directed a database
+backup.
+
+**Restore outline** (full steps are in `RESTORE.md`):
+
+```bash
+gpg --decrypt <archive>.tar.zst.gpg | zstd -d | tar -x -C <empty folder>
 ```
 
 ```bash
-git ls-remote origin refs/heads/<branch-name>
+pg_restore --create --dbname postgres --jobs 4 asp-20260916T131407Z.dump
 ```
 
-Rules that keep this safe:
+Before `pg_restore`, recreate roles from `globals-*.sql` and set their
+passwords from the restored `.env`. Source comes from GitHub. For the original
+history, clone a bundle (`git clone <bundle>`) into a private folder; it
+contains credentials and must never be pushed.
 
-- **Never** `push --force`, `push --mirror`, delete a remote branch, or rewrite
-  published history. The one exception is the planned sanitization in §4, done
-  once, deliberately.
-- Keep unfinished work on its own clearly named branch rather than on the
-  development line.
-- Uncommitted changes and stashes are **not** backed up by any push. Commit them
-  to a branch first.
-- A push saves source only. It does not back up the database, the model
-  exchange or `.env` (see §8).
+**Still open**
 
-## 8. Backup coverage — what git does not protect
-
-A source clone, even a complete one, **cannot restore AISP**. The state that
-matters most lives outside git.
-
-| Asset | Where | Backed up? |
-|---|---|---|
-| Source history | this repository | **Partly.** One OneDrive bundle from 2026-09-05 (verified complete for that date) covers 84 of today's 283 commits. The development tip is 190 commits beyond it. GitHub holds nothing yet. |
-| PostgreSQL database `asp` (~8.8 GB, 142 tables) | local PostgreSQL 16 | **No.** No dump exists and no backup job is scheduled. It holds the append-only experiment record — decisions, positions, settlements, imported forecasts and the provider request ledger — which cannot be rebuilt from source. |
-| Raw and curated data (`data/`, ~13 GB; git holds only three `.gitkeep` files) | `data/raw/` (MLB Stats API, The Odds API, SportsGameOdds, nflverse, Open-Meteo, historical and open-data archives), `data/curated/`, `data/features/` | **No.** Point-in-time provider captures cannot be re-fetched for past moments (see `docs/DATA_SOURCES.md`), so the live captures are irreplaceable. SportsGameOdds payloads are licensed and must never enter git or any shared location. |
-| Untracked research outputs (`outputs/`, ~208 MB; 69 files tracked) | `outputs/` | **Partly.** Only the committed manifests and summaries are in git. Study exports and licensed provider payloads are ignored by design. |
-| Model Exchange | `C:\Users\james\asp-model-exchange` (~1.9 GB) | **No.** Not a git repository and not under OneDrive. AISP can re-import from it, but it is the only copy of the published model artifacts on this side. |
-| Runtime scratch (`.runtime/`, ~1.9 GB) | `.runtime/` | Not needed. It is almost entirely old pytest scratch folders and backend logs, and has little recovery value. |
-| Model Studio source | `C:\Users\james\asp-model-studio` | **Partly.** It has its own private GitHub repository (`Gearhj/asp-model-studio`, 55 branches) and a 2026-09-05 OneDrive bundle, but on 2026-09-16 no remote branch pointed at its current development commit (`0c786297534c1ffc9892fbcd199d7d7af5ec8bae`). Its `outputs/` artifacts (~8.3 GB) are git-ignored. Model Studio is a separate project with its own owner; this document only records what was observed. |
-| Live configuration and secrets | `.env` | **No.** It must never go to git. It needs a separate secure store. |
-| Built frontend | `client/dist` | Regenerable from source with `scripts/build-frontend.ps1`. |
-| Scheduled-task and supervisor setup | Windows Task Scheduler, `scripts/asp-backend-supervisor.ps1` | The script is in git. The task definition itself is not exported. |
-
-The 2026-09-05 OneDrive backup rated itself
-`PARTIAL_BACKUP_MISSING_REQUIRED_FILES` and recorded that cloud synchronization
-was **not verified**.
+- The archive passphrase and the administrator password exist only on this PC
+  until James copies them to an off-machine password manager.
+- Licensed provider captures have no off-machine copy.
+- Nothing runs on a schedule: this is a one-time set. Re-run it after
+  significant data or database changes.
+- `C:\Users\james\asp-model-studio` is a separate project. On 2026-09-16, its
+  current commit `0c78629` was not on any remote branch, and its `outputs/`
+  (~8.3 GB) are Git-ignored.
