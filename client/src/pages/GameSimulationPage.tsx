@@ -320,6 +320,7 @@ export function GameSimulationPage() {
             homeTeam={homeTeam}
             gameId={gameId}
             view={activeView}
+            eventStatus={shadowTracks?.event_status}
           />
         </>
       )}

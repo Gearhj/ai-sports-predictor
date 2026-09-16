@@ -124,6 +124,7 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
             shadow={shadow}
             homeTeam={data.home_team}
             gameId={data.game_id}
+            eventStatus={data.event_status}
           />
         ))}
       </div>
@@ -139,10 +140,23 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
   )
 }
 
-function ShadowCard({ shadow, homeTeam, gameId }: {
+/** The research card's settlement line. Daily V18 packages carry no linked
+ *  result, so a final game must not read as "no final outcome recorded". */
+export function settlementText(shadow: ShadowForecastView, eventStatus?: string | null): string {
+  if (shadow.settlement_state === 'SETTLED' && shadow.settlement) {
+    return `Settled: ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}${shadow.settlement.extraInnings ? ' (extra innings)' : ''}`
+  }
+  if ((eventStatus ?? '').toUpperCase().includes('FINAL')) {
+    return 'Game final — this research card does not link the result; prospective scoring is on Model Performance'
+  }
+  return 'Pending — no final outcome recorded yet'
+}
+
+function ShadowCard({ shadow, homeTeam, gameId, eventStatus }: {
   shadow: ShadowForecastView
   homeTeam: string | null
   gameId: string
+  eventStatus?: string | null
 }) {
   const difference = shadow.difference_vs_official
   return (
@@ -161,7 +175,7 @@ function ShadowCard({ shadow, homeTeam, gameId }: {
           <strong>
             {difference > 0 ? '+' : ''}{difference.toFixed(1)} pts
           </strong>{' '}
-          vs. the official forecast
+          vs. the Gen 1 baseline
           {shadow.simulation_indistinguishable && (
             <em> — inside this run’s own Monte Carlo interval, so the two are
               simulation-indistinguishable</em>
@@ -221,10 +235,9 @@ function ShadowCard({ shadow, homeTeam, gameId }: {
       {/* Settlement is stated on the card so a reader never has to infer
           whether the result is in yet. */}
       <p className={`shadow-card__settlement shadow-card__settlement--${shadow.settlement_state.toLowerCase()}`}>
-        {shadow.settlement_state === 'SETTLED' && shadow.settlement
-          ? `Settled: ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}${shadow.settlement.extraInnings ? ' (extra innings)' : ''}`
-          : 'Pending — no final outcome recorded yet'}
-        <em>{shadow.settlement_note}</em>
+        {settlementText(shadow, eventStatus)}
+        {shadow.settlement_state === 'SETTLED' || !(eventStatus ?? '').toUpperCase().includes('FINAL')
+          ? <em>{shadow.settlement_note}</em> : null}
       </p>
 
       {shadow.sequential_path_events > 0 && (
