@@ -70,7 +70,7 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
       <div className="section-heading">
         <div>
           <span className="eyebrow">RESEARCH SHADOW</span>
-          <h2 id="shadow-compare-heading">Official forecast vs. research challenger</h2>
+          <h2 id="shadow-compare-heading">Gen 1 baseline vs. V18 research forecast</h2>
         </div>
         <p className="shadow-compare__note">{data.notes}</p>
         {data.authority_note && (
@@ -84,14 +84,14 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
         {data.official && (
           <article className="shadow-card shadow-card--official">
             <header>
-              <span className="shadow-card__track">Official · Gen 1</span>
+              <span className="shadow-card__track">Gen 1 baseline</span>
               {/* This badge used to read "Wagering authority", asserted as a
                   constant. Which engine a funded experiment uses is recorded in
                   the champion authority, not decided by this panel, and the
                   simulator beside it reports V18 controlling funded decisions.
                   The badge now names the track; the authority note above says
                   what does and does not grant authority. */}
-              <span className="shadow-card__authority">Official forecast track</span>
+              <span className="shadow-card__authority">Earlier baseline · comparison only</span>
             </header>
             <p className="shadow-card__value">{pct(data.official.home_win_probability)}</p>
             <p className="shadow-card__caption">

@@ -246,11 +246,23 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
         "select key, name from sportsbooks where key = any(:k)"),
         {"k": sorted({str(r[9]) for r in rows if r[9]})}).all()) if rows else {}
 
+    # Keyed by market, not selection: the chosen side changes between phases
+    # (and a MORNING row with no quote stores a placeholder), so a selection key
+    # left a finished game on the board twice -- its final evaluation beside an
+    # older "not yet evaluated" row. A row that carries a position always wins.
     latest: dict[tuple, Any] = {}
     for row in rows:
-        key = (str(row[1]), str(row[4]), row[7])
+        key = (str(row[1]), str(row[4]), str(row[6]))
         rank = (PHASE_ORDER.get(str(row[5]), -1), _aware(row[18]) or datetime.min.replace(tzinfo=UTC))
-        if key not in latest or rank > latest[key][0] or (row[21] is not None and latest[key][1][21] is None):
+        if key not in latest:
+            latest[key] = (rank, row)
+            continue
+        current_rank, current = latest[key]
+        has_position, current_has_position = row[21] is not None, current[21] is not None
+        if has_position != current_has_position:
+            if has_position:
+                latest[key] = (rank, row)
+        elif rank > current_rank:
             latest[key] = (rank, row)
 
     shown = [str(row[0]) for _, row in latest.values()]

@@ -43,11 +43,14 @@ AUTHORITY = {
                   "governed position and not final-pregame evidence. Final decisions are made on game day by the "
                   "unchanged final-pregame workflow and may differ."),
 }
+# "Not posted" would claim something about the sportsbook that AISP cannot
+# know: an absent row means AISP holds no capture (day-before collection is
+# disabled), not that no book offered a line.
 READINESS_LABEL = {
     "READY": "Forecast and market ready",
-    "FORECAST_ONLY": "Market not posted",
+    "FORECAST_ONLY": "No current preview price held",
     "MARKET_ONLY": "Preview forecast pending",
-    "NEITHER": "Preview forecast pending · Market not posted",
+    "NEITHER": "Preview forecast pending · No current preview price held",
 }
 PROVIDER_LABEL = {"SPORTSGAMEODDS": "SportsGameOdds", "THE_ODDS_API": "The Odds API"}
 MIN = 60
@@ -404,7 +407,9 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
         if game is None:
             missing.append({"code": "SCHEDULE_NOT_REGISTERED", "message": "Game is not in AISP's registered schedule; no market can be bound"})
         if not markets["MONEYLINE"]:
-            missing.append({"code": "MARKET_NOT_POSTED", "message": "Market not posted: no sportsbook moneyline captured before the evidence cut"})
+            missing.append({"code": "PRICE_NOT_CAPTURED", "message": (
+                "No preview moneyline held: AISP captured none for this game before the evidence cut. "
+                "This is AISP's capture state, not a statement that no sportsbook posted a line")})
         elif ml and ml["complete_books"] == 0:
             if ml["stale_books"]:
                 missing.append({"code": "STALE_PREVIEW_PRICE", "message": "Only stale preview moneyline prices were captured"})
@@ -464,7 +469,12 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
             "home": {"abbreviation": home, "name": (teams.get("home") or {}).get("name") or home},
             "kickoff_utc": _iso(start), "status": status,
             "final_decision_window": {"opens_utc": _iso(start - timedelta(minutes=30)), "closes_utc": _iso(start - timedelta(minutes=15))} if start else None,
-            "readiness": readiness, "readiness_label": READINESS_LABEL[readiness],
+            "readiness": readiness,
+            "readiness_label": (
+                "Forecast held · not in AISP schedule, so no price can be bound"
+                if game is None and readiness == "FORECAST_ONLY"
+                else READINESS_LABEL[readiness]
+            ),
             "forecast_status": "AVAILABLE" if has_forecast else "AWAITING_PRODUCER",
             "forecast": view,
             "disclosures": model_disclosures,

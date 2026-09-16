@@ -1207,6 +1207,28 @@ class ReadService:
         # probability is the exact mislabelling this field prevents.
         selection_payload = selection.as_dict()
         selection_payload["displayed_engine_id"] = primary.engine_id if use_primary else None
+        # Every forecast-derived field below comes from the DISPLAYED engine.
+        # The Gen 1 row (`forecast`) feeds them only when Gen 1 is the engine on
+        # screen; beside a V18 probability its projected score, fair price and
+        # confidence would be another model's numbers under V18's name, and with
+        # no displayed engine there is nothing to show at all.
+        from app.services.forecast_selection import GEN1_ENGINE
+
+        gen1_row = forecast if use_primary and primary.engine_id == GEN1_ENGINE else None
+        if gen1_row is not None:
+            projected_home = gen1_row.expected_home_runs
+            projected_away = gen1_row.expected_away_runs
+            fair_home, fair_away = gen1_row.fair_home_moneyline, gen1_row.fair_away_moneyline
+            model_label = self._forecast_model_label(gen1_row)
+        elif use_primary:
+            projected_home = primary.expected_home_score
+            projected_away = primary.expected_away_score
+            fair_home = _fair_moneyline(home_probability)
+            fair_away = _fair_moneyline(away_probability)
+            model_label = primary.model_label
+        else:
+            projected_home = projected_away = fair_home = fair_away = model_label = None
+        both_scores = projected_home is not None and projected_away is not None
         return ForecastGame(
             id=str(game.id),
             forecast_selection=selection_payload,
@@ -1252,23 +1274,35 @@ class ReadService:
                 ),
                 snapshot_bound=feature_snapshot is not None,
             ),
-            forecast_available=forecast is not None,
-            forecast_generated_at=_aware(forecast.generated_at) if forecast else None,
-            forecast_model_label=self._forecast_model_label(forecast),
+            # A Gen 1 display still needs its valid (published) row; a draft the
+            # selector saw does not make a forecast available.
+            forecast_available=use_primary and (primary.engine_id != GEN1_ENGINE or forecast is not None),
+            forecast_generated_at=(
+                _aware(gen1_row.generated_at) if gen1_row is not None
+                else _aware(primary.published_utc) if use_primary and primary.published_utc
+                else None
+            ),
+            forecast_model_label=model_label,
             market_available=bool(market["has_moneyline"]),
-            projected_away_runs=forecast.expected_away_runs if forecast else None,
-            projected_home_runs=forecast.expected_home_runs if forecast else None,
-            projected_total=forecast.expected_total_runs if forecast else None,
-            projected_run_difference=forecast.expected_run_difference if forecast else None,
-            uncertainty=forecast.uncertainty if forecast else None,
+            projected_away_runs=projected_away,
+            projected_home_runs=projected_home,
+            projected_total=(
+                gen1_row.expected_total_runs if gen1_row is not None
+                else projected_home + projected_away if both_scores else None
+            ),
+            projected_run_difference=(
+                gen1_row.expected_run_difference if gen1_row is not None
+                else projected_home - projected_away if both_scores else None
+            ),
+            uncertainty=gen1_row.uncertainty if gen1_row is not None else None,
             market_total=market["total"],
             market_quote_observed_at=market["quote_observed_at"],
             market_providers=market["providers"],
             market_books=market["books"],
             away_win_probability=away_probability * 100 if away_probability is not None else None,
             home_win_probability=home_probability * 100 if home_probability is not None else None,
-            fair_away_moneyline=forecast.fair_away_moneyline if forecast else None,
-            fair_home_moneyline=forecast.fair_home_moneyline if forecast else None,
+            fair_away_moneyline=fair_away,
+            fair_home_moneyline=fair_home,
             best_away_moneyline=market["best_away"] if market["has_moneyline"] else None,
             best_home_moneyline=market["best_home"] if market["has_moneyline"] else None,
             market_home_probability=(
@@ -1278,7 +1312,7 @@ class ReadService:
             model_edge=edge * 100 if edge is not None else None,
             edge_side=edge_side,
             opportunity=opportunity,
-            confidence=forecast.confidence if forecast else None,
+            confidence=gen1_row.confidence if gen1_row is not None else None,
             data_readiness=(
                 forecast.readiness_score
                 if forecast
@@ -1326,8 +1360,41 @@ class ReadService:
             return None
         card = self.game_card(game)
         forecast = self._latest_forecast(game.id)
-        if not forecast:
+        if not forecast or not card.forecast_available:
             return self._empty_game_analysis(game, card)
+        analysis = self._gen1_game_analysis(game, card, forecast)
+        displayed = (card.forecast_selection or {}).get("displayed_engine_id")
+        from app.services.forecast_selection import GEN1_ENGINE
+
+        if displayed == GEN1_ENGINE:
+            return analysis
+        # The page leads with another engine (V18). The Gen 1 row still supplies
+        # the AISP input panels -- weather, starters, offense, bullpen, prices,
+        # data audit -- but its probabilities, components, drivers, simulated
+        # distributions and version history belong to Gen 1 and are withheld
+        # rather than shown under the displayed engine's name. That engine's
+        # own distribution lives on the simulation page.
+        primary = (card.forecast_selection or {}).get("primary") or {}
+        comparison = [{"label": card.forecast_model_label or "Displayed model",
+                       "home": card.home_win_probability, "away": card.away_win_probability}]
+        comparison += [row for row in analysis.probability_comparison if row["label"] == "No-vig market"]
+        version = (
+            f"{primary.get('snapshot_type') or 'FORECAST'} · v{primary['snapshot_version']}"
+            if primary.get("snapshot_version") is not None else primary.get("snapshot_type") or "PUBLISHED"
+        )
+        return analysis.model_copy(update={
+            "model_version": " · ".join(
+                part for part in (card.forecast_model_label, primary.get("engine_version")) if part
+            ),
+            "forecast_version": version,
+            "probability_comparison": comparison,
+            "run_distribution": [], "total_run_distribution": [], "run_difference_distribution": [],
+            "model_components": [], "drivers": [], "forecast_history": [],
+            "simulation": {"iterations": 0, "home_cover_probability": 0, "over_probability": 0,
+                           "most_likely_score": "Unavailable"},
+        })
+
+    def _gen1_game_analysis(self, game: Game, card: ForecastGame, forecast: Forecast) -> GameAnalysisData:
         home_side, home, away_side, away = self._sides(game.id)
         feature_snapshot = (
             self.session.get(GameFeatureSnapshot, forecast.feature_snapshot_id)
@@ -2961,11 +3028,16 @@ class ReadService:
             data_mode=self._game_data_mode(game.id),
             game=card,
             data_as_of=card.data_as_of or card.last_refresh_at or _aware(game.created_at),
-            model_version="No forecast available",
-            forecast_version="UNPUBLISHED",
+            model_version=(card.forecast_model_label or "Displayed model") if card.forecast_available
+            else "No forecast available",
+            forecast_version="PUBLISHED" if card.forecast_available else "UNPUBLISHED",
             weather={"temperature_f": None, "description": "Unavailable", "wind_mph": None, "wind_direction": "Unavailable", "humidity": None, "run_effect": None},
             probability_comparison=[], run_distribution=[], total_run_distribution=[], run_difference_distribution=[], market_prices=[], pitcher_metrics=[], offense_metrics=[], bullpen_metrics=[], statcast_metrics=[], model_components=[], drivers=[], forecast_history=[],
-            data_audit=[{"source": "Forecast", "status": "missing", "updated": now.isoformat(), "detail": "Critical pregame inputs are incomplete; ASP did not fabricate a forecast"}],
+            data_audit=[] if card.forecast_available else [{
+                "source": "Forecast", "status": "missing", "updated": now.isoformat(),
+                "detail": (card.forecast_selection or {}).get("selection_note")
+                or "No forecast from the controlling engine is available; ASP did not substitute one",
+            }],
             simulation={"iterations": 0, "home_cover_probability": 0, "over_probability": 0, "most_likely_score": "Unavailable"},
         )
 
@@ -3898,6 +3970,13 @@ def _audit_status(value: str) -> str:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _fair_moneyline(probability: float | None) -> int | None:
+    """The no-vig American price implied by a model probability, or None."""
+    if probability is None or not isfinite(probability) or not 0 < probability < 1:
+        return None
+    return probability_to_american(probability)
 
 
 def _offline_date_text(value: Any) -> str:

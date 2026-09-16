@@ -1,7 +1,7 @@
 /**
  * The minimal NBA research surface: imported forecasts, and nothing implied.
  *
- * Deliberately small. NBA is research-only and unfunded, so this is not the
+ * Deliberately small. NBA has a virtual paper account but no price yet, so this is not the
  * beginning of an NBA product — it is the one view that makes an imported
  * forecast discoverable and readable, with every limit the package declared
  * kept visible rather than designed away.
@@ -13,6 +13,7 @@
  * would quietly move a forecast to a date it never saw. `?date=` narrows on the
  * same captured value, so a link to October 20 keeps meaning October 20.
  */
+import { PaperStatusStrip } from '../components/readiness/PaperStatusStrip'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import { NbaResearchCard } from '../components/nba/NbaResearchCard'
@@ -58,8 +59,13 @@ export function NbaResearchPage() {
       <PageHeader
         eyebrow="NBA · RESEARCH"
         title="NBA research forecasts"
-        description={'Imported research forecasts. AISP holds no NBA odds, evaluation, '
-          + 'policy, position or bankroll — nothing here can be funded.'}
+        description={'Imported research forecasts. The 2026–27 regular season has not started, so these '
+          + 'are early research examples, not a live slate. AISP holds no NBA sportsbook price, so no '
+          + 'assessment or paper position can occur yet.'}
+      />
+      <PaperStatusStrip
+        sport="NBA"
+        seasonNote="The regular season has not started; nothing here is a current or final game."
       />
 
       {date && (

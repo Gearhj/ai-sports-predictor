@@ -4228,6 +4228,12 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .readiness__chip { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
 .readiness__chip--ready { color: #0d6b49; background: #eaf7f1; border-color: #a9dfc6; }
 .readiness__chip--blocked { color: #8f5a10; background: #fdf3e4; border-color: #f0d6ab; }
+.paper-strip { border: 1px solid var(--line, #e3e8ef); border-radius: 12px; padding: 12px 14px; margin: 12px 0 16px; display: grid; gap: 8px; }
+.paper-strip dl { margin: 0; display: grid; gap: 8px 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.paper-strip dt { color: var(--muted, #7a8699); text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+.paper-strip dd { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.paper-strip p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.paper-strip code { font-size: 11px; }
 .readiness__game { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .readiness__game span { font-weight: 400; color: var(--muted, #7a8699); }
 .readiness__rows { margin: 0; display: grid; gap: 5px; }

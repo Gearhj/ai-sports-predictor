@@ -115,7 +115,7 @@ def _v18(world, game: Game, *, published: datetime, home_wp: float = 0.60,
     return forecast
 
 
-def _gen1(world, game: Game, home_wp: float = 0.52) -> Forecast:
+def _gen1(world, game: Game, home_wp: float = 0.52, **extra) -> Forecast:
     session = world["session"]
     version = ModelVersion(
         name="asp_mlb_ensemble", version="2.0.0", status=ModelStatus.CHAMPION,
@@ -129,6 +129,7 @@ def _gen1(world, game: Game, home_wp: float = 0.52) -> Forecast:
         generated_at=game.starts_at - timedelta(hours=6),
         available_as_of=game.starts_at - timedelta(hours=6),
         home_win_probability=home_wp, away_win_probability=1 - home_wp,
+        **extra,
     )
     session.add(forecast)
     session.flush()
@@ -431,3 +432,54 @@ def test_a_pre_era_game_still_shows_the_forecast_that_governed_it(world):
     card = ReadService(session, get_settings()).game_card(game)
     assert card.home_win_probability == pytest.approx(52.0)
     assert card.forecast_selection["displayed_engine_id"] == "AISP_BASELINE"
+
+
+def test_every_forecast_field_comes_from_the_displayed_engine(world):
+    """A V18 probability is never shown beside Gen 1's score, fair price or label.
+
+    The analysis page once paired V18's win probability with Gen 1's projected
+    runs, fair moneyline, confidence and model name, so one card described two
+    models under one heading.
+    """
+
+    from app.core.config import get_settings
+    from app.services.read_service import ReadService
+
+    _authority(world)
+    game = _game(world, BOUNDARY + timedelta(hours=2))
+    _v18(world, game, published=game.starts_at - timedelta(hours=1), home_wp=0.6024)
+    _gen1(world, game, home_wp=0.5889, expected_home_runs=9.0, expected_away_runs=1.0,
+          fair_home_moneyline=-999, confidence=77.0)
+    session = world["session"]
+    session.flush()
+
+    card = ReadService(session, get_settings()).game_card(game)
+    assert card.forecast_available is True
+    assert card.projected_home_runs == pytest.approx(4.8)
+    assert card.projected_away_runs == pytest.approx(4.1)
+    assert card.projected_total == pytest.approx(8.9)
+    assert card.fair_home_moneyline == -152  # from V18's 60.24%, not Gen 1's
+    assert card.confidence is None
+    assert card.forecast_model_label != "asp_mlb_ensemble 2.0.0"
+
+
+def test_a_missing_v18_shows_no_forecast_numbers_at_all(world):
+    from app.core.config import get_settings
+    from app.services.read_service import ReadService
+
+    _authority(world)
+    game = _game(world, BOUNDARY + timedelta(hours=2))
+    _gen1(world, game, home_wp=0.52, expected_home_runs=4.4, expected_away_runs=4.4,
+          fair_home_moneyline=-110)
+    session = world["session"]
+    session.flush()
+
+    card = ReadService(session, get_settings()).game_card(game)
+    assert card.forecast_available is False
+    assert card.projected_home_runs is None and card.projected_total is None
+    assert card.fair_home_moneyline is None and card.confidence is None
+    assert card.forecast_model_label is None
+
+    analysis = ReadService(session, get_settings()).game_analysis(game.id)
+    assert analysis.model_components == [] and analysis.drivers == []
+    assert analysis.simulation["iterations"] == 0

@@ -138,7 +138,7 @@ function Readiness({ data, now, date, onDate, resource }: {
         </div>
         <div><dt>Scheduled games</dt><dd>{r.games}</dd><small>{SPORT_ORDER.filter((s) => r.by_sport[s]).map((s) => `${s} ${r.by_sport[s]}`).join(' · ') || 'none registered'}</small></div>
         <div><dt>Preview forecasts</dt><dd className={r.preview_forecasts ? '' : 'is-gold'}>{r.preview_forecasts}</dd><small>{r.preview_forecasts ? 'published' : 'Preview forecast pending'}</small></div>
-        <div><dt>Complete markets</dt><dd className={r.complete_markets ? '' : 'is-gold'}>{r.complete_markets}</dd><small>{r.complete_markets ? 'moneyline, both sides' : 'Market not posted'}</small></div>
+        <div><dt>Complete markets</dt><dd className={r.complete_markets ? '' : 'is-gold'}>{r.complete_markets}</dd><small>{r.complete_markets ? 'moneyline, both sides' : 'no current preview price held'}</small></div>
         <div><dt>Both ready</dt><dd className={r.both ? 'is-up' : ''}>{r.both}</dd><small>{r.valid_comparisons} valid comparisons</small></div>
         <div><dt>Missing evidence</dt><dd className={r.missing_evidence_games ? 'is-gold' : 'is-up'}>{r.missing_evidence_games}</dd><small>games not fully ready</small></div>
       </dl>
@@ -280,7 +280,7 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
   const total = game.market_summary.total
   const f = game.forecast
   // The lean and moneyline cells already say forecast pending / market not posted.
-  const key = game.missing.filter((m) => !['NO_COMPLETE_SPREAD', 'NO_COMPLETE_TOTAL', 'PREVIEW_FORECAST_AWAITING_PRODUCER', 'MARKET_NOT_POSTED', 'STALE_PREVIEW_PRICE', 'PARTIAL_MARKET'].includes(m.code)).slice(0, 2)
+  const key = game.missing.filter((m) => !['NO_COMPLETE_SPREAD', 'NO_COMPLETE_TOTAL', 'PREVIEW_FORECAST_AWAITING_PRODUCER', 'PRICE_NOT_CAPTURED', 'STALE_PREVIEW_PRICE', 'PARTIAL_MARKET'].includes(m.code)).slice(0, 2)
   return (
     <div className="sb-rowwrap" role="rowgroup">
       <div className={`sb-row sb-row--${game.readiness}`} role="row">
@@ -294,7 +294,7 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
           : <small className="is-gold">Preview forecast awaiting producer</small>}</span>
         <span role="cell">{ml && ml.complete_books
           ? <><b>{game.away.abbreviation} {am(ml.best.AWAY?.american)} · {game.home.abbreviation} {am(ml.best.HOME?.american)}</b><small>Price captured at {clock(ml.captured_utc)} · {ml.complete_books} books</small></>
-          : <small className="is-gold">{ml?.stale_books ? `Stale only · captured ${clock(game.markets.MONEYLINE.latest_capture_utc)}` : ml?.partial_books ? 'One side only' : 'Market not posted'}</small>}</span>
+          : <small className="is-gold">{ml?.stale_books ? `Stale only · captured ${clock(game.markets.MONEYLINE.latest_capture_utc)}` : ml?.partial_books ? 'One side only' : game.missing.some((m) => m.code === 'SCHEDULE_NOT_REGISTERED') ? 'Not bindable · not in AISP schedule' : 'No preview price held'}</small>}</span>
         <span role="cell">{spread ? <><b>{game.home.abbreviation} {line(spread.median_line)}</b><small>{spread.books} books</small></> : <small>—</small>}</span>
         <span role="cell">{total ? <><b>{total.median_line}</b><small>{f ? `model ${f.projected_total.toFixed(1)}` : `${total.books} books`}</small></> : <small>—</small>}</span>
         <span role="cell">{game.final_decision_window ? `${clock(game.final_decision_window.opens_utc)}–${clock(game.final_decision_window.closes_utc)}` : '—'}</span>

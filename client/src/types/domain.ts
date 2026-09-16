@@ -71,6 +71,9 @@ export interface ForecastGame {
   away_pitcher: PitcherSummary
   home_pitcher: PitcherSummary
   forecast_available?: boolean
+  /** Which engine the page leads with, and why none is shown when absent. */
+  forecast_selection?: import('../services/forecastSelection').ForecastSelection | null
+  forecast_model_label?: string | null
   market_available?: boolean
   projected_away_runs: number | null
   projected_home_runs: number | null

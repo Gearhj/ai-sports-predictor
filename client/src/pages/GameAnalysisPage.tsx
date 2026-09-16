@@ -104,6 +104,15 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   const favoriteProbability = Math.max(homeProbability, awayProbability)
   const edgeTeam = game.edge_side === 'home' ? game.home_team : game.edge_side === 'away' ? game.away_team : null
   const topDriver = data.drivers[0]
+  // Why no forecast is on screen, in the backend's words. "Inputs are
+  // incomplete" is only one of the reasons; the controlling engine may simply
+  // not have published yet.
+  const unavailableReason = game.forecast_selection?.selection_note
+    ?? 'The controlling model has not published a forecast for this game'
+  // Gen 1 detail panels are withheld when another engine leads the page; that
+  // engine's distribution lives on the simulation page.
+  const hasModelDetail = data.simulation.iterations > 0 || data.drivers.length > 0
+    || data.model_components.length > 0 || data.forecast_history.length > 0
   const windDirection = data.weather.wind_direction?.trim()
   const windDirectionLabel = windDirection && windDirection.toLowerCase() !== 'unavailable'
     ? /^-?\d+(\.\d+)?$/.test(windDirection)
@@ -186,7 +195,7 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         {forecastAvailable ? <div className="game-hero__probability">
           <div style={{ width: `${awayProbability}%` }}><span>{game.away_team.abbreviation} {formatPct(awayProbability)}</span></div>
           <div style={{ width: `${homeProbability}%` }}><span>{formatPct(homeProbability)} {game.home_team.abbreviation}</span></div>
-        </div> : <div className="game-hero__unavailable">Forecast unavailable · required pregame inputs are incomplete</div>}
+        </div> : <div className="game-hero__unavailable">Forecast pending · {unavailableReason}</div>}
         <footer className="game-hero__footer">
           <span><Database size={14} /> Data as of {formatTimestamp(data.data_as_of)}</span>
           <span>{data.model_version}</span>
@@ -231,12 +240,12 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </Panel>
         <Panel title="Forecast interpretation" eyebrow="MODEL SUMMARY" className="narrative-panel">
           <div className="narrative-label"><Sparkles size={15} /> Deterministic explanation</div>
-          <p>{forecastAvailable ? <>ASP makes <strong>{favorite.name}</strong> the {formatPct(favoriteProbability)} side. {edgeTeam && marketAvailable && game.model_edge != null ? `${edgeTeam.name} carries a ${game.model_edge.toFixed(1)} percentage-point difference versus the current no-vig market.` : 'A complete two-sided market comparison is not currently available.'} {topDriver ? `The largest reported model driver is ${topDriver.label.toLowerCase()}: ${topDriver.detail}` : 'No model-driver explanation is available for this forecast version.'}</> : <>ASP has not published a forecast because required pregame inputs are incomplete. No probability, fair line, or model edge is inferred.</>}</p>
+          <p>{forecastAvailable ? <>ASP makes <strong>{favorite.name}</strong> the {formatPct(favoriteProbability)} side. {edgeTeam && marketAvailable && game.model_edge != null ? `${edgeTeam.name} carries a ${game.model_edge.toFixed(1)} percentage-point difference versus the current no-vig market.` : 'A complete two-sided market comparison is not currently available.'} {topDriver ? `The largest reported model driver is ${topDriver.label.toLowerCase()}: ${topDriver.detail}` : 'No model-driver explanation is available for this forecast version.'}</> : <>No forecast is shown: {unavailableReason}. No probability, fair line, or model edge is inferred, and no other model is substituted.</>}</p>
           <p className="muted">This summary describes model associations, not causal certainty.</p>
         </Panel>
       </div>
 
-      <Panel title="Sportsbook comparison" eyebrow="CURRENT MONEYLINE" action={<span className="update-label">{game.books_reporting} books · updated {game.last_update}</span>} className="section-panel" >
+      <Panel title="Sportsbook comparison" eyebrow="CURRENT MONEYLINE" action={<span className="update-label">{game.books_reporting} books · updated {formatTimestamp(game.last_update)}</span>} className="section-panel" >
         <TableScroll>
           <table className="data-table market-table" id="market">
             <thead><tr><th>Sportsbook</th><th>{game.away_team.abbreviation}</th><th>{game.home_team.abbreviation}</th><th>Observed</th></tr></thead>
@@ -259,6 +268,7 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         <Panel title="Statcast matchup" eyebrow="CONTACT QUALITY"><ComparisonTable away={game.away_team} home={game.home_team} rows={data.statcast_metrics} /></Panel>
       </div>
 
+      {hasModelDetail ? <>
       <div className="analysis-grid analysis-grid--wide-left" id="simulation">
         <Panel title="Simulated run distribution" eyebrow={data.simulation.iterations > 0 ? `${data.simulation.iterations.toLocaleString()} ITERATIONS` : 'SIMULATION UNAVAILABLE'}>
           <AnalyticsChart option={runDistributionOption} height={310} ariaLabel="Probability distribution of simulated runs for both teams" />
@@ -314,6 +324,17 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </Panel>
       </div>
 
+      </> : (
+        <Panel title="Simulation and model detail" eyebrow="DISPLAYED MODEL" className="section-panel" >
+          <p id="simulation">
+            {forecastAvailable
+              ? <>The simulated score distribution for {data.model_version} is on the{' '}
+                  <Link className="text-link" to={`/games/${game.id}/simulation`}>Monte Carlo Diamond Simulator</Link>.
+                  Component weights, drivers and version history shown on this page belong to the earlier Gen 1 baseline and are not displayed beside another model&rsquo;s forecast.</>
+              : <>No simulation, driver or version detail is shown until the controlling model publishes a forecast for this game.</>}
+          </p>
+        </Panel>
+      )}
       <Panel title="Data audit" eyebrow="SOURCE FRESHNESS & COMPLETENESS" className="section-panel" action={<span className="score-chip">{game.data_readiness == null ? 'Readiness unavailable' : `${Math.round(game.data_readiness)}/100 ready`}</span>}>
         <div className="readiness-breakdown" aria-label="Readiness component detail">
           {(game.readiness_detail ?? []).map((component) => (

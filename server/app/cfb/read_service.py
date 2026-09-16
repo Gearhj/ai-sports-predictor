@@ -39,13 +39,18 @@ SCHEMA_VERSION = "AISP_CFB_RESEARCH_VIEW_V1"
 AUTHORITY = {
     "sport": CFB_SPORT_CODE,
     "status": "Research forecast",
-    "bankroll": "No College Football bankroll",
-    "policy": "No wagering policy",
-    "market": "No sportsbook price recorded",
+    # A virtual paper account and a paper policy exist for College Football
+    # (see /sports/readiness); what is missing is a bindable price. Saying "no
+    # bankroll" here contradicted the $1,000 Experiment page.
+    "bankroll": "Virtual paper account only · no real money",
+    "policy": "Paper policy · no assessment without a price",
+    "market": "No sportsbook price held · market comparison blocked",
     "research_only": True,
-    "note": ("College Football is research-only in AISP. There is no account, "
-             "bankroll, staking policy, price collection or forecast scheduler "
-             "for this sport, and none was created by importing this forecast."),
+    "note": ("College Football forecasts are research imports. A virtual paper account and "
+             "paper policy exist, but AISP holds no College Football sportsbook price and has "
+             "no admitted College Football schedule, so no assessment or paper position can "
+             "occur. There is no College Football forecast scheduler, and importing this "
+             "forecast created no account or position."),
 }
 
 ATTRIBUTION = "Data provided by CollegeFootballData.com"

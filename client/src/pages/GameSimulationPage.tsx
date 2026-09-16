@@ -37,11 +37,13 @@ const AXIS = { color: '#6d7d91', fontSize: 11 }
 export function GameSimulationPage() {
   const { gameId = '' } = useParams()
 
-  // Which engine's simulation the reader asked for. Gen 1 stays the default,
-  // so an existing link keeps working exactly as before. Read before the
-  // resources, because both are part of their cache identity.
+  // Which engine's simulation the reader asked for. With no explicit track the
+  // page follows the controlling engine: V18's saved simulation when one
+  // exists, Gen 1 otherwise. `?track=gen1` and `?track=v18` still pin a track.
+  // Read before the resources, because both are part of their cache identity.
   const [params, setParams] = useSearchParams()
-  const requestedTrack = params.get('track') === 'v18' ? 'v18' : 'gen1'
+  const trackParam = params.get('track')
+  const requestedTrack: 'gen1' | 'v18' | 'auto' = trackParam === 'v18' ? 'v18' : trackParam === 'gen1' ? 'gen1' : 'auto'
   // The visualisation selector is separate from the engine selector. An
   // existing ?track=v18 link keeps opening the Broadcast Replay.
   const requestedView: V18View = (() => {
@@ -68,10 +70,12 @@ export function GameSimulationPage() {
     { key: cacheKey('game/market-pulse', { gameId, horizon }), staleTimeMs: STALE_TIME.game },
   )
   const [shadowTracks, setShadowTracks] = useState<ShadowComparison | null>(null)
+  const [shadowSettled, setShadowSettled] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
     let live = true
+    setShadowSettled(false)
     endpoints
       // The second parameter is `configuration`. Passing the signal there sent
       // `?configuration=[object AbortSignal]` and left the request unabortable.
@@ -81,8 +85,9 @@ export function GameSimulationPage() {
         setShadowTracks(
           payload?.schema_version === 'AISP_MLB_V18_SHADOW_COMPARISON_V1' ? payload : null,
         )
+        setShadowSettled(true)
       })
-      .catch(() => { if (live) setShadowTracks(null) })
+      .catch(() => { if (live) { setShadowTracks(null); setShadowSettled(true) } })
     return () => { live = false; controller.abort() }
   }, [gameId])
 
@@ -110,7 +115,10 @@ export function GameSimulationPage() {
   const gen1Unavailable = !simulation
     || simulationResource.state === 'unavailable'
     || simulationResource.state === 'loading'
-  if (gen1Unavailable && !(requestedTrack === 'v18' && shadow)) {
+  // Until the V18 lookup settles, an automatic choice is not yet known; showing
+  // Gen 1 first and then swapping engines would flash the wrong model.
+  const awaitingChoice = requestedTrack === 'auto' && !shadowSettled
+  if (awaitingChoice || (gen1Unavailable && !(requestedTrack !== 'gen1' && shadow))) {
     return (
       <div className="page simulation-page">
         <PageHeader
@@ -119,13 +127,13 @@ export function GameSimulationPage() {
           description="Every value is replayed from the official forecast's own simulation."
         />
         <DataModeBanner
-          state={simulationResource.state}
-          loading={simulationResource.loading}
+          state={awaitingChoice ? 'loading' : simulationResource.state}
+          loading={awaitingChoice || simulationResource.loading}
           error={simulationResource.error}
           onRetry={simulationResource.refresh}
         />
         <DataStatePanel
-          state={simulationResource.state}
+          state={awaitingChoice ? 'loading' : simulationResource.state}
           emptyTitle="No simulation evidence is available"
           emptyDetail="This game has no official forecast, so there is no simulation to replay."
           unavailableTitle="The simulator is unavailable"
@@ -140,7 +148,7 @@ export function GameSimulationPage() {
   // falls back to Gen 1 with an honest explanation rather than an empty page.
   const bothTracks = Boolean(shadow) && Boolean(simulation)
   const v18Requested = requestedTrack === 'v18'
-  const track: 'gen1' | 'v18' = v18Requested && shadow ? 'v18' : 'gen1'
+  const track: 'gen1' | 'v18' = requestedTrack !== 'gen1' && shadow ? 'v18' : 'gen1'
   const v18Refused = v18Requested && !shadow
 
   const story = simulation
@@ -170,7 +178,7 @@ export function GameSimulationPage() {
             : activeView === 'population'
               ? 'RESEARCH SHADOW · SIMULATED POPULATION'
               : 'RESEARCH-SHADOW SEQUENTIAL GAME SIMULATION')
-          : 'OFFICIAL GEN 1 · FINAL-SCORE DISTRIBUTION'}
+          : 'GEN 1 BASELINE · FINAL-SCORE DISTRIBUTION'}
         title={track === 'v18'
           ? (activeView === 'geometry' ? 'V18 Play Geometry'
             : activeView === 'population' ? 'V18 Simulation Population'
@@ -198,7 +206,7 @@ export function GameSimulationPage() {
               type="button"
               aria-current={track === key ? 'page' : undefined}
               className={track === key ? 'is-active' : ''}
-              onClick={() => setParams(key === 'gen1' ? {} : { track: key }, { replace: true })}
+              onClick={() => setParams({ track: key }, { replace: true })}
             >
               {label}
             </button>
@@ -338,12 +346,12 @@ export function GameSimulationPage() {
               <Metric
                 label={`${homeTeam} win probability`}
                 value={percentOrUnavailable(simulation.official_win_probability.home * 100)}
-                detail="Official forecast"
+                detail="Gen 1 baseline forecast"
               />
               <Metric
                 label={`${awayTeam} win probability`}
                 value={percentOrUnavailable(simulation.official_win_probability.away * 100)}
-                detail="Official forecast"
+                detail="Gen 1 baseline forecast"
               />
               <Metric
                 label="Expected total runs"

@@ -98,7 +98,7 @@ export function AppShell() {
               })}
             </select>
           </label>
-          <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? 'NFL · Research forecasts and simulations' : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : researchOnly.has(sport) ? `${sport} · Imported research forecasts only — no market, policy or position` : `${sport} · Planned`}</p>
+          <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? 'NFL · Research forecasts and simulations' : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : researchOnly.has(sport) ? `${sport} · Research forecasts · paper account, no sportsbook price held yet` : `${sport} · Planned`}</p>
           {state === 'unavailable' && <span role="status">Sport availability could not be loaded</span>}
         </div>
         {demoMode && <div className="demo-context-strip" role="status"><strong>{ILLUSTRATIVE_DEMO_LABEL}</strong><span>Static examples only.</span><NavLink to="/">View live application</NavLink></div>}

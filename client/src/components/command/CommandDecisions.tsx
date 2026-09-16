@@ -49,6 +49,23 @@ interface FeedCard {
   item: DecisionItem | null
   game: CoverageGame | null
   nextLabel: string | null
+  /** For a sport's next game off this slate: its readiness entry, which is the
+   *  only record of whether its forecast and price exist. */
+  readiness?: SportReadinessEntry | null
+}
+
+/** A readiness forecast state that means a forecast is actually held. */
+const forecastHeld = (state: string | undefined) => Boolean(state && /AVAILABLE$/.test(state) && !/AWAITING|UNAVAILABLE/.test(state))
+
+/** Plain label for a readiness price state; never implies a sportsbook did not post a line. */
+function readinessPriceLabel(state: string | undefined): string {
+  switch (state) {
+    case 'FRESH_PRICE': return 'Market collected'
+    case 'STORED_REFERENCE_ONLY': return 'Stale reference only'
+    case 'COLLECTION_BLOCKED': return 'Price intake blocked'
+    case 'COLLECTION_NOT_OPEN': return 'Collection not open'
+    default: return 'Collection scheduled'
+  }
 }
 
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
@@ -118,15 +135,23 @@ export function buildFeed(items: DecisionItem[], games: CoverageGame[], readines
     if (!code || !entry.next_game || cards.some((c) => c.sport === code)) continue
     const window = entry.decision?.window as { opens_at?: string; closes_at?: string } | undefined
     const blocked = entry.pipeline && !entry.pipeline.ready
+    const priceBlocker = typeof entry.price?.blocker === 'string' ? entry.price.blocker : null
     cards.push({
       key: `next-${code}`, sport: code,
       href: code === 'NBA' ? '/nba/research' : code === 'CFB' ? '/college-football/research' : gameHref(code, entry.next_game.game_id),
       matchup: entry.next_game.matchup, startsAt: (entry.next_game as { starts_at?: string }).starts_at ?? null,
       windowOpens: window?.opens_at ?? null, windowCloses: window?.closes_at ?? null, tab: 'WATCHING',
-      status: blocked
-        ? { label: 'Price intake not available yet', tone: 'gray', detail: entry.pipeline.blocker }
-        : { label: 'Next scheduled decision', tone: 'gold', detail: entry.pipeline.blocker },
-      item: null, game: null, nextLabel: entry.next_game.starts_label,
+      // Each label names what is actually true: a blocked comparison says it is
+      // blocked and why; the NBA regular season has not started, so its game is
+      // a research example, not a live slate.
+      status: code === 'NBA'
+        ? { label: 'Season not started · research example', tone: 'gray', detail: entry.price?.label ?? entry.pipeline.blocker }
+        : blocked
+          ? { label: 'Market comparison blocked', tone: 'gray', detail: entry.pipeline.blocker }
+          : priceBlocker
+            ? { label: 'Price intake blocked', tone: 'gray', detail: entry.price?.label ?? priceBlocker }
+            : { label: 'Next scheduled decision', tone: 'gold', detail: entry.pipeline.blocker ?? entry.price?.label ?? null },
+      item: null, game: null, nextLabel: entry.next_game.starts_label, readiness: entry,
     })
   }
   const order: Record<FeedCard['tab'], number> = { ACTIONABLE: 0, POSITIONS: 1, WATCHING: 2, PASSED: 3, COMPLETED: 4 }
@@ -157,8 +182,11 @@ const STAGES = ['Scheduled', 'Forecast', 'Market', 'Evaluation', 'Position', 'Se
 export function progress(card: FeedCard, now: number): { reached: number; states: ('done' | 'wait' | 'miss' | 'na')[]; labels: string[] } {
   const { item, game } = card
   const started = card.startsAt ? Date.parse(card.startsAt) <= now : false
-  const forecast = game ? Boolean(game.model) : Boolean(item?.model_probability != null)
-  const priced = game ? game.price_state === 'CURRENT_PRICE' || (game.quotes.length > 0 && started) : item?.american != null
+  const held = card.readiness ? forecastHeld(card.readiness.forecast?.state) : null
+  const forecast = held ?? (game ? Boolean(game.model) : Boolean(item?.model_probability != null))
+  const priced = card.readiness
+    ? card.readiness.price?.state === 'FRESH_PRICE'
+    : game ? game.price_state === 'CURRENT_PRICE' || (game.quotes.length > 0 && started) : item?.american != null
   const evaluated = item?.phase === 'FINAL_PREGAME' && item.recommendation !== 'NOT_YET_EVALUATED'
   const positioned = Boolean(item?.position)
   const settled = item?.position?.status === 'SETTLED'
@@ -173,7 +201,8 @@ export function progress(card: FeedCard, now: number): { reached: number; states
   const labels = [
     'Scheduled',
     forecast ? 'Forecast available' : started ? 'No forecast' : 'Forecast preparing',
-    priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only' : started ? 'No price collected' : 'Collection scheduled',
+    card.readiness ? readinessPriceLabel(card.readiness.price?.state)
+      : priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only' : started ? 'No price collected' : 'Collection scheduled',
     evaluated ? (item?.recommendation === 'QUALIFIED_BET' ? 'Qualified' : item?.recommendation === 'NO_BET' ? 'Evaluated · no bet' : 'Evaluated') : started ? 'Not evaluated' : 'Evaluation pending',
     positioned ? 'Position recorded' : 'No position',
     settled ? `Settled ${item?.position?.result ?? ''}` : positioned ? 'Awaiting settlement' : '—',
@@ -317,15 +346,19 @@ const AgendaRow = memo(function AgendaRow({ card, now, next }: { card: FeedCard;
       </span>
       <span role="cell">{model && homeP != null
         ? <><b>{homeP >= 0.5 ? game?.home?.abbreviation : game?.away?.abbreviation} {pct(homeP >= 0.5 ? homeP : 1 - homeP, 0)}</b><small>{model.expected_away != null && model.expected_home != null ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)}` : 'forecast'}</small></>
-        : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
+        : card.readiness
+          ? <span title={card.readiness.forecast?.label}>{forecastHeld(card.readiness.forecast?.state) ? <b>Forecast held</b> : <span className="is-gold">Awaiting forecast</span>}</span>
+          : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
       <span role="cell">{game
         ? game.price_state === 'CURRENT_PRICE' ? <b className="is-up">Collected</b>
           : <><b>{etTime(game.checkpoints.collection_opens_at).replace(' ET', '')}</b><small>{Date.parse(game.checkpoints.collection_opens_at) > now ? `in ${countdown(game.checkpoints.collection_opens_at, now)}` : 'open'}</small></>
-        : '—'}</span>
+        : card.readiness
+          ? <span title={card.readiness.price?.label}>{readinessPriceLabel(card.readiness.price?.state)}</span>
+          : '—'}</span>
       <span role="cell">{card.windowOpens ? <><b>{etTime(card.windowOpens).replace(' ET', '')}–{etTime(card.windowCloses).replace(' ET', '')}</b><small>{Date.parse(card.windowOpens) > now ? `in ${countdown(card.windowOpens, now)}` : 'open'}</small></> : '—'}</span>
       <span role="cell" className="cc-row2__next">{next
         ? <><b>{next.label}</b><small>{next.status === 'open' ? `closes in ${countdown(new Date(next.until ?? next.at).toISOString(), now)}` : `${etTime(new Date(next.at).toISOString()).replace(' ET', '')} · in ${countdown(new Date(next.at).toISOString(), now)}`}</small></>
-        : <b>{card.status.label}</b>}</span>
+        : <b title={card.status.detail ?? undefined}>{card.status.label}</b>}</span>
     </Link>
   )
 })

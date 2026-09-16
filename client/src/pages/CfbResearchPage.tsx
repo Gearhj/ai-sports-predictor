@@ -2,7 +2,7 @@
  * The College Football research board and the single-game view.
  *
  * Deliberately small, like the NBA research surface it follows. College
- * Football is research-only and unfunded, so this is not the start of a CFB
+ * Football has a virtual paper account but no bindable price, so this is not the start of a CFB
  * product — it is the view that makes an imported forecast discoverable and
  * readable without routing it through governed surfaces that cannot serve it.
  *
@@ -18,6 +18,7 @@ import { PageHeader } from '../components/ui'
 import { CfbForecastCard } from '../components/cfb/CfbForecastCard'
 import { useCfbGame, useCfbResearch } from '../hooks/useCfbResearch'
 import '../components/cfb/cfb.css'
+import { PaperStatusStrip } from '../components/readiness/PaperStatusStrip'
 
 function Authority({ note }: { note: string }) {
   return (
@@ -38,10 +39,12 @@ export function CfbResearchPage() {
         eyebrow="College Football · Research"
         title="College Football research forecasts"
         description={
-          'Imported research forecasts. College Football has no bankroll, wagering '
-          + 'policy, sportsbook price or forecast scheduler in AISP.'
+          'Imported research forecasts. Market comparison is blocked: AISP holds no College Football '
+          + 'sportsbook price and has no admitted College Football schedule, so no assessment or paper '
+          + 'position can occur. There is no College Football forecast scheduler.'
         }
       />
+      <PaperStatusStrip sport="CFB" />
 
       {loading && <p role="status">Loading research forecasts…</p>}
       {error && (
