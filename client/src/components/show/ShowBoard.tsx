@@ -287,11 +287,16 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
         <span role="cell" className="sb-row__time">{clock(game.kickoff_utc)}</span>
         <span role="cell" className="sb-row__game">
           <b>{game.matchup}</b>
-          {game.canonical_game_id ? <Link to={gameHref(game.sport, game.canonical_game_id)}>Analyze</Link> : <small>not in AISP schedule</small>}
+          {game.analysis_href ? <Link to={game.analysis_href}>Analyze</Link>
+            : game.canonical_game_id ? <Link to={gameHref(game.sport, game.canonical_game_id)}>Analyze</Link> : <small>not in AISP schedule</small>}
         </span>
         <span role="cell"><span className={`sb-ready sb-ready--${game.readiness}`}>{game.readiness_label}</span></span>
         <span role="cell">{f ? <><b>{f.lean.team} {pct(f.lean.probability_two_way, 0)}</b><small>{game.away.abbreviation} {f.expected_score.away.toFixed(1)} – {f.expected_score.home.toFixed(1)} {game.home.abbreviation}</small></>
-          : <small className="is-gold">Preview forecast awaiting producer</small>}</span>
+          : game.research_forecast
+            ? <><small className="is-gold">No Show Preview</small><small data-testid="sb-research-forecast" title={game.research_forecast.label}>
+                Research forecast: {game.research_forecast.pick} {pct(game.research_forecast.joint_probability, 0)} · {game.away.abbreviation} {game.research_forecast.ridge_expected_points.away.toFixed(1)} – {game.research_forecast.ridge_expected_points.home.toFixed(1)} {game.home.abbreviation} (research only)
+              </small></>
+            : <small className="is-gold">Preview forecast awaiting producer</small>}</span>
         <span role="cell">{ml && ml.complete_books
           ? <><b>{game.away.abbreviation} {am(ml.best.AWAY?.american)} · {game.home.abbreviation} {am(ml.best.HOME?.american)}</b><small>Price captured at {clock(ml.captured_utc)} · {ml.complete_books} books</small></>
           : <small className="is-gold">{ml?.stale_books ? `Stale only · captured ${clock(game.markets.MONEYLINE.latest_capture_utc)}` : ml?.partial_books ? 'One side only' : game.missing.some((m) => m.code === 'SCHEDULE_NOT_REGISTERED') ? 'Not bindable · not in AISP schedule' : 'No preview price held'}</small>}</span>

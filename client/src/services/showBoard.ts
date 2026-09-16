@@ -44,6 +44,13 @@ export interface ShowGame {
   away: { abbreviation: string; name: string }; home: { abbreviation: string; name: string }
   kickoff_utc: string | null; status: string
   final_decision_window: { opens_utc: string; closes_utc: string } | null
+  /** An imported CFB research forecast for this game: research only, never a Show Preview. */
+  research_forecast?: {
+    forecast_id: string; horizon: string; href: string; pick: string; joint_probability: number
+    ridge_expected_points: { away: number; home: number }; label: string
+  } | null
+  /** Where "Analyze" goes when it is not the generic game page. */
+  analysis_href?: string | null
   readiness: Readiness; readiness_label: string; forecast_status: 'AVAILABLE' | 'AWAITING_PRODUCER'
   forecast: ShowForecast | null
   markets: Record<'MONEYLINE' | 'SPREAD' | 'TOTAL', ShowMarketGroup>
