@@ -12,6 +12,10 @@
  *     model-vs-market edge plot when comparable prices exist, and a results
  *     tape of settled positions.
  *
+ * Above the queue, the consumer assessment cards (qualified, closest,
+ * passed, research) and the same-game Parlay Lab read the verified-population
+ * assessments; the queue itself is the collapsible audit view below them.
+ *
  * Only funded-era governed evaluations appear (the read model scopes them to
  * their own sport's games); legacy/research experiment rows stay in the audit
  * view below the page. Internal codes are translated into short language, with
@@ -31,6 +35,9 @@ import { EdgeMap } from './EdgeMap'
 import { AsOf } from './RegionState'
 import { todayEt } from './CommandHome'
 import { buildAgenda, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
+import { useAssessments } from '../../services/probability'
+import { AssessmentBoard, classifyAssessments } from './AssessmentBoard'
+import { ParlayLab } from './ParlayLab'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
@@ -227,6 +234,9 @@ export function CommandDecisions({ day }: { day: string }) {
   const feed = useMemo(() => buildFeed(items, games, isToday ? readinessSports : [], now), [items, games, readinessSports, isToday, now])
   const agenda = useMemo(() => buildAgenda(games, items, ledger.data, now), [games, items, ledger.data, now])
   const visible = feed.filter((c) => sport === 'ALL' || c.sport === sport)
+  const assessments = useAssessments(day)
+  const groups = useMemo(() => classifyAssessments(visible, assessments.data, now), [visible, assessments.data, now])
+  const research = (assessments.data?.research ?? []).filter((r) => sport === 'ALL' || r.sport === sport)
 
   // A game graduates from an agenda row to a decision card once there is a
   // decision to read: a final evaluation, a position, or a started game.
@@ -278,7 +288,7 @@ export function CommandDecisions({ day }: { day: string }) {
               : <><b>No milestone scheduled</b><span>Today’s slate is complete</span></>}
           </div>
           <div className="cc-dnow__block"><small>Qualified positions</small><b className={qualifiedPositions ? 'is-up' : ''}>{qualifiedPositions}</b><span>open</span></div>
-          <div className="cc-dnow__block"><small>Capital exposed</small><b>{money(ledger.data?.totals.open_exposure)}</b><span>{ledger.data?.totals.open_count ?? 0} open</span></div>
+          <div className="cc-dnow__block"><small>Virtual exposure</small><b>{money(ledger.data?.totals.open_exposure)}</b><span>{ledger.data?.totals.open_count ?? 0} open</span></div>
           <div className="cc-dnow__block"><small>{isToday ? 'Completed today' : 'Completed this slate day'}</small><b className={todayPnl > 0 ? 'is-up' : todayPnl < 0 ? 'is-down' : ''}>{signedMoney(todayPnl)}</b><span>{settledToday.length} settled · {completed.length} decided</span></div>
         </div>
       </section>
@@ -297,6 +307,12 @@ export function CommandDecisions({ day }: { day: string }) {
         <p className="cc-empty" role="status">{board.error ? `Decisions are unavailable: ${board.error}` : 'Loading decisions…'}</p>
       )}
 
+      <AssessmentBoard groups={groups} research={research} day={day} loading={!assessments.data && !assessments.error} />
+      {assessments.error && <p className="cc-empty" role="status">Model assessments are unavailable: {assessments.error}</p>}
+      <ParlayLab data={assessments.data} coverage={games} />
+
+      <details className="as-audit" open>
+        <summary>Audit view · full timing and readiness queue</summary>
       {actionable.length > 0 && (
         <section aria-label="Actionable and open positions">
           <h2 className="cc-section-title">Actionable · open positions <span>{actionable.length}</span></h2>
@@ -326,6 +342,7 @@ export function CommandDecisions({ day }: { day: string }) {
       )}
 
       <SupportingVisuals items={items} ledger={ledger.data} />
+      </details>
     </section>
   )
 }

@@ -16,3 +16,6 @@
 
 # Shell hook installer runs under sh, which rejects CRLF.
 /scripts/*.sh text eol=lf
+
+# Model Studio market-probability contract fixtures are hash-verified byte for byte.
+/server/tests/fixtures/market_probability_contract_v1/** -text

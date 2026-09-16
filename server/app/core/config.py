@@ -84,6 +84,9 @@ class Settings(BaseSettings):
         default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
     )
     model_exchange_auto_import_enabled: bool = False
+    # Root of the immutable model exchange the probability adapter re-reads
+    # retained paired score populations from (read-only; never written).
+    probability_exchange_root: str = Field(default=str(Path.home() / 'asp-model-exchange'))
     # --- AISP DAY-BEFORE SHOW PREVIEW V1 ----------------------------------------
     # A research/editorial Show Board for the day-before 5:00 PM ET recording.
     # All three switches default OFF and fail closed: a missing or unparseable

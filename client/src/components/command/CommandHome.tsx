@@ -1,6 +1,8 @@
 /**
  * Home: today's command center, about one desktop viewport.
  *
+ *   0. AISP Today: the day in one sentence, seven counts and a four-sport
+ *      readiness strip, all counted from the same read models as below.
  *   1. Today's Edge Board: up to four game cards -- the best evaluated edges,
  *      the closest plays, the model's leans before prices, or the games on
  *      deck -- chosen by `services/edgeBoard`.
@@ -28,6 +30,7 @@ import { EdgeBoard } from './EdgeBoard'
 import { AgendaTimeline } from './AgendaTimeline'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { buildEdgeBoard } from '../../services/edgeBoard'
+import { AispToday, buildTodaySummary } from './AispToday'
 import './command.css'
 
 export const todayEt = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
@@ -90,11 +93,16 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     decisionsHref: (sport) => withSport('/decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
     analyzeHref: (sport, gameId) => gameHref(sport, gameId),
   }), [items, games, ledger.data, now, withSport])
+  const summary = useMemo(() => buildTodaySummary({ games, items, ledger: ledger.data, now }), [games, items, ledger.data, now])
   const dateLabel = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
   const ret = totals && totals.starting_capital ? (totals.profit_loss / totals.starting_capital) * 100 : null
 
   return (
     <section className="cc-home" aria-label="Command center">
+      <RegionBoundary label="AISP today">
+        <AispToday summary={summary} readiness={readiness.data?.sports ?? []} decisionsHref={decisionsHref}
+          loading={!coverage.data || !decisions.data} />
+      </RegionBoundary>
       <RegionBoundary label="today's edge board">
         <EdgeBoard board={board} now={now} loading={!decisions.data || !coverage.data} dateLabel={dateLabel}
           allHref={decisionsHref} asOf={<AsOf resource={decisions.data ? decisions : coverage} label="decisions" />} />

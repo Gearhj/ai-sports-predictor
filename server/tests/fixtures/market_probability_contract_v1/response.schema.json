@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ASP_MARKET_PROBABILITY_RESPONSE_V1",
+  "type": "object",
+  "required": ["schemaVersion", "status", "probabilityUnits"],
+  "properties": {
+    "schemaVersion": {"const": "ASP_MARKET_PROBABILITY_CONTRACT_V1"},
+    "status": {"enum": ["SUPPORTED_DIRECT_FROM_PAIRED_POPULATION", "APPROXIMATE_RESEARCH_ONLY", "UNSUPPORTED"]},
+    "probabilityUnits": {"const": "FRACTION_0_TO_1"},
+    "method": {"enum": ["EMPIRICAL_PAIRED_SCORE_ENUMERATION", "PER_DRAW_SAME_GAME_INTERSECTION", "INDEPENDENCE_ASSUMPTION"]},
+    "counts": {"type": "object", "required": ["win", "loss", "push", "void"]},
+    "probabilities": {"type": "object", "required": ["win", "loss", "push", "void"]},
+    "effectiveDrawCount": {"type": ["integer", "null"]},
+    "winProbabilityMonteCarloStandardError": {"type": ["number", "null"]},
+    "population": {"type": "object"},
+    "legs": {"type": "array"},
+    "fairPriceComponents": {"type": "object"},
+    "authority": {"type": "object"},
+    "error": {"type": "object"}
+  }
+}

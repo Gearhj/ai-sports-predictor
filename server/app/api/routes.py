@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -1767,6 +1767,60 @@ def command_center_markets(
     from app.services.command_center import market_coverage
 
     return market_coverage(session, event_date or local_today("America/New_York"))
+
+
+@router.get("/command-center/assessments", tags=["markets"])
+def command_center_assessments(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+) -> dict:
+    """Verified-population model masses beside each stored quote, plus the
+    same-game Parlay Lab and research comparisons. No provider call, no write."""
+
+    from app.core.time import local_today
+    from app.probability.assessments import daily_assessments
+
+    return daily_assessments(session, settings, event_date or local_today("America/New_York"))
+
+
+def _probability_error(exc) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.as_dict())
+
+
+@router.get("/probability/games/{game_id}", tags=["forecasts"])
+def probability_binding(game_id: str, session: DatabaseSession, settings: AppSettings) -> dict:
+    """The verified paired-population binding and capabilities for one game."""
+
+    from app.probability import adapter
+
+    try:
+        return adapter.describe(session, settings, adapter.parse_game_id(game_id))
+    except adapter.ProbabilityUnavailable as exc:
+        raise _probability_error(exc) from exc
+
+
+@router.post("/probability/evaluate", tags=["forecasts"])
+def probability_evaluate(session: DatabaseSession, settings: AppSettings, body: dict = Body(...)) -> dict:
+    """One market or a same-game paired-draw intersection over one exact,
+    re-verified population. Research only; creates no decision or position."""
+
+    from app.probability.adapter import ProbabilityUnavailable
+    from app.probability.evaluate import evaluate_request
+
+    try:
+        return evaluate_request(session, settings, body)
+    except ProbabilityUnavailable as exc:
+        raise _probability_error(exc) from exc
+
+
+@router.post("/probability/cross-game", tags=["forecasts"])
+def probability_cross_game(body: dict | None = Body(None)) -> dict:
+    """Always refused: no cross-game category is calibration-validated."""
+
+    from app.probability.evaluate import cross_game_refusal
+
+    raise _probability_error(cross_game_refusal())
 
 
 @router.get("/cfb/research", tags=["forecasts"])

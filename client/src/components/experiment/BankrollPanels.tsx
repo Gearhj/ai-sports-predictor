@@ -182,10 +182,10 @@ export function SettlementTape({
                 <span className="exp-row__teams">
                   {sides
                     ? <>
-                      <TeamLogo league={league} abbreviation={sides[0]} size={34} />
+                      <TeamLogo league={position.league ?? league} abbreviation={sides[0]} size={34} />
                       <b>{sides[0]}</b>
                       <i>at</i>
-                      <TeamLogo league={league} abbreviation={sides[1]} size={34} />
+                      <TeamLogo league={position.league ?? league} abbreviation={sides[1]} size={34} />
                       <b>{sides[1]}</b>
                     </>
                     : <b>{position.matchup ?? 'matchup not recorded'}</b>}

@@ -729,6 +729,8 @@ export interface Position {
   bankroll_after?: number | null
   settlement_sequence?: number | null
   settled_at?: string | null
+  /** The position's own league, when one page shows several sport accounts. */
+  league?: string | null
   beat_close?: boolean | null
   model_probability?: number | null
   market_probability?: number | null
