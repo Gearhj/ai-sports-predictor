@@ -10,7 +10,7 @@ import { useSportReadiness, type SportReadinessEntry } from './SportReadiness'
 
 const BLOCKER_TEXT: Record<string, string> = {
   SGO_LEAGUE_IDENTITY_UNVERIFIED: "SportsGameOdds' league identity for this sport is not verified",
-  NO_CANONICAL_GAME_IDENTITY: 'AISP has no admitted schedule, so a price could not be bound to a game',
+  NO_CANONICAL_GAME_IDENTITY: "this game is not admitted to AISP's canonical schedule, so a price could not be bound to it",
 }
 
 export function PaperStatusStrip({ sport, seasonNote }: { sport: 'NBA' | 'CFB'; seasonNote?: string }) {
@@ -23,9 +23,12 @@ export function PaperStatusStrip({ sport, seasonNote }: { sport: 'NBA' | 'CFB'; 
   return (
     <section className="paper-strip" aria-label={`${entry.label} paper-research status`} data-testid={`paper-strip-${sport}`}>
       <dl>
+        {entry.next_game && (
+          <div><dt>Next game (this status)</dt><dd>{entry.next_game.matchup} · {entry.next_game.starts_label}</dd></div>
+        )}
         <div><dt>Virtual account</dt><dd>{entry.account?.funded ? `${entry.account.label} · paper only, no real money` : 'None'}</dd></div>
         <div><dt>Paper policy</dt><dd>{entry.policy_version ?? 'None'}</dd></div>
-        <div><dt>Forecast eligibility</dt><dd>{entry.eligibility ? (entry.eligibility.eligible ? 'Eligible' : `Not eligible · ${entry.eligibility.reason}`) : 'Not recorded'}</dd></div>
+        <div><dt>That forecast&rsquo;s eligibility</dt><dd>{entry.eligibility ? (entry.eligibility.eligible ? 'Eligible' : `Not eligible · ${entry.eligibility.reason}`) : 'Not recorded'}</dd></div>
         <div><dt>Sportsbook price</dt><dd>{entry.price?.label ?? 'Not recorded'}</dd></div>
       </dl>
       <p>
