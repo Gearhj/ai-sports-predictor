@@ -97,11 +97,20 @@ OBJECT_RESERVE = 400
 #: often buys nothing and only risks a retry storm. This is also what stops a
 #: five-minute scheduler tick from re-requesting the same unchanged prices.
 MIN_SECONDS_BETWEEN_FETCHES = 600
-#: Objects are counted over a rolling window rather than a calendar month
-#: because the local count is the only count there is -- the provider returns no
-#: usage headers at all -- and a rolling window cannot under-count by sitting
-#: just after a reset.
-OBJECT_WINDOW_DAYS = 30
+#: Objects are counted over the provider's own billing window: the UTC calendar
+#: month, which refills on the 1st.
+#:
+#: This used to be a rolling 30 days, on the reasoning that a rolling window
+#: cannot under-count by sitting just after a reset. It cannot -- but it
+#: massively OVER-counts after one: September spend kept counting against
+#: October until each row aged out, which would have held the MLB and NFL
+#: pregame lanes dark for roughly the first ten days of October while the
+#: provider balance sat refilled and unused. A guard that refuses money the
+#: account actually has is not conservative, it is wrong. The local count is
+#: still the only count there is -- the provider returns no usage headers -- so
+#: this is still AISP's own ledger, now measured over the provider's boundary.
+#: See docs/SGO_BUDGET_GUARD_AUDIT.md.
+OBJECT_WINDOW = "UTC calendar month"
 #: Objects are events. Two per fetch keeps a whole September inside the 2,500
 #: free allowance many times over, and the cap is enforced here as well as asked
 #: for in the query.
@@ -422,50 +431,136 @@ class ObjectBudget:
 
     There is no provider figure to check it against: SportsGameOdds returns no
     usage headers at all, so this IS the number.
+
+    The window is the provider's billing month. ``blocked_reason`` is set when
+    the month itself could not be established, and it makes the whole budget
+    unspendable: an unknown boundary is not a licence to spend.
     """
 
+    #: The UTC month this count covers, as ``YYYY-MM``.
+    billing_month: str
+    #: The instant that month began, ISO-8601 UTC.
+    window_start: str
+    #: Days of the billing month elapsed so far, inclusive of today.
     window_days: int
     requests: int
     objects_used: int
     allowance: int
     reserve: int
+    #: Why the reserve is what it is, for a receipt.
+    reserve_basis: str = "standing"
+    #: Set when the billing month could not be established. Blocks all spending.
+    blocked_reason: str | None = None
 
     @property
     def spendable(self) -> int:
+        if self.blocked_reason:
+            return 0
         return max(0, self.allowance - self.reserve - self.objects_used)
 
     def may_spend(self, objects: int) -> tuple[bool, str | None]:
+        if self.blocked_reason:
+            return False, f"object budget unavailable: {self.blocked_reason}"
         if objects <= 0:
             return False, "a request must declare a positive object cost"
         if objects > self.spendable:
             return False, (
                 f"object budget would be exceeded: {self.objects_used} used in "
-                f"{self.window_days} days, {self.reserve} held in reserve of "
-                f"{self.allowance}, so only {self.spendable} are spendable and "
-                f"{objects} were requested"
+                f"billing month {self.billing_month}, {self.reserve} held in "
+                f"reserve of {self.allowance}, so only {self.spendable} are "
+                f"spendable and {objects} were requested"
             )
         return True, None
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "window": OBJECT_WINDOW,
+            "billing_month": self.billing_month,
+            "window_start": self.window_start,
             "window_days": self.window_days,
             "requests_in_window": self.requests,
             "objects_used_in_window": self.objects_used,
             "allowance": self.allowance,
             "reserve_never_spent": self.reserve,
+            "reserve_basis": self.reserve_basis,
             "objects_spendable": self.spendable,
+            "blocked_reason": self.blocked_reason,
             "counted_locally_because": "the provider returns no usage headers",
         }
 
 
+def _blocked_budget(reason: str) -> ObjectBudget:
+    """A budget that authorises nothing, because it does not know its window."""
+
+    return ObjectBudget(
+        billing_month="", window_start="", window_days=0, requests=0,
+        objects_used=0, allowance=FREE_TIER_OBJECTS, reserve=OBJECT_RESERVE,
+        reserve_basis="unknown", blocked_reason=reason)
+
+
+def phase1_reserve(moment: datetime) -> tuple[int, str]:
+    """The reserve this guard holds back, and why.
+
+    Phase 1 of the repair deliberately takes ``max(400, scheduled)`` rather than
+    the schedule itself. The owner's September reduction to 300 was approved for
+    the allocation plan; honouring it here as well would release 100 more
+    objects in September, which is a spending decision and not part of fixing a
+    window boundary. So this guard keeps 400 until that is decided separately.
+    """
+
+    from app.services.provider_allocation import reserve_for
+    from app.services.service_day import service_date
+
+    scheduled = int(reserve_for(service_date(moment)))
+    if scheduled >= OBJECT_RESERVE:
+        return scheduled, f"scheduled reserve {scheduled} for this service day"
+    return OBJECT_RESERVE, (
+        f"standing reserve {OBJECT_RESERVE} held; the scheduled {scheduled} is "
+        "lower and phase 1 of the budget-guard repair does not release it")
+
+
+def billing_month_window(moment: datetime) -> tuple[datetime, str]:
+    """The start of the provider's billing month containing ``moment``.
+
+    Raises ``ValueError`` when the moment carries no offset, because a month
+    boundary cannot be placed without one and guessing UTC at 23:40 on the last
+    day of a month is exactly the guess that would mis-bill a reset.
+    """
+
+    if moment.tzinfo is None:
+        raise ValueError("the moment carries no timezone, so its UTC billing month is unknown")
+    utc_moment = moment.astimezone(UTC)
+    start = utc_moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return start, f"{utc_moment.year:04d}-{utc_moment.month:02d}"
+
+
+def _next_month_start(start: datetime) -> datetime:
+    """The exclusive end of the billing month that began at ``start``.
+
+    The window needs a ceiling as well as a floor. A rolling window did not:
+    nothing is ever requested in the future. A calendar month is asked about
+    from both sides -- the Eastern service day of September 30 runs to 04:00
+    UTC on October 1 -- and a row from the far side of the reset belongs to the
+    other month's bill, not to both.
+    """
+
+    return (start.replace(year=start.year + 1, month=1) if start.month == 12
+            else start.replace(month=start.month + 1))
+
+
 def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBudget:
-    """Rolling-window request and object totals, counted from our own ledger."""
+    """Billing-month request and object totals, counted from our own ledger."""
     from sqlalchemy import func, select
 
     from app.models import ProviderRequestLedger
 
     moment = now or datetime.now(UTC)
-    since = moment - timedelta(days=OBJECT_WINDOW_DAYS)
+    try:
+        since, billing_month = billing_month_window(moment)
+    except ValueError as error:
+        return _blocked_budget(str(error))
+    until = _next_month_start(since)
+    reserve, reserve_basis = phase1_reserve(moment)
     completed, counted, with_counts = session.execute(
         select(
             func.count(),
@@ -475,6 +570,7 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
             ProviderRequestLedger.provider == SPORTSGAMEODDS,
             ProviderRequestLedger.status.in_(("SUCCEEDED", "FAILED")),
             ProviderRequestLedger.requested_at >= since,
+            ProviderRequestLedger.requested_at < until,
         )
     ).one()
     # Requests and objects are different quantities. An opening adjustment
@@ -485,6 +581,7 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
             ProviderRequestLedger.provider == SPORTSGAMEODDS,
             ProviderRequestLedger.status.in_(("SUCCEEDED", "FAILED")),
             ProviderRequestLedger.requested_at >= since,
+            ProviderRequestLedger.requested_at < until,
             ProviderRequestLedger.endpoint_key != OPENING_ADJUSTMENT_KEY,
         )
     ) or 0
@@ -496,11 +593,14 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
     # quietly SUBTRACTED from the objects used.
     unknown = max(0, int(completed) - int(with_counts))
     return ObjectBudget(
-        window_days=OBJECT_WINDOW_DAYS,
+        billing_month=billing_month,
+        window_start=since.isoformat(),
+        window_days=max(1, (moment.astimezone(UTC).date() - since.date()).days + 1),
         requests=int(requests),
         objects_used=int(counted) + unknown * MAX_EVENTS_PER_FETCH,
         allowance=FREE_TIER_OBJECTS,
-        reserve=OBJECT_RESERVE,
+        reserve=reserve,
+        reserve_basis=reserve_basis,
     )
 
 

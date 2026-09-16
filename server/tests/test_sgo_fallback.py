@@ -330,13 +330,16 @@ def test_a_request_the_provider_never_counted_is_charged_the_worst_case(session)
     assert object_budget(session, now=now).objects_used == MAX_EVENTS_PER_FETCH
 
 
-def test_objects_outside_the_rolling_window_are_not_counted(session) -> None:
-    from app.services.sgo_collection import OBJECT_WINDOW_DAYS, object_budget
+def test_objects_from_a_previous_billing_month_are_not_counted(session) -> None:
+    """The provider bills a UTC calendar month and refills on the 1st."""
+    from app.services.sgo_collection import object_budget
 
     now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
-    _ledger_row(session, requested_at=now - timedelta(days=OBJECT_WINDOW_DAYS + 1), objects=500)
+    _ledger_row(session, requested_at=datetime(2026, 8, 31, 23, 59, tzinfo=UTC), objects=500)
     _ledger_row(session, requested_at=now - timedelta(days=1), objects=9)
-    assert object_budget(session, now=now).objects_used == 9
+    budget = object_budget(session, now=now)
+    assert budget.objects_used == 9
+    assert budget.billing_month == "2026-09"
 
 
 def test_the_cooldown_counts_from_the_last_attempt_not_the_last_success(session) -> None:
@@ -606,16 +609,16 @@ def test_an_adjustment_never_subtracts_from_the_objects_used(session) -> None:
     assert budget.objects_used >= 0 and budget.spendable <= budget.allowance
 
 
-def test_the_adjustment_ages_out_of_the_rolling_window(session) -> None:
-    """Dated to the day the objects were spent, so it expires like a request."""
-    from app.services.sgo_collection import OBJECT_WINDOW_DAYS, object_budget
+def test_the_adjustment_is_counted_in_its_own_billing_month_only(session) -> None:
+    """Dated to the day the objects were spent, so it clears at that month's reset."""
+    from app.services.sgo_collection import object_budget
 
     day = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
     _apply_opening(session, day=day)
-    inside = day + timedelta(days=OBJECT_WINDOW_DAYS - 1)
-    outside = day + timedelta(days=OBJECT_WINDOW_DAYS + 1)
-    assert object_budget(session, now=inside).objects_used == 24
-    assert object_budget(session, now=outside).objects_used == 0
+    same_month = datetime(2026, 9, 30, 23, 59, 59, tzinfo=UTC)
+    next_month = datetime(2026, 10, 1, 0, 0, 1, tzinfo=UTC)
+    assert object_budget(session, now=same_month).objects_used == 24
+    assert object_budget(session, now=next_month).objects_used == 0
 
 
 # --- what a bounded allowance may be spent on -------------------------------

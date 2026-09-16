@@ -172,6 +172,20 @@ LANES: tuple[Lane, ...] = (
             "for a game that is already over, so it yields to every other lane."
         ),
     ),
+    Lane(
+        key="sgo_show_preview_events", label="Show Preview day-before quotes",
+        share=0.0, funded=False,
+        rationale=(
+            "Declared so day-before show collection has a lane of its own, and "
+            "unfunded so it has no claim on the daily total. A preview quote "
+            "and a checkpoint quote are different purchases: the checkpoint "
+            "quote has to be fresh AT its checkpoint, and letting the show draw "
+            "from the same allowance would spend a decision's price on a "
+            "recording. The zero share is why funding this lane cannot quietly "
+            "shrink the other four -- it takes an explicit share, which is an "
+            "owner decision. Until then `request_objects` refuses it by name."
+        ),
+    ),
 )
 
 LANES_BY_KEY = {lane.key: lane for lane in LANES}
@@ -548,12 +562,47 @@ def _demand_aware_split(daily_total: int, demand: dict[str, Any]) -> dict[str, i
         take = min(want, budget)
         out[key] = take
         budget -= take
+    # Any OTHER funded lane takes its own declared share before MLB absorbs the
+    # remainder. Today that loop does nothing: the only lane it can reach is
+    # Show Preview, which is unfunded with a zero share. It exists so that
+    # funding that lane later grants it its declared share explicitly, rather
+    # than silently shrinking MLB's remainder by an amount nobody wrote down.
+    named = {"sgo_mlb_events", "sgo_nfl_events", "sgo_nfl_live", "sgo_nfl_periods"}
+    for lane in LANES:
+        if lane.key in named or not lane.funded:
+            continue
+        take = min(budget, max(0, int(daily_total * lane.share)))
+        out[lane.key] = take
+        budget -= take
     out["sgo_mlb_events"] = budget
     return out
 
 
+def _same_billing_month(read_at: datetime | None, moment: datetime) -> bool:
+    """Does a usage reading describe the billing month ``moment`` falls in?
+
+    The provider bills a UTC calendar month and refills at 00:00 UTC on the 1st.
+    A reading taken at 23:50 UTC on September 30 reports SEPTEMBER's usage; used
+    as October's opening balance it says the account is nearly spent when it has
+    just refilled, and every lane goes dark for the day. So a reading from an
+    earlier month is not a balance -- it is history.
+    """
+
+    if read_at is None:
+        return False
+    aware = _aware_dt(read_at).astimezone(UTC)
+    current = moment.astimezone(UTC) if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+    return (aware.year, aware.month) == (current.year, current.month)
+
+
 def _provider_balance(session: Session, moment: datetime):
-    """The provider's own cap and usage, plus anything spent since the reading."""
+    """The provider's own cap and usage, plus anything spent since the reading.
+
+    Falls back to AISP's own current-month count -- which is the conservative
+    direction, since it can only over-report what has been spent -- when there
+    is no reading, when the reading carries no cap, or when the newest reading
+    belongs to an earlier billing month.
+    """
 
     reading = latest_usage_reading(session)
     meta = dict((reading.response_metadata or {}) if reading else {})
@@ -562,6 +611,13 @@ def _provider_balance(session: Session, moment: datetime):
     used = int(usage.get("used_this_month") or 0)
     source = "PROVIDER_ACCOUNT_USAGE"
     read_at = reading.requested_at if reading else None
+    if cap and not _same_billing_month(read_at, moment):
+        # Provenance cannot be established for THIS month, so the reading is
+        # refused rather than trusted. Fail closed on the source, not on the
+        # account: the local count for the new month is still authoritative
+        # about what AISP itself has spent.
+        return (cap, _local_month_spend(session, now=moment),
+                "LOCAL_LEDGER_COUNT_PRIOR_MONTH_READING_IGNORED", None)
     if not cap:
         return (FALLBACK_MONTHLY_CAP, _local_month_spend(session, now=moment),
                 "LOCAL_LEDGER_COUNT", None)
@@ -593,7 +649,14 @@ def build_plan(session: Session, *, now: datetime | None = None) -> Plan:
     reserve = int(snapshot.reserve)
     issued = dict(snapshot.lanes or {})
 
-    if snapshot.balance_source == "LOCAL_LEDGER_COUNT":
+    if snapshot.balance_source == "LOCAL_LEDGER_COUNT_PRIOR_MONTH_READING_IGNORED":
+        warnings.append(
+            "The newest provider usage reading belongs to an earlier billing "
+            "month, so it was ignored and this day's balance is AISP's own "
+            "count for the current month against the provider's cap. It cannot "
+            "see a spend made elsewhere. A fresh usage reading -- which costs "
+            "no objects -- restores the provider's own figure.")
+    elif snapshot.balance_source == "LOCAL_LEDGER_COUNT":
         warnings.append(
             "No provider usage reading was recorded when this day's allocation "
             "was taken, so its balance is AISP's own count against the "

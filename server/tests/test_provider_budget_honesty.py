@@ -72,13 +72,21 @@ def test_the_reporting_view_never_grants_an_unfunded_lane(session, monkeypatch):
 
 
 def test_the_owner_approved_split_is_what_the_shares_produce():
-    """7 / 1 / 2 / 1 at eleven objects a day, from the declared shares alone."""
+    """7 / 1 / 2 / 1 at eleven objects a day, from the declared shares alone.
+
+    The Show Preview lane appears at zero. That is the point of declaring it
+    unfunded with a zero share: day-before collection gets a lane of its own
+    for accounting without taking a single object from the four that pay for
+    decisions. If funding it ever changes one of these four numbers, this test
+    is where that shows up.
+    """
 
     assert apportion(11) == {
         "sgo_mlb_events": 7, "sgo_nfl_events": 1,
         "sgo_nfl_live": 2, "sgo_nfl_periods": 1,
+        "sgo_show_preview_events": 0,
     }
-    assert all(lane.funded for lane in LANES)
+    assert [lane.key for lane in LANES if not lane.funded] == ["sgo_show_preview_events"]
 
 
 def test_in_game_checks_are_bounded_by_ONE_DAY_not_by_the_month():

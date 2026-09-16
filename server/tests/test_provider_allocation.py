@@ -25,6 +25,7 @@ from app.services.provider_allocation import (
     reserve_for,
     Lane,
     LANES,
+    LANES_BY_KEY,
     OBJECT_RESERVE,
     PROVIDER,
     USAGE_ENDPOINT_KEY,
@@ -185,10 +186,18 @@ def test_an_unfunded_lane_gets_nothing_and_its_share_goes_to_the_others(monkeypa
     assert allocated["sgo_mlb_events"] + allocated["sgo_nfl_live"] > 8
 
 
-def test_every_declared_lane_is_funded_today():
-    """A guard on the current configuration, stated as its own fact."""
+def test_exactly_one_declared_lane_is_unfunded_today():
+    """A guard on the current configuration, stated as its own fact.
 
-    assert [lane.key for lane in LANES if not lane.funded] == []
+    Show Preview day-before collection has a lane of its own so its spend can
+    never be booked against a decision lane, and that lane is unfunded so it
+    has no claim on the daily total. Funding it changes every other lane's
+    share, so it is an owner decision and is pinned here rather than left to
+    drift.
+    """
+
+    assert [lane.key for lane in LANES if not lane.funded] == ["sgo_show_preview_events"]
+    assert LANES_BY_KEY["sgo_show_preview_events"].share == 0.0
 
 
 def test_a_small_share_is_not_truncated_out_of_existence():

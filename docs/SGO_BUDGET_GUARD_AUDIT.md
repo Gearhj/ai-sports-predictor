@@ -1,7 +1,26 @@
 # SportsGameOdds budget-guard audit and repair recommendation
 
-Status: **read-only audit, 2026-09-15. Nothing changed. The repair below is a
-recommendation that needs James's approval before it is implemented.**
+Status: **phase 1 implemented 2026-09-15 on the owner's approval. Phase 2 is
+still a recommendation and has NOT been implemented.**
+
+What changed, and what did not:
+
+* `object_budget()` in `app/services/sgo_collection.py` now counts the
+  provider's UTC calendar month (`billing_month_window`, bounded at both ends)
+  instead of a rolling 30 days, and fails closed with `blocked_reason` when the
+  month cannot be established.
+* Its reserve is `phase1_reserve()` = `max(400, reserve_for(service_date))`.
+  September's approved 300 is **not** taken here, so September spendable is
+  unchanged at 167. That is phase 2 (§6) and it is a separate decision.
+* `_provider_balance()` in `app/services/provider_allocation.py` ignores a usage
+  reading from an earlier billing month and reports
+  `LOCAL_LEDGER_COUNT_PRIOR_MONTH_READING_IGNORED`, with a warning saying a
+  fresh reading costs no objects.
+* Tests: `server/tests/test_budget_guard_phase1.py` (18), plus the two rewritten
+  window tests in `test_sgo_fallback.py`.
+* No provider request was made to develop or verify any of it.
+
+The audit below is the original 2026-09-15 read-only analysis, kept as written.
 
 AISP enforces SportsGameOdds (SGO) spend with two independent guards that
 answer the same question — "may this request spend objects?" — using
