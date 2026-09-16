@@ -639,36 +639,23 @@ def _ingest(session: Any, settings: Settings, sport: str, fetch: Any) -> dict[st
 
 def _complete(session: Any, reservation: Any, *, objects: int, succeeded: bool,
               budget: Any, job_run_id: Any, error: str | None = None) -> None:
-    """Close the reservation on THIS lane.
+    """Close the reservation on THIS lane, through the one shared writer.
 
-    ``complete_request`` writes its terminal row under the MLB endpoint key, so
-    calling it here would file preview spend against MLB pregame and let the
-    show quietly consume a decision lane's daily allowance in the accounting
-    even though it never touched its allocation. The row is written here instead,
-    with the same fields and the reservation's own lane.
+    This used to write the terminal row itself, because ``complete_request``
+    hard-coded the MLB endpoint key and calling it would have filed preview
+    spend against a decision lane. That is fixed at the source now: the shared
+    writer takes the lane from the reservation. A second row-writer kept in
+    parallel is a row-writer that drifts, so this is a thin call that adds only
+    the SHOW_PREVIEW provenance the shared one has no reason to know about.
     """
 
-    from app.models import ProviderRequestLedger
+    from app.services.sgo_collection import complete_request
 
-    spent = max(0, int(objects))
-    remaining = max(0, budget.allowance - budget.reserve - (budget.objects_used + spent))
-    session.add(ProviderRequestLedger(
-        provider=SOURCE, endpoint_key=PREVIEW_LANE,
-        requested_at=reservation.requested_at, completed_at=datetime.now(UTC),
-        status="SUCCEEDED" if succeeded else "FAILED",
-        request_fingerprint=reservation.request_fingerprint,
-        quota_cost=None, quota_remaining=remaining, records_received=spent,
-        controlled_live_request=True, source_mode="LIVE", job_run_id=job_run_id,
-        reservation_id=reservation.id, error_type=error,
-        response_metadata={
-            "request_shape": (reservation.response_metadata or {}).get("request_shape"),
-            "objects_returned": spent, "billable_unit": "event object",
-            "horizon": "SHOW_PREVIEW", "lane": PREVIEW_LANE,
-            "objects_used_in_window_after": budget.objects_used + spent,
-            "objects_spendable_after": remaining,
-        },
-    ))
-    session.flush()
+    complete_request(
+        session, reservation, objects=objects, succeeded=succeeded, budget=budget,
+        error=error, job_run_id=job_run_id, endpoint_key=PREVIEW_LANE,
+        extra_metadata={"horizon": "SHOW_PREVIEW", "grants_wagering_authority": False},
+    )
 
 
 def stop_preview_collection(session: Any, *, reason: str, detail: str | None = None,

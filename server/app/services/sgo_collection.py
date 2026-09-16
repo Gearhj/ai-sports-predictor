@@ -711,6 +711,8 @@ def complete_request(
     budget: ObjectBudget,
     error: str | None = None,
     job_run_id: Any = None,
+    endpoint_key: str | None = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> None:
     """Write the terminal row: outcome, objects returned, allowance remaining.
 
@@ -718,6 +720,25 @@ def complete_request(
     requests. One ledger row is one request; the sum of ``records_received`` is
     the object spend. Keeping them in different columns is what makes the two
     countable separately.
+
+    THE LANE COMES FROM THE RESERVATION
+    -----------------------------------
+    This used to hard-code the MLB endpoint key, so a lane that reserved
+    correctly still settled under someone else's name. Confirmed on the
+    production ledger 2026-09-15: `sgo_nfl_events` had four RESERVED rows and
+    zero terminal rows, and its four objects settled as `sgo_mlb_events`.
+
+    MLB was not over-charged for them -- `_lane_usage` already subtracts a row
+    whose own retained `leagueID` contradicts its lane. But that correction is
+    one-sided: it takes the objects OFF the lane that was wrongly charged and
+    does not put them ON the lane that really spent them. So the NFL lane read
+    as unspent after spending, and its daily allowance was available to draw a
+    second time. A cap enforced against a lane that cannot see its own spend is
+    not a cap.
+
+    The reservation already carries the right lane, so it is the source of
+    truth here; ``endpoint_key`` overrides it only for a caller that has a
+    reason to say otherwise.
     """
     from app.models import ProviderRequestLedger
 
@@ -727,10 +748,11 @@ def complete_request(
     # allowance. NULL is reserved for a row whose count is genuinely unknown.
     spent = max(0, objects)
     remaining = max(0, budget.allowance - budget.reserve - (budget.objects_used + spent))
+    lane = endpoint_key or getattr(reservation, "endpoint_key", None) or ENDPOINT_KEY
     session.add(
         ProviderRequestLedger(
             provider=SPORTSGAMEODDS,
-            endpoint_key=ENDPOINT_KEY,
+            endpoint_key=lane,
             requested_at=reservation.requested_at,
             completed_at=datetime.now(UTC),
             status="SUCCEEDED" if succeeded else "FAILED",
@@ -747,8 +769,10 @@ def complete_request(
                 "request_shape": (reservation.response_metadata or {}).get("request_shape"),
                 "objects_returned": spent,
                 "billable_unit": "event object",
+                "lane": lane,
                 "objects_used_in_window_after": budget.objects_used + spent,
                 "objects_spendable_after": remaining,
+                **(extra_metadata or {}),
             },
         )
     )
