@@ -112,6 +112,11 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
         .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)
         .where(Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT)
     ) or 0)
+    # INSTALLATION-WIDE provenance across every sport: does this deployment hold
+    # any live-provider data, or only demo fixtures? It is deliberately global
+    # and is NOT MLB (or any sport's) readiness -- a LIVE NBA game makes it
+    # "live" without saying anything about the MLB pipeline. Sport readiness is
+    # /sports/readiness; slate data modes come from the league-scoped reads.
     if not sports_records:
         data_mode = "empty"
     else:
@@ -120,6 +125,7 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
         data_mode = "live" if has_live else "demo" if has_demo else "empty"
     return PublicConfigData(
         data_mode=data_mode,
+        data_mode_scope="ALL_SPORTS_PROVENANCE",
         model_status="DEVELOPMENT",
         component_weights=normalized,
         display_timezone=settings.display_timezone,

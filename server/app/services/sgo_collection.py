@@ -32,7 +32,7 @@ in the run's provenance, and simultaneity is never claimed.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -131,6 +131,11 @@ class FallbackFetch:
     #: parser omission, not a request or account limitation.
     main: "MainMarketParseResult | None" = None
     market_quotes_written: int = 0
+    #: The SportsGameOdds leagueID the request was made for. Ingestion refuses
+    #: the batch unless it maps to the canonical league being ingested.
+    provider_league: str = ""
+    #: Events that were not bound, with the reason (app.ingestion.odds_league).
+    unbound: list = field(default_factory=list)
 
     def skew_summary(self) -> dict[str, Any]:
         skews = [pair.timestamp_skew_seconds for pair in self.pairs]
@@ -270,6 +275,7 @@ def fetch_pregame_moneylines(
         pairs=parse.pairs,
         parse=parse,
         main=main,
+        provider_league="MLB",
     )
 
 
@@ -374,8 +380,13 @@ def to_market_event_dtos(
 
 
 def ingest(session: Session, settings: Settings, fetch: FallbackFetch,
-           *, event_date: date | None = None) -> FallbackFetch:
-    """Normalize the fetched pairs through the ordinary ingestion path."""
+           *, league_code: str, event_date: date | None = None) -> FallbackFetch:
+    """Normalize the fetched pairs through the ordinary ingestion path.
+
+    ``league_code`` is the canonical league these quotes may bind to; the
+    fetch's own provider league must map to it, and only that league's games
+    are candidates.
+    """
     from app.ingestion.normalizer import CanonicalNormalizer
 
     normalizer = CanonicalNormalizer(session)
@@ -383,10 +394,12 @@ def ingest(session: Session, settings: Settings, fetch: FallbackFetch,
     if events:
         written = normalizer.ingest_odds(
             events, source=SPORTSGAMEODDS, available_as_of=fetch.requested_at,
+            league_code=league_code, provider_league=fetch.provider_league,
             source_mode="LIVE", event_date=event_date,
         )
         fetch.events_ingested = len(events)
         fetch.quotes_written = int(written)
+        fetch.unbound.extend(normalizer.odds_receipts)
 
     # Totals and run lines from the same already-paid-for response. Ingested
     # through the same normalizer, so provider namespacing, duplicate
@@ -398,6 +411,7 @@ def ingest(session: Session, settings: Settings, fetch: FallbackFetch,
             fetch.market_quotes_written = int(normalizer.ingest_odds(
                 market_events, source=SPORTSGAMEODDS,
                 available_as_of=fetch.requested_at,
+                league_code=league_code, provider_league=fetch.provider_league,
                 source_mode="LIVE", event_date=event_date,
             ))
     return fetch
@@ -993,7 +1007,7 @@ def collect_for_open_cutoffs(
         return {"attempted": True, "reason": "FALLBACK_REQUEST_FAILED", "objects": 0,
                 "error_type": type(error).__name__}
 
-    ingest(session, settings, fetch)
+    ingest(session, settings, fetch, league_code="MLB")
     ingested = _ingested_game_ids(session, fetch)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id)
@@ -1052,6 +1066,8 @@ def collect_for_open_cutoffs(
         "uncovered_but_window_not_open": too_early,
         "events_ingested": fetch.events_ingested,
         "quote_rows": fetch.quotes_written,
+        # Events that were not bound to an MLB game, each with its reason.
+        "unbound_events": fetch.unbound,
         # Totals and run lines from the SAME event objects. Reported separately
         # so the receipt shows the extra coverage arrived for zero extra cost.
         "market_quote_rows": fetch.market_quotes_written,

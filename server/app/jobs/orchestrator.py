@@ -1778,6 +1778,7 @@ class JobOrchestrator:
                             Game.starts_at >= self._day_bounds(event_date)[0],
                             Game.starts_at < self._day_bounds(event_date)[1],
                             Game.source_mode == "LIVE",
+                            in_league(MLB),
                         )
                         .order_by(Game.starts_at)
                     ))
@@ -1935,9 +1936,14 @@ class JobOrchestrator:
                 events,
                 envelope.source,
                 envelope.fetched_at,
+                # This refresh is the MLB odds lane. The provider's own sport
+                # key must say so; a response without one binds nothing.
+                league_code=MLB,
+                provider_league=("baseball_mlb" if demo_only else provider_metadata.get("sport_key")),
                 source_mode=envelope.source_mode.upper(),
                 event_date=event_date,
             )
+            unbound_odds_events = list(self.normalizer.odds_receipts)
             if ledger is not None:
                 self.session.add(ProviderRequestLedger(
                     provider=ledger.provider,
@@ -1969,6 +1975,8 @@ class JobOrchestrator:
                 "source": envelope.source,
                 "source_mode": envelope.source_mode,
                 "quota": envelope.metadata,
+                # Events not bound to an MLB game, each with its reason.
+                "unbound_events": unbound_odds_events,
             }
         except Exception as exc:
             self.session.rollback()

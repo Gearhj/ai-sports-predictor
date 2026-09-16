@@ -25,7 +25,10 @@ class BankrollPolicyContract(BaseModel):
 
 
 class PublicConfigData(BaseModel):
+    #: Installation-wide provenance across ALL sports (live provider data vs
+    #: demo fixtures). Never a sport's readiness; see /sports/readiness.
     data_mode: DataMode
+    data_mode_scope: Literal["ALL_SPORTS_PROVENANCE"] = "ALL_SPORTS_PROVENANCE"
     model_status: Literal["DEVELOPMENT"]
     component_weights: ComponentWeights
     bankroll_policy: BankrollPolicyContract

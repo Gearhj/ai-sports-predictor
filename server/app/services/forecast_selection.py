@@ -155,11 +155,26 @@ class ForecastSelector:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    def _ctx(self):
+        """The request's prefetched read context, when one is attached and
+        carries the selection families; otherwise None (original queries)."""
+        from app.services.funnel_read_context import attached_context
+
+        ctx = attached_context(self.session)
+        return ctx if ctx is not None and ctx.selection_loaded else None
+
+    @staticmethod
+    def _covers(ctx, game_id) -> bool:
+        return ctx is not None and game_id in ctx.games_by_id
+
     # -- era ---------------------------------------------------------------
 
     def era_effective_at(self) -> datetime | None:
         """When the V18 engine began controlling, or None if it never did."""
 
+        ctx = self._ctx()
+        if ctx is not None:
+            return ctx.v18_effective_at
         authority = self.session.scalar(
             select(ModelChampionAuthority)
             .where(ModelChampionAuthority.engine_id == V18_ENGINE)
@@ -235,14 +250,18 @@ class ForecastSelector:
     def _v18(
         self, game: Game, *, starts_at: datetime | None, effective_at: datetime | None,
     ) -> ForecastIdentity | None:
-        rows = list(self.session.scalars(
-            select(ShadowForecast)
-            .where(
-                ShadowForecast.canonical_game_id == game.id,
-                ShadowForecast.engine_id == V18_ENGINE,
-            )
-            .order_by(ShadowForecast.snapshot_version, ShadowForecast.created_at)
-        ))
+        ctx = self._ctx()
+        if self._covers(ctx, game.id):
+            rows = list(ctx.v18_rows_by_game.get(game.id, []))
+        else:
+            rows = list(self.session.scalars(
+                select(ShadowForecast)
+                .where(
+                    ShadowForecast.canonical_game_id == game.id,
+                    ShadowForecast.engine_id == V18_ENGINE,
+                )
+                .order_by(ShadowForecast.snapshot_version, ShadowForecast.created_at)
+            ))
         if not rows:
             return None
         current = rows[-1]
@@ -315,12 +334,16 @@ class ForecastSelector:
         could contradict the record.
         """
 
-        decision = self.session.scalar(
-            select(ShadowExperimentDecision)
-            .where(ShadowExperimentDecision.game_id == game_id)
-            .order_by(ShadowExperimentDecision.recommended_at.desc())
-            .limit(1)
-        )
+        ctx = self._ctx()
+        if self._covers(ctx, game_id):
+            decision = ctx.latest_decision_by_game.get(game_id)
+        else:
+            decision = self.session.scalar(
+                select(ShadowExperimentDecision)
+                .where(ShadowExperimentDecision.game_id == game_id)
+                .order_by(ShadowExperimentDecision.recommended_at.desc())
+                .limit(1)
+            )
         if decision is None:
             return None
         reason = decision.recommendation_reason or ""
@@ -362,23 +385,31 @@ class ForecastSelector:
         )
 
     def _gen1(self, game: Game) -> ForecastIdentity | None:
-        forecast = self.session.scalar(
-            select(Forecast)
-            .where(Forecast.game_id == game.id, Forecast.status == ForecastStatus.PUBLISHED)
-            .order_by(Forecast.generated_at.desc())
-            .limit(1)
-        ) or self.session.scalar(
-            select(Forecast)
-            .where(Forecast.game_id == game.id)
-            .order_by(Forecast.generated_at.desc())
-            .limit(1)
-        )
+        ctx = self._ctx()
+        covered = self._covers(ctx, game.id)
+        if covered:
+            forecast = ctx.gen1_forecast_by_game.get(game.id)
+        else:
+            forecast = self.session.scalar(
+                select(Forecast)
+                .where(Forecast.game_id == game.id, Forecast.status == ForecastStatus.PUBLISHED)
+                .order_by(Forecast.generated_at.desc())
+                .limit(1)
+            ) or self.session.scalar(
+                select(Forecast)
+                .where(Forecast.game_id == game.id)
+                .order_by(Forecast.generated_at.desc())
+                .limit(1)
+            )
         if forecast is None:
             return None
-        version = (
-            self.session.get(ModelVersion, forecast.model_version_id)
-            if forecast.model_version_id else None
-        )
+        if covered and forecast.model_version_id in ctx.model_versions_by_id:
+            version = ctx.model_versions_by_id[forecast.model_version_id]
+        else:
+            version = (
+                self.session.get(ModelVersion, forecast.model_version_id)
+                if forecast.model_version_id else None
+            )
         return ForecastIdentity(
             engine_id=GEN1_ENGINE,
             engine_version=(f"{version.name} {version.version}" if version else None),

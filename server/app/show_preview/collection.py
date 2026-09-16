@@ -604,7 +604,7 @@ def _fetch(settings: Settings, *, league: str, limit: int, now: datetime, anchor
     main = parse_main_markets(payload, received_at=now, now=now, league_id=league)
     return FallbackFetch(
         requested_at=now, objects=len(payload.get("data") or []),
-        pairs=parse.pairs, parse=parse, main=main,
+        pairs=parse.pairs, parse=parse, main=main, provider_league=league,
     )
 
 
@@ -630,7 +630,7 @@ def _ingest(session: Any, settings: Settings, sport: str, fetch: Any) -> dict[st
                 "quotes": result["quotes"], "duplicates": result["duplicates"],
                 "rejected_events": result["rejected_events"], "source": SOURCE,
                 "provider_governed": False}
-    ingest(session, settings, fetch)
+    ingest(session, settings, fetch, league_code=sport)
     return {"events": fetch.events_ingested, "quotes": fetch.quotes_written,
             "market_quotes": fetch.market_quotes_written, "source": SOURCE,
             "provider_governed": False,

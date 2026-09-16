@@ -1699,12 +1699,15 @@ class ReadService:
         # Scoped: an unqualified MAX over the whole table would let a single
         # research-fallback or demo row make the public feed look fresh while
         # the governed provider is dark.
-        latest = _aware(self.session.scalar(
+        latest = self.session.scalar(
             select(func.max(OddsSnapshot.observed_at)).where(
                 OddsSnapshot.source.in_(GOVERNED_SOURCES),
                 OddsSnapshot.source_mode == "LIVE",
             )
-        ))
+        )
+        # No governed LIVE observation at all is a normal state (a fresh
+        # install, or only research/demo rows): report it, never crash on it.
+        latest = _aware(latest) if latest is not None else None
         # "Historical" is decided by the observation's own date against the
         # slate being viewed, not by a staleness heuristic.
         historical = bool(
@@ -3528,8 +3531,9 @@ class ReadService:
             observation.confirmed_pitcher_id or observation.probable_pitcher_id
             if observation is not None else side.probable_pitcher_id
         )
-        if ctx is not None and player_id and player_id in ctx.players_by_id:
-            player = ctx.players_by_id[player_id]
+        if ctx is not None and player_id and player_id in ctx.player_ids_loaded:
+            # Loaded in bulk; an id with no player row is a known miss.
+            player = ctx.players_by_id.get(player_id)
         else:
             player = self.session.get(Player, player_id) if player_id else None
         if snapshot_bound:
@@ -4005,6 +4009,11 @@ def _league_code_for(session: Any, game: Any) -> str | None:
     league_id = getattr(game, "league_id", None)
     if league_id is None:
         return None
+    from app.services.funnel_read_context import attached_context
+
+    ctx = attached_context(session)
+    if ctx is not None and league_id in ctx.league_code_by_id:
+        return ctx.league_code_by_id[league_id]
     league = session.get(League, league_id)
     return getattr(league, "code", None)
 
