@@ -189,7 +189,7 @@
 
 /* Markets & Crowd visuals */
 .mv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 12px; margin-top: 12px; min-width: 0; }
-.mv-card { background: var(--bx-s1, #fff); border: 1px solid var(--bx-line, #e4e1dc); border-radius: 16px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; color: var(--bx-text, #10203a); }
+.mv-card { background: var(--bx-s1, #fff); border: 1px solid var(--bx-line, #e4e1dc); border-radius: 16px; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; color: var(--bx-text, #10203a); }
 .mv-card h3 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
 .mv-line { fill: none; stroke: #10203a; stroke-width: 2; }
 .mv-band { fill: rgba(15, 141, 125, .14); }
