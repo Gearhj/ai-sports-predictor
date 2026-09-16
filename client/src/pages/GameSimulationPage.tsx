@@ -216,7 +216,7 @@ export function GameSimulationPage() {
 
       <p className={`track-note${track === 'v18' ? ' track-note--compact' : ''}`} role="note">
         Switching tracks changes only which engine's evidence is displayed. Neither
-        the official forecast nor the research-shadow forecast is altered here.
+        the Gen 1 baseline nor the V18 forecast is altered here.
       </p>
 
       {/* A "LIVE DATA" banner here meant only that the API answered, beside a

@@ -228,3 +228,24 @@ describe('SimulationPopulation', () => {
     expect(onScenarioChange).toHaveBeenCalledWith('PASS_HEAVY')
   })
 })
+
+describe('loading to loaded', () => {
+  it('keeps the same hooks when the population arrives after a loading render', () => {
+    // A first, uncached visit renders while loading and again with data. A hook
+    // declared after the early returns changed the hook count between the two
+    // and blanked the whole lab (React error #310).
+    const view = mount({ population: null, loading: true })
+    expect(screen.getByText(/Loading the simulated population/)).toBeInTheDocument()
+    expect(() => view.rerender(
+      <SimulationPopulation
+        population={POPULATION}
+        scenarios={SCENARIOS}
+        scenarioId="BASE"
+        onScenarioChange={() => {}}
+        loading={false}
+        error={null}
+      />,
+    )).not.toThrow()
+    expect(screen.queryByText(/Loading the simulated population/)).not.toBeInTheDocument()
+  })
+})
