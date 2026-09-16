@@ -235,6 +235,11 @@ def _existing_markets(session: Any, game_ids: list[Any], as_of: datetime) -> dic
     both legs come from the SAME sportsbook row and the SAME provider -- the
     governed pairing rule -- so a moneyline with one leg from one book and one
     from another does not count as held, and the game is requested again.
+   
+
+    Full-game markets only. A first-half total is a different proposition, and
+    counting one as the game's total would suppress a request for the market
+    the show actually talks about.
     """
 
     from collections import defaultdict
@@ -251,7 +256,8 @@ def _existing_markets(session: Any, game_ids: list[Any], as_of: datetime) -> dic
                OddsSnapshot.source, MarketOutcome.outcome_key, OddsSnapshot.decimal_odds)
         .join(MarketOutcome, MarketOutcome.market_id == Market.id)
         .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
-        .where(Market.game_id.in_(game_ids), OddsSnapshot.source_mode == "LIVE",
+        .where(Market.game_id.in_(game_ids), Market.period == "full_game",
+               OddsSnapshot.source_mode == "LIVE",
                OddsSnapshot.observed_at <= as_of, OddsSnapshot.available_as_of <= as_of)
     ).all()
     sides: dict[tuple, set[str]] = defaultdict(set)
