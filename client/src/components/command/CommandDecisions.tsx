@@ -23,7 +23,7 @@
  */
 import * as d3 from 'd3'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useSportReadiness, type SportReadinessEntry } from '../readiness/SportReadiness'
 import {
   SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, etTime, gameHref, money, relative, signedMoney,
@@ -38,9 +38,17 @@ import { buildAgenda, nextAttention, KIND_LABEL, type AgendaEvent } from '../../
 import { useAssessments } from '../../services/probability'
 import { AssessmentBoard, classifyAssessments } from './AssessmentBoard'
 import { ParlayLab } from './ParlayLab'
+import { AllMarkets, MyCard } from './MarketsAndCard'
+import { useMyCard } from '../../services/myCard'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
+type View = 'decisions' | 'markets' | 'card'
+const VIEWS: { key: View; label: string }[] = [
+  { key: 'decisions', label: 'AISP Decisions' },
+  { key: 'markets', label: 'All Markets' },
+  { key: 'card', label: 'My Card' },
+]
 type Tone = 'green' | 'gold' | 'red' | 'gray'
 
 interface FeedCard {
@@ -237,6 +245,25 @@ export function CommandDecisions({ day }: { day: string }) {
   const assessments = useAssessments(day)
   const groups = useMemo(() => classifyAssessments(visible, assessments.data, now), [visible, assessments.data, now])
   const research = (assessments.data?.research ?? []).filter((r) => sport === 'ALL' || r.sport === sport)
+  const [params, setParams] = useSearchParams()
+  const view: View = VIEWS.some((v) => v.key === params.get('view')) ? params.get('view') as View : 'decisions'
+  const setView = (next: View) => setParams((old) => {
+    const q = new URLSearchParams(old)
+    if (next === 'decisions') q.delete('view')
+    else q.set('view', next)
+    return q
+  }, { replace: true })
+  const [labGame, setLabGame] = useState<string | null>(null)
+  const picks = useMyCard()
+  const marketGames = useMemo(() => {
+    const byId = new Map((assessments.data?.games ?? []).map((g) => [g.game_id, g]))
+    return games.filter((g) => sport === 'ALL' || g.league === sport)
+      .map((g) => ({ gameId: g.game_id, game: g, assessment: byId.get(g.game_id) ?? null }))
+  }, [games, assessments.data, sport])
+  const openLab = (gameId: string) => {
+    setLabGame(gameId)
+    window.setTimeout(() => document.getElementById('parlay-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
 
   // A game graduates from an agenda row to a decision card once there is a
   // decision to read: a final evaluation, a position, or a started game.
@@ -307,9 +334,41 @@ export function CommandDecisions({ day }: { day: string }) {
         <p className="cc-empty" role="status">{board.error ? `Decisions are unavailable: ${board.error}` : 'Loading decisions…'}</p>
       )}
 
-      <AssessmentBoard groups={groups} research={research} day={day} loading={!assessments.data && !assessments.error} />
+      <div className="dv-tabs" role="tablist" aria-label="Daily Decisions views">
+        {VIEWS.map((v) => (
+          <button key={v.key} type="button" role="tab" id={`dv-tab-${v.key}`} aria-controls={`dv-panel-${v.key}`}
+            aria-selected={view === v.key} tabIndex={view === v.key ? 0 : -1} onClick={() => setView(v.key)}
+            onKeyDown={(e) => {
+              const i = VIEWS.findIndex((x) => x.key === view)
+              if (e.key === 'ArrowRight') setView(VIEWS[(i + 1) % VIEWS.length].key)
+              if (e.key === 'ArrowLeft') setView(VIEWS[(i + VIEWS.length - 1) % VIEWS.length].key)
+            }}>
+            {v.label}{v.key === 'card' && picks.length > 0 ? ` (${picks.length})` : ''}
+          </button>
+        ))}
+      </div>
       {assessments.error && <p className="cc-empty" role="status">Model assessments are unavailable: {assessments.error}</p>}
-      <ParlayLab data={assessments.data} coverage={games} />
+
+      {view === 'markets' && (
+        <div role="tabpanel" id="dv-panel-markets" aria-labelledby="dv-tab-markets">
+          <AllMarkets games={marketGames} data={assessments.data} now={now} onOpenLab={openLab} />
+          <div id="parlay-lab"><ParlayLab data={assessments.data} coverage={games} focusGameId={labGame} /></div>
+        </div>
+      )}
+
+      {view === 'card' && (
+        <div role="tabpanel" id="dv-panel-card" aria-labelledby="dv-tab-card">
+          <MyCard now={now} />
+        </div>
+      )}
+
+      {view === 'decisions' && (
+      <div role="tabpanel" id="dv-panel-decisions" aria-labelledby="dv-tab-decisions">
+      <p className="dv-authority" role="note">
+        <b>Official AISP decisions.</b> Produced automatically by the governed decision policy. They cannot be edited, overridden
+        or deleted here, and your own picks (My Card) never change them or the $1,000 Experiment.
+      </p>
+      <AssessmentBoard groups={groups} research={research} day={day} loading={!assessments.data && !assessments.error} />
 
       <details className="as-audit" open>
         <summary>Audit view · full timing and readiness queue</summary>
@@ -343,6 +402,8 @@ export function CommandDecisions({ day }: { day: string }) {
 
       <SupportingVisuals items={items} ledger={ledger.data} />
       </details>
+      </div>
+      )}
     </section>
   )
 }

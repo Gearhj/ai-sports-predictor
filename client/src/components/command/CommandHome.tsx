@@ -1,8 +1,6 @@
 /**
  * Home: today's command center, about one desktop viewport.
  *
- *   0. AISP Today: the day in one sentence, seven counts and a four-sport
- *      readiness strip, all counted from the same read models as below.
  *   1. Today's Edge Board: up to four game cards -- the best evaluated edges,
  *      the closest plays, the model's leans before prices, or the games on
  *      deck -- chosen by `services/edgeBoard`.
@@ -11,6 +9,8 @@
  *      the next three items needing attention.
  *   3. The day on one D3 axis, clustered and packed so a full MLB slate stays
  *      legible.
+ *   4. AISP Today, last: the day in one sentence, seven counts and a
+ *      four-sport readiness strip, counted from the same read models as above.
  *
  * Every region reads the shared cache first and refreshes in the background;
  * nothing on this page reaches a provider.
@@ -99,10 +99,6 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
 
   return (
     <section className="cc-home" aria-label="Command center">
-      <RegionBoundary label="AISP today">
-        <AispToday summary={summary} readiness={readiness.data?.sports ?? []} decisionsHref={decisionsHref}
-          loading={!coverage.data || !decisions.data} />
-      </RegionBoundary>
       <RegionBoundary label="today's edge board">
         <EdgeBoard board={board} now={now} loading={!decisions.data || !coverage.data} dateLabel={dateLabel}
           allHref={decisionsHref} asOf={<AsOf resource={decisions.data ? decisions : coverage} label="decisions" />} />
@@ -158,6 +154,11 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
           ? <AgendaTimeline events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} />
           : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
       </section>
+
+      <RegionBoundary label="AISP today">
+        <AispToday summary={summary} readiness={readiness.data?.sports ?? []} decisionsHref={decisionsHref}
+          loading={!coverage.data || !decisions.data} />
+      </RegionBoundary>
     </section>
   )
 }

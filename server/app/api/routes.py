@@ -1800,6 +1800,19 @@ def probability_binding(game_id: str, session: DatabaseSession, settings: AppSet
         raise _probability_error(exc) from exc
 
 
+@router.get("/probability/games/{game_id}/story", tags=["forecasts"])
+def probability_game_story(game_id: str, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Game Center inputs: verified population, line masses, assessed quotes, facts. Read-only."""
+
+    from app.probability import adapter
+    from app.probability.story import game_story
+
+    try:
+        return game_story(session, settings, adapter.parse_game_id(game_id))
+    except adapter.ProbabilityUnavailable as exc:
+        raise _probability_error(exc) from exc
+
+
 @router.post("/probability/evaluate", tags=["forecasts"])
 def probability_evaluate(session: DatabaseSession, settings: AppSettings, body: dict = Body(...)) -> dict:
     """One market or a same-game paired-draw intersection over one exact,

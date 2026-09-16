@@ -1,0 +1,76 @@
+/* Game Center · Game Story. Light card surfaces, broadcast tokens, no colour-only meaning. */
+.gs { display: grid; gap: 12px; margin: 18px 0; min-width: 0; color: var(--bx-text, #10203a); }
+.gs__head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.gs__head h2 { margin: 0; font-size: 20px; }
+.gs__chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: #e2f4f0; color: #0b6d61; }
+.gs__empty { margin: 0; color: #55677d; }
+.gs__grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; min-width: 0; }
+.gs__wide { grid-column: 1 / -1; min-width: 0; }
+@media (max-width: 860px) { .gs__grid { grid-template-columns: minmax(0, 1fr); } }
+.gs-card { background: #fff; border: 1px solid #e4e1dc; border-radius: 16px; padding: 14px 16px; min-width: 0; display: grid; gap: 8px; box-shadow: 0 10px 28px rgba(16, 32, 58, .06); }
+.gs-card h3 { margin: 0; font-size: 15px; }
+.gs-card__head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gs-card--empty { background: #f6f4f1; }
+.gs-card--empty p { margin: 0; color: #55677d; font-size: 13.5px; overflow-wrap: anywhere; }
+.gs-sub { margin: 0; font-size: 12.5px; color: #55677d; line-height: 1.45; }
+.gs-svgwrap { min-width: 0; width: 100%; }
+.gs-svgwrap--scroll { overflow-x: auto; }
+.gs-svgwrap svg { display: block; overflow: visible; }
+.gs-grid { stroke: #ece8e2; }
+.gs-tick { font-size: 10.5px; fill: #75859a; }
+.gs-axis { font-size: 11px; fill: #55677d; font-weight: 600; }
+.gs-label { font-size: 12px; font-weight: 700; fill: #10203a; }
+.gs-bar--market { fill: #c9d5e3; }
+.gs-bar--model { fill: #0f8d7d; }
+.gs-diff { stroke-width: 2; }
+.gs-diff.is-up { color: #12855c; stroke: #12855c; }
+.gs-diff.is-down { color: #c33636; stroke: #c33636; }
+.gs-values { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 2px; }
+.gs-legend { margin: 0; font-size: 12px; color: #55677d; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gs-key { display: inline-block; width: 18px; border-radius: 2px; }
+.gs-key--market { height: 10px; background: #c9d5e3; }
+.gs-key--model { height: 5px; background: #0f8d7d; }
+.gs-heat:focus { outline: 2px solid #0f8d7d; outline-offset: 2px; }
+.gs-heat__likely { stroke: #10203a; stroke-width: .8; }
+.gs-heat__mode { fill: none; stroke: #b5741a; stroke-width: 2.5; pointer-events: none; }
+.gs-heat__final path { stroke: #c33636; stroke-width: 2.5; pointer-events: none; }
+.gs-heat__cursor { fill: none; stroke: #10203a; stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; }
+.gs-readout, .gs-final { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.gs-final { color: #8f2a2a; }
+.gs-toggle { display: inline-flex; border: 1px solid #cfcbc4; border-radius: 999px; overflow: hidden; }
+.gs-toggle button { font: inherit; font-size: 12.5px; font-weight: 700; padding: 4px 12px; border: 0; background: #fff; color: #10203a; cursor: pointer; }
+.gs-toggle button[aria-pressed="true"] { background: #0d1b2e; color: #fff; }
+.gs-dist { stroke-width: 1; }
+.gs-dist--none { fill: #b8c4d3; }
+.gs-dist--win { fill: #2f9e76; }
+.gs-dist--loss { stroke: #b04a4a; }
+.gs-dist--push { fill: #fff; stroke: #10203a; stroke-width: 1.5; }
+.gs-dist:focus { outline: none; stroke: #10203a; stroke-width: 2; }
+.gs-hatch__bg { fill: #f3d6d6; }
+.gs-hatch__line { stroke: #b04a4a; stroke-width: 2; }
+.gs-line { stroke: #10203a; stroke-width: 2; stroke-dasharray: 5 3; }
+.gs-masses { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px; }
+.gs-masses div { background: #f6f4f1; border-radius: 10px; padding: 6px 10px; }
+.gs-masses dt { font-size: 12px; font-weight: 800; }
+.gs-masses dd { margin: 0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.gs-lineform { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; font-size: 12px; }
+.gs-lineform label { display: grid; gap: 2px; font-weight: 600; color: #55677d; }
+.gs-lineform input { font: inherit; font-size: 14px; padding: 5px 8px; border: 1px solid #cfcbc4; border-radius: 8px; width: 110px; }
+.gs-lineform button { font: inherit; font-size: 12.5px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 1px solid #cfcbc4; background: #fff; cursor: pointer; }
+.gs-lineform button[type="submit"] { background: #0f8d7d; color: #fff; border-color: transparent; }
+.gs-lineform button:disabled { opacity: .5; cursor: not-allowed; }
+.gs-error { color: #c33636; }
+.gs-consensus { stroke: #10203a; stroke-width: 3; }
+.gs-fair { fill: #0f8d7d; }
+.gs-best { fill: #b5741a; }
+.gs-dot.is-current { fill: #3a6fc4; stroke: #fff; }
+.gs-dot.is-stale { fill: #fff; stroke: #75859a; stroke-width: 1.5; }
+.gs-dot:focus { outline: none; stroke: #10203a; stroke-width: 2.5; }
+.gs-facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.gs-facts li { display: grid; gap: 1px; font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.gs-facts b { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: #75859a; }
+
+/* Evidence & audit drawer on game pages. */
+.ga-evidence { margin-top: 18px; border: 1px solid #e4e1dc; border-radius: 16px; background: #fbfaf8; min-width: 0; }
+.ga-evidence > summary { cursor: pointer; padding: 12px 16px; font-weight: 800; font-size: 14px; }
+.ga-evidence > .ga-evidence__body { padding: 0 12px 12px; min-width: 0; }

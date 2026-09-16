@@ -589,11 +589,13 @@ export function BankrollPage({ demo = false, withoutSummary = false }: { demo?: 
         {evidenceStage && <span className="experiment-chip experiment-chip--evidence">{evidenceStage.replace(/_/g, ' ')}</span>}
         <span className="experiment-chip">No real wagers</span>
       </div>
-      {hasSettled ? (
+      {/* On /experiment the scoped summary above carries the one small-sample
+          warning and the narrative; the era detail does not repeat them. */}
+      {hasSettled ? (withoutSummary ? null : (
         <p className="experiment-sample-note" role="note">
           <strong>{settledCount} settled position{settledCount === 1 ? '' : 's'} {settledCount === 1 ? 'is' : 'are'} far too few to distinguish skill from noise.</strong> No profitability claim is made. Every figure below is a bookkeeping fact about this virtual ledger, not evidence of an edge.
         </p>
-      ) : data.experiment_status === 'SCHEDULED' ? (
+      )) : data.experiment_status === 'SCHEDULED' ? (
         <div className="experiment-collecting-state" role="status">
           <CalendarClock size={19} />
           <div><strong>SCHEDULED · PROSPECTIVE START</strong><span>The practical challenger is registered and starts prospectively — no retroactive decision or position will ever be created for an earlier slate.</span></div>
@@ -612,10 +614,12 @@ export function BankrollPage({ demo = false, withoutSummary = false }: { demo?: 
       <div className="exp">
         <BankrollHero facts={facts} />
 
-        <section className="exp-page__block" aria-label="What the ledger says">
-          <h2 className="exp-page__title">Where the experiment stands</h2>
-          <ExperimentNarrative lines={narrative(facts)} />
-        </section>
+        {!withoutSummary && (
+          <section className="exp-page__block" aria-label="What the ledger says">
+            <h2 className="exp-page__title">Where the experiment stands</h2>
+            <ExperimentNarrative lines={narrative(facts)} />
+          </section>
+        )}
 
         <section className="exp-page__block" aria-label="Equity and drawdown">
           <div className="exp-page__block-head">

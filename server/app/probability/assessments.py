@@ -207,6 +207,34 @@ def _research_games(session: Session, settings: Settings, lo: datetime) -> list[
     return out
 
 
+PLAYER_PROP_CONTRACT = "AISP_PLAYER_PROP_QUOTE_V1"
+
+
+def player_props() -> dict[str, Any]:
+    """Player-prop availability. AISP stores no player-prop market today.
+
+    The contract a future quote must meet before it can be listed: a canonical
+    game id, a canonical player id, a market key, an outcome with its line, an
+    American price, a sportsbook and an observation time. Without a validated
+    AISP player-prop forecast every such quote is labelled "Sportsbook market
+    -- no AISP assessment". Nothing is inferred from team markets.
+    """
+
+    from app.models import MarketType
+
+    stored_types = {member.name for member in MarketType}
+    return {
+        "contract": PLAYER_PROP_CONTRACT,
+        "required_identity": ["game_id", "player_id", "market_key", "outcome", "line", "american",
+                              "sportsbook", "observed_at"],
+        "status": "NOT_STORED",
+        "stored_market_types": sorted(stored_types),
+        "quotes": [],
+        "assessment": "Sportsbook market — no AISP assessment",
+        "message": "No player-prop quotes are stored. AISP collects only moneyline, spread and total markets today.",
+    }
+
+
 def daily_assessments(session: Session, settings: Settings, day: date,
                       now: datetime | None = None) -> dict[str, Any]:
     from app.services.command_center import ET, market_coverage
@@ -246,5 +274,6 @@ def daily_assessments(session: Session, settings: Settings, day: date,
         },
         "cross_game": {"status": "UNSUPPORTED", "code": CROSS_GAME_CALIBRATION_NOT_VALIDATED,
                        "message": CROSS_GAME_MESSAGE},
+        "player_props": player_props(),
         "provider_calls_made": 0,
     }

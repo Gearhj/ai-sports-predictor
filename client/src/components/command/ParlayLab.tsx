@@ -105,9 +105,12 @@ const MARKET_OPTIONS: { value: Leg['market']; label: string }[] = [
   { value: 'MONEYLINE', label: 'Moneyline' }, { value: 'SPREAD', label: 'Spread' }, { value: 'TOTAL', label: 'Total' },
 ]
 
-export function ParlayLab({ data, coverage }: { data: DailyAssessments | null; coverage: CoverageGame[] }) {
+export function ParlayLab({ data, coverage, focusGameId = null }: {
+  data: DailyAssessments | null; coverage: CoverageGame[]; focusGameId?: string | null
+}) {
   const games = useMemo(() => labGames(data, coverage), [data, coverage])
-  const [gameId, setGameId] = useState<string>('')
+  const [gameId, setGameId] = useState<string>(focusGameId ?? '')
+  useEffect(() => { if (focusGameId) setGameId(focusGameId) }, [focusGameId])
   const game = games.find((g) => g.gameId === gameId) ?? games[0] ?? null
   const [legs, setLegs] = useState<Leg[]>([])
   const [draft, setDraft] = useState<{ market: Leg['market']; selection: string; line: string }>({ market: 'MONEYLINE', selection: 'HOME', line: '' })

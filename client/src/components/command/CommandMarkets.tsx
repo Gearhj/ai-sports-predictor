@@ -33,6 +33,7 @@ import { LazyDetails } from './LazyDetails'
 import { MarketDetail } from './MarketDetail'
 import { ChartTable, Tooltip, activate, useTooltip, useWidth } from './chartKit'
 import { AsOf } from './RegionState'
+import { BookDispersion, CoverageStrip, LargestGaps, PriceMovement } from './MarketVisuals'
 import { todayEt } from './CommandHome'
 import { countdown } from './CommandDecisions'
 import './command.css'
@@ -206,6 +207,15 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
               </section>
             </div>
           ))}
+
+      {(tab === 'MONEYLINE' || tab === 'SPREAD' || tab === 'TOTAL') && evidence.data && (
+        <div className="mv-grid" aria-label="Market visuals">
+          {chosen && withQuotes.includes(chosen) && <PriceMovement game={chosen} />}
+          <LargestGaps games={games} onSelect={setSelected} />
+          <BookDispersion games={withQuotes} onSelect={setSelected} />
+          <CoverageStrip games={(today.data?.games ?? []).filter((g) => sport === 'ALL' || asSport(g.league) === sport)} />
+        </div>
+      )}
 
       <p className="cc-note">Prediction-market (crowd) evidence is shown only where it was captured; see the detailed boards below. Model output is never shown as a price.</p>
     </section>

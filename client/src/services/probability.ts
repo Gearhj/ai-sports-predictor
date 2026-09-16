@@ -142,7 +142,28 @@ export interface DailyAssessments {
   research: ResearchComparison[]
   parlay_policy: { sportsbook_parlay_quotes_stored: number; unavailable_message: string; creates_decisions: false; creates_positions: false }
   cross_game: { status: 'UNSUPPORTED'; code: string; message: string }
+  /** Player-prop availability. Quotes appear only with complete canonical identity. */
+  player_props?: {
+    contract: string
+    required_identity: string[]
+    status: 'NOT_STORED' | 'AVAILABLE'
+    quotes: PlayerPropQuote[]
+    assessment: string
+    message: string
+  }
   provider_calls_made: number
+}
+
+export interface PlayerPropQuote {
+  game_id: string
+  player_id: string
+  player_name: string
+  market_key: string
+  outcome: string
+  line: number | null
+  american: number
+  sportsbook: string
+  observed_at: string
 }
 
 export interface ProbabilityResult {

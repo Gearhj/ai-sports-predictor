@@ -35,6 +35,7 @@ import {
   ArrowRight, Beaker, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, LineChart,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { SLATE_SORT_LABEL, currentGap, hasCurrentPrice, hasForecast, sortSlate, type SlateSort } from '../services/slateSort'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
 import { availabilityNote, engineShortName, isCurrent, type ForecastIdentity } from '../services/forecastSelection'
@@ -106,6 +107,13 @@ export function UnifiedGamesPage() {
   const [params, setParams] = useSearchParams()
   const dateParam = params.get('date')
   const [stateFilter, setStateFilter] = useState<StateFilter>('ALL')
+  const sortMode: SlateSort = (['KICKOFF', 'FORECAST', 'GAP'] as const).find((m) => m === params.get('sort')) ?? 'KICKOFF'
+  const setSortMode = (mode: SlateSort) => setParams((old) => {
+    const q = new URLSearchParams(old)
+    if (mode === 'KICKOFF') q.delete('sort')
+    else q.set('sort', mode)
+    return q
+  }, { replace: true })
 
   // Two independent regions: the MLB slate never waits for the slower NFL week
   // board, and either one failing leaves the other usable.
@@ -171,9 +179,13 @@ export function UnifiedGamesPage() {
     return out
   }, [ledger.data])
   const all = useMemo(() => [...mlbGames, ...nflGames].sort(byStartTime), [mlbGames, nflGames])
+  const byGame = evidence.data?.byGame ?? null
   const visible = useCallback(
-    (games: SlateGame[]) => stateFilter === 'ALL' ? games : games.filter((game) => stateOf(game) === stateFilter),
-    [stateFilter],
+    (games: SlateGame[]) => sortSlate(
+      stateFilter === 'ALL' ? games : games.filter((game) => stateOf(game) === stateFilter),
+      sortMode, (game) => (game.gameId ? byGame?.[game.gameId] : null),
+    ),
+    [stateFilter, sortMode, byGame],
   )
 
   const displayedDate = board?.date ?? dateParam ?? ''
@@ -250,6 +262,13 @@ export function UnifiedGamesPage() {
               </button>
             ))}
           </div>
+          <label className="bx-field">Sort
+            <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SlateSort)} aria-label="Sort games">
+              {(Object.keys(SLATE_SORT_LABEL) as SlateSort[]).map((mode) => (
+                <option key={mode} value={mode}>{SLATE_SORT_LABEL[mode]}</option>
+              ))}
+            </select>
+          </label>
           <span className="bx-dim">
             {all.length} game{all.length === 1 ? '' : 's'} on the board
             {board?.warnings?.length ? ` · ${board.warnings.join(' · ')}` : ''}
@@ -389,12 +408,18 @@ function GameRow({
   const totalRow = books.find((row) => row.market_type === 'Total')
   const handicap = game.handicap ?? runLine?.line ?? null
   const totalLine = game.totalLine ?? totalRow?.line ?? null
+  // Emphasis only for what is genuinely current: a held forecast AND a price
+  // inside the freshness window. Stale or missing prices never get it.
+  const ready = hasForecast(game) && hasCurrentPrice(game, evidence)
+  const gap = currentGap(game, evidence)
 
   return (
-    <article className={`bx-slate__row bx-slate__row--${game.league}`} aria-label={`${game.away.name} at ${game.home.name}`}>
+    <article className={`bx-slate__row bx-slate__row--${game.league}${ready ? ' bx-slate__row--ready' : ''}`}
+      aria-label={`${game.away.name} at ${game.home.name}${ready ? ', forecast and current price' : ''}`}>
       <div className="bx-slate__when">
         <b>{clockOf(game.startsAt)}</b>
         <small>{state === 'UPCOMING' ? dayOf(game.startsAt).split(',')[0] : state.toLowerCase()}</small>
+        {ready && <span className="bx-ready-tag">Forecast · current price{gap != null ? ` · gap ${(gap * 100).toFixed(1)} pts` : ''}</span>}
       </div>
 
       <div className="bx-slate__match">
@@ -449,7 +474,7 @@ function GameRow({
 
       <div className="bx-slate__actions">
         <PrefetchLink className="bx-btn" to={withSport(game.analysisHref, game.league)}>
-          Analysis <ArrowRight size={13} />
+          Open Game Center <ArrowRight size={13} />
         </PrefetchLink>
         {game.simulationHref && (
           <PrefetchLink className="bx-btn bx-btn--primary" to={withSport(game.simulationHref, game.league)}>

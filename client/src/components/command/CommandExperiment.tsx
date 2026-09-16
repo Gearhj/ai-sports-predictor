@@ -2,8 +2,8 @@
  * The $1,000 Experiment, in the Model-era visual language, for one scope.
  *
  * A coordinated filter (Combined, MLB, NFL, NBA, College Football) drives the
- * whole summary: the bankroll hero, "Where the experiment stands", progress to
- * the first ~50-position review, the settlement-order step chart, The Tape,
+ * whole summary: the bankroll hero (with the one small-sample warning), progress
+ * to the first ~50-position review, the settlement-order step chart, The Tape,
  * the sport accounts, open positions, settlements and the transaction ledger.
  * Every one of them is computed from the same scoped ledger rows
  * (`services/experimentScope`). Combined is the complete four-account
@@ -26,9 +26,9 @@ import {
 import {
   REVIEW_CHECKPOINT, SCOPES, SCOPE_LABEL, scopeExperiment, scopedTransactions, type ExperimentScope,
 } from '../../services/experimentScope'
-import { BankrollHero, ExperimentNarrative, SettlementTape } from '../experiment/BankrollPanels'
+import { BankrollHero, SettlementTape } from '../experiment/BankrollPanels'
 import { EquityDrawdownChart } from '../experiment/EquityDrawdownChart'
-import { bankrollFacts, equitySeries, narrative } from '../experiment/bankrollMath'
+import { bankrollFacts, equitySeries } from '../experiment/bankrollMath'
 import { sportStatus } from './CommandHome'
 import { AsOf } from './RegionState'
 import './command.css'
@@ -109,16 +109,10 @@ export function CommandExperiment({ highlight }: { highlight?: string | null }) 
 
       {view && facts && (
         <div className="exp" data-scope={scope}>
-          <BankrollHero facts={facts} />
-          <p className="experiment-sample-note" role="note">
-            <strong>{facts.settledCount} settled position{facts.settledCount === 1 ? '' : 's'} {facts.settledCount === 1 ? 'is' : 'are'} too small a sample to establish skill or profitability.</strong>
-            {' '}Every figure is a bookkeeping fact about this virtual ledger{scope === 'COMBINED' ? ' across all four accounts' : ` for the ${SPORT_NAMES[scope]} account`}.
-          </p>
-
-          <section className="exp-page__block" aria-label="Where the experiment stands">
-            <h2 className="exp-page__title">Where the experiment stands</h2>
-            <ExperimentNarrative lines={narrative(facts, REVIEW_CHECKPOINT)} />
-          </section>
+          <BankrollHero facts={facts} action={
+            <p className="exp-hero__warning" role="note">
+              Small sample: {facts.settledCount} settled position{facts.settledCount === 1 ? '' : 's'} cannot establish skill or profitability.
+            </p>} />
 
           <section className="exp-page__block" aria-label="Progress to the first review">
             <h2 className="exp-page__title">Toward the first review</h2>

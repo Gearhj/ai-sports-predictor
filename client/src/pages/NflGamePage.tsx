@@ -16,6 +16,7 @@ import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { NflGameDetail } from '../types/nfl'
 import { teamIdentity } from '../services/teamIdentity'
+import { GameStory } from '../components/story/GameStory'
 
 export function NflGamePage() {
   const { gameId = '' } = useParams()
@@ -61,6 +62,8 @@ export function NflGamePage() {
         actions={<Link className="primary-button" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}><FlaskConical size={14} aria-hidden="true" /> Open Simulation Lab</Link>}
       />
 
+      {event.canonical_game_id && <GameStory gameId={event.canonical_game_id} />}
+
       <Panel title="What does our model predict?" eyebrow="FORECAST" className="section-panel"
         action={data.engines.length > 1 ? (
           <label className="nfl-card__engine">Model
@@ -100,6 +103,9 @@ export function NflGamePage() {
         <NflMarketComparison comparison={engine?.market_comparison} homeTeam={home} awayTeam={away} />
       </Panel>
 
+      <details className="ga-evidence">
+        <summary>Evidence &amp; audit — saved score-distribution supplements and research results</summary>
+        <div className="ga-evidence__body">
       {data.research_candidates.length > 0 && (
         <Panel title="Saved score-distribution evidence" eyebrow="VERIFIED SUPPLEMENTS" className="section-panel">
           <ul className="nfl-candidates">
@@ -118,6 +124,8 @@ export function NflGamePage() {
       <Panel title="How has it performed?" eyebrow="RESEARCH RESULTS" className="section-panel">
         <ResearchResultsPanel results={data.research_results} />
       </Panel>
+        </div>
+      </details>
 
       <p className="labs-return">
         <Link className="lab-game__action" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}>Open the NFL Simulation Lab for this game <ArrowRight size={13} aria-hidden="true" /></Link>

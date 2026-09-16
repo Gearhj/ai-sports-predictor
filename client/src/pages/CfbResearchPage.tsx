@@ -13,6 +13,7 @@
  * and because AISP has no admitted College Football schedule source, so the
  * games it cannot show are genuinely unknown to it rather than filtered out.
  */
+import { GameStory } from '../components/story/GameStory'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import { CfbForecastCard } from '../components/cfb/CfbForecastCard'
@@ -96,6 +97,7 @@ export function CfbResearchGamePage() {
       )}
       {data && (
         <>
+          {data.canonical_game?.bound && data.canonical_game.game_id && <GameStory gameId={data.canonical_game.game_id} />}
           <CfbForecastCard forecast={data} />
           <Authority note={data.authority.note} />
         </>

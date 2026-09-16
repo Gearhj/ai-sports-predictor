@@ -12,6 +12,7 @@ import { ArrowLeft } from 'lucide-react'
 import { PageHeader } from '../components/ui'
 import { NbaResearchCard } from '../components/nba/NbaResearchCard'
 import { useNbaResearch } from '../hooks/useNbaResearch'
+import { GameStory } from '../components/story/GameStory'
 
 export function NbaResearchGamePage() {
   const { gameId } = useParams<{ gameId: string }>()
@@ -29,6 +30,8 @@ export function NbaResearchGamePage() {
       <p className="nbares__back">
         <Link to="/nba/research"><ArrowLeft size={13} aria-hidden="true" /> All NBA research forecasts</Link>
       </p>
+
+      {gameId && <GameStory gameId={gameId} />}
 
       {loading && !data && <p className="muted" role="status">Loading…</p>}
       {error && !data && (

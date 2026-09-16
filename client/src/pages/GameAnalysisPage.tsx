@@ -25,6 +25,7 @@ import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { ShadowForecastPanel } from '../components/ShadowForecastPanel'
+import { GameStory } from '../components/story/GameStory'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import { endpoints } from '../services/api'
 import { formatCompactTimestamp, formatTime, formatTimestamp } from '../services/format'
@@ -202,6 +203,9 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </footer>
       </section>
 
+      {/* The visual game story leads; the detailed tables live in Evidence & audit below. */}
+      {!demo && <GameStory gameId={game.id} />}
+
       <GameLifecyclePanel game={game} />
 
       <ShadowForecastPanel gameId={gameId} />
@@ -210,10 +214,6 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         Explore this game&rsquo;s simulations in{' '}
         <Link className="text-link" to="/labs?league=MLB">Interactive labs</Link>.
       </p>
-
-      <nav className="analysis-tabs" aria-label="Analysis sections">
-        <a href="#forecast">Forecast</a><a href="#market">Market</a><a href="#matchup">Matchup</a><a href="#simulation">Simulation</a><a href="#history">History</a><a href="#audit">Data audit</a>
-      </nav>
 
       <section className="forecast-summary" id="forecast">
         <article><span>Home win</span><strong>{forecastAvailable ? formatPct(game.home_win_probability) : '—'}</strong><small>{marketAvailable ? `Market ${formatPct(game.market_home_probability)}` : 'Market unavailable'}</small></article>
@@ -226,6 +226,9 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         <article><ScoreBar value={game.data_readiness} label="Data readiness" tone="teal" /></article>
       </section>
 
+      <details className="ga-evidence" open={demo}>
+        <summary>Evidence &amp; audit — prices by book, pitchers, bullpen, Statcast, model detail and source readiness</summary>
+        <div className="ga-evidence__body">
       <div className="analysis-grid analysis-grid--wide-left">
         <Panel title="Model vs. market" eyebrow="WIN PROBABILITY">
           <div className="probability-rows">
@@ -353,6 +356,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
           ))}
         </div>
       </Panel>
+        </div>
+      </details>
 
       <p className="page-footnote">All values on this page are pregame estimates tied to the forecast version shown. Published versions are retained. No model driver should be interpreted as proof of causality.</p>
     </div>
