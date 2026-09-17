@@ -1518,11 +1518,20 @@ class JobOrchestrator:
         """
 
         from app.scoreboard.collect import collect_mlb_scoreboard, should_run_fast
+        from app.services.rff_capture import capture_due_rff_snapshots
+
+        # Passive RFF Core capture rides this job's two-minute cadence. It runs
+        # BEFORE the watch-window gate, because a pregame reading is due when no
+        # game is live; it makes no provider request and never raises, so a
+        # capture problem cannot stop the scoreboard. Research/display only.
+        rff = capture_due_rff_snapshots(self.session, now=datetime.now(UTC))
 
         if not should_run_fast(self.session, now=datetime.now(UTC)):
             return {"records": 0, "league": "MLB", "requests": 0,
-                    "reason": "NO_GAME_IN_WATCH_WINDOW"}
-        return await collect_mlb_scoreboard(self.session, event_date=event_date)
+                    "reason": "NO_GAME_IN_WATCH_WINDOW", "rff_capture": rff}
+        result = await collect_mlb_scoreboard(self.session, event_date=event_date)
+        result["rff_capture"] = rff
+        return result
 
     async def collect_nfl_period_breakdowns(self, event_date: date) -> dict[str, Any]:
         """One budget-governed pass for NFL quarter breakdowns still missing.

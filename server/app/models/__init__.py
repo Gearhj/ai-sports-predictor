@@ -28,6 +28,7 @@ from app.models.entities import (
     ProspectiveEvaluationClaim, ProspectiveEvaluationClaimBinding,
     ProspectiveEvaluationGameAssignment, ProspectiveEvaluationLabelAccess,
     ProspectiveEvaluationPlan,
+    RffReadingSnapshot,
     RosterAvailabilityObservation, RunStatus, Season, SourceFreshnessPolicy, Sport,
     NflFinalObservation,
     ShadowThresholdSelection,

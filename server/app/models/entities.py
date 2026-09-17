@@ -3657,3 +3657,74 @@ class ShadowThresholdSelection(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
                          name="uq_shadow_threshold_selection"),
         Index("ix_shadow_threshold_rung_slate", "rung_percentage", "slate_date"),
     )
+
+
+class RffReadingSnapshot(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One prospectively captured RFF Core reading, or the receipt of a miss.
+
+    APPEND-ONLY. There is no update and no delete path: an accepted row is the
+    authoritative record of what the index said at a registered offset, and a
+    later recomputation is a diagnostic comparison, never a correction.
+
+    A reading is admissible only when it is captured within
+    ``MAX_CAPTURE_LAG_SECONDS`` of its target instant. Past that, the row is a
+    ``MISSED_CAPTURE_WINDOW`` receipt carrying no index values, and it is never
+    backfilled -- a reading assembled after the fact is not the reading that
+    existed, which is the whole point of capturing prospectively.
+
+    Research and display only. Nothing here is read by a forecast, a decision,
+    a stake, a position or a settlement.
+    """
+
+    __tablename__ = "rff_reading_snapshots"
+
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
+    league_code: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+
+    #: One of the four registered offsets: T-6h, T-3h, T-90m, T-30m.
+    target_offset: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
+    target_instant_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    captured_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The instant handed to the calculation. Equals captured_at_utc: the
+    #: reading is what the index said then, not a reconstruction of the target.
+    as_of_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    capture_lag_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: ACCEPTED or MISSED_CAPTURE_WINDOW.
+    status: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    missed_reason: Mapped[str | None] = mapped_column(String(200))
+
+    # -- calculation identity --------------------------------------------
+    calculation_version: Mapped[str | None] = mapped_column(String(40))
+    calculation_git_sha: Mapped[str | None] = mapped_column(String(40))
+    #: SHA-256 over the physical source files that determine the number.
+    calculation_source_sha256: Mapped[str | None] = mapped_column(String(64))
+    weights_sha256: Mapped[str | None] = mapped_column(String(64))
+    policy_sha256: Mapped[str | None] = mapped_column(String(64))
+    calculation_identity: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # -- the reading ------------------------------------------------------
+    components: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    known_contribution: Mapped[float | None] = mapped_column(Float)
+    evidence_coverage: Mapped[float | None] = mapped_column(Float)
+    lower_bound: Mapped[float | None] = mapped_column(Float)
+    upper_bound: Mapped[float | None] = mapped_column(Float)
+    interval_width: Mapped[float | None] = mapped_column(Float)
+    publication_tier: Mapped[str | None] = mapped_column(String(24), index=True)
+    band_key: Mapped[str | None] = mapped_column(String(32))
+    band_label: Mapped[str | None] = mapped_column(String(40))
+    emphasize_point: Mapped[bool | None] = mapped_column(Boolean)
+    rankable: Mapped[bool | None] = mapped_column(Boolean)
+    available_components: Mapped[int | None] = mapped_column(Integer)
+
+    # -- provenance -------------------------------------------------------
+    evidence_health: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    source_hashes: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    source_row_identities: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    __table_args__ = (
+        # One accepted reading per game per offset, enforced by the database
+        # and not only by the service: a second process, a retry or a replayed
+        # job can never produce a competing reading for the same instant.
+        UniqueConstraint("game_id", "target_offset", name="uq_rff_snapshot_game_offset"),
+        Index("ix_rff_snapshot_offset_status", "target_offset", "status"),
+    )
