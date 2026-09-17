@@ -566,10 +566,17 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "record-shadow-threshold-ladder", "settings": settings},
         **common,
     )
+    # Settlement's owner. The recurring cadence stays thirty minutes, but
+    # without an explicit next_run_time an interval job first fires a full
+    # interval after process start, so every restart deferred settlement by up
+    # to half an hour -- a game that went final during a deploy sat unsettled
+    # and read as an open position. Ninety seconds lets the process finish
+    # starting and then settles whatever became final while it was down.
     scheduler.add_job(
         execute_scheduled_job,
         "interval",
         minutes=30,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=90),
         id="asp-finalize-games",
         kwargs={"job_name": "finalize-games", "settings": settings},
         **common,

@@ -214,6 +214,28 @@ DECISIONS_SCHEMA = "AISP_COMMAND_CENTER_DECISIONS_V1"
 PHASE_ORDER = {"MORNING": 0, "LINEUP_CONFIRMED": 1, "FINAL_PREGAME": 2}
 
 
+def _position_display(position_status: Any, profit_loss: Any, game_status: Any) -> str:
+    """What to call a position on the board.
+
+    The only case this exists for: the game is over, the settlement owner has
+    not run yet, and an open position is indistinguishable from one on a game
+    still being played. Saying "Final -- settlement pending" describes what is
+    already true; it settles nothing and changes no ledger row.
+    """
+
+    state = str(position_status).split(".")[-1].upper()
+    game = str(game_status).split(".")[-1].upper()
+    if profit_loss is not None or state == "SETTLED":
+        return "Settled"
+    if state == "VOID":
+        return "Void"
+    if state == "OPEN" and game == "FINAL":
+        return "Final — settlement pending"
+    if state == "OPEN" and game == "IN_PROGRESS":
+        return "Open — game in progress"
+    return "Open"
+
+
 def decision_board(session: Session, day: date, now: datetime | None = None) -> dict[str, Any]:
     """The governed evaluations of one slate date, for the funded eras only.
 
@@ -319,7 +341,16 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
             "position": {"position_id": str(pid), "stake": float(stake) if stake is not None else None,
                          "status": "SETTLED" if pnl is not None else str(pstatus).upper(),
                          "result": str(result).upper() if result else None,
-                         "profit_loss": float(pnl) if pnl is not None else None} if pid else None,
+                         "profit_loss": float(pnl) if pnl is not None else None,
+                         # A finished game whose position the settlement owner has
+                         # not reached yet reads identically to a live one unless
+                         # we say so. The settlement itself is still the owner's:
+                         # this only describes what is already true.
+                         "display_status": _position_display(pstatus, pnl, status),
+                         "awaiting_settlement": (
+                             pnl is None
+                             and str(pstatus).split(".")[-1].upper() == "OPEN"
+                             and str(status).split(".")[-1].upper() == "FINAL")} if pid else None,
         })
     items.sort(key=lambda i: (i["starts_at"] or "", i["matchup"] or "", i["selection"] or ""))
     upcoming_windows = sorted(i["decision_window"]["closes_at"] for i in items

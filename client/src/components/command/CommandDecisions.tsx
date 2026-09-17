@@ -108,6 +108,11 @@ export function describeDecision(item: DecisionItem | null, game: CoverageGame |
       const verb = item.position.result === 'WIN' ? 'Won' : item.position.result === 'LOSS' ? 'Lost' : 'Settled'
       return { label: `${verb} ${signedMoney(pnl)}`, tone: pnl > 0 ? 'green' : pnl < 0 ? 'red' : 'gray', detail: reason }
     }
+    // A finished game whose position has not been settled yet must not read
+    // the same as one still being played.
+    if (item.position.awaiting_settlement) {
+      return { label: 'Final — settlement pending', tone: 'gold', detail: reason }
+    }
     return { label: 'Position open', tone: 'green', detail: reason }
   }
   const rec = item?.recommendation ?? 'NOT_YET_EVALUATED'
@@ -551,7 +556,7 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
           <b>Entry {item.selection} {am(item.american)}</b> · {shortBook(item.sportsbook)} · stake {money(item.position.stake)}
           {item.position.status === 'SETTLED'
             ? <> · <span className={(item.position.profit_loss ?? 0) >= 0 ? 'is-up' : 'is-down'}>{item.position.result} {signedMoney(item.position.profit_loss)}</span></>
-            : ' · open'}
+            : <> · {(item.position.display_status ?? 'Open').toLowerCase()}</>}
         </p>
       )}
       <ol className="cc-steps" aria-label="Readiness">

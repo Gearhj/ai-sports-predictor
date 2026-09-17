@@ -142,7 +142,17 @@ export interface DecisionItem {
   recommended_at: string | null
   decision_window: { opens_at: string; closes_at: string } | null
   group: DecisionGroup
-  position: { position_id: string; stake: number | null; status: string; result: string | null; profit_loss: number | null } | null
+  position: {
+    position_id: string
+    stake: number | null
+    status: string
+    result: string | null
+    profit_loss: number | null
+    /** Plain wording for the board, e.g. "Final — settlement pending". */
+    display_status?: string
+    /** The game is over and the settlement owner has not reached it yet. */
+    awaiting_settlement?: boolean
+  } | null
   /** Re-derived from the stored snapshot: the same-book, same-provider pair the decision priced. */
   market_integrity?: MarketIntegrity | null
   /** The forecast the decision used, and whether it was the controlling one at the time. */
