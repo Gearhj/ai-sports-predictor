@@ -87,13 +87,11 @@ describe('historical replay card', () => {
     expect(pick).toHaveTextContent('Historical virtual pick')
     expect(pick).toHaveTextContent('New York Mets to win -150')
     expect(pick).toHaveTextContent('DraftKings via SportsGameOdds')
-    expect(pick).toHaveTextContent('Illustrative total if it wins $16.67')
-    // The replay uses the same $1 payout language as the live Bet Board.
-    expect(pick).toHaveTextContent('Bet $1 → $1.67 total if it wins')
+    expect(pick).toHaveTextContent('Illustrative return $16.67')
 
     fireEvent.change(within(pick).getByRole('textbox', { name: /Virtual stake/ }), { target: { value: '30' } })
     fireEvent.blur(within(pick).getByRole('textbox', { name: /Virtual stake/ }))
-    await waitFor(() => expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent('Illustrative total if it wins $50.00'))
+    await waitFor(() => expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent('Illustrative return $50.00'))
 
     const stored = JSON.parse(window.localStorage.getItem(REPLAY_CARD_KEY) ?? '[]')
     expect(stored).toHaveLength(1)
@@ -141,7 +139,7 @@ function assessments(quotes: PlayerPropQuote[]): DailyAssessments {
     games: [], research: [],
     parlay_policy: { sportsbook_parlay_quotes_stored: 0, unavailable_message: '', creates_decisions: false, creates_positions: false },
     cross_game: { status: 'UNSUPPORTED', code: 'CROSS_GAME_CALIBRATION_NOT_VALIDATED', message: '' },
-    player_props: { ...PLAYER_PROPS_FIXTURE, message: '', quotes, status: quotes.length ? 'AVAILABLE' : 'NOT_STORED' },
+    player_props: { ...PLAYER_PROPS_FIXTURE, message: '', quotes },
     provider_calls_made: 0,
   }
 }
@@ -177,7 +175,7 @@ describe('player props', () => {
     expect(requests).toEqual([])
   })
 
-  it('always shows the Player Props section, with quotes only when real ones exist', () => {
+  it('renders a section only when stored quotes exist for the game', () => {
     const coverage = { game_id: 'g-nym', league: 'MLB', matchup: 'BAL @ NYM', starts_at: new Date(NOW + 3600e3).toISOString(),
       status: 'SCHEDULED', price_state: 'CURRENT_PRICE', books: 1, fresh_books: 1, freshest_observed_at: null,
       stalest_usable_observed_at: null, consensus_no_vig_home: null, consensus_is_current: false,
@@ -185,9 +183,7 @@ describe('player props', () => {
       checkpoints: { collection_opens_at: '', decision_window_opens_at: '', decision_window_closes_at: '' } }
     const entry = { gameId: 'g-nym', game: coverage as never, assessment: null }
     const { unmount } = render(<MemoryRouter><AllMarkets games={[entry]} data={assessments([])} now={NOW} onOpenLab={() => {}} /></MemoryRouter>)
-    const empty = screen.getByRole('region', { name: 'Player props' })
-    expect(empty).toHaveTextContent('Player-prop prices are not available yet')
-    expect(empty.querySelectorAll('button')).toHaveLength(0)
+    expect(screen.queryByRole('region', { name: 'Player props' })).toBeNull()
     unmount()
     render(<MemoryRouter><AllMarkets games={[entry]} data={assessments([propQuote()])} now={NOW} onOpenLab={() => {}} /></MemoryRouter>)
     expect(screen.getByRole('region', { name: 'Player props' })).toHaveTextContent('1+ hit')

@@ -268,31 +268,22 @@ function marketsData(): { games: Parameters<typeof AllMarkets>[0]['games']; data
 }
 
 describe('All Markets and My Card', () => {
-  it('adds a current moneyline to My Card without any API call, with $1 payouts on every row', () => {
+  it('adds a current moneyline to My Card without any API call, and never a stale one', () => {
     const { games, data } = marketsData()
     render(<MemoryRouter><AllMarkets games={games} data={data} now={Date.now()} onOpenLab={() => {}} /><MyCard now={Date.now()} /></MemoryRouter>)
-    const board = screen.getByRole('region', { name: 'Bet Board' })
-    const moneyline = within(board).getByRole('region', { name: 'Moneyline markets' })
-    const add = within(moneyline).getByRole('button', { name: 'Add Guardians to win -140 at DraftKings to My Card' })
-    expect(within(moneyline).getByRole('button', { name: 'Add Tigers to win +120 at DraftKings to My Card' })).toBeEnabled()
-    // The best CURRENT book is the row; the stale Bovada price is only listed under Why?.
-    const home = within(moneyline).getByLabelText('Guardians to win -140')
-    expect(home).toHaveTextContent('Bet $1 → $1.71 total if it wins')
-    expect(home).toHaveTextContent('$0.71 profit')
-    expect(home).toHaveTextContent('AISP expectation pending — forecast not available')
-    expect(within(moneyline).getByLabelText('Tigers to win +120')).toHaveTextContent('Bet $1 → $2.20 total if it wins')
-    // A one-sided total: Under is a visible row, marked not quoted, never invented.
-    const total = within(board).getByRole('region', { name: 'Game total markets' })
-    expect(within(total).getByRole('button', { name: 'Add Over 8.5 -105 at DraftKings to My Card' })).toBeEnabled()
-    expect(within(total).getByLabelText('Under 8.5: not quoted')).toHaveTextContent('Not quoted')
-    expect(within(board).getByRole('region', { name: 'Run line markets' })).toHaveTextContent('Not quoted — nothing to select.')
-    // Player props are a visible section with their real state, never fixtures.
-    const props = within(board).getByRole('region', { name: 'Player props' })
-    expect(props).toHaveTextContent('Player-prop prices are not available yet')
-    expect(props).toHaveTextContent('AISP assessment remains unavailable until prospective calibration is complete')
+    const add = screen.getByRole('button', { name: /Add Cleveland Guardians to win -140 at DraftKings to My Card/ })
+    const stale = screen.getByRole('button', { name: /Cleveland Guardians to win: not selectable \(price not current\)/ })
+    expect(stale).toBeDisabled()
+    // A one-sided total: the missing Under is shown as not quoted, not invented.
+    expect(screen.getByRole('button', { name: /under not quoted: not selectable \(not quoted\)/ })).toBeDisabled()
+    expect(screen.getByRole('region', { name: 'Spread markets' })).toHaveTextContent('Not quoted — nothing to select.')
+    expect(screen.getByTestId('player-props-unavailable')).toHaveTextContent('No player-prop quotes are stored')
+    // A Player Props section exists only when real stored quotes exist.
+    expect(screen.queryByRole('region', { name: 'Player props' })).toBeNull()
 
     const before = requests.length
     fireEvent.click(add)
+    fireEvent.click(stale)
     expect(requests.length).toBe(before)
     const card = screen.getByRole('region', { name: 'My Card' })
     expect(card).toHaveTextContent(MY_CARD_LABEL)
@@ -301,47 +292,15 @@ describe('All Markets and My Card', () => {
     expect(picks).toHaveLength(1)
     expect(picks[0]).toHaveTextContent('Cleveland Guardians to win -140')
     expect(picks[0]).toHaveTextContent('DraftKings via SportsGameOdds')
-    expect(picks[0]).toHaveTextContent('Total if it wins $17.14')
-    expect(picks[0]).toHaveTextContent('Profit if it wins $7.14')
-    expect(picks[0]).toHaveTextContent('Bet $1 → $1.71 total if it wins')
+    expect(picks[0]).toHaveTextContent('Returns $17.14')
+    // Stored only in this browser, under the card's own key.
     const stored = JSON.parse(window.localStorage.getItem(MY_CARD_KEY) ?? '[]')
     expect(stored).toHaveLength(1)
     expect(stored[0]).toMatchObject({ game_id: 'g-guardians', market: 'MONEYLINE', outcome: 'HOME', american: -140, sportsbook: 'DraftKings', freshness_at_add: 'CURRENT' })
+    // The chosen outcome is now marked and cannot be added twice.
     expect(add).toBeDisabled()
     expect(add).toHaveTextContent('On your card')
     expect(requests.every((r) => r.method === 'GET')).toBe(true)
-  })
-
-  it('shows AISP expectation only where the server assessed that exact current quote', () => {
-    const { games, data } = marketsData()
-    const modelled = (american: number, win: number, loss: number, push: number, current: boolean, expected: number | null) => ({
-      american, decimal: american > 0 ? 1 + american / 100 : 1 - 100 / american, no_vig: 0.5,
-      model: { win, loss, push, void: 0, conditional: win / (win + loss), mcse: 0.004, fair_decimal: null, fair_american: -150 },
-      edge: expected == null ? null : 0.02, expected_return: expected, edge_reason: current ? null : 'QUOTE_NOT_CURRENT',
-    })
-    const ml = quote('MONEYLINE', { HOME: -110, AWAY: -110 }, true)
-    ml.sides = { HOME: modelled(-110, 0.6, 0.4, 0, true, 0.6 * (100 / 110) - 0.4), AWAY: modelled(-110, 0.4, 0.6, 0, true, 0.4 * (100 / 110) - 0.6) }
-    const staleTotal = quote('TOTAL', { OVER: -110, UNDER: -110 }, false, 'DraftKings', 8)
-    staleTotal.sides = { OVER: modelled(-110, 0.46, 0.465, 0.075, false, null), UNDER: modelled(-110, 0.465, 0.46, 0.075, false, null) }
-    const assessment = {
-      ...games[0].assessment!,
-      binding: { channel: 'PAIRED_POPULATION' as const, status: 'SUPPORTED' as const, binding: { modelId: 'MLB_V18_WHOLE_GAME', forecastId: 'f-1' } as never },
-      quotes: [ml, staleTotal], parlay_lab: [],
-    }
-    render(<MemoryRouter><AllMarkets games={[{ ...games[0], assessment }]} data={data} now={Date.now()} onOpenLab={() => {}} /></MemoryRouter>)
-    const moneyline = screen.getByRole('region', { name: 'Moneyline markets' })
-    // 0.6 x (100/110) - 0.4 = +0.1455 per $1; 0.4 x (100/110) - 0.6 = -0.2364 per $1.
-    expect(within(moneyline).getByLabelText('Guardians to win -110')).toHaveTextContent('AISP expected profit: +$0.15 per $1')
-    expect(within(moneyline).getByLabelText('Tigers to win -110')).toHaveTextContent('AISP expected loss: −$0.24 per $1')
-    expect(within(moneyline).getByLabelText('Guardians to win -110')).toHaveTextContent('AISP win probability 60.0%')
-    const total = screen.getByRole('region', { name: 'Game total markets' })
-    const over = within(total).getByLabelText('Over 8 -110')
-    // Integer total: push probability shown; stale price: no expectation and not selectable.
-    expect(over).toHaveTextContent('AISP Over probability 46.0% · push 7.5%')
-    expect(over).toHaveTextContent('AISP expectation shown only for a current price')
-    expect(over).not.toHaveTextContent('expected profit')
-    expect(within(total).getByRole('button', { name: 'Over 8: not selectable (price not current)' })).toBeDisabled()
-    expect(within(over).getByText('Why?').closest('details')).toHaveTextContent('f-1')
   })
 
   it('the store refuses stale quotes and never combines picks', () => {
@@ -363,7 +322,7 @@ describe('All Markets and My Card', () => {
     expect(card.textContent).not.toMatch(/\d+(\.\d+)?%/)
     expect(card.textContent).not.toMatch(/parlay price|combined odds|joint/i)
     act(() => { myCard.setStake(myCard.list()[0].id, 25) })
-    expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent(/Total if it wins \$42\.86/)
+    expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent(/Returns \$42\.86/)
     act(() => { myCard.clear() })
     expect(card).toHaveTextContent('No picks yet')
   })

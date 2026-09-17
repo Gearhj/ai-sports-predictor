@@ -40,18 +40,15 @@ import { AssessmentBoard, classifyAssessments } from './AssessmentBoard'
 import { ParlayLab } from './ParlayLab'
 import { AllMarkets, MyCard } from './MarketsAndCard'
 import { useMyCard } from '../../services/myCard'
-import { useSportSelection } from '../../hooks/useSportSelection'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
 type View = 'decisions' | 'markets' | 'card'
-/** Bet Board first and by default; AISP Picks are the official governed decisions. */
 const VIEWS: { key: View; label: string }[] = [
-  { key: 'markets', label: 'Bet Board' },
-  { key: 'decisions', label: 'AISP Picks' },
+  { key: 'decisions', label: 'AISP Decisions' },
+  { key: 'markets', label: 'All Markets' },
   { key: 'card', label: 'My Card' },
 ]
-const DEFAULT_VIEW: View = 'markets'
 type Tone = 'green' | 'gold' | 'red' | 'gray'
 
 interface FeedCard {
@@ -246,7 +243,6 @@ export function CommandDecisions({ day, initialSport }: { day: string; initialSp
   const readiness = useSportReadiness()
   const now = useNow()
   const [sport, setSport] = useState<SportCode | 'ALL'>(initialSport ?? 'ALL')
-  const { setSport: setGlobalSport } = useSportSelection()
 
   const items = useMemo(() => board.data?.items ?? [], [board.data])
   const games = useMemo(() => coverage.data?.games ?? [], [coverage.data])
@@ -259,10 +255,10 @@ export function CommandDecisions({ day, initialSport }: { day: string; initialSp
   const groups = useMemo(() => classifyAssessments(visible, assessments.data, now), [visible, assessments.data, now])
   const research = (assessments.data?.research ?? []).filter((r) => sport === 'ALL' || r.sport === sport)
   const [params, setParams] = useSearchParams()
-  const view: View = VIEWS.some((v) => v.key === params.get('view')) ? params.get('view') as View : DEFAULT_VIEW
+  const view: View = VIEWS.some((v) => v.key === params.get('view')) ? params.get('view') as View : 'decisions'
   const setView = (next: View) => setParams((old) => {
     const q = new URLSearchParams(old)
-    if (next === DEFAULT_VIEW) q.delete('view')
+    if (next === 'decisions') q.delete('view')
     else q.set('view', next)
     q.delete('replay')  // leaving My Card always leaves the historical replay
     return q
@@ -345,12 +341,6 @@ export function CommandDecisions({ day, initialSport }: { day: string; initialSp
         </div>
       </section>
 
-      {sport !== 'ALL' && (
-        <p className="dv-filter-note" role="status">
-          <b>Showing {SPORT_NAMES[sport]} only</b> · other sports are hidden, not missing ·{' '}
-          <button type="button" className="dv-filter-note__all" onClick={() => { setSport('ALL'); setGlobalSport('ALL') }}>View all sports</button>
-        </p>
-      )}
       {(sportsInFeed.length > 1 || sport !== 'ALL') && (
         <div className="cc-filters" role="group" aria-label="Sport">
           {(['ALL', ...new Set([...sportsInFeed, ...(sport === 'ALL' ? [] : [sport])])] as const).map((code) => (

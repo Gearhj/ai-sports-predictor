@@ -33,9 +33,8 @@ import {
   type AssessedQuote, type DailyAssessments, type GameAssessment, type PlayerPropQuote,
 } from '../../services/probability'
 import { PLAYER_PROPS_FIXTURE } from '../../services/playerPropsFixture'
-import { payoutLine } from '../../services/payout'
 import { useReplay, type ReplayGame } from '../../services/replay'
-import { BetBoardGame } from './BetBoard'
+import { MarketBlock } from './AssessmentBoard'
 import './assessments.css'
 
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
@@ -176,33 +175,115 @@ export function AllMarkets({ games, data, now, onOpenLab, preview = false }: {
   games: MarketGame[]; data: DailyAssessments | null; now: number; onOpenLab: (gameId: string) => void; preview?: boolean
 }) {
   const withQuotes = games.filter((g) => (g.assessment?.quotes.length ?? 0) > 0 || g.game.quotes.length > 0)
-  const unpriced = games.filter((g) => !withQuotes.includes(g))
   const props = data?.player_props
   const propsByGame = useMemo(() => {
     const out = new Map<string, PlayerPropQuote[]>()
     for (const q of props?.quotes ?? []) out.set(q.game_id, [...(out.get(q.game_id) ?? []), q])
     return out
   }, [props])
-  const firstOpen = withQuotes.find((g) => (g.assessment?.quotes ?? []).some((q) => q.state === 'CURRENT'))?.gameId ?? withQuotes[0]?.gameId
   return (
-    <section className="am" aria-label="Bet Board">
-      <p className="am__intro">Every stored sportsbook price AISP can show for this slate, one row per outcome. The payout is the book's price;
-        {' '}AISP's expected profit appears only where its verified forecast supports that exact price. Virtual picks only — no real money.</p>
+    <section className="am" aria-label="All Markets">
+      <p className="am__intro">Every stored, identity-validated sportsbook market AISP can show for this slate. Only current prices can be added to My Card.
+        {' '}These are market listings, not AISP decisions.</p>
       {preview && <PlayerPropsPreview now={now} />}
-      {withQuotes.length === 0 && <p className="cc-empty">No sportsbook market is stored for this slate.</p>}
-      {withQuotes.map((g) => (
-        <BetBoardGame key={g.gameId} game={g.game} assessment={g.assessment} props={propsByGame.get(g.gameId) ?? []}
-          propsStatus={props?.status ?? null} now={now} open={g.gameId === firstOpen} onOpenLab={onOpenLab} />
-      ))}
-      {unpriced.length > 0 && (
-        <p className="am__research">No sportsbook price stored yet: {unpriced.map((g) => g.game.matchup ?? g.gameId).join(', ')}.</p>
+      {props && props.quotes.length === 0 && (
+        <p className="am__props" data-testid="player-props-unavailable">
+          <b>Player props:</b> {props.message}
+        </p>
       )}
+      {withQuotes.length === 0 && <p className="cc-empty">No sportsbook market is stored for this slate.</p>}
+      {withQuotes.map((g) => <MarketGameRow key={g.gameId} entry={g} now={now} onOpenLab={onOpenLab} props={propsByGame.get(g.gameId)} />)}
       {(data?.research.length ?? 0) > 0 && (
         <p className="am__research">Research sports ({data!.research.map((r) => r.matchup).join(', ')}) have no governed sportsbook market in AISP, so nothing is listed for them.</p>
       )}
     </section>
   )
 }
+
+const MarketGameRow = memo(function MarketGameRow({ entry, now, onOpenLab, props }: {
+  entry: MarketGame; now: number; onOpenLab: (gameId: string) => void; props?: PlayerPropQuote[]
+}) {
+  const { game, assessment } = entry
+  const quotes = assessment?.quotes ?? []
+  const card = useMyCard()
+  const chosen = useMemo(() => new Set(card.map(pickKey)), [card])
+  const current = quotes.filter((q) => q.state === 'CURRENT').length
+  const sameGame = assessment?.binding.status === 'SUPPORTED'
+  return (
+    <details className="am-game" style={{ ['--sport' as string]: SPORT_COLORS[game.league as 'MLB'] }}>
+      <summary>
+        <span className="am-game__sport"><i className="cc-dot" />{SPORT_NAMES[game.league as 'MLB'] ?? game.league}</span>
+        <b>{game.away?.name ?? game.away?.abbreviation} at {game.home?.name ?? game.home?.abbreviation}</b>
+        <span className="am-game__when">{game.starts_at ? etTime(game.starts_at, true) : 'time TBD'}</span>
+        <span className={`am-state ${current ? 'is-current' : 'is-stale'}`}>{current ? `${current} current quote${current === 1 ? '' : 's'}` : 'No current price'}</span>
+      </summary>
+      <div className="am-game__body">
+        {MARKETS.map((m) => {
+          const rows = quotes.filter((q) => marketOf(q) === m.key)
+            .sort((a, b) => Number(b.state === 'CURRENT') - Number(a.state === 'CURRENT') || b.observed_at.localeCompare(a.observed_at))
+          return (
+            <section key={m.key} className="am-market" aria-label={`${m.label} markets`}>
+              <h4>{m.label}</h4>
+              {rows.length === 0
+                ? <p className="am-none">Not quoted — nothing to select.</p>
+                : (
+                  <ul className="am-quotes">
+                    {rows.map((q, i) => (
+                      <li key={`${q.sportsbook_key}-${q.line}-${i}`} className={q.state === 'CURRENT' ? '' : 'is-stale'}>
+                        <span className="am-quote__book">
+                          <b>{shortBook(q.sportsbook)}</b>
+                          <small>{q.provider}{q.classification === 'RESEARCH' ? ' · research-classified' : ''} · {etTime(q.observed_at, true)} ({relative(q.observed_at, now)})</small>
+                          <em className={`as-state ${q.state === 'CURRENT' ? 'is-current' : 'is-stale'}`}>{q.state === 'CURRENT' ? 'Current' : 'Stored reference only'}</em>
+                        </span>
+                        {m.sides.map((side) => {
+                          const pick = pickFrom(game, q, side)
+                          const selectable = pick != null && q.state === 'CURRENT' && isCurrentQuote(q.observed_at, now)
+                          const already = pick != null && chosen.has(pickKey(pick))
+                          const label = pick?.outcome_label ?? `${side.toLowerCase()} not quoted`
+                          return (
+                            <button key={side} type="button" className="am-outcome"
+                              disabled={!selectable || already}
+                              aria-label={selectable ? `Add ${label} ${american(q.sides[side]?.american)} at ${shortBook(q.sportsbook)} to My Card` : `${label}: not selectable (${pick ? 'price not current' : 'not quoted'})`}
+                              onClick={() => { if (pick) myCard.add(pick, { now, current: q.state === 'CURRENT' }) }}>
+                              <span>{label}</span>
+                              <b>{pick ? american(q.sides[side]?.american) : '—'}</b>
+                              <small>{already ? 'On your card' : selectable ? 'Add to My Card' : pick ? 'Not current' : 'Not quoted'}</small>
+                            </button>
+                          )
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              {rows.length > 0 && (
+                <details className="am-why">
+                  <summary>Why? Model, no-vig, fair price and expected return</summary>
+                  <MarketBlock market={m} quote={rows[0]} game={game} />
+                </details>
+              )}
+            </section>
+          )
+        })}
+        <section className="am-market" aria-label="Same-game markets">
+          <h4>Same-Game</h4>
+          {sameGame ? (
+            <>
+              {(assessment?.parlay_lab ?? []).map((ex, i) => (
+                <p key={i} className="am-sgp">
+                  {ex.legs.map((leg) => legLabel(leg, game.home?.abbreviation ?? 'Home', game.away?.abbreviation ?? 'Away')).join(' + ')}:
+                  {' '}model joint win {pct(ex.probabilities.win)} ({ex.effective_draw_count.toLocaleString()} paired draws). {PARLAY_UNAVAILABLE}
+                </p>
+              ))}
+              <button type="button" className="am-link" onClick={() => onOpenLab(game.game_id)}>Build a same-game combination in the Parlay Lab</button>
+            </>
+          ) : <p className="am-none">No verified simulation population for this game, so no same-game research is available.</p>}
+        </section>
+        {props && props.length > 0 && <PlayerPropsSection game={game} quotes={props} now={now} />}
+        <p className="am-foot"><Link to={gameHref(game.league, game.game_id)}>Open Game Center →</Link></p>
+      </div>
+    </details>
+  )
+})
 
 export function MyCard({ now, replay = false, onReplay }: { now: number; replay?: boolean; onReplay?: (on: boolean) => void }) {
   if (replay) return <ReplayCard now={now} onLeave={() => onReplay?.(false)} />
@@ -320,7 +401,6 @@ function ReplayMarkets({ games, asOf, asOfLabel }: { games: ReplayGame[]; asOf: 
                                 onClick={() => { if (pick) replayCard.add(pick, { asOf }) }}>
                                 <span>{text}</span>
                                 <b>{pick ? american(q.sides[side]?.american) : '—'}</b>
-                                {pick && <small className="am-outcome__pay">{payoutLine(pick.decimal)}</small>}
                                 <small>{already ? 'On historical card' : selectable ? 'Add to historical card' : pick ? 'Not current then' : 'Not quoted'}</small>
                               </button>
                             )
@@ -363,11 +443,7 @@ function PickRow({ pick, store, now }: { pick: VirtualPick; store: CardStore; no
         <input inputMode="decimal" value={draft} onChange={(e) => setDraft(e.target.value)}
           onBlur={() => store.setStake(pick.id, Number(draft))} aria-label={`Virtual stake for ${pick.outcome_label}`} />
       </label>
-      <span className="mc-pick__return">
-        {replay ? 'Illustrative total if it wins' : 'Total if it wins'} ${r.total.toFixed(2)}
-        <small>Profit if it wins ${r.profit.toFixed(2)}</small>
-        <small>{payoutLine(pick.decimal)}</small>
-      </span>
+      <span className="mc-pick__return">{replay ? 'Illustrative return' : 'Returns'} ${r.total.toFixed(2)}<small>profit ${r.profit.toFixed(2)} at {pick.decimal.toFixed(2)}</small></span>
       <button type="button" onClick={() => store.remove(pick.id)} aria-label={`Remove ${pick.outcome_label}`}>Remove</button>
     </li>
   )
