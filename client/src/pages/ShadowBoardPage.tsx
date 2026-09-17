@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowRight, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
@@ -6,6 +6,7 @@ import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
 import { teamIdentity } from '../services/teamIdentity'
+import { useSportSelection } from '../hooks/useSportSelection'
 import type {
   ProspectiveRescore,
   ShadowBoardData,
@@ -63,6 +64,14 @@ export function ShadowBoardPage() {
   const [slateDate, setSlateDate] = useState<string>(initialSlateDate)
   const [data, setData] = useState<ShadowBoardData | null>(null)
   const [sport, setSport] = useState<string | null>(initialSport)
+  // Follow the global sport selector while mounted (MLB is "BASEBALL" here).
+  const { sport: selected } = useSportSelection()
+  const firstSelected = useRef(selected)
+  useEffect(() => {
+    if (selected === firstSelected.current) return // the URL already set the initial slate
+    firstSelected.current = selected
+    setSport(selected === 'NFL' ? 'NFL' : selected === 'MLB' ? 'BASEBALL' : null)
+  }, [selected])
   const [rescores, setRescores] = useState<ProspectiveRescore[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

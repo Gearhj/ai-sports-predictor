@@ -6,6 +6,7 @@
 import { lazy, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CommandMarkets } from '../components/command/CommandMarkets'
+import { useSportSelection } from '../hooks/useSportSelection'
 import { LazyDetails } from '../components/command/LazyDetails'
 import { RegionBoundary } from '../components/command/RegionBoundary'
 import { useBroadcastTheme } from '../components/broadcast/primitives'
@@ -17,6 +18,8 @@ const Boards = lazy(() => import('./UnifiedMarketsPage').then((m) => ({ default:
 export function MarketsRoute() {
   useBroadcastTheme()
   const [params, setParams] = useSearchParams()
+  const { sport: selected } = useSportSelection()
+  const initialSport = selected === 'MLB' || selected === 'NFL' ? selected : undefined
   const day = resolveOperationalDate(params.get('date'))
   const onDay = useCallback((next: string) => setParams((old) => {
     const copy = new URLSearchParams(old)
@@ -29,7 +32,8 @@ export function MarketsRoute() {
     <div className="bx bx-markets">
       <div className="bx__inner">
         <RegionBoundary label="market command center">
-          <CommandMarkets day={day} onDay={onDay} />
+          {/* Keyed so the global sport selector filters the board, not just the URL. */}
+          <CommandMarkets key={initialSport ?? 'ALL'} day={day} onDay={onDay} initialSport={initialSport} />
         </RegionBoundary>
         <LazyDetails defaultOpen={deepLink} summary="Detailed boards — every price row, replay, prediction markets and the full RFF Lab">
           <div className="cc-nested"><Boards /></div>

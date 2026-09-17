@@ -50,7 +50,7 @@ const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
 
 
-export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: string) => void }) {
+export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDay: (next: string) => void; initialSport?: SportCode }) {
   const today = useMarketCoverage(day)
   const summary = today.data?.summary
   const todayHasQuotes = (today.data?.games ?? []).some((g) => g.quotes.length > 0)
@@ -59,7 +59,7 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
   const snapshot = useMarketCoverage(useSnapshot ? (snapshotDay as string) : day)
   const evidence = useSnapshot ? snapshot : today
   const ledger = useLedger()
-  const [sport, setSport] = useState<SportCode | 'ALL'>('ALL')
+  const [sport, setSport] = useState<SportCode | 'ALL'>(initialSport ?? 'ALL')
   const [tab, setTab] = useState<FamilyTab>('MONEYLINE')
   const market: Market = tab === 'SPREAD' || tab === 'TOTAL' ? tab : 'MONEYLINE'
   const [selected, setSelected] = useState<string | null>(null)
@@ -154,9 +154,9 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
             <button key={key} role="tab" type="button" aria-selected={tab === key} onClick={() => setTab(key)}>{label}</button>
           ))}
         </div>
-        {sports.length > 1 && (
+        {(sports.length > 1 || sport !== 'ALL') && (
           <div className="cc-filters" role="group" aria-label="Sport" style={{ margin: 0 }}>
-            {(['ALL', ...sports] as const).map((code) => (
+            {(['ALL', ...new Set([...sports, ...(sport === 'ALL' ? [] : [sport])])] as const).map((code) => (
               <button key={code} type="button" aria-pressed={sport === code} onClick={() => setSport(code)}>
                 {code === 'ALL' ? 'All sports' : SPORT_NAMES[code]}
               </button>
@@ -171,7 +171,14 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
       {(tab === 'MONEYLINE' || tab === 'SPREAD' || tab === 'TOTAL') && (!evidence.data
         ? <p className="cc-empty" role="status">{evidence.error ? `Market evidence is unavailable: ${evidence.error}` : 'Loading stored quotes…'}</p>
         : withQuotes.length === 0
-          ? <><p className="cc-empty">No stored sportsbook quote exists for {SPORT_NAMES[sport as SportCode] ?? 'any sport'} in AISP yet.</p>{scheduledPanel}</>
+          ? <><p className="cc-empty">
+              {sport === 'ALL'
+                ? 'No stored sportsbook quote exists for this date.'
+                : `No stored ${SPORT_NAMES[sport as SportCode]} sportsbook quote for this date.`}
+              {sport !== 'ALL' && evidenceGames.some((g) => g.quotes.length > 0) && (
+                <> <button type="button" className="cc-linkish" onClick={() => setSport('ALL')}>Show all sports</button></>
+              )}
+            </p>{scheduledPanel}</>
           : (
             <div className="cc-mgrid">
               <div className="cc-mcol">

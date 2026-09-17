@@ -236,13 +236,13 @@ export function progress(card: FeedCard, now: number): { reached: number; states
   return { reached, states, labels }
 }
 
-export function CommandDecisions({ day }: { day: string }) {
+export function CommandDecisions({ day, initialSport }: { day: string; initialSport?: SportCode }) {
   const board = useDecisionBoard(day)
   const coverage = useMarketCoverage(day)
   const ledger = useLedger()
   const readiness = useSportReadiness()
   const now = useNow()
-  const [sport, setSport] = useState<SportCode | 'ALL'>('ALL')
+  const [sport, setSport] = useState<SportCode | 'ALL'>(initialSport ?? 'ALL')
 
   const items = useMemo(() => board.data?.items ?? [], [board.data])
   const games = useMemo(() => coverage.data?.games ?? [], [coverage.data])
@@ -341,9 +341,9 @@ export function CommandDecisions({ day }: { day: string }) {
         </div>
       </section>
 
-      {sportsInFeed.length > 1 && (
+      {(sportsInFeed.length > 1 || sport !== 'ALL') && (
         <div className="cc-filters" role="group" aria-label="Sport">
-          {(['ALL', ...sportsInFeed] as const).map((code) => (
+          {(['ALL', ...new Set([...sportsInFeed, ...(sport === 'ALL' ? [] : [sport])])] as const).map((code) => (
             <button key={code} type="button" aria-pressed={sport === code} onClick={() => setSport(code)}>
               {code === 'ALL' ? 'All sports' : SPORT_NAMES[code]}
             </button>

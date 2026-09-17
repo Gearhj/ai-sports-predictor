@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ShadowBoardPage, teamLabel } from './ShadowBoardPage'
 import type { ShadowBoardData } from '../types/domain'
@@ -112,7 +113,7 @@ describe('ShadowBoardPage', () => {
 
   it('shows both engines, the research-shadow notice, and NO_BET decisions', async () => {
     stubFetch(BOARD)
-    render(<ShadowBoardPage />)
+    render(<MemoryRouter><ShadowBoardPage /></MemoryRouter>)
 
     expect(await screen.findByRole('heading', { name: /Shadow Betting Board/i })).toBeInTheDocument()
     expect(screen.getByText(/Research shadow — not executable/i)).toBeInTheDocument()
@@ -125,13 +126,13 @@ describe('ShadowBoardPage', () => {
 
   it('renders a clean empty state when no shadow forecasts are imported', async () => {
     stubFetch(null)
-    render(<ShadowBoardPage />)
+    render(<MemoryRouter><ShadowBoardPage /></MemoryRouter>)
     expect(await screen.findByText(/No imported shadow forecasts for this slate/i)).toBeInTheDocument()
   })
 
   it('shows an availability rescore with before/after and book-moved state', async () => {
     stubFetch(null, RESCORE_BOARD)
-    render(<ShadowBoardPage />)
+    render(<MemoryRouter><ShadowBoardPage /></MemoryRouter>)
     expect(await screen.findByText(/Live availability rescores/i)).toBeInTheDocument()
     expect(screen.getByText('Star Player')).toBeInTheDocument()
     expect(screen.getByText(/LATE_SCRATCH · MANUAL_ADMIN/i)).toBeInTheDocument()
@@ -143,7 +144,7 @@ describe('ShadowBoardPage', () => {
   it('initializes an NFL slate from the URL and renders the exact frozen model lineage', async () => {
     window.history.replaceState({}, '', '/shadow-board?date=2026-09-09&sport=NFL')
     const fetchMock = stubFetch(NFL_BOARD)
-    render(<ShadowBoardPage />)
+    render(<MemoryRouter><ShadowBoardPage /></MemoryRouter>)
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([input]) =>

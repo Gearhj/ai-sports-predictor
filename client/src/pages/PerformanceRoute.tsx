@@ -22,7 +22,8 @@ export function PerformanceRoute() {
     <div className="bx bx-performance">
       <div className="bx__inner">
         <RegionBoundary label="model performance">
-          <CommandPerformance initialSport={initial} />
+          {/* Keyed so the global sport selector moves the page, not just the URL. */}
+          <CommandPerformance key={initial ?? "default"} initialSport={initial} />
         </RegionBoundary>
         <LazyDetails summary="Technical diagnostics and methodology — offline evaluation, dataset readiness, per-game scorecards, model registry">
           <div className="cc-nested"><Diagnostics /></div>

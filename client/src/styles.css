@@ -585,6 +585,7 @@ h1, h2, h3, p { margin-top: 0; }
 .methodology-hero h2 { margin-bottom: 5px; font-size: 20px; letter-spacing: -.025em; }
 .methodology-hero p { max-width: 870px; margin: 0; color: #a4b3c0; font-size: 11px; line-height: 1.6; }
 .methodology-layout { display: grid; grid-template-columns: 165px minmax(0, 1fr); align-items: start; gap: 21px; }
+@media (max-width: 1000px) { .methodology-layout { grid-template-columns: minmax(0, 1fr); } .method-section { grid-template-columns: minmax(0, 1fr); } }
 .methodology-nav { position: sticky; top: 15px; display: flex; flex-direction: column; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: white; }
 .methodology-nav > span { margin-bottom: 6px; padding: 4px 7px; color: #8a98a7; font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .07em; }
 .methodology-nav a { padding: 7px; color: #687b8e; border-left: 2px solid transparent; font-size: 11px; text-decoration: none; }
@@ -606,7 +607,7 @@ h1, h2, h3, p { margin-top: 0; }
 .pipeline span { color: var(--teal); font: 600 11px "IBM Plex Mono", monospace; }
 .pipeline strong { font-size: 11px; }
 .pipeline svg { position: absolute; right: -10px; z-index: 2; transform: rotate(-90deg); color: #9eb0be; }
-.source-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 14px; }
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 7px; margin-bottom: 14px; }
 .source-grid article { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; padding: 10px 12px; color: var(--teal); border: 1px solid var(--line); border-radius: 4px; }
 .source-grid strong { color: #40566c; font-size: 11px; }
 .source-grid span { grid-column: 2; color: #8391a0; font-size: 11px; }
@@ -4258,3 +4259,5 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .slate-check--yes b, .slate-check--done b { color: #0d6b49; }
 .slate-check--no b { color: #8f5a10; }
 .slate-check--pending b { color: var(--muted, #7a8699); font-weight: 600; }
+
+@media (max-width: 1000px) { .methodology-nav { position: static; flex-direction: row; overflow-x: auto; } .methodology-nav > span { display: none; } .methodology-nav a { white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; } }
