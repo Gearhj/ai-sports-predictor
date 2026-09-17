@@ -15,6 +15,8 @@ def test_a_final_game_with_an_open_position_says_settlement_is_pending():
 
 
 def test_a_live_game_with_an_open_position_says_the_game_is_in_progress():
+    # LIVE is the canonical status; IN_PROGRESS is the scoreboard feed's word.
+    assert _position_display("OPEN", None, "GameStatus.LIVE") == "Open — game in progress"
     assert _position_display("OPEN", None, "GameStatus.IN_PROGRESS") == "Open — game in progress"
 
 

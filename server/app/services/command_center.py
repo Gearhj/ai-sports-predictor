@@ -231,7 +231,9 @@ def _position_display(position_status: Any, profit_loss: Any, game_status: Any) 
         return "Void"
     if state == "OPEN" and game == "FINAL":
         return "Final — settlement pending"
-    if state == "OPEN" and game == "IN_PROGRESS":
+    # The canonical value is LIVE; IN_PROGRESS is what the scoreboard feed
+    # calls it, and both reach this function depending on the caller.
+    if state == "OPEN" and game in {"LIVE", "IN_PROGRESS"}:
         return "Open — game in progress"
     return "Open"
 
