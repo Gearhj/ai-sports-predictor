@@ -49,6 +49,11 @@ type QuoteLike = Pick<AssessedQuote, 'market' | 'line' | 'sportsbook' | 'provide
 type GameLike = Pick<CoverageGame, 'game_id' | 'league' | 'matchup' | 'starts_at' | 'home' | 'away'>
 const marketOf = (q: Pick<QuoteLike, 'market'>) => (q.market === 'RUN_LINE' ? 'SPREAD' : q.market)
 export const NO_ASSESSMENT = 'Sportsbook market — no AISP assessment'
+const ORIGIN_TAG: Record<string, string> = {
+  OFFICIAL_PICK: 'Your virtual copy of the #1 AISP pick',
+  MODEL_VALUE: 'Your virtual pick · research model value',
+  PERSONAL: 'Your virtual pick',
+}
 export const FIXTURE_BANNER = 'Test fixture — not live sportsbook data. Interface preview only; nothing here can be selected.'
 
 export interface MarketGame {
@@ -428,7 +433,7 @@ function PickRow({ pick, store, now }: { pick: VirtualPick; store: CardStore; no
   return (
     <li className="mc-pick" style={{ ['--sport' as string]: SPORT_COLORS[pick.sport] }} aria-label={`${pick.outcome_label}, ${replay ? REPLAY_PICK_LABEL : MY_CARD_LABEL}`}>
       <div className="mc-pick__main">
-        <span className={`mc-pick__tag${replay ? ' is-replay' : ''}`}>{replay ? 'Historical virtual pick' : 'Your virtual pick'}</span>
+        <span className={`mc-pick__tag${replay ? ' is-replay' : ''}`}>{replay ? 'Historical virtual pick' : ORIGIN_TAG[pick.origin ?? 'PERSONAL']}</span>
         <b>{pick.outcome_label} {american(pick.american)}</b>
         <small>{pick.matchup} · {SPORT_NAMES[pick.sport]} · {kind} · {pick.sportsbook}{pick.provider ? ` via ${pick.provider}` : ''}</small>
         {pick.prop && (
@@ -438,12 +443,16 @@ function PickRow({ pick, store, now }: { pick: VirtualPick; store: CardStore; no
           ? <small>Price as it appeared {etTime(pick.quote_observed_at, true)}{pick.replay_as_of ? ` · replay moment ${etTime(pick.replay_as_of, true)}` : ''}</small>
           : <small>Price observed {etTime(pick.quote_observed_at, true)} · added {etTime(pick.added_at, true)} ·{' '}
             <span className={still ? 'is-up' : 'is-down'}>{still ? 'price still current' : 'price no longer current'}</span></small>}
+        {pick.expectation && (
+          <small className="mc-pick__ev">AISP expected profit when added: {pick.expectation.expected_profit >= 0 ? '+' : '−'}${Math.abs(pick.expectation.expected_profit).toFixed(2)} per $1
+            {' '}(expected return ${pick.expectation.expected_return.toFixed(2)}; win {pct(pick.expectation.win)}{pick.expectation.push ? `, push ${pct(pick.expectation.push)}` : ''}) · frozen at this price</small>
+        )}
       </div>
       <label className="mc-pick__stake">Virtual stake $
         <input inputMode="decimal" value={draft} onChange={(e) => setDraft(e.target.value)}
           onBlur={() => store.setStake(pick.id, Number(draft))} aria-label={`Virtual stake for ${pick.outcome_label}`} />
       </label>
-      <span className="mc-pick__return">{replay ? 'Illustrative return' : 'Returns'} ${r.total.toFixed(2)}<small>profit ${r.profit.toFixed(2)} at {pick.decimal.toFixed(2)}</small></span>
+      <span className="mc-pick__return">{replay ? 'Illustrative total if it wins' : 'Total if it wins'} ${r.total.toFixed(2)}<small>profit if it wins ${r.profit.toFixed(2)} · $1 → ${pick.decimal.toFixed(2)}</small></span>
       <button type="button" onClick={() => store.remove(pick.id)} aria-label={`Remove ${pick.outcome_label}`}>Remove</button>
     </li>
   )

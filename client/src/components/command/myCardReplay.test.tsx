@@ -87,11 +87,11 @@ describe('historical replay card', () => {
     expect(pick).toHaveTextContent('Historical virtual pick')
     expect(pick).toHaveTextContent('New York Mets to win -150')
     expect(pick).toHaveTextContent('DraftKings via SportsGameOdds')
-    expect(pick).toHaveTextContent('Illustrative return $16.67')
+    expect(pick).toHaveTextContent('Illustrative total if it wins $16.67')
 
     fireEvent.change(within(pick).getByRole('textbox', { name: /Virtual stake/ }), { target: { value: '30' } })
     fireEvent.blur(within(pick).getByRole('textbox', { name: /Virtual stake/ }))
-    await waitFor(() => expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent('Illustrative return $50.00'))
+    await waitFor(() => expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent('Illustrative total if it wins $50.00'))
 
     const stored = JSON.parse(window.localStorage.getItem(REPLAY_CARD_KEY) ?? '[]')
     expect(stored).toHaveLength(1)

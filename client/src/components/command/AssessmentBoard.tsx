@@ -6,13 +6,17 @@
  *   Useful passed decisions  -- final evaluations that did not qualify
  *   Research comparisons     -- NBA / College Football, research authority only
  *
+ * Each game card leads with its top opportunity (the official AISP pick, or the
+ * best current model value, or a plain statement of why there is none), then
+ * the forecast, then every market as ranked outcome rows behind a disclosure.
+ *
  * Every number is a stored or server-computed value. Prices are the stored
  * quote pair for that book; a side or a line that was not quoted is shown as
  * missing, never inferred. Model probabilities come from the verified paired
  * population (win / loss / push mass). An edge or expected return appears only
  * where the server assessed one: a current, governed, two-sided quote.
  */
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { TeamLogo } from '../TeamLogo'
 import {
@@ -24,6 +28,8 @@ import {
   type AssessedQuote, type AssessedSide, type Channel, type DailyAssessments, type GameAssessment,
   type ResearchComparison,
 } from '../../services/probability'
+import { topPlay } from '../../services/topPlay'
+import { MarketSections, TopOpportunity } from './TopOpportunity'
 import './assessments.css'
 
 type Tone = 'green' | 'gold' | 'red' | 'gray'
@@ -199,11 +205,9 @@ function ForecastStrip({ channel, game, sport, labels }: {
 export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card: AssessmentCardModel; day: string }) {
   const { game, item, assessment, sport } = card
   const channel = assessment?.binding ?? null
-  const quotes = assessment?.quotes ?? []
-  const book = item?.sportsbook ?? null
+  const play = useMemo(() => topPlay(assessment, game, item), [assessment, game, item])
   const simulate = `/games/${card.key}/simulation?sport=${sport}`
   const reasons = item?.plain_reasons?.length ? item.plain_reasons : card.status.detail ? [card.status.detail] : []
-  const best = game?.best
   return (
     <article className={`as-card as-card--${card.status.tone}`} style={{ ['--sport' as string]: SPORT_COLORS[sport] }}
       aria-label={`${card.matchup}: ${card.status.label}`}>
@@ -218,13 +222,9 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
         </div>
         <span className={`as-status cc-tone--${card.status.tone}`}>{card.status.label}</span>
       </header>
+      <TopOpportunity play={play} game={game} item={item} sport={sport} status={card.status.label} channel={channel} />
       <ForecastStrip channel={channel} game={game} sport={sport} />
-      <div className="as-markets">
-        {MARKETS.map((m) => <MarketBlock key={m.key} market={m} quote={primaryQuote(quotes, m.key, book)} game={game} />)}
-      </div>
-      {best?.AWAY && best.HOME && (
-        <p className="as-best">Best current moneyline · {game?.away?.abbreviation} {american(best.AWAY.american)} ({shortBook(best.AWAY.sportsbook)}) · {game?.home?.abbreviation} {american(best.HOME.american)} ({shortBook(best.HOME.sportsbook)})</p>
-      )}
+      <MarketSections play={play} assessment={assessment} game={game} sport={sport} />
       <div className="as-decision">
         <small>Decision</small>
         <b>{card.status.label}{item?.selection && item.selection !== '—' ? ` · ${item.selection}` : ''}</b>

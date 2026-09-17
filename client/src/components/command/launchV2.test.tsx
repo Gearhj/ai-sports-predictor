@@ -292,7 +292,7 @@ describe('All Markets and My Card', () => {
     expect(picks).toHaveLength(1)
     expect(picks[0]).toHaveTextContent('Cleveland Guardians to win -140')
     expect(picks[0]).toHaveTextContent('DraftKings via SportsGameOdds')
-    expect(picks[0]).toHaveTextContent('Returns $17.14')
+    expect(picks[0]).toHaveTextContent('Total if it wins $17.14')
     // Stored only in this browser, under the card's own key.
     const stored = JSON.parse(window.localStorage.getItem(MY_CARD_KEY) ?? '[]')
     expect(stored).toHaveLength(1)
@@ -322,7 +322,7 @@ describe('All Markets and My Card', () => {
     expect(card.textContent).not.toMatch(/\d+(\.\d+)?%/)
     expect(card.textContent).not.toMatch(/parlay price|combined odds|joint/i)
     act(() => { myCard.setStake(myCard.list()[0].id, 25) })
-    expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent(/Returns \$42\.86/)
+    expect(within(card).getAllByRole('listitem')[0]).toHaveTextContent(/Total if it wins \$42\.86/)
     act(() => { myCard.clear() })
     expect(card).toHaveTextContent('No picks yet')
   })

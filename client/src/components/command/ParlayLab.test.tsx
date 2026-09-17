@@ -179,26 +179,29 @@ describe('assessment cards', () => {
     render(<MemoryRouter><AssessmentBoard groups={groups} research={data.research} day="2026-09-20" loading={false} /></MemoryRouter>)
 
     const closest = screen.getByRole('region', { name: 'Closest to qualifying' })
-    const moneyline = within(closest).getByLabelText('Moneyline at DraftKings')
-    expect(moneyline).toHaveTextContent('Stored reference only')
-    expect(moneyline).toHaveTextContent('Price is not current — no edge assessed')
-    expect(moneyline).toHaveTextContent('Push')
-    expect(moneyline).toHaveTextContent('5.0%')
-    expect(moneyline.textContent).not.toMatch(/EV /)
-    // Both sides of the total, with the line on each.
-    const total = within(closest).getByLabelText('Total at DraftKings')
-    expect(total).toHaveTextContent('Over 44.5')
-    expect(total).toHaveTextContent('Under 44.5')
+    // Only stored reference prices: the card says a current price is needed and ranks nothing.
+    expect(within(closest).getByRole('region', { name: 'Top opportunity: CURRENT PRICE NEEDED' }))
+      .toHaveTextContent('Stored reference price — current expected return unavailable')
+    const moneyline = within(closest).getByRole('region', { name: 'Moneyline' })
+    expect(moneyline).toHaveTextContent('stored reference')
+    expect(moneyline).toHaveTextContent('Stored reference price — current expected return unavailable')
+    expect(moneyline).toHaveTextContent('push 5.0%')
+    expect(moneyline.textContent).not.toMatch(/per \$1/)
+    expect(within(moneyline).queryAllByRole('button', { name: /^Add / })).toHaveLength(0)
+    // Both sides of the total, each with its line.
+    const total = within(closest).getByRole('region', { name: 'Game total' })
+    expect(within(total).getByText('Over 44.5')).toBeInTheDocument()
+    expect(within(total).getByText('Under 44.5')).toBeInTheDocument()
     // No spread was quoted: shown as missing, never invented.
-    expect(within(closest).getByLabelText('Spread: not quoted')).toHaveTextContent('No spread quote stored')
+    expect(within(closest).getByRole('region', { name: 'Spread' })).toHaveTextContent('No spread quote stored.')
     for (const name of ['Analyze', 'Simulate', 'Shop Books']) expect(within(closest).getByRole('link', { name })).toBeInTheDocument()
     expect(within(closest).getByRole('link', { name: 'Simulate' })).toHaveAttribute('href', '/games/g1/simulation?sport=NFL')
 
     const qualified = screen.getByRole('region', { name: 'Qualified decisions' })
-    const current = within(qualified).getByLabelText('Moneyline at DraftKings')
-    expect(current).toHaveTextContent('Current')
-    expect(current).toHaveTextContent('+3.1 pts')
-    expect(current).toHaveTextContent('EV 4.2%')
+    const current = within(qualified).getByRole('region', { name: 'Moneyline' })
+    const ranked = within(current).getAllByRole('listitem').find((li) => li.textContent?.includes('#1'))!
+    expect(ranked).toHaveTextContent('+$0.04 per $1')
+    expect(ranked).toHaveTextContent('+3.1 pts')
 
     const research = screen.getByRole('region', { name: 'Research-only comparisons' })
     expect(research).toHaveTextContent('Research only')
@@ -222,9 +225,11 @@ describe('assessment cards', () => {
     data.games[0].quotes = [q]
     const groups = classifyAssessments(feed(), data, now)
     render(<MemoryRouter><AssessmentBoard groups={groups} research={[]} day="2026-09-20" loading={false} /></MemoryRouter>)
-    const total = within(screen.getByRole('region', { name: 'Closest to qualifying' })).getByLabelText('Total at DraftKings')
-    expect(total).toHaveTextContent('not quoted')
-    expect(total).toHaveTextContent('No two-sided price — no edge assessed')
-    expect(total).toHaveTextContent('Over 8.5')
+    const total = within(screen.getByRole('region', { name: 'Closest to qualifying' })).getByRole('region', { name: 'Game total' })
+    const rows = within(total).getAllByRole('listitem').filter((li) => li.classList.contains('tp-row'))
+    // Only the quoted side appears; the missing Under is never invented.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveTextContent('Over 8.5')
+    expect(total.textContent).not.toMatch(/Under/)
   })
 })

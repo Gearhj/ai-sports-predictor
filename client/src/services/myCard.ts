@@ -18,7 +18,9 @@
  * American and decimal price, sportsbook, provider and the quote's observed
  * time (player props also keep the provider's market, outcome and line). Returns
  * are per straight pick from its stored price; picks are never combined into a
- * parlay, and no model probability is attached to a pick.
+ * parlay. A pick added from a game's top opportunity also freezes AISP's
+ * expectation for that exact price at that moment (and whether it was the
+ * official pick or a research value); it is never recomputed from a later price.
  */
 import { useSyncExternalStore } from 'react'
 import type { SportCode } from './commandCenter'
@@ -42,6 +44,19 @@ export interface PropDetail {
   provider_line: number | null
 }
 
+/** AISP's push-aware expectation for the pick's own price, frozen when it was added. */
+export interface PickExpectation {
+  expected_profit: number
+  expected_return: number
+  win: number
+  loss: number
+  push: number
+  model_id: string | null
+  forecast_id: string | null
+}
+
+export type PickOrigin = 'OFFICIAL_PICK' | 'MODEL_VALUE' | 'PERSONAL'
+
 export interface VirtualPick {
   id: string
   game_id: string
@@ -61,6 +76,8 @@ export interface VirtualPick {
   /** The replay moment the price was shown at; absent on live picks. */
   replay_as_of?: string
   prop?: PropDetail
+  expectation?: PickExpectation | null
+  origin?: PickOrigin
   added_at: string
   stake: number
 }

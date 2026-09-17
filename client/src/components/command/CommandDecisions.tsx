@@ -37,6 +37,9 @@ import { todayEt } from './CommandHome'
 import { buildAgenda, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { useAssessments } from '../../services/probability'
 import { AssessmentBoard, classifyAssessments } from './AssessmentBoard'
+import { TOP_ORIENTATION } from './TopOpportunity'
+import { american } from '../../services/probability'
+import { signedCents, topPlay } from '../../services/topPlay'
 import { ParlayLab } from './ParlayLab'
 import { AllMarkets, MyCard } from './MarketsAndCard'
 import { useMyCard } from '../../services/myCard'
@@ -253,6 +256,19 @@ export function CommandDecisions({ day, initialSport }: { day: string; initialSp
   const visible = feed.filter((c) => sport === 'ALL' || c.sport === sport)
   const assessments = useAssessments(day)
   const groups = useMemo(() => classifyAssessments(visible, assessments.data, now), [visible, assessments.data, now])
+  // The page-wide highlight exists only when the governed policy qualified an outcome with an assessed current price.
+  const bestOfficial = useMemo(() => {
+    let best: { matchup: string; label: string; american: number; book: string; profit: number } | null = null
+    for (const card of [...groups.QUALIFIED, ...groups.CLOSEST, ...groups.PASSED]) {
+      const play = topPlay(card.assessment, card.game, card.item)
+      const o = play.official
+      if (play.state !== 'OFFICIAL' || !o?.best || o.expectedProfit == null) continue
+      if (!best || o.expectedProfit > best.profit) {
+        best = { matchup: card.matchup, label: o.label, american: o.best.american, book: o.best.sportsbook, profit: o.expectedProfit }
+      }
+    }
+    return best
+  }, [groups])
   const research = (assessments.data?.research ?? []).filter((r) => sport === 'ALL' || r.sport === sport)
   const [params, setParams] = useSearchParams()
   const view: View = VIEWS.some((v) => v.key === params.get('view')) ? params.get('view') as View : 'decisions'
@@ -340,6 +356,17 @@ export function CommandDecisions({ day, initialSport }: { day: string; initialSp
           <div className="cc-dnow__block"><small>{isToday ? 'Completed today' : 'Completed this slate day'}</small><b className={todayPnl > 0 ? 'is-up' : todayPnl < 0 ? 'is-down' : ''}>{signedMoney(todayPnl)}</b><span>{settledToday.length} settled · {completed.length} decided</span></div>
         </div>
       </section>
+
+      <div className="dv-orient" role="note">
+        <p>{TOP_ORIENTATION}</p>
+        {bestOfficial && (
+          <p className="dv-orient__best">
+            <small>Best official opportunity today</small>
+            <b>{bestOfficial.label} {american(bestOfficial.american)}</b> at {bestOfficial.book} · {bestOfficial.matchup} ·{' '}
+            <b className={bestOfficial.profit >= 0 ? 'is-up' : 'is-down'}>{signedCents(bestOfficial.profit)} expected profit per $1</b>
+          </p>
+        )}
+      </div>
 
       {(sportsInFeed.length > 1 || sport !== 'ALL') && (
         <div className="cc-filters" role="group" aria-label="Sport">
