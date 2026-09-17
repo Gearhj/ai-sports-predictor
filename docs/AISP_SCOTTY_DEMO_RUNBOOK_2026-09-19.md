@@ -9,8 +9,8 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | | |
 |---|---|
 | Release branch | `claude/aisp-scotty-demo-release-v1` |
-| Backend running | pid **44904**, restarted 2026-09-16 21:39 ET by the *ASP Backend 8010* task, from original commit `51a265a` (GitHub `c783d37`, branch `claude/aisp-my-card-demo-and-player-quotes-v1`). It adds the historical market replay endpoint, stored player-prop quote reads (none stored) and the inactive, flag-gated player-prop collector on top of launch experience v2 (`7dbd07a`), the probability integration (`2c45fc1`), market integrity (`92ee648`) and league isolation (`49409ee`). |
-| Frontend served | `client/dist` built at original commit `51a265a` (check `/frontendz`, field `build.commit`): launch experience v2 plus My Card's "Try a historical card" replay, Next up limited to games not yet started, and player-prop sections (shown only when stored quotes exist). |
+| Backend running | pid **45172**, restarted 2026-09-16 23:28 ET by the *ASP Backend 8010* task, from original commit `c109fdf` (GitHub `8a77211`, branch `claude/aisp-complete-user-walkthrough-v1`). It adds the overnight walkthrough repairs: Shadow Board team names, the CFB detail read by AISP game id and the `/scoreboard/coverage` 500 fix. These sit on top of the historical card and inactive player-prop quotes (`51a265a`), launch v2 (`7dbd07a`) and the probability integration (`2c45fc1`). |
+| Frontend served | `client/dist` built at original commit `2300abd` (GitHub `8a62229`); check `/frontendz`, field `build.commit`. It is the historical-card release plus the walkthrough repairs: freshness-aware Game Center labels, qualified decisions kept after settlement, pages that follow the sport selector, and mobile/tablet layout fixes. |
 | Probability acknowledgement | `asp-model-exchange/consumer-acknowledgements/aisp-market-probability-contract-v1/aisp-market-probability-acknowledgement-d9919a5b960a-20260916T203852Z.json`, SHA-256 `7246dd5cbc5f2086abb2fc608b0b239a0d5612c6aa9ee7b7fa894548d6e27ed3`. Additive only: not a model import or promotion. |
 | Model Studio release | `demo-releases-v1` logical address `f0e87d7a…8889a`, manifest SHA-256 `05250af2…56fc8`, verified and reconciled 2026-09-16. The consumer receipt is under `asp-model-exchange/demo-releases-v1/consumer-receipts/`. |
 | Database | PostgreSQL 16, `asp`, Alembic head `20260917_0044` (adds the empty `player_prop_quotes` table; downgrade drops it) |
@@ -18,7 +18,7 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | Published SHAs | Original SHAs above are the ones that ran. Their GitHub equivalents are listed in `docs/REPOSITORY_AND_BACKUP.md`. |
 
 **Before the demo:**
-- Open `http://127.0.0.1:8010/frontendz`. The commit must be `51a265a…` or later from `claude/aisp-my-card-demo-and-player-quotes-v1`.
+- Open `http://127.0.0.1:8010/frontendz`. The commit must be `2300abd…` or later from `claude/aisp-complete-user-walkthrough-v1`.
 - Open `http://127.0.0.1:8010/readyz`. It must read `ready / reachable / running`.
 
 ## Demo path
@@ -96,8 +96,8 @@ Supporting research pages:
 
    - Wait for a new listener pid on 8010 (about 20–60 s) before trusting `/readyz`. Never start uvicorn or Vite by hand.
 3. **NFL lab blank.** Open the Outcome Explorer directly with `…/simulation?sport=NFL&view=explorer`.
-4. **Frontend rollback.** The previous build (launch v2, no replay) is `.runtime/frontend-rollback/dist-e0533f9`; before that `dist-5bea782` (first v2 build: `dist-7dbd07a`). The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
-5. **Backend rollback.** For the replay/player-prop release, check out `abcba8b`'s `server/` (`git checkout abcba8b -- server`) and restart through the task, together with the `dist-e0533f9` frontend; the empty `player_prop_quotes` table may stay (or `alembic downgrade 20260915_0043` from `server/`). For launch v2, check out `2feeca2`'s `server/` (`git checkout 2feeca2 -- server`) and restart through the task, together with the `dist-5bea782` frontend; the new Game Story endpoint is then gone. For the earlier release, check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
+4. **Frontend rollback.** The pre-walkthrough build is `.runtime/frontend-rollback/dist-51a265a` (first walkthrough build: `dist-c109fdf`); launch v2 without the replay is `dist-e0533f9`; before that `dist-5bea782` (first v2 build: `dist-7dbd07a`). The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
+5. **Backend rollback.** For the walkthrough repairs, check out `60768db`'s `server/` (`git checkout 60768db -- server`) and restart through the task; the frontend at `dist-51a265a` matches it. For the replay/player-prop release, check out `abcba8b`'s `server/` (`git checkout abcba8b -- server`) and restart through the task, together with the `dist-e0533f9` frontend; the empty `player_prop_quotes` table may stay (or `alembic downgrade 20260915_0043` from `server/`). For launch v2, check out `2feeca2`'s `server/` (`git checkout 2feeca2 -- server`) and restart through the task, together with the `dist-5bea782` frontend; the new Game Story endpoint is then gone. For the earlier release, check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
 
 ## Fixed for this release
 
@@ -173,3 +173,28 @@ Supporting research pages:
   assessment" and carry no probability, fair price or edge.
   - The collector is inactive; see `docs/AISP_PLAYER_PROP_QUOTES_V1.md`.
   - The Odds API balance is 5, below the floor of 10, so no live test is possible before the billing month renews.
+
+## Complete walkthrough (overnight 16–17 Sep) — best demo sequence
+
+The rehearsal ran at 23:30–23:50 ET on 16 Sep against build `2300abd`. When a named game is no longer the best
+example, use the fallback in the same row.
+
+| # | Where (navigate by the sidebar) | Show | Fallback |
+|---|---|---|---|
+| 1 | Home | The intro line, Today's Best Edges and the combined bankroll ($3,988.38, record 17–27) | — |
+| 2 | Games & Forecasts → NFL → Week 2 → **DET @ BUF** (Thu 17 Sep, 8:15 PM) → Open Game Center | BUF 70.5 / DET 26.5 / tie 3.0; two-way 72.7 vs stored 58.8. In the margin explorer, type **−7**: BUF −7 wins 49.0%, pushes 4.0%. | Any Week 2 game |
+| 3 | Games → MLB → Wed 16 Sep → **DET @ TOR** (final 1–5) | The Game Story final overlay (✕ DET 1 – TOR 5, not known when forecast). The summary reads "Best stored (not current)" and "DET +5.2 pts · not classified". | CWS @ CLE (3–6) |
+| 4 | "Open the Monte Carlo Diamond Simulator" on DET @ TOR | Broadcast Replay: next plate appearance, 4×, play/pause, restart (83 PAs) | NFL: `/games/14a64986-3d92-48af-ba69-15731e936d54/simulation?sport=NFL` (DEN @ KC) |
+| 5 | Daily Decisions (All sports) | **Qualified decisions (5)**: SF @ STL won +$3.49, LAD @ CIN won +$2.11, three losses; total −$1.87. BAL @ NYM reads "Passed · price not current". | — |
+| 6 | Markets & Crowd | Largest disagreement SF @ STL −7.6 pts. Select DET @ TOR: movement, by-book and price-movement charts all follow. | Spread / Totals tabs |
+| 7 | $1,000 Experiment | Combined, then MLB ($993.38) and NFL ($995.00) | — |
+| 8 | Sport → NBA · Research only; then CFB · Research only | BOS @ DET research example. Coastal Carolina @ Delaware (Sat 19 Sep) opens its own Game Story from Daily Decisions → "Research page". | Syracuse @ Pittsburgh card |
+| 9 | Show Prep (Thu 17 Sep) | DET @ BUF "BUF 73% (no tie)" with the dated stale capture, and SYR @ PITT | Previous day shows past-tense states |
+| 10 | Daily Decisions → My Card → **Try a historical card** | Banner "…as they appeared at Sep 16, 2026 2:51 PM ET". Open DET @ TOR, add Toronto −137 (DraftKings), set stake 40 → illustrative $69.20. **Leave historical replay** → live card still empty. | The moment moves to the newest stored ≥4-hour-old snapshot once new prices arrive. |
+
+- **Player props:** only the fixture preview exists (`/decisions?view=markets&preview=player-props`). It is labelled
+  "Test fixture — not live" and nothing in it is selectable.
+- **Sport selector:** it now drives Performance, Markets & Crowd, Daily Decisions and Shadow Board. Choose **All sports**
+  before step 5 so the research cards appear.
+- **Mobile and tablet:** the primary journey was checked at 375 px and 768 px with no horizontal page scrolling. The full
+  matrix and open items are in `docs/AISP_USER_WALKTHROUGH_2026-09-16.md`.
