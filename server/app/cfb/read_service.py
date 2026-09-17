@@ -47,9 +47,9 @@ AUTHORITY = {
     "market": "No sportsbook price held · market comparison blocked",
     "research_only": True,
     "note": ("College Football forecasts are research imports. A virtual paper account and "
-             "paper policy exist, but AISP holds no College Football sportsbook price and has "
-             "no admitted College Football schedule, so no assessment or paper position can "
-             "occur. There is no College Football forecast scheduler, and importing this "
+             "paper policy exist, but AISP holds no College Football sportsbook price and no "
+             "College Football schedule feed (only individual games are admitted), so no "
+             "assessment or paper position can occur. There is no College Football forecast scheduler, and importing this "
              "forecast created no account or position."),
 }
 
@@ -318,7 +318,33 @@ def research_board(session: Session, *, date_iso: str | None = None) -> dict[str
     }
 
 
+def resolve_source_game_id(session: Session, game_id: str) -> str:
+    """A CFBD game id, also when an admitted AISP game id is given.
+
+    Cross-sport surfaces link games by their canonical AISP id; this page is
+    addressed by CFBD id. The admitted CFBD mapping translates one to the other;
+    anything unmapped is passed through unchanged.
+    """
+
+    import uuid
+
+    from app.cfb.game_binding import SOURCE_CFBD
+    from app.models import ExternalIdMapping
+
+    try:
+        canonical = uuid.UUID(str(game_id))
+    except ValueError:
+        return str(game_id)
+    mapped = session.scalar(select(ExternalIdMapping.external_id).where(
+        ExternalIdMapping.entity_type == "game",
+        ExternalIdMapping.source == SOURCE_CFBD,
+        ExternalIdMapping.entity_id == canonical,
+    ))
+    return str(mapped) if mapped else str(game_id)
+
+
 def game_detail(session: Session, *, source_game_id: str) -> dict[str, Any] | None:
+    source_game_id = resolve_source_game_id(session, source_game_id)
     row = session.scalar(select(CfbResearchForecast).where(
         CfbResearchForecast.source_game_id == str(source_game_id)))
     return _fmt(row, session) if row else None
@@ -327,6 +353,7 @@ def game_detail(session: Session, *, source_game_id: str) -> dict[str, Any] | No
 def total_scenario(session: Session, *, source_game_id: str, line: float) -> dict[str, Any] | None:
     """Over/push/under from the complete PMF. Never from the expected total."""
 
+    source_game_id = resolve_source_game_id(session, source_game_id)
     row = session.scalar(select(CfbResearchForecast).where(
         CfbResearchForecast.source_game_id == str(source_game_id)))
     if row is None:

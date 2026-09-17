@@ -194,7 +194,7 @@ describe('assessment cards', () => {
     for (const name of ['Analyze', 'Simulate', 'Shop Books']) expect(within(closest).getByRole('link', { name })).toBeInTheDocument()
     expect(within(closest).getByRole('link', { name: 'Simulate' })).toHaveAttribute('href', '/games/g1/simulation?sport=NFL')
 
-    const qualified = screen.getByRole('region', { name: 'Qualified opportunities' })
+    const qualified = screen.getByRole('region', { name: 'Qualified decisions' })
     const current = within(qualified).getByLabelText('Moneyline at DraftKings')
     expect(current).toHaveTextContent('Current')
     expect(current).toHaveTextContent('+3.1 pts')
@@ -205,6 +205,14 @@ describe('assessment cards', () => {
     expect(research).toHaveTextContent('Coastal Carolina at Delaware')
     expect(research).toHaveTextContent('AISP collects no governed sportsbook price')
     expect(research.textContent).not.toMatch(/Edge ·|EV /)
+  })
+
+  it('keeps a settled qualified decision in the qualified group', () => {
+    const settled = feed().map((c) => ({ ...c, tab: 'COMPLETED', startsAt: new Date(now - 3_600_000).toISOString(),
+      item: { position: { status: 'SETTLED' }, phase: 'FINAL_PREGAME', recommendation: 'QUALIFIED_BET', edge: 0.04 } as never })) as AssessmentSource[]
+    const groups = classifyAssessments(settled, payload(), now)
+    expect(groups.QUALIFIED.map((c) => c.key)).toEqual(['g1', 'g2'])
+    expect(groups.PASSED).toEqual([])
   })
 
   it('a one-sided quote shows the missing side as not quoted', () => {

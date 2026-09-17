@@ -101,6 +101,30 @@ const signed = (v: number | null | undefined, d = 3) => {
 }
 const dateOnly = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : '—')
 
+const KNOWN_MODELS: Record<string, string> = {
+  MLB_V18_WHOLE_GAME: 'MLB V18 whole-game model',
+  NFL_M1_XGBOOST: 'NFL M1 model',
+  NBA_GEN1_JOINT_BASELINE: 'NBA research baseline',
+  CFB_GEN1_JOINT_BASELINE: 'College Football research baseline',
+}
+
+/**
+ * A reader-facing model name. Candidates share one engine id, so their version
+ * is what tells them apart ("mlb-v18-three-arm-duration-v1" -> "three-arm
+ * duration"); the full technical identity stays in the line under the title.
+ */
+export function modelName(engineId: string, version: string, label?: string | null): string {
+  const known = KNOWN_MODELS[engineId]
+  if (known) return known
+  if (engineId.endsWith('_CANDIDATE')) {
+    const variant = version.replace(/^[a-z]+-v\d+-/i, '').replace(/-v\d+$/i, '').replace(/-/g, ' ').trim()
+    const family = engineId.replace(/_CANDIDATE$/, '').replace(/_/g, ' ').toLowerCase()
+    return `${family.replace(/^(\w+)/, (w) => w.toUpperCase())} candidate${variant ? ` · ${variant}` : ''}`
+  }
+  const text = (label || engineId).replace(/_/g, ' ')
+  return text === text.toUpperCase() ? text.charAt(0) + text.slice(1).toLowerCase() : text
+}
+
 export function CommandPerformance({ initialSport }: { initialSport?: SportCode }) {
   const [sport, setSport] = useState<SportCode>(initialSport ?? 'MLB')
   const loader = useCallback(async (signal: AbortSignal) =>
@@ -122,7 +146,7 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
         <header className="cc-perf__top">
           <div>
             <h1 className="cc-kicker cc-perf__title">Model performance · {SPORT_NAMES[sport]} · prospective research scores</h1>
-            <h2>{model ? model.model_label : `${SPORT_NAMES[sport]} forecasts`}</h2>
+            <h2>{model ? modelName(model.engine_id, model.engine_version, model.model_label) : `${SPORT_NAMES[sport]} forecasts`}</h2>
             <span className="cc-perf__ident">{model ? `${model.engine_version} · ${model.scoring_version}` : ''}</span>
           </div>
           <div className="cc-perf__asof">
@@ -147,7 +171,7 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
               <select value={model ? `${model.engine_id}|${model.engine_version}` : ''} onChange={(e) => setEngine(e.target.value)}>
                 {data.models.map((m) => (
                   <option key={`${m.engine_id}|${m.engine_version}`} value={`${m.engine_id}|${m.engine_version}`}>
-                    {m.model_label} · {m.engine_version.slice(-12)} · n={m.cohorts.ALL.n}
+                    {modelName(m.engine_id, m.engine_version, m.model_label)} · n={m.cohorts.ALL.n}
                   </option>
                 ))}
               </select>

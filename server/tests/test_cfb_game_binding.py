@@ -128,3 +128,17 @@ def test_an_admitted_game_never_fills_an_empty_mlb_slate(session: Session, setti
     # No LIVE game exists on this date; the demo fallback must still skip research rows.
     assert reader._games_for_date(date(2026, 9, 19), "MLB") == []
     assert reader._live_games_for_date(date(2026, 9, 19), "MLB") == []
+
+
+def test_game_detail_accepts_the_admitted_aisp_game_id(session: Session) -> None:
+    """Cross-sport cards link by AISP game id; the research page must still open."""
+    from app.cfb.read_service import game_detail
+
+    row = _forecast(session)
+    admit_game(session, row)
+    canonical = canonical_game_id(session, "401869940")
+    by_cfbd = game_detail(session, source_game_id="401869940")
+    by_aisp = game_detail(session, source_game_id=str(canonical))
+    assert by_cfbd is not None and by_aisp is not None
+    assert by_aisp["forecast_id"] == by_cfbd["forecast_id"]
+    assert game_detail(session, source_game_id=str(uuid4())) is None

@@ -272,7 +272,8 @@ h1, h2, h3, p { margin-top: 0; }
 .forecast-summary article > span { color: #75869a; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .forecast-summary article > strong { margin: 5px 0 3px; color: #1d344c; font: 600 20px "IBM Plex Mono", monospace; }
 .forecast-summary article > small { color: #8795a4; font-size: 11px; }
-.analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.analysis-grid > * { min-width: 0; }
 .analysis-grid--wide-left { grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr); }
 .probability-rows { display: grid; gap: 14px; padding: 20px 18px 12px; }
 .probability-row { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 12px; }
@@ -593,7 +594,7 @@ h1, h2, h3, p { margin-top: 0; }
 .section-number { width: 35px; height: 35px; display: grid; place-items: center; color: var(--teal); border: 1px solid #badbd6; border-radius: 5px; background: var(--teal-soft); font: 600 11px "IBM Plex Mono", monospace; }
 .method-section h2 { margin: 4px 0 10px; color: #21384f; font-size: 19px; letter-spacing: -.025em; }
 .method-section > div > p:not(.eyebrow, .method-note) { color: #566b7f; font-size: 11px; line-height: 1.7; }
-.principle-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 17px 0 13px; }
+.principle-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 17px 0 13px; }
 .principle-cards article { padding: 14px; color: var(--teal); border: 1px solid var(--line); border-radius: 5px; background: #f9fbfc; }
 .principle-cards strong { display: block; margin: 8px 0 4px; color: #344c63; font-size: 11px; }
 .principle-cards p { margin: 0; color: #7a8999; font-size: 11px; line-height: 1.5; }
@@ -750,7 +751,7 @@ h1, h2, h3, p { margin-top: 0; }
   .game-hero__matchup { gap: 15px; padding-inline: 25px; }
   .team-hero { gap: 9px; }.team-badge--lg { width: 51px; height: 51px; }
   .team-hero h2 { font-size: 19px; }
-  .analysis-grid, .analysis-grid--wide-left { grid-template-columns: 1fr; }
+  .analysis-grid, .analysis-grid--wide-left { grid-template-columns: minmax(0, 1fr); }
   .history-population-grid { grid-template-columns: 1fr; }
   .history-population-card { border-right: 0; border-bottom: 1px solid var(--line); }
   .history-population-card:last-child { border-bottom: 0; }

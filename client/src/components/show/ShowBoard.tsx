@@ -39,6 +39,13 @@ const clock = (iso: string | null | undefined) => (iso ? new Intl.DateTimeFormat
 const stamp = (iso: string | null | undefined) => (iso ? new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)) + ' ET' : '—')
 const longDate = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 const shiftDay = (day: string, by: number) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + by); return d.toISOString().slice(0, 10) }
+/** A started or finished game's preview state is history, not something still pending. */
+export function pastTense(label: string, started: boolean): string {
+  if (!started) return label
+  return label
+    .replace('Preview forecast pending', 'No preview forecast was published')
+    .replace('No current preview price held', 'no preview price was held')
+}
 const SPORT_ORDER: ShowSport[] = ['MLB', 'NFL', 'NBA', 'CFB']
 const availability = (state: string, what: string) => (!state || state === 'NOT_APPLICABLE' ? '' : ` · ${what} ${state.toLowerCase()}`)
 
@@ -280,6 +287,7 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
   const total = game.market_summary.total
   const f = game.forecast
   // The lean and moneyline cells already say forecast pending / market not posted.
+  const started = game.kickoff_utc != null && Date.parse(game.kickoff_utc) <= Date.now()
   const key = game.missing.filter((m) => !['NO_COMPLETE_SPREAD', 'NO_COMPLETE_TOTAL', 'PREVIEW_FORECAST_AWAITING_PRODUCER', 'PRICE_NOT_CAPTURED', 'STALE_PREVIEW_PRICE', 'PARTIAL_MARKET'].includes(m.code)).slice(0, 2)
   return (
     <div className="sb-rowwrap" role="rowgroup">
@@ -290,16 +298,16 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
           {game.analysis_href ? <Link to={game.analysis_href}>Analyze</Link>
             : game.canonical_game_id ? <Link to={gameHref(game.sport, game.canonical_game_id)}>Analyze</Link> : <small>not in AISP schedule</small>}
         </span>
-        <span role="cell"><span className={`sb-ready sb-ready--${game.readiness}`}>{game.readiness_label}</span></span>
-        <span role="cell">{f ? <><b>{f.lean.team} {pct(f.lean.probability_two_way, 0)}</b><small>{game.away.abbreviation} {f.expected_score.away.toFixed(1)} – {f.expected_score.home.toFixed(1)} {game.home.abbreviation}</small></>
+        <span role="cell"><span className={`sb-ready sb-ready--${game.readiness}`}>{pastTense(game.readiness_label, started)}</span></span>
+        <span role="cell">{f ? <><b title="Win probability with ties excluded">{f.lean.team} {pct(f.lean.probability_two_way, 0)}{game.sport === 'MLB' ? '' : ' (no tie)'}</b><small>{game.away.abbreviation} {f.expected_score.away.toFixed(1)} – {f.expected_score.home.toFixed(1)} {game.home.abbreviation}</small></>
           : game.research_forecast
             ? <><small className="is-gold">No Show Preview</small><small data-testid="sb-research-forecast" title={game.research_forecast.label}>
                 Research forecast: {game.research_forecast.pick} {pct(game.research_forecast.joint_probability, 0)} · {game.away.abbreviation} {game.research_forecast.ridge_expected_points.away.toFixed(1)} – {game.research_forecast.ridge_expected_points.home.toFixed(1)} {game.home.abbreviation} (research only)
               </small></>
-            : <small className="is-gold">Preview forecast awaiting producer</small>}</span>
+            : <small className="is-gold">{started ? 'No preview forecast was published' : 'Preview forecast awaiting producer'}</small>}</span>
         <span role="cell">{ml && ml.complete_books
           ? <><b>{game.away.abbreviation} {am(ml.best.AWAY?.american)} · {game.home.abbreviation} {am(ml.best.HOME?.american)}</b><small>Price captured at {clock(ml.captured_utc)} · {ml.complete_books} books</small></>
-          : <small className="is-gold">{ml?.stale_books ? `Stale only · captured ${clock(game.markets.MONEYLINE.latest_capture_utc)}` : ml?.partial_books ? 'One side only' : game.missing.some((m) => m.code === 'SCHEDULE_NOT_REGISTERED') ? 'Not bindable · not in AISP schedule' : 'No preview price held'}</small>}</span>
+          : <small className="is-gold">{ml?.stale_books ? `Stale only · captured ${stamp(game.markets.MONEYLINE.latest_capture_utc)}` : ml?.partial_books ? 'One side only' : game.missing.some((m) => m.code === 'SCHEDULE_NOT_REGISTERED') ? 'Not bindable · not in AISP schedule' : 'No preview price held'}</small>}</span>
         <span role="cell">{spread ? <><b>{game.home.abbreviation} {line(spread.median_line)}</b><small>{spread.books} books</small></> : <small>—</small>}</span>
         <span role="cell">{total ? <><b>{total.median_line}</b><small>{f ? `model ${f.projected_total.toFixed(1)}` : `${total.books} books`}</small></> : <small>—</small>}</span>
         <span role="cell">{game.final_decision_window ? `${clock(game.final_decision_window.opens_utc)}–${clock(game.final_decision_window.closes_utc)}` : '—'}</span>

@@ -495,3 +495,36 @@ async def test_shadow_jobs_via_orchestrator(session, settings, tmp_path):
     # Every job run is audited.
     assert session.query(JobRun).filter(JobRun.job_name.like("%shadow%") | JobRun.job_name.like("import-model%")).count() >= 3
     assert session.query(AuditEvent).filter(AuditEvent.action.like("job.%.succeeded")).count() >= 4
+
+
+def test_board_games_carry_readable_team_names(session, settings, tmp_path):
+    """Bundles store team ids; the board must also say who is playing."""
+    from datetime import UTC, datetime
+
+    from app.models import Game, GameTeam, League, Sport, Team
+
+    sport = Sport(code="S_NAMES", name="Baseball")
+    session.add(sport)
+    session.flush()
+    league = League(sport_id=sport.id, code="MLB_NAMES", name="MLB")
+    session.add(league)
+    session.flush()
+    home = Team(league_id=league.id, name="New York Yankees", abbreviation="NYY")
+    away = Team(league_id=league.id, name="Boston Red Sox", abbreviation="BOS")
+    session.add_all([home, away])
+    session.flush()
+    game = Game(league_id=league.id, starts_at=datetime(2026, 9, 16, 23, tzinfo=UTC))
+    session.add(game)
+    session.flush()
+    session.add_all([GameTeam(game_id=game.id, team_id=home.id, is_home=True),
+                     GameTeam(game_id=game.id, team_id=away.id, is_home=False)])
+    session.flush()
+    games = [
+        {"canonical_game_id": str(game.id), "home_team_id": "x", "away_team_id": "y"},
+        {"canonical_game_id": None, "home_team_id": str(home.id), "away_team_id": "unknown"},
+    ]
+    ShadowBoardService(session, settings)._attach_team_names(games)
+    assert (games[0]["away_team_name"], games[0]["home_team_name"]) == ("Boston Red Sox", "New York Yankees")
+    assert games[0]["home_team_abbreviation"] == "NYY"
+    assert games[1]["home_team_name"] == "New York Yankees"
+    assert games[1]["away_team_name"] is None

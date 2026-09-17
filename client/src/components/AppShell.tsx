@@ -101,6 +101,11 @@ export function AppShell() {
           <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? 'NFL · Research forecasts and simulations' : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : researchOnly.has(sport) ? `${sport} · Research forecasts · paper account, no sportsbook price held yet` : `${sport} · Planned`}</p>
           {state === 'unavailable' && <span role="status">Sport availability could not be loaded</span>}
         </div>
+        {sport !== 'ALL' && !['MLB', 'NFL'].includes(sport) && !researchOnly.has(sport) && location.pathname !== '/games' && (
+          <p className="planned-sport-note" role="status">
+            {sport} is planned. AISP has no {sport} forecasts, prices or decisions yet; the pages below show the sports it covers today.
+          </p>
+        )}
         {demoMode && <div className="demo-context-strip" role="status"><strong>{ILLUSTRATIVE_DEMO_LABEL}</strong><span>Static examples only.</span><NavLink to="/">View live application</NavLink></div>}
         <Outlet />
       </main>

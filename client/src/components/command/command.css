@@ -795,3 +795,5 @@
 .cc-agenda-list__games { list-style: none; margin: 0; padding: 0 10px 8px 80px; display: grid; gap: 3px; }
 .cc-agenda-list__games li { display: flex; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
 .cc-agenda-list__games a { color: #0f8d7d; font-weight: 700; text-decoration: none; }
+
+.cc-home__intro { margin: 0 0 10px; font-size: 13.5px; line-height: 1.45; color: var(--bx-muted, #55677d); max-width: 72ch; }

@@ -985,6 +985,10 @@ export interface ShadowGameView {
   scheduled_start_utc?: string | null
   home_team_id: string
   away_team_id: string
+  home_team_name?: string | null
+  away_team_name?: string | null
+  home_team_abbreviation?: string | null
+  away_team_abbreviation?: string | null
   engines: ShadowEngineView[]
   model_disagreement: number | null
 }

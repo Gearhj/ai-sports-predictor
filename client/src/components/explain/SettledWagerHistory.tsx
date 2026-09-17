@@ -29,6 +29,15 @@ interface SettledExplanations {
   with_population_comparison: number
 }
 
+/** A bare side ("AWAY") reads as the team's moneyline, taken from the "AWY at HOM" label. */
+export function selectionLabel(selection: string, matchup: string | null | undefined): string {
+  const side = selection?.toUpperCase()
+  if ((side !== 'AWAY' && side !== 'HOME') || !matchup) return selection
+  const [away, home] = matchup.split(/\s+(?:at|@)\s+/)
+  const team = side === 'AWAY' ? away : home
+  return team ? `${team} ML` : selection
+}
+
 export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
   const loader = useCallback(
     (signal: AbortSignal) =>
@@ -69,7 +78,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
   return (
     <div data-testid="settled-wager-history">
       <p className="info-label" data-testid="settled-coverage">
-        {settled} settled wagers · {withEvents} with bound event evidence ·{' '}
+        {settled} settled virtual positions · {withEvents} with bound event evidence ·{' '}
         {withPopulation} with a simulated population comparison
       </p>
       <div className="settled-history">
@@ -82,7 +91,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
             <header className="settled-history__head">
               <strong>{explanation.matchup?.label ?? 'Unknown matchup'}</strong>
               <span className="settled-history__selection">
-                {explanation.why.selection}
+                {selectionLabel(explanation.why.selection, explanation.matchup?.label)}
               </span>
               <span
                 className={`settled-history__result settled-history__result--${

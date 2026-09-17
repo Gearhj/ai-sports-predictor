@@ -154,7 +154,9 @@ export interface ScoreboardCoverage {
       cadence_minutes: number
       daily_cap: number
       spent_today: number
-      mlb_pregame_floor: number
+      /** Retired: the shared provider allocation replaced this floor. Always null. */
+      mlb_pregame_floor: number | null
+      daily_room?: number | null
       objects_spendable: number | null
       detail: string
     }

@@ -1008,6 +1008,11 @@ class ShadowGameView(BaseModel):
     scheduled_start_utc: datetime | None = None
     home_team_id: str
     away_team_id: str
+    #: Readable names resolved from the canonical game; None when unknown.
+    home_team_name: str | None = None
+    away_team_name: str | None = None
+    home_team_abbreviation: str | None = None
+    away_team_abbreviation: str | None = None
     engines: list[ShadowEngineView]
     model_disagreement: float | None = None
 

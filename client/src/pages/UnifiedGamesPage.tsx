@@ -107,6 +107,14 @@ export function nextCheckpoint(startsAt: string | null, now: number = Date.now()
     weekday: 'short', hour: 'numeric', minute: '2-digit' })}`
 }
 
+/** Why a section is empty: a filter hiding games is not the same as no games. */
+export function filteredNote(league: string, total: number, filter: string, none: string): string {
+  if (total === 0 || filter === 'ALL') return none
+  const word = filter === 'UPCOMING' ? 'upcoming' : filter === 'STARTED' ? 'started' : filter === 'FINAL' ? 'final' : filter.toLowerCase()
+  const extra = filter === 'UPCOMING' ? ' — every game on this slate has already started' : ''
+  return `No ${word} ${league} game${extra}. ${total} game${total === 1 ? ' is' : 's are'} listed under All.`
+}
+
 export function UnifiedGamesPage() {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
@@ -324,7 +332,7 @@ export function UnifiedGamesPage() {
             evidence={evidence.data?.byGame ?? null}
             entries={entriesByGame}
             withSport={withSport}
-            emptyNote={mlbPending ? 'Loading the MLB slate…' : 'No MLB game is recorded for this date.'}
+            emptyNote={mlbPending ? 'Loading the MLB slate…' : filteredNote('MLB', mlbGames.length, stateFilter, 'No MLB game is recorded for this date.')}
           />
         )}
 
@@ -338,7 +346,7 @@ export function UnifiedGamesPage() {
             evidence={evidence.data?.byGame ?? null}
             entries={entriesByGame}
             withSport={withSport}
-            emptyNote={nflPending ? 'Loading the NFL week…' : 'No NFL game is recorded for this week.'}
+            emptyNote={nflPending ? 'Loading the NFL week…' : filteredNote('NFL', nflGames.length, stateFilter, 'No NFL game is recorded for this week.')}
             researchNote="NFL M1 research forecasts. A virtual paper position is recorded only under the NFL paper policy, with producer eligibility and a fresh price inside the decision window."
           />
         )}

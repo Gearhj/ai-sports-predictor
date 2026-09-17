@@ -87,6 +87,15 @@ const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v 
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
 
+/** Why a final evaluation passed, from its recorded reason; "edge below policy" only when that is the reason. */
+export function passedLabel(reason: string | null): string {
+  const text = reason ?? ''
+  if (/stale|not current|freshness/i.test(text)) return 'Passed · price not current'
+  if (/eligib|TIER_[A-Z]_INELIGIBLE/i.test(text)) return 'Passed · not eligible'
+  if (/missing|unavailable|no (?:quote|price)/i.test(text)) return 'Passed · market incomplete'
+  return 'Passed · edge below policy'
+}
+
 /** Internal decision codes, in plain language. The raw row stays available. */
 export function describeDecision(item: DecisionItem | null, game: CoverageGame | null, started: boolean): FeedCard['status'] {
   const reason = item?.reason ?? null
@@ -102,7 +111,7 @@ export function describeDecision(item: DecisionItem | null, game: CoverageGame |
   if (rec === 'QUALIFIED_BET' && item?.phase === 'FINAL_PREGAME') {
     return started ? { label: 'Qualified · not positioned', tone: 'red', detail: reason } : { label: 'Qualifies now', tone: 'green', detail: reason }
   }
-  if (rec === 'NO_BET' && item?.phase === 'FINAL_PREGAME') return { label: 'Passed · edge below policy', tone: 'red', detail: reason }
+  if (rec === 'NO_BET' && item?.phase === 'FINAL_PREGAME') return { label: passedLabel(reason), tone: 'red', detail: reason }
   if (rec === 'BLOCKED') return { label: /eligib/i.test(reason ?? '') ? 'Awaiting producer eligibility' : 'Blocked by policy', tone: 'red', detail: reason }
   if (started) return { label: 'Window closed · no final evaluation', tone: 'red', detail: reason }
   if (rec === 'PROVISIONAL_EDGE') return { label: 'Early edge · awaiting final check', tone: 'gold', detail: reason }

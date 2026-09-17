@@ -306,7 +306,7 @@ export function buildEdgeBoard({ decisions, games, ledger, now, decisionsHref, a
       state: strong ? 'BEST_EDGES' : 'CLOSEST',
       title: HERO_TITLE[strong ? 'BEST_EDGES' : 'CLOSEST'],
       subtitle: strong
-        ? 'Evaluated with a current controlling forecast and a complete same-book market'
+        ? 'Where AISP’s forecast and a sportsbook price disagreed enough to qualify · virtual research, no real money'
         : 'Evaluated today · nothing has cleared the qualifying thresholds',
       cards: pool.slice(0, MAX_CARDS),
       available: pool.length,

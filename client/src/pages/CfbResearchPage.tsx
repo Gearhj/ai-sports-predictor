@@ -41,8 +41,8 @@ export function CfbResearchPage() {
         title="College Football research forecasts"
         description={
           'Imported research forecasts. Market comparison is blocked: AISP holds no College Football '
-          + 'sportsbook price and has no admitted College Football schedule, so no assessment or paper '
-          + 'position can occur. There is no College Football forecast scheduler.'
+          + 'sportsbook price and no College Football schedule feed (only individual games are admitted), '
+          + 'so no assessment or paper position can occur. There is no College Football forecast scheduler.'
         }
       />
       <PaperStatusStrip sport="CFB" />

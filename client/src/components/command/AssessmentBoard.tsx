@@ -1,7 +1,7 @@
 /**
  * Daily Decisions, consumer view: the day's games as assessment cards.
  *
- *   Qualified opportunities  -- qualifying now, or a position is open
+ *   Qualified decisions      -- qualifying now, or a position was recorded (open or settled)
  *   Closest to qualifying    -- not decided yet, ranked by the best governed edge
  *   Useful passed decisions  -- final evaluations that did not qualify
  *   Research comparisons     -- NBA / College Football, research authority only
@@ -49,7 +49,7 @@ export interface AssessmentCardModel extends AssessmentSource {
 }
 
 export const GROUP_TITLE: Record<AssessmentGroup, string> = {
-  QUALIFIED: 'Qualified opportunities',
+  QUALIFIED: 'Qualified decisions',
   CLOSEST: 'Closest to qualifying',
   PASSED: 'Useful passed decisions',
 }
@@ -95,7 +95,8 @@ export function classifyAssessments(feed: AssessmentSource[], data: DailyAssessm
     const bestEdge = item?.edge ?? bestAssessedEdge(assessment)
     const final = item?.phase === 'FINAL_PREGAME'
     let group: AssessmentGroup | null = null
-    if (card.tab === 'ACTIONABLE' || card.tab === 'POSITIONS') group = 'QUALIFIED'
+    // A qualified decision stays in the story after its position settles.
+    if (card.tab === 'ACTIONABLE' || card.tab === 'POSITIONS' || item?.position) group = 'QUALIFIED'
     else if (final && item && ['NO_BET', 'BLOCKED'].includes(item.recommendation)) group = 'PASSED'
     else if (!started) group = 'CLOSEST'
     if (group) out[group].push({ ...card, group, assessment, bestEdge })

@@ -261,8 +261,12 @@ export function DistributionExplorer({ story, population, away, home }: {
 
   const switchKind = (next: DistributionKind) => { setKind(next); setCustomMasses(null); setCustom(''); setError(null) }
   async function evaluateCustom() {
-    const line = Number(custom)
-    if (!binding || custom.trim() === '' || !Number.isFinite(line)) return
+    const line = Number(custom.trim())
+    if (!binding || custom.trim() === '') return
+    if (!Number.isFinite(line)) {
+      setError(kind === 'total' ? 'Enter a number, such as 8.5 or 44.' : 'Enter a number, such as -1.5 or 3.')
+      return
+    }
     setBusy(true); setError(null)
     try {
       const legs = kind === 'total'
@@ -367,7 +371,8 @@ export function DistributionExplorer({ story, population, away, home }: {
       {binding && (
         <form className="gs-lineform" onSubmit={(e) => { e.preventDefault(); void evaluateCustom() }}>
           <label>{kind === 'total' ? 'Try a total line' : `Try a ${home} line`}
-            <input inputMode="decimal" value={custom} onChange={(e) => setCustom(e.target.value)} placeholder={kind === 'total' ? 'e.g. 8.5' : 'e.g. -1.5'} />
+            <input inputMode="decimal" value={custom} onChange={(e) => { setCustom(e.target.value); setError(null) }}
+              placeholder={active ? `e.g. ${active.line}` : kind === 'total' ? 'e.g. 8.5' : 'e.g. -1.5'} />
           </label>
           <button type="submit" disabled={busy || custom.trim() === ''}>{busy ? 'Evaluating…' : 'Show regions'}</button>
           {customMasses && <button type="button" onClick={() => { setCustomMasses(null); setCustom('') }}>Back to quoted line</button>}

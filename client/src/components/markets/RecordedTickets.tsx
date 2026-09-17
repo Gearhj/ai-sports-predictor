@@ -51,6 +51,7 @@ function Ticket({
           <Layers size={13} aria-hidden="true" /> {ticket.leg_count}-leg parlay
         </span>
         <span className="bx-dim">{ticket.sportsbook}</span>
+        <span className="bx-dim" data-testid="ticket-recorded">Recorded {ticketDay(ticket.recorded_at_utc)}</span>
         <span className={`bx-chip ${funded ? '' : 'ticket__chip--research'}`}>
           {funded ? 'Season account' : 'Research · unfunded'}
         </span>
@@ -106,6 +107,11 @@ function Ticket({
     </article>
   )
 }
+
+/** The slate a ticket belongs to, in Eastern time, so an older ticket never reads as today's. */
+export const ticketDay = (iso: string | null | undefined) => (iso
+  ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(iso))
+  : 'date not recorded')
 
 export function RecordedTickets({
   tickets,

@@ -1,3 +1,4 @@
+import type { ForecastGame } from '../types/domain'
 import { useCallback, useMemo } from 'react'
 import { Link, Navigate, useParams, useSearchParams} from 'react-router-dom'
 import { useScoreboard } from '../hooks/useScoreboard'
@@ -29,6 +30,18 @@ import { GameStory } from '../components/story/GameStory'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import { endpoints } from '../services/api'
 import { formatCompactTimestamp, formatTime, formatTimestamp } from '../services/format'
+
+/** True only while the freshest two-sided pair is inside the 4-hour window and the game has not begun. */
+export function isCurrentMarket(game: Pick<ForecastGame, 'market_quote_observed_at' | 'last_update' | 'start_time' | 'status'>, now = Date.now()): boolean {
+  const status = String(game.status ?? '').toUpperCase()
+  if (['FINAL', 'COMPLETED', 'LIVE', 'IN_PROGRESS', 'STARTED'].some((s) => status.includes(s))) return false
+  const start = Date.parse(game.start_time)
+  if (Number.isFinite(start) && start <= now) return false
+  const observed = Date.parse(game.market_quote_observed_at ?? game.last_update ?? '')
+  if (!Number.isFinite(observed)) return false
+  const age = (now - observed) / 60_000
+  return age >= 0 && age <= 240
+}
 
 export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   const { gameId = 'demo-nym-atl' } = useParams()
@@ -104,6 +117,9 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   const favorite = homeProbability >= awayProbability ? game.home_team : game.away_team
   const favoriteProbability = Math.max(homeProbability, awayProbability)
   const edgeTeam = game.edge_side === 'home' ? game.home_team : game.edge_side === 'away' ? game.away_team : null
+  // A stored price is "current" only inside the 4-hour freshness window and
+  // before first pitch; otherwise every label says it is a stored reference.
+  const marketCurrent = marketAvailable && isCurrentMarket(game)
   const topDriver = data.drivers[0]
   // Why no forecast is on screen, in the backend's words. "Inputs are
   // incomplete" is only one of the reasons; the controlling engine may simply
@@ -217,8 +233,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
 
       <section className="forecast-summary" id="forecast">
         <article><span>Home win</span><strong>{forecastAvailable ? formatPct(game.home_win_probability) : '—'}</strong><small>{marketAvailable ? `Market ${formatPct(game.market_home_probability)}` : 'Market unavailable'}</small></article>
-        <article><span>Fair home moneyline</span><strong>{forecastAvailable ? formatMoneyline(game.fair_home_moneyline) : '—'}</strong><small>{marketAvailable ? `Best current ${formatMoneyline(game.best_home_moneyline)}` : 'Market unavailable'}</small></article>
-        <article><span>Model edge</span><strong className={game.model_edge != null && game.model_edge > 0 ? 'positive' : ''}>{forecastAvailable && marketAvailable && game.model_edge != null ? `+${game.model_edge.toFixed(1)} pts` : '—'}</strong><small>{forecastAvailable && marketAvailable ? game.opportunity : 'Not classified'}</small></article>
+        <article><span>Fair home moneyline</span><strong>{forecastAvailable ? formatMoneyline(game.fair_home_moneyline) : '—'}</strong><small>{marketAvailable ? `${marketCurrent ? 'Best current' : 'Best stored (not current)'} ${formatMoneyline(game.best_home_moneyline)}` : 'Market unavailable'}</small></article>
+        <article><span>Model edge</span><strong className={marketCurrent && game.model_edge != null && game.model_edge > 0 ? 'positive' : ''}>{forecastAvailable && marketAvailable && game.model_edge != null ? `${edgeTeam ? `${edgeTeam.abbreviation} ` : ''}+${game.model_edge.toFixed(1)} pts` : '—'}</strong><small>{!(forecastAvailable && marketAvailable) ? 'Not classified' : marketCurrent ? game.opportunity : 'Against the last stored price · not current, not classified'}</small></article>
         <article><span>Projected total</span><strong>{forecastAvailable ? formatNumber(game.projected_total) : '—'}</strong><small>{marketAvailable ? `Market ${formatNumber(game.market_total)}` : 'Market unavailable'}</small></article>
         <article><span>Projected run differential</span><strong>{forecastAvailable && game.projected_run_difference != null ? `${game.projected_run_difference > 0 ? '+' : ''}${formatNumber(game.projected_run_difference)}` : '—'}</strong><small>Home minus away</small></article>
         <article><span>Model uncertainty</span><strong>{forecastAvailable && game.uncertainty != null ? formatPct(game.uncertainty * 100) : '—'}</strong><small>Probability dispersion</small></article>
@@ -243,18 +259,18 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </Panel>
         <Panel title="Forecast interpretation" eyebrow="MODEL SUMMARY" className="narrative-panel">
           <div className="narrative-label"><Sparkles size={15} /> Deterministic explanation</div>
-          <p>{forecastAvailable ? <>ASP makes <strong>{favorite.name}</strong> the {formatPct(favoriteProbability)} side. {edgeTeam && marketAvailable && game.model_edge != null ? `${edgeTeam.name} carries a ${game.model_edge.toFixed(1)} percentage-point difference versus the current no-vig market.` : 'A complete two-sided market comparison is not currently available.'} {topDriver ? `The largest reported model driver is ${topDriver.label.toLowerCase()}: ${topDriver.detail}` : 'No model-driver explanation is available for this forecast version.'}</> : <>No forecast is shown: {unavailableReason}. No probability, fair line, or model edge is inferred, and no other model is substituted.</>}</p>
+          <p>{forecastAvailable ? <>ASP makes <strong>{favorite.name}</strong> the {formatPct(favoriteProbability)} side. {edgeTeam && marketAvailable && game.model_edge != null ? `${edgeTeam.name} carries a ${game.model_edge.toFixed(1)} percentage-point difference versus the ${marketCurrent ? 'current' : 'last stored (not current)'} no-vig market.` : 'A complete two-sided market comparison is not currently available.'} {topDriver ? `The largest reported model driver is ${topDriver.label.toLowerCase()}: ${topDriver.detail}` : 'No model-driver explanation is available for this forecast version.'}</> : <>No forecast is shown: {unavailableReason}. No probability, fair line, or model edge is inferred, and no other model is substituted.</>}</p>
           <p className="muted">This summary describes model associations, not causal certainty.</p>
         </Panel>
       </div>
 
-      <Panel title="Sportsbook comparison" eyebrow="CURRENT MONEYLINE" action={<span className="update-label">{game.books_reporting} books · updated {formatTimestamp(game.last_update)}</span>} className="section-panel" >
+      <Panel title="Sportsbook comparison" eyebrow={marketCurrent ? 'CURRENT MONEYLINE' : 'STORED MONEYLINE · NOT CURRENT'} action={<span className="update-label">{game.books_reporting} books · updated {formatTimestamp(game.last_update)}</span>} className="section-panel" >
         <TableScroll>
           <table className="data-table market-table" id="market">
             <thead><tr><th>Sportsbook</th><th>{game.away_team.abbreviation}</th><th>{game.home_team.abbreviation}</th><th>Observed</th></tr></thead>
             <tbody>
               {data.market_prices.map((price) => (
-                <tr key={price.book}><td><strong>{price.book}</strong></td><td className={price.is_best_away ? 'best-price' : ''}>{formatMoneyline(price.away)}{price.is_best_away && <small> BEST</small>}</td><td className={price.is_best_home ? 'best-price' : ''}>{formatMoneyline(price.home)}{price.is_best_home && <small> BEST</small>}</td><td className="muted">{formatCompactTimestamp(price.observed_at)}</td></tr>
+                <tr key={price.book}><td><strong>{price.book}</strong></td><td className={marketCurrent && price.is_best_away ? 'best-price' : ''}>{formatMoneyline(price.away)}{marketCurrent && price.is_best_away && <small> BEST</small>}</td><td className={marketCurrent && price.is_best_home ? 'best-price' : ''}>{formatMoneyline(price.home)}{marketCurrent && price.is_best_home && <small> BEST</small>}</td><td className="muted">{formatCompactTimestamp(price.observed_at)}</td></tr>
               ))}
               <tr className="table-summary"><td><strong>ASP fair price</strong></td><td>{forecastAvailable ? formatMoneyline(game.fair_away_moneyline) : '—'}</td><td>{forecastAvailable ? formatMoneyline(game.fair_home_moneyline) : '—'}</td><td>{data.model_version}</td></tr>
             </tbody>

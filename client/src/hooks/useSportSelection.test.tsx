@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, MemoryRouter, useLocation } from 'react-router-dom'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { SportSelectionProvider, legacySportHref, sportHref, useSportSelection } from './useSportSelection'
 
 afterEach(() => { cleanup(); localStorage.clear() })
@@ -34,4 +34,15 @@ it('redirects old bookmarks without losing event, simulation mode, week or hash'
   expect(legacySportHref('/nfl/games/abc/lab','?view=drives&scenario=BASE','#drive-4')).toBe('/games/abc/simulation?view=drives&scenario=BASE&sport=NFL#drive-4')
   expect(legacySportHref('/mlb','?date=2026-09-08')).toBe('/games?date=2026-09-08&sport=MLB')
   expect(sportHref('/games/abc/simulation?track=v18&view=population#frame-5','MLB')).toBe('/games/abc/simulation?track=v18&view=population&sport=MLB#frame-5')
+})
+
+describe('impliedSport', () => {
+  it('ties research pages to their own sport', async () => {
+    const { impliedSport, normalizeSport } = await import('./useSportSelection')
+    expect(impliedSport('/nba/research')).toBe('NBA')
+    expect(impliedSport('/nba/games/abc')).toBe('NBA')
+    expect(impliedSport('/college-football/research')).toBe('CFB')
+    expect(impliedSport('/games')).toBeNull()
+    expect(normalizeSport('cfb')).toBe('CFB')
+  })
 })

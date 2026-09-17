@@ -99,6 +99,10 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
 
   return (
     <section className="cc-home" aria-label="Command center">
+      <p className="cc-home__intro">
+        AI Sports Predictor forecasts MLB and NFL games, compares each forecast with sportsbook prices, and tracks
+        a virtual $1,000-per-sport experiment. Research only — no real money.
+      </p>
       <RegionBoundary label="today's edge board">
         <EdgeBoard board={board} now={now} loading={!decisions.data || !coverage.data} dateLabel={dateLabel}
           allHref={decisionsHref} asOf={<AsOf resource={decisions.data ? decisions : coverage} label="decisions" />} />

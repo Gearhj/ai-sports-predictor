@@ -34,7 +34,7 @@ export function PaperStatusStrip({ sport, seasonNote }: { sport: 'NBA' | 'CFB'; 
       <p>
         <strong>Assessment:</strong>{' '}
         {blockers.length
-          ? <>not possible yet — {blockers.join('; ')} <code>{blocker}</code>. This is AISP&rsquo;s capture state, not a finding that no value exists.</>
+          ? <>not possible yet — <span title={blocker ?? undefined}>{blockers.join('; ')}</span>. This is AISP&rsquo;s capture state, not a finding that no value exists.</>
           : entry.pipeline.blocker ?? entry.pipeline.could_qualify ?? 'No blocker recorded.'}
         {seasonNote ? <> {seasonNote}</> : null}
       </p>
