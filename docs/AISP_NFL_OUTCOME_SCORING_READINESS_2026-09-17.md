@@ -148,16 +148,26 @@ Open questions for Codex: whether production forecasts keep the research configu
 one (AISP currently admits only `NFL_M1_2026_RESEARCH_SHADOW_V1`); how the discovery index is signed; whether
 tie probability remains `DISCRETE_TIE_MASS_NOT_SEPARATELY_VALIDATED`.
 
-## 7. Finding that needs authorization (staged, not deployed)
+## 7. Preproduction corrections (deployed 2026-09-17 14:16 ET, branch `claude/aisp-nfl-preproduction-corrections-v1`)
 
-`app/bankroll/settlement.determine_result` settles a **moneyline tie as a LOSS** for both sides. The NFL paper
-policy declares `TIE_TREATMENT = "STAKE_REFUNDED_PUSH"` and the probability contract prices moneyline ties as a
-push. MLB cannot tie, so only an NFL tie is affected, and no NFL tie has occurred. The one-line fix and its test
-are on `claude/aisp-nfl-tie-settlement-push-staged`. It changes settlement behaviour, so it is not deployed
-without explicit approval.
+**Moneyline tie settles as a push.** `app/bankroll/settlement.determine_result` settled a moneyline tie as a LOSS
+for both sides. The NFL paper policy declares `TIE_TREATMENT = STAKE_REFUNDED_PUSH` and the probability contract
+prices a moneyline tie as a push, so a tie now refunds the stake with zero profit and loss, on both sides, through
+the single shared rule that legacy and experiment settlement both call. MLB cannot tie (`ck_game_final_no_ties`),
+spread and total grading is untouched, and no existing position was rewritten or resettled: no NFL tie has
+occurred (0 settlements with equal scores). Authorized by the operator; previously staged as 005b391.
 
-Other observation: the live probability channel (`adapter._latest_shadow`) picks the newest NFL snapshot by
-import time, not publication time; the scorer is unaffected (it freezes by publication time before kickoff).
+**The live channel now selects by publication time.** The NFL probability channel picked the newest snapshot by
+IMPORT time. It now calls the scorer's own freeze rule (`forecast_evaluation.controlling_forecast`): the latest
+snapshot of the admitted M1 model published strictly before kickoff, with version then row id as deterministic
+tie-breaks only after publication time. A game whose only snapshots were published at or after kickoff is refused
+rather than shown; an unverified package is refused and never substituted; the channel carries its
+controlling-revision reason, publication and import times, horizon and exclusions. One implementation serves both
+the scorer and the page, so they cannot disagree. MLB's channel is unchanged.
+
+Read-only selection diff before deployment, over all 272 NFL games holding an M1 forecast: **0 selections change**,
+so no probability value moves and no decision, position, settlement or evaluation is affected. Week 2 readiness
+stayed 16/16 and Week 1's 16 evaluations are byte-identical before and after.
 
 ## 8. Rollback
 
