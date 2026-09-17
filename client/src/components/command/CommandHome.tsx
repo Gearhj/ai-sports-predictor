@@ -7,8 +7,8 @@
  *   2. The condensed virtual bankroll (with its D3 curve and the four sport
  *      accounts as chips) beside Today's Agenda: operational state, counts and
  *      the next three items needing attention.
- *   3. The day on one D3 axis, clustered and packed so a full MLB slate stays
- *      legible.
+ *   3. Today's games: a chronological board of today's (Eastern) games and
+ *      any AISP position on each. No time axis.
  *   4. AISP Today, last: the day in one sentence, seven counts and a
  *      four-sport readiness strip, counted from the same read models as above.
  *
@@ -20,14 +20,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSportReadiness, type SportReadinessEntry } from '../readiness/SportReadiness'
 import {
-  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, gameHref, money, signedMoney,
+  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, gameHref, money, signedMoney,
   useDecisionBoard, useLedger, useMarketCoverage, type Ledger, type SportCode,
 } from '../../services/commandCenter'
 import { BankrollHistory } from './BankrollHistory'
 import { AsOf } from './RegionState'
 import { RegionBoundary } from './RegionBoundary'
 import { EdgeBoard } from './EdgeBoard'
-import { GameScheduleTimeline, type ScheduleGame } from './GameScheduleTimeline'
+import { TodaysGames, buildSchedule } from './TodaysGames'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { buildEdgeBoard } from '../../services/edgeBoard'
 import { AispToday, buildTodaySummary } from './AispToday'
@@ -79,14 +79,6 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
   const openPositions = (ledger.data?.sports ?? []).flatMap((s) => s.positions.filter((p) => p.status !== 'SETTLED'))
 
   const agenda = useMemo(() => buildAgenda(games, items, ledger.data, now), [games, items, ledger.data, now])
-  const idle = useMemo(() => {
-    const out: Partial<Record<SportCode, string>> = {}
-    for (const s of readiness.data?.sports ?? []) {
-      const code = asSport(s.sport)
-      if (code && s.next_game && !games.some((g) => asSport(g.league) === code)) out[code] = `Next: ${s.next_game.matchup} · ${s.next_game.starts_label}`
-    }
-    return out
-  }, [readiness.data, games])
   // Home talks about official decisions, so its links open AISP Picks (Bet Board is the page default).
   const decisionsHref = withSport('/decisions?view=decisions')
   const board = useMemo(() => buildEdgeBoard({
@@ -94,18 +86,8 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     decisionsHref: (sport) => withSport('/decisions?view=decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
     analyzeHref: (sport, gameId) => gameHref(sport, gameId),
   }), [items, games, ledger.data, now, withSport])
-  // The Home schedule shows only game starts and positions; operational events stay in Today's Agenda.
-  const schedule = useMemo<ScheduleGame[]>(() => {
-    const positions = new Map(items.filter((i) => i.position).map((i) => [i.game_id, i.position]))
-    return games.flatMap((g) => {
-      const sport = asSport(g.league)
-      const start = g.starts_at ? Date.parse(g.starts_at) : NaN
-      if (!sport || !Number.isFinite(start)) return []
-      const position = positions.get(g.game_id)
-      return [{ gameId: g.game_id, sport, matchup: g.matchup ?? `${g.away?.abbreviation ?? 'Away'} @ ${g.home?.abbreviation ?? 'Home'}`,
-        startsAt: start, position: position ? { stake: position.stake } : null }]
-    })
-  }, [games, items])
+  // Today's games: Eastern-date games only, with the official positions on them.
+  const schedule = useMemo(() => buildSchedule({ games, ledger: ledger.data, items, day }), [games, ledger.data, items, day])
   const summary = useMemo(() => buildTodaySummary({ games, items, ledger: ledger.data, now }), [games, items, ledger.data, now])
   const dateLabel = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
   const ret = totals && totals.starting_capital ? (totals.profit_loss / totals.starting_capital) * 100 : null
@@ -162,13 +144,16 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
           qualified={qualified.length} gamesToday={coverage.data ? games.length : null} withSport={withSport} />
       </div>
 
-      <section className="cc-agenda-panel" aria-label="Today's timeline">
+      <section className="cc-agenda-panel tg" aria-labelledby="tg-title">
         <header>
-          <h2>Today’s games · start times and AISP positions</h2>
+          <div>
+            <h2 id="tg-title">Today’s games</h2>
+            <p className="tg-subtitle">Game times and AISP positions · Eastern Time</p>
+          </div>
           <AsOf resource={coverage} label="slate" />
         </header>
         {coverage.data
-          ? <GameScheduleTimeline games={schedule} now={now} idle={idle} withSport={withSport} />
+          ? <TodaysGames rows={schedule} withSport={withSport} />
           : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
       </section>
 

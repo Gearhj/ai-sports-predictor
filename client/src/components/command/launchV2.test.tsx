@@ -51,9 +51,9 @@ describe('Home order', () => {
     scenario = namedScenario('four-plus', { now: Date.now() })
     render(<MemoryRouter><CommandHome withSport={(href) => href} /></MemoryRouter>)
     const today = await screen.findByRole('region', { name: 'AISP Today' })
-    const edge = screen.getByRole('region', { name: /Today’s|Closest/ })
+    const edge = screen.getByRole('region', { name: /^(Today’s (Best|Model|Games on)|Closest)/ })
     const bank = screen.getByRole('region', { name: 'Combined virtual bankroll' })
-    const timeline = screen.getByRole('region', { name: "Today's timeline" })
+    const timeline = screen.getByRole('region', { name: 'Today’s games' })
     const order = [edge, bank, timeline, today]
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

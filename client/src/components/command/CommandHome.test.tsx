@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { currentScope } from '../../services/queryCache'
@@ -31,7 +31,7 @@ afterEach(() => { cleanup(); current = null; hang = false; requests.length = 0 }
 async function renderScenario(name: string) {
   current = namedScenario(name, { now: Date.now() })
   render(<MemoryRouter><CommandHome withSport={(href) => href} /></MemoryRouter>)
-  const hero = await screen.findByRole('region', { name: /Today’s|Closest/ })
+  const hero = await screen.findByRole('region', { name: /^(Today’s (Best|Model|Games on)|Closest)/ })
   await within(hero).findAllByRole('listitem')
   return hero
 }
@@ -95,15 +95,23 @@ describe('Home layout and timeline', () => {
     expect(order).toEqual(['cc-edge', 'cc-bank', 'cc-agenda-panel'])
   })
 
-  it('groups games sharing a start time and lists them on Enter', async () => {
-    await renderScenario('shared-start')
-    const timeline = screen.getByRole('region', { name: "Today's timeline" })
-    const pill = within(timeline).getAllByRole('button', { name: /^4 games · / })[0]
-    fireEvent.keyDown(pill, { key: 'Enter' })
-    const details = await within(timeline).findByRole('region', { name: /^4 games at / })
-    expect(within(details).getAllByRole('link')).toHaveLength(4)
-    // Only game starts and positions: no operational legend entries on Home's schedule.
-    expect(timeline.textContent).not.toMatch(/Collection|Decision window|Settlement/)
+  it("lists today's games in start order, four identical starts under one time label", async () => {
+    // A morning clock, so the fixture's games (2–3 hours ahead) stay on today's Eastern date.
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-09-17T14:00:00Z') })
+    try {
+      await renderScenario('shared-start')
+      const schedule = screen.getByRole('region', { name: 'Today’s games' })
+      expect(within(schedule).getByText('Game times and AISP positions · Eastern Time')).toBeInTheDocument()
+      expect(within(schedule).getByText('8 games · 0 AISP positions')).toBeInTheDocument()
+      expect(within(schedule).getByText('No AISP positions have been opened yet.')).toBeInTheDocument()
+      expect(within(schedule).getByRole('heading', { level: 3 })).toHaveTextContent(/ET · 4 games$/)
+      expect(within(schedule).getAllByRole('link')).toHaveLength(8)
+      // Only game starts and positions: no axis, legend or operational milestones.
+      expect(schedule.querySelector('svg')).toBeNull()
+      expect(schedule.textContent).not.toMatch(/Collection|Decision window|Settlement|Forecast|Next:/)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders the cached ledger immediately while the refresh is still pending', async () => {
