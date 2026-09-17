@@ -18,7 +18,7 @@
  * published days ago) is drawn at the left edge and its tooltip gives the real
  * date, so one old event can no longer stretch the axis across a week.
  *
- * Below 600px the chart becomes a chronological agenda built from the same
+ * Below 440px (phones) the chart becomes a chronological agenda built from the same
  * events rather than a squeezed axis.
  */
 import * as d3 from 'd3'
@@ -80,7 +80,7 @@ export const AgendaTimeline = memo(function AgendaTimeline({ events, now, idle =
   const [lo, hi] = useMemo(() => timelineDomain(events, now), [events, now])
   const shown = useMemo(() => clampEvents(events, [lo, hi]), [events, lo, hi])
   const clusters = useMemo(() => clusterEvents(shown), [shown])
-  const narrow = width < 600
+  const narrow = width < 440
   const lanesPresent = SPORT_CODES.filter((s) => clusters.some((c) => c.sport === s) || idle[s])
   const labelW = 112
   const m = { top: 24, right: 16, bottom: 22 }
