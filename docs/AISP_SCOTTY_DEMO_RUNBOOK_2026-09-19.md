@@ -9,16 +9,16 @@ was run on 2026-09-16 against the production-served frontend on port 8010
 | | |
 |---|---|
 | Release branch | `claude/aisp-scotty-demo-release-v1` |
-| Backend running | pid **46848**, restarted 2026-09-16 18:57 ET by the *ASP Backend 8010* task, from original commit `7dbd07a` (server tree unchanged through `e0533f9`; GitHub `b38dc07`/`d819ce2`, branch `claude/aisp-launch-experience-v2`). It adds the read-only Game Story endpoint and the player-prop availability contract on top of the probability integration (`2c45fc1`), market integrity (`92ee648`) and league isolation (`49409ee`). |
-| Frontend served | `client/dist` built at original commit `e0533f9` (check `/frontendz`, field `build.commit`): launch experience v2 — dark Home first with AISP Today last, the trimmed Experiment, Games sorting, the D3 Game Center, Daily Decisions views (AISP Decisions / All Markets / My Card) and the Markets & Crowd visuals. |
+| Backend running | pid **44904**, restarted 2026-09-16 21:39 ET by the *ASP Backend 8010* task, from original commit `51a265a` (GitHub `c783d37`, branch `claude/aisp-my-card-demo-and-player-quotes-v1`). It adds the historical market replay endpoint, stored player-prop quote reads (none stored) and the inactive, flag-gated player-prop collector on top of launch experience v2 (`7dbd07a`), the probability integration (`2c45fc1`), market integrity (`92ee648`) and league isolation (`49409ee`). |
+| Frontend served | `client/dist` built at original commit `51a265a` (check `/frontendz`, field `build.commit`): launch experience v2 plus My Card's "Try a historical card" replay, Next up limited to games not yet started, and player-prop sections (shown only when stored quotes exist). |
 | Probability acknowledgement | `asp-model-exchange/consumer-acknowledgements/aisp-market-probability-contract-v1/aisp-market-probability-acknowledgement-d9919a5b960a-20260916T203852Z.json`, SHA-256 `7246dd5cbc5f2086abb2fc608b0b239a0d5612c6aa9ee7b7fa894548d6e27ed3`. Additive only: not a model import or promotion. |
 | Model Studio release | `demo-releases-v1` logical address `f0e87d7a…8889a`, manifest SHA-256 `05250af2…56fc8`, verified and reconciled 2026-09-16. The consumer receipt is under `asp-model-exchange/demo-releases-v1/consumer-receipts/`. |
-| Database | PostgreSQL 16, `asp`, Alembic head `20260915_0043` |
+| Database | PostgreSQL 16, `asp`, Alembic head `20260917_0044` (adds the empty `player_prop_quotes` table; downgrade drops it) |
 | Release rehearsal | 2026-09-16, 11:15–11:25 ET (full); 12:00–12:15 ET (affected pages after the release import) |
 | Published SHAs | Original SHAs above are the ones that ran. Their GitHub equivalents are listed in `docs/REPOSITORY_AND_BACKUP.md`. |
 
 **Before the demo:**
-- Open `http://127.0.0.1:8010/frontendz`. The commit must be `e0533f9…` or later from `claude/aisp-launch-experience-v2`.
+- Open `http://127.0.0.1:8010/frontendz`. The commit must be `51a265a…` or later from `claude/aisp-my-card-demo-and-player-quotes-v1`.
 - Open `http://127.0.0.1:8010/readyz`. It must read `ready / reachable / running`.
 
 ## Demo path
@@ -96,8 +96,8 @@ Supporting research pages:
 
    - Wait for a new listener pid on 8010 (about 20–60 s) before trusting `/readyz`. Never start uvicorn or Vite by hand.
 3. **NFL lab blank.** Open the Outcome Explorer directly with `…/simulation?sport=NFL&view=explorer`.
-4. **Frontend rollback.** The previous release build is `.runtime/frontend-rollback/dist-5bea782` (first v2 build: `dist-7dbd07a`). The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
-5. **Backend rollback.** For launch v2, check out `2feeca2`'s `server/` (`git checkout 2feeca2 -- server`) and restart through the task, together with the `dist-5bea782` frontend; the new Game Story endpoint is then gone. For the earlier release, check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
+4. **Frontend rollback.** The previous build (launch v2, no replay) is `.runtime/frontend-rollback/dist-e0533f9`; before that `dist-5bea782` (first v2 build: `dist-7dbd07a`). The pre-redesign build is in `.runtime/frontend-rollback/dist-7861a53` (older: `dist-a3223ec`; intermediate redesign builds: `dist-af1682a`, `dist-2c45fc1`). Copy it over `client/dist`; no restart is needed.
+5. **Backend rollback.** For the replay/player-prop release, check out `abcba8b`'s `server/` (`git checkout abcba8b -- server`) and restart through the task, together with the `dist-e0533f9` frontend; the empty `player_prop_quotes` table may stay (or `alembic downgrade 20260915_0043` from `server/`). For launch v2, check out `2feeca2`'s `server/` (`git checkout 2feeca2 -- server`) and restart through the task, together with the `dist-5bea782` frontend; the new Game Story endpoint is then gone. For the earlier release, check out `929658c`'s `server/` in the original checkout (`git checkout 929658c -- server`) and restart through the task; that is market integrity without the probability adapter (the redesigned pages then show "Model assessments are unavailable", so roll the frontend back with it). Earlier fallbacks are `781e46e` (league isolation only), `b454697` and `6f4f01f`.
 
 ## Fixed for this release
 
@@ -150,3 +150,26 @@ Supporting research pages:
 - **Player props.** AISP stores none; All Markets says so once, and each game's Player Props section is informational only.
 - **Evening pricing gap.** On 16 Sep the newest stored quote was 14:51 ET, so after about 18:51 no current price existed
   and no outcome was selectable. That is the governed freshness rule, not a fault.
+
+## Historical card and player-prop quotes (2026-09-16 night)
+
+- **When nothing is current, use the historical card.** Daily Decisions → My Card → **Try a historical card**
+  (`/decisions?view=card&replay=1`).
+  - A persistent purple banner reads "Historical market replay — prices shown as they appeared at Sep 16, 2026 2:51 PM ET."
+    The moment is the newest stored pregame snapshot with moneyline, spread and total that is at least 4 hours old, so
+    it moves forward as new prices are stored.
+  - Pick a stored price (open a game first) and set a stake. The row shows the original book, price and observed time,
+    and an **illustrative** return.
+  - Picks are "Historical virtual pick — not an AISP decision." They are kept under a separate browser key
+    (`aisp.my-card.replay.v1`) and never reach My Card, decisions, positions, settlements or the Experiment.
+  - **Leave historical replay** returns to the live card, which is unchanged.
+  - Rehearsed 21:41–21:44 ET: TOR −137 at DraftKings via SportsGameOdds, observed 11:14 AM ET; stake $25 → illustrative
+    $43.25. The live card was still empty afterwards. Positions, settlements, decisions, experiment accounts and odds
+    were unchanged.
+- **Next up** (Games ribbon and "What's next") lists only games whose start is still ahead. Started games stay on the
+  board as "Game started".
+- **Player props.** None are stored, and All Markets says so once. `/decisions?view=markets&preview=player-props` shows the
+  interface with a labelled **test fixture** (nothing selectable). Real quotes would read "Sportsbook market — no AISP
+  assessment" and carry no probability, fair price or edge.
+  - The collector is inactive; see `docs/AISP_PLAYER_PROP_QUOTES_V1.md`.
+  - The Odds API balance is 5, below the floor of 10, so no live test is possible before the billing month renews.
