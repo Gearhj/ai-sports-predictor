@@ -116,7 +116,7 @@ Severity key: **P1** = wrong or misleading information, a dead end, a server err
 | Performance | P1 | The global sport selector changed the URL to NFL but the page stayed MLB. | The component is keyed on the selected sport. |
 | Historical Research | P2 | "Settled wagers" wording; the NFL pick read "AWAY". | "Settled virtual positions"; "DEN ML". |
 | Historical Research | P2, open | The game explorer query takes about 9 s. | Needs query/index work. |
-| Historical Research | P3, open | The NFL row shows its UTC slate date (2026-09-14 for a Sunday-night game). | — |
+| Historical Research | P3 | Suspected UTC slate date on the NFL row. On review DEN @ KC kicked off Monday 14 Sep at 8:15 PM ET (00:15 UTC on the 15th), so 2026-09-14 was already the Eastern date. | The row now derives its date from the kickoff in Eastern time (final polish, `41f28e8`), with Sunday-night and DST tests. |
 | Shadow Board | P1 | Every title was a pair of UUIDs; NFL teams used retired franchise names. | Names resolved server-side, identities season-aware. |
 | Shadow Board | P1 (mobile) | 378 px horizontal scroll at 375 px. | Grid columns can shrink. |
 | Shadow Board | P2 | Ignored the global sport selector. | Follows later changes. |
