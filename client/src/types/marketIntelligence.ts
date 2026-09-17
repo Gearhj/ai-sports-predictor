@@ -100,11 +100,19 @@ export interface MarketTape {
   requirement: string | null
 }
 
+export type RffStatus = 'RFF_PUBLISHED' | 'PROVISIONAL_WIDE_RANGE' | 'INSUFFICIENT_EVIDENCE'
+
 export interface RffComponent {
   key: string
   label: string
   weight: number
+  family: string
+  family_label: string
   available: boolean
+  /** Why it has no score: NO_SOURCE, STALE_EVIDENCE, NOT_YET_OBSERVABLE, ... */
+  unavailable_reason?: string | null
+  observed_utc?: string | null
+  stale?: boolean
   score: number | null
   /** "Unavailable" when there is no data. Never "0". */
   display: string
@@ -125,20 +133,35 @@ export interface RffGame {
   schema_version: string
   generated_at_utc: string
   game_id: string
-  status: 'PROVISIONAL_RFF'
+  status: RffStatus
   label: string
   description: string
   market_type: string
   event: MarketTape['event']
   components: RffComponent[]
+  /** Only present when the evidence supports publication. */
   score: number | null
+  /** Sum of weight x score over available components, on the fixed 0-100 scale. */
+  known_contribution: number
+  unknown_weight: number
+  lower_bound: number
+  upper_bound: number
+  interval_width: number
   score_range: [number, number] | null
   score_basis?: string
   band: RffBand
+  category_reason?: string
   evidence_coverage: number
   available_components: number
   unavailable_components: number
-  contributions: { key: string; label: string; score: number | null; weight: number; share_of_score: number }[]
+  families_present: string[]
+  family_labels: string[]
+  publication_blockers: { code: string; detail: string }[]
+  rankable: boolean
+  diagnostics?: { observedComponentAverage: number | null; note: string; correlated_components: unknown[] }
+  missing_requirements?: { key: string; label: string; weight: number; family: string; reason: string; requires: string | null }[]
+  policy?: Record<string, number | string>
+  contributions: { key: string; label: string; family: string; score: number | null; weight: number; share_of_measure: number; share_of_known_contribution: number }[]
   earlier: {
     t: string
     comparable_components: string[]
@@ -170,8 +193,17 @@ export interface RffBoard {
   label: string
   description: string
   market_type: string
+  /** The ranked, publishable set. Comparable with each other and nothing else. */
   games: RffGame[]
-  unscored: { game_id: string; event: MarketTape['event']; requirement: string }[]
+  published: RffGame[]
+  provisional: RffGame[]
+  insufficient: RffGame[]
+  counts?: { published: number; provisional: number; insufficient: number }
+  section_notes?: { published: string; provisional: string; insufficient: string }
+  families?: Record<string, string>
+  correlated_components?: { components: string[]; relation: string }[]
+  policy?: Record<string, number>
+  unscored: { game_id: string; event: MarketTape['event']; requirement: string; evidence_coverage?: number }[]
   weights: Record<string, number>
   bands: { floor: number; label: string; description: string }[]
   date?: string

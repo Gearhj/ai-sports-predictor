@@ -57,13 +57,18 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
   }
   const range = game.score_range
   const needle = game.score == null ? null : point(at(game.score))
+  // Below the publication floor the dial shows the known contribution as the
+  // start of the interval, never as a score.
+  const headline = game.score != null ? game.score.toFixed(0) : `${game.known_contribution.toFixed(0)}+`
+  const caption = game.status === 'RFF_PUBLISHED' ? game.band.label.toUpperCase()
+    : game.status === 'PROVISIONAL_WIDE_RANGE' ? 'PROVISIONAL' : 'INSUFFICIENT EVIDENCE'
 
   return (
     <div className="bx-rff__gauge" style={{ color: tone }}>
       <svg width={size} height={height} viewBox={`0 0 ${size} ${height}`} role="img"
         aria-label={game.score == null
-          ? 'No RFF score: no component has data'
-          : `Provisional RFF ${game.score.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}, ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage`}>
+          ? `No RFF score: ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage, known contribution ${game.known_contribution.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}`
+          : `RFF ${game.score.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}, ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage`}>
         <path d={arc(Math.PI, 2 * Math.PI)} fill="none" stroke="var(--bx-sunk)"
           strokeWidth={stroke} strokeLinecap="round" />
         {/* The plausible range, drawn behind the needle: a third of the weight
@@ -81,11 +86,11 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
         )}
         <text x={cx} y={cy - 6} textAnchor="middle" fill="currentColor"
           style={{ font: '800 42px/1 inherit', letterSpacing: '-.04em' }}>
-          {game.score == null ? '—' : game.score.toFixed(0)}
+          {headline}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fill="var(--bx-muted)"
           style={{ font: '600 10px var(--bx-mono)', letterSpacing: '.13em' }}>
-          {game.band.label.toUpperCase()}
+          {caption}
         </text>
         <text x={cx - radius} y={cy + 20} textAnchor="middle" fill="var(--bx-dim)"
           style={{ font: '600 9px var(--bx-mono)' }}>0</text>
@@ -94,7 +99,8 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
       </svg>
       {range && (
         <span className="bx-dim" style={{ textAlign: 'center' }}>
-          plausible {range[0].toFixed(0)}–{range[1].toFixed(0)} at {pct(game.evidence_coverage, 0)} coverage
+          known {game.known_contribution.toFixed(0)} · plausible {range[0].toFixed(0)}–{range[1].toFixed(0)}
+          {' '}at {pct(game.evidence_coverage, 0)} coverage
         </span>
       )}
     </div>
@@ -107,7 +113,7 @@ export function RffComponents({ game }: { game: RffGame }) {
     <div className="bx-rff__components">
       {game.components.map((component) => (
         <ComponentRow key={component.key} component={component}
-          share={game.contributions.find((entry) => entry.key === component.key)?.share_of_score ?? null} />
+          share={game.contributions.find((entry) => entry.key === component.key)?.share_of_measure ?? null} />
       ))}
     </div>
   )
@@ -131,7 +137,9 @@ function ComponentRow({ component, share }: { component: RffComponent; share: nu
         </span>
         <b className={`bx-num${available ? '' : ' bx-rff__unavailable'}`}>{component.display}</b>
         <small className="bx-dim">
-          {available && share != null ? `${(share * 100).toFixed(0)}% of score` : `weight ${(component.weight * 100).toFixed(0)}%`}
+          {available && share != null
+            ? `${(share * 100).toFixed(0)} of 100 points · weight ${(component.weight * 100).toFixed(0)}%`
+            : `weight ${(component.weight * 100).toFixed(0)}% · not counted`}
         </small>
       </button>
       {open && (

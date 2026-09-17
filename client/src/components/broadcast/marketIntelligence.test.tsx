@@ -158,8 +158,10 @@ describe('usableAt', () => {
 function component(over: Partial<RffComponent> = {}): RffComponent {
   return {
     key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', weight: 0.14,
+    family: 'CROSS_BOOK_STRUCTURE', family_label: 'Cross-book structure',
     available: true, score: 67, display: '67', basis: 'spread between books',
     detail: { spread_points: 3.4 }, requires: null, limitation: null,
+    unavailable_reason: null, observed_utc: null, stale: false,
     ...over,
   }
 }
@@ -173,20 +175,25 @@ function rff(over: Partial<RffGame> = {}): RffGame {
   ]
   return {
     schema_version: 'AISP_RFF_INDEX_V1', generated_at_utc: T(0), game_id: 'g1',
-    status: 'PROVISIONAL_RFF', label: 'RFF Lens — Market reality check',
+    status: 'PROVISIONAL_WIDE_RANGE', label: 'RFF Lens — Market reality check',
     description: 'A research measure of market imbalance.',
     market_type: 'MONEYLINE',
     event: tape().event,
     components,
-    score: 60, score_range: [30, 80],
-    score_basis: 'Weighted mean of the components that have data.',
-    band: { key: 'SPICY', label: 'Spicy', description: 'Real disagreement.' },
+    score: null, known_contribution: 9.4, unknown_weight: 0.86, lower_bound: 9.4, upper_bound: 95.4,
+    interval_width: 86, score_range: [9.4, 95.4],
+    score_basis: 'Fixed weights over the whole measure.',
+    band: { key: 'CATEGORY_UNCERTAIN', label: 'Category uncertain', description: 'The evidence does not narrow the measure to one band.' },
+    category_reason: 'No category is assigned below the publication threshold.',
     evidence_coverage: 0.5, available_components: 1, unavailable_components: 1,
-    contributions: [{ key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', score: 67, weight: 0.14, share_of_score: 1 }],
+    families_present: ['CROSS_BOOK_STRUCTURE'], family_labels: ['Cross-book structure'],
+    publication_blockers: [{ code: 'COVERAGE_BELOW_PUBLICATION_THRESHOLD', detail: '50% of the measure has data.' }],
+    rankable: false,
+    contributions: [{ key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', family: 'CROSS_BOOK_STRUCTURE', score: 67, weight: 0.14, share_of_measure: 0.094, share_of_known_contribution: 1 }],
     earlier: null,
-    explanation: 'Provisional RFF 60 · 50% evidence coverage.',
+    explanation: 'Provisional read · 50% coverage.',
     share_card: {
-      matchup: 'TB @ ATL', headline: 'Provisional RFF 60', band: 'Spicy', coverage: 0.5,
+      matchup: 'TB @ ATL', headline: 'Provisional · known 9, range 9–95', band: 'Category uncertain', coverage: 0.5,
       triggers: [{ label: 'Cross-book disagreement', score: 67, why: 'spread between books' }],
       disclaimer: 'Research index. Not evidence that a game is manipulated, and not a betting signal.',
     },
@@ -205,30 +212,36 @@ describe('RFF components', () => {
     expect(row.className).toContain('is-unavailable')
   })
 
-  it('shows an available component as its score with its share of the number', () => {
+  it('sizes an available component against the WHOLE measure, never against the observed part', () => {
     render(<RffComponents game={rff()} />)
     expect(screen.getByText('67')).toBeInTheDocument()
-    expect(screen.getByText('100% of score')).toBeInTheDocument()
+    // 0.14 weight x 67 = 9 of 100 points. The old label said "100% of score",
+    // which is exactly how one component came to look like the whole index.
+    expect(screen.getByText('9 of 100 points · weight 14%')).toBeInTheDocument()
   })
 
-  it('shows the weight of a component that has no data, so its absence is sized', () => {
+  it('shows the weight of a component that has no data, and that it is not counted', () => {
     render(<RffComponents game={rff()} />)
-    expect(screen.getByText('weight 20%')).toBeInTheDocument()
+    expect(screen.getByText('weight 20% · not counted')).toBeInTheDocument()
   })
 })
 
 describe('RFF gauge', () => {
-  it('publishes the plausible range beside the point estimate', () => {
+  it('publishes the known contribution and the plausible range, not a point estimate', () => {
     render(<RffGauge game={rff()} />)
-    expect(screen.getByText(/plausible 30–80 at 50% coverage/i)).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /plausible range 30 to 80, 50 percent evidence coverage/i }))
+    expect(screen.getByText(/known 9 · plausible 9–95 at 50% coverage/i)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /known contribution 9, plausible range 9 to 95/i }))
       .toBeInTheDocument()
+    expect(screen.getByText('PROVISIONAL')).toBeInTheDocument()
   })
 
-  it('says a game with no scored component is unscored rather than calm', () => {
-    render(<RffGauge game={rff({ score: null, score_range: null, band: { key: 'UNSCORED', label: 'Unscored', description: 'No component has data.' } })} />)
-    expect(screen.getByRole('img', { name: /No RFF score: no component has data/i })).toBeInTheDocument()
-    expect(screen.queryByText(/plausible/i)).toBeNull()
+  it('says a game with almost no evidence is insufficient rather than extreme', () => {
+    render(<RffGauge game={rff({ status: 'INSUFFICIENT_EVIDENCE', score: null, known_contribution: 8, lower_bound: 8, upper_bound: 100, score_range: [8, 100], evidence_coverage: 0.08 })} />)
+    expect(screen.getByText('INSUFFICIENT EVIDENCE')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /No RFF score: 8 percent evidence coverage/i })).toBeInTheDocument()
+    // The range is exactly what a sparse game must show: 8 known, anything up to 100 unknown.
+    expect(screen.getByText(/known 8 · plausible 8–100 at 8% coverage/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Maximum unrest/i)).toBeNull()
   })
 })
 

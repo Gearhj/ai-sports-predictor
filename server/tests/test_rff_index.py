@@ -23,10 +23,11 @@ from app.models import (
     Season, Sport, Sportsbook, StarterObservation, Team,
 )
 from app.services.rff_index import (
-    BANDS, CROSS_BOOK_DISAGREEMENT, INFORMATION_UNCERTAINTY, LATE_MOVEMENT,
-    MODEL_MARKET_DISAGREEMENT, PUBLIC_CONCENTRATION, REVERSE_LINE_MOVEMENT,
-    RffService, SOCIAL_NARRATIVE, SPORTSBOOK_RELIEF, STATUS_PROVISIONAL, WEIGHTS,
-    band_for,
+    BANDS, CATEGORY_UNCERTAIN, CROSS_BOOK_DISAGREEMENT, INCOMPLETE_EVIDENCE,
+    INFORMATION_UNCERTAINTY, LATE_MOVEMENT, MODEL_MARKET_DISAGREEMENT, NOT_YET_OBSERVABLE,
+    NO_SOURCE, PUBLIC_CONCENTRATION, REVERSE_LINE_MOVEMENT, RffService, SOCIAL_NARRATIVE,
+    SPORTSBOOK_RELIEF, STALE_EVIDENCE, STATUS_INSUFFICIENT, STATUS_PROVISIONAL,
+    STATUS_PUBLISHED, WEIGHTS, band_for,
 )
 
 START = datetime(2026, 9, 10, 23, 0, tzinfo=UTC)
@@ -101,7 +102,10 @@ def test_the_public_money_components_are_unavailable_and_never_zero(game):
         assert entry["score"] is None
         assert entry["display"] == "Unavailable"
         assert entry["requires"], "an unavailable component states what it would need"
-    assert payload["status"] == STATUS_PROVISIONAL
+        assert entry["unavailable_reason"] in {NO_SOURCE, "DEPENDS_ON_UNAVAILABLE_COMPONENT"}
+    # This bare game has no market and no information evidence at all, so it is
+    # below the coverage floor and publishes nothing.
+    assert payload["status"] == STATUS_INSUFFICIENT
 
 
 def test_a_relief_proxy_is_never_derived_from_price_concentration(game):
@@ -110,6 +114,7 @@ def test_a_relief_proxy_is_never_derived_from_price_concentration(game):
         SPORTSBOOK_RELIEF,
     )
     assert "not liability" in relief["requires"].lower()
+    assert relief["unavailable_reason"] == "DEPENDS_ON_UNAVAILABLE_COMPONENT"
 
 
 def test_coverage_is_the_weight_behind_the_number_not_a_count(game):
@@ -142,10 +147,13 @@ def test_the_point_estimate_never_travels_without_its_range(game):
 
     payload = RffService(session).for_game(game_id=game["game"].id, now=START)
     low, high = payload["score_range"]
-    assert low <= payload["score"] <= high
-    # The bounds are what the score would be with the missing weight at either
-    # extreme, so the gap between them is exactly the uncovered weight.
+    # Fixed weights: the known contribution IS the lower bound, and the gap to
+    # the upper bound is exactly the unobserved weight.
+    assert low == payload["known_contribution"] == payload["lower_bound"]
     assert (high - low) == pytest.approx((1 - payload["evidence_coverage"]) * 100, abs=0.2)
+    assert payload["score"] is None, "not enough coverage to publish a number"
+    assert payload["status"] == STATUS_INSUFFICIENT
+    assert payload["band"]["key"] == CATEGORY_UNCERTAIN
 
 
 def test_a_game_with_no_market_at_all_is_unscored_not_calm(game):
@@ -155,7 +163,8 @@ def test_a_game_with_no_market_at_all_is_unscored_not_calm(game):
         for key in (REVERSE_LINE_MOVEMENT, LATE_MOVEMENT, CROSS_BOOK_DISAGREEMENT)
     ]
     assert not any(market_driven)
-    assert "absence of evidence, not a calm market" in payload["explanation"] or payload["score"] is not None
+    assert payload["status"] == STATUS_INSUFFICIENT and payload["score"] is None
+    assert "Insufficient evidence" in payload["explanation"]
 
 
 def test_cross_book_disagreement_measures_the_spread_between_books(game):
@@ -224,29 +233,90 @@ def test_reverse_line_movement_states_that_it_only_sees_the_price_half(game):
     assert "public tickets" in (entry["limitation"] or "").lower()
 
 
-def test_information_uncertainty_reads_persisted_evidence_only(game):
+def test_information_uncertainty_scores_only_evidence_aisp_holds(game):
+    """Unresolved evidence for both sides is the game's uncertainty; a missing
+    side is AISP's gap and is never scored."""
+
     session = game["session"]
+    observed = START - timedelta(hours=2)
     session.add(LineupObservation(
         game_id=game["game"].id, team_id=game["home"].id, lineup_status="PROJECTED",
-        is_complete=False, observed_at=START - timedelta(hours=2),
-        available_as_of=START - timedelta(hours=2), source="MLB_STATS_API", source_mode="LIVE",
+        is_complete=False, observed_at=observed, available_as_of=observed,
+        source="MLB_STATS_API", source_mode="LIVE",
     ))
     session.add(StarterObservation(
         game_id=game["game"].id, team_id=game["home"].id, confirmation_state="PROBABLE",
-        observed_at=START - timedelta(hours=2), available_as_of=START - timedelta(hours=2),
-        source="MLB_STATS_API", source_mode="LIVE",
+        observed_at=observed, available_as_of=observed, source="MLB_STATS_API", source_mode="LIVE",
     ))
     session.flush()
 
-    entry = component(
-        RffService(session).for_game(game_id=game["game"].id, now=START),
-        INFORMATION_UNCERTAINTY,
-    )
+    # Only the home side has evidence: the away side is a collection gap, so the
+    # component is unavailable rather than scored at maximum.
+    entry = component(RffService(session).for_game(game_id=game["game"].id, now=START),
+                      INFORMATION_UNCERTAINTY)
+    assert entry["available"] is False
+    assert entry["unavailable_reason"] == INCOMPLETE_EVIDENCE
+    assert entry["score"] is None
+
+    # With both sides observed and both unresolved, it scores.
+    session.add(StarterObservation(
+        game_id=game["game"].id, team_id=game["away"].id, confirmation_state="PROBABLE",
+        observed_at=observed, available_as_of=observed, source="MLB_STATS_API", source_mode="LIVE",
+    ))
+    session.flush()
+    entry = component(RffService(session).for_game(game_id=game["game"].id, now=START),
+                      INFORMATION_UNCERTAINTY)
     assert entry["available"] is True
-    assert entry["detail"]["lineup_sides_observed"] == 1
-    assert entry["detail"]["lineup_sides_unresolved"] == 2, "one unresolved plus one never observed"
-    assert entry["detail"]["starter_sides_unconfirmed"] == 2
-    assert entry["score"] > 50
+    assert entry["score"] == 100.0, "every kind of evidence held is unresolved"
+    assert entry["detail"]["forecast_readiness_score"] is None
+
+
+def test_aisp_pipeline_completeness_is_never_added_to_the_score(game):
+    """A low forecast readiness score is a fact about AISP, not about the game."""
+
+    session = game["session"]
+    observed = START - timedelta(hours=2)
+    for team in (game["home"], game["away"]):
+        session.add(StarterObservation(
+            game_id=game["game"].id, team_id=team.id, confirmation_state="CONFIRMED",
+            observed_at=observed, available_as_of=observed, source="MLB_STATS_API", source_mode="LIVE",
+        ))
+        session.add(LineupObservation(
+            game_id=game["game"].id, team_id=team.id, lineup_status="CONFIRMED",
+            is_complete=True, observed_at=observed, available_as_of=observed,
+            source="MLB_STATS_API", source_mode="LIVE",
+        ))
+    feature = FeatureVersion(name="fv-readiness", version="1", schema_hash="1" * 64)
+    version = ModelVersion(name="asp_mlb_ensemble", version="3.0.0")
+    session.add_all([feature, version])
+    session.flush()
+    session.add(Forecast(
+        game_id=game["game"].id, model_version_id=version.id, feature_version_id=feature.id,
+        version=1, generated_at=observed, available_as_of=observed, status=ForecastStatus.PUBLISHED,
+        home_win_probability=0.55, away_win_probability=0.45, readiness_score=10.0,
+    ))
+    session.flush()
+
+    entry = component(RffService(session).for_game(game_id=game["game"].id, now=START),
+                      INFORMATION_UNCERTAINTY)
+    assert entry["available"] is True
+    assert entry["score"] == 0.0, "everything AISP holds is resolved"
+    assert entry["detail"]["forecast_readiness_score"] == 10.0, "reported beside, never added"
+
+
+def test_uncertainty_is_not_measured_before_its_window_opens(game):
+    session = game["session"]
+    early = START - timedelta(hours=12)
+    for team in (game["home"], game["away"]):
+        session.add(StarterObservation(
+            game_id=game["game"].id, team_id=team.id, confirmation_state="PROBABLE",
+            observed_at=early, available_as_of=early, source="MLB_STATS_API", source_mode="LIVE",
+        ))
+    session.flush()
+    entry = component(RffService(session).for_game(game_id=game["game"].id, now=early),
+                      INFORMATION_UNCERTAINTY)
+    assert entry["available"] is False
+    assert entry["unavailable_reason"] == NOT_YET_OBSERVABLE
 
 
 def test_the_index_declares_that_it_governs_nothing(game):

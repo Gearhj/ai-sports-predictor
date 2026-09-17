@@ -14,7 +14,7 @@ import { MarketReplay } from './MarketReplay'
 import { RffComponents, RffHeadline, RffShareCard, bandTone } from './RffLab'
 import { Panel, clockOf, pct } from './primitives'
 import type {
-  InformationEventsForGame, MarketTape, RffBoard,
+  InformationEventsForGame, MarketTape, RffBoard, RffGame,
 } from '../../types/marketIntelligence'
 
 export type Family = 'MONEYLINE' | 'SPREAD' | 'TOTAL'
@@ -103,8 +103,11 @@ export function RffView({
     key: cacheKey('markets/rff', { day, league, family }), staleTimeMs: STALE_TIME.slate,
   })
   const board = resource.data
-  const games = board?.games ?? []
-  const active = games.find((game) => game.game_id === selected) ?? games[0] ?? null
+  const published = board?.published ?? board?.games ?? []
+  const provisional = board?.provisional ?? []
+  const insufficient = board?.insufficient ?? []
+  const everything = [...published, ...provisional, ...insufficient]
+  const active = everything.find((game) => game.game_id === selected) ?? everything[0] ?? null
 
   return (
     <>
@@ -113,46 +116,31 @@ export function RffView({
         <p className="bx-muted" style={{ maxWidth: '78ch' }}>
           {board?.description
             ?? 'A research measure of market imbalance, unusual movement and unresolved information. It is not evidence that a game is manipulated.'}{' '}
-          It is <strong>provisional</strong> because the component it is really about — where the
-          public money is — has no source in AISP, and no price series substitutes for it. The score
-          never affects a forecast, a threshold, a decision or a position.
+          Components carry fixed weights, so a game with little evidence gets a <strong>wider
+          range</strong>, never a higher score. A score is published only when enough of the
+          measure is actually observed; everything else is shown as what was seen and what is
+          still missing. The score never affects a forecast, a threshold, a decision or a position.
         </p>
-        {resource.loading && !board && <p className="bx-empty" role="status">Scoring the board…</p>}
+        {resource.loading && !board && <p className="bx-empty" role="status">Reading the evidence…</p>}
         {resource.error && <p className="bx-empty" role="alert">{resource.error}</p>}
-        {board && games.length === 0 && (
-          <p className="bx-empty">
-            No game on {board.date} has enough persisted evidence for any component to score. That
-            is an absence of evidence, not a calm market.
-          </p>
-        )}
-        {games.length > 0 && (
-          <div className="bx-rff__board">
-            {games.map((game) => (
-              <button key={game.game_id} type="button"
-                className={`bx-rff__card${active?.game_id === game.game_id ? ' is-active' : ''}`}
-                style={{ ['--bx-band' as string]: bandTone(game.band.key) }}
-                onClick={() => onSelect(game.game_id)}>
-                <span className="bx-rff__card-head">
-                  <b>{game.event.away?.abbreviation} @ {game.event.home?.abbreviation}</b>
-                  <em>{game.band.label}</em>
-                </span>
-                <strong className="bx-num">{game.score?.toFixed(0) ?? '—'}</strong>
-                <span className="bx-dim">
-                  {game.score_range
-                    ? `${game.score_range[0].toFixed(0)}–${game.score_range[1].toFixed(0)}`
-                    : 'unscored'}
-                  {' · '}{pct(game.evidence_coverage, 0)} coverage
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        {board && board.unscored.length > 0 && (
-          <p className="bx-dim" style={{ marginTop: 12 }}>
-            {board.unscored.length} game{board.unscored.length === 1 ? '' : 's'} could not be scored
-            at all: {board.unscored[0].requirement}
-          </p>
-        )}
+
+        <RffSection title="RFF scores with sufficient evidence" games={published}
+          note={board?.section_notes?.published
+            ?? 'Enough coverage, components and evidence families for a composite. Ranked.'}
+          empty={`No game on ${board?.date ?? 'this slate'} has enough evidence for a published RFF score. That is an absence of evidence, not a calm market.`}
+          selected={active?.game_id ?? null} onSelect={onSelect} kind="published" />
+
+        <RffSection title="Provisional reads" games={provisional}
+          note={board?.section_notes?.provisional
+            ?? 'Half the measure or more, but not enough to publish a number. Not ranked against published games.'}
+          empty="No game is in the provisional band."
+          selected={active?.game_id ?? null} onSelect={onSelect} kind="provisional" />
+
+        <RffSection title="Games needing more data" games={insufficient}
+          note={board?.section_notes?.insufficient
+            ?? 'Below half the measure. No score and no category: what is shown is what was observed and what is still needed.'}
+          empty="Every game has at least half the measure behind it."
+          selected={active?.game_id ?? null} onSelect={onSelect} kind="insufficient" />
       </Panel>
 
       {active && (
@@ -174,6 +162,63 @@ export function RffView({
         </>
       )}
     </>
+  )
+}
+
+/**
+ * One evidence tier. The three tiers are never merged into a single descending
+ * list: a sparse game with one extreme component would sit above a fully
+ * evidenced calm one, which is the misreading this page exists to prevent.
+ */
+function RffSection({ title, games, note, empty, selected, onSelect, kind }: {
+  title: string
+  games: RffGame[]
+  note: string
+  empty: string
+  selected: string | null
+  onSelect: (gameId: string) => void
+  kind: 'published' | 'provisional' | 'insufficient'
+}) {
+  return (
+    <section className={`bx-rff__section bx-rff__section--${kind}`} aria-label={title}>
+      <h4 className="bx-rff__section-title">{title} <span>{games.length}</span></h4>
+      <p className="bx-dim bx-rff__section-note">{note}</p>
+      {games.length === 0
+        ? <p className="bx-empty">{empty}</p>
+        : (
+          <div className="bx-rff__board">
+            {games.map((game) => {
+              const observed = game.contributions[0]
+              return (
+                <button key={game.game_id} type="button"
+                  className={`bx-rff__card is-${kind}${selected === game.game_id ? ' is-active' : ''}`}
+                  style={{ ['--bx-band' as string]: bandTone(game.band.key) }}
+                  onClick={() => onSelect(game.game_id)}>
+                  <span className="bx-rff__card-head">
+                    <b>{game.event.away?.abbreviation} @ {game.event.home?.abbreviation}</b>
+                    <em>{kind === 'published' ? game.band.label
+                      : kind === 'provisional' ? 'Provisional' : 'Insufficient evidence'}</em>
+                  </span>
+                  {kind === 'published'
+                    ? <strong className="bx-num">{game.score?.toFixed(0) ?? '—'}</strong>
+                    : <strong className="bx-num bx-rff__known">{game.known_contribution.toFixed(0)}<small>known</small></strong>}
+                  <span className="bx-dim">
+                    {pct(game.evidence_coverage, 0)} coverage · {game.available_components} of{' '}
+                    {game.available_components + game.unavailable_components} components
+                  </span>
+                  <span className="bx-dim">
+                    Possible range {game.lower_bound.toFixed(0)}–{game.upper_bound.toFixed(0)}
+                  </span>
+                  {observed && (
+                    <span className="bx-dim">Observed: {observed.label.toLowerCase()} {observed.score?.toFixed(0)}</span>
+                  )}
+                  {kind !== 'published' && <span className="bx-rff__unranked">Not ranked</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+    </section>
   )
 }
 
