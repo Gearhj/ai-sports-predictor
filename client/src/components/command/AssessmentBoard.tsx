@@ -220,7 +220,8 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
           </div>
           <TeamLogo league={sport} abbreviation={game?.home?.abbreviation} size={36} />
         </div>
-        <span className={`as-status cc-tone--${card.status.tone}`}>{card.status.label}</span>
+        {/* An official pick carries its status inside the top-opportunity panel. */}
+        {play.state !== 'OFFICIAL' && <span className={`as-status cc-tone--${card.status.tone}`}>{card.status.label}</span>}
       </header>
       <TopOpportunity play={play} game={game} item={item} sport={sport} status={card.status.label} channel={channel} />
       <ForecastStrip channel={channel} game={game} sport={sport} />
