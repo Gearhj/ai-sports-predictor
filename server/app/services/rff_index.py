@@ -1048,9 +1048,11 @@ class RffService:
             "earlier_score": round(earlier_score, 1),
             "current_score": round(current_score, 1),
             "change": round(current_score - earlier_score, 1),
-            "note": "Only the components that are functions of the price tape can be "
-                    "recomputed at an earlier instant. The rest are read at read time and "
-                    "are left out of this comparison rather than back-dated.",
+            "note": "A like-for-like comparison over ONE fixed subset of components at two "
+                    "instants -- not an RFF Core score, and never comparable with one. Only "
+                    "components that are functions of the price tape can be recomputed at an "
+                    "earlier instant; the rest are read at read time and are left out rather "
+                    "than back-dated.",
         }
 
     # -- narration --------------------------------------------------------
