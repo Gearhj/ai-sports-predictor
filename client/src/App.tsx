@@ -7,6 +7,7 @@ import { PublicPolicyProvider } from './hooks/usePublicPolicy'
 import { SportRegistryProvider } from './hooks/useSportRegistry'
 import { SportSelectionProvider, legacySportHref, sportHref } from './hooks/useSportSelection'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
+import { BuildRefresh } from './components/BuildRefresh'
 
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
 const LabsPage = lazy(() => import('./pages/LabsPage').then((module) => ({ default: module.LabsPage })))
@@ -78,6 +79,7 @@ export default function App() {
           <SportRegistryProvider>
             <SportSelectionProvider>
             <ScrollToTop />
+            <BuildRefresh />
             <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
               <Routes>
                 <Route element={<AppShell />}>

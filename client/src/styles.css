@@ -4265,3 +4265,7 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 /* Long identifiers in audit panels wrap instead of widening the page on phones. */
 .mode-technical code,
 .research-study header .muted { overflow-wrap: anywhere; word-break: break-word; }
+
+/* A deployment happened while this tab was open. */
+.build-refresh { position: fixed; right: 16px; bottom: 16px; z-index: 1000; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: #0c1a2e; color: #eef3fa; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.build-refresh button { border: 0; border-radius: 999px; padding: 4px 12px; background: #3fd8c4; color: #06201c; font: inherit; font-weight: 800; cursor: pointer; }

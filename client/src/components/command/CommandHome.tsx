@@ -7,8 +7,9 @@
  *   2. The condensed virtual bankroll (with its D3 curve and the four sport
  *      accounts as chips) beside Today's Agenda: operational state, counts and
  *      the next three items needing attention.
- *   3. Today's games: a chronological board of today's (Eastern) games and
- *      any AISP position on each. No time axis.
+ *   3. Today on one axis: the day's milestones per sport on a fixed hour
+ *      scale that scrolls sideways, then Today's games, a chronological board
+ *      of today's (Eastern) games and any AISP position on each.
  *   4. AISP Today, last: the day in one sentence, seven counts and a
  *      four-sport readiness strip, counted from the same read models as above.
  *
@@ -20,7 +21,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSportReadiness, type SportReadinessEntry } from '../readiness/SportReadiness'
 import {
-  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, gameHref, money, signedMoney,
+  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, gameHref, money, signedMoney,
   useDecisionBoard, useLedger, useMarketCoverage, type Ledger, type SportCode,
 } from '../../services/commandCenter'
 import { BankrollHistory } from './BankrollHistory'
@@ -28,6 +29,7 @@ import { AsOf } from './RegionState'
 import { RegionBoundary } from './RegionBoundary'
 import { EdgeBoard } from './EdgeBoard'
 import { TodaysGames, buildSchedule } from './TodaysGames'
+import { AgendaTimeline } from './AgendaTimeline'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { buildEdgeBoard } from '../../services/edgeBoard'
 import { AispToday, buildTodaySummary } from './AispToday'
@@ -79,6 +81,14 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
   const openPositions = (ledger.data?.sports ?? []).flatMap((s) => s.positions.filter((p) => p.status !== 'SETTLED'))
 
   const agenda = useMemo(() => buildAgenda(games, items, ledger.data, now), [games, items, ledger.data, now])
+  const idle = useMemo(() => {
+    const out: Partial<Record<SportCode, string>> = {}
+    for (const s of readiness.data?.sports ?? []) {
+      const code = asSport(s.sport)
+      if (code && s.next_game && !games.some((g) => asSport(g.league) === code)) out[code] = `Next: ${s.next_game.matchup} · ${s.next_game.starts_label}`
+    }
+    return out
+  }, [readiness.data, games])
   // Home talks about official decisions, so its links open AISP Picks (Bet Board is the page default).
   const decisionsHref = withSport('/decisions?view=decisions')
   const board = useMemo(() => buildEdgeBoard({
@@ -143,6 +153,16 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
         <TodayAgenda events={agenda} now={now} positionsOpen={openPositions.length}
           qualified={qualified.length} gamesToday={coverage.data ? games.length : null} withSport={withSport} />
       </div>
+
+      <section className="cc-agenda-panel" aria-label="Today's timeline">
+        <header>
+          <h2>Today on one axis</h2>
+          <AsOf resource={coverage} label="slate" />
+        </header>
+        {coverage.data
+          ? <AgendaTimeline events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} />
+          : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
+      </section>
 
       <section className="cc-agenda-panel tg" aria-labelledby="tg-title">
         <header>

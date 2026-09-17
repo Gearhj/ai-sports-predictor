@@ -92,7 +92,7 @@ describe('Home layout and timeline', () => {
     expect(within(bank).getByRole('list', { name: 'Sport accounts' }).children).toHaveLength(4)
     expect(screen.queryByRole('list', { name: 'Sport bankrolls' })).toBeNull()
     const order = [...document.querySelectorAll('.cc-edge, .cc-bank, .cc-agenda-panel')].map((el) => el.className.split(' ').find((c) => ['cc-edge', 'cc-bank', 'cc-agenda-panel'].includes(c)))
-    expect(order).toEqual(['cc-edge', 'cc-bank', 'cc-agenda-panel'])
+    expect(order).toEqual(['cc-edge', 'cc-bank', 'cc-agenda-panel', 'cc-agenda-panel'])
   })
 
   it("lists today's games in start order, four identical starts under one time label", async () => {

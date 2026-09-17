@@ -795,3 +795,70 @@
   .tg-matchup, .tg-none, .tg-position { grid-column: 1 / -1; }
   .tg-decision { margin-left: 12px; }
 }
+
+/* Home · Today on one axis (restored): the agenda timeline and its mobile list. */
+.cc-now line { stroke: var(--bx-accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.cc-now text { fill: var(--bx-accent); font-size: 11px; font-weight: 700; }
+.cc-agenda { --cc-agenda-bg: #ffffff; }
+.cc-agenda__lane { fill: #f6f3ef; }
+.cc-agenda__sport { font-size: 12px; font-weight: 800; fill: #33445a; }
+.cc-am { cursor: default; outline: none; }
+.cc-am path, .cc-am rect { stroke-width: 1.6; }
+.cc-am--expected path, .cc-am--expected rect { stroke-dasharray: 2 2; }
+.cc-am--missed path, .cc-am--missed rect { stroke: var(--cc-red) !important; }
+.cc-am:focus-visible path, .cc-am:focus-visible rect, .cc-am:hover path, .cc-am:hover rect { stroke: #10203a; stroke-width: 2.4; }
+.cc-am__ring { fill: none; stroke-width: 1.5; opacity: .5; }
+.cc-am__count { font-size: 10px; font-weight: 800; fill: #33445a; }
+.cc-glyph { display: inline-block; width: 14px; text-align: center; color: #33445a; }
+.cc-key--collect-bar { height: 4px; background: #9aa6b5; border-radius: 3px; }
+.cc-key--decision-bar { height: 9px; background: #33445a; border-radius: 5px; }
+.cc-legend__status { color: #75859a; }
+@media (prefers-reduced-motion: no-preference) { .cc-am--open .cc-am__ring { animation: cc-ring 1.8s ease-out infinite; transform-box: fill-box; transform-origin: center; } }
+@keyframes cc-ring { from { opacity: .6; transform: scale(.7); } to { opacity: 0; transform: scale(1.5); } }
+.cc-agenda__band { opacity: .18; }
+.cc-now__pill { fill: var(--bx-accent, #0f8d7d); }
+.cc-now .cc-now__text { fill: #ffffff; font-size: 10.5px; font-weight: 700; }
+.cc-am__pill { stroke-width: 1.5; }
+.cc-am__label { font-size: 11px; font-weight: 800; fill: #33445a; pointer-events: none; }
+.cc-am__label.is-filled { fill: #ffffff; }
+.cc-am__label--plain { font-weight: 600; fill: #55677d; }
+.cc-am { cursor: pointer; outline: none; }
+.cc-am:focus-visible > :nth-child(2), .cc-am.is-pinned > :nth-child(2) { stroke-width: 2.5; filter: drop-shadow(0 0 3px rgba(15, 141, 125, .6)); }
+.cc-agenda__pinned { margin-top: 6px; border: 1px solid #e4e1dc; border-left: 4px solid var(--sport); border-radius: 12px; padding: 8px 12px; background: #fbfaf8; }
+.cc-agenda__pinned header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.cc-agenda__pinned header button { border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: #55677d; }
+.cc-agenda__pinned ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; }
+.cc-agenda__pinned li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; flex-wrap: wrap; }
+.cc-agenda__pinned a { color: #0f8d7d; font-weight: 700; text-decoration: none; }
+.cc-agenda__pinned-time { font-variant-numeric: tabular-nums; color: #33445a; font-weight: 700; min-width: 56px; }
+.cc-agenda-list ol { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.cc-agenda-list__item { border-left: 3px solid var(--sport); border-radius: 10px; background: #f6f3ef; }
+.cc-agenda-list__item > button { display: grid; grid-template-columns: 62px 16px minmax(0, 1fr); gap: 8px; align-items: center; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; font: inherit; color: #10203a; cursor: pointer; }
+.cc-agenda-list__time { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 13px; }
+.cc-agenda-list__glyph { color: var(--sport); text-align: center; }
+.cc-agenda-list__body { display: grid; min-width: 0; }
+.cc-agenda-list__body b { font-size: 13px; }
+.cc-agenda-list__body small { font-size: 12px; color: #55677d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-agenda-list__games { list-style: none; margin: 0; padding: 0 10px 8px 80px; display: grid; gap: 3px; }
+.cc-agenda-list__games li { display: flex; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
+.cc-agenda-list__games a { color: #0f8d7d; font-weight: 700; text-decoration: none; }
+/* Fixed hour scale inside a horizontal scroller; sport labels pinned on the left. */
+.cc-agenda__controls { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 6px; font-size: 12px; }
+.cc-agenda__nav { display: inline-flex; gap: 6px; }
+.cc-agenda__nav button { border: 1px solid #e4e1dc; background: #ffffff; color: #10203a; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.cc-agenda__nav button:hover { border-color: #0f8d7d; color: #0f8d7d; }
+.cc-agenda__viewport { position: relative; }
+.cc-agenda__scroll { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; padding-bottom: 4px; }
+.cc-agenda__scroll:focus-visible { outline: 2px solid #0f8d7d; outline-offset: 2px; border-radius: 8px; }
+.cc-agenda__scroll svg { display: block; }
+.cc-agenda__hour { stroke: #e4e1dc; stroke-width: 1; }
+.cc-agenda .cc-axis text { font-size: 11px; font-weight: 700; fill: #55677d; }
+.cc-agenda .cc-axis path { stroke: none; }
+.cc-agenda .cc-axis line { stroke: #cfcbc4; }
+.cc-agenda__labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.cc-agenda__label { position: absolute; left: 0; width: 112px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 0 8px 0 12px; background: #f6f3ef; border-left: 4px solid var(--sport); border-radius: 8px 0 0 8px; box-shadow: 6px 0 8px -6px rgba(16, 32, 58, .18); }
+.cc-agenda__label b { font-size: 12px; font-weight: 800; color: #33445a; line-height: 1.2; }
+.cc-agenda__label small { font-size: 11px; color: #75859a; }
+.cc-agenda__label.is-idle { width: 100%; flex-direction: row; align-items: center; justify-content: flex-start; gap: 22px; border-radius: 8px; box-shadow: none; background: linear-gradient(90deg, #f6f3ef 0 112px, transparent 112px); }
+.cc-agenda__label.is-idle b { width: 88px; flex: none; }
+.cc-agenda__label.is-idle span { font-size: 11.5px; color: #75859a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
