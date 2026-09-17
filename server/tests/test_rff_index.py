@@ -23,11 +23,11 @@ from app.models import (
     Season, Sport, Sportsbook, StarterObservation, Team,
 )
 from app.services.rff_index import (
-    BANDS, CATEGORY_UNCERTAIN, CROSS_BOOK_DISAGREEMENT, INCOMPLETE_EVIDENCE,
-    INFORMATION_UNCERTAINTY, LATE_MOVEMENT, MODEL_MARKET_DISAGREEMENT, NOT_YET_OBSERVABLE,
-    NO_SOURCE, PUBLIC_CONCENTRATION, REVERSE_LINE_MOVEMENT, RffService, SOCIAL_NARRATIVE,
-    SPORTSBOOK_RELIEF, STALE_EVIDENCE, STATUS_INSUFFICIENT, STATUS_PROVISIONAL,
-    STATUS_PUBLISHED, WEIGHTS, band_for,
+    BANDS, CATEGORY_UNCERTAIN, CATEGORY_UNKNOWN, CORE_COMPONENTS, CROSS_BOOK_DISAGREEMENT,
+    EXTENDED_ONLY, INCOMPLETE_EVIDENCE, INDEX_NAME, INFORMATION_UNCERTAINTY, LATE_MOVEMENT,
+    MODEL_MARKET_DISAGREEMENT, NOT_YET_OBSERVABLE, NO_SOURCE, PUBLIC_CONCENTRATION,
+    REVERSE_LINE_MOVEMENT, RffService, SOCIAL_NARRATIVE, SPORTSBOOK_RELIEF, STALE_EVIDENCE,
+    STATUS_INSUFFICIENT, STATUS_PROVISIONAL, STATUS_PUBLISHED, WEIGHTS, band_for,
 )
 
 START = datetime(2026, 9, 10, 23, 0, tzinfo=UTC)
@@ -92,29 +92,39 @@ def component(payload: dict, key: str) -> dict:
     return next(entry for entry in payload["components"] if entry["key"] == key)
 
 
-def test_the_public_money_components_are_unavailable_and_never_zero(game):
-    """The failure this exists for: a zero says 'we looked'. We did not look."""
+def test_the_public_money_components_are_extended_only_and_never_scored(game):
+    """The failure this exists for: a zero says 'we looked'. We did not look.
+
+    Public concentration, sportsbook relief and social narrative are not Core
+    components. They are the Extended concept: described, weightless, and never
+    calculated into anything.
+    """
 
     payload = RffService(game["session"]).for_game(game_id=game["game"].id, now=START)
+    scored = {entry["key"] for entry in payload["components"]}
     for key in (PUBLIC_CONCENTRATION, SPORTSBOOK_RELIEF, SOCIAL_NARRATIVE):
-        entry = component(payload, key)
-        assert entry["available"] is False
-        assert entry["score"] is None
-        assert entry["display"] == "Unavailable"
-        assert entry["requires"], "an unavailable component states what it would need"
-        assert entry["unavailable_reason"] in {NO_SOURCE, "DEPENDS_ON_UNAVAILABLE_COMPONENT"}
+        assert key not in scored, "an unsourced component is never a scored Core component"
+        assert key not in WEIGHTS
+
+    extended = payload["extended"]
+    assert extended["calculated"] is False and extended["score"] is None
+    described = {entry["key"]: entry for entry in extended["missing_components"]}
+    assert set(described) == {PUBLIC_CONCENTRATION, SPORTSBOOK_RELIEF, SOCIAL_NARRATIVE}
+    for entry in described.values():
+        assert entry["weight"] is None, "Extended components carry no weight"
+        assert entry["reason"] == NO_SOURCE
+        assert entry["needs"], "an absent component states what it would need"
     # This bare game has no market and no information evidence at all, so it is
     # below the coverage floor and publishes nothing.
     assert payload["status"] == STATUS_INSUFFICIENT
 
 
 def test_a_relief_proxy_is_never_derived_from_price_concentration(game):
-    relief = component(
-        RffService(game["session"]).for_game(game_id=game["game"].id, now=START),
-        SPORTSBOOK_RELIEF,
-    )
-    assert "not liability" in relief["requires"].lower()
-    assert relief["unavailable_reason"] == "DEPENDS_ON_UNAVAILABLE_COMPONENT"
+    extended = RffService(game["session"]).for_game(game_id=game["game"].id, now=START)["extended"]
+    relief = next(entry for entry in extended["missing_components"]
+                  if entry["key"] == SPORTSBOOK_RELIEF)
+    assert "not liability" in relief["needs"].lower()
+    assert "price" in extended["statement"].lower() and "public money" in extended["statement"].lower()
 
 
 def test_coverage_is_the_weight_behind_the_number_not_a_count(game):
@@ -132,7 +142,7 @@ def test_coverage_is_the_weight_behind_the_number_not_a_count(game):
     expected = sum(WEIGHTS[entry["key"]] for entry in available) / sum(WEIGHTS.values())
     assert payload["evidence_coverage"] == pytest.approx(expected, abs=1e-6)
     assert payload["available_components"] == len(available)
-    assert payload["unavailable_components"] == 8 - len(available)
+    assert payload["unavailable_components"] == len(CORE_COMPONENTS) - len(available)
 
 
 def test_the_point_estimate_never_travels_without_its_range(game):
@@ -153,7 +163,8 @@ def test_the_point_estimate_never_travels_without_its_range(game):
     assert (high - low) == pytest.approx((1 - payload["evidence_coverage"]) * 100, abs=0.2)
     assert payload["score"] is None, "not enough coverage to publish a number"
     assert payload["status"] == STATUS_INSUFFICIENT
-    assert payload["band"]["key"] == CATEGORY_UNCERTAIN
+    assert payload["band"]["key"] == CATEGORY_UNKNOWN
+    assert payload["emphasize_point"] is False
 
 
 def test_a_game_with_no_market_at_all_is_unscored_not_calm(game):
@@ -164,7 +175,9 @@ def test_a_game_with_no_market_at_all_is_unscored_not_calm(game):
     ]
     assert not any(market_driven)
     assert payload["status"] == STATUS_INSUFFICIENT and payload["score"] is None
-    assert "Insufficient evidence" in payload["explanation"]
+    assert payload["band"]["label"] == "Unknown", "unknown, never calm"
+    assert "Unknown is not calm" in payload["explanation"]
+    assert "calm" not in payload["band"]["label"].lower()
 
 
 def test_cross_book_disagreement_measures_the_spread_between_books(game):
@@ -268,7 +281,10 @@ def test_information_uncertainty_scores_only_evidence_aisp_holds(game):
                       INFORMATION_UNCERTAINTY)
     assert entry["available"] is True
     assert entry["score"] == 100.0, "every kind of evidence held is unresolved"
-    assert entry["detail"]["forecast_readiness_score"] is None
+    assert "forecast_readiness_score" not in entry["detail"], (
+        "pipeline completeness never rides along on the component")
+    health = RffService(session).for_game(game_id=game["game"].id, now=START)["evidence_health"]
+    assert health["forecast_readiness_score"] is None
 
 
 def test_aisp_pipeline_completeness_is_never_added_to_the_score(game):
@@ -297,11 +313,18 @@ def test_aisp_pipeline_completeness_is_never_added_to_the_score(game):
     ))
     session.flush()
 
-    entry = component(RffService(session).for_game(game_id=game["game"].id, now=START),
-                      INFORMATION_UNCERTAINTY)
+    payload = RffService(session).for_game(game_id=game["game"].id, now=START)
+    entry = component(payload, INFORMATION_UNCERTAINTY)
     assert entry["available"] is True
     assert entry["score"] == 0.0, "everything AISP holds is resolved"
-    assert entry["detail"]["forecast_readiness_score"] == 10.0, "reported beside, never added"
+
+    # Readiness of 10 is dire. It belongs to AISP Evidence Health and moves
+    # neither the component nor the index.
+    health = payload["evidence_health"]
+    assert health["forecast_readiness_score"] == 10.0
+    assert "never" in health["statement"].lower()
+    assert payload["known_contribution"] == pytest.approx(
+        sum(WEIGHTS[c["key"]] * c["score"] for c in payload["components"] if c["available"]))
 
 
 def test_uncertainty_is_not_measured_before_its_window_opens(game):
@@ -366,6 +389,6 @@ def test_the_weights_sum_to_one():
 def test_public_wording_is_clean():
     from app.services.rff_index import BANDS, PUBLIC_LABEL
 
-    assert PUBLIC_LABEL == "RFF Lens — Market reality check"
+    assert PUBLIC_LABEL == "RFF Core — Market reality check"
     shown = [PUBLIC_LABEL] + [label for _, _, label, _ in BANDS] + [text for *_, text in BANDS]
     assert not any("fuck" in text.lower() for text in shown)

@@ -576,7 +576,12 @@ def rff_board(
     market: Literal["MONEYLINE", "SPREAD", "TOTAL"] = Query("MONEYLINE"),
     limit: int = Query(12, ge=1, le=40),
 ) -> dict:
-    """Provisional RFF across a day's games, most unsettled first."""
+    """RFF Core across a day's games, in three evidence tiers.
+
+    Only the published tier is ranked; provisional and unknown games are
+    returned separately so nothing invites a comparison the evidence does not
+    support.
+    """
 
     from app.services.rff_index import RffService
 

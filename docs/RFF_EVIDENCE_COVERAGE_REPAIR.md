@@ -254,6 +254,11 @@ means the published tier is permanently empty.
   a specification, permanently reporting `INSUFFICIENT_EVIDENCE` until a real
   source exists. It is the measure we *want*; Core is the measure we *have*.
 
+> **Adopted 2026-09-17.** The proposal below was accepted: RFF Core is now the
+> operational index, with the five design weights recorded in
+> `docs/RFF_CORE.md`, and RFF Extended is retained as a concept that is never
+> calculated. See also `docs/RFF_CORE_VALIDATION_PLAN.md`.
+
 This is a proposal, not a shipped change: adopting Core changes what the index
 means, so it should be an explicit decision rather than a side effect of a bug
 fix. Note that Core renormalises **within a fixed, fully collectable set** —

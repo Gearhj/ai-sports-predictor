@@ -102,10 +102,49 @@ export interface MarketTape {
 
 export type RffStatus = 'RFF_PUBLISHED' | 'PROVISIONAL_WIDE_RANGE' | 'INSUFFICIENT_EVIDENCE'
 
+/** The Extended components, described and never scored. */
+export interface RffExtendedConcept {
+  name: string
+  calculated: false
+  score: null
+  statement: string
+  missing_components: {
+    key: string
+    label: string
+    family: string
+    family_label: string
+    weight: null
+    needs: string
+    reason: string
+  }[]
+}
+
+/** AISP's own collection health. Deliberately outside the index. */
+export interface RffEvidenceHealth {
+  schema_version: string
+  label: string
+  lineup_sides_observed: number
+  starter_sides_observed: number
+  forecast_readiness_score: number | null
+  components_blocked_by_collection: { key: string; label: string; weight: number; reason: string; requires: string | null }[]
+  components_awaiting_their_window: { key: string; label: string; weight: number; requires: string | null }[]
+  coverage_lost_to_collection_gaps: number
+  statement: string
+}
+
+export interface RffIndexIdentity {
+  key: string
+  name: string
+  components: { key: string; label: string; weight: number; family: string; family_label: string }[]
+  weight_total: number
+  statement: string
+}
+
 export interface RffComponent {
   key: string
   label: string
-  weight: number
+  /** Null only for an Extended component, which carries no Core weight. */
+  weight: number | null
   family: string
   family_label: string
   available: boolean
@@ -151,6 +190,11 @@ export interface RffGame {
   score_basis?: string
   band: RffBand
   category_reason?: string
+  /** False whenever the interval does not identify a band: lead with the range. */
+  emphasize_point?: boolean
+  index?: RffIndexIdentity
+  extended?: RffExtendedConcept
+  evidence_health?: RffEvidenceHealth
   evidence_coverage: number
   available_components: number
   unavailable_components: number
@@ -200,6 +244,8 @@ export interface RffBoard {
   insufficient: RffGame[]
   counts?: { published: number; provisional: number; insufficient: number }
   section_notes?: { published: string; provisional: string; insufficient: string }
+  index?: RffIndexIdentity
+  extended?: RffExtendedConcept
   families?: Record<string, string>
   correlated_components?: { components: string[]; relation: string }[]
   policy?: Record<string, number>

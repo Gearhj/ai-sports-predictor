@@ -1,4 +1,4 @@
-"""RFF Lens — Market reality check.
+"""RFF Core — Market reality check.
 
 WHAT THIS IS
 ------------
@@ -8,6 +8,26 @@ accuses a league, team, official, player or sportsbook of anything. A high
 score means the observable market looks unsettled; the ordinary explanations
 for that -- a late scratch, a sharp opinion, a thin market, two books
 disagreeing -- are the common ones.
+
+CORE VERSUS EXTENDED
+--------------------
+RFF CORE is the operational index: exactly the five components AISP can
+collect, carrying fixed design weights that sum to 1. Those weights are set
+once, here, over a fixed and fully collectable set -- they are never
+renormalised for an individual game because of what that game happens to have.
+
+RFF EXTENDED is a research-completeness concept only: public concentration,
+sportsbook liability/relief and social narrative. None has a legitimate source,
+so Extended is never calculated, never banded and never displayed as a point
+value. It is listed so the gap stays visible, and so nothing substitutes a
+price series for public money.
+
+AISP EVIDENCE HEALTH IS NOT GAME UNCERTAINTY
+--------------------------------------------
+Internal forecast readiness, ingestion gaps, provider outages and missing
+internal records are reported separately as AISP Evidence Health. They never
+raise game-information uncertainty and never enter the index: a gap in our
+collection is a fact about us, not about the market.
 
 WHAT IT MAY NOT TOUCH
 ---------------------
@@ -70,8 +90,8 @@ from sqlalchemy.orm import Session
 from app.models import Forecast, Game, LineupObservation, StarterObservation
 from app.services.market_tape import MarketTapeService, display_name
 
-SCHEMA_VERSION = "AISP_RFF_INDEX_V1"
-PUBLIC_LABEL = "RFF Lens — Market reality check"
+SCHEMA_VERSION = "AISP_RFF_CORE_V1"
+PUBLIC_LABEL = "RFF Core — Market reality check"
 PUBLIC_DESCRIPTION = (
     "A research measure of market imbalance, unusual movement and unresolved "
     "information. It is not evidence that a game is manipulated."
@@ -90,7 +110,11 @@ MIN_FAMILIES_PUBLISHED = 2
 #: A category is assigned only when the plausible interval is this narrow AND
 #: does not straddle two bands.
 MAX_CATEGORY_INTERVAL_POINTS = 25.0
+#: Published, but the interval does not land inside one band.
 CATEGORY_UNCERTAIN = "CATEGORY_UNCERTAIN"
+#: Below the publication floor. The honest word is "unknown" -- never "calm",
+#: which would read as a finding that the market is settled.
+CATEGORY_UNKNOWN = "CATEGORY_UNKNOWN"
 
 #: The window that counts as "late" when the cutoff has not arrived yet.
 LATE_WINDOW_MINUTES = 120
@@ -109,6 +133,14 @@ NOT_YET_OBSERVABLE = "NOT_YET_OBSERVABLE"
 STALE_EVIDENCE = "STALE_EVIDENCE"
 INCOMPLETE_EVIDENCE = "INCOMPLETE_EVIDENCE"
 
+#: Reasons that are facts about AISP's collection rather than about the game.
+#: They belong to Evidence Health; they never become a component score.
+#: NOT_YET_OBSERVABLE is deliberately excluded: that one is the clock, not a gap.
+COLLECTION_GAP_REASONS = frozenset({
+    INSUFFICIENT_OBSERVATIONS, INCOMPLETE_EVIDENCE, STALE_EVIDENCE, NO_SOURCE,
+    DEPENDS_ON_UNAVAILABLE,
+})
+
 # -- component identity -----------------------------------------------------
 PUBLIC_CONCENTRATION = "PUBLIC_CONCENTRATION"
 SPORTSBOOK_RELIEF = "SPORTSBOOK_RELIEF"
@@ -119,19 +151,25 @@ MODEL_MARKET_DISAGREEMENT = "MODEL_MARKET_DISAGREEMENT"
 INFORMATION_UNCERTAINTY = "INFORMATION_UNCERTAINTY"
 SOCIAL_NARRATIVE = "SOCIAL_NARRATIVE"
 
-#: Weights sum to exactly 1. Public money carries the most because it is the
-#: component the measure is really about; everything else is a symptom that
-#: could have a dozen innocent causes.
+#: RFF CORE -- the operational index.
+#:
+#: Exactly the five components AISP can actually collect. These are FIXED DESIGN
+#: weights: they sum to 1 and are never renormalised for an individual game
+#: because of what that game happens to have. Renormalising per game is the
+#: defect this index was rebuilt to remove; renormalising once, across a fixed
+#: and fully collectable set, is a design decision made here and then frozen.
 WEIGHTS: dict[str, float] = {
-    PUBLIC_CONCENTRATION: 0.20,
-    SPORTSBOOK_RELIEF: 0.12,
-    REVERSE_LINE_MOVEMENT: 0.18,
-    LATE_MOVEMENT: 0.14,
-    CROSS_BOOK_DISAGREEMENT: 0.14,
-    MODEL_MARKET_DISAGREEMENT: 0.10,
-    INFORMATION_UNCERTAINTY: 0.08,
-    SOCIAL_NARRATIVE: 0.04,
+    REVERSE_LINE_MOVEMENT: 0.28125,
+    LATE_MOVEMENT: 0.21875,
+    CROSS_BOOK_DISAGREEMENT: 0.21875,
+    MODEL_MARKET_DISAGREEMENT: 0.15625,
+    INFORMATION_UNCERTAINTY: 0.12500,
 }
+CORE_COMPONENTS: tuple[str, ...] = tuple(WEIGHTS)
+assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9, "Core design weights must sum to 1"
+
+INDEX_KEY = "RFF_CORE"
+INDEX_NAME = "RFF Core"
 
 #: Conceptual families. Coverage alone is not diversity: two components in one
 #: family measure nearly the same thing, so publication requires more than one
@@ -163,15 +201,30 @@ FAMILY_LABELS: dict[str, str] = {
     NARRATIVE: "Narrative / social",
 }
 
+#: RFF EXTENDED -- a research-completeness concept, not a number.
+#:
+#: These three components describe the measure we would want. None has a
+#: legitimate source, so Extended is never scored, never banded and never shown
+#: as a point value. It exists so the gap stays visible instead of being quietly
+#: dropped, and so nobody substitutes a price series for public money.
+EXTENDED_ONLY: tuple[dict[str, Any], ...] = (
+    {"key": PUBLIC_CONCENTRATION, "family": PUBLIC_POSITIONING,
+     "needs": "A public betting-percentage feed: ticket count AND handle share by side, per "
+              "book, timestamped with the price. No price series substitutes for it -- a price "
+              "says where a book will trade, not who is on it."},
+    {"key": SPORTSBOOK_RELIEF, "family": PUBLIC_POSITIONING,
+     "needs": "Book liability or exposure by side, which follows from public concentration and "
+              "from nothing else. Price concentration is not liability."},
+    {"key": SOCIAL_NARRATIVE, "family": NARRATIVE,
+     "needs": "A social-volume feed plus a baseline that makes 'abnormal' mean something."},
+)
+
 #: Components that overlap or depend on each other, so a reader is never shown
 #: two views of one phenomenon as if they were independent confirmation.
 CORRELATED: tuple[dict[str, Any], ...] = (
     {"components": [REVERSE_LINE_MOVEMENT, LATE_MOVEMENT],
      "relation": "Both read the same consensus price series over different windows; a single "
                  "large move can raise both."},
-    {"components": [SPORTSBOOK_RELIEF, PUBLIC_CONCENTRATION],
-     "relation": "Relief is a function of public concentration. Without handle share it cannot "
-                 "be computed, and it is never derived from price alone."},
 )
 
 LABELS: dict[str, str] = {
@@ -256,8 +309,15 @@ def _category(status: str, lower: float, upper: float,
         "description": "The evidence does not narrow the measure to one band.",
     }
     if status != STATUS_PUBLISHED:
-        return uncertain, ("No category is assigned below the publication threshold: a label from "
-                           "partial evidence would read as a finding about the market.")
+        # Below the floor the state is UNKNOWN. Calling it calm would assert
+        # that the market is settled, which is exactly what was not observed.
+        unknown = {
+            "key": CATEGORY_UNKNOWN, "label": "Unknown",
+            "description": "Not enough of the measure was observed to say anything about this "
+                           "market. Unknown is not calm.",
+        }
+        return unknown, ("No category is assigned below the publication threshold: a label from "
+                         "partial evidence would read as a finding about the market.")
     width = upper - lower
     if width > MAX_CATEGORY_INTERVAL_POINTS:
         return uncertain, (f"The plausible interval spans {width:.0f} points, wider than the "
@@ -315,7 +375,8 @@ class Component:
         return {
             "key": self.key,
             "label": LABELS[self.key],
-            "weight": WEIGHTS[self.key],
+            # Extended-only components carry no weight: they are described, not scored.
+            "weight": WEIGHTS.get(self.key),
             "family": self.family,
             "family_label": FAMILY_LABELS[self.family],
             "available": self.available,
@@ -346,15 +407,15 @@ class RffService:
     ) -> dict[str, Any]:
         now = now or datetime.now(UTC)
         tape = self.tapes.tape(game_id=game_id, market_type=market_type, now=now)
+        # RFF Core: the five collectable components, in weight order. The three
+        # Extended components are not built here at all -- they are described in
+        # `extended`, never scored into the index.
         components = [
-            self._public_concentration(),
-            self._sportsbook_relief(),
             self._reverse_line_movement(tape, now),
             self._late_movement(tape, now),
             self._cross_book_disagreement(tape, now),
             self._model_market_disagreement(tape, now),
             self._information_uncertainty(game_id, tape, now),
-            self._social_narrative(),
         ]
         summary = self._score(components)
         earlier = self._earlier_score(tape, components, now)
@@ -365,6 +426,9 @@ class RffService:
             "game_id": str(game_id),
             "label": PUBLIC_LABEL,
             "description": PUBLIC_DESCRIPTION,
+            "index": self._index_identity(),
+            "extended": self._extended_concept(),
+            "evidence_health": self._evidence_health(game_id, components, now),
             "market_type": market_type.upper(),
             "event": tape["event"],
             "components": [component.as_dict() for component in components],
@@ -448,8 +512,9 @@ class RffService:
                 "provisional": "Half the measure or more, but not enough to publish a number. "
                                "Known contribution and plausible range only; not ranked against "
                                "published games.",
-                "insufficient": "Below half the measure. No score and no category: what is shown "
-                                "is what was observed and what is still needed.",
+                "insufficient": "Below half the measure. The state of these markets is UNKNOWN, "
+                                "which is not the same as calm: what is shown is what was "
+                                "observed and what is still needed.",
             },
             "counts": {"published": len(published), "provisional": len(provisional),
                        "insufficient": len(insufficient)},
@@ -459,8 +524,10 @@ class RffService:
                  "requirement": entry["requirement"] or "Not enough evidence to publish a score."}
                 for entry in insufficient
             ],
+            "index": self._index_identity(),
+            "extended": self._extended_concept(),
             "weights": WEIGHTS,
-            "families": {key: FAMILY_LABELS[value] for key, value in FAMILIES.items()},
+            "families": {key: FAMILY_LABELS[FAMILIES[key]] for key in CORE_COMPONENTS},
             "correlated_components": list(CORRELATED),
             "policy": {
                 "min_coverage_provisional": MIN_COVERAGE_PROVISIONAL,
@@ -473,29 +540,100 @@ class RffService:
                       for floor, key, label, description in BANDS],
         }
 
+    # -- identity, the Extended concept, and evidence health ----------------
+    @staticmethod
+    def _index_identity() -> dict[str, Any]:
+        return {
+            "key": INDEX_KEY,
+            "name": INDEX_NAME,
+            "components": [
+                {"key": key, "label": LABELS[key], "weight": WEIGHTS[key],
+                 "family": FAMILIES[key], "family_label": FAMILY_LABELS[FAMILIES[key]]}
+                for key in CORE_COMPONENTS
+            ],
+            "weight_total": round(sum(WEIGHTS.values()), 6),
+            "statement": (
+                f"{INDEX_NAME} is the five components AISP can collect, carrying fixed design "
+                "weights that sum to 1. The weights were set once, over this fixed and fully "
+                "collectable set, and are NEVER renormalised for an individual game: a game "
+                "missing a component gets a wider interval, not a rescaled score."
+            ),
+        }
+
+    @staticmethod
+    def _extended_concept() -> dict[str, Any]:
+        """Extended is a specification, not a number. Nothing here is scored."""
+
+        return {
+            "name": "RFF Extended",
+            "calculated": False,
+            "score": None,
+            "statement": (
+                "RFF Extended is a research-completeness concept. No point score, range or band "
+                "is calculated for it, and none will be until every component below has a "
+                "legitimate source. Price movement is never substituted for public money, and "
+                "public concentration and social sentiment are never manufactured."
+            ),
+            "missing_components": [
+                {"key": entry["key"], "label": LABELS[entry["key"]],
+                 "family": entry["family"], "family_label": FAMILY_LABELS[entry["family"]],
+                 "weight": None, "needs": entry["needs"], "reason": NO_SOURCE}
+                for entry in EXTENDED_ONLY
+            ],
+        }
+
+    def _evidence_health(
+        self, game_id: UUID, components: list[Component], now: datetime,
+    ) -> dict[str, Any]:
+        """AISP's own collection health -- deliberately outside the index.
+
+        Forecast readiness, ingestion gaps, provider outages and missing internal
+        records live here. None of it raises game-information uncertainty and
+        none of it moves the score: it explains why coverage is what it is.
+        """
+
+        lineup_sides = self.session.scalars(
+            select(LineupObservation.team_id.distinct()).where(LineupObservation.game_id == game_id)
+        ).all()
+        starter_sides = self.session.scalars(
+            select(StarterObservation.team_id.distinct()).where(StarterObservation.game_id == game_id)
+        ).all()
+        readiness = self.session.scalar(
+            select(Forecast.readiness_score).where(Forecast.game_id == game_id)
+            .order_by(Forecast.generated_at.desc()).limit(1)
+        )
+        gaps = [component for component in components
+                if not component.available and component.reason in COLLECTION_GAP_REASONS]
+        waiting = [component for component in components
+                   if not component.available and component.reason == NOT_YET_OBSERVABLE]
+        lost = sum(WEIGHTS[component.key] for component in gaps)
+        return {
+            "schema_version": "AISP_EVIDENCE_HEALTH_V1",
+            "label": "AISP Evidence Health",
+            "lineup_sides_observed": len(set(lineup_sides)),
+            "starter_sides_observed": len(set(starter_sides)),
+            "forecast_readiness_score": None if readiness is None else float(readiness),
+            "components_blocked_by_collection": [
+                {"key": component.key, "label": LABELS[component.key],
+                 "weight": WEIGHTS[component.key], "reason": component.reason,
+                 "requires": component.requires}
+                for component in gaps
+            ],
+            "components_awaiting_their_window": [
+                {"key": component.key, "label": LABELS[component.key],
+                 "weight": WEIGHTS[component.key], "requires": component.requires}
+                for component in waiting
+            ],
+            "coverage_lost_to_collection_gaps": round(lost, 4),
+            "statement": (
+                "This is the health of AISP's own collection, not a property of the game or the "
+                "market. Low readiness, an ingestion gap, a provider outage or a missing internal "
+                "record never raises game-information uncertainty and is never added to the index. "
+                "It only explains why evidence coverage is what it is."
+            ),
+        }
+
     # -- components -------------------------------------------------------
-    def _public_concentration(self) -> Component:
-        return Component(
-            key=PUBLIC_CONCENTRATION, available=False,
-            basis="Share of public tickets and handle on each side, at the same book, "
-                  "at the same instant as the price.",
-            requires="A public betting-percentage source (ticket count and handle share by "
-                     "side, per book). AISP collects no such feed, and no price series "
-                     "substitutes for it: a price says where a book will trade, not who is on it.",
-            reason=NO_SOURCE,
-        )
-
-    def _sportsbook_relief(self) -> Component:
-        return Component(
-            key=SPORTSBOOK_RELIEF, available=False,
-            basis="Whether a price move reduces the book's exposure on the side the public "
-                  "is holding.",
-            requires="Depends entirely on public concentration; without handle share there "
-                     "is no exposure to relieve. Price concentration is not liability and is "
-                     "never presented as if it were.",
-            reason=DEPENDS_ON_UNAVAILABLE,
-        )
-
     def _reverse_line_movement(self, tape: dict[str, Any], now: datetime) -> Component:
         milestones = tape.get("milestones") or {}
         opening, latest = milestones.get("opening"), milestones.get("latest")
@@ -671,8 +809,9 @@ class RffService:
 
         Only (1) is a fact about the game. (2) and (3) are facts about AISP, and
         scoring them made sparse collection look like market unrest -- a game
-        with no lineup feed scored 100. They are now reported beside the
-        component as ``aisp_evidence_completeness`` and never added to it.
+        with no lineup feed scored 100. They now live in a separate block, AISP
+        Evidence Health, which is reported beside the index and never added to
+        it or to this component.
 
         The component is also only observable near first pitch/kickoff: hours
         earlier, "not confirmed yet" is the normal state of the world, so the
@@ -691,18 +830,12 @@ class RffService:
             .where(StarterObservation.game_id == game_id)
             .order_by(StarterObservation.observed_at.desc())
         ).all())
-        readiness = self.session.scalar(
-            select(Forecast.readiness_score).where(Forecast.game_id == game_id)
-            .order_by(Forecast.generated_at.desc()).limit(1)
-        )
         starts_at = (tape.get("event") or {}).get("starts_at_utc")
+        # How much evidence exists is AISP Evidence Health, reported separately.
+        # The component carries only the pointer, never the figures, so nothing
+        # about our own pipeline can leak into a game-uncertainty score.
         completeness = {
-            "lineup_sides_observed": len({row[0] for row in lineups}),
-            "starter_sides_observed": len({row[0] for row in starters}),
-            "forecast_readiness_score": None if readiness is None else float(readiness),
-            "note": "AISP's own collection completeness. It is reported so a reader can see how "
-                    "much evidence exists, and it is never added to the RFF score: missing data "
-                    "is an absence of evidence, not market unrest.",
+            "aisp_evidence_health": "reported separately; never added to this component",
         }
 
         opens_at = None
@@ -785,16 +918,6 @@ class RffService:
                        "nothing about information AISP has no source for.",
         )
 
-    def _social_narrative(self) -> Component:
-        return Component(
-            key=SOCIAL_NARRATIVE, available=False,
-            basis="Abnormal social volume or a narrative spike around one side of the game.",
-            requires="A social-volume feed and a baseline to call a spike abnormal. This "
-                     "assignment builds the ingestion boundary for information events but "
-                     "calls no social platform, so there is nothing to measure yet.",
-            reason=NO_SOURCE,
-        )
-
     # -- scoring ----------------------------------------------------------
     @staticmethod
     def _score(components: list[Component]) -> dict[str, Any]:
@@ -852,7 +975,13 @@ class RffService:
             ),
             "band": band,
             "category_reason": category_reason,
-            "evidence_coverage": round(coverage / total_weight, 4),
+            # A point estimate is only worth leading with when the interval
+            # actually identifies a band. Otherwise the range is the finding.
+            "emphasize_point": status == STATUS_PUBLISHED and band["key"] not in
+                               {CATEGORY_UNCERTAIN, CATEGORY_UNKNOWN},
+            # Six places: Core weights are exact eighths of a thirty-second, and
+            # rounding to four would misreport 0.28125 as 0.2812.
+            "evidence_coverage": round(coverage / total_weight, 6),
             "available_components": len(available),
             "unavailable_components": len(components) - len(available),
             "families_present": families,
@@ -942,12 +1071,13 @@ class RffService:
 
         if summary["status"] == STATUS_INSUFFICIENT:
             parts = [
-                f"Insufficient evidence for an RFF score: {coverage:.0f}% coverage from "
-                f"{len(available)} of {len(components)} components.",
+                f"Unknown: insufficient evidence for an {INDEX_NAME} score, with "
+                f"{coverage:.0f}% coverage from {len(available)} of {len(components)} components.",
                 f"{observed}.",
                 f"The measure could sit anywhere between {summary['lower_bound']:.0f} and "
                 f"{summary['upper_bound']:.0f} once the missing components are known, so no number "
-                "and no category is published and this game is not ranked.",
+                "and no category is published and this game is not ranked. Unknown is not calm: "
+                "nothing here says this market is settled.",
             ]
         elif summary["status"] == STATUS_PROVISIONAL:
             parts = [
@@ -960,9 +1090,9 @@ class RffService:
             ]
         else:
             parts = [
-                f"RFF {summary['score']:.0f} ({summary['band']['label']}) · {coverage:.0f}% coverage "
-                f"from {len(available)} components across {len(summary['families_present'])} evidence "
-                "families.",
+                f"{INDEX_NAME} {summary['score']:.0f} ({summary['band']['label']}) · "
+                f"{coverage:.0f}% coverage from {len(available)} components across "
+                f"{len(summary['families_present'])} evidence families.",
                 f"Plausible range {summary['lower_bound']:.0f}–{summary['upper_bound']:.0f}.",
                 f"{observed}.",
             ]
@@ -989,10 +1119,11 @@ class RffService:
             if component.available and (component.score or 0) >= 20
         ][:3]
         headline = {
-            STATUS_PUBLISHED: None if summary["score"] is None else f"RFF {summary['score']:.0f}",
+            STATUS_PUBLISHED: (None if summary["score"] is None
+                               else f"{INDEX_NAME} {summary['score']:.0f}"),
             STATUS_PROVISIONAL: (f"Provisional · known {summary['known_contribution']:.0f}, range "
                                  f"{summary['lower_bound']:.0f}–{summary['upper_bound']:.0f}"),
-            STATUS_INSUFFICIENT: "Insufficient evidence",
+            STATUS_INSUFFICIENT: "Unknown — insufficient evidence",
         }[summary["status"]]
         return {
             "matchup": (f"{away['abbreviation']} @ {home['abbreviation']}"
@@ -1039,7 +1170,9 @@ def book_label(name: str) -> str:
 
 
 __all__ = [
-    "BANDS", "CATEGORY_UNCERTAIN", "CORRELATED", "CROSS_BOOK_DISAGREEMENT", "Component",
+    "BANDS", "CATEGORY_UNCERTAIN", "CATEGORY_UNKNOWN", "COLLECTION_GAP_REASONS",
+    "CORE_COMPONENTS", "CORRELATED", "CROSS_BOOK_DISAGREEMENT", "Component",
+    "EXTENDED_ONLY", "INDEX_KEY", "INDEX_NAME",
     "DEPENDS_ON_UNAVAILABLE", "FAMILIES", "FAMILY_LABELS", "INCOMPLETE_EVIDENCE",
     "INFORMATION_UNCERTAINTY", "INFORMATION_WINDOW_HOURS", "INSUFFICIENT_OBSERVATIONS",
     "LABELS", "LATE_MOVEMENT", "MARKET_MAX_AGE_MINUTES", "MAX_CATEGORY_INTERVAL_POINTS",
