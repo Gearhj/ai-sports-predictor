@@ -76,6 +76,11 @@ def determine_result(session: Session, game: Game, market: Market, outcome: Mark
             return PositionResult.VOID
         selected_home = _is_home_selection(session, game.id, outcome.participant_team_id)
         selected_score, opponent_score = (home_score, away_score) if selected_home else (away_score, home_score)
+        if selected_score == opponent_score:
+            # A two-way moneyline refunds the stake on a tie (NFL policy
+            # TIE_TREATMENT = STAKE_REFUNDED_PUSH; the probability contract's
+            # moneyline tie settlement is PUSH). MLB finals cannot tie.
+            return PositionResult.PUSH
         return PositionResult.WIN if selected_score > opponent_score else PositionResult.LOSS
     line = _outcome_line(outcome)
     if market.market_type == MarketType.SPREAD:
