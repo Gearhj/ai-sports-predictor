@@ -323,8 +323,10 @@ class ForecastEvaluationService:
             if not eligible:
                 self._orphan_exclusions.extend(excluded)
                 continue
+            # Publication time decides. Only when two snapshots share it do the
+            # version and then the row id break the tie, so the choice is stable.
             chosen = max(eligible, key=lambda row: (
-                _aware(row.available_as_of_utc), row.snapshot_version or 0,
+                _aware(row.available_as_of_utc), row.snapshot_version or 0, str(row.id),
             ))
             for snapshot in eligible:
                 if snapshot.id != chosen.id:
@@ -1108,9 +1110,59 @@ class ForecastEvaluationService:
         }
 
 
+@dataclass(frozen=True)
+class ControllingSelection:
+    """The one revision that controls a game for one model identity."""
+
+    row: ShadowForecast
+    kickoff: datetime
+    considered: int
+    excluded: list[dict[str, Any]]
+    reason: str = CONTROLLING_REASON
+
+    @property
+    def published_utc(self) -> datetime | None:
+        return _aware(self.row.available_as_of_utc)
+
+    @property
+    def lead_seconds(self) -> int:
+        published = self.published_utc
+        return int((self.kickoff - published).total_seconds()) if published else 0
+
+
+def controlling_forecast(
+    session: Session, *, canonical_game_id: UUID, engine_id: str, engine_version: str | None = None,
+) -> ControllingSelection | None:
+    """The governed controlling forecast for a game, for live reads as well as scoring.
+
+    ONE rule, stated once: the latest snapshot whose PUBLICATION time precedes
+    kickoff, per exact model identity. Import time never decides authority, a
+    snapshot published at or after kickoff is never selected, and replays and
+    snapshots without probabilities are excluded with their reason. This is the
+    scorer's own ``freeze_eligible``; live probability reads call it so the page
+    and the score cannot disagree about which forecast controls.
+
+    Returns None when no eligible pre-kickoff snapshot exists for that identity.
+    """
+
+    frozen = ForecastEvaluationService(session).freeze_eligible(canonical_game_id=canonical_game_id)
+    if engine_version is not None:
+        selection = frozen.get(f"{engine_id}::{engine_version}")
+    else:
+        candidates = [value for key, value in frozen.items() if key.split("::")[0] == engine_id]
+        selection = max(candidates, key=lambda value: (_aware(value.row.available_as_of_utc),
+                                                       value.row.snapshot_version or 0,
+                                                       str(value.row.id)), default=None)
+    if selection is None:
+        return None
+    return ControllingSelection(row=selection.row, kickoff=selection.kickoff,
+                                considered=selection.considered, excluded=selection.excluded)
+
+
 __all__ = [
     "CLOCK_NO_EVIDENCE_CUTOFF", "CLOCK_UNRESOLVED", "CLOCK_VERIFIED",
-    "ForecastEvaluationService", "FrozenForecast", "GameResult", "LEAGUE",
+    "CONTROLLING_REASON", "ControllingSelection", "ForecastEvaluationService", "FrozenForecast",
+    "GameResult", "LEAGUE", "controlling_forecast",
     "LEAGUE_PROFILES", "LeagueProfile", "MLB_LEAGUE", "MLB_SCORING_VERSION",
     "MLB_SPORT",
     "NON_NUMERICAL_KINDS", "NO_KICKOFF", "NO_PROBABILITIES", "PUBLISHED_AFTER_KICKOFF",

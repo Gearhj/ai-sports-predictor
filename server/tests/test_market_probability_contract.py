@@ -129,7 +129,9 @@ def _bundle(session, sha="5" * 64) -> ShadowForecastBundle:
 
 
 def _shadow(session, game, bundle, *, engine, engine_version, artifact, forecast_id, home, away,
-            distributions, lineage, uncertainty, created=None) -> ShadowForecast:
+            distributions, lineage, uncertainty, created=None, published=None) -> ShadowForecast:
+    # The live channel selects by PUBLICATION time (the scorer's rule), so a
+    # fixture forecast has to say when it was published, before kickoff.
     row = ShadowForecast(
         bundle_id=bundle.id, forecast_id=forecast_id, engine_id=engine, engine_version=engine_version,
         model_artifact_sha256=artifact, simulator_id="sim", simulator_version="1", simulator_seed=1,
@@ -137,7 +139,9 @@ def _shadow(session, game, bundle, *, engine, engine_version, artifact, forecast
         canonical_game_id=game.id, home_team_id="HOM", away_team_id="AWA", snapshot_type="CURRENT",
         snapshot_version=1, is_ready=True, readiness_score=1.0, readiness_threshold=0.5,
         uncertainty=uncertainty, readiness_detail={}, status="RESEARCH_SHADOW",
-        scheduled_start_utc=game.starts_at, source_cutoff_utc=KICKOFF - timedelta(days=1),
+        scheduled_start_utc=game.starts_at,
+        available_as_of_utc=published or (game.starts_at - timedelta(hours=2)),
+        source_cutoff_utc=KICKOFF - timedelta(days=1),
         full_home_win_probability=home, full_away_win_probability=away,
         full_expected_home_score=21.0, full_expected_away_score=20.0,
         distributions=distributions, lineage_detail=lineage,

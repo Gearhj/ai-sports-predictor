@@ -373,10 +373,28 @@ def verified_nfl_population(session: Session, row, *, game_id: uuid.UUID | None 
 
 
 def _nfl_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> VerifiedChannel:
+    """The governed controlling NFL forecast, selected by PUBLICATION time.
+
+    The same rule the scorer applies, from the same implementation: the latest
+    snapshot of the admitted M1 identity published strictly before kickoff.
+    Import time is never the authority clock, so a snapshot that arrived late
+    cannot displace what an observer would have been looking at, and a
+    FINAL_PREGAME revision controls only when it was genuinely published later
+    and still before kickoff.
+    """
+
+    from app.services.forecast_evaluation import controlling_forecast
+
     admitted = ADMITTED["NFL"]
-    row = _latest_shadow(session, game_id, admitted["engine_id"])
-    if row is None:
-        raise ProbabilityUnavailable("FORECAST_UNAVAILABLE", "no NFL M1 forecast is bound to this game", status=404)
+    # Selected by model id, as before, so a forecast of the wrong configuration is
+    # still refused as an IDENTITY_MISMATCH by verification rather than silently
+    # reported as "no forecast".
+    selection = controlling_forecast(session, canonical_game_id=game_id, engine_id=admitted["engine_id"])
+    if selection is None:
+        raise ProbabilityUnavailable(
+            "FORECAST_UNAVAILABLE",
+            "no NFL M1 forecast published before kickoff is bound to this game", status=404)
+    row = selection.row
     population = verified_nfl_population(session, row, game_id=game_id)
     tie = (row.distributions or {}).get("tie_probability")
     return VerifiedChannel(
@@ -384,6 +402,18 @@ def _nfl_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> Ve
         row.created_at, row.source_cutoff_utc, f"{row.snapshot_type} v{row.snapshot_version}",
         {"home": row.full_home_win_probability, "away": row.full_away_win_probability, "tie": tie},
         {"home": row.full_expected_home_score, "away": row.full_expected_away_score},
+        extra={"controlling_revision": {
+            "reason": selection.reason,
+            "forecast_id": row.forecast_id,
+            "snapshot_type": row.snapshot_type,
+            "snapshot_version": row.snapshot_version,
+            "published_utc": _iso(selection.published_utc),
+            "imported_utc": _iso(row.created_at),
+            "kickoff_utc": _iso(selection.kickoff),
+            "hours_before_kickoff": round(selection.lead_seconds / 3600, 2),
+            "snapshots_considered": selection.considered,
+            "excluded": selection.excluded,
+        }},
     )
 
 
