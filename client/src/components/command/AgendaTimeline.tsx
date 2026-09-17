@@ -203,7 +203,7 @@ export const AgendaTimeline = memo(function AgendaTimeline({ events, now, idle =
             {now >= lo && now <= hi && (
               <g className="cc-now" transform={`translate(${x(now)}, 0)`}>
                 <line y1={m.top - 2} y2={height - m.bottom + 2} />
-                <rect x={-34} y={height - m.bottom + 3} width={68} height={15} rx={7} className="cc-now__pill" />
+                <rect x={-42} y={height - m.bottom + 3} width={84} height={16} rx={8} className="cc-now__pill" />
                 <text y={height - m.bottom + 14} textAnchor="middle" className="cc-now__text">now {et(now)}</text>
               </g>
             )}

@@ -850,7 +850,7 @@
 .cc-agenda__viewport { position: relative; }
 .cc-agenda__scroll { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; padding-bottom: 4px; }
 .cc-agenda__scroll:focus-visible { outline: 2px solid #0f8d7d; outline-offset: 2px; border-radius: 8px; }
-.cc-agenda__scroll svg { display: block; }
+.cc-agenda__scroll svg { display: block; max-width: none; overflow: hidden; }
 .cc-agenda__hour { stroke: #e4e1dc; stroke-width: 1; }
 .cc-agenda .cc-axis text { font-size: 11px; font-weight: 700; fill: #55677d; }
 .cc-agenda .cc-axis path { stroke: none; }
@@ -860,5 +860,5 @@
 .cc-agenda__label b { font-size: 12px; font-weight: 800; color: #33445a; line-height: 1.2; }
 .cc-agenda__label small { font-size: 11px; color: #75859a; }
 .cc-agenda__label.is-idle { width: 100%; flex-direction: row; align-items: center; justify-content: flex-start; gap: 22px; border-radius: 8px; box-shadow: none; background: linear-gradient(90deg, #f6f3ef 0 112px, transparent 112px); }
-.cc-agenda__label.is-idle b { width: 88px; flex: none; }
+.cc-agenda__label.is-idle b { min-width: 88px; flex: none; white-space: nowrap; }
 .cc-agenda__label.is-idle span { font-size: 11.5px; color: #75859a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
