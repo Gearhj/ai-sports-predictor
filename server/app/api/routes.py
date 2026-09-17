@@ -675,6 +675,38 @@ def nfl_prospective_results(session: DatabaseSession) -> dict:
     return ForecastEvaluationReadService(session).nfl_prospective()
 
 
+@router.get("/research/nfl-scorecard", tags=["transparency"])
+def nfl_scorecard(session: DatabaseSession, settings: AppSettings) -> dict:
+    """The NFL model-performance scorecard: coverage, per-cohort scores, game audit drawers.
+
+    Read-only. Model scoring only -- never decision-policy or bankroll results.
+    """
+
+    from app.services.nfl_scoring_readiness import NflScoringReadinessService
+
+    return NflScoringReadinessService(session, settings).scorecard()
+
+
+@router.get("/research/nfl-scoring-readiness", tags=["transparency"])
+def nfl_scoring_readiness(session: DatabaseSession, settings: AppSettings,
+                          season: int = Query(2026, ge=2020, le=2100),
+                          week: int = Query(..., ge=1, le=22)) -> dict:
+    """Per-game readiness to score one NFL schedule week automatically. Read-only."""
+
+    from app.services.nfl_scoring_readiness import NflScoringReadinessService
+
+    return NflScoringReadinessService(session, settings).week_readiness(season=season, week=week)
+
+
+@router.get("/research/nfl-production-status", tags=["transparency"])
+def nfl_production_status(settings: AppSettings) -> dict:
+    """Whether a verified Codex NFL M1 production handoff exists (fail-closed)."""
+
+    from app.forecast_exchange.nfl_production_handoff import production_status
+
+    return production_status(settings).as_dict()
+
+
 @router.get("/research/model-performance", tags=["transparency"])
 def model_performance(session: DatabaseSession, league: str = Query("MLB")) -> dict:
     """Consolidated model-quality evidence for one league.

@@ -242,6 +242,12 @@ class Settings(BaseSettings):
     # defaults on, unlike every credit-spending path in this file.
     nfl_final_ingest_enabled: bool = True
     nfl_final_ingest_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    # Future Codex NFL M1 production handoff (fail-closed; see
+    # app/forecast_exchange/nfl_production_handoff.py). Both empty means "not
+    # received": no production label is shown. The SHA-256 is the operator's
+    # pin of the exact handoff bytes; a file that does not hash to it is refused.
+    nfl_production_handoff_path: str = ""
+    nfl_production_handoff_sha256: str = ""
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports

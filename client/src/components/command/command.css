@@ -868,3 +868,53 @@
 .tg-toggle button.is-on { background: #0c1a2e; color: #ffffff; }
 .tg-toggle button:focus-visible { outline: 2px solid #0f8d7d; outline-offset: 1px; }
 .tg .cc-agenda { margin-top: 8px; }
+
+/* Model Performance · NFL scorecard. */
+.ns { display: grid; gap: 12px; }
+.ns__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.ns__head h3 { margin: 0; font-size: 18px; }
+.ns__authority { margin: 2px 0 0; font-size: 12.5px; font-weight: 700; color: var(--bx-muted, #55677d); }
+.ns__coverage, .ns__tiles { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.ns__coverage > div, .ns__tiles > div { display: grid; gap: 2px; align-content: start; padding: 10px 12px; border-radius: 12px; background: var(--bx-s3, #f6f3ef); min-width: 0; }
+.ns__coverage dt, .ns__tiles dt { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--bx-dim, #75859a); }
+.ns__coverage dd, .ns__tiles dd { margin: 0; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ns__coverage small, .ns__tiles small { font-size: 12px; color: var(--bx-muted, #55677d); overflow-wrap: anywhere; }
+.ns__tiles p { margin: 4px 0 0; font-size: 12px; line-height: 1.4; color: var(--bx-muted, #55677d); }
+.ns__warning { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid #b5741a; background: #fdf1dd; color: #5c3b07; font-size: 13px; font-weight: 600; }
+.ns__select { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; }
+.ns__review { display: grid; gap: 6px; }
+.ns__reviewtext { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; font-size: 13px; color: var(--bx-muted, #55677d); }
+.ns__reviewtext b { font-size: 15px; color: var(--bx-text, #10203a); }
+.ns__bar { height: 8px; border-radius: 999px; background: var(--bx-s3, #eceae6); overflow: hidden; }
+.ns__bar i { display: block; height: 100%; background: var(--sport, #3a6fc4); border-radius: 999px; }
+.ns__charthead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ns__charthead h4, .ns__h4 { margin: 0; font-size: 14px; }
+.ns__label { font-size: 11.5px; font-weight: 700; fill: var(--bx-text, #10203a); }
+.ns__miss { stroke: var(--bx-line-strong, #cfcbc4); stroke-width: 3; }
+.ns__pred { fill: var(--bx-s1, #fff); stroke: var(--sport, #3a6fc4); stroke-width: 2; }
+.ns__final { fill: var(--sport, #3a6fc4); }
+.ns__row { outline: none; }
+.ns__row:focus-visible .ns__pred, .ns__row:hover .ns__pred { stroke-width: 3; }
+.ns__key { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.ns__key--pred { border: 2px solid var(--sport, #3a6fc4); background: transparent; }
+.ns__key--final { background: var(--sport, #3a6fc4); }
+.ns__games { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.ns__game { border: 1px solid var(--bx-line, #e4e1dc); border-left: 4px solid var(--sport, #3a6fc4); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; }
+.ns__gamehead { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.ns__when { font-size: 12px; color: var(--bx-muted, #55677d); }
+.ns__matchup { font-size: 15px; font-weight: 800; }
+.ns__verdict { margin-left: auto; font-size: 12px; font-weight: 800; }
+.ns__facts { margin: 0; display: grid; gap: 2px; }
+.ns__facts > div, .ns__audit dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; font-size: 13px; }
+.ns__facts dt, .ns__audit dt { color: var(--bx-dim, #75859a); font-weight: 700; }
+.ns__facts dd, .ns__audit dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ns__audit > summary, .ns__more > summary { cursor: pointer; font-size: 12.5px; font-weight: 800; color: var(--bx-accent, #0f8d7d); }
+.ns__audit dl { margin: 6px 0 0; display: grid; gap: 3px; }
+.ns__audit dl > div { grid-template-columns: 130px minmax(0, 1fr); font-size: 12.5px; }
+.ns__mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11.5px; }
+.ns__list { margin: 0; padding-left: 16px; }
+.ns__lines { display: grid; gap: 8px; margin-top: 8px; }
+@media (max-width: 600px) {
+  .ns__facts > div, .ns__audit dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .ns__verdict { margin-left: 0; }
+}

@@ -23,6 +23,7 @@ import { STALE_TIME, cacheKey } from '../../services/queryCache'
 import { SPORT_CODES, SPORT_COLORS, SPORT_NAMES, etTime, expectSchema, gameHref, type SportCode } from '../../services/commandCenter'
 import { ChartTable, Tooltip, useTooltip, useWidth } from './chartKit'
 import { AsOf } from './RegionState'
+import { NflScorecard } from './NflScorecard'
 import './command.css'
 
 interface Metrics {
@@ -208,6 +209,9 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
         {model && <p className="cc-perf__note">{model.cohort_note} Descriptive only; nothing here promotes a model, changes a threshold or creates a position. Metrics are defined within {SPORT_NAMES[sport]} and are not comparable across sports.</p>}
       </section>
 
+      {/* NFL leads with the scorecard: coverage, review progress, per-game results and audit drawers. */}
+      {sport === 'NFL' && <NflScorecard />}
+
       {model && metrics && (
         <section className="cc-mpanel cc-perf__area" aria-label="Performance charts">
           <div className="cc-perf__areahead">
@@ -225,7 +229,7 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
         </section>
       )}
 
-      {model && games.length > 0 && (
+      {model && games.length > 0 && sport !== 'NFL' && (
         <section className="cc-mpanel" aria-label="Recent scored games">
           <h3>Recent scored games · {games.length}</h3>
           <div className="cc-table__scroll">

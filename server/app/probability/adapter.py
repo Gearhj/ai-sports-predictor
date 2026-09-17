@@ -327,11 +327,17 @@ def _mlb_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> Ve
     )
 
 
-def _nfl_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> VerifiedChannel:
+def verified_nfl_population(session: Session, row, *, game_id: uuid.UUID | None = None):
+    """The verified paired population of ONE stored NFL M1 forecast revision.
+
+    The same checks the live channel applies, for any revision rather than only
+    the latest import: admitted configuration and artifact, completed draws equal
+    to declared draws, whole-draw joint cells, and home/away/tie reconciliation
+    against the stored probabilities. Raises ProbabilityUnavailable on any
+    failure; never substitutes another population.
+    """
+
     admitted = ADMITTED["NFL"]
-    row = _latest_shadow(session, game_id, admitted["engine_id"])
-    if row is None:
-        raise ProbabilityUnavailable("FORECAST_UNAVAILABLE", "no NFL M1 forecast is bound to this game", status=404)
     if (row.engine_version != admitted["configuration_id"]
             or row.model_artifact_sha256 != admitted["model_artifact_sha256"]):
         raise ProbabilityUnavailable("IDENTITY_MISMATCH", "NFL forecast is not the admitted M1 configuration")
@@ -359,10 +365,20 @@ def _nfl_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> Ve
         return tuple(sorted(cells, key=lambda c: (c["awayScore"], c["homeScore"]))), draws
 
     cells, count = _cached_cells(("NFL", row.forecast_id, package), build)
-    population = _population("NFL", game_id=str(game_id), forecast_id=row.forecast_id,
+    population = _population("NFL", game_id=str(game_id or row.canonical_game_id), forecast_id=row.forecast_id,
                              package_sha256=package, cells=cells, draw_count=count)
-    tie = distributions.get("tie_probability")
-    _reconcile(population, row.full_home_win_probability, row.full_away_win_probability, tie)
+    _reconcile(population, row.full_home_win_probability, row.full_away_win_probability,
+               distributions.get("tie_probability"))
+    return population
+
+
+def _nfl_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> VerifiedChannel:
+    admitted = ADMITTED["NFL"]
+    row = _latest_shadow(session, game_id, admitted["engine_id"])
+    if row is None:
+        raise ProbabilityUnavailable("FORECAST_UNAVAILABLE", "no NFL M1 forecast is bound to this game", status=404)
+    population = verified_nfl_population(session, row, game_id=game_id)
+    tie = (row.distributions or {}).get("tie_probability")
     return VerifiedChannel(
         "NFL", population, admitted["authority"], admitted["authority_label"], admitted["tie_policy"],
         row.created_at, row.source_cutoff_utc, f"{row.snapshot_type} v{row.snapshot_version}",

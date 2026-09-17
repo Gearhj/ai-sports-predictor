@@ -28,6 +28,7 @@ from app.models import (
     LineupObservation,
     MarketComparison,
     ModelEvaluation,
+    NflFinalObservation,
     ModelVersion,
     OpenDataDownloadManifest,
     OpenDataIdentityMapping,
@@ -117,6 +118,9 @@ _APPEND_ONLY_TYPES = (
     LineupEntry,
     LineupObservation,
     ModelEvaluation,
+    # NFL football facts beside each final observation: written once per
+    # distinct result checksum, never edited. A correction is a new row.
+    NflFinalObservation,
     OpenDataDownloadManifest,
     OpenDataIdentityMapping,
     ParkFactorVersion,
