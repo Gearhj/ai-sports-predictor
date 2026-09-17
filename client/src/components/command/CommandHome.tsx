@@ -7,9 +7,9 @@
  *   2. The condensed virtual bankroll (with its D3 curve and the four sport
  *      accounts as chips) beside Today's Agenda: operational state, counts and
  *      the next three items needing attention.
- *   3. Today on one axis: the day's milestones per sport on a fixed hour
- *      scale that scrolls sideways, then Today's games, a chronological board
- *      of today's (Eastern) games and any AISP position on each.
+ *   3. Today's games: one section with two alternate views -- the scrolling
+ *      timeline and a chronological list of today's (Eastern) games with any
+ *      AISP position on each.
  *   4. AISP Today, last: the day in one sentence, seven counts and a
  *      four-sport readiness strip, counted from the same read models as above.
  *
@@ -28,8 +28,8 @@ import { BankrollHistory } from './BankrollHistory'
 import { AsOf } from './RegionState'
 import { RegionBoundary } from './RegionBoundary'
 import { EdgeBoard } from './EdgeBoard'
-import { TodaysGames, buildSchedule } from './TodaysGames'
-import { AgendaTimeline } from './AgendaTimeline'
+import { buildSchedule } from './TodaysGames'
+import { HomeSchedule } from './HomeSchedule'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { buildEdgeBoard } from '../../services/edgeBoard'
 import { AispToday, buildTodaySummary } from './AispToday'
@@ -153,28 +153,9 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
           qualified={qualified.length} gamesToday={coverage.data ? games.length : null} withSport={withSport} />
       </div>
 
-      <section className="cc-agenda-panel" aria-label="Today's timeline">
-        <header>
-          <h2>Today on one axis</h2>
-          <AsOf resource={coverage} label="slate" />
-        </header>
-        {coverage.data
-          ? <AgendaTimeline events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} />
-          : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
-      </section>
-
-      <section className="cc-agenda-panel tg" aria-labelledby="tg-title">
-        <header>
-          <div>
-            <h2 id="tg-title">Today’s games</h2>
-            <p className="tg-subtitle">Game times and AISP positions · Eastern Time</p>
-          </div>
-          <AsOf resource={coverage} label="slate" />
-        </header>
-        {coverage.data
-          ? <TodaysGames rows={schedule} withSport={withSport} />
-          : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
-      </section>
+      <HomeSchedule rows={schedule} events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} withSport={withSport}
+        asOf={<AsOf resource={coverage} label="slate" />}
+        loading={coverage.data ? null : coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'} />
 
       <RegionBoundary label="AISP today">
         <AispToday summary={summary} readiness={readiness.data?.sports ?? []} decisionsHref={decisionsHref}

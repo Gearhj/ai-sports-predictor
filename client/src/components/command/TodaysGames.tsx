@@ -162,16 +162,27 @@ function GameLine({ row, withTime, withSport }: {
   )
 }
 
-export const TodaysGames = memo(function TodaysGames({ rows, withSport = (h) => h }: {
-  rows: ScheduleRow[]; withSport?: (href: string, sport?: 'MLB' | 'NFL') => string
-}) {
+/** "10 games · 0 AISP positions", plus the empty and no-position lines. */
+export function ScheduleSummary({ rows }: { rows: ScheduleRow[] }) {
   const positions = rows.reduce((n, r) => n + r.positions.length, 0)
-  const slots = scheduleSlots(rows)
   return (
     <>
       <p className="tg-summary">{plural(rows.length, 'game')} · {plural(positions, 'AISP position')}</p>
       {rows.length === 0 && <p className="tg-empty">No games are scheduled for today.</p>}
       {rows.length > 0 && positions === 0 && <p className="tg-note">No AISP positions have been opened yet.</p>}
+    </>
+  )
+}
+
+export const TodaysGames = memo(function TodaysGames({ rows, withSport = (h) => h, summary = true }: {
+  rows: ScheduleRow[]; withSport?: (href: string, sport?: 'MLB' | 'NFL') => string
+  /** False when the enclosing section already shows the summary. */
+  summary?: boolean
+}) {
+  const slots = scheduleSlots(rows)
+  return (
+    <>
+      {summary && <ScheduleSummary rows={rows} />}
       {rows.length > 0 && (
         <ol className="tg-list">
           {slots.map((slot) => (

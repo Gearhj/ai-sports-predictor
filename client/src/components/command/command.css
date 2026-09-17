@@ -860,3 +860,11 @@
 .cc-agenda__label.is-idle { width: 100%; flex-direction: row; align-items: center; justify-content: flex-start; gap: 22px; border-radius: 8px; box-shadow: none; background: linear-gradient(90deg, #f6f3ef 0 112px, transparent 112px); }
 .cc-agenda__label.is-idle b { min-width: 88px; flex: none; white-space: nowrap; }
 .cc-agenda__label.is-idle span { font-size: 11.5px; color: #75859a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Home · Today's games: Timeline / List toggle in the section header. */
+.tg-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.tg-toggle { display: inline-flex; border: 1px solid #cfcbc4; border-radius: 999px; padding: 2px; background: #f6f3ef; }
+.tg-toggle button { border: 0; background: none; border-radius: 999px; padding: 4px 14px; min-height: 30px; font: inherit; font-size: 12.5px; font-weight: 700; color: #33445a; cursor: pointer; }
+.tg-toggle button.is-on { background: #0c1a2e; color: #ffffff; }
+.tg-toggle button:focus-visible { outline: 2px solid #0f8d7d; outline-offset: 1px; }
+.tg .cc-agenda { margin-top: 8px; }

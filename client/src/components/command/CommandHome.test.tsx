@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { currentScope } from '../../services/queryCache'
@@ -26,7 +26,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 import { CommandHome } from './CommandHome'
 
-afterEach(() => { cleanup(); current = null; hang = false; requests.length = 0 })
+afterEach(() => { cleanup(); current = null; hang = false; requests.length = 0; try { window.localStorage.clear() } catch { /* ignore */ } })
 
 async function renderScenario(name: string) {
   current = namedScenario(name, { now: Date.now() })
@@ -92,7 +92,7 @@ describe('Home layout and timeline', () => {
     expect(within(bank).getByRole('list', { name: 'Sport accounts' }).children).toHaveLength(4)
     expect(screen.queryByRole('list', { name: 'Sport bankrolls' })).toBeNull()
     const order = [...document.querySelectorAll('.cc-edge, .cc-bank, .cc-agenda-panel')].map((el) => el.className.split(' ').find((c) => ['cc-edge', 'cc-bank', 'cc-agenda-panel'].includes(c)))
-    expect(order).toEqual(['cc-edge', 'cc-bank', 'cc-agenda-panel', 'cc-agenda-panel'])
+    expect(order).toEqual(['cc-edge', 'cc-bank', 'cc-agenda-panel'])
   })
 
   it("lists today's games in start order, four identical starts under one time label", async () => {
@@ -101,14 +101,17 @@ describe('Home layout and timeline', () => {
     try {
       await renderScenario('shared-start')
       const schedule = screen.getByRole('region', { name: 'Today’s games' })
+      // Timeline is the default; the list is the alternate view.
+      expect(within(schedule).getByRole('button', { name: 'Timeline' })).toHaveAttribute('aria-pressed', 'true')
+      expect(schedule.querySelector('.cc-agenda')).not.toBeNull()
+      fireEvent.click(within(schedule).getByRole('button', { name: 'List' }))
+      expect(schedule.querySelector('.cc-agenda')).toBeNull()
       expect(within(schedule).getByText('Game times and AISP positions · Eastern Time')).toBeInTheDocument()
       expect(within(schedule).getByText('8 games · 0 AISP positions')).toBeInTheDocument()
       expect(within(schedule).getByText('No AISP positions have been opened yet.')).toBeInTheDocument()
       expect(within(schedule).getByRole('heading', { level: 3 })).toHaveTextContent(/ET · 4 games$/)
       expect(within(schedule).getAllByRole('link')).toHaveLength(8)
-      // Only game starts and positions: no axis, legend or operational milestones.
       expect(schedule.querySelector('svg')).toBeNull()
-      expect(schedule.textContent).not.toMatch(/Collection|Decision window|Settlement|Forecast|Next:/)
     } finally {
       vi.useRealTimers()
     }
