@@ -21,7 +21,12 @@ import { AsOf } from './RegionState'
 
 const pct = (v: number | null | undefined, d = 0) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const num = (v: number | null | undefined, d = 2) => (v == null ? '—' : v.toFixed(d))
-const signed = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(d)}`)
+const signed = (v: number | null | undefined, d = 1) => {
+  if (v == null) return '—'
+  const text = Math.abs(v).toFixed(d)
+  // A value that rounds to zero is shown without a sign ("0.0", never "−0.0").
+  return Number(text) === 0 ? text : `${v > 0 ? '+' : '−'}${text}`
+}
 const short = (sha: string | null | undefined) => (sha ? `${sha.slice(0, 12)}…` : '—')
 const OUTCOME: Record<string, string> = { HOME: 'home win', AWAY: 'away win', TIE: 'tie' }
 const REASON: Record<string, string> = {
@@ -252,12 +257,12 @@ function LinesAndViews({ cohort, benchmark }: { cohort: NflCohort; benchmark: st
       {entries.length === 0
         ? <p className="cc-muted">No stored pre-kickoff spread or total line to score yet.</p>
         : (
-          <table className="cc-board">
+          <div className="cc-table__scroll"><table className="cc-board">
             <thead><tr><th>Line</th><th>Games</th><th>Integer lines</th><th>Pushes</th><th>Log loss</th><th>Brier</th></tr></thead>
             <tbody>{entries.map(([market, v]) => (
               <tr key={market}><td>{market === 'SPREAD' ? 'Spread (home side)' : 'Total (over)'}</td><td>{v.scored}</td><td>{v.integer_lines}</td><td>{v.pushes}</td><td>{num(v.mean_log_loss, 3)}</td><td>{num(v.mean_brier_score, 3)}</td></tr>
             ))}</tbody>
-          </table>
+          </table></div>
         )}
       <p className="cc-note">Lines are scored over win, loss and push using the forecast's own push probability at the last stored pre-kickoff line; a push is never dropped or counted as a loss. {entries[0]?.[1].basis ?? ''}</p>
       <p className="cc-note"><b>Paper research view.</b> {cohort.paper_view.games} game(s) · {cohort.paper_view.same_revision_as_research} scored the same revision · log loss {num(cohort.paper_view.log_loss, 3)}. {cohort.paper_view.note}</p>
