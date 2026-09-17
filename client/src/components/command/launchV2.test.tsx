@@ -160,6 +160,27 @@ describe('Game Center', () => {
     expect(regionMasses(s.population!.total, 10000, 'total', 'OVER', 2.5).PUSH).toBe(0)
   })
 
+  it('the distribution chart is one tab stop and arrow keys announce each value', async () => {
+    story = storyPayload()
+    render(<MemoryRouter><GameStory gameId="g1" /></MemoryRouter>)
+    const dist = await screen.findByRole('region', { name: 'Margin and total distribution' })
+    const chart = within(dist).getByRole('application')
+    expect(chart).toHaveAttribute('tabindex', '0')
+    // No bar is a tab stop of its own.
+    expect(dist.querySelectorAll('rect[tabindex]')).toHaveLength(0)
+    const live = dist.querySelector('[aria-live="polite"]') as HTMLElement
+    fireEvent.focus(chart)
+    const first = live.textContent
+    expect(first).toMatch(/^Total \d+: \d+ draws/)
+    fireEvent.keyDown(chart, { key: 'ArrowRight' })
+    expect(live.textContent).not.toBe(first)
+    fireEvent.keyDown(chart, { key: 'Home' })
+    expect(live.textContent).toMatch(/^Total 0: /)
+    expect(dist.querySelectorAll('rect.is-focused')).toHaveLength(1)
+    fireEvent.blur(chart)
+    expect(live.textContent).toBe('')
+  })
+
   it('draws the heatmap, distribution, ladder and facts from the payload', async () => {
     story = storyPayload()
     render(<MemoryRouter><GameStory gameId="g1" /></MemoryRouter>)
@@ -179,7 +200,10 @@ describe('Game Center', () => {
     expect(within(dist).getAllByRole('button', { name: 'Margin' })[0]).toHaveAttribute('aria-pressed', 'true')
     const pushBars = dist.querySelectorAll('rect.gs-dist--push')
     expect(pushBars).toHaveLength(1)
-    expect(pushBars[0].getAttribute('aria-label')).toMatch(/^margin 1: 25\.00%, push/)
+    // The same fact through the accessible table view (bars are no longer individual tab stops).
+    const pushRow = within(dist).getAllByRole('row').find((r) => /^1\s/.test(r.textContent ?? '') || r.textContent?.startsWith('1'))
+    expect(pushRow).toHaveTextContent('25.00%')
+    expect(pushRow).toHaveTextContent('Push')
 
     const mvm = screen.getByRole('region', { name: 'Model versus market' })
     expect(mvm).toHaveTextContent('KC model 50.0% · market 55.0% · difference −5.0 pts')

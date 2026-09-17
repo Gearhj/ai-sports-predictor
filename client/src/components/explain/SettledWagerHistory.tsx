@@ -12,6 +12,7 @@
  * result was known — which is the only thing that makes a historical rationale
  * worth reading at all.
  */
+import { etDateOf } from '../../services/commandCenter'
 import { useCallback } from 'react'
 import { useApiResource } from '../../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../../services/queryCache'
@@ -30,6 +31,15 @@ interface SettledExplanations {
 }
 
 /** A bare side ("AWAY") reads as the team's moneyline, taken from the "AWY at HOM" label. */
+/**
+ * The game's own Eastern calendar date. A Sunday-night kickoff is stored in
+ * UTC on the following day; the canonical timestamp is untouched, only the
+ * label is Eastern, as everywhere else in AISP.
+ */
+export function gameDateLabel(startsAtUtc: string | null | undefined, fallback: string): string {
+  return etDateOf(startsAtUtc) ?? fallback
+}
+
 export function selectionLabel(selection: string, matchup: string | null | undefined): string {
   const side = selection?.toUpperCase()
   if ((side !== 'AWAY' && side !== 'HOME') || !matchup) return selection
@@ -99,7 +109,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
               >
                 {explanation.what_happened?.result_language ?? 'open'}
               </span>
-              <span className="settled-history__date">{explanation.slate_date}</span>
+              <span className="settled-history__date">{gameDateLabel(explanation.matchup?.starts_at_utc, explanation.slate_date)}</span>
             </header>
             {/* The observed final, beside the wager it settled. Shown for a
                 completed wager because "what happened" is the question this

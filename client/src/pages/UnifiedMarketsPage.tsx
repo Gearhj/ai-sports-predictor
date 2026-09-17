@@ -85,7 +85,7 @@ const VIEWS: { key: View; label: string; hint: string }[] = [
   { key: 'TOTALS', label: 'Over / Under', hint: "V18's own run distribution priced against the recorded total." },
   { key: 'PARLAY', label: 'Parlay Watch', hint: 'Two- and three-leg research combinations, priced from stored quotes.' },
   { key: 'REPLAY', label: 'Replay', hint: 'Watch one market move from its first observation to the cutoff.' },
-  { key: 'RFF', label: 'RFF Lab', hint: 'Ripe For Fuckery: a provisional research index of market unrest.' },
+  { key: 'RFF', label: 'RFF Lens', hint: 'Market reality check: a provisional research index of market unrest.' },
 ]
 const FAMILIES: Family[] = ['MONEYLINE', 'SPREAD', 'TOTAL']
 const FAMILY_LABEL: Record<'MLB' | 'NFL', Record<Family, string>> = {
@@ -267,7 +267,7 @@ export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean 
         <header className="bx-head">
           <div>
             <span className="bx-eyebrow"><Radio size={13} aria-hidden="true" /> Detailed market views</span>
-            <h2 style={{ margin: 0 }}>Totals, parlays, replay and the <em>RFF Lab</em></h2>
+            <h2 style={{ margin: 0 }}>Totals, parlays, replay and the <em>RFF Lens</em></h2>
             <p className="bx-muted" style={{ marginTop: 8, maxWidth: '60ch' }}>
               One row per game. Sportsbooks and prediction markets stay separate.
             </p>
@@ -1205,7 +1205,7 @@ function BoardsWrap({ auditOnly, open, children }: { auditOnly: boolean; open: b
   if (auditOnly) return <>{children}</>
   return (
     <details className="cc-below" open={open || undefined}>
-      <summary>Detailed boards — every price row, totals, parlay watch, replay, RFF Lab and prediction markets</summary>
+      <summary>Detailed boards — every price row, totals, parlay watch, replay, RFF Lens and prediction markets</summary>
       {children}
     </details>
   )

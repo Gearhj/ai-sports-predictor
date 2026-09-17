@@ -150,7 +150,7 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
 
       <div className="cc-feedbar">
         <div className="cc-tabs" role="tablist" aria-label="Market family">
-          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays'], ['RFF', 'RFF lens']] as const).map(([key, label]) => (
+          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays'], ['RFF', 'RFF Lens']] as const).map(([key, label]) => (
             <button key={key} role="tab" type="button" aria-selected={tab === key} onClick={() => setTab(key)}>{label}</button>
           ))}
         </div>
@@ -267,7 +267,7 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect,
           <dt>Consensus</dt><dd>{pct(g.consensus_no_vig_home)}{g.consensus_is_current ? '' : ' · stale'}</dd>
           <dt>Gap</dt><dd>{gapOf(g) != null ? `${(gapOf(g)! * 100).toFixed(1)} pts` : '—'}</dd>
           <dt>Book range</dt><dd>{range ? `${pct(range[0])}–${pct(range[1])}` : '—'} ({g.books} books)</dd>
-          {rff[g.game_id]?.score != null && <><dt>RFF lens</dt><dd>{Math.round(rff[g.game_id].score as number)} · {rff[g.game_id].band?.label ?? 'scored'}</dd></>}
+          {rff[g.game_id]?.score != null && <><dt>RFF Lens</dt><dd>{Math.round(rff[g.game_id].score as number)} · {rff[g.game_id].band?.label ?? 'scored'}</dd></>}
           {best && <><dt>Latest</dt><dd>{shortBook(best.sportsbook)} {am(best.sides.AWAY?.american)}/{am(best.sides.HOME?.american)}</dd>
             <dt>Provider</dt><dd>{best.provider} · {best.classification.toLowerCase()}</dd>
             <dt>Observed</dt><dd>{etTime(best.observed_at, true)} ({relative(best.observed_at)})</dd></>}

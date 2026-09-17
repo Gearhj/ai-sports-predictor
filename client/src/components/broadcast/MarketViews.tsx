@@ -108,7 +108,7 @@ export function RffView({
 
   return (
     <>
-      <Panel eyebrow="RFF Index — Ripe For Fuckery" title="A research measure of market unrest"
+      <Panel eyebrow="RFF Lens — Market reality check" title="A research measure of market unrest"
         action={<span className="bx-chip bx-chip--warn">Provisional</span>}>
         <p className="bx-muted" style={{ maxWidth: '78ch' }}>
           {board?.description

@@ -35,7 +35,7 @@ export function MarketsRoute() {
           {/* Keyed so the global sport selector filters the board, not just the URL. */}
           <CommandMarkets key={initialSport ?? 'ALL'} day={day} onDay={onDay} initialSport={initialSport} />
         </RegionBoundary>
-        <LazyDetails defaultOpen={deepLink} summary="Detailed boards — every price row, replay, prediction markets and the full RFF Lab">
+        <LazyDetails defaultOpen={deepLink} summary="Detailed boards — every price row, replay, prediction markets and the full RFF Lens">
           <div className="cc-nested"><Boards /></div>
         </LazyDetails>
       </div>

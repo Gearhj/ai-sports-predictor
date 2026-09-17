@@ -1,4 +1,4 @@
-"""RFF Index — Ripe For Fuckery.
+"""RFF Lens — Market reality check.
 
 WHAT THIS IS
 ------------
@@ -49,7 +49,7 @@ from app.models import Forecast, Game, LineupObservation, StarterObservation
 from app.services.market_tape import MarketTapeService, display_name
 
 SCHEMA_VERSION = "AISP_RFF_INDEX_V1"
-PUBLIC_LABEL = "RFF Index — Ripe For Fuckery"
+PUBLIC_LABEL = "RFF Lens — Market reality check"
 PUBLIC_DESCRIPTION = (
     "A research measure of market imbalance, unusual movement and unresolved "
     "information. It is not evidence that a game is manipulated."
@@ -95,11 +95,13 @@ LABELS: dict[str, str] = {
 }
 
 #: Bands are descriptive, in ascending order, and never predictive.
-BANDS: tuple[tuple[int, str, str], ...] = (
-    (0, "Calm", "The market agrees with itself and has not moved much."),
-    (30, "Curious", "Something is a little off — worth a look, not an alarm."),
-    (55, "Spicy", "Real disagreement or real movement, with evidence behind it."),
-    (75, "Maximum Fuckery", "As unsettled as this measure can see. Still not proof of anything."),
+#: (floor, stable key, display label, description). Keys are an API contract
+#: and do not change when the display wording does.
+BANDS: tuple[tuple[int, str, str, str], ...] = (
+    (0, "CALM", "Calm", "The market agrees with itself and has not moved much."),
+    (30, "CURIOUS", "Curious", "Something is a little off — worth a look, not an alarm."),
+    (55, "SPICY", "Spicy", "Real disagreement or real movement, with evidence behind it."),
+    (75, "MAXIMUM_FUCKERY", "Maximum unrest", "As unsettled as this measure can see. Still not proof of anything."),
 )
 
 
@@ -107,11 +109,11 @@ def band_for(score: float | None) -> dict[str, Any]:
     if score is None:
         return {"key": "UNSCORED", "label": "Unscored", "description": "No component has data."}
     chosen = BANDS[0]
-    for floor, label, description in BANDS:
-        if score >= floor:
-            chosen = (floor, label, description)
-    return {"key": chosen[1].upper().replace(" ", "_"), "label": chosen[1],
-            "description": chosen[2], "floor": chosen[0]}
+    for band in BANDS:
+        if score >= band[0]:
+            chosen = band
+    floor, key, label, description = chosen
+    return {"key": key, "label": label, "description": description, "floor": floor}
 
 
 def _ramp(value: float, saturate_at: float) -> float:
@@ -228,8 +230,8 @@ class RffService:
                 for entry in entries if entry["score"] is None
             ],
             "weights": WEIGHTS,
-            "bands": [{"floor": floor, "label": label, "description": description}
-                      for floor, label, description in BANDS],
+            "bands": [{"floor": floor, "key": key, "label": label, "description": description}
+                      for floor, key, label, description in BANDS],
         }
 
     # -- components -------------------------------------------------------

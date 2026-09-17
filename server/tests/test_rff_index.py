@@ -263,13 +263,14 @@ def test_the_index_declares_that_it_governs_nothing(game):
 
 
 def test_bands_are_ascending_and_descriptive():
-    floors = [floor for floor, _, _ in BANDS]
+    floors = [band[0] for band in BANDS]
     assert floors == sorted(floors)
     assert band_for(0)["label"] == "Calm"
     assert band_for(29.9)["label"] == "Calm"
     assert band_for(30)["label"] == "Curious"
     assert band_for(74.9)["label"] == "Spicy"
-    assert band_for(75)["label"] == "Maximum Fuckery"
+    assert band_for(75)["label"] == "Maximum unrest"
+    assert band_for(75)["key"] == "MAXIMUM_FUCKERY"  # stable contract key, never displayed
     assert band_for(None)["label"] == "Unscored"
 
 
@@ -290,3 +291,11 @@ def test_the_share_card_never_asserts_manipulation(game):
 
 def test_the_weights_sum_to_one():
     assert sum(WEIGHTS.values()) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_public_wording_is_clean():
+    from app.services.rff_index import BANDS, PUBLIC_LABEL
+
+    assert PUBLIC_LABEL == "RFF Lens — Market reality check"
+    shown = [PUBLIC_LABEL] + [label for _, _, label, _ in BANDS] + [text for *_, text in BANDS]
+    assert not any("fuck" in text.lower() for text in shown)

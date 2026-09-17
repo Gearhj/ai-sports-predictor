@@ -1,5 +1,5 @@
 /**
- * RFF Lab — Ripe For Fuckery.
+ * RFF Lens — Market reality check.
  *
  * The measure is meant to be fun. The thing that makes it fun rather than
  * irresponsible is that it never rounds an absence up into a finding: a
@@ -177,7 +177,7 @@ export function RffShareCard({ game }: { game: RffGame }) {
   return (
     <div className="bx-rff__share" style={{ borderColor: bandTone(game.band.key) }}>
       <div className="bx-rff__share-head">
-        <span className="bx-eyebrow"><Flame size={12} aria-hidden="true" /> RFF Index — Ripe For Fuckery</span>
+        <span className="bx-eyebrow"><Flame size={12} aria-hidden="true" /> RFF Lens — Market reality check</span>
         <button type="button" className="bx-btn bx-btn--ghost"
           onClick={() => {
             // Clipboard is unavailable in some contexts; the text is on screen

@@ -173,7 +173,7 @@ function rff(over: Partial<RffGame> = {}): RffGame {
   ]
   return {
     schema_version: 'AISP_RFF_INDEX_V1', generated_at_utc: T(0), game_id: 'g1',
-    status: 'PROVISIONAL_RFF', label: 'RFF Index — Ripe For Fuckery',
+    status: 'PROVISIONAL_RFF', label: 'RFF Lens — Market reality check',
     description: 'A research measure of market imbalance.',
     market_type: 'MONEYLINE',
     event: tape().event,

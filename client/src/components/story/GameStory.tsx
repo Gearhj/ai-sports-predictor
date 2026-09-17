@@ -14,7 +14,7 @@
  */
 import * as d3 from 'd3'
 import { memo, useMemo, useState, type KeyboardEvent } from 'react'
-import { ChartTable, Tooltip, useTooltip, useWidth } from '../command/chartKit'
+import { ChartTable, Tooltip, useTooltip, useWidth, type TipState } from '../command/chartKit'
 import {
   americanFromProbability, impliedFromAmerican, regionOf, useGameStory,
   type DistributionKind, type GameStory as Story, type Region, type StoryPopulation,
@@ -253,13 +253,15 @@ export function DistributionExplorer({ story, population, away, home }: {
   const [error, setError] = useState<string | null>(null)
   const { ref, width } = useWidth<HTMLDivElement>(640)
   const { tip, show, hide, frame } = useTooltip()
+  // One tab stop for the whole chart; arrow keys move this index.
+  const [focusIdx, setFocusIdx] = useState<number | null>(null)
   const values = kind === 'total' ? population.total : population.margin
   const binding = story.channel.binding
   const active = customMasses ?? (quoted ? { line: quoted.line, sides: quoted.sides } : null)
   const side = kind === 'total' ? 'OVER' : 'HOME'
   const other = kind === 'total' ? 'UNDER' : 'AWAY'
 
-  const switchKind = (next: DistributionKind) => { setKind(next); setCustomMasses(null); setCustom(''); setError(null) }
+  const switchKind = (next: DistributionKind) => { setKind(next); setCustomMasses(null); setCustom(''); setError(null); setFocusIdx(null) }
   async function evaluateCustom() {
     const line = Number(custom.trim())
     if (!binding || custom.trim() === '') return
@@ -286,12 +288,23 @@ export function DistributionExplorer({ story, population, away, home }: {
   }
 
   const pad = { left: 44, right: 10, top: 10, bottom: 36 }
+  const describeValue = (value: number, count: number) => {
+    const region = regionFor(value)
+    return `${kind === 'total' ? 'Total' : 'Margin'} ${value}: ${count} draws (${(count / population.draw_count * 100).toFixed(2)}%)${region ? ` · ${REGION_LABEL[region]}` : ''}`
+  }
   const x = d3.scaleBand<number>().domain(values.map((v) => v.value)).range([pad.left, Math.max(pad.left + 60, width - pad.right)]).padding(0.08)
   const maxCount = d3.max(values, (v) => v.count) ?? 1
   const h = 200
   const y = d3.scaleLinear().domain([0, maxCount / population.draw_count]).nice().range([pad.top + h, pad.top])
   const every = Math.max(1, Math.ceil(values.length / 14))
   const regionFor = (value: number): Region | null => (active ? regionOf(kind, side, active.line, value) : null)
+  const peakIndex = values.reduce((best, v, i) => (v.count > (values[best]?.count ?? -1) ? i : best), 0)
+  const focused = focusIdx != null ? values[focusIdx] ?? null : null
+  const keyboardTip: TipState | null = focused ? {
+    x: (x(focused.value) ?? 0) + x.bandwidth() / 2,
+    y: y(focused.count / population.draw_count),
+    content: describeValue(focused.value, focused.count),
+  } : null
   const lineLabel = (line: number) => (kind === 'total' ? `Over/Under ${line}` : `${home} ${line > 0 ? '+' : ''}${line} / ${away} ${-line > 0 ? '+' : ''}${-line}`)
   // Where the line falls on the axis (between bands for half-point lines).
   const boundary = active ? (kind === 'total' ? active.line : -active.line) : null
@@ -321,8 +334,21 @@ export function DistributionExplorer({ story, population, away, home }: {
       </p>
       <div ref={ref} className="gs-svgwrap">
         <div ref={frame} style={{ position: 'relative' }}>
-          <svg width={width} height={pad.top + h + pad.bottom} role="img"
-            aria-label={`${kind} distribution${active ? `, ${lineLabel(active.line)}: ${side.toLowerCase()} wins ${pct(active.sides[side]?.win)}, loses ${pct(active.sides[side]?.loss)}, pushes ${pct(active.sides[side]?.push)}` : ''}`}>
+          <svg width={width} height={pad.top + h + pad.bottom} tabIndex={0} role="application"
+            aria-label={`${kind === 'total' ? 'Total score' : 'Margin'} distribution${active ? `, ${lineLabel(active.line)}: ${side.toLowerCase()} wins ${pct(active.sides[side]?.win)}, loses ${pct(active.sides[side]?.loss)}, pushes ${pct(active.sides[side]?.push)}` : ''}. Use the left and right arrow keys to move between values.`}
+            aria-describedby={`gs-dist-live-${kind}`}
+            onFocus={() => setFocusIdx((i) => i ?? peakIndex)}
+            onBlur={() => { setFocusIdx(null); hide() }}
+            onKeyDown={(e) => {
+              const last = values.length - 1
+              const next = e.key === 'ArrowRight' ? Math.min(last, (focusIdx ?? peakIndex) + 1)
+                : e.key === 'ArrowLeft' ? Math.max(0, (focusIdx ?? peakIndex) - 1)
+                  : e.key === 'Home' ? 0 : e.key === 'End' ? last : null
+              if (next == null) return
+              e.preventDefault()
+              setFocusIdx(next)
+            }}
+            className="gs-dist-chart">
             <defs>
               <pattern id="gs-hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                 <rect width="5" height="5" className="gs-hatch__bg" /><line x1="0" y1="0" x2="0" y2="5" className="gs-hatch__line" />
@@ -339,12 +365,10 @@ export function DistributionExplorer({ story, population, away, home }: {
               const p = v.count / population.draw_count
               return (
                 <rect key={v.value} x={x(v.value)} y={y(p)} width={x.bandwidth()} height={pad.top + h - y(p)}
-                  className={`gs-dist gs-dist--${(region ?? 'NONE').toLowerCase()}`}
-                  fill={region === 'LOSS' ? 'url(#gs-hatch)' : undefined} tabIndex={0}
-                  aria-label={`${kind} ${v.value}: ${(p * 100).toFixed(2)}%${region ? `, ${REGION_LABEL[region].toLowerCase()} for ${kind === 'total' ? 'Over' : home}` : ''}`}
-                  onMouseMove={(e) => show(e, `${kind === 'total' ? 'Total' : 'Margin'} ${v.value}: ${v.count} draws (${(p * 100).toFixed(2)}%)${region ? ` · ${REGION_LABEL[region]}` : ''}`)}
-                  onFocus={(e) => show(e, `${kind === 'total' ? 'Total' : 'Margin'} ${v.value}: ${v.count} draws (${(p * 100).toFixed(2)}%)${region ? ` · ${REGION_LABEL[region]}` : ''}`)}
-                  onMouseLeave={hide} onBlur={hide} />
+                  className={`gs-dist gs-dist--${(region ?? 'NONE').toLowerCase()}${values[focusIdx ?? -1]?.value === v.value ? ' is-focused' : ''}`}
+                  fill={region === 'LOSS' ? 'url(#gs-hatch)' : undefined} aria-hidden="true"
+                  onMouseMove={(e) => show(e, describeValue(v.value, v.count))}
+                  onMouseLeave={hide} />
               )
             })}
             {bx != null && <line x1={bx} x2={bx} y1={pad.top} y2={pad.top + h} className="gs-line" />}
@@ -355,9 +379,12 @@ export function DistributionExplorer({ story, population, away, home }: {
               {kind === 'total' ? `${away} + ${home} score` : `${home} score − ${away} score`}
             </text>
           </svg>
-          <Tooltip tip={tip} width={width} />
+          <Tooltip tip={focusIdx != null ? keyboardTip : tip} width={width} />
         </div>
       </div>
+      <p id={`gs-dist-live-${kind}`} className="cc-sr" aria-live="polite">
+        {focusIdx != null && values[focusIdx] ? describeValue(values[focusIdx].value, values[focusIdx].count) : ''}
+      </p>
       {active && (
         <dl className="gs-masses" aria-label="Server settlement masses">
           {[side, other].map((s) => (
