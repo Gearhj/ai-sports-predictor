@@ -497,8 +497,13 @@ def _best(quotes: list[dict[str, Any]], side: str) -> dict[str, Any] | None:
             "provider": top["provider"], "observed_at": top["observed_at"]}
 
 
-def market_coverage(session: Session, day: date, now: datetime | None = None) -> dict[str, Any]:
-    now = now or datetime.now(UTC)
+def market_coverage(session: Session, day: date, now: datetime | None = None,
+                    *, as_of: datetime | None = None) -> dict[str, Any]:
+    """Stored coverage for one slate. With ``as_of``, only observations made at or
+    before that instant are read and freshness is measured at that instant --
+    the historical replay's point-in-time view. Nothing is restamped."""
+    now = as_of or now or datetime.now(UTC)
+    observed_cut = "and os.observed_at <= :as_of" if as_of is not None else ""
     lo = datetime.combine(day, datetime.min.time(), ET)
     hi = lo + timedelta(days=1)
     # Only leagues with governed sportsbook collection. NBA and College Football
@@ -522,7 +527,7 @@ def market_coverage(session: Session, day: date, now: datetime | None = None) ->
           from odds_snapshots os
           join market_outcomes mo on mo.id = os.market_outcome_id
           join markets mk on mk.id = mo.market_id
-          where mk.game_id = any(cast(:ids as uuid[]))
+          where mk.game_id = any(cast(:ids as uuid[])) {observed_cut}
           order by os.market_outcome_id, os.sportsbook_id, os.source, os.observed_at desc
         )
         select mk.game_id, mk.market_type, mk.period, mo.outcome_key, mo.participant_team_id,
@@ -531,7 +536,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None) ->
         from latest l
         join market_outcomes mo on mo.id = l.market_outcome_id
         join markets mk on mk.id = mo.market_id
-        join sportsbooks sb on sb.id = l.sportsbook_id"""), {"ids": ids}).all() if ids else []
+        join sportsbooks sb on sb.id = l.sportsbook_id""".format(observed_cut=observed_cut)),
+        {"ids": ids, **({"as_of": as_of} if as_of is not None else {})}).all() if ids else []
 
     forecasts = {str(r[0]): r[1:] for r in session.execute(text("""
         select distinct on (canonical_game_id) canonical_game_id, engine_id,

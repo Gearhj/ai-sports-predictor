@@ -135,7 +135,9 @@ def test_player_props_are_never_fabricated(session, settings, coverage):
     props = player_props()
     assert props["status"] == "NOT_STORED"
     assert props["quotes"] == []
-    assert set(props["stored_market_types"]) == {"MONEYLINE", "SPREAD", "TOTAL"}
+    assert set(props["supported_markets"]) == {"batter_hits", "batter_total_bases", "batter_home_runs",
+                                               "pitcher_strikeouts"}
+    assert props["producer_disposition"]["player_prop_probabilities"] == "INSUFFICIENT_EVIDENCE"
     assert {"game_id", "player_id", "market_key", "sportsbook", "observed_at"} <= set(props["required_identity"])
     assert props["assessment"] == "Sportsbook market — no AISP assessment"
     game, _ = nfl_game(session)

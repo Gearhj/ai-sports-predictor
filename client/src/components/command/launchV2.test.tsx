@@ -254,7 +254,8 @@ describe('All Markets and My Card', () => {
     expect(screen.getByRole('button', { name: /under not quoted: not selectable \(not quoted\)/ })).toBeDisabled()
     expect(screen.getByRole('region', { name: 'Spread markets' })).toHaveTextContent('Not quoted — nothing to select.')
     expect(screen.getByTestId('player-props-unavailable')).toHaveTextContent('No player-prop quotes are stored')
-    expect(screen.getByRole('region', { name: 'Player props' })).toHaveTextContent('No player-prop quotes are stored for this game.')
+    // A Player Props section exists only when real stored quotes exist.
+    expect(screen.queryByRole('region', { name: 'Player props' })).toBeNull()
 
     const before = requests.length
     fireEvent.click(add)

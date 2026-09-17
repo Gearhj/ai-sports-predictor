@@ -210,29 +210,20 @@ def _research_games(session: Session, settings: Settings, lo: datetime) -> list[
 PLAYER_PROP_CONTRACT = "AISP_PLAYER_PROP_QUOTE_V1"
 
 
-def player_props() -> dict[str, Any]:
-    """Player-prop availability. AISP stores no player-prop market today.
+def player_props(session: Session | None = None, game_ids: list[str] | None = None,
+                 now: datetime | None = None) -> dict[str, Any]:
+    """Stored, identity-resolved player-prop quotes for these games -- quotes only.
 
-    The contract a future quote must meet before it can be listed: a canonical
-    game id, a canonical player id, a market key, an outcome with its line, an
-    American price, a sportsbook and an observation time. Without a validated
-    AISP player-prop forecast every such quote is labelled "Sportsbook market
-    -- no AISP assessment". Nothing is inferred from team markets.
+    Every quote is labelled "Sportsbook market -- no AISP assessment" and carries
+    Model Studio's INSUFFICIENT_EVIDENCE disposition. Nothing is inferred from
+    team markets and no probability, fair price, edge or decision is attached.
     """
 
-    from app.models import MarketType
+    from app.player_props.read import empty_payload, player_props_for_games
 
-    stored_types = {member.name for member in MarketType}
-    return {
-        "contract": PLAYER_PROP_CONTRACT,
-        "required_identity": ["game_id", "player_id", "market_key", "outcome", "line", "american",
-                              "sportsbook", "observed_at"],
-        "status": "NOT_STORED",
-        "stored_market_types": sorted(stored_types),
-        "quotes": [],
-        "assessment": "Sportsbook market — no AISP assessment",
-        "message": "No player-prop quotes are stored. AISP collects only moneyline, spread and total markets today.",
-    }
+    if session is None:
+        return empty_payload()
+    return player_props_for_games(session, game_ids or [], now=now)
 
 
 def daily_assessments(session: Session, settings: Settings, day: date,
@@ -274,6 +265,6 @@ def daily_assessments(session: Session, settings: Settings, day: date,
         },
         "cross_game": {"status": "UNSUPPORTED", "code": CROSS_GAME_CALIBRATION_NOT_VALIDATED,
                        "message": CROSS_GAME_MESSAGE},
-        "player_props": player_props(),
+        "player_props": player_props(session, [g["game_id"] for g in coverage["games"] if g.get("league") == "MLB"], now),
         "provider_calls_made": 0,
     }

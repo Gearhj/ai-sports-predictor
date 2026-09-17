@@ -129,6 +129,9 @@ LANES: dict[str, LaneSpec] = {lane.key: lane for lane in DEFAULT_LANES}
 #: recovery request is otherwise indistinguishable from a scheduled one.
 RECOVERY_MARKER = "recovery"
 
+#: Player-prop market keys never draw on an MLB lane: they buy no decision.
+PLAYER_PROP_MARKET_PREFIXES = ("batter_", "pitcher_", "player_")
+
 
 def lane_for_request(
     *, league_code: str, markets: tuple[str, ...] | list[str], recovery: bool = False,
@@ -137,6 +140,8 @@ def lane_for_request(
 
     markets = tuple(m.strip().lower() for m in markets if m and m.strip())
     league = (league_code or "").upper()
+    if any(market.startswith(PLAYER_PROP_MARKET_PREFIXES) for market in markets):
+        return LANE_OTHER_RESEARCH
     optional = any(market in ("spreads", "totals") for market in markets)
     if league == "MLB":
         if optional:

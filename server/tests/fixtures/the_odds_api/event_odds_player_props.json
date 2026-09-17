@@ -1,0 +1,135 @@
+{
+  "id": "e912304de2b2ce35b473ce2ecd3d1502",
+  "sport_key": "baseball_mlb",
+  "sport_title": "MLB",
+  "commence_time": "2026-09-20T23:05:00Z",
+  "home_team": "New York Yankees",
+  "away_team": "Boston Red Sox",
+  "bookmakers": [
+    {
+      "key": "draftkings",
+      "title": "DraftKings",
+      "last_update": "2026-09-20T17:58:00Z",
+      "markets": [
+        {
+          "key": "batter_hits",
+          "last_update": "2026-09-20T18:00:00Z",
+          "outcomes": [
+            {
+              "name": "Over",
+              "description": "Aaron Judge",
+              "price": -185,
+              "point": 0.5
+            },
+            {
+              "name": "Under",
+              "description": "Aaron Judge",
+              "price": 145,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "description": "Rafael Devers",
+              "price": 120,
+              "point": 1.5
+            },
+            {
+              "name": "Over",
+              "description": "Will Smith",
+              "price": -150,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "description": "Max Muncy",
+              "price": -140,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "description": "Nobody Invented",
+              "price": -120,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "description": "Jose Ramirez Jr.",
+              "price": -130,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "description": "Conflicted Batter",
+              "price": -110,
+              "point": 0.5
+            },
+            {
+              "name": "Under",
+              "description": "Conflicted Batter",
+              "price": -110,
+              "point": 1.5
+            }
+          ]
+        },
+        {
+          "key": "pitcher_strikeouts",
+          "last_update": "2026-09-20T18:00:00Z",
+          "outcomes": [
+            {
+              "name": "Over",
+              "description": "Gerrit Cole",
+              "price": -115,
+              "point": 6.5
+            },
+            {
+              "name": "Under",
+              "description": "Gerrit Cole",
+              "price": -105,
+              "point": 6.5
+            }
+          ]
+        },
+        {
+          "key": "batter_rbis",
+          "last_update": "2026-09-20T18:00:00Z",
+          "outcomes": [
+            {
+              "name": "Over",
+              "description": "Aaron Judge",
+              "price": 110,
+              "point": 0.5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "fanduel",
+      "title": "FanDuel",
+      "last_update": "2026-09-20T18:01:00Z",
+      "markets": [
+        {
+          "key": "batter_home_runs",
+          "outcomes": [
+            {
+              "name": "Yes",
+              "description": "Aaron Judge",
+              "price": 240
+            },
+            {
+              "name": "Over",
+              "description": "Rafael Devers",
+              "price": 50,
+              "point": 0.5
+            },
+            {
+              "name": "Over",
+              "description": "Will Smith",
+              "price": 300
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

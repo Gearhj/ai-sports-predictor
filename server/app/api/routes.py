@@ -1769,6 +1769,16 @@ def command_center_markets(
     return market_coverage(session, event_date or local_today("America/New_York"))
 
 
+@router.get("/command-center/replay", tags=["markets"])
+def command_center_replay(session: DatabaseSession) -> dict:
+    """Historical market replay: stored prices exactly as they stood at a past
+    instant, for the replay card only. Quotes only; no provider call, no write."""
+
+    from app.services.market_replay import historical_replay
+
+    return historical_replay(session)
+
+
 @router.get("/command-center/assessments", tags=["markets"])
 def command_center_assessments(
     session: DatabaseSession,

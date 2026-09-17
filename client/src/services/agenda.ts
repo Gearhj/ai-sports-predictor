@@ -120,7 +120,11 @@ export interface AttentionItem {
  */
 export function nextAttention(events: AgendaEvent[], now: number, count = 3): AttentionItem[] {
   const pending = events
-    .filter((e) => (e.status === 'open' && (e.until ?? e.at) >= now) || ((e.status === 'scheduled' || e.status === 'expected') && e.at >= now - 5 * MIN))
+    .filter((e) => (e.status === 'open' && (e.until ?? e.at) >= now)
+      // A game start is "next" only while it is still ahead; other scheduled
+      // milestones keep a short grace so a just-due check is still listed.
+      || (e.kind === 'game' && e.status === 'scheduled' && e.at > now)
+      || (e.kind !== 'game' && (e.status === 'scheduled' || e.status === 'expected') && e.at >= now - 5 * MIN))
     .sort((a, b) => (a.status === 'open' ? now : a.at) - (b.status === 'open' ? now : b.at) || a.matchup.localeCompare(b.matchup))
   const groups = new Map<string, AttentionItem>()
   for (const e of pending) {

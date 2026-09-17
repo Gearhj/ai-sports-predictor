@@ -144,4 +144,12 @@ from app.models.show_preview import (  # noqa: E402,F401
     ShowPreviewSnapshot,
 )
 
+# Authentic sportsbook player-prop quotes: quote display and a user's own
+# virtual pick only. No assessment, decision or position reads them.
+from app.models.player_prop_quote import (  # noqa: E402,F401
+    PLAYER_PROP_QUARANTINED,
+    PLAYER_PROP_RESOLVED,
+    PlayerPropQuote,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

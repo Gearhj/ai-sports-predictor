@@ -142,28 +142,55 @@ export interface DailyAssessments {
   research: ResearchComparison[]
   parlay_policy: { sportsbook_parlay_quotes_stored: number; unavailable_message: string; creates_decisions: false; creates_positions: false }
   cross_game: { status: 'UNSUPPORTED'; code: string; message: string }
-  /** Player-prop availability. Quotes appear only with complete canonical identity. */
-  player_props?: {
-    contract: string
-    required_identity: string[]
-    status: 'NOT_STORED' | 'AVAILABLE'
-    quotes: PlayerPropQuote[]
-    assessment: string
-    message: string
-  }
+  /** Player-prop quotes. Listed only with complete canonical identity; never assessed. */
+  player_props?: PlayerProps
   provider_calls_made: number
 }
 
+export interface PlayerProps {
+  contract: string
+  required_identity: string[]
+  status: 'NOT_STORED' | 'AVAILABLE'
+  supported_markets?: string[]
+  quotes: PlayerPropQuote[]
+  quarantined?: Record<string, number>
+  assessment: string
+  producer_disposition?: { player_prop_probabilities: string; supported_in_aisp: string[]; not_supported_in_aisp: string[]; future_assessed_path: string }
+  freshness_window_minutes?: number
+  message: string
+}
+
+/** A sportsbook player-prop quote exactly as stored. There is no model field here by contract. */
 export interface PlayerPropQuote {
+  quote_id: string
   game_id: string
+  mlb_game_ref: string | null
   player_id: string
   player_name: string
+  provider_player_name: string
+  team_id: string
+  team: string
   market_key: string
-  outcome: string
+  market_label: string
+  outcome: 'OVER' | 'UNDER' | 'YES' | 'NO'
+  provider_outcome: string
   line: number | null
+  description: string
   american: number
+  decimal: number
   sportsbook: string
+  sportsbook_key: string
+  provider: string
+  provider_event_id: string
   observed_at: string
+  ingested_at: string
+  age_minutes: number
+  fresh: boolean
+  state: 'CURRENT' | 'STORED_REFERENCE_ONLY'
+  market_status: string
+  identity_status: 'RESOLVED'
+  identity_evidence: string | null
+  selectable: boolean
 }
 
 export interface ProbabilityResult {

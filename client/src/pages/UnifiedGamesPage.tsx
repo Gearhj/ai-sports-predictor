@@ -27,7 +27,7 @@
  * allowed to make.
  */
 import { SportReadiness } from '../components/readiness/SportReadiness'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable, SignalPill } from '../components/ui'
 import { PrefetchLink } from '../components/PrefetchLink'
@@ -35,6 +35,7 @@ import {
   ArrowRight, Beaker, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, LineChart,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { upcomingOnly } from '../services/nextUp'
 import { SLATE_SORT_LABEL, currentGap, hasCurrentPrice, hasForecast, sortSlate, type SlateSort } from '../services/slateSort'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
@@ -68,6 +69,15 @@ interface GamesBoard {
   weeks: NflWeeks | null
   nfl: NflMarketsBoard | null
   warnings: string[]
+}
+
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return now
 }
 
 const stateOf = (game: SlateGame): StateFilter => {
@@ -203,9 +213,11 @@ export function UnifiedGamesPage() {
     const q = new URLSearchParams(old); q.set('date', value); return q
   }, { replace: true })
 
+  // Only games whose scheduled start is still ahead; re-evaluated each minute.
+  const clock = useMinuteClock()
   const nextUp = useMemo(
-    () => all.filter((game) => stateOf(game) === 'UPCOMING').slice(0, 8),
-    [all],
+    () => upcomingOnly(all.filter((game) => stateOf(game) === 'UPCOMING'), clock, 8),
+    [all, clock],
   )
 
   return (

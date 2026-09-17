@@ -154,6 +154,12 @@ class Settings(BaseSettings):
     #: doubleheader without letting a runaway spend the month in a day.
     odds_daily_credit_budget: int = Field(default=18, ge=0, le=500)
     #: Comma-separated per-league market overrides, e.g. "MLB=h2h;NFL=h2h,spreads,totals".
+    #: Player-prop quote collection (app.player_props.collector). Inactive by
+    #: default: a live single-event request needs the flag AND a nonzero
+    #: research-lane allocation AND an explicit --execute.
+    player_prop_live_enabled: bool = False
+    player_prop_research_monthly_credits: int = Field(default=0, ge=0, le=50)
+    player_prop_research_daily_credits: int = Field(default=0, ge=0, le=5)
     #: Empty keeps the compiled defaults in app.services.odds_collection_plan.
     odds_market_overrides: str = ""
     # --- Research fallback provider (disabled; no account, no credential) -----

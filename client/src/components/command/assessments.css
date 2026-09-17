@@ -211,3 +211,27 @@
 .mv-gaps li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
 .mv-gaps button { font: inherit; font-weight: 800; border: 0; background: none; padding: 0; cursor: pointer; color: var(--bx-text, #10203a); text-decoration: underline; }
 .mv-gaps span { color: var(--bx-muted, #55677d); }
+
+/* Player props: sportsbook quotes only */
+.am-props__label { margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--bx-s3, #f1efec); font-size: 12.5px; }
+.am-player { display: grid; gap: 4px; min-width: 0; }
+.am-player__name { margin: 4px 0 0; font-size: 13.5px; }
+.am-player__name small { color: var(--bx-muted, #55677d); }
+.am-props__rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.am-props__rows li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .8fr); gap: 6px; align-items: stretch; }
+@media (max-width: 600px) { .am-props__rows li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .am-prop__what { grid-column: 1 / -1; } }
+.am-props__rows li.is-stale { opacity: .8; }
+.am-prop__what { display: grid; gap: 1px; font-size: 13px; min-width: 0; }
+.am-prop__what small { color: var(--bx-muted, #55677d); font-size: 11.5px; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.am-preview { display: grid; gap: 8px; padding: 10px 12px; border-radius: 14px; border: 2px dashed #8a5a12; background: var(--bx-s1, #fff); min-width: 0; }
+.am-preview__banner { margin: 0; padding: 8px 10px; border-radius: 8px; background: #fdf1dd; color: #5c3b07; font-size: 13px; }
+
+/* Historical replay: a separate card, visibly not live */
+.mc-replay-offer { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--bx-line-strong, #cfcbc4); background: var(--bx-s3, #f1efec); font-size: 13px; }
+.mc-replay-offer p { margin: 0; flex: 1 1 260px; min-width: 0; }
+.mc-replay-offer button, .mc-replay__banner button { font: inherit; font-size: 13px; font-weight: 800; padding: 6px 14px; border-radius: 999px; border: 1px solid currentColor; background: var(--bx-s1, #fff); color: inherit; cursor: pointer; }
+.mc-replay__banner { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 12px; background: #3b2a5c; color: #fff; font-size: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+.mc-replay__banner b { flex: 1 1 260px; min-width: 0; }
+.mc-replay__banner button { background: #fff; color: #3b2a5c; border-color: #fff; }
+.mc-replay__title { margin: 4px 0 0; font-size: 15px; }
+.mc-pick__tag.is-replay { color: #fff; background: #3b2a5c; }

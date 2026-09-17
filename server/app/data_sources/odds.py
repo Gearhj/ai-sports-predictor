@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -134,6 +135,67 @@ class TheOddsAPIAdapter:
             if owns_client:
                 await client.aclose()
 
+    async def get_event_odds(self, event_id: str, markets: list[str]) -> AdapterResponse:
+        """One event's odds for explicitly listed markets (single-event endpoint).
+
+        ``GET /v4/sports/{sport}/events/{eventId}/odds``. The provider bills
+        markets x regions. The caller must reserve credits first; this method
+        never loops, never widens the market list and never echoes the key --
+        errors carry only the exception type, because an httpx error string
+        includes the full URL.
+        """
+
+        if not self.api_key:
+            raise SourceError(self.source, "THE_ODDS_API_KEY is not configured", retryable=False)
+        if not _EVENT_ID.fullmatch(event_id or ""):
+            raise SourceError(self.source, "Invalid provider event id", retryable=False)
+        if not markets or any(not _MARKET_KEY.fullmatch(m) for m in markets):
+            raise SourceError(self.source, "Markets must be listed explicitly", retryable=False)
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.get(
+                f"{self.base_url}/sports/{self.sport_key}/events/{event_id}/odds",
+                params={
+                    "apiKey": self.api_key,
+                    "regions": self.regions,
+                    "markets": ",".join(markets),
+                    "oddsFormat": "american",
+                    "dateFormat": "iso",
+                },
+            )
+            quota = {
+                "requests_remaining": _header_int(response.headers, "x-requests-remaining"),
+                "requests_used": _header_int(response.headers, "x-requests-used"),
+                "requests_last": _header_int(response.headers, "x-requests-last"),
+            }
+            if response.status_code >= 400:
+                error = SourceError(self.source, f"Event odds request failed: HTTP {response.status_code}",
+                                    retryable=False, status_code=response.status_code)
+                error.quota = quota  # type: ignore[attr-defined]
+                raise error
+            raw = response.json()
+            if not isinstance(raw, dict):
+                raise SourceError(self.source, "Odds API returned an unexpected payload", retryable=False)
+            return AdapterResponse(
+                envelope=SourceEnvelope(
+                    source=self.source,
+                    fetched_at=datetime.now(UTC),
+                    data=[],
+                    metadata={"endpoint": "v4/sports/{sport}/events/{eventId}/odds",
+                              "sport_key": self.sport_key, "markets": list(markets),
+                              "regions": self.regions, **quota},
+                ),
+                raw_payload=raw,
+            )
+        except SourceError:
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SourceError(self.source, f"Event odds request failed: {type(exc).__name__}") from exc
+        finally:
+            if owns_client:
+                await client.aclose()
+
     async def get_scores(self, *, days_from: int = 3) -> AdapterResponse:
         """Fetch recent/future score state through the existing governed provider.
 
@@ -227,6 +289,10 @@ class TheOddsAPIAdapter:
             scores=scores,
             last_update=item.get("last_update"),
         )
+
+
+_EVENT_ID = re.compile(r"[A-Za-z0-9]{8,64}")
+_MARKET_KEY = re.compile(r"[a-z][a-z0-9_]{1,48}")
 
 
 def _header_int(headers: httpx.Headers, name: str) -> int | None:

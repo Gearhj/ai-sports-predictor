@@ -251,8 +251,20 @@ export function CommandDecisions({ day }: { day: string }) {
     const q = new URLSearchParams(old)
     if (next === 'decisions') q.delete('view')
     else q.set('view', next)
+    q.delete('replay')  // leaving My Card always leaves the historical replay
     return q
   }, { replace: true })
+  // Historical replay lives only inside My Card and is always visible in the URL.
+  const replay = view === 'card' && params.get('replay') === '1'
+  const setReplay = (on: boolean) => setParams((old) => {
+    const q = new URLSearchParams(old)
+    q.set('view', 'card')
+    if (on) q.set('replay', '1')
+    else q.delete('replay')
+    return q
+  })
+  // Fixture-backed player-prop interface preview; never live, never selectable.
+  const propsPreview = params.get('preview') === 'player-props'
   const [labGame, setLabGame] = useState<string | null>(null)
   const picks = useMyCard()
   const marketGames = useMemo(() => {
@@ -351,14 +363,14 @@ export function CommandDecisions({ day }: { day: string }) {
 
       {view === 'markets' && (
         <div role="tabpanel" id="dv-panel-markets" aria-labelledby="dv-tab-markets">
-          <AllMarkets games={marketGames} data={assessments.data} now={now} onOpenLab={openLab} />
+          <AllMarkets games={marketGames} data={assessments.data} now={now} onOpenLab={openLab} preview={propsPreview} />
           <div id="parlay-lab"><ParlayLab data={assessments.data} coverage={games} focusGameId={labGame} /></div>
         </div>
       )}
 
       {view === 'card' && (
         <div role="tabpanel" id="dv-panel-card" aria-labelledby="dv-tab-card">
-          <MyCard now={now} />
+          <MyCard now={now} replay={replay} onReplay={setReplay} />
         </div>
       )}
 
