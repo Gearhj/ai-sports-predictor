@@ -27,7 +27,7 @@ import { BankrollHistory } from './BankrollHistory'
 import { AsOf } from './RegionState'
 import { RegionBoundary } from './RegionBoundary'
 import { EdgeBoard } from './EdgeBoard'
-import { AgendaTimeline } from './AgendaTimeline'
+import { GameScheduleTimeline, type ScheduleGame } from './GameScheduleTimeline'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { buildEdgeBoard } from '../../services/edgeBoard'
 import { AispToday, buildTodaySummary } from './AispToday'
@@ -94,6 +94,18 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     decisionsHref: (sport) => withSport('/decisions?view=decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
     analyzeHref: (sport, gameId) => gameHref(sport, gameId),
   }), [items, games, ledger.data, now, withSport])
+  // The Home schedule shows only game starts and positions; operational events stay in Today's Agenda.
+  const schedule = useMemo<ScheduleGame[]>(() => {
+    const positions = new Map(items.filter((i) => i.position).map((i) => [i.game_id, i.position]))
+    return games.flatMap((g) => {
+      const sport = asSport(g.league)
+      const start = g.starts_at ? Date.parse(g.starts_at) : NaN
+      if (!sport || !Number.isFinite(start)) return []
+      const position = positions.get(g.game_id)
+      return [{ gameId: g.game_id, sport, matchup: g.matchup ?? `${g.away?.abbreviation ?? 'Away'} @ ${g.home?.abbreviation ?? 'Home'}`,
+        startsAt: start, position: position ? { stake: position.stake } : null }]
+    })
+  }, [games, items])
   const summary = useMemo(() => buildTodaySummary({ games, items, ledger: ledger.data, now }), [games, items, ledger.data, now])
   const dateLabel = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
   const ret = totals && totals.starting_capital ? (totals.profit_loss / totals.starting_capital) * 100 : null
@@ -152,11 +164,11 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
 
       <section className="cc-agenda-panel" aria-label="Today's timeline">
         <header>
-          <h2>Today on one axis</h2>
+          <h2>Today’s games · start times and AISP positions</h2>
           <AsOf resource={coverage} label="slate" />
         </header>
         {coverage.data
-          ? <AgendaTimeline events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} />
+          ? <GameScheduleTimeline games={schedule} now={now} idle={idle} withSport={withSport} />
           : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
       </section>
 

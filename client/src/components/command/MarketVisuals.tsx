@@ -50,6 +50,32 @@ export function movementPoints(tape: Tape | null) {
     }))
 }
 
+const ET_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' })
+const ET_CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+const ET_DATE_CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+/**
+ * Readable time ticks: at most one per ~110 px (and never more than six), no two
+ * with the same label, and a date on each label when the observations span
+ * more than one Eastern day.
+ */
+export function timeTicks(domain: [Date, Date], width: number): { at: Date; label: string }[] {
+  const count = Math.max(2, Math.min(6, Math.floor(width / 110)))
+  const scale = d3.scaleTime().domain(domain)
+  const multiDay = ET_DAY.format(domain[0]) !== ET_DAY.format(domain[1])
+  const format = multiDay ? ET_DATE_CLOCK : ET_CLOCK
+  const seen = new Set<string>()
+  const out: { at: Date; label: string }[] = []
+  const candidates = domain[0].getTime() === domain[1].getTime() ? [domain[0]] : scale.ticks(count)
+  for (const at of candidates.length ? candidates : [domain[0]]) {
+    const label = format.format(at)
+    if (seen.has(label)) continue
+    seen.add(label)
+    out.push({ at, label })
+  }
+  return out.slice(0, 6)
+}
+
 export function PriceMovement({ game }: { game: CoverageGame }) {
   const tape = useApiResource<Tape>(useCallback((signal: AbortSignal) =>
     apiRequest<Tape>(`/markets/tape/${encodeURIComponent(game.game_id)}?market=MONEYLINE`, {}, signal), [game.game_id]),
@@ -70,7 +96,7 @@ export function PriceMovement({ game }: { game: CoverageGame }) {
   const area = d3.area<typeof points[number]>().x((p) => x(p.t)).y0((p) => y(p.range![0])).y1((p) => y(p.range![1])).curve(d3.curveStepAfter)
   const home = tape.data?.event?.home.abbreviation ?? game.home?.abbreviation ?? 'Home'
   return (
-    <section className="mv-card" aria-label="Price movement">
+    <section className="mv-card mv-card--movement" aria-label="Price movement">
       <h3>Price movement · {game.matchup} · {home} win (no-vig)</h3>
       <div ref={ref} className="gs-svgwrap">
         <div ref={frame} style={{ position: 'relative' }}>
@@ -82,9 +108,16 @@ export function PriceMovement({ game }: { game: CoverageGame }) {
                 <text x={pad.left - 6} y={4} textAnchor="end" className="gs-tick">{(t * 100).toFixed(0)}%</text>
               </g>
             ))}
-            {x.ticks(4).map((t) => (
-              <text key={t.toISOString()} x={x(t)} y={pad.top + h + 16} textAnchor="middle" className="gs-tick">{etTime(t.toISOString()).replace(' ET', '')}</text>
+            {timeTicks(x.domain() as [Date, Date], width).map((t) => (
+              <text key={t.at.toISOString()} x={x(t.at)} y={pad.top + h + 16} className="gs-tick"
+                textAnchor={x(t.at) > width - 50 ? 'end' : x(t.at) < pad.left + 30 ? 'start' : 'middle'}>{t.label}</text>
             ))}
+            <defs>
+              <clipPath id={`mv-move-clip-${game.game_id}`}>
+                <rect x={pad.left - 6} y={pad.top - 6} width={Math.max(0, width - pad.left - pad.right + 12)} height={h + 12} />
+              </clipPath>
+            </defs>
+            <g clipPath={`url(#mv-move-clip-${game.game_id})`}>
             {withRange.length > 1 && <path d={area(withRange) ?? ''} className="mv-band" />}
             <path d={line(points) ?? ''} className="mv-line" />
             {points.map((p, i) => (
@@ -100,6 +133,7 @@ export function PriceMovement({ game }: { game: CoverageGame }) {
                 onMouseMove={(e) => show(e, `Model v${m.version} (${m.status}) · ${pct(m.home_win_probability)} · ${etTime(m.available_as_of_utc, true)}`)}
                 onMouseLeave={hide} />
             ))}
+            </g>
           </svg>
           <Tooltip tip={tip} width={width} />
         </div>
@@ -126,18 +160,26 @@ export function BookDispersion({ games, onSelect }: { games: CoverageGame[]; onS
   const { tip, show, hide, frame } = useTooltip()
   if (rows.length === 0) return null
   const all = rows.flatMap((r) => r.points.map((p) => p.p))
-  const x = d3.scaleLinear().domain([Math.max(0, (d3.min(all) ?? 0) - 0.03), Math.min(1, (d3.max(all) ?? 1) + 0.03)]).range([120, Math.max(200, width - 12)])
+  // The label column is as wide as the longest matchup, and the plot never
+  // extends past the SVG, so nothing can spill into a neighbouring card.
+  const labelW = Math.min(150, Math.max(64, Math.max(...rows.map((r) => (r.game.matchup ?? '').length)) * 7 + 12))
+  const plotRight = Math.max(labelW + 40, width - 14)
+  const x = d3.scaleLinear().domain([Math.max(0, (d3.min(all) ?? 0) - 0.03), Math.min(1, (d3.max(all) ?? 1) + 0.03)]).range([labelW, plotRight])
   const rowH = 26
+  const clipId = 'mv-disp-clip'
+  const ticks = x.ticks(Math.max(2, Math.min(5, Math.floor((plotRight - labelW) / 70))))
   return (
-    <section className="mv-card" aria-label="Book dispersion">
+    <section className="mv-card mv-card--dispersion" aria-label="Book dispersion">
       <h3>Book dispersion · home no-vig probability by book</h3>
       <div ref={ref} className="gs-svgwrap">
         <div ref={frame} style={{ position: 'relative' }}>
           <svg width={width} height={rows.length * rowH + 24} role="img" aria-label="No-vig home probability by sportsbook for each priced game">
-            {x.ticks(5).map((t) => (
+            <defs><clipPath id={clipId}><rect x={labelW - 6} y={0} width={Math.max(0, plotRight - labelW + 12)} height={rows.length * rowH} /></clipPath></defs>
+            {ticks.map((t) => (
               <g key={t} transform={`translate(${x(t)},0)`}>
                 <line y1={0} y2={rows.length * rowH} className="gs-grid" />
-                <text y={rows.length * rowH + 14} textAnchor="middle" className="gs-tick">{(t * 100).toFixed(0)}%</text>
+                <text y={rows.length * rowH + 14} className="gs-tick"
+                  textAnchor={x(t) > width - 20 ? 'end' : 'middle'}>{(t * 100).toFixed(0)}%</text>
               </g>
             ))}
             {rows.map((r, i) => {
@@ -147,6 +189,7 @@ export function BookDispersion({ games, onSelect }: { games: CoverageGame[]; onS
               return (
                 <g key={r.game.game_id}>
                   <text x={0} y={cy + 4} className="gs-label mv-rowlabel" onClick={() => onSelect(r.game.game_id)}>{r.game.matchup}</text>
+                  <g clipPath={`url(#${clipId})`}>
                   <line x1={x(ext[0])} x2={x(ext[1])} y1={cy} y2={cy} className="mv-range" />
                   {r.game.consensus_no_vig_home != null && (
                     <line x1={x(r.game.consensus_no_vig_home)} x2={x(r.game.consensus_no_vig_home)} y1={cy - 8} y2={cy + 8} className="gs-consensus" />
@@ -159,6 +202,7 @@ export function BookDispersion({ games, onSelect }: { games: CoverageGame[]; onS
                       onFocus={(e) => show(e, `${r.game.matchup} · ${p.book}: ${pct(p.p)}`)}
                       onMouseLeave={hide} onBlur={hide} />
                   ))}
+                  </g>
                 </g>
               )
             })}
@@ -191,7 +235,7 @@ export function CoverageStrip({ games }: { games: CoverageGame[] }) {
   if (games.length === 0) return null
   const counts = coverageCounts(games)
   return (
-    <section className="mv-card" aria-label="Market coverage">
+    <section className="mv-card mv-card--coverage" aria-label="Market coverage">
       <h3>Coverage · {games.length} games on this date</h3>
       <ul className="mv-cov">
         {counts.map((c) => (
@@ -223,7 +267,7 @@ export function LargestGaps({ games, onSelect }: { games: CoverageGame[]; onSele
   const rows = largestGaps(games)
   if (rows.length === 0) return null
   return (
-    <section className="mv-card" aria-label="Largest model and market gaps">
+    <section className="mv-card mv-card--gaps" aria-label="Largest model and market gaps">
       <h3>Largest model/market gaps · current prices only</h3>
       <ol className="mv-gaps">
         {rows.map(({ game, gap }) => {

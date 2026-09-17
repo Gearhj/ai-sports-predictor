@@ -98,10 +98,12 @@ describe('Home layout and timeline', () => {
   it('groups games sharing a start time and lists them on Enter', async () => {
     await renderScenario('shared-start')
     const timeline = screen.getByRole('region', { name: "Today's timeline" })
-    const pill = within(timeline).getAllByRole('button', { name: /^Game start, MLB, 4 games, / })[0]
+    const pill = within(timeline).getAllByRole('button', { name: /^4 games · / })[0]
     fireEvent.keyDown(pill, { key: 'Enter' })
-    const details = await within(timeline).findByRole('region', { name: 'Game start details' })
+    const details = await within(timeline).findByRole('region', { name: /^4 games at / })
     expect(within(details).getAllByRole('link')).toHaveLength(4)
+    // Only game starts and positions: no operational legend entries on Home's schedule.
+    expect(timeline.textContent).not.toMatch(/Collection|Decision window|Settlement/)
   })
 
   it('renders the cached ledger immediately while the refresh is still pending', async () => {

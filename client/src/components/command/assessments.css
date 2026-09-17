@@ -289,3 +289,14 @@
 .as-pick__reason dd { font-weight: 500; font-size: 13px; }
 .as-why > summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--bx-accent, #0f8d7d); padding: 4px 0; }
 .as-why[open] { display: grid; gap: 10px; }
+
+/* Markets & Crowd: movement full width; dispersion two-thirds beside coverage; stacked below 900 px. */
+.mv-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+.mv-card--movement, .mv-card--gaps { grid-column: 1 / -1; }
+.mv-card--dispersion { grid-column: 1; }
+.mv-card--coverage { grid-column: 2; }
+.mv-card .gs-svgwrap svg { overflow: hidden; display: block; }
+@media (max-width: 900px) {
+  .mv-grid { grid-template-columns: minmax(0, 1fr); }
+  .mv-card--dispersion, .mv-card--coverage { grid-column: 1; }
+}
