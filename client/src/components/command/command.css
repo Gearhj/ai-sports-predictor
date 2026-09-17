@@ -797,3 +797,6 @@
 .cc-agenda-list__games a { color: #0f8d7d; font-weight: 700; text-decoration: none; }
 
 .cc-home__intro { margin: 0 0 10px; font-size: 13.5px; line-height: 1.45; color: var(--bx-muted, #55677d); max-width: 72ch; }
+
+.dv-filter-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; border: 1px solid #b5741a; background: #fdf1dd; color: #5c3b07; font-size: 13.5px; }
+.dv-filter-note__all { font: inherit; font-weight: 800; color: inherit; text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; }

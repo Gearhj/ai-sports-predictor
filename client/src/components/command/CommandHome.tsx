@@ -87,10 +87,11 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     }
     return out
   }, [readiness.data, games])
-  const decisionsHref = withSport('/decisions')
+  // Home talks about official decisions, so its links open AISP Picks (Bet Board is the page default).
+  const decisionsHref = withSport('/decisions?view=decisions')
   const board = useMemo(() => buildEdgeBoard({
     decisions: items, games, ledger: ledger.data, now,
-    decisionsHref: (sport) => withSport('/decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
+    decisionsHref: (sport) => withSport('/decisions?view=decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
     analyzeHref: (sport, gameId) => gameHref(sport, gameId),
   }), [items, games, ledger.data, now, withSport])
   const summary = useMemo(() => buildTodaySummary({ games, items, ledger: ledger.data, now }), [games, items, ledger.data, now])

@@ -24,6 +24,7 @@ import {
   type AssessedQuote, type AssessedSide, type Channel, type DailyAssessments, type GameAssessment,
   type ResearchComparison,
 } from '../../services/probability'
+import { expectationLine } from '../../services/payout'
 import './assessments.css'
 
 type Tone = 'green' | 'gold' | 'red' | 'gray'
@@ -218,19 +219,31 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
         </div>
         <span className={`as-status cc-tone--${card.status.tone}`}>{card.status.label}</span>
       </header>
-      <ForecastStrip channel={channel} game={game} sport={sport} />
-      <div className="as-markets">
-        {MARKETS.map((m) => <MarketBlock key={m.key} market={m} quote={primaryQuote(quotes, m.key, book)} game={game} />)}
-      </div>
-      {best?.AWAY && best.HOME && (
-        <p className="as-best">Best current moneyline · {game?.away?.abbreviation} {american(best.AWAY.american)} ({shortBook(best.AWAY.sportsbook)}) · {game?.home?.abbreviation} {american(best.HOME.american)} ({shortBook(best.HOME.sportsbook)})</p>
-      )}
-      <div className="as-decision">
-        <small>Decision</small>
-        <b>{card.status.label}{item?.selection && item.selection !== '—' ? ` · ${item.selection}` : ''}</b>
-        {reasons.slice(0, 3).map((r) => <p key={r}>{r}</p>)}
-        {item?.edge != null && <p className="as-dim">Governed evaluation: edge {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · EV ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'}</p>}
-      </div>
+      <dl className="as-pick">
+        <div className="as-pick__main"><dt>Official pick</dt>
+          <dd>{item?.position ? (item.selection ?? card.status.label) : item?.selection && item.selection !== '—' && item.recommendation === 'QUALIFIED_BET' ? item.selection : 'No position'}</dd></div>
+        <div><dt>Stake</dt><dd>{item?.position?.stake != null ? `$${item.position.stake.toFixed(2)} virtual` : '—'}</dd></div>
+        <div><dt>Price</dt><dd>{item?.american != null ? `${american(item.american)} · ${shortBook(item.sportsbook) || 'book'}` : '—'}</dd></div>
+        <div><dt>AISP probability</dt><dd>{item?.model_probability != null ? pct(item.model_probability) : '—'}</dd></div>
+        <div><dt>Expected profit</dt><dd>{expectationLine(item?.expected_value)?.replace(/^AISP expected /, '') ?? '—'}</dd></div>
+        <div className="as-pick__reason"><dt>Reason</dt><dd>{reasons[0] ?? card.status.label}</dd></div>
+      </dl>
+      <details className="as-why">
+        <summary>Why? Forecast, no-vig, fair price and audit</summary>
+        <ForecastStrip channel={channel} game={game} sport={sport} />
+        <div className="as-markets">
+          {MARKETS.map((m) => <MarketBlock key={m.key} market={m} quote={primaryQuote(quotes, m.key, book)} game={game} />)}
+        </div>
+        {best?.AWAY && best.HOME && (
+          <p className="as-best">Best current moneyline · {game?.away?.abbreviation} {american(best.AWAY.american)} ({shortBook(best.AWAY.sportsbook)}) · {game?.home?.abbreviation} {american(best.HOME.american)} ({shortBook(best.HOME.sportsbook)})</p>
+        )}
+        <div className="as-decision">
+          <small>Decision</small>
+          <b>{card.status.label}{item?.selection && item.selection !== '—' ? ` · ${item.selection}` : ''}</b>
+          {reasons.slice(0, 3).map((r) => <p key={r}>{r}</p>)}
+          {item?.edge != null && <p className="as-dim">Governed evaluation: edge {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · EV ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'}</p>}
+        </div>
+      </details>
       <footer className="as-actions">
         <Link to={gameHref(sport, card.key)}>Analyze</Link>
         <Link to={simulate}>Simulate</Link>

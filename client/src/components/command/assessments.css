@@ -235,3 +235,57 @@
 .mc-replay__banner button { background: #fff; color: #3b2a5c; border-color: #fff; }
 .mc-replay__title { margin: 4px 0 0; font-size: 15px; }
 .mc-pick__tag.is-replay { color: #fff; background: #3b2a5c; }
+
+/* Bet Board: one action row per outcome */
+.bb-game { background: var(--bx-s1, #fff); border: 1px solid var(--bx-line, #e4e1dc); border-left: 4px solid var(--sport); border-radius: 14px; min-width: 0; }
+.bb-game > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 10px 14px; font-size: 14px; }
+.bb-game > summary b { overflow-wrap: anywhere; }
+.bb-game__body { display: grid; gap: 14px; padding: 4px 14px 14px; min-width: 0; }
+.bb-market { display: grid; gap: 6px; min-width: 0; }
+.bb-market h4 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--bx-text, #10203a); border-bottom: 1px solid var(--bx-line, #e4e1dc); padding-bottom: 4px; }
+.bb-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bb-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(70px, .5fr) minmax(0, 1.2fr) minmax(0, 1.4fr) auto; gap: 4px 12px; align-items: center;
+  padding: 8px 10px; border: 1px solid var(--bx-line, #e4e1dc); border-radius: 10px; background: var(--bx-s1, #fff); min-width: 0; }
+.bb-row.is-stale { background: var(--bx-s3, #f6f4f1); }
+.bb-row.is-empty { grid-template-columns: minmax(0, 1fr); opacity: .75; }
+.bb-row > span { display: grid; gap: 1px; min-width: 0; }
+.bb-row small { font-size: 11.5px; color: var(--bx-muted, #55677d); overflow-wrap: anywhere; }
+.bb-row__sel b { font-size: 15px; }
+.bb-row__price b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.bb-row__price em { font-style: normal; justify-self: start; }
+.bb-row__pay b { font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.bb-row__aisp b { font-size: 12.5px; }
+.bb-row__aisp b.is-up { color: var(--bx-good, #12855c); }
+.bb-row__aisp b.is-down { color: var(--bx-bad, #b04a4a); }
+.bb-row__pending { font-style: italic; }
+.bb-row__add { font: inherit; font-size: 12.5px; font-weight: 800; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--bx-accent, #0f8d7d);
+  background: var(--bx-accent, #0f8d7d); color: #fff; cursor: pointer; white-space: nowrap; min-height: 36px; }
+.bb-row__add:disabled { cursor: not-allowed; background: transparent; color: var(--bx-dim, #75859a); border-color: var(--bx-line-strong, #cfcbc4); }
+.bb-row__why { grid-column: 1 / -1; font-size: 12px; }
+.bb-row__why > summary { cursor: pointer; font-weight: 700; color: var(--bx-accent, #0f8d7d); }
+.bb-row__why dl { margin: 6px 0 0; display: grid; gap: 4px; }
+.bb-row__why dl > div { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); gap: 8px; }
+.bb-row__why dt { color: var(--bx-muted, #55677d); }
+.bb-row__why dd { margin: 0; min-width: 0; }
+.bb-ident { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+.bb-books { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.bb-books li.is-stale { color: var(--bx-dim, #75859a); }
+@media (max-width: 900px) {
+  .bb-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .bb-row__sel, .bb-row__pay, .bb-row__aisp { grid-column: 1 / -1; }
+  .bb-row__price { grid-column: 1; grid-row: 2; display: flex; gap: 8px; align-items: baseline; }
+  .bb-row__add { grid-column: 2; grid-row: 2; }
+  .bb-row__why dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+.am-outcome small.am-outcome__pay { color: var(--bx-muted, #55677d); font-weight: 600; }
+
+/* AISP Picks: the official pick first, the working behind Why? */
+.as-pick { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--bx-s3, #f6f4f1); }
+.as-pick > div { display: grid; gap: 1px; min-width: 0; }
+.as-pick dt { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--bx-muted, #55677d); }
+.as-pick dd { margin: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.as-pick__main dd { font-size: 16px; }
+.as-pick__reason { grid-column: 1 / -1; }
+.as-pick__reason dd { font-weight: 500; font-size: 13px; }
+.as-why > summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--bx-accent, #0f8d7d); padding: 4px 0; }
+.as-why[open] { display: grid; gap: 10px; }
