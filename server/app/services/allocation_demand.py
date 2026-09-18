@@ -50,6 +50,37 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _preview_games_on_service_day(session: Session, start, end) -> int:
+    """NFL games whose Show Prep preview slot lies inside [start, end).
+
+    A game already priced inside its own slot is not counted, so a snapshot
+    retaken later the same day never reserves a second preview object.
+    """
+
+    from app.core.config import get_settings
+    from app.services.sgo_nfl_pregame import PREVIEW_LOOKAHEAD, _newest_moneyline, preview_slot
+
+    settings = get_settings()
+    rows = session.execute(
+        select(Game.id, Game.starts_at)
+        .join(League, League.id == Game.league_id)
+        .where(League.code == "NFL",
+               Game.status == GameStatus.SCHEDULED,
+               Game.starts_at > start,
+               Game.starts_at <= end + PREVIEW_LOOKAHEAD)
+    ).all()
+    count = 0
+    for game_id, starts_at in rows:
+        opens, closes = preview_slot(settings, _aware(starts_at))
+        if not (start <= closes and opens < end):
+            continue  # this game's slot is not on this service day
+        newest = _newest_moneyline(session, game_id)
+        if newest is not None and newest >= opens:
+            continue
+        count += 1
+    return count
+
+
 def _nfl_games_today(session: Session, start, end) -> list[tuple[Any, datetime]]:
     return [
         (row[0], _aware(row[1]))
@@ -117,16 +148,18 @@ def measure(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
     # nothing and a full Sunday reserves what a full Sunday costs.
     pregame = len(pregame_games) * NFL_PREGAME_PER_GAME
 
-    # 1b. The advance pass. Games beyond today that still have no recent price
-    #     at all, so Show Prep and the board have something to show before the
-    #     checkpoint window opens. Self-limiting: a game priced within the
-    #     refresh interval is not counted, so a covered slate reserves nothing.
+    # 1b. The Show Prep preview pass. One object for each NFL game whose preview
+    #     slot (the day before its slate, ending at the Show Prep freeze) falls on
+    #     THIS service day and has not already been priced inside that slot.
+    #
+    #     Counted from the slot, never from "is it due right now": this runs when
+    #     the day's snapshot is taken at midnight, and a 15:00-16:30 slot is never
+    #     due at midnight. Asking "is it due now" is exactly how NYG @ LAR went
+    #     unfunded on 2026-09-18 -- it became due at 08:15, after a snapshot that
+    #     does not grow mid-day had already been issued.
     advance = 0
     if policy.ACTIVATED:
-        from app.services.sgo_nfl_pregame import due_games
-
-        advance = sum(1 for entry in due_games(session, now=moment)
-                      if entry.get("pass") == "ADVANCE")
+        advance = _preview_games_on_service_day(session, start, end)
 
     # 2. In-game checks only for a followed game that is actually in progress
     #    or about to be.
@@ -157,8 +190,8 @@ def measure(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
         "why": {
             "sgo_nfl_events": (
                 f"{pregame} checkpoint object(s) for {len(pregame_games)} "
-                f"authorised NFL paper game(s) today, plus {advance} advance "
-                "object(s) for games with no recent price."
+                f"authorised NFL paper game(s) today, plus {advance} Show Prep "
+                "preview object(s) for games whose preview slot is today."
                 if (pregame or advance) else
                 "No object reserved: no authorised NFL paper game today and no "
                 "upcoming game missing a recent price."),

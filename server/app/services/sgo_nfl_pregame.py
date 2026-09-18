@@ -52,30 +52,50 @@ SOURCE = "SPORTSGAMEODDS"
 WINDOW_OPENS_BEFORE_KICKOFF = timedelta(minutes=75)
 WINDOW_CLOSES_BEFORE_KICKOFF = timedelta(minutes=15)
 
-#: THE ADVANCE PASS.
+#: THE PREVIEW PASS -- timed to Show Prep, not to a rolling horizon.
 #:
-#: The checkpoint window above answers "what is the price now, at the moment a
-#: decision is made". It cannot answer "what does the slate look like", because
-#: it opens seventy-five minutes before kickoff -- hours after Show Prep is
-#: recorded and days after anyone wants to look at Sunday. Until this existed,
-#: the fifteen governed Week 2 games carried one quote each from 29 August.
+#: The checkpoint window above answers "what is the price when the decision is
+#: made". Show Prep needs a different answer at a different time: a preview
+#: price that is still usable when the show board freezes, the day before the
+#: slate, at `show_preview_freeze_time` (16:30 ET). Show Prep has its own preview
+#: freshness, `show_preview_quote_max_age_hours` (18 h) -- distinct from, and
+#: never a substitute for, the 240-minute rule a decision applies.
 #:
-#: So a game inside this horizon is priced ONCE, in advance, and then left
-#: alone until its checkpoint.
+#: The first design bought a game once it entered an 84-hour horizon. That
+#: bought the Week 2 Sunday games at 00:09 on Friday, which made every one of
+#: them 40 hours old -- unusable -- at Saturday's 16:30 freeze. It also missed
+#: NYG @ LAR entirely: the game entered the horizon at 08:15, after that day's
+#: allocation snapshot had already been issued at midnight, and a snapshot does
+#: not grow mid-day.
 #:
-#: "Once" is enforced against the window, not against a refresh interval. The
-#: first version of this skipped a game whose newest moneyline was younger than
-#: a 24-hour refresh, which sounds like one purchase and is not: a 72-hour
-#: eligible span divided by a 24-hour refresh admits FOUR advance buys per game,
-#: so a fifteen-game slate could cost 75 objects a week rather than 30. The rule
-#: below asks a different question -- has this game been priced at all since its
-#: advance window opened -- which can only ever be true once.
-ADVANCE_HORIZON = timedelta(hours=84)
-#: Never advance-buy a game that will reach its own checkpoint soon. Without
-#: this, a Sunday game would be bought twice on Sunday -- once in the morning
-#: and again at its checkpoint -- which doubles the slate's cost for a price
-#: the checkpoint pass is about to replace anyway.
-ADVANCE_MIN_LEAD = timedelta(hours=12)
+#: So the preview buy now lands in a fixed slot that ends at the freeze and
+#: starts PREVIEW_LEAD before it (15:00-16:30 ET for a 16:30 freeze). It covers
+#: `show_preview_market_collection_time` (16:00), so the board freezes on a
+#: price minutes old rather than days. Because the slot is a fixed time on a
+#: known day, the allocation snapshot for that day can count it at midnight.
+#:
+#: "Once" is structural: a game is due only if it has no moneyline observed
+#: since its own slot opened, and the slot is ninety minutes long.
+PREVIEW_LEAD = timedelta(minutes=90)
+#: How far ahead to look for a game whose preview slot could be open.
+PREVIEW_LOOKAHEAD = timedelta(hours=48)
+
+
+def preview_slot(settings: Any, kickoff: datetime) -> tuple[datetime, datetime]:
+    """The Show Prep preview window for a game: [freeze - lead, freeze].
+
+    The slate is the game's own Eastern date; the freeze is Show Prep's planned
+    freeze for that slate, which is the day before at the configured time.
+    """
+
+    from zoneinfo import ZoneInfo
+
+    from app.show_preview.clock import planned_freeze_utc
+
+    zone = ZoneInfo(getattr(settings, "show_preview_timezone", "America/New_York"))
+    slate = _aware(kickoff).astimezone(zone).date()
+    freeze = planned_freeze_utc(slate, settings)
+    return freeze - PREVIEW_LEAD, freeze
 
 
 def _aware(value: datetime) -> datetime:
@@ -97,15 +117,19 @@ def _newest_moneyline(session: Session, game_id: Any) -> datetime | None:
     return _aware(observed) if observed is not None else None
 
 
-def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str, Any]]:
-    """NFL games worth an object right now, checkpoint first, then advance.
+def due_games(
+    session: Session, *, now: datetime | None = None, settings: Any = None,
+) -> list[dict[str, Any]]:
+    """NFL games worth an object right now: checkpoint first, then preview.
 
-    Two passes, one lane. A CHECKPOINT game is inside the final window and needs
-    a price that is fresh when the decision is made. An ADVANCE game is further
-    out and has no recent price at all, so Show Prep and the board have nothing
-    to show; it is priced once and then not touched again until its checkpoint.
+    CHECKPOINT: inside the final 75-15 minutes, for the price a decision uses.
+    PREVIEW: inside its Show Prep slot and not yet priced since the slot opened.
     """
 
+    if settings is None:
+        from app.core.config import get_settings
+
+        settings = get_settings()
     moment = now or datetime.now(UTC)
     rows = session.execute(
         select(Game.id, Game.starts_at)
@@ -113,11 +137,11 @@ def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str
         .where(League.code == "NFL",
                Game.status == GameStatus.SCHEDULED,
                Game.starts_at > moment,
-               Game.starts_at <= moment + ADVANCE_HORIZON)
+               Game.starts_at <= moment + PREVIEW_LOOKAHEAD)
         .order_by(Game.starts_at)
     ).all()
     checkpoint: list[dict[str, Any]] = []
-    advance: list[dict[str, Any]] = []
+    preview: list[dict[str, Any]] = []
     for game_id, starts_at in rows:
         starts = _aware(starts_at)
         to_kickoff = starts - moment
@@ -125,11 +149,12 @@ def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str
             continue  # inside the final 15 minutes: too late to be useful
         in_checkpoint = to_kickoff <= WINDOW_OPENS_BEFORE_KICKOFF
         if not in_checkpoint:
-            if to_kickoff < ADVANCE_MIN_LEAD:
-                continue  # its checkpoint is close enough to be the right buy
+            opens, closes = preview_slot(settings, starts)
+            if not (opens <= moment <= closes):
+                continue  # outside its Show Prep slot
             newest = _newest_moneyline(session, game_id)
-            if newest is not None and newest >= starts - ADVANCE_HORIZON:
-                continue  # already priced inside this window; one buy is the budget
+            if newest is not None and newest >= opens:
+                continue  # already priced inside this slot; one buy is the budget
         sides = dict(session.execute(
             select(GameTeam.is_home, Team.abbreviation)
             .join(Team, Team.id == GameTeam.team_id)
@@ -140,12 +165,12 @@ def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str
             "starts_at": starts.isoformat(),
             "minutes_to_kickoff": round(to_kickoff.total_seconds() / 60, 1),
             "away": sides.get(False), "home": sides.get(True),
-            "pass": "CHECKPOINT" if in_checkpoint else "ADVANCE",
+            "pass": "CHECKPOINT" if in_checkpoint else "PREVIEW",
         }
-        (checkpoint if in_checkpoint else advance).append(entry)
+        (checkpoint if in_checkpoint else preview).append(entry)
     # Checkpoint games come first: if a grant cannot cover everything, the games
     # with a decision to make are the ones that get paid for.
-    return checkpoint + advance
+    return checkpoint + preview
 
 
 def fetch_nfl_pregame(
@@ -303,7 +328,7 @@ def collect_nfl_pregame(
     }
 
 
-__all__ = ["ADVANCE_HORIZON", "ADVANCE_MIN_LEAD", "LANE", "SOURCE",
+__all__ = ["LANE", "PREVIEW_LEAD", "PREVIEW_LOOKAHEAD", "SOURCE", "preview_slot",
            "WINDOW_CLOSES_BEFORE_KICKOFF",
            "WINDOW_OPENS_BEFORE_KICKOFF", "collect_nfl_pregame", "due_games",
            "fetch_nfl_pregame"]
