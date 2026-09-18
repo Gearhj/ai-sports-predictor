@@ -165,12 +165,19 @@ class JobOrchestrator:
         if canonical not in AVAILABLE_JOBS:
             raise ValueError(f"Unknown job '{name}'. Available jobs: {', '.join(AVAILABLE_JOBS)}")
         event_date = event_date or local_today(self.settings.display_timezone)
+        from app.jobs.lanes import current_meta
+
+        parameters: dict[str, Any] = {"event_date": event_date.isoformat()}
+        scheduling = current_meta()
+        if scheduling:
+            # When APScheduler fired this run, and how long it waited for its lane.
+            parameters["scheduling"] = scheduling
         run = JobRun(
             job_name=canonical,
             status=RunStatus.RUNNING,
             requested_by_user_id=requested_by_user_id,
             started_at=datetime.now(UTC),
-            parameters={"event_date": event_date.isoformat()},
+            parameters=parameters,
         )
         self.session.add(run)
         self.session.commit()

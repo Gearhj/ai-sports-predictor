@@ -419,7 +419,9 @@ def select_event_relative_refresh_states(settings: Settings) -> None:
             logger.error("event_relative_state_selection_failed", error=str(exc))
 
 
-#: One worker thread runs every scheduled coroutine, in submission order.
+#: Scheduled coroutines run on single-worker LANES, in submission order per lane
+#: (see app/jobs/lanes.py: prediction-market observation has its own lane so it
+#: cannot hold up forecast imports and decision checkpoints).
 #:
 #: WHY: job bodies are `async def` but do synchronous database, file-hashing and
 #: CPU work. Awaited on the web server's event loop they froze HTTP for their
@@ -430,34 +432,36 @@ def select_event_relative_refresh_states(settings: Settings) -> None:
 #: web loop while keeping the jobs as serial as they effectively were: one at
 #: a time, first come first served, each still `max_instances=1`. Schedules,
 #: ownership and job logic are unchanged.
-_JOB_EXECUTOR = None
+def _job_executor(lane: str | None = None):
+    from app.jobs import lanes
+
+    return lanes.executor(lane or lanes.CORE_LANE)
 
 
-def _job_executor():
-    global _JOB_EXECUTOR
-    if _JOB_EXECUTOR is None:
-        from concurrent.futures import ThreadPoolExecutor
-
-        _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aisp-scheduled-job")
-    return _JOB_EXECUTOR
-
-
-def off_event_loop(func):
-    """Run a scheduled coroutine function on the job thread, not the web loop."""
+def off_event_loop(func, lane: str | None = None):
+    """Run a scheduled coroutine function on its lane's thread, not the web loop."""
 
     import asyncio
     import functools
     import inspect
 
+    from app.jobs import lanes
+
     if not inspect.iscoroutinefunction(func):
         return func
+    lane = lane or lanes.CORE_LANE
 
     @functools.wraps(func)
     async def runner(*args: Any, **kwargs: Any) -> Any:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(_job_executor(), lambda: asyncio.run(func(*args, **kwargs)))
+        fired_at = datetime.now(UTC)
+        return await loop.run_in_executor(
+            _job_executor(lane),
+            lambda: lanes.run_with_meta(lane, fired_at, lambda: asyncio.run(func(*args, **kwargs))),
+        )
 
     runner.__aisp_off_event_loop__ = True  # type: ignore[attr-defined]
+    runner.__aisp_job_lane__ = lane  # type: ignore[attr-defined]
     return runner
 
 
@@ -466,7 +470,9 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     _add_job = scheduler.add_job
 
     def add_job(func, *args: Any, **kwargs: Any):
-        return _add_job(off_event_loop(func), *args, **kwargs)
+        from app.jobs.lanes import lane_for
+
+        return _add_job(off_event_loop(func, lane_for(kwargs.get("id"))), *args, **kwargs)
 
     scheduler.add_job = add_job  # type: ignore[method-assign]
     common: dict[str, Any] = {
