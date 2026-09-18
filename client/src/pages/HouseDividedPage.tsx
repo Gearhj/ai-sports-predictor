@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { Ticket } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { useAuth } from '../hooks/useAuth'
 import { useBroadcastTheme } from '../components/broadcast/primitives'
@@ -22,11 +23,10 @@ import './HouseDividedPage.css'
 const BOARD_PREVIEW = 12
 type Tab = 'picks' | 'standings' | 'history'
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'picks', label: 'Make Picks' },
-  { key: 'standings', label: 'Standings' },
-  { key: 'history', label: 'Wager History' },
+  { key: 'picks', label: 'MAKE PICKS' },
+  { key: 'standings', label: 'STANDINGS' },
+  { key: 'history', label: 'WAGER HISTORY' },
 ]
-const PICK_SPORTS: CompetitionSport[] = ['MLB', 'NFL', 'NBA', 'CFB']
 const VIEWS: SportView[] = ['MLB', 'NFL', 'NBA', 'CFB', 'ALL']
 const ET: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York' }
 
@@ -44,34 +44,40 @@ const firstName = (name: string) => name.split(' — ')[0]
 export function HouseDividedPage() {
   useBroadcastTheme()
   const [params, setParams] = useSearchParams()
-  const raw = (params.get('sport') || 'MLB').toUpperCase()
-  const view: SportView = (VIEWS as string[]).includes(raw) ? (raw as SportView) : 'MLB'
-  const setView = (next: SportView) => setParams((old) => {
+  const rawSport = params.get('sport')?.toUpperCase() ?? null
+  const urlSport: SportView | null = rawSport && (VIEWS as string[]).includes(rawSport) ? (rawSport as SportView) : null
+  const view: SportView = urlSport ?? 'MLB'
+  const setView = useCallback((next: SportView) => setParams((old) => {
     const copy = new URLSearchParams(old)
     copy.set('sport', next)
     return copy
-  }, { replace: true })
+  }, { replace: true }), [setParams])
 
   const { user } = useAuth()
   const [access, setAccess] = useState<EntryAccess | null>(null)
-  useEffect(() => {
-    if (!user) { setAccess(null); return }
-    houseDivided.me().then(setAccess).catch(() => setAccess(null))
+  const [accessKnown, setAccessKnown] = useState(false)
+  const loadAccess = useCallback(() => {
+    if (!user) { setAccess(null); setAccessKnown(true); return }
+    houseDivided.me().then(setAccess).catch(() => setAccess(null)).finally(() => setAccessKnown(true))
   }, [user])
+  useEffect(() => { loadAccess() }, [loadAccess])
   const canEnter = !!access && access.can_enter_for.length > 0
   const rawTab = params.get('tab') as Tab | null
-  const tab: Tab = rawTab && TABS.some((t) => t.key === rawTab) ? rawTab : canEnter ? 'picks' : 'standings'
+  const tab: Tab | null = rawTab && TABS.some((t) => t.key === rawTab) ? rawTab
+    : !accessKnown ? null : canEnter ? 'picks' : 'standings'
   const setTab = (next: Tab) => setParams((old) => {
     const copy = new URLSearchParams(old)
     copy.set('tab', next)
     return copy
   }, { replace: true })
-  const pickSport: CompetitionSport = view === 'ALL' ? 'MLB' : view
+  const selections = access?.drafts.length ?? 0
+  // Make Picks never opens on All Sports: without a chosen sport, the server
+  // picks the started sport whose next game is soonest.
+  const pickSport: CompetitionSport | null = urlSport && urlSport !== 'ALL' ? urlSport : null
 
   const loader = useCallback((signal: AbortSignal) => houseDivided.board(view, signal), [view])
   const board = useApiResource<Board>(loader, { key: `house-divided:${view}`, staleTimeMs: 30_000, refreshIntervalMs: 60_000 })
   const data = board.data && board.data.sport === view ? board.data : null
-  const sportStatus = (data?.sports ?? PICK_SPORTS.map((s) => ({ sport: s, status: 'STARTED' }))).map((s) => ({ sport: s.sport, status: s.status }))
 
   return (
     <div className="bx hd">
@@ -82,22 +88,32 @@ export function HouseDividedPage() {
             <h1>A House <em>Divided</em></h1>
             <p>James — The Models vs. Scotty vs. Red Lou — Mom. A separate virtual $1,000 for each person in each sport, tracked from a recorded start. No backfill, no top-ups.</p>
           </div>
-          {!user && <Link className="bx-btn bx-btn--primary hd-signin-cta" to="/login">Sign in to make picks</Link>}
+          {tab !== 'picks' && tab !== null && (
+            <button type="button" className="hd-cta" onClick={() => setTab('picks')}>
+              <Ticket size={20} aria-hidden /> Make Picks
+            </button>
+          )}
+          {tab === 'picks' && !user && <Link className="bx-btn bx-btn--primary hd-signin-cta" to="/login">Sign in to make picks</Link>}
         </header>
 
-        <nav className="hd-tabbar" role="tablist" aria-label="A House Divided">
+        <nav className="hd-nav" role="tablist" aria-label="A House Divided">
           {TABS.map((t) => (
-            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>{t.label}</button>
+            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
+              className={`hd-nav__item hd-nav__item--${t.key}`} onClick={() => setTab(t.key)}>
+              {t.key === 'picks' && <Ticket size={20} aria-hidden />}
+              <span>{t.label}</span>
+              {t.key === 'picks' && selections > 0 && <b className="hd-nav__count" aria-label={`${selections} open selections`}>{selections}</b>}
+            </button>
           ))}
         </nav>
 
+        {tab === null && <div className="bx-empty" role="status">Loading…</div>}
         {tab === 'picks' && (
-          <MakePicks sport={pickSport} sports={sportStatus as { sport: CompetitionSport; status: string }[]}
-            onSport={(s) => setView(s)} onChanged={board.refresh} />
+          <MakePicks sport={pickSport} onSport={setView} onChanged={() => { loadAccess(); board.refresh() }} />
         )}
-        {tab !== 'picks' && <SportTabs view={view} onView={setView} data={data} />}
-        {tab !== 'picks' && board.error && !data && <div className="bx-empty" role="alert">The competition could not be loaded: {board.error}</div>}
-        {tab !== 'picks' && !data && !board.error && <div className="bx-empty" role="status">Loading the competition…</div>}
+        {tab !== 'picks' && tab !== null && <SportTabs view={view} onView={setView} data={data} />}
+        {tab !== 'picks' && tab !== null && board.error && !data && <div className="bx-empty" role="alert">The competition could not be loaded: {board.error}</div>}
+        {tab !== 'picks' && tab !== null && !data && !board.error && <div className="bx-empty" role="status">Loading the competition…</div>}
         {tab === 'standings' && data && data.sport === 'ALL' && <AllSports data={data as AllSportsBoard} />}
         {tab === 'standings' && data && data.sport !== 'ALL' && <SportPage data={data as SportBoard} />}
         {tab === 'history' && data && <HistoryTab data={data} />}

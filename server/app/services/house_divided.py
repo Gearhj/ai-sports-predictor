@@ -1292,22 +1292,120 @@ def slate_dates(session: Session, sport: str, *, now: datetime | None = None) ->
     return [{"date": day, "games": counts[day]} for day in sorted(counts)]
 
 
-def market_board(session: Session, sport: str, day: Any = None, *, now: datetime | None = None) -> dict[str, Any]:
-    """The sportsbook-style board for one ET date: every game, market and current price.
+def default_sport(session: Session, *, now: datetime | None = None) -> str | None:
+    """The started sport whose next scheduled game is soonest."""
+
+    moment = now or datetime.now(UTC)
+    best: tuple[datetime, str] | None = None
+    for sport in SPORTS:
+        started = _started_at(session, sport)
+        if started is None:
+            continue
+        nxt = session.scalar(
+            select(func.min(Game.starts_at)).join(League, League.id == Game.league_id)
+            .where(League.code == sport, Game.status == GameStatus.SCHEDULED, Game.starts_at > moment,
+                   Game.starts_at >= started + CUTOFF))
+        if nxt is not None and (best is None or _aware(nxt) < best[0]):
+            best = (_aware(nxt), sport)
+    return best[1] if best else None
+
+
+#: Sport-specific player-prop groups, in the order a sportsbook would list them.
+PROP_GROUPS = {
+    "MLB": ["Pitcher strikeouts", "Hits", "Home runs", "Total bases", "RBIs"],
+    "NFL": ["Passing", "Rushing", "Receiving", "Touchdowns", "Receptions"],
+    "NBA": ["Points", "Rebounds", "Assists", "Three-pointers"],
+    "CFB": [],
+}
+PROPS_UNAVAILABLE = "Player props are not available yet for this game."
+
+
+def _props_state(session: Session, sport: str, game_ids: list[Any], moment: datetime) -> dict[Any, dict[str, Any]]:
+    """Player props are never wagerable yet: no governed settlement path exists.
+
+    Stored, identity-resolved quotes are counted so the page can say so, but a
+    quote without a way to settle it is a reference, not a wager.
+    """
+
+    from app.models import PlayerPropQuote
+
+    counts: dict[Any, int] = {}
+    if game_ids:
+        counts = dict(session.execute(
+            select(PlayerPropQuote.game_id, func.count())
+            .where(PlayerPropQuote.game_id.in_(game_ids), PlayerPropQuote.selectable.is_(True),
+                   PlayerPropQuote.provider_observed_at >= moment - MAX_QUOTE_AGE)
+            .group_by(PlayerPropQuote.game_id)).all())
+    out = {}
+    for game_id in game_ids:
+        stored = int(counts.get(game_id, 0))
+        out[game_id] = {
+            "status": "UNAVAILABLE", "message": PROPS_UNAVAILABLE,
+            "groups": [{"label": g, "status": "UNAVAILABLE"} for g in PROP_GROUPS.get(sport, [])],
+            "stored_current_quotes": stored,
+            "reason": ("Live player-prop collection is off, and no governed settlement path for player "
+                       "statistics exists yet, so no prop can be offered as a virtual wager."),
+        }
+    return out
+
+
+def _expected_prices_at(sport: str, game: Game) -> datetime | None:
+    """When the existing collectors first try to price this game, if they do."""
+
+    if sport == "MLB":
+        return _cutoff(game) - MAX_QUOTE_AGE
+    if sport == "NFL":
+        return _aware(game.starts_at) - timedelta(minutes=75)
+    return None
+
+
+def _pair(options: list[dict[str, Any]], a: str, b: str, key) -> list[dict[str, Any]]:
+    """Group options into two-sided rows (away/home or over/under) by line."""
+
+    rows: dict[Any, dict[str, Any]] = {}
+    for option in options:
+        k = key(option)
+        row = rows.setdefault(k, {"line": option["line"] if option["side"] in (a, "over", "under") else None,
+                                  a: None, b: None})
+        row[option["side"]] = option
+        if option["side"] == a:
+            row["line"] = option["line"]
+    return list(rows.values())
+
+
+def _balance_score(row: dict[str, Any], a: str, b: str) -> tuple:
+    """Main line first: both sides priced, most books, prices nearest even money."""
+
+    sides = [row.get(a), row.get(b)]
+    both = all(sides)
+    books = sum(o["best_of"] for o in sides if o)
+    spread = sum(abs(o["best"]["decimal_odds"] - 1.91) for o in sides if o) if both else 9
+    return (0 if both else 1, -books, spread)
+
+
+def market_board(session: Session, sport: str | None = None, day: Any = None, *,
+                 now: datetime | None = None) -> dict[str, Any]:
+    """The sportsbook lobby for one sport and ET date.
 
     Only a current price (newest for its book and selection, inside the
-    240-minute rule, open) is ever selectable. Everything else carries the
-    exact reason it is not.
+    240-minute rule, open) is ever selectable, and the best of them is the
+    default; every other current book is available under Shop books. A game
+    with nothing selectable says exactly why, in plain words.
     """
 
     moment = now or datetime.now(UTC)
-    sport = sport.upper()
+    sport = (sport or default_sport(session, now=moment) or "MLB").upper()
     if sport not in SPORTS:
         raise CompetitionError("UNKNOWN_SPORT", f"{sport} is not a competition sport.", 404)
     started = _started_at(session, sport)
     dates = slate_dates(session, sport, now=moment)
+    sports = [{"sport": s, "status": "STARTED" if _started_at(session, s) else "NOT_STARTED",
+               "reason": None if _started_at(session, s) else NOT_ELIGIBLE_REASON.get(s, "Not started.")}
+              for s in SPORTS]
+    base = {"sport": sport, "sports": sports, "max_quote_age_minutes": 240, "generated_at": moment.isoformat(),
+            "prop_groups": PROP_GROUPS.get(sport, [])}
     if started is None:
-        return {"sport": sport, "status": "NOT_STARTED", "date": None, "dates": [], "games": [],
+        return {**base, "status": "NOT_STARTED", "date": None, "dates": [], "games": [],
                 "reason": NOT_ELIGIBLE_REASON.get(sport, f"{sport} has not started.")}
     if day is None:
         day = dates[0]["date"] if dates else moment.astimezone(ET).date().isoformat()
@@ -1324,63 +1422,94 @@ def market_board(session: Session, sport: str, day: Any = None, *, now: datetime
     home_ids = dict(session.execute(select(GameTeam.game_id, GameTeam.team_id).where(
         GameTeam.game_id.in_(ids), GameTeam.is_home.is_(True))).all()) if ids else {}
     reveals = model_reveals(session, sport, ids, now=moment)
+    props = _props_state(session, sport, ids, moment)
+
     grouped: dict[Any, dict[str, dict[tuple, dict[str, Any]]]] = {}
-    stale_seen: dict[Any, set[str]] = {}
+    seen: dict[Any, dict[str, set[str]]] = {}
     last_update: dict[Any, datetime] = {}
     for snapshot, outcome, market, book in _newest_rows(session, ids, moment):
         line, problem = _quote_state(snapshot, outcome, market, moment)
         if problem == "UNSUPPORTED":
             continue
-        mtype = MARKET_NAMES[market.market_type]
+        gid = market.game_id
         observed = _aware(snapshot.observed_at)
-        if market.game_id not in last_update or observed > last_update[market.game_id]:
-            last_update[market.game_id] = observed
+        if gid not in last_update or observed > last_update[gid]:
+            last_update[gid] = observed
+        seen.setdefault(gid, {}).setdefault(problem or "OK", set()).add(book.key)
         if problem is not None:
-            stale_seen.setdefault(market.game_id, set()).add(mtype)
             continue
-        side = _side(outcome, teams.get(market.game_id, {}), home_ids.get(market.game_id))
-        key = (side, line, outcome.id)
-        option = grouped.setdefault(market.game_id, {}).setdefault(mtype, {}).setdefault(key, {
+        mtype = MARKET_NAMES[market.market_type]
+        side = _side(outcome, teams.get(gid, {}), home_ids.get(gid))
+        option = grouped.setdefault(gid, {}).setdefault(mtype, {}).setdefault((side, line, outcome.id), {
             "side": side, "selection": outcome.label, "line": line, "quotes": []})
         option["quotes"].append(_quote_dict(snapshot, outcome, market, book, line, sport, moment))
 
-    side_order = {"away": 0, "home": 1, "over": 2, "under": 3}
     cards = []
     for game in games:
         card = _game_card(session, game, moment, teams.get(game.id, {}))
         lock_at, lock_basis = human_lock(game, reveals.get(game.id))
         locked = moment >= lock_at or game.status != GameStatus.SCHEDULED
-        lock_reason = None
-        if game.status != GameStatus.SCHEDULED:
-            lock_reason = f"Market locked: the game is {card['status'].lower()}."
-        elif moment >= lock_at and lock_basis == "MODEL_PICK_PUBLIC":
-            lock_reason = "Market locked: the models' pick for this game is already public."
-        elif moment >= lock_at:
-            lock_reason = "Market locked: picks close 15 minutes before the start."
-        markets = []
-        for mtype in MARKET_ORDER:
-            options = list(grouped.get(game.id, {}).get(mtype, {}).values())
-            for option in options:
-                option["quotes"].sort(key=lambda q: -q["decimal_odds"])
+        by_market = grouped.get(game.id, {})
+        for options in by_market.values():
+            for option in options.values():
+                option["quotes"].sort(key=lambda q: (-q["decimal_odds"], q["sportsbook"]))
                 option["best"] = option["quotes"][0]
                 option["best_of"] = len(option["quotes"])
-            options.sort(key=lambda o: (side_order.get(o["side"], 9), o["line"] or 0))
-            if locked:
-                status, reason = "LOCKED", lock_reason
-            elif options:
-                status, reason = "OPEN", None
-            elif mtype in stale_seen.get(game.id, set()):
-                status, reason = "UNAVAILABLE", "Price unavailable: the latest prices are older than 240 minutes."
-            else:
-                status, reason = "AWAITING", "Awaiting current markets."
-            markets.append({"market_type": mtype, "label": _market_label(sport, mtype), "status": status,
-                            "reason": reason, "options": options if not locked else []})
-        card.update({"human_lock_at": lock_at.isoformat(), "lock_basis": lock_basis, "locked": locked,
-                     "lock_reason": lock_reason, "markets": markets,
-                     "last_update": _iso(last_update.get(game.id))})
+        ml = list(by_market.get("MONEYLINE", {}).values())
+        spreads = _pair(list(by_market.get("SPREAD", {}).values()), "away", "home",
+                        key=lambda o: abs(o["line"] or 0))
+        totals = _pair(list(by_market.get("TOTAL", {}).values()), "over", "under", key=lambda o: o["line"])
+        spreads.sort(key=lambda r: _balance_score(r, "away", "home"))
+        totals.sort(key=lambda r: _balance_score(r, "over", "under"))
+        moneyline = {"away": next((o for o in ml if o["side"] == "away"), None),
+                     "home": next((o for o in ml if o["side"] == "home"), None)}
+        selectable = bool(ml or spreads or totals)
+        books = seen.get(game.id, {})
+        current_books = sorted(books.get("OK", set()))
+        best_counts: dict[str, int] = {}
+        for options in by_market.values():
+            for option in options.values():
+                best_counts[option["best"]["sportsbook_name"]] = best_counts.get(option["best"]["sportsbook_name"], 0) + 1
+        expected = _expected_prices_at(sport, game)
+
+        # One plain game-level state, most decisive first.
+        if game.status != GameStatus.SCHEDULED:
+            state = {"code": "GAME_LOCKED", "label": "Game locked",
+                     "detail": f"The game is {card['status'].lower()}."}
+        elif moment >= lock_at and lock_basis == "MODEL_PICK_PUBLIC":
+            state = {"code": "GAME_LOCKED", "label": "Game locked",
+                     "detail": "The models' pick for this game is public, so picks are closed."}
+        elif moment >= lock_at:
+            state = {"code": "GAME_LOCKED", "label": "Game locked",
+                     "detail": "Picks close 15 minutes before the start."}
+        elif selectable:
+            state = {"code": "OPEN", "label": "Open for picks", "detail": None}
+        elif books.get("NOT_OPEN"):
+            state = {"code": "SUSPENDED", "label": "Market suspended",
+                     "detail": "The sportsbook has taken this market down for now."}
+        elif books.get("STALE"):
+            state = {"code": "STALE", "label": "Last stored price is stale",
+                     "detail": "The newest stored price is more than 4 hours old, so it cannot be picked."}
+        elif expected is not None and moment < expected:
+            state = {"code": "EXPECTED", "label": "Current prices expected near the decision window",
+                     "detail": None}
+        else:
+            state = {"code": "NO_COVERAGE", "label": "No sportsbook coverage",
+                     "detail": "No current sportsbook price has been collected for this game."}
+        card.update({
+            "human_lock_at": lock_at.isoformat(), "lock_basis": lock_basis, "locked": locked,
+            "lock_reason": state["detail"] if state["code"] == "GAME_LOCKED" else None,
+            "state": state, "expected_prices_at": _iso(expected) if state["code"] == "EXPECTED" else None,
+            "last_update": _iso(last_update.get(game.id)),
+            "books_available": len(current_books),
+            "best_book": max(best_counts, key=best_counts.get) if best_counts else None,
+            "moneyline": moneyline if not locked else {"away": None, "home": None},
+            "spreads": spreads if not locked else [], "totals": totals if not locked else [],
+            "spread_label": _market_label(sport, "SPREAD"),
+            "props": props[game.id],
+        })
         cards.append(card)
-    return {"sport": sport, "status": "STARTED", "date": day, "dates": dates, "games": cards,
-            "max_quote_age_minutes": 240, "generated_at": moment.isoformat()}
+    return {**base, "status": "STARTED", "date": day, "dates": dates, "games": cards}
 
 
 def _slip_view(session: Session, wager: CompetitionWager, participant: CompetitionParticipant,
@@ -1453,7 +1582,7 @@ def wager_receipt(session: Session, wager: CompetitionWager, *, now: datetime | 
 
 __all__ = [
     "CUTOFF", "MAX_QUOTE_AGE", "SPORTS", "CompetitionError", "account_for", "balance", "current_quotes",
-    "discard", "drafts_for", "ensure_competition", "human_lock", "market_board", "model_reveals",
+    "discard", "drafts_for", "ensure_competition", "default_sport", "human_lock", "market_board", "model_reveals",
     "participant_account", "slate_dates", "wager_receipt", "entry_permissions", "mirror_model_decisions", "official_experiment", "open_games",
     "participant_by_key", "run", "save_draft", "settle_open", "start_sport", "submit", "summary",
 ]

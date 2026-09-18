@@ -186,30 +186,45 @@ export interface BoardOption {
   best_of: number
 }
 
-export interface BoardMarket {
-  market_type: 'MONEYLINE' | 'SPREAD' | 'TOTAL'
-  label: string
-  status: 'OPEN' | 'LOCKED' | 'AWAITING' | 'UNAVAILABLE'
-  reason: string | null
-  options: BoardOption[]
+export interface SpreadRow { line: number | null; away: BoardOption | null; home: BoardOption | null }
+export interface TotalRow { line: number | null; over: BoardOption | null; under: BoardOption | null }
+
+export type GameStateCode = 'OPEN' | 'GAME_LOCKED' | 'SUSPENDED' | 'STALE' | 'EXPECTED' | 'NO_COVERAGE'
+
+export interface PropsState {
+  status: 'UNAVAILABLE' | 'AVAILABLE'
+  message: string
+  reason: string
+  groups: { label: string; status: string }[]
+  stored_current_quotes: number
 }
 
 export interface MarketGame extends OpenGame {
   human_lock_at: string
   lock_basis: 'CUTOFF' | 'MODEL_PICK_PUBLIC'
   lock_reason: string | null
+  state: { code: GameStateCode; label: string; detail: string | null }
+  expected_prices_at: string | null
   last_update: string | null
-  markets: BoardMarket[]
+  books_available: number
+  best_book: string | null
+  moneyline: { away: BoardOption | null; home: BoardOption | null }
+  spreads: SpreadRow[]
+  totals: TotalRow[]
+  spread_label: string
+  props: PropsState
   home_score: number | null
   away_score: number | null
 }
 
 export interface MarketBoard {
   sport: CompetitionSport
+  sports: { sport: CompetitionSport; status: 'STARTED' | 'NOT_STARTED'; reason: string | null }[]
   status: 'STARTED' | 'NOT_STARTED'
   date: string | null
   dates: { date: string; games: number }[]
   games: MarketGame[]
+  prop_groups: string[]
   reason?: string
   generated_at?: string
 }
@@ -287,8 +302,10 @@ export const houseDivided = {
   quotes: (gameId: string, signal?: AbortSignal) =>
     apiRequest<{ game: OpenGame; quotes: Quote[]; cutoff: string }>(`/house-divided/games/${gameId}/quotes`, {}, signal),
   me: (signal?: AbortSignal) => apiRequest<EntryAccess>('/house-divided/me', {}, signal),
-  marketBoard: (sport: CompetitionSport, date: string | null, signal?: AbortSignal) =>
-    apiRequest<MarketBoard>(`/house-divided/board?sport=${sport}${date ? `&date=${date}` : ''}`, {}, signal),
+  marketBoard: (sport: CompetitionSport | null, date: string | null, signal?: AbortSignal) => {
+    const query = [sport ? `sport=${sport}` : '', date ? `date=${date}` : ''].filter(Boolean).join('&')
+    return apiRequest<MarketBoard>(`/house-divided/board${query ? `?${query}` : ''}`, {}, signal)
+  },
   account: (participant: string, sport: CompetitionSport, signal?: AbortSignal) =>
     apiRequest<ParticipantAccount>(`/house-divided/account?participant=${participant}&sport=${sport}`, {}, signal),
   slipAdd: (participant: string, quoteId: string, stake = '') =>

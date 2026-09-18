@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token, hash_password
 from app.models import (
     CompetitionAccount, CompetitionWager, ExperimentDecisionPhase, Game, GameStatus, GameTeam, League,
-    Market, MarketOutcome, MarketType, OddsSnapshot, OfficialAspPosition, Season, ShadowExperiment,
+    Market, MarketOutcome, MarketType, OddsSnapshot, OddsStatus, OfficialAspPosition, Season, ShadowExperiment,
     ShadowExperimentDecision, Sport, Sportsbook, Team, User, UserRole, UserStatus,
 )
 from app.services import house_divided as hd
@@ -550,16 +550,24 @@ def live(world, client, session, settings, admin_headers):
             "q": {"dk_home": dk_home, "fd_home": fd, "away": away, "over": over}, "o": o}
 
 
-def test_the_board_offers_only_current_prices_with_best_price_and_shop_books(live):
+def test_the_lobby_offers_only_current_prices_with_best_price_and_shop_books(live):
     board = live["client"].get("/api/v1/house-divided/board?sport=MLB").json()
     game = next(g for g in board["games"] if g["game_id"] == str(live["game"].id))
-    markets = {m["market_type"]: m for m in game["markets"]}
-    home = next(o for o in markets["MONEYLINE"]["options"] if o["side"] == "home")
+    home = game["moneyline"]["home"]
     assert home["best"]["sportsbook"] == "fanduel" and home["best"]["american_odds"] == -110
     assert home["best_of"] == 2, "shop books lists both current quotes"
-    totals = markets["TOTAL"]["options"]
-    assert [o["side"] for o in totals] == ["over"], "a stale under price is never selectable"
-    assert markets["SPREAD"]["status"] == "AWAITING" and markets["SPREAD"]["reason"] == "Awaiting current markets."
+    assert game["books_available"] == 2 and game["state"]["code"] == "OPEN"
+    assert [(r["over"] is not None, r["under"] is not None) for r in game["totals"]] == [(True, False)], \
+        "a stale under price is never selectable"
+    assert game["spreads"] == []
+    assert game["props"]["status"] == "UNAVAILABLE"
+    assert game["props"]["message"] == "Player props are not available yet for this game."
+    assert [g["label"] for g in game["props"]["groups"]][:2] == ["Pitcher strikeouts", "Hits"]
+
+
+def test_without_a_sport_the_lobby_opens_on_the_next_started_sport_with_games(live):
+    board = live["client"].get("/api/v1/house-divided/board").json()
+    assert board["sport"] == "MLB" and board["games"]
 
 
 def test_admin_drafts_edits_and_submits_for_scotty_then_places_for_red_lou(live):
@@ -685,7 +693,59 @@ def test_human_picks_lock_once_the_models_pick_is_public_and_stay_hidden_until_t
                             now=reveal + timedelta(minutes=1))
     card = next(g for g in board["games"] if g["game_id"] == str(game.id))
     assert card["locked"] and card["lock_basis"] == "MODEL_PICK_PUBLIC"
-    assert all(m["status"] == "LOCKED" and not m["options"] for m in card["markets"])
+    assert card["state"]["label"] == "Game locked" and card["moneyline"] == {"away": None, "home": None}
+    assert card["spreads"] == [] and card["totals"] == []
     after = hd.summary(session, "MLB", now=reveal + timedelta(minutes=1))
     row = next(w for w in after["history"] if w["wager_id"] == str(wager.id))
     assert row["hidden"] is False and row["american_odds"] == snap.american_odds
+
+
+# -- lobby states ----------------------------------------------------------------
+def _lobby(world, now):
+    day = KICK.astimezone(hd.ET).date().isoformat()
+    return hd.market_board(world["session"], "MLB", day, now=now)
+
+
+def _card(board, game):
+    return next(g for g in board["games"] if g["game_id"] == str(game.id))
+
+
+def test_each_game_says_plainly_why_nothing_can_be_picked(world):
+    start(world)
+    session = world["session"]
+    expected, _ = add_game(world, tag="X")
+    stale, so = add_game(world, tag="Y")
+    quote(world, so["home_ml"], at=KICK - timedelta(hours=9))
+    suspended, uo = add_game(world, tag="Z")
+    session.add(OddsSnapshot(market_outcome_id=uo["home_ml"].id, sportsbook_id=world["book"].id,
+                             observed_at=KICK - timedelta(hours=1), available_as_of=KICK - timedelta(hours=1),
+                             american_odds=-110, decimal_odds=1.91, source="test", status=OddsStatus.SUSPENDED))
+    session.flush()
+    card = _card(_lobby(world, KICK - timedelta(hours=6)), expected)
+    assert card["state"]["code"] == "EXPECTED"
+    assert card["state"]["label"] == "Current prices expected near the decision window"
+    assert card["expected_prices_at"] == (KICK - timedelta(minutes=255)).isoformat()
+    board = _lobby(world, KICK - timedelta(minutes=30))
+    assert _card(board, expected)["state"]["code"] == "NO_COVERAGE"
+    assert _card(board, stale)["state"]["label"] == "Last stored price is stale"
+    assert _card(board, suspended)["state"]["label"] == "Market suspended"
+    assert _card(board, stale)["moneyline"] == {"away": None, "home": None}
+    locked = _lobby(world, KICK - timedelta(minutes=10))
+    assert all(g["state"]["label"] == "Game locked" for g in locked["games"])
+
+
+def test_the_main_line_is_the_balanced_pair_and_the_rest_are_more_wagers(world):
+    start(world)
+    game, o = add_game(world, tag="P")
+    at = KICK - timedelta(hours=1)
+    quote(world, o["home_-1.5"], at=at, american=150, point=-1.5)
+    quote(world, o["away_+1.5"], at=at, american=-170, point=1.5)
+    quote(world, o["over_8.5"], at=at, american=-110, point=8.5)
+    quote(world, o["under_8.5"], at=at, american=-110, point=8.5)
+    quote(world, o["over_9"], at=at, american=110, point=9.0)
+    card = _card(_lobby(world, at + timedelta(minutes=5)), game)
+    run_line = card["spreads"][0]
+    assert run_line["away"]["line"] == 1.5 and run_line["home"]["line"] == -1.5
+    assert card["spread_label"] == "Run line"
+    assert card["totals"][0]["line"] == 8.5 and card["totals"][0]["under"] is not None, "balanced pair first"
+    assert card["totals"][1]["line"] == 9.0, "the alternate total is a More wagers row"

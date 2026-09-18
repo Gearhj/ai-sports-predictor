@@ -52,9 +52,12 @@ def house_divided(session: DatabaseSession,
 
 @router.get("/board")
 def house_divided_board(session: DatabaseSession,
-                        sport: Literal["MLB", "NFL", "NBA", "CFB"] = Query("MLB"),
+                        sport: Literal["MLB", "NFL", "NBA", "CFB"] | None = Query(None),
                         day: str | None = Query(None, alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")) -> dict:
-    """Sportsbook-style board for one ET date. Only current prices are selectable."""
+    """Sportsbook lobby for one ET date. Only current prices are selectable.
+
+    Without a sport, the started sport with the soonest scheduled game.
+    """
 
     try:
         return competition.market_board(session, sport, day)
