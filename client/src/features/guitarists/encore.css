@@ -539,3 +539,70 @@
   outline: 2px solid #d9a441;
   outline-offset: 2px;
 }
+
+/* ---------------------------------------------------------------------------
+ * AISP layout correction (2026-09-18): the desktop page used a 1,180 px measure.
+ * One shared width now carries the hero text, the summary strip and the
+ * workspace: 1,376 px, with 28 px outer margins below that. Proportions are
+ * kept (about 25 / 42 / 31 per cent); type sizes and row heights are unchanged.
+ * ------------------------------------------------------------------------- */
+.gg-encore {
+  --gg-width: min(1376px, calc(100% - 56px));
+}
+.gg-encore .g-hero__content,
+.gg-encore .g-summary,
+.gg-encore .g-workspace {
+  width: var(--gg-width);
+}
+.gg-encore .g-hero h1 {
+  max-width: 1120px;
+}
+.gg-encore .g-hero p {
+  max-width: 860px;
+}
+.gg-encore .g-workspace {
+  grid-template-columns: minmax(290px, 25fr) minmax(0, 42fr) minmax(340px, 31fr);
+  gap: 20px;
+}
+
+/* Tablet: the ranking list takes the full width; method and detail sit side by side below it. */
+@media (max-width: 1080px) {
+  .gg-encore {
+    --gg-width: calc(100% - 40px);
+  }
+  .gg-encore .g-workspace {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "results results" "method detail";
+  }
+  .gg-encore .g-method { grid-area: method; }
+  .gg-encore .g-results { grid-area: results; }
+  .gg-encore .g-detail { grid-area: detail; grid-column: auto; }
+}
+@media (min-width: 701px) and (max-width: 820px) {
+  .gg-encore .g-toolbar {
+    grid-template-columns: minmax(0, 1fr) 176px;
+  }
+  .gg-encore .g-list button {
+    grid-template-columns: 42px minmax(0, 1fr) minmax(120px, auto) 64px;
+  }
+  .gg-encore .badges {
+    grid-column: auto;
+    justify-content: flex-end;
+  }
+}
+
+/* Phone: one column in the original order. */
+@media (max-width: 700px) {
+  .gg-encore {
+    --gg-width: calc(100% - 28px);
+  }
+  .gg-encore .g-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
+  }
+  .gg-encore .g-method,
+  .gg-encore .g-results,
+  .gg-encore .g-detail {
+    grid-area: auto;
+  }
+}
