@@ -248,6 +248,13 @@ class Settings(BaseSettings):
     # pin of the exact handoff bytes; a file that does not hash to it is refused.
     nfl_production_handoff_path: str = ""
     nfl_production_handoff_sha256: str = ""
+    # NBA Gen1, staged and deliberately unpinned. The handoff is a DIRECTORY, so
+    # the path is its index.json and the SHA-256 pins that index; the index in
+    # turn carries the hash and byte count of every member. Empty here means
+    # NOT_RECEIVED, which is the only state that may exist until the producer is
+    # installed and the pin is applied as a separate, deliberate act.
+    nba_production_handoff_path: str = ""
+    nba_production_handoff_sha256: str = ""
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports
