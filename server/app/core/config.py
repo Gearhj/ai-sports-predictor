@@ -248,6 +248,12 @@ class Settings(BaseSettings):
     # pin of the exact handoff bytes; a file that does not hash to it is refused.
     nfl_production_handoff_path: str = ""
     nfl_production_handoff_sha256: str = ""
+    #: STAGED, NOT ACTIVE: the CFB Gen1 slate-publisher handoff. Empty means
+    #: NOT_RECEIVED; a pinned handoff that declares consumerActivated=false stays
+    #: STAGED_AWAITING_ACTIVATION, and ACTIVE also needs the consumer switch.
+    cfb_production_handoff_path: str = ""
+    cfb_production_handoff_sha256: str = ""
+    cfb_production_consumer_enabled: bool = False
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports
