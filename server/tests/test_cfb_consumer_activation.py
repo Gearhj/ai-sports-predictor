@@ -376,3 +376,11 @@ def test_settlement_then_a_correction_keeps_the_original_and_adds_an_adjustment(
     rerun = final_ingest.ingest_retained_finals(world.session, world.settings, now=KICK + timedelta(hours=11))
     assert rerun["corrections"] == []
     assert world.session.scalar(select(func.count()).select_from(CfbDiscoveryManifest)) >= 1
+
+
+def test_a_saturday_night_decision_is_filed_under_its_eastern_date(world, era, monkeypatch):
+    moment, game = _in_window(world, era, monkeypatch, eligible=False)
+    paper_decision.evaluate(world.session, world.settings, now=moment)
+    row = world.session.scalar(select(ShadowExperimentDecision).limit(1))
+    from zoneinfo import ZoneInfo
+    assert row.slate_date == KICK.astimezone(ZoneInfo("America/New_York")).date()

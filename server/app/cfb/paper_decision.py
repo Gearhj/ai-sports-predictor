@@ -82,6 +82,18 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def slate_date(game: dict[str, Any]) -> date:
+    """The game's Eastern calendar date -- the day Daily Decisions files it under.
+
+    A Saturday 8 PM ET kickoff is Sunday in UTC; filing its decision by UTC
+    would move it to the wrong day's board and the wrong day's exposure cap.
+    """
+
+    from zoneinfo import ZoneInfo
+
+    return game["starts_at"].astimezone(ZoneInfo("America/New_York")).date()
+
+
 def american_to_decimal(american: int) -> float:
     return 1 + (american / 100.0 if american > 0 else 100.0 / abs(american))
 
@@ -211,7 +223,7 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
                 "pairs_considered": stale}
 
     bankroll = _bankroll(session, settings, era)
-    same_game, same_day = _exposure(session, era, game["game_id"], moment.date())
+    same_game, same_day = _exposure(session, era, game["game_id"], slate_date(game))
     candidates = []
     for pair in fresh:
         for side, win, american, other in (
@@ -255,7 +267,7 @@ def record(session: Session, era: ShadowExperiment, game: dict[str, Any], decisi
     selection = decision.get("selection") or decision.get("best") or {}
     qualified = decision["outcome"] == "QUALIFIED"
     row = ShadowExperimentDecision(
-        experiment_id=era.id, game_id=game["game_id"], slate_date=moment.date(), phase=PHASE, sport="CFB",
+        experiment_id=era.id, game_id=game["game_id"], slate_date=slate_date(game), phase=PHASE, sport="CFB",
         market="MONEYLINE", period="full_game_including_overtime",
         selection=str(selection.get("side") or "NONE"), sportsbook=selection.get("sportsbook"),
         american_odds=selection.get("american_odds"),
