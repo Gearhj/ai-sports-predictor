@@ -875,10 +875,7 @@ def summary(session: Session, sport: str, *, now: datetime | None = None) -> dic
         account = account_for(session, participant, sport)
         mine = [w for w in wagers if w.participant_id == participant.id]
         cards.append(_account_view(session, participant, account, mine))
-    ranked = sorted(cards, key=lambda c: (-c["bankroll"], c["participant"]))
-    for index, card in enumerate(ranked):
-        tied = index > 0 and card["bankroll"] == ranked[index - 1]["bankroll"]
-        card["rank"] = ranked[index - 1]["rank"] if tied else index + 1
+    ranked = _rank(cards, people)
 
     chart = _chart(people, wagers, started, moment)
     games = _games(session, sport, people, wagers, experiment, started, moment, users) if started else []
@@ -899,6 +896,17 @@ def summary(session: Session, sport: str, *, now: datetime | None = None) -> dic
         "standings": ranked, "chart": chart, "games": games, "history": history,
         "sports": _sport_list(session, moment), "generated_at": moment.isoformat(),
     }
+
+
+def _rank(cards: list[dict[str, Any]], people) -> list[dict[str, Any]]:
+    """Rank by bankroll. Equal bankrolls share a rank and keep the roster order."""
+
+    order = {p.key: p.sort_order for p in people}
+    ranked = sorted(cards, key=lambda c: (-c["bankroll"], order.get(c["participant"], 99)))
+    for index, card in enumerate(ranked):
+        tied = index > 0 and card["bankroll"] == ranked[index - 1]["bankroll"]
+        card["rank"] = ranked[index - 1]["rank"] if tied else index + 1
+    return ranked
 
 
 def _chart(people, wagers, started, moment) -> dict[str, Any]:
@@ -1020,9 +1028,7 @@ def _all_sports(session: Session, people, moment) -> dict[str, Any]:
                           "color": participant.color, "is_model": participant.is_model,
                           **{k: (round(v, 2) if isinstance(v, float) else v) for k, v in total.items()},
                           "by_sport": per_sport})
-    standings.sort(key=lambda c: (-c["bankroll"], c["participant"]))
-    for index, card in enumerate(standings):
-        card["rank"] = index + 1
+    standings = _rank(standings, people)
     wagers = list(session.scalars(select(CompetitionWager).where(
         CompetitionWager.status.in_((WAGER_OPEN, WAGER_SETTLED, WAGER_UNFUNDED)))
         .order_by(CompetitionWager.submitted_at.desc()).limit(200)))

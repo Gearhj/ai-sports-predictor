@@ -496,3 +496,18 @@ def test_the_finalize_step_never_raises(world, monkeypatch, settings):
     orchestrator = JobOrchestrator(world["session"], settings)
     report = asyncio.run(orchestrator.run_house_divided(date(2026, 9, 18)))
     assert report["records"] == 0 and "competition fault" in report["error"]
+
+
+def test_ranking_is_by_bankroll_and_ties_share_a_rank_in_roster_order(world):
+    start(world)
+    board = hd.summary(world["session"], "MLB", now=T0)
+    assert [(c["participant"], c["rank"]) for c in board["standings"]] == [
+        ("JAMES", 1), ("SCOTTY", 1), ("RED_LOU", 1)]
+    now = KICK - timedelta(minutes=45)
+    game, o = add_game(world, tag="R")
+    place(world, "RED_LOU", quote(world, o["home_ml"], at=now, american=200), "10", now=now)
+    final(game, 5, 1)
+    hd.settle_open(world["session"], now=KICK + timedelta(hours=4))
+    board = hd.summary(world["session"], "MLB", now=KICK + timedelta(hours=4))
+    assert [(c["participant"], c["rank"]) for c in board["standings"]] == [
+        ("RED_LOU", 1), ("JAMES", 2), ("SCOTTY", 2)]
