@@ -219,14 +219,16 @@ def test_stale_and_superseded_prices_are_refused(world):
     old = quote(world, o["home_ml"], at=KICK - timedelta(hours=6))
     with pytest.raises(hd.CompetitionError) as stale:
         place(world, "SCOTTY", old, "10", now=KICK - timedelta(hours=1))
-    assert stale.value.code == "STALE_PRICE"
+    assert stale.value.code == "PRICE_UNAVAILABLE" and stale.value.extra["replacement"] is None
     fresh = quote(world, o["away_ml"], at=KICK - timedelta(hours=2), american=110)
     draft = hd.save_draft(world["session"], participant_key="SCOTTY", odds_snapshot_id=fresh.id, stake="10",
                           actor=world["admin"], now=KICK - timedelta(hours=2))
     quote(world, o["away_ml"], at=KICK - timedelta(hours=1), american=105)  # the book moved
     with pytest.raises(hd.CompetitionError) as moved:
         hd.submit(world["session"], wager_id=draft.id, actor=world["admin"], now=KICK - timedelta(minutes=50))
-    assert moved.value.code == "STALE_PRICE"
+    assert moved.value.code == "PRICE_CHANGED"
+    assert moved.value.extra["replacement"]["american_odds"] == 105, "the new price is shown, not accepted"
+    assert world["session"].get(CompetitionWager, draft.id).status == "DRAFT"
 
 
 def test_picks_before_the_recorded_start_are_refused(world):
@@ -273,10 +275,16 @@ def test_an_unfunded_stake_is_refused(world):
     with pytest.raises(hd.CompetitionError) as broke:
         place(world, "SCOTTY", snap, "10.01", now=now)
     assert broke.value.code == "INSUFFICIENT_FUNDS"
-    for bad in ("0", "-5", "1.005", "abc"):
+    for bad in ("-5", "1.005", "abc"):
         with pytest.raises(hd.CompetitionError):
             hd.save_draft(world["session"], participant_key="SCOTTY", odds_snapshot_id=snap.id, stake=bad,
                           actor=world["admin"], now=now)
+    # A draft may be saved before a stake is chosen, but never submitted at $0.
+    empty = hd.save_draft(world["session"], participant_key="RED_LOU", odds_snapshot_id=snap.id, stake="",
+                          actor=world["admin"], now=now)
+    with pytest.raises(hd.CompetitionError) as zero:
+        hd.submit(world["session"], wager_id=empty.id, actor=world["admin"], now=now)
+    assert zero.value.code == "BAD_STAKE"
 
 
 # -- automatic model copying, once ------------------------------------------
@@ -511,3 +519,173 @@ def test_ranking_is_by_bankroll_and_ties_share_a_rank_in_roster_order(world):
     board = hd.summary(world["session"], "MLB", now=KICK + timedelta(hours=4))
     assert [(c["participant"], c["rank"]) for c in board["standings"]] == [
         ("RED_LOU", 1), ("JAMES", 2), ("SCOTTY", 2)]
+
+
+# -- Make Picks: the user journeys, through the API ------------------------------
+def _token(settings, user):
+    return {"Authorization": "Bearer " + create_access_token(
+        str(user.id), settings.secret_key, 5, claims={"role": user.role.value, "ver": user.token_version})}
+
+
+@pytest.fixture
+def live(world, client, session, settings, admin_headers):
+    """A started MLB slate three hours out, with two books quoting the moneyline."""
+
+    start(world)
+    now = datetime.now(UTC)
+    game, o = add_game(world, kick=now + timedelta(hours=3), tag="J")
+    fanduel = Sportsbook(key="fanduel", name="FanDuel")
+    session.add(fanduel)
+    session.flush()
+    dk_home = quote(world, o["home_ml"], at=now - timedelta(minutes=5), american=-120)
+    fd = OddsSnapshot(market_outcome_id=o["home_ml"].id, sportsbook_id=fanduel.id,
+                      observed_at=now - timedelta(minutes=4), available_as_of=now - timedelta(minutes=4),
+                      american_odds=-110, decimal_odds=1 + 100 / 110, source="test")
+    session.add(fd)
+    away = quote(world, o["away_ml"], at=now - timedelta(minutes=5), american=105)
+    over = quote(world, o["over_8.5"], at=now - timedelta(minutes=5), american=-105, point=8.5)
+    quote(world, o["under_8.5"], at=now - timedelta(hours=6), american=-115, point=8.5)  # stale
+    session.commit()
+    return {**world, "client": client, "settings": settings, "admin_h": admin_headers, "game": game,
+            "q": {"dk_home": dk_home, "fd_home": fd, "away": away, "over": over}, "o": o}
+
+
+def test_the_board_offers_only_current_prices_with_best_price_and_shop_books(live):
+    board = live["client"].get("/api/v1/house-divided/board?sport=MLB").json()
+    game = next(g for g in board["games"] if g["game_id"] == str(live["game"].id))
+    markets = {m["market_type"]: m for m in game["markets"]}
+    home = next(o for o in markets["MONEYLINE"]["options"] if o["side"] == "home")
+    assert home["best"]["sportsbook"] == "fanduel" and home["best"]["american_odds"] == -110
+    assert home["best_of"] == 2, "shop books lists both current quotes"
+    totals = markets["TOTAL"]["options"]
+    assert [o["side"] for o in totals] == ["over"], "a stale under price is never selectable"
+    assert markets["SPREAD"]["status"] == "AWAITING" and markets["SPREAD"]["reason"] == "Awaiting current markets."
+
+
+def test_admin_drafts_edits_and_submits_for_scotty_then_places_for_red_lou(live):
+    c, h, q = live["client"], live["admin_h"], live["q"]
+    draft = c.post("/api/v1/house-divided/drafts", headers=h,
+                   json={"participant": "SCOTTY", "quote_id": str(q["dk_home"].id)}).json()
+    edited = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}", headers=h,
+                    json={"participant": "SCOTTY", "quote_id": str(q["away"].id), "stake": "25"})
+    assert edited.status_code == 200
+    account = c.get("/api/v1/house-divided/account?participant=SCOTTY&sport=MLB", headers=h).json()
+    slip = account["drafts"][0]
+    assert slip["american_odds"] == 105 and slip["potential_profit"] == 26.25 and slip["potential_payout"] == 51.25
+    assert slip["available_before"] == 1000.0 and slip["available_after"] == 975.0
+    placed = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                    json={"stake": "25", "expected_quote_id": str(q["away"].id)})
+    assert placed.status_code == 200, placed.text
+    receipt = placed.json()["receipt"]
+    assert receipt["status"] == "OPEN" and receipt["confirmation_id"] and receipt["submitted_at"]
+    assert receipt["participant"] == "SCOTTY" and receipt["entered_on_behalf"] is True
+
+    red = c.post("/api/v1/house-divided/drafts", headers=h,
+                 json={"participant": "RED_LOU", "quote_id": str(q["over"].id), "stake": "10"}).json()
+    assert c.post(f"/api/v1/house-divided/drafts/{red['wager_id']}/submit", headers=h,
+                  json={"expected_quote_id": str(q["over"].id)}).status_code == 200
+
+    # Open Picks shows it at once; available falls, the settled bankroll does not.
+    scotty = c.get("/api/v1/house-divided/account?participant=SCOTTY&sport=MLB", headers=h).json()
+    assert [w["confirmation_id"] for w in scotty["open_picks"]] == [receipt["confirmation_id"]]
+    assert (scotty["bankroll"], scotty["available"], scotty["open_exposure"]) == (1000.0, 975.0, 25.0)
+    row = live["session"].get(CompetitionWager, __import__("uuid").UUID(draft["wager_id"]))
+    enterer = live["session"].get(User, row.entered_by_user_id)
+    assert enterer.role == UserRole.ADMIN and hd.participant_by_key(live["session"], "SCOTTY").id == row.participant_id
+
+
+def test_a_linked_participant_acts_only_for_themself(live):
+    c, q, session = live["client"], live["q"], live["session"]
+    scotty = _user(session, "scotty-link@example.test")
+    link(live, "SCOTTY", scotty)
+    session.commit()
+    h = _token(live["settings"], scotty)
+    me = c.get("/api/v1/house-divided/me", headers=h).json()
+    assert me["can_enter_for"] == ["SCOTTY"] and me["is_admin"] is False
+    for_red = c.post("/api/v1/house-divided/drafts", headers=h,
+                     json={"participant": "RED_LOU", "quote_id": str(q["over"].id), "stake": "5"})
+    assert for_red.status_code == 403
+    assert c.get("/api/v1/house-divided/account?participant=RED_LOU&sport=MLB", headers=h).status_code == 403
+    own = c.post("/api/v1/house-divided/drafts", headers=h,
+                 json={"participant": "SCOTTY", "quote_id": str(q["over"].id), "stake": "5"})
+    assert own.status_code == 200
+
+
+def test_signed_out_viewers_can_read_the_board_but_not_act(live):
+    c, q = live["client"], live["q"]
+    assert c.get("/api/v1/house-divided/board?sport=MLB").status_code == 200
+    assert c.get("/api/v1/house-divided/account?participant=SCOTTY&sport=MLB").status_code == 401
+    assert c.post("/api/v1/house-divided/drafts",
+                  json={"participant": "SCOTTY", "quote_id": str(q["over"].id)}).status_code == 401
+
+
+def test_a_moved_price_is_shown_and_must_be_confirmed(live):
+    c, h, q, session = live["client"], live["admin_h"], live["q"], live["session"]
+    draft = c.post("/api/v1/house-divided/drafts", headers=h,
+                   json={"participant": "SCOTTY", "quote_id": str(q["away"].id), "stake": "10"}).json()
+    moved = quote(live, live["o"]["away_ml"], at=datetime.now(UTC) - timedelta(minutes=1), american=-102)
+    session.commit()
+    refused = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                     json={"stake": "10", "expected_quote_id": str(q["away"].id)})
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert detail["code"] == "PRICE_CHANGED" and detail["replacement"]["american_odds"] == -102
+    assert detail["replacement"]["quote_id"] == str(moved.id)
+    assert c.get("/api/v1/house-divided/account?participant=SCOTTY&sport=MLB", headers=h).json()["open_exposure"] == 0
+    # Confirming = moving the draft to the new quote, then placing it against that quote.
+    c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}", headers=h,
+           json={"participant": "SCOTTY", "quote_id": str(moved.id), "stake": "10"})
+    stale_expectation = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                               json={"stake": "10", "expected_quote_id": str(q["away"].id)})
+    assert stale_expectation.json()["detail"]["code"] == "QUOTE_MISMATCH"
+    ok = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                json={"stake": "10", "expected_quote_id": str(moved.id)})
+    assert ok.status_code == 200 and ok.json()["receipt"]["american_odds"] == -102
+
+
+def test_insufficient_funds_and_duplicate_submission_fail(live):
+    c, h, q = live["client"], live["admin_h"], live["q"]
+    draft = c.post("/api/v1/house-divided/drafts", headers=h,
+                   json={"participant": "RED_LOU", "quote_id": str(q["over"].id)}).json()
+    broke = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                   json={"stake": "1000.01", "expected_quote_id": str(q["over"].id)})
+    assert broke.status_code == 409 and broke.json()["detail"]["code"] == "INSUFFICIENT_FUNDS"
+    first = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                   json={"stake": "20", "expected_quote_id": str(q["over"].id)})
+    again = c.post(f"/api/v1/house-divided/drafts/{draft['wager_id']}/submit", headers=h,
+                   json={"stake": "20", "expected_quote_id": str(q["over"].id)})
+    assert first.status_code == 200
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "LOCKED"
+    account = c.get("/api/v1/house-divided/account?participant=RED_LOU&sport=MLB", headers=h).json()
+    assert account["open_exposure"] == 20.0, "charged once"
+
+
+def test_human_picks_lock_once_the_models_pick_is_public_and_stay_hidden_until_then(world):
+    start(world)
+    session = world["session"]
+    game, o = add_game(world, tag="V")
+    snap = quote(world, o["home_ml"], at=KICK - timedelta(hours=3))
+    early = KICK - timedelta(hours=3)
+    wager = place(world, "SCOTTY", snap, "15", now=early)
+    public = hd.summary(session, "MLB", now=early + timedelta(minutes=1))
+    row = next(w for w in public["history"] if w["wager_id"] == str(wager.id))
+    assert row["hidden"] is True and row["selection"] is None and row["american_odds"] is None
+    assert row["stake"] == 15.0, "volume stays visible"
+    cells = [c for g in public["games"] if g["game_id"] == str(game.id) for c in g["cells"]]
+    assert next(c for c in cells if c["participant"] == "SCOTTY")["state"]["code"] == "PICK_LOCKED"
+    assert next(c for c in cells if c["participant"] == "RED_LOU")["state"]["label"] == "No human pick submitted"
+
+    # The model qualifies (MORNING phase, publicly visible) two hours before the start.
+    reveal = KICK - timedelta(hours=2)
+    decision(world, game, o["home_ml"], snap, at=reveal, phase=ExperimentDecisionPhase.MORNING)
+    with pytest.raises(hd.CompetitionError) as copied:
+        place(world, "RED_LOU", snap, "10", now=reveal + timedelta(minutes=1))
+    assert copied.value.code == "MODEL_PICK_PUBLIC"
+    board = hd.market_board(session, "MLB", KICK.astimezone(hd.ET).date().isoformat(),
+                            now=reveal + timedelta(minutes=1))
+    card = next(g for g in board["games"] if g["game_id"] == str(game.id))
+    assert card["locked"] and card["lock_basis"] == "MODEL_PICK_PUBLIC"
+    assert all(m["status"] == "LOCKED" and not m["options"] for m in card["markets"])
+    after = hd.summary(session, "MLB", now=reveal + timedelta(minutes=1))
+    row = next(w for w in after["history"] if w["wager_id"] == str(wager.id))
+    assert row["hidden"] is False and row["american_odds"] == snap.american_odds

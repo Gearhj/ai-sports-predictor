@@ -6,19 +6,27 @@
  * a persisted record; an empty state says so rather than inventing a pick.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useApiResource } from '../hooks/useApiResource'
 import { useAuth } from '../hooks/useAuth'
 import { useBroadcastTheme } from '../components/broadcast/primitives'
+import { MakePicks } from '../components/houseDivided/MakePicks'
 import {
   RELATION_LABEL, americanOdds, houseDivided, lineText, money, wagerTerms,
-  type AllSportsBoard, type Board, type BoardGame, type CompetitionSport, type EntryAccess, type OpenGame,
-  type Quote, type SportBoard, type SportView, type Standing, type WagerView,
+  type AllSportsBoard, type Board, type BoardGame, type CompetitionSport, type EntryAccess,
+  type SportBoard, type SportView, type Standing, type WagerView,
 } from '../services/houseDivided'
 import '../broadcast.css'
 import './HouseDividedPage.css'
 
 const BOARD_PREVIEW = 12
+type Tab = 'picks' | 'standings' | 'history'
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'picks', label: 'Make Picks' },
+  { key: 'standings', label: 'Standings' },
+  { key: 'history', label: 'Wager History' },
+]
+const PICK_SPORTS: CompetitionSport[] = ['MLB', 'NFL', 'NBA', 'CFB']
 const VIEWS: SportView[] = ['MLB', 'NFL', 'NBA', 'CFB', 'ALL']
 const ET: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York' }
 
@@ -44,9 +52,26 @@ export function HouseDividedPage() {
     return copy
   }, { replace: true })
 
+  const { user } = useAuth()
+  const [access, setAccess] = useState<EntryAccess | null>(null)
+  useEffect(() => {
+    if (!user) { setAccess(null); return }
+    houseDivided.me().then(setAccess).catch(() => setAccess(null))
+  }, [user])
+  const canEnter = !!access && access.can_enter_for.length > 0
+  const rawTab = params.get('tab') as Tab | null
+  const tab: Tab = rawTab && TABS.some((t) => t.key === rawTab) ? rawTab : canEnter ? 'picks' : 'standings'
+  const setTab = (next: Tab) => setParams((old) => {
+    const copy = new URLSearchParams(old)
+    copy.set('tab', next)
+    return copy
+  }, { replace: true })
+  const pickSport: CompetitionSport = view === 'ALL' ? 'MLB' : view
+
   const loader = useCallback((signal: AbortSignal) => houseDivided.board(view, signal), [view])
   const board = useApiResource<Board>(loader, { key: `house-divided:${view}`, staleTimeMs: 30_000, refreshIntervalMs: 60_000 })
   const data = board.data && board.data.sport === view ? board.data : null
+  const sportStatus = (data?.sports ?? PICK_SPORTS.map((s) => ({ sport: s, status: 'STARTED' }))).map((s) => ({ sport: s.sport, status: s.status }))
 
   return (
     <div className="bx hd">
@@ -57,13 +82,25 @@ export function HouseDividedPage() {
             <h1>A House <em>Divided</em></h1>
             <p>James — The Models vs. Scotty vs. Red Lou — Mom. A separate virtual $1,000 for each person in each sport, tracked from a recorded start. No backfill, no top-ups.</p>
           </div>
-          <SportTabs view={view} onView={setView} data={data} />
+          {!user && <Link className="bx-btn bx-btn--primary hd-signin-cta" to="/login">Sign in to make picks</Link>}
         </header>
 
-        {board.error && !data && <div className="bx-empty" role="alert">The competition could not be loaded: {board.error}</div>}
-        {!data && !board.error && <div className="bx-empty" role="status">Loading the competition…</div>}
-        {data && data.sport === 'ALL' && <AllSports data={data as AllSportsBoard} />}
-        {data && data.sport !== 'ALL' && <SportPage data={data as SportBoard} onChanged={board.refresh} />}
+        <nav className="hd-tabbar" role="tablist" aria-label="A House Divided">
+          {TABS.map((t) => (
+            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>{t.label}</button>
+          ))}
+        </nav>
+
+        {tab === 'picks' && (
+          <MakePicks sport={pickSport} sports={sportStatus as { sport: CompetitionSport; status: string }[]}
+            onSport={(s) => setView(s)} onChanged={board.refresh} />
+        )}
+        {tab !== 'picks' && <SportTabs view={view} onView={setView} data={data} />}
+        {tab !== 'picks' && board.error && !data && <div className="bx-empty" role="alert">The competition could not be loaded: {board.error}</div>}
+        {tab !== 'picks' && !data && !board.error && <div className="bx-empty" role="status">Loading the competition…</div>}
+        {tab === 'standings' && data && data.sport === 'ALL' && <AllSports data={data as AllSportsBoard} />}
+        {tab === 'standings' && data && data.sport !== 'ALL' && <SportPage data={data as SportBoard} />}
+        {tab === 'history' && data && <HistoryTab data={data} />}
       </div>
     </div>
   )
@@ -87,7 +124,22 @@ function SportTabs({ view, onView, data }: { view: SportView; onView: (v: SportV
 }
 
 // ---------------------------------------------------------------------------
-function SportPage({ data, onChanged }: { data: SportBoard; onChanged: () => void }) {
+function HistoryTab({ data }: { data: Board }) {
+  const colors = Object.fromEntries(data.standings.map((s) => [s.participant, s.color]))
+  const names = Object.fromEntries(data.standings.map((s) => [s.participant, s.display_name]))
+  const open = data.history.filter((w) => w.status === 'OPEN')
+  const rest = data.history.filter((w) => w.status !== 'OPEN')
+  return (
+    <>
+      <History title="Open wagers" eyebrow="Awaiting a result" wagers={open} colors={colors} names={names}
+        empty="No open wagers. Hand picks appear once submitted; model picks after each game's cutoff." />
+      <History title="Settled and not funded" eyebrow="Every record" wagers={rest} colors={colors} names={names}
+        empty="Nothing has settled yet." />
+    </>
+  )
+}
+
+function SportPage({ data }: { data: SportBoard }) {
   const colors = useMemo(() => Object.fromEntries(data.standings.map((s) => [s.participant, s.color])), [data.standings])
   const names = useMemo(() => Object.fromEntries(data.standings.map((s) => [s.participant, s.display_name])), [data.standings])
   const order = useMemo(() => [...data.standings].sort((a, b) => sortKey(a) - sortKey(b)).map((s) => s.participant), [data.standings])
@@ -110,9 +162,7 @@ function SportPage({ data, onChanged }: { data: SportBoard; onChanged: () => voi
       <StartLine data={data} />
       <div className="hd-cards">{data.standings.map((s) => <CompetitorCard key={s.participant} s={s} />)}</div>
       <BankrollChart data={data} />
-      <EntryPanel sport={data.sport} names={names} onChanged={onChanged} />
       <DividedBoard games={data.games} order={order} colors={colors} names={names} />
-      <History wagers={data.history} colors={colors} names={names} />
     </>
   )
 }
@@ -267,6 +317,14 @@ function DividedBoard({ games, order, colors, names }: {
 }
 
 function WagerChip({ w }: { w: WagerView }) {
+  if (w.hidden) {
+    return (
+      <div className="hd-wager hd-wager--hidden">
+        <span className="hd-wager__terms">Pick locked</span>
+        <span className="hd-wager__meta">Stake {money(w.stake)} · revealed when picks lock</span>
+      </div>
+    )
+  }
   const badge = w.status === 'SETTLED' ? w.result : w.status === 'UNFUNDED' ? 'NOT FUNDED' : 'OPEN'
   return (
     <div className={`hd-wager hd-wager--${(badge ?? '').toLowerCase().replace(' ', '-')}`}>
@@ -280,11 +338,14 @@ function WagerChip({ w }: { w: WagerView }) {
 }
 
 // ---------------------------------------------------------------------------
-function History({ wagers, colors, names }: { wagers: WagerView[]; colors: Record<string, string>; names: Record<string, string> }) {
+function History({ wagers, colors, names, title = 'Wager history', eyebrow = 'Every record', empty }: {
+  wagers: WagerView[]; colors: Record<string, string>; names: Record<string, string>
+  title?: string; eyebrow?: string; empty?: string
+}) {
   return (
-    <section className="bx-panel hd-history" aria-label="Wager history">
-      <div className="bx-panel__head"><div><span className="bx-eyebrow">Every record</span><h2>Wager history</h2></div></div>
-      {wagers.length === 0 && <div className="bx-empty">No wagers yet. Model picks appear after each game's cutoff; hand picks appear once submitted.</div>}
+    <section className="bx-panel hd-history" aria-label={title}>
+      <div className="bx-panel__head"><div><span className="bx-eyebrow">{eyebrow}</span><h2>{title}</h2></div></div>
+      {wagers.length === 0 && <div className="bx-empty">{empty ?? "No wagers yet. Model picks appear after each game's cutoff; hand picks appear once submitted."}</div>}
       <ul className="hd-history__list">
         {wagers.map((w) => (
           <li key={w.wager_id}>
@@ -292,7 +353,7 @@ function History({ wagers, colors, names }: { wagers: WagerView[]; colors: Recor
               <summary>
                 <i style={{ background: colors[w.participant] }} />
                 <span className="hd-history__who">{firstName(names[w.participant] ?? w.participant)}</span>
-                <span className="hd-history__terms">{wagerTerms(w)}</span>
+                <span className="hd-history__terms">{w.hidden ? `Pick locked · revealed ${w.reveal_at ? new Date(w.reveal_at).toLocaleTimeString('en-US', { ...ET, hour: 'numeric', minute: '2-digit' }) + ' ET' : 'at lock'}` : wagerTerms(w)}</span>
                 <span className="hd-history__stake">{money(w.stake)}</span>
                 <span className={`hd-history__result hd-history__result--${(w.result ?? w.status).toLowerCase()}`}>
                   {w.status === 'SETTLED' ? `${w.result} ${money(w.profit_loss, true)}` : w.status === 'UNFUNDED' ? 'Not funded' : 'Open'}
@@ -315,137 +376,6 @@ function History({ wagers, colors, names }: { wagers: WagerView[]; colors: Recor
           </li>
         ))}
       </ul>
-    </section>
-  )
-}
-
-// ---------------------------------------------------------------------------
-function EntryPanel({ sport, names, onChanged }: { sport: CompetitionSport; names: Record<string, string>; onChanged: () => void }) {
-  const { user } = useAuth()
-  const [access, setAccess] = useState<EntryAccess | null>(null)
-  const [games, setGames] = useState<OpenGame[]>([])
-  const [who, setWho] = useState('')
-  const [gameId, setGameId] = useState('')
-  const [quotes, setQuotes] = useState<Quote[]>([])
-  const [quoteId, setQuoteId] = useState('')
-  const [stake, setStake] = useState('')
-  const [editing, setEditing] = useState<string | null>(null)
-  const [message, setMessage] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const reloadAccess = useCallback(() => {
-    if (!user) { setAccess(null); return }
-    houseDivided.me().then((a) => { setAccess(a); setWho((w) => w || a.can_enter_for[0] || '') }).catch(() => setAccess(null))
-  }, [user])
-  useEffect(reloadAccess, [reloadAccess])
-  useEffect(() => {
-    if (!access?.can_enter_for.length) return
-    houseDivided.openGames(sport).then((r) => setGames(r.games)).catch(() => setGames([]))
-  }, [sport, access])
-  useEffect(() => {
-    setQuotes([]); setQuoteId('')
-    if (!gameId) return
-    houseDivided.quotes(gameId).then((r) => setQuotes(r.quotes)).catch(() => setQuotes([]))
-  }, [gameId])
-
-  if (!user) {
-    return (
-      <section className="bx-panel hd-entry hd-entry--closed">
-        <h2>Enter a pick</h2>
-        <p className="bx-muted">Scotty and Red Lou enter picks while signed in to AISP (or an administrator enters on their behalf). <a href="/login">Sign in</a></p>
-      </section>
-    )
-  }
-  if (!access) return null
-  if (access.can_enter_for.length === 0) {
-    return (
-      <section className="bx-panel hd-entry hd-entry--closed">
-        <h2>Enter a pick</h2>
-        <p className="bx-muted">This login is not linked to Scotty or Red Lou. An administrator can link it, or enter picks on their behalf.</p>
-      </section>
-    )
-  }
-
-  const drafts = access.drafts.filter((d) => d.sport === sport)
-  const act = async (fn: () => Promise<unknown>, ok: string) => {
-    setBusy(true); setMessage(null)
-    try {
-      await fn()
-      setMessage({ tone: 'good', text: ok })
-      reloadAccess(); onChanged()
-      return true
-    } catch (e) {
-      setMessage({ tone: 'bad', text: e instanceof Error ? e.message : 'Refused' })
-      return false
-    } finally { setBusy(false) }
-  }
-  const save = () => act(() => houseDivided.saveDraft({ participant: who, quote_id: quoteId, stake }, editing ?? undefined),
-    editing ? 'Draft updated.' : 'Draft saved. Submit it to lock the terms.').then((ok) => { if (ok) setEditing(null) })
-  const chosen = quotes.find((q) => q.quote_id === quoteId)
-  const grouped = ['MONEYLINE', 'SPREAD', 'TOTAL'].map((m) => ({ m, list: quotes.filter((q) => q.market_type === m) })).filter((g) => g.list.length)
-
-  return (
-    <section className="bx-panel hd-entry" aria-label="Enter a pick">
-      <div className="bx-panel__head">
-        <div><span className="bx-eyebrow">{access.is_admin ? 'Administrator entry' : 'Your picks'}</span><h2>{editing ? 'Edit draft' : 'Enter a pick'}</h2></div>
-      </div>
-      <div className="hd-entry__grid">
-        <label className="bx-field"><span>Participant</span>
-          <select value={who} onChange={(e) => setWho(e.target.value)}>
-            {access.can_enter_for.map((k) => <option key={k} value={k}>{names[k] ?? k}</option>)}
-          </select>
-        </label>
-        <label className="bx-field"><span>Game</span>
-          <select value={gameId} onChange={(e) => setGameId(e.target.value)}>
-            <option value="">{games.length ? 'Choose a game…' : 'No games open for picks'}</option>
-            {games.map((g) => <option key={g.game_id} value={g.game_id}>{g.away?.abbreviation} @ {g.home?.abbreviation} · {when(g.starts_at)}</option>)}
-          </select>
-        </label>
-        <label className="bx-field"><span>Virtual stake ($)</span>
-          <input inputMode="decimal" value={stake} onChange={(e) => setStake(e.target.value)} placeholder="25.00" />
-        </label>
-      </div>
-      {gameId && (
-        <div className="hd-quotes">
-          {grouped.length === 0 && <p className="bx-muted">No current price for this game (prices must be under 240 minutes old).</p>}
-          {grouped.map(({ m, list }) => (
-            <div key={m} className="hd-quotes__group">
-              <span className="bx-eyebrow">{list[0].market_label}</span>
-              <div className="hd-quotes__list">
-                {list.map((q) => (
-                  <button key={q.quote_id} type="button" aria-pressed={q.quote_id === quoteId} onClick={() => setQuoteId(q.quote_id)}>
-                    <strong>{q.selection} {lineText(q.market_type, q.line)}</strong>
-                    <span>{americanOdds(q.american_odds)} · {q.sportsbook_name}</span>
-                    <small>{q.age_minutes} min old</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="hd-entry__actions">
-        <button type="button" className="bx-btn bx-btn--primary" disabled={busy || !who || !quoteId || !stake} onClick={save}>{editing ? 'Update draft' : 'Save draft'}</button>
-        {editing && <button type="button" className="bx-btn" onClick={() => setEditing(null)}>Cancel edit</button>}
-        {chosen && <span className="bx-muted">{names[who]}: {chosen.market_label} · {chosen.selection} {lineText(chosen.market_type, chosen.line)} · {americanOdds(chosen.american_odds)} · {money(Number(stake) || null)}</span>}
-      </div>
-      {message && <p className={`hd-msg hd-msg--${message.tone}`} role="status">{message.text}</p>}
-      {drafts.length > 0 && (
-        <div className="hd-drafts">
-          <span className="bx-eyebrow">Drafts — not yet submitted, no money committed</span>
-          {drafts.map((d) => (
-            <div key={d.wager_id} className="hd-draft">
-              <span><strong>{firstName(names[d.participant] ?? d.participant)}</strong> · {wagerTerms(d)} · {money(d.stake)}</span>
-              <span className="hd-draft__actions">
-                <button type="button" className="bx-btn bx-btn--primary" disabled={busy} onClick={() => act(() => houseDivided.submit(d.wager_id), 'Submitted. Terms are locked.')}>Submit</button>
-                <button type="button" className="bx-btn" disabled={busy} onClick={() => { setEditing(d.wager_id); setWho(d.participant); setGameId(d.game_id); setStake(String(d.stake ?? '')) }}>Edit</button>
-                <button type="button" className="bx-btn bx-btn--ghost" disabled={busy} onClick={() => act(() => houseDivided.discard(d.wager_id), 'Draft withdrawn.')}>Withdraw</button>
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="bx-muted hd-entry__rules">Submitting locks the market, line, price, book and stake. The server refuses a price that has moved or is older than 240 minutes, any pick inside 15 minutes of the start, and any stake above available funds.</p>
     </section>
   )
 }

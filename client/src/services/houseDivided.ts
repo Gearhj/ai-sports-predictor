@@ -5,7 +5,7 @@
  * A pick sends only a quote id and a stake: the server reads the price, line
  * and book from the stored quote and enforces every rule.
  */
-import { apiRequest } from './api'
+import { API_BASE_URL, ApiError, apiRequest, getStoredToken } from './api'
 
 export type CompetitionSport = 'MLB' | 'NFL' | 'NBA' | 'CFB'
 export type SportView = CompetitionSport | 'ALL'
@@ -43,6 +43,9 @@ export interface WagerView {
   settled_at: string | null
   settlement_note: string | null
   final_score: { home: number; away: number } | null
+  /** A human pick before its game locks: terms withheld so nobody can copy it. */
+  hidden?: boolean
+  reveal_at?: string
 }
 
 export interface Standing {
@@ -165,8 +168,115 @@ export interface OpenGame {
 
 export interface EntryAccess {
   can_enter_for: ParticipantKey[]
+  participants?: EntryParticipant[]
   is_admin: boolean
   drafts: WagerView[]
+}
+
+export interface BoardQuote extends Quote {
+  outcome_key: string
+}
+
+export interface BoardOption {
+  side: 'home' | 'away' | 'over' | 'under' | string
+  selection: string
+  line: number | null
+  quotes: BoardQuote[]
+  best: BoardQuote
+  best_of: number
+}
+
+export interface BoardMarket {
+  market_type: 'MONEYLINE' | 'SPREAD' | 'TOTAL'
+  label: string
+  status: 'OPEN' | 'LOCKED' | 'AWAITING' | 'UNAVAILABLE'
+  reason: string | null
+  options: BoardOption[]
+}
+
+export interface MarketGame extends OpenGame {
+  human_lock_at: string
+  lock_basis: 'CUTOFF' | 'MODEL_PICK_PUBLIC'
+  lock_reason: string | null
+  last_update: string | null
+  markets: BoardMarket[]
+  home_score: number | null
+  away_score: number | null
+}
+
+export interface MarketBoard {
+  sport: CompetitionSport
+  status: 'STARTED' | 'NOT_STARTED'
+  date: string | null
+  dates: { date: string; games: number }[]
+  games: MarketGame[]
+  reason?: string
+  generated_at?: string
+}
+
+export interface SlipWager extends WagerView {
+  matchup: string
+  away: TeamRef | null
+  home: TeamRef | null
+  starts_at: string
+  human_lock_at: string
+  lock_basis: string
+  quote_age_minutes: number | null
+  potential_profit: number | null
+  potential_payout: number | null
+  push_possible: boolean
+  refund_rule: string
+  confirmation_id: string | null
+  available_before?: number
+  available_after?: number
+}
+
+export interface ParticipantAccount {
+  participant: string
+  display_name: string
+  color: string
+  sport: CompetitionSport
+  started_at: string | null
+  bankroll: number
+  available: number
+  open_exposure: number
+  drafts: SlipWager[]
+  open_picks: SlipWager[]
+}
+
+export interface EntryParticipant { key: string; display_name: string; color: string; linked_to_you: boolean }
+
+/** A refusal with its stable code and, for a moved price, the replacement quote. */
+export class CompetitionRefusal extends ApiError {
+  code: string
+  replacement: BoardQuote | null
+  constructor(message: string, status: number, code: string, replacement: BoardQuote | null) {
+    super(message, status)
+    this.code = code
+    this.replacement = replacement
+  }
+}
+
+async function competitionPost<T>(path: string, body?: unknown): Promise<T> {
+  const headers = new Headers({ Accept: 'application/json' })
+  if (body !== undefined) headers.set('Content-Type', 'application/json')
+  const token = getStoredToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST', headers, body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => null) as
+    | { detail?: { code?: string; message?: string; replacement?: BoardQuote | null } | string } | null
+  if (!response.ok) {
+    const detail = payload?.detail
+    if (detail && typeof detail === 'object') {
+      throw new CompetitionRefusal(detail.message ?? `Refused (${response.status})`, response.status,
+        detail.code ?? 'REFUSED', detail.replacement ?? null)
+    }
+    throw new CompetitionRefusal(typeof detail === 'string' ? detail : `Request failed (${response.status})`,
+      response.status, response.status === 401 ? 'SIGN_IN' : 'REFUSED', null)
+  }
+  return payload as T
 }
 
 export const houseDivided = {
@@ -177,6 +287,19 @@ export const houseDivided = {
   quotes: (gameId: string, signal?: AbortSignal) =>
     apiRequest<{ game: OpenGame; quotes: Quote[]; cutoff: string }>(`/house-divided/games/${gameId}/quotes`, {}, signal),
   me: (signal?: AbortSignal) => apiRequest<EntryAccess>('/house-divided/me', {}, signal),
+  marketBoard: (sport: CompetitionSport, date: string | null, signal?: AbortSignal) =>
+    apiRequest<MarketBoard>(`/house-divided/board?sport=${sport}${date ? `&date=${date}` : ''}`, {}, signal),
+  account: (participant: string, sport: CompetitionSport, signal?: AbortSignal) =>
+    apiRequest<ParticipantAccount>(`/house-divided/account?participant=${participant}&sport=${sport}`, {}, signal),
+  slipAdd: (participant: string, quoteId: string, stake = '') =>
+    competitionPost<{ wager_id: string; status: string }>('/house-divided/drafts', { participant, quote_id: quoteId, stake }),
+  slipUpdate: (wagerId: string, participant: string, quoteId: string, stake: string) =>
+    competitionPost<{ wager_id: string; status: string }>(`/house-divided/drafts/${wagerId}`, { participant, quote_id: quoteId, stake }),
+  place: (wagerId: string, stake: string, expectedQuoteId: string) =>
+    competitionPost<{ wager_id: string; status: string; receipt: SlipWager }>(
+      `/house-divided/drafts/${wagerId}/submit`, { stake, expected_quote_id: expectedQuoteId }),
+  slipRemove: (wagerId: string) =>
+    competitionPost<{ wager_id: string; status: string }>(`/house-divided/drafts/${wagerId}/discard`),
   saveDraft: (body: { participant: string; quote_id: string; stake: string }, wagerId?: string) =>
     apiRequest<{ wager_id: string; status: string }>(
       wagerId ? `/house-divided/drafts/${wagerId}` : '/house-divided/drafts',

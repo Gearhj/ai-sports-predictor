@@ -98,11 +98,12 @@ NOT_ELIGIBLE_REASON = {
 class CompetitionError(Exception):
     """A refused request. `code` is stable; the message is for a person."""
 
-    def __init__(self, code: str, message: str, status: int = 409) -> None:
+    def __init__(self, code: str, message: str, status: int = 409, extra: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.status = status
+        self.extra = extra or {}
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -535,6 +536,38 @@ def _current_problem(session: Session, terms: dict[str, Any], *, now: datetime) 
     return None
 
 
+def model_reveals(session: Session, sport: str, game_ids: list[Any], *, now: datetime | None = None
+                  ) -> dict[Any, datetime]:
+    """Per game: when the official model's pick first became public.
+
+    The public decision board shows a qualified selection from the moment it
+    is recorded, in any phase (MORNING included). A human pick must lock
+    before then, or it could simply copy the model.
+    """
+
+    if not game_ids:
+        return {}
+    experiment = official_experiment(session, sport, now=now)
+    if experiment is None:
+        return {}
+    rows = session.execute(
+        select(ShadowExperimentDecision.game_id, func.min(ShadowExperimentDecision.recommended_at))
+        .where(ShadowExperimentDecision.experiment_id == experiment.id,
+               ShadowExperimentDecision.game_id.in_(game_ids),
+               ShadowExperimentDecision.recommendation == "QUALIFIED_BET")
+        .group_by(ShadowExperimentDecision.game_id)).all()
+    return {game_id: _aware(first) for game_id, first in rows}
+
+
+def human_lock(game: Game, reveal: datetime | None) -> tuple[datetime, str]:
+    """When human picks lock for a game, and why: the cutoff or the model's reveal."""
+
+    cutoff = _cutoff(game)
+    if reveal is not None and reveal < cutoff:
+        return reveal, "MODEL_PICK_PUBLIC"
+    return cutoff, "CUTOFF"
+
+
 def _check_game_open(session: Session, game: Game, account: CompetitionAccount, *, now: datetime) -> None:
     if account.started_at is None:
         raise CompetitionError("NOT_STARTED", f"{account.sport} has not started.")
@@ -545,14 +578,20 @@ def _check_game_open(session: Session, game: Game, account: CompetitionAccount, 
     if now >= _cutoff(game):
         raise CompetitionError("PAST_CUTOFF",
                                "Picks lock 15 minutes before the start; this game is past its cutoff.")
+    reveal = model_reveals(session, account.sport, [game.id], now=now).get(game.id)
+    if reveal is not None and now >= reveal:
+        raise CompetitionError("MODEL_PICK_PUBLIC",
+                               "The models' pick for this game is already public, so human picks are locked.")
 
 
-def _parse_stake(stake: Any) -> Decimal:
+def _parse_stake(stake: Any, *, allow_zero: bool = False) -> Decimal:
+    if allow_zero and (stake is None or str(stake).strip() == ""):
+        return Decimal("0.00")
     try:
         value = Decimal(str(stake))
     except Exception as exc:  # noqa: BLE001 -- any unparsable input is the same refusal
         raise CompetitionError("BAD_STAKE", "Stake must be a number.", 422) from exc
-    if not value.is_finite() or value <= 0:
+    if not value.is_finite() or value < 0 or (value == 0 and not allow_zero):
         raise CompetitionError("BAD_STAKE", "Stake must be greater than $0.", 422)
     if value != value.quantize(CENT):
         raise CompetitionError("BAD_STAKE", "Stake is whole cents.", 422)
@@ -571,7 +610,7 @@ def save_draft(session: Session, *, participant_key: str, odds_snapshot_id: Any,
     sport = _game_sport(session, game)
     account = account_for(session, participant, sport)
     _check_game_open(session, game, account, now=moment)
-    amount = _parse_stake(stake)
+    amount = _parse_stake(stake, allow_zero=True)
     if wager_id is not None:
         wager = session.get(CompetitionWager, wager_id)
         if wager is None or wager.participant_id != participant.id:
@@ -608,8 +647,15 @@ def _apply_terms(wager: CompetitionWager, terms: dict[str, Any], account: Compet
     wager.quote_available_as_of = snapshot.available_as_of
 
 
-def submit(session: Session, *, wager_id: Any, actor: User, now: datetime | None = None) -> CompetitionWager:
-    """Lock a draft's terms and commit its stake -- or refuse, changing nothing."""
+def submit(session: Session, *, wager_id: Any, actor: User, now: datetime | None = None,
+           stake: Any = None, expected_quote_id: Any = None) -> CompetitionWager:
+    """Lock a draft's terms and commit its stake -- or refuse, changing nothing.
+
+    `expected_quote_id` is the quote the person was looking at when they
+    pressed the button. If the draft now names another quote, or that quote
+    is no longer current, nothing is placed: a moved price comes back as a
+    replacement to confirm, never accepted silently.
+    """
 
     moment = now or datetime.now(UTC)
     wager = session.scalar(select(CompetitionWager).where(CompetitionWager.id == wager_id).with_for_update())
@@ -619,6 +665,8 @@ def submit(session: Session, *, wager_id: Any, actor: User, now: datetime | None
     _authorize(participant, actor)
     if wager.status != WAGER_DRAFT:
         raise CompetitionError("LOCKED", "Already submitted; its terms are locked.")
+    if expected_quote_id is not None and str(expected_quote_id) != str(wager.odds_snapshot_id):
+        raise CompetitionError("QUOTE_MISMATCH", "This pick changed since it was shown; review it again.")
     # Serialise every commitment against this account.
     account = session.scalar(select(CompetitionAccount).where(
         CompetitionAccount.id == wager.account_id).with_for_update())
@@ -626,8 +674,22 @@ def submit(session: Session, *, wager_id: Any, actor: User, now: datetime | None
     _check_game_open(session, terms["game"], account, now=moment)
     problem = _current_problem(session, terms, now=moment)
     if problem is not None:
-        raise CompetitionError("STALE_PRICE", problem)
+        replacement = _replacement(session, terms, now=moment)
+        previous = {"quote_id": str(wager.odds_snapshot_id), "american_odds": wager.american_odds,
+                    "line": wager.line, "sportsbook": wager.sportsbook_key}
+        if replacement is None:
+            raise CompetitionError("PRICE_UNAVAILABLE", f"{problem} Nothing was placed.",
+                                   extra={"replacement": None, "previous": previous})
+        raise CompetitionError(
+            "PRICE_CHANGED",
+            f"The price moved to {_american(replacement['american_odds'])} at {replacement['sportsbook_name']}. "
+            "Confirm the new price to continue; nothing was placed.",
+            extra={"replacement": replacement, "previous": previous})
+    if stake is not None:
+        wager.stake = _parse_stake(stake)
     stake = _money(wager.stake)
+    if stake <= 0:
+        raise CompetitionError("BAD_STAKE", "Enter a stake greater than $0.", 422)
     available = balance(session, account).available
     if stake > available:
         raise CompetitionError("INSUFFICIENT_FUNDS",
@@ -652,6 +714,83 @@ def discard(session: Session, *, wager_id: Any, actor: User, now: datetime | Non
     wager.updated_at = now or datetime.now(UTC)
     session.flush()
     return wager
+
+
+def _american(value: int | None) -> str:
+    return "-" if value is None else (f"+{value}" if value > 0 else str(value))
+
+
+def _newest_rows(session: Session, game_ids: list[Any], moment: datetime):
+    """Newest stored snapshot per (selection, book) for these games, with its market."""
+
+    if not game_ids:
+        return []
+    newest = (
+        select(OddsSnapshot.market_outcome_id, OddsSnapshot.sportsbook_id,
+               func.max(OddsSnapshot.observed_at).label("observed_at"))
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .join(Market, Market.id == MarketOutcome.market_id)
+        .where(Market.game_id.in_(game_ids), OddsSnapshot.observed_at <= moment)
+        .group_by(OddsSnapshot.market_outcome_id, OddsSnapshot.sportsbook_id)
+    ).subquery()
+    return session.execute(
+        select(OddsSnapshot, MarketOutcome, Market, Sportsbook)
+        .join(newest, and_(newest.c.market_outcome_id == OddsSnapshot.market_outcome_id,
+                           newest.c.sportsbook_id == OddsSnapshot.sportsbook_id,
+                           newest.c.observed_at == OddsSnapshot.observed_at))
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .join(Market, Market.id == MarketOutcome.market_id)
+        .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
+    ).all()
+
+
+def _quote_state(snapshot: OddsSnapshot, outcome: MarketOutcome, market: Market, moment: datetime
+                 ) -> tuple[float | None, str | None]:
+    """(line, problem) for a newest-per-book snapshot. A None problem means wagerable."""
+
+    if market.market_type not in MARKET_NAMES or market.period != "full_game":
+        return None, "UNSUPPORTED"
+    line = None
+    if market.market_type != MarketType.MONEYLINE:
+        line = _outcome_line(outcome)
+        if line is None or (snapshot.point is not None and float(snapshot.point) != line):
+            return line, "UNSUPPORTED"
+    if snapshot.status != OddsStatus.OPEN or (snapshot.source_mode or "").upper() == "DEMO":
+        return line, "NOT_OPEN"
+    if moment - _aware(snapshot.observed_at) > MAX_QUOTE_AGE:
+        return line, "STALE"
+    return line, None
+
+
+def _quote_dict(snapshot, outcome, market, book, line, sport, moment) -> dict[str, Any]:
+    return {
+        "quote_id": str(snapshot.id), "market_type": MARKET_NAMES[market.market_type],
+        "market_label": _market_label(sport, MARKET_NAMES[market.market_type]),
+        "selection": outcome.label, "outcome_key": outcome.outcome_key, "line": line,
+        "sportsbook": book.key, "sportsbook_name": book.name, "american_odds": snapshot.american_odds,
+        "decimal_odds": float(snapshot.decimal_odds), "observed_at": _iso(snapshot.observed_at),
+        "age_minutes": int((moment - _aware(snapshot.observed_at)).total_seconds() // 60),
+    }
+
+
+def _replacement(session: Session, terms: dict[str, Any], *, now: datetime) -> dict[str, Any] | None:
+    """The current price for the same selection: same book first, else the best book."""
+
+    outcome: MarketOutcome = terms["outcome"]
+    sport = _game_sport(session, terms["game"])
+    candidates = []
+    for snapshot, row_outcome, market, book in _newest_rows(session, [terms["game"].id], now):
+        if row_outcome.id != outcome.id:
+            continue
+        line, problem = _quote_state(snapshot, row_outcome, market, now)
+        if problem is None:
+            candidates.append((snapshot, _quote_dict(snapshot, row_outcome, market, book, line, sport, now)))
+    if not candidates:
+        return None
+    same_book = [q for snap, q in candidates if snap.sportsbook_id == terms["snapshot"].sportsbook_id]
+    if same_book:
+        return same_book[0]
+    return max((q for _, q in candidates), key=lambda q: q["decimal_odds"])
 
 
 def current_quotes(session: Session, game_id: Any, *, now: datetime | None = None) -> dict[str, Any]:
@@ -809,6 +948,30 @@ def _wager_view(wager: CompetitionWager, participant: CompetitionParticipant, en
     }
 
 
+HIDDEN_TERMS = ("market_type", "selection", "line", "sportsbook", "american_odds", "decimal_odds", "quote_id",
+                "quote_observed_at")
+
+
+def _public_view(view: dict[str, Any], lock_at: datetime | None, moment: datetime) -> dict[str, Any]:
+    """A human pick's terms stay private until that game's human lock.
+
+    Otherwise the second person to pick could copy the first. The stake is
+    not secret -- volume and exposure are always shown -- only what was picked.
+    """
+
+    if view["source"] != SOURCE_HUMAN or view["status"] != WAGER_OPEN or lock_at is None or moment >= lock_at:
+        return {**view, "hidden": False}
+    masked = {**view, "hidden": True, "reveal_at": lock_at.isoformat(), "market_label": "Pick locked"}
+    for key in HIDDEN_TERMS:
+        masked[key] = None
+    return masked
+
+
+def _locks_for(session: Session, sport: str, games: list[Game], moment: datetime) -> dict[Any, datetime]:
+    reveals = model_reveals(session, sport, [g.id for g in games], now=moment)
+    return {g.id: human_lock(g, reveals.get(g.id))[0] for g in games}
+
+
 def _opposition(a: dict[str, Any], b: dict[str, Any], teams: dict[str, Any]) -> str:
     """How two wagers on the same game relate. Different markets are different bets."""
 
@@ -879,7 +1042,9 @@ def summary(session: Session, sport: str, *, now: datetime | None = None) -> dic
 
     chart = _chart(people, wagers, started, moment)
     games = _games(session, sport, people, wagers, experiment, started, moment, users) if started else []
-    history = [_wager_view(w, by_person[w.participant_id], users)
+    wager_games = list(session.scalars(select(Game).where(Game.id.in_({w.game_id for w in wagers})))) if wagers else []
+    locks = _locks_for(session, sport, wager_games, moment)
+    history = [_public_view(_wager_view(w, by_person[w.participant_id], users), locks.get(w.game_id), moment)
                for w in sorted(wagers, key=lambda w: _aware(w.submitted_at) or _aware(w.created_at), reverse=True)]
 
     return {
@@ -940,17 +1105,20 @@ def _games(session, sport, people, wagers, experiment, started, moment, users) -
         .order_by(Game.starts_at.desc()).limit(80)))
     team_map = _teams(session, [g.id for g in games])
     finals = _official_final_decisions(session, experiment, [g.id for g in games]) if experiment else {}
-    by_person = {p.id: p for p in people}
+    locks = _locks_for(session, sport, games, moment)
     out = []
     for game in games:
         card = _game_card(session, game, moment, team_map.get(game.id, {}))
+        card["human_lock_at"] = locks[game.id].isoformat()
         game_wagers = [w for w in wagers if w.game_id == game.id]
         cells = []
         for participant in people:
-            mine = [_wager_view(w, participant, users) for w in game_wagers if w.participant_id == participant.id]
+            mine = [_public_view(_wager_view(w, participant, users), locks[game.id], moment)
+                    for w in game_wagers if w.participant_id == participant.id]
             cells.append({"participant": participant.key, "wagers": mine,
                           "state": _cell_state(participant, mine, game, finals.get(game.id), started, moment)})
-        placed = [w for cell in cells for w in cell["wagers"] if w["status"] in (WAGER_OPEN, WAGER_SETTLED)]
+        placed = [w for cell in cells for w in cell["wagers"]
+                  if w["status"] in (WAGER_OPEN, WAGER_SETTLED) and not w.get("hidden")]
         pairs = []
         for i, a in enumerate(placed):
             for b in placed[i + 1:]:
@@ -967,6 +1135,9 @@ def _games(session, sport, people, wagers, experiment, started, moment, users) -
 
 
 def _cell_state(participant, mine, game, decision, started, moment) -> dict[str, Any]:
+    if any(w.get("hidden") for w in mine):
+        return {"code": "PICK_LOCKED", "label": "Pick locked",
+                "detail": "Submitted; revealed when picks for this game lock."}
     if any(w["status"] == WAGER_OPEN for w in mine):
         return {"code": "OPEN", "label": "Open"}
     if mine and all(w["status"] == WAGER_SETTLED for w in mine):
@@ -974,6 +1145,8 @@ def _cell_state(participant, mine, game, decision, started, moment) -> dict[str,
     if mine and any(w["status"] == WAGER_UNFUNDED for w in mine):
         return {"code": "UNFUNDED", "label": "Model pick not funded"}
     if participant.is_model:
+        if moment < _cutoff(game):
+            return {"code": "AWAITING_MODEL", "label": "Awaiting model decision"}
         if decision is not None and _aware(decision.recommended_at) >= started:
             if decision.recommendation == "QUALIFIED_BET":
                 return {"code": "IMPORTING", "label": "Model bet — recording"}
@@ -983,8 +1156,8 @@ def _cell_state(participant, mine, game, decision, started, moment) -> dict[str,
             return {"code": "AWAITING_MODEL", "label": "Awaiting model decision"}
         return {"code": "NO_MODEL_DECISION", "label": "No model decision recorded"}
     if moment < _cutoff(game) and game.status == GameStatus.SCHEDULED:
-        return {"code": "NO_PICK_YET", "label": "No pick submitted"}
-    return {"code": "NO_PICK", "label": "No pick submitted"}
+        return {"code": "NO_PICK_YET", "label": "No human pick submitted"}
+    return {"code": "NO_PICK", "label": "No human pick submitted"}
 
 
 def _sport_list(session: Session, moment: datetime) -> list[dict[str, Any]]:
@@ -1033,6 +1206,11 @@ def _all_sports(session: Session, people, moment) -> dict[str, Any]:
         CompetitionWager.status.in_((WAGER_OPEN, WAGER_SETTLED, WAGER_UNFUNDED)))
         .order_by(CompetitionWager.submitted_at.desc()).limit(200)))
     by_person = {p.id: p for p in people}
+    locks: dict[Any, datetime] = {}
+    for sport in SPORTS:
+        sport_games = list(session.scalars(select(Game).where(
+            Game.id.in_({w.game_id for w in wagers if w.sport == sport})))) if wagers else []
+        locks.update(_locks_for(session, sport, sport_games, moment))
     return {
         "sport": "ALL", "virtual": True, "label": "Virtual competition",
         "started_sports": started_sports,
@@ -1040,7 +1218,9 @@ def _all_sports(session: Session, people, moment) -> dict[str, Any]:
         "note": ("Each participant holds a separate $1,000 account per started sport; this view adds "
                  "them up, so combined starting capital is $1,000 x the number of started sports. "
                  "Not-started sports keep their $1,000 untouched and are not included."),
-        "standings": standings, "history": [_wager_view(w, by_person[w.participant_id], users) for w in wagers],
+        "standings": standings,
+        "history": [_public_view(_wager_view(w, by_person[w.participant_id], users), locks.get(w.game_id), moment)
+                    for w in wagers],
         "sports": _sport_list(session, moment), "generated_at": moment.isoformat(),
     }
 
@@ -1081,9 +1261,200 @@ def open_games(session: Session, sport: str, *, now: datetime | None = None) -> 
     return [_game_card(session, g, moment, teams.get(g.id, {})) for g in games]
 
 
+MARKET_ORDER = ("MONEYLINE", "SPREAD", "TOTAL")
+
+
+def _side(outcome: MarketOutcome, teams: dict[str, Any], home_team_id: Any) -> str:
+    label = (outcome.label or "").lower()
+    if label in ("over", "under"):
+        return label
+    if outcome.participant_team_id is not None and home_team_id is not None:
+        return "home" if outcome.participant_team_id == home_team_id else "away"
+    return (outcome.outcome_key or "").split(":")[0].lower()
+
+
+def slate_dates(session: Session, sport: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Today and upcoming ET dates that have scheduled games in a started sport."""
+
+    moment = now or datetime.now(UTC)
+    sport = sport.upper()
+    started = _started_at(session, sport)
+    if started is None:
+        return []
+    starts = session.scalars(
+        select(Game.starts_at).join(League, League.id == Game.league_id)
+        .where(League.code == sport, Game.status == GameStatus.SCHEDULED,
+               Game.starts_at > moment, Game.starts_at <= moment + timedelta(days=8)))
+    counts: dict[str, int] = {}
+    for start in starts:
+        day = _aware(start).astimezone(ET).date().isoformat()
+        counts[day] = counts.get(day, 0) + 1
+    return [{"date": day, "games": counts[day]} for day in sorted(counts)]
+
+
+def market_board(session: Session, sport: str, day: Any = None, *, now: datetime | None = None) -> dict[str, Any]:
+    """The sportsbook-style board for one ET date: every game, market and current price.
+
+    Only a current price (newest for its book and selection, inside the
+    240-minute rule, open) is ever selectable. Everything else carries the
+    exact reason it is not.
+    """
+
+    moment = now or datetime.now(UTC)
+    sport = sport.upper()
+    if sport not in SPORTS:
+        raise CompetitionError("UNKNOWN_SPORT", f"{sport} is not a competition sport.", 404)
+    started = _started_at(session, sport)
+    dates = slate_dates(session, sport, now=moment)
+    if started is None:
+        return {"sport": sport, "status": "NOT_STARTED", "date": None, "dates": [], "games": [],
+                "reason": NOT_ELIGIBLE_REASON.get(sport, f"{sport} has not started.")}
+    if day is None:
+        day = dates[0]["date"] if dates else moment.astimezone(ET).date().isoformat()
+    day = str(day)
+    start_et = datetime.fromisoformat(day).replace(tzinfo=ET)
+    games = list(session.scalars(
+        select(Game).join(League, League.id == Game.league_id)
+        .where(League.code == sport, Game.starts_at >= start_et.astimezone(UTC),
+               Game.starts_at < (start_et + timedelta(days=1)).astimezone(UTC),
+               Game.starts_at >= started + CUTOFF)
+        .order_by(Game.starts_at)))
+    ids = [g.id for g in games]
+    teams = _teams(session, ids)
+    home_ids = dict(session.execute(select(GameTeam.game_id, GameTeam.team_id).where(
+        GameTeam.game_id.in_(ids), GameTeam.is_home.is_(True))).all()) if ids else {}
+    reveals = model_reveals(session, sport, ids, now=moment)
+    grouped: dict[Any, dict[str, dict[tuple, dict[str, Any]]]] = {}
+    stale_seen: dict[Any, set[str]] = {}
+    last_update: dict[Any, datetime] = {}
+    for snapshot, outcome, market, book in _newest_rows(session, ids, moment):
+        line, problem = _quote_state(snapshot, outcome, market, moment)
+        if problem == "UNSUPPORTED":
+            continue
+        mtype = MARKET_NAMES[market.market_type]
+        observed = _aware(snapshot.observed_at)
+        if market.game_id not in last_update or observed > last_update[market.game_id]:
+            last_update[market.game_id] = observed
+        if problem is not None:
+            stale_seen.setdefault(market.game_id, set()).add(mtype)
+            continue
+        side = _side(outcome, teams.get(market.game_id, {}), home_ids.get(market.game_id))
+        key = (side, line, outcome.id)
+        option = grouped.setdefault(market.game_id, {}).setdefault(mtype, {}).setdefault(key, {
+            "side": side, "selection": outcome.label, "line": line, "quotes": []})
+        option["quotes"].append(_quote_dict(snapshot, outcome, market, book, line, sport, moment))
+
+    side_order = {"away": 0, "home": 1, "over": 2, "under": 3}
+    cards = []
+    for game in games:
+        card = _game_card(session, game, moment, teams.get(game.id, {}))
+        lock_at, lock_basis = human_lock(game, reveals.get(game.id))
+        locked = moment >= lock_at or game.status != GameStatus.SCHEDULED
+        lock_reason = None
+        if game.status != GameStatus.SCHEDULED:
+            lock_reason = f"Market locked: the game is {card['status'].lower()}."
+        elif moment >= lock_at and lock_basis == "MODEL_PICK_PUBLIC":
+            lock_reason = "Market locked: the models' pick for this game is already public."
+        elif moment >= lock_at:
+            lock_reason = "Market locked: picks close 15 minutes before the start."
+        markets = []
+        for mtype in MARKET_ORDER:
+            options = list(grouped.get(game.id, {}).get(mtype, {}).values())
+            for option in options:
+                option["quotes"].sort(key=lambda q: -q["decimal_odds"])
+                option["best"] = option["quotes"][0]
+                option["best_of"] = len(option["quotes"])
+            options.sort(key=lambda o: (side_order.get(o["side"], 9), o["line"] or 0))
+            if locked:
+                status, reason = "LOCKED", lock_reason
+            elif options:
+                status, reason = "OPEN", None
+            elif mtype in stale_seen.get(game.id, set()):
+                status, reason = "UNAVAILABLE", "Price unavailable: the latest prices are older than 240 minutes."
+            else:
+                status, reason = "AWAITING", "Awaiting current markets."
+            markets.append({"market_type": mtype, "label": _market_label(sport, mtype), "status": status,
+                            "reason": reason, "options": options if not locked else []})
+        card.update({"human_lock_at": lock_at.isoformat(), "lock_basis": lock_basis, "locked": locked,
+                     "lock_reason": lock_reason, "markets": markets,
+                     "last_update": _iso(last_update.get(game.id))})
+        cards.append(card)
+    return {"sport": sport, "status": "STARTED", "date": day, "dates": dates, "games": cards,
+            "max_quote_age_minutes": 240, "generated_at": moment.isoformat()}
+
+
+def _slip_view(session: Session, wager: CompetitionWager, participant: CompetitionParticipant,
+               users: dict[Any, str], moment: datetime) -> dict[str, Any]:
+    """A wager as the pick slip and receipt show it, with server-computed money."""
+
+    view = _wager_view(wager, participant, users)
+    game = session.get(Game, wager.game_id)
+    teams = _teams(session, [wager.game_id]).get(wager.game_id, {})
+    stake = _money(wager.stake or 0)
+    profit = _money(settle_profit(float(stake), float(wager.decimal_odds), SettlementResult.WIN)) \
+        if wager.decimal_odds and wager.decimal_odds > 1 else Decimal("0")
+    reveal = model_reveals(session, wager.sport, [wager.game_id], now=moment).get(wager.game_id)
+    lock_at, basis = human_lock(game, reveal)
+    line = wager.line
+    push_possible = (wager.market_type in ("SPREAD", "TOTAL") and line is not None and float(line).is_integer()) \
+        or (wager.market_type == "MONEYLINE" and wager.sport != "MLB")
+    view.update({
+        "matchup": f"{(teams.get('away') or {}).get('abbreviation', 'Away')} @ "
+                   f"{(teams.get('home') or {}).get('abbreviation', 'Home')}",
+        "away": teams.get("away"), "home": teams.get("home"), "starts_at": _iso(game.starts_at),
+        "human_lock_at": lock_at.isoformat(), "lock_basis": basis,
+        "quote_age_minutes": (int((moment - _aware(wager.quote_observed_at)).total_seconds() // 60)
+                              if wager.quote_observed_at else None),
+        "potential_profit": _f(profit), "potential_payout": _f(stake + profit),
+        "push_possible": push_possible,
+        "refund_rule": ("If it pushes or the game is cancelled, the stake is refunded." if push_possible
+                        else "If the game is cancelled, the stake is refunded."),
+        "confirmation_id": str(wager.id).split("-")[0].upper() if wager.status != WAGER_DRAFT else None,
+    })
+    return view
+
+
+def participant_account(session: Session, participant_key: str, sport: str, actor: User,
+                        *, now: datetime | None = None) -> dict[str, Any]:
+    """What a pick slip needs: available funds, open picks and drafts -- for an authorized viewer."""
+
+    moment = now or datetime.now(UTC)
+    participant = participant_by_key(session, participant_key)
+    _authorize(participant, actor)
+    sport = sport.upper()
+    account = account_for(session, participant, sport)
+    state = balance(session, account)
+    users = {row.id: row.display_name for row in session.scalars(select(User))}
+    rows = list(session.scalars(select(CompetitionWager).where(
+        CompetitionWager.account_id == account.id,
+        CompetitionWager.status.in_((WAGER_DRAFT, WAGER_OPEN))).order_by(CompetitionWager.created_at)))
+    drafts = []
+    for wager in rows:
+        view = _slip_view(session, wager, participant, users, moment)
+        if wager.status == WAGER_DRAFT:
+            stake = _money(wager.stake or 0)
+            view["available_before"] = _f(state.available)
+            view["available_after"] = _f(state.available - stake)
+            drafts.append(view)
+    open_picks = [_slip_view(session, w, participant, users, moment) for w in rows if w.status == WAGER_OPEN]
+    open_picks.sort(key=lambda v: v["submitted_at"] or "", reverse=True)
+    return {"participant": participant.key, "display_name": participant.display_name, "color": participant.color,
+            "sport": sport, "started_at": _iso(account.started_at),
+            "bankroll": _f(state.bankroll), "available": _f(state.available),
+            "open_exposure": _f(state.open_stake), "drafts": drafts, "open_picks": open_picks,
+            "generated_at": moment.isoformat()}
+
+
+def wager_receipt(session: Session, wager: CompetitionWager, *, now: datetime | None = None) -> dict[str, Any]:
+    users = {row.id: row.display_name for row in session.scalars(select(User))}
+    participant = session.get(CompetitionParticipant, wager.participant_id)
+    return _slip_view(session, wager, participant, users, now or datetime.now(UTC))
+
+
 __all__ = [
     "CUTOFF", "MAX_QUOTE_AGE", "SPORTS", "CompetitionError", "account_for", "balance", "current_quotes",
-    "discard", "drafts_for", "ensure_competition", "entry_permissions", "mirror_model_decisions", "official_experiment", "open_games",
+    "discard", "drafts_for", "ensure_competition", "human_lock", "market_board", "model_reveals",
+    "participant_account", "slate_dates", "wager_receipt", "entry_permissions", "mirror_model_decisions", "official_experiment", "open_games",
     "participant_by_key", "run", "save_draft", "settle_open", "start_sport", "submit", "summary",
 ]
 
