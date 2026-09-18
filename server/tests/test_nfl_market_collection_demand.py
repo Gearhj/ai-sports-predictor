@@ -150,15 +150,18 @@ def test_checkpoint_games_are_funded_before_advance_games(league, monkeypatch):
     assert [entry["pass"] for entry in due] == ["CHECKPOINT", "ADVANCE"]
 
 
-def test_a_recently_priced_game_is_not_bought_twice(league, monkeypatch):
-    """Self-limiting: once the slate is covered the pass costs nothing."""
+def test_a_game_is_advance_bought_at_most_once(league, monkeypatch):
+    """The budget rule. A 72-hour eligible span over a 24-hour refresh would
+    admit FOUR advance buys per game; asking whether the game has been priced
+    since its window opened can only ever be true once."""
 
     from app.models import Market, MarketOutcome, MarketType, OddsSnapshot, Sportsbook
-    from app.services.sgo_nfl_pregame import ADVANCE_REFRESH, due_games
+    from app.services.sgo_nfl_pregame import ADVANCE_HORIZON, due_games
 
     monkeypatch.setattr(policy, "ACTIVATED", True)
     session = league["session"]
-    game = add_game(league, kickoff=NOON_ET + timedelta(hours=60), away="HAD", home="ONE")
+    kickoff = NOON_ET + timedelta(hours=60)
+    game = add_game(league, kickoff=kickoff, away="HAD", home="ONE")
     market = Market(game_id=game.id, market_type=MarketType.MONEYLINE, period="full_game")
     book = Sportsbook(key="sgo:draftkings", name="DraftKings")
     session.add_all([market, book])
@@ -167,16 +170,52 @@ def test_a_recently_priced_game_is_not_bought_twice(league, monkeypatch):
     session.add(outcome)
     session.flush()
 
-    fresh = NOON_ET - ADVANCE_REFRESH + timedelta(hours=1)
-    session.add(OddsSnapshot(
-        market_outcome_id=outcome.id, sportsbook_id=book.id, observed_at=fresh,
-        available_as_of=fresh, american_odds=-120, decimal_odds=1.83,
-        source="SPORTSGAMEODDS", source_mode="LIVE"))
-    session.flush()
-    assert due_games(session, now=NOON_ET) == [], "a recent price is not re-bought"
+    assert [e["pass"] for e in due_games(session, now=NOON_ET)] == ["ADVANCE"]
 
-    # Once it ages past the refresh interval it becomes due again.
-    stale = NOON_ET - ADVANCE_REFRESH - timedelta(hours=1)
+    # The advance buy lands.
+    bought = NOON_ET
+    snapshot = OddsSnapshot(
+        market_outcome_id=outcome.id, sportsbook_id=book.id, observed_at=bought,
+        available_as_of=bought, american_odds=-120, decimal_odds=1.83,
+        source="SPORTSGAMEODDS", source_mode="LIVE")
+    session.add(snapshot)
+    session.flush()
+    assert due_games(session, now=NOON_ET) == []
+
+    # A day later it is STILL not due: one purchase per window, not per day.
+    assert due_games(session, now=NOON_ET + timedelta(hours=24)) == []
+    assert due_games(session, now=NOON_ET + timedelta(hours=47)) == []
+
+    # A quote taken BEFORE the window opened does not count as covering it.
+    stale = kickoff - ADVANCE_HORIZON - timedelta(hours=1)
     session.query(OddsSnapshot).update({"observed_at": stale, "available_as_of": stale})
     session.flush()
-    assert [entry["pass"] for entry in due_games(session, now=NOON_ET)] == ["ADVANCE"]
+    assert [e["pass"] for e in due_games(session, now=NOON_ET)] == ["ADVANCE"], (
+        "the 29 August quote must not suppress the advance buy")
+
+
+def test_the_checkpoint_buy_still_happens_after_an_advance_buy(league, monkeypatch):
+    """Show Prep and the decision window are different purchases."""
+
+    from app.models import Market, MarketOutcome, MarketType, OddsSnapshot, Sportsbook
+    from app.services.sgo_nfl_pregame import due_games
+
+    monkeypatch.setattr(policy, "ACTIVATED", True)
+    session = league["session"]
+    kickoff = NOON_ET + timedelta(hours=60)
+    game = add_game(league, kickoff=kickoff, away="HAD", home="TWO")
+    market = Market(game_id=game.id, market_type=MarketType.MONEYLINE, period="full_game")
+    book = Sportsbook(key="sgo:draftkings", name="DraftKings")
+    session.add_all([market, book])
+    session.flush()
+    outcome = MarketOutcome(market_id=market.id, outcome_key="a:home", label="TWO")
+    session.add(outcome)
+    session.flush()
+    session.add(OddsSnapshot(
+        market_outcome_id=outcome.id, sportsbook_id=book.id, observed_at=NOON_ET,
+        available_as_of=NOON_ET, american_odds=-120, decimal_odds=1.83,
+        source="SPORTSGAMEODDS", source_mode="LIVE"))
+    session.flush()
+
+    at_checkpoint = kickoff - timedelta(minutes=40)
+    assert [e["pass"] for e in due_games(session, now=at_checkpoint)] == ["CHECKPOINT"]

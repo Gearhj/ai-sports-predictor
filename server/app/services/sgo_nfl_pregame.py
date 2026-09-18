@@ -60,13 +60,17 @@ WINDOW_CLOSES_BEFORE_KICKOFF = timedelta(minutes=15)
 #: recorded and days after anyone wants to look at Sunday. Until this existed,
 #: the fifteen governed Week 2 games carried one quote each from 29 August.
 #:
-#: So a game inside this horizon is priced once, in advance, and then left
-#: alone until its checkpoint. Demand is self-limiting: a game whose newest
-#: moneyline is younger than ADVANCE_REFRESH is not due, so the pass costs one
-#: object per game per refresh interval and nothing at all once the slate is
-#: covered.
+#: So a game inside this horizon is priced ONCE, in advance, and then left
+#: alone until its checkpoint.
+#:
+#: "Once" is enforced against the window, not against a refresh interval. The
+#: first version of this skipped a game whose newest moneyline was younger than
+#: a 24-hour refresh, which sounds like one purchase and is not: a 72-hour
+#: eligible span divided by a 24-hour refresh admits FOUR advance buys per game,
+#: so a fifteen-game slate could cost 75 objects a week rather than 30. The rule
+#: below asks a different question -- has this game been priced at all since its
+#: advance window opened -- which can only ever be true once.
 ADVANCE_HORIZON = timedelta(hours=84)
-ADVANCE_REFRESH = timedelta(hours=24)
 #: Never advance-buy a game that will reach its own checkpoint soon. Without
 #: this, a Sunday game would be bought twice on Sunday -- once in the morning
 #: and again at its checkpoint -- which doubles the slate's cost for a price
@@ -124,8 +128,8 @@ def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str
             if to_kickoff < ADVANCE_MIN_LEAD:
                 continue  # its checkpoint is close enough to be the right buy
             newest = _newest_moneyline(session, game_id)
-            if newest is not None and moment - newest <= ADVANCE_REFRESH:
-                continue  # already priced recently; a second object buys nothing
+            if newest is not None and newest >= starts - ADVANCE_HORIZON:
+                continue  # already priced inside this window; one buy is the budget
         sides = dict(session.execute(
             select(GameTeam.is_home, Team.abbreviation)
             .join(Team, Team.id == GameTeam.team_id)
@@ -299,7 +303,7 @@ def collect_nfl_pregame(
     }
 
 
-__all__ = ["ADVANCE_HORIZON", "ADVANCE_MIN_LEAD", "ADVANCE_REFRESH", "LANE", "SOURCE",
+__all__ = ["ADVANCE_HORIZON", "ADVANCE_MIN_LEAD", "LANE", "SOURCE",
            "WINDOW_CLOSES_BEFORE_KICKOFF",
            "WINDOW_OPENS_BEFORE_KICKOFF", "collect_nfl_pregame", "due_games",
            "fetch_nfl_pregame"]
