@@ -591,6 +591,12 @@ h1, h2, h3, p { margin-top: 0; }
 .methodology-nav a { padding: 7px; color: #687b8e; border-left: 2px solid transparent; font-size: 11px; text-decoration: none; }
 .methodology-nav a:hover { color: var(--teal-dark); border-left-color: var(--teal); background: #f2f8f7; }
 .methodology-content { display: grid; gap: 13px; }
+/* Encore: a quiet way out at the very end of Methodology. No label on purpose. */
+.methodology-encore { display: flex; justify-content: center; padding: 56px 0 8px; }
+.methodology-encore__link { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: #9aa6b2; opacity: .55; transition: color .18s ease, opacity .18s ease, background-color .18s ease; }
+.methodology-encore__link:hover { color: #0f8d7d; opacity: 1; background-color: rgba(15, 141, 125, .08); }
+.methodology-encore__link:focus-visible { color: #b8862f; opacity: 1; outline: 2px solid #b8862f; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .methodology-encore__link { transition: none; } }
 .method-section { scroll-margin-top: 14px; display: grid; grid-template-columns: 43px minmax(0, 1fr); gap: 17px; padding: 24px; background: white; border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); }
 .section-number { width: 35px; height: 35px; display: grid; place-items: center; color: var(--teal); border: 1px solid #badbd6; border-radius: 5px; background: var(--teal-soft); font: 600 11px "IBM Plex Mono", monospace; }
 .method-section h2 { margin: 4px 0 10px; color: #21384f; font-size: 19px; letter-spacing: -.025em; }

@@ -38,6 +38,8 @@ const NbaResearchGamePage = lazy(() => import('./pages/NbaResearchGamePage').the
 const CfbResearchPage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchPage })))
 const CfbResearchGamePage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchGamePage })))
 const HouseDividedPage = lazy(() => import('./pages/HouseDividedPage').then((module) => ({ default: module.HouseDividedPage })))
+// Encore: an unlisted page, loaded only when visited. Outside the app shell on purpose.
+const EncorePage = lazy(() => import('./features/guitarists/EncorePage').then((module) => ({ default: module.EncorePage })))
 
 function LegacySportRoute() {
   const { pathname, search, hash } = useLocation()
@@ -83,6 +85,7 @@ export default function App() {
             <BuildRefresh />
             <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
               <Routes>
+                <Route path="encore" element={<EncorePage />} />
                 <Route element={<AppShell />}>
                   <Route index element={<HomePage />} />
                   {/* The decision board keeps its own page. It is operator

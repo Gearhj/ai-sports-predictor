@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MethodologyPage } from './MethodologyPage'
 
@@ -18,7 +19,7 @@ describe('MethodologyPage Gate 3 evaluation policy', () => {
   afterEach(cleanup)
 
   it('distinguishes training, validation, locked holdout, and explicit promotion', () => {
-    render(<MethodologyPage />)
+    render(<MemoryRouter><MethodologyPage /></MemoryRouter>)
 
     expect(screen.getByRole('heading', { name: /Training chooses the model/i })).toBeInTheDocument()
     expect(screen.getByText('Training window')).toBeInTheDocument()
