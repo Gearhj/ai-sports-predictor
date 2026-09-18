@@ -232,8 +232,12 @@ def model_status(league: str, game_id: str, starts_at: datetime, model: dict[str
         "target_is_guaranteed": False,
     }
     if model is not None:
+        # shadow_forecasts.created_at is the START of AISP's import transaction
+        # (PostgreSQL now()), not the producer's publication, the insert or the commit.
         return {"state": "PUBLISHED", "engine_id": model.get("engine_id"),
-                "published_at": model.get("created_at"), "schedule": schedule, "producer": None}
+                "import_transaction_started_at": model.get("created_at"),
+                "clock_basis": "AISP_IMPORT_TRANSACTION_START",
+                "schedule": schedule, "producer": None}
     if league != "MLB":
         # NFL keeps its own final-pregame freeze; no producer receipt is read.
         return {"state": "NOT_PUBLISHED", "schedule": {**schedule, "input_checks_from": None,

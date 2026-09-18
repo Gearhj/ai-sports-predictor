@@ -58,8 +58,10 @@ export function buildAgenda(games: CoverageGame[], decisions: DecisionItem[], le
 
     // Forecast publication
     if (g.model?.created_at) {
+      // created_at is the start of AISP's import transaction, not the producer's
+      // publication and not an exact insert or commit time.
       events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at: Date.parse(g.model.created_at), status: 'done',
-        label: 'Forecast published', detail: g.model.engine_id.replace(/_/g, ' ') })
+        label: 'Forecast import began', detail: `${g.model.engine_id.replace(/_/g, ' ')} · AISP import transaction start` })
     } else if (g.model_status?.schedule.publication_target) {
       // The producer contract: input checks from T-60, a T-45 publication
       // TARGET (not a guaranteed arrival), decisions T-30..T-15.

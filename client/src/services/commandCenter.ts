@@ -191,7 +191,9 @@ export interface ForecastCheck {
   controlling: boolean
   latest_at_decision: boolean
   superseded_since_decision: boolean
+  /** Historical name: shadow_forecasts.created_at, the START of AISP's import transaction (published_at_basis). */
   published_at: string | null
+  published_at_basis?: string
 }
 
 export interface DecisionBoard {
@@ -251,7 +253,8 @@ export interface CoverageGame {
   consensus_no_vig_home: number | null
   consensus_is_current: boolean
   best: Record<'HOME' | 'AWAY', { american: number | null; sportsbook: string | null; provider: string | null; observed_at: string } | null>
-  model: { engine_id: string; home: number | null; away: number | null; home_two_way: number | null; expected_home?: number | null; expected_away?: number | null; created_at: string | null } | null
+  /** created_at is the START of AISP's import transaction (created_at_basis), not publication, insert or commit. */
+  model: { engine_id: string; home: number | null; away: number | null; home_two_way: number | null; expected_home?: number | null; expected_away?: number | null; created_at: string | null; created_at_basis?: string } | null
   quotes: CoverageQuote[]
   /** College Football has no collection checkpoint: its collection time is null. */
   checkpoints: { collection_opens_at: string | null; decision_window_opens_at: string; decision_window_closes_at: string }

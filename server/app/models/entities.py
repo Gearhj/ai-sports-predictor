@@ -163,6 +163,11 @@ class UUIDPrimaryKeyMixin:
 
 
 class CreatedAtMixin:
+    #: PostgreSQL now(): the START of the inserting transaction. A job that opens
+    #: its transaction, fetches, then inserts stamps rows earlier than the fetch's
+    #: own observed/available clocks (94 of 124 V18 starter/lineup inputs on
+    #: 2026-09-18). It is not the insert time and not the commit time; a row is
+    #: visible to other sessions only after its transaction commits.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 

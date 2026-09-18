@@ -191,7 +191,7 @@ function ForecastStrip({ channel, game, sport, labels }: {
     <div className="as-forecast">
       <div><small>Forecast</small>
         <b>{authority ?? (model ? 'Stored forecast' : 'No forecast yet')}</b>
-        <span>{created ? `created ${relative(created)}` : '—'}{channel?.horizon ? ` · ${channel.horizon.replace(/_/g, ' ').toLowerCase()}` : ''}</span></div>
+        <span title="AISP's row timestamp: the start of the import transaction, not the producer's creation time and not an exact insert or commit time">{created ? `import began ${relative(created)}` : '—'}{channel?.horizon ? ` · ${channel.horizon.replace(/_/g, ' ').toLowerCase()}` : ''}</span></div>
       <div><small>Expected score</small>
         <b>{expected?.away != null && expected.home != null ? `${away} ${expected.away.toFixed(1)} – ${home} ${expected.home.toFixed(1)}` : '—'}</b></div>
       <div><small>Win probability</small>

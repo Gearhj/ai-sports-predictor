@@ -475,7 +475,10 @@ def _forecast_check(session: Session, decision_ids: list[str], now: datetime) ->
             "controlling": CONTROLLING_ENGINES.get(str(sport)) == engine,
             "latest_at_decision": latest_at_decision is not None and _aware(created) >= _aware(latest_at_decision),
             "superseded_since_decision": latest_now is not None and _aware(latest_now) > _aware(created),
+            # Historical name; the value is shadow_forecasts.created_at, the start of
+            # AISP's import transaction -- not the producer's publication time.
             "published_at": _iso(created),
+            "published_at_basis": "AISP_IMPORT_TRANSACTION_START",
         }
     return out
 
@@ -729,7 +732,9 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                      "home_two_way": round(home_p / two_way, 4) if two_way else None,
                      "expected_home": round(exp_home, 2) if exp_home is not None else None,
                      "expected_away": round(exp_away, 2) if exp_away is not None else None,
-                     "created_at": _iso(created)}
+                     "created_at": _iso(created),
+                     # The start of AISP's import transaction, not publication/insert/commit.
+                     "created_at_basis": "AISP_IMPORT_TRANSACTION_START"}
         if league == "CFB":
             model = cfb_models.get(gid)
         start = _aware(starts_at)
