@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck, Clapperboard } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { loadNflProductionStatus } from '../services/nflGovernance'
 import { useSportRegistry } from '../hooks/useSportRegistry'
 import { PrefetchNavLink } from './PrefetchLink'
 import { warmPrimaryRoutesWhenIdle } from '../services/routePrefetch'
@@ -42,6 +43,20 @@ export function AppShell() {
    * navigable=false, NBA stays out of the supported filters, and no governed
    * section is created for it.
    */
+  // The NFL line depends on whether a verified production handoff is pinned.
+  // Fail-closed: any problem leaves the research wording in place.
+  const [nflProduction, setNflProduction] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    loadNflProductionStatus(controller.signal)
+      .then((status) => setNflProduction(Boolean(status?.production_label_allowed)))
+      .catch(() => setNflProduction(false))
+    return () => controller.abort()
+  }, [])
+  const nflContext = nflProduction
+    ? 'NFL · M1 production baseline · prospective monitoring'
+    : 'NFL · Research forecasts and simulations'
+
   const researchOnly = new Map(
     sports.filter((item) => !item.navigable && item.researchHref)
       .map((item) => [item.leagueCode as string, item.researchHref as string]),
@@ -98,7 +113,7 @@ export function AppShell() {
               })}
             </select>
           </label>
-          <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? 'NFL · Research forecasts and simulations' : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : researchOnly.has(sport) ? `${sport} · Research forecasts · paper account, no sportsbook price held yet` : `${sport} · Planned`}</p>
+          <p className="workspace-context">{sport === 'ALL' ? 'One workspace. Every game.' : sport === 'NFL' ? nflContext : sport === 'MLB' ? 'MLB · Forecasts, markets and simulations' : researchOnly.has(sport) ? `${sport} · Research forecasts · paper account, no sportsbook price held yet` : `${sport} · Planned`}</p>
           {state === 'unavailable' && <span role="status">Sport availability could not be loaded</span>}
         </div>
         {sport !== 'ALL' && !['MLB', 'NFL'].includes(sport) && !researchOnly.has(sport) && location.pathname !== '/games' && (

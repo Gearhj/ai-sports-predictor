@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { upcomingOnly } from '../services/nextUp'
+import { loadNflProductionStatus, monitoringNote, slateBadge, type NflProductionStatus } from '../services/nflGovernance'
 import { SLATE_SORT_LABEL, currentGap, hasCurrentPrice, hasForecast, sortSlate, type SlateSort } from '../services/slateSort'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
@@ -183,7 +184,19 @@ export function UnifiedGamesPage() {
   const nflPending = wantsNfl && nflRes.loading
 
   const mlbGames = useMemo(() => mlbSlate(board?.mlb ?? null).sort(byStartTime), [mlbRes.data])
-  const nflGames = useMemo(() => nflSlate(board?.nfl?.events ?? []).sort(byStartTime), [nflRes.data])
+  // Which NFL kickoffs a verified production handoff governs. Fail-closed on
+  // the server, so a fetch problem leaves every game reading as research.
+  const [nflGovernance, setNflGovernance] = useState<NflProductionStatus | null>(null)
+  useEffect(() => {
+    if (!wantsNfl) return undefined
+    const controller = new AbortController()
+    loadNflProductionStatus(controller.signal).then(setNflGovernance).catch(() => setNflGovernance(null))
+    return () => controller.abort()
+  }, [wantsNfl])
+  const nflGames = useMemo(
+    () => nflSlate(board?.nfl?.events ?? [], 'NFL_M1_XGBOOST', nflGovernance).sort(byStartTime),
+    [nflRes.data, nflGovernance])
+  const nflGoverned = useMemo(() => nflGames.filter((game) => !game.researchOnly).length, [nflGames])
   // Stored sportsbook evidence for every date on screen, from the coverage read
   // model (all persisted LIVE quotes, with provider classification), and the
   // ledger for recorded entry terms. Both are cached, provider-free reads.
@@ -347,7 +360,9 @@ export function UnifiedGamesPage() {
             entries={entriesByGame}
             withSport={withSport}
             emptyNote={nflPending ? 'Loading the NFL week…' : filteredNote('NFL', nflGames.length, stateFilter, 'No NFL game is recorded for this week.')}
-            researchNote="NFL M1 research forecasts. A virtual paper position is recorded only under the NFL paper policy, with producer eligibility and a fresh price inside the decision window."
+            researchNote={monitoringNote(nflGovernance, null)}
+            slateChip={slateBadge(nflGovernance, nflGoverned > 0)}
+            governedCount={nflGoverned}
           />
         )}
 
@@ -378,9 +393,14 @@ export function UnifiedGamesPage() {
 
 function LeagueSection({
   league, title, subtitle, games, books, withSport, emptyNote, researchNote, evidence, entries,
+  slateChip, governedCount,
 }: {
   league: 'MLB' | 'NFL'; title: string; subtitle: string; games: SlateGame[]
   books: MarketBoardRow[]; emptyNote: string; researchNote?: string
+  /** Section chip: the production baseline when a handoff governs this slate. */
+  slateChip?: string
+  /** How many games on this slate the handoff actually governs. */
+  governedCount?: number
   evidence: Record<string, CoverageGame> | null
   entries: Record<string, LedgerPosition[]>
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
@@ -392,7 +412,8 @@ function LeagueSection({
         <h2>{title}</h2>
         <span className="bx-dim">{subtitle}</span>
         <div className="bx-league-head__meta">
-          {researchNote && <span className="bx-chip">Research shadow</span>}
+          {researchNote && <span className="bx-chip">{slateChip ?? 'Research shadow'}</span>}
+          {governedCount ? <span className="bx-dim">{governedCount} governed</span> : null}
           <span className="bx-dim">{games.length} shown</span>
         </div>
       </div>
@@ -532,7 +553,11 @@ function GameRow({
           )}
           <p>{game.researchOnly
             ? 'Research shadow. This forecast creates no decision and no position.'
-            : 'A displayed price is persisted evidence, not a wagering eligibility decision.'}</p>
+            : game.league === 'NFL'
+              ? 'NFL M1 production baseline · prospective monitoring. The forecast is recorded '
+                + 'before kickoff and scored afterwards; it is not calibrated and is not a claim '
+                + 'of profitability.'
+              : 'A displayed price is persisted evidence, not a wagering eligibility decision.'}</p>
         </div>
       )}
     </article>
@@ -600,6 +625,17 @@ function DecisionChip({ game, evidence }: { game: SlateGame; evidence?: Coverage
       <SignalPill
         label="Research only" className="signal-pill signal-pill--neutral"
         title="This sport publishes research forecasts and no governed decision band."
+      />
+    )
+  }
+  // A governed NFL kickoff says so plainly, and says what governed means here:
+  // monitoring, not a claim that the model is proven or profitable.
+  if (game.league === 'NFL') {
+    return (
+      <SignalPill
+        label="Production baseline" className="signal-pill signal-pill--watch"
+        title="Governed by the verified NFL M1 production handoff · prospective monitoring."
+        sub="Monitoring only"
       />
     )
   }
