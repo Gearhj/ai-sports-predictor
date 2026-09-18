@@ -146,16 +146,33 @@ class V18ForecastView:
         value = self.row.readiness_score
         return float(value) if value is not None else None
 
+    #: The one scalar the V18 import stores for the policy's uncertainty input.
+    #: Producer ``monteCarloUncertainty.homeWinProbabilityStandardError``
+    #: (sqrt(p(1-p)/n), probability units) is imported by
+    #: ``shadow_import.mlb_v18_daily`` as ``uncertainty["monteCarloStandardError"]``.
+    #: Until 2026-09-18 this view read ``fullGameWinProbabilityStandardError``, a
+    #: name no producer or importer ever wrote, so every V18 decision received
+    #: None -> the policy's 0.0 default. Corrected prospectively; decisions
+    #: already recorded keep the evidence they were made on.
+    UNCERTAINTY_FIELD = "monteCarloStandardError"
+    #: What that number is: Monte Carlo SAMPLING error of the win probability,
+    #: explicitly not model (epistemic) uncertainty.
+    UNCERTAINTY_BASIS = "MONTE_CARLO_SAMPLING_STANDARD_ERROR"
+
     @property
     def uncertainty(self) -> float | None:
         value = self.row.uncertainty
         if isinstance(value, dict):
-            # The producer sends a structured uncertainty block. The gate wants
-            # one scalar; take the one the producer named, never an average of
-            # fields that mean different things.
-            scalar = value.get("fullGameWinProbabilityStandardError")
+            # One named scalar, never an average of fields that mean different things.
+            scalar = value.get(self.UNCERTAINTY_FIELD)
             return float(scalar) if scalar is not None else None
         return float(value) if value is not None else None
+
+    @property
+    def uncertainty_basis(self) -> str | None:
+        """What the uncertainty scalar measures, or None when the forecast carries none."""
+
+        return self.UNCERTAINTY_BASIS if self.uncertainty is not None else None
 
     @property
     def readiness_components(self) -> dict[str, Any]:

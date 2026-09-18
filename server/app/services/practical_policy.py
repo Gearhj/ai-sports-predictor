@@ -122,6 +122,9 @@ LINEUP_PENALTY_FRACTION = PENALTY_CALIBRATION["lineup"]["penalty_points"] / 100.
 EVIDENCE_STAKE_MULTIPLIER = 0.5
 PENALIZED_TIER_POSITION_CAP = 0.005
 MIN_ADJUSTED_EDGE = 0.02  # unchanged final threshold after all penalties
+UNCERTAINTY_APPLIED = "APPLIED"
+UNCERTAINTY_MISSING = "MISSING_NO_DEDUCTION"
+UNCERTAINTY_MISSING_TEXT = "Forecast uncertainty unavailable: no uncertainty deduction applied (policy default 0.0)"
 
 # ---------------------------------------------------------------------------
 # V2_FEATURE_COMPLETENESS_DECOMPOSITION_V1
@@ -333,6 +336,10 @@ class V2Evaluation:
     adjusted_probability: float | None = None
     adjusted_edge: float | None = None
     adjusted_expected_value: float | None = None
+    #: APPLIED, or MISSING_NO_DEDUCTION when the forecast carried no uncertainty
+    #: (the policy's existing 0.0 default, now stated instead of silent).
+    uncertainty_status: str | None = None
+    uncertainty_basis: str | None = None
     evidence_multiplier: float = 1.0
     position_cap_fraction: float | None = None
 
@@ -357,6 +364,8 @@ class V2Evaluation:
             "market_probability": self.market_probability,
             "raw_edge": self.raw_edge,
             "uncertainty_adjustment": self.uncertainty_adjustment,
+            "uncertainty_status": self.uncertainty_status,
+            "uncertainty_basis": self.uncertainty_basis,
             "starter_penalty": self.starter_penalty,
             "lineup_penalty": self.lineup_penalty,
             "adjusted_probability": self.adjusted_probability,
@@ -507,7 +516,15 @@ class PracticalPolicyEvaluator:
         lineup_penalized = ev.lineup.penalized
         ev.starter_penalty = STARTER_PENALTY_FRACTION if starter_penalized else 0.0
         ev.lineup_penalty = LINEUP_PENALTY_FRACTION if lineup_penalized else 0.0
+        # A forecast without an uncertainty value keeps the policy's existing
+        # 0.0 deduction, but the decision now says so rather than recording a
+        # silent zero (V18's view returned None for every forecast until
+        # 2026-09-18 because it read a field name nothing wrote).
+        uncertainty_missing = getattr(forecast, "uncertainty", None) is None
         uncertainty = float(forecast.uncertainty or 0.0)
+        ev.uncertainty_status = UNCERTAINTY_MISSING if uncertainty_missing else UNCERTAINTY_APPLIED
+        ev.uncertainty_basis = None if uncertainty_missing else (
+            getattr(forecast, "uncertainty_basis", None) or "FORECAST_UNCERTAINTY_SCALAR")
         ev.raw_model_probability = float(model_p)
         ev.market_probability = float(no_vig)
         ev.raw_edge = round(float(model_p) - float(no_vig), 6)
@@ -543,7 +560,13 @@ class PracticalPolicyEvaluator:
             blockers.append("Adjusted expected value is not positive")
         else:
             ev.gates_passed.append("adjusted_ev_positive")
+        if uncertainty_missing:
+            blockers_note = UNCERTAINTY_MISSING_TEXT
+        else:
+            blockers_note = None
         if blockers:
+            if blockers_note:
+                blockers.append(blockers_note)
             ev.recommendation = "NO_BET"
             ev.lifecycle = LIFECYCLE_FINAL_NO_BET if is_final else LIFECYCLE_PENDING
             ev.reasons = blockers
@@ -560,7 +583,10 @@ class PracticalPolicyEvaluator:
             f"{ev.adjusted_edge * 100:+.1f} pts (raw {ev.raw_edge * 100:+.1f}; uncertainty "
             f"-{uncertainty * 100:.1f}; starter -{ev.starter_penalty * 100:.1f}; lineup -{ev.lineup_penalty * 100:.1f}) "
             f"and positive adjusted EV under {POLICY_VERSION}."
+            + (f" {blockers_note}." if blockers_note else "")
         )
+        if blockers_note:
+            ev.reasons = [blockers_note]
         return ev
 
     @staticmethod

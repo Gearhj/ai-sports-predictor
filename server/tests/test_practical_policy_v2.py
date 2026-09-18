@@ -331,6 +331,54 @@ def test_v2_qualifies_with_probable_stable_and_pending_lineup(session, settings)
     assert result.position_cap_fraction == pytest.approx(0.005)
 
 
+def test_v18_sampling_error_reaches_qualification_and_is_labelled(session, settings):
+    game, home, away = _seed_game(session)
+    _stable_pair(session, game, home)
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    forecast = _forecast(uncertainty=0.007)
+    forecast.uncertainty_basis = "MONTE_CARLO_SAMPLING_STANDARD_ERROR"
+    result = PracticalPolicyEvaluator(session, settings).evaluate(
+        game, forecast, SimpleNamespace(last_availability_event=None),
+        _selection(), now=EVAL_AT, cutoff=CUTOFF,
+    )
+    # 0.60 - 0.007 sampling SE - 0.02 starter - 0.005 lineup = 0.568
+    assert result.adjusted_probability == pytest.approx(0.568)
+    assert result.uncertainty_adjustment == pytest.approx(0.007)
+    assert result.evidence_json()["uncertainty_status"] == "APPLIED"
+    assert result.evidence_json()["uncertainty_basis"] == "MONTE_CARLO_SAMPLING_STANDARD_ERROR"
+
+
+def test_missing_uncertainty_is_stated_not_silent(session, settings):
+    game, home, away = _seed_game(session)
+    _stable_pair(session, game, home)
+    _stable_pair(session, game, away, pitcher=PITCHER_B)
+    result = PracticalPolicyEvaluator(session, settings).evaluate(
+        game, _forecast(uncertainty=None), SimpleNamespace(last_availability_event=None),
+        _selection(), now=EVAL_AT, cutoff=CUTOFF,
+    )
+    # The existing policy default is unchanged: no deduction ...
+    assert result.adjusted_probability == pytest.approx(0.575)
+    # ... but the decision now says so.
+    assert result.evidence_json()["uncertainty_status"] == "MISSING_NO_DEDUCTION"
+    assert result.evidence_json()["uncertainty_basis"] is None
+    assert any("uncertainty unavailable" in r for r in result.reasons)
+    assert "uncertainty unavailable" in result.reason
+
+
+def test_the_sampling_error_deduction_reaches_the_stake(settings):
+    experiment = SimpleNamespace(kelly_fraction=0.25, max_position_percentage=0.01)
+
+    def stake(adjusted):
+        decision = SimpleNamespace(decimal_odds=2.6, model_probability=0.43,
+                                   evidence={"adjusted_probability": adjusted, "position_cap_fraction": 0.005,
+                                             "evidence_multiplier": 0.5})
+        return ShadowExperimentService.compute_position_stake(experiment, decision, 1000.0)
+
+    # Uncapped region (+160): a 0.7-pt lower adjusted probability gives a smaller Kelly stake.
+    assert stake(0.395 - 0.007) == pytest.approx(0.6875, abs=0.01)
+    assert stake(0.395) == pytest.approx(2.109, abs=0.01)
+
+
 def test_v2_blocks_below_adjusted_edge_threshold(session, settings):
     game, home, away = _seed_game(session)
     _stable_pair(session, game, home)
