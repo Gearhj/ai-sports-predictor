@@ -120,7 +120,9 @@ export function modelLine(m: ModelStatus | null | undefined, engineName = 'V18',
   const join = (...parts: string[]) => parts.filter(Boolean).join(' · ')
   switch (m.state) {
     case 'PUBLISHED':
-      return { tone: 'good', label: `${engineName} forecast published`, detail: `Published ${t(m.published_at)} ET` }
+      // shadow_forecasts.created_at is AISP's IMPORT time, not the producer's
+      // publication or creation time; say which clock this is.
+      return { tone: 'good', label: `${engineName} forecast in AISP`, detail: `Imported ${t(m.published_at)} ET` }
     case 'PUBLISHED_NOT_IMPORTED':
       return { tone: 'watch', label: 'Published, import pending',
         detail: join(`The producer lists a published ${engineName} forecast that AISP has not bound yet (imports run every 5 minutes)`, producer) }
