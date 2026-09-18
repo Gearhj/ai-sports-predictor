@@ -37,6 +37,19 @@ export function loadNflProductionStatus(signal?: AbortSignal): Promise<NflProduc
   return apiRequest<NflProductionStatus>('/research/nfl-production-status', {}, signal)
 }
 
+/**
+ * How many NFL games have actually been scored against an official final.
+ * This is the sample the disclosure quotes, so it is read rather than assumed.
+ */
+export async function loadNflScoredCount(
+  season: number, week: number, signal?: AbortSignal,
+): Promise<number | null> {
+  const card = await apiRequest<{ coverage?: { settled_and_scored?: number } }>(
+    `/research/nfl-scorecard?season=${season}&week=${week}`, {}, signal)
+  const scored = card?.coverage?.settled_and_scored
+  return typeof scored === 'number' ? scored : null
+}
+
 /** True only for a kickoff the pinned handoff actually governs. */
 export function isGoverned(status: NflProductionStatus | null | undefined, kickoffUtc: string | null): boolean {
   if (!status?.production_label_allowed || status.status !== NFL_PRODUCTION_BASELINE) return false

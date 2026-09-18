@@ -36,7 +36,7 @@ import {
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { upcomingOnly } from '../services/nextUp'
-import { loadNflProductionStatus, monitoringNote, slateBadge, type NflProductionStatus } from '../services/nflGovernance'
+import { loadNflProductionStatus, loadNflScoredCount, monitoringNote, slateBadge, type NflProductionStatus } from '../services/nflGovernance'
 import { SLATE_SORT_LABEL, currentGap, hasCurrentPrice, hasForecast, sortSlate, type SlateSort } from '../services/slateSort'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
@@ -197,6 +197,17 @@ export function UnifiedGamesPage() {
     () => nflSlate(board?.nfl?.events ?? [], 'NFL_M1_XGBOOST', nflGovernance).sort(byStartTime),
     [nflRes.data, nflGovernance])
   const nflGoverned = useMemo(() => nflGames.filter((game) => !game.researchOnly).length, [nflGames])
+  // The sample the disclosure quotes, read from the scorecard rather than assumed.
+  const [nflScored, setNflScored] = useState<number | null>(null)
+  const nflSeason = board?.nfl?.season
+  const nflWeek = board?.nfl?.week
+  useEffect(() => {
+    if (!wantsNfl || !nflSeason || !nflWeek) return undefined
+    const controller = new AbortController()
+    loadNflScoredCount(nflSeason, nflWeek, controller.signal)
+      .then(setNflScored).catch(() => setNflScored(null))
+    return () => controller.abort()
+  }, [wantsNfl, nflSeason, nflWeek])
   // Stored sportsbook evidence for every date on screen, from the coverage read
   // model (all persisted LIVE quotes, with provider classification), and the
   // ledger for recorded entry terms. Both are cached, provider-free reads.
@@ -360,7 +371,7 @@ export function UnifiedGamesPage() {
             entries={entriesByGame}
             withSport={withSport}
             emptyNote={nflPending ? 'Loading the NFL week…' : filteredNote('NFL', nflGames.length, stateFilter, 'No NFL game is recorded for this week.')}
-            researchNote={monitoringNote(nflGovernance, null)}
+            researchNote={monitoringNote(nflGovernance, nflScored)}
             slateChip={slateBadge(nflGovernance, nflGoverned > 0)}
             governedCount={nflGoverned}
           />
