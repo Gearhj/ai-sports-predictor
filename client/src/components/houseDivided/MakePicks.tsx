@@ -7,6 +7,7 @@
  * sends only the quote id, the stake, and the quote it was looking at.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { Search, Ticket, X } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -259,7 +260,7 @@ export function MakePicks({ sport, onSport, onChanged }: {
             <span>Date</span>
             <select value={activeDate ?? ''} onChange={(e) => setDate(e.target.value)} aria-label="Date" disabled={!dates.length}>
               {!dates.length && <option value="">No upcoming games</option>}
-              {dates.map((d) => <option key={d.date} value={d.date}>{dayLabel(d.date, today)} · {d.games} games</option>)}
+              {dates.map((d) => <option key={d.date} value={d.date}>{dayLabel(d.date, today)} ({d.games})</option>)}
             </select>
           </label>
           <label className="lb-search">
@@ -304,8 +305,10 @@ export function MakePicks({ sport, onSport, onChanged }: {
         )}
       </div>
 
-      {canEnter && (
-        <>
+      {/* Portalled: an animated ancestor's transform would otherwise turn
+          position: fixed into position: absolute and hide the bar. */}
+      {canEnter && typeof document !== 'undefined' && createPortal(
+        <div className="bx lb-portal">
           <button type="button" className="lb-slipbar" onClick={() => setDrawer(true)}>
             <Ticket size={20} aria-hidden /> Pick Slip · {drafts.length}
             {account && <small>{money(account.available)} available</small>}
@@ -323,7 +326,8 @@ export function MakePicks({ sport, onSport, onChanged }: {
               </div>
             </div>
           )}
-        </>
+        </div>,
+        document.body,
       )}
     </div>
   )
@@ -353,6 +357,7 @@ function GameCard({ game, sport, now, filter, canEnter, signedIn, busy, selected
   return (
     <article className={`lb-game lb-game--${game.state.code.toLowerCase()}`} aria-label={`${game.away?.name} at ${game.home?.name}`}>
       <header className="lb-game__head">
+        <span className="lb-game__match">{game.away?.abbreviation ?? 'Away'} @ {game.home?.abbreviation ?? 'Home'}</span>
         <span className="lb-game__time">{clock(game.starts_at)}</span>
         <span className={`lb-lock${game.locked ? ' lb-lock--closed' : ''}`}
           title={game.lock_basis === 'MODEL_PICK_PUBLIC' ? 'Picks close when the models’ pick becomes public' : 'Picks close 15 minutes before the start'}>
