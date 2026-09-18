@@ -18,6 +18,7 @@ import {
 import '../broadcast.css'
 import './HouseDividedPage.css'
 
+const BOARD_PREVIEW = 12
 const VIEWS: SportView[] = ['MLB', 'NFL', 'NBA', 'CFB', 'ALL']
 const ET: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York' }
 
@@ -214,6 +215,8 @@ function BankrollChart({ data }: { data: SportBoard }) {
 function DividedBoard({ games, order, colors, names }: {
   games: BoardGame[]; order: string[]; colors: Record<string, string>; names: Record<string, string>
 }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? games : games.slice(0, BOARD_PREVIEW)
   return (
     <section className="bx-panel hd-board" aria-label="Where the House Is Divided">
       <div className="bx-panel__head">
@@ -225,7 +228,7 @@ function DividedBoard({ games, order, colors, names }: {
         {order.map((k) => <span key={k} style={{ color: colors[k] }}>{firstName(names[k] ?? k)}</span>)}
       </div>
       <ol className="hd-games">
-        {games.map((g) => {
+        {shown.map((g) => {
           const cells = new Map(g.cells.map((c) => [c.participant, c]))
           const relations = g.comparisons.filter((c) => c.relation !== 'SAME_SIDE')
           return (
@@ -254,6 +257,11 @@ function DividedBoard({ games, order, colors, names }: {
           )
         })}
       </ol>
+      {games.length > BOARD_PREVIEW && (
+        <button type="button" className="bx-btn hd-more" onClick={() => setAll((v) => !v)}>
+          {all ? 'Show fewer games' : `Show all ${games.length} games`}
+        </button>
+      )}
     </section>
   )
 }

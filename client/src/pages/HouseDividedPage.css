@@ -130,3 +130,4 @@
   .hd-history__terms { grid-column: 2 / -1; font-size: 13px; }
   .hd-history__detail { margin-left: 0; }
 }
+.hd-more { margin-top: 12px; }
