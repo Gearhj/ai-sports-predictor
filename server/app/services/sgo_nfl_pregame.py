@@ -35,7 +35,7 @@ from app.core.config import Settings
 from app.models import Game, GameStatus, GameTeam, League, Team
 from app.services.sgo_collection import (
     FallbackFetch, _refuse, complete_request, eligible, parse_events,
-    parse_main_markets, record_request, to_event_dtos,
+    parse_main_markets, record_request, to_event_dtos, to_market_event_dtos,
 )
 
 #: The allocation lane. Never `sgo_nfl_live`, which buys in-game scores.
@@ -254,8 +254,23 @@ def collect_nfl_pregame(
     # its snapshots carry SPORTSGAMEODDS provenance. Writing them as
     # THE_ODDS_API would have merged two providers' "draftkings" into one
     # Sportsbook row, and the governed two-sided pairing keys on sportsbook_id.
-    result = NFLShadowOddsService(session, source=SOURCE).ingest(
-        to_event_dtos(fetch.pairs), available_as_of=fetch.requested_at)
+    service = NFLShadowOddsService(session, source=SOURCE)
+    result = service.ingest(to_event_dtos(fetch.pairs),
+                            available_as_of=fetch.requested_at)
+    # Spreads and totals from THE SAME event objects that were just paid for.
+    # They were parsed and then thrown away, so a governed game showed a
+    # moneyline and nothing else while the response on disk held eight books of
+    # spreads and seven of totals. This buys nothing new: no extra request, no
+    # extra object, the same franchise-map binding, and the same per-outcome
+    # duplicate suppression. Each side keeps its own book's line, so an integer
+    # spread or total stays an integer and still pushes.
+    market_result = {"events": 0, "mapped_events": 0, "quotes": 0,
+                     "duplicates": 0, "rejected_events": 0}
+    if fetch.main is not None:
+        market_events = to_market_event_dtos(fetch.main.quotes)
+        if market_events:
+            market_result = service.ingest(market_events,
+                                           available_as_of=fetch.requested_at)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id)
     session.commit()
@@ -271,6 +286,11 @@ def collect_nfl_pregame(
         "events": result["events"], "mapped_events": result["mapped_events"],
         "quotes": result["quotes"], "duplicates": result["duplicates"],
         "rejected_events": result["rejected_events"],
+        # Spread and total rows from the same objects, reported separately so
+        # the receipt shows the extra coverage arrived for zero extra cost.
+        "market_quotes": market_result["quotes"],
+        "market_duplicates": market_result["duplicates"],
+        "market_events_rejected": market_result["rejected_events"],
         "source": SOURCE,
         "provider_governed": False,
         "bookmakers": sorted({pair.bookmaker_key for pair in fetch.pairs}),
