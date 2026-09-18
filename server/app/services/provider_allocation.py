@@ -537,10 +537,16 @@ def daily_snapshot(session: Session, *, now: datetime | None = None):
     replenishes = replenishment_date(moment)
     days_remaining = max(1, (replenishes - moment.date()).days)
     spendable = max(0, cap - used - reserve)
-    daily_total = spendable // days_remaining
 
     demand = measure(session, now=moment)
-    lanes = _demand_aware_split(daily_total, demand)
+    # The month's spendable total is unchanged; only its SHAPE across days
+    # follows demand. See _shaped_daily_total.
+    shaping = _shaped_daily_total(session, day=day, spendable=spendable,
+                                  days_remaining=days_remaining, demand=demand)
+    daily_total = shaping["daily_total"]
+    demand = {**demand, "shaping": shaping}
+    lanes = _demand_aware_split(daily_total, demand,
+                                mlb_need=shaping["today"]["mlb"])
 
     snapshot = ProviderAllocationSnapshot(
         provider=PROVIDER, service_date=day,
@@ -560,21 +566,27 @@ def daily_snapshot(session: Session, *, now: datetime | None = None):
     return snapshot
 
 
-def _demand_aware_split(daily_total: int, demand: dict[str, Any]) -> dict[str, int]:
-    """Reserved NFL objects first, then every remaining object to MLB.
+def _demand_aware_split(daily_total: int, demand: dict[str, Any], *,
+                        mlb_need: int = 0) -> dict[str, int]:
+    """NFL reservations and MLB's need, both funded when the day can fund both.
 
     Reservations come off the top because they are specific: one object for one
-    named game with a decision to make. What is left is price coverage, which
-    is the lane that can always use more and is never harmed by being last in
-    an order it would otherwise dominate.
+    named game with a decision to make. That order was safe only while the day
+    was large enough for MLB too. On 2026-09-18 it was not: fourteen NFL objects
+    came off a seventeen-object day and left MLB three for fifteen games, which
+    nobody decided. So when a day cannot fund both in full, every lane is cut by
+    the SAME fraction instead of MLB silently absorbing the whole shortfall.
     """
 
     reservations = dict(demand.get("reservations") or {})
     out = {lane.key: 0 for lane in LANES}
     budget = max(0, int(daily_total))
-    for key in ("sgo_nfl_events", "sgo_nfl_live", "sgo_nfl_periods"):
-        want = max(0, int(reservations.get(key, 0)))
-        take = min(want, budget)
+    nfl_keys = ("sgo_nfl_events", "sgo_nfl_live", "sgo_nfl_periods")
+    wants = {key: max(0, int(reservations.get(key, 0))) for key in nfl_keys}
+    need = sum(wants.values()) + max(0, int(mlb_need))
+    scale = 1.0 if need <= budget or need == 0 else budget / need
+    for key in nfl_keys:
+        take = min(budget, int(wants[key] * scale))
         out[key] = take
         budget -= take
     # Any OTHER funded lane takes its own declared share before MLB absorbs the
@@ -591,6 +603,125 @@ def _demand_aware_split(daily_total: int, demand: dict[str, Any]) -> dict[str, i
         budget -= take
     out["sgo_mlb_events"] = budget
     return out
+
+
+#: MLB objects per game on the days the lane was fully funded (2026-09-15 and
+#: 2026-09-16: 17 objects for 15 games each). It is the lane's own historical
+#: funded rate, used to size a day's MLB need -- not a new coverage target.
+MLB_OBJECTS_PER_GAME = 17 / 15
+
+
+def _count_games(session: Session, code: str, start: datetime, end: datetime,
+                 statuses: tuple[Any, ...]) -> int:
+    """Games of one league on a service day, selected the way its owner selects.
+
+    source_mode is provenance, never sport. MLB's collector prices LIVE games
+    only, so MLB is counted that way; NFL games are persisted RESEARCH_SHADOW
+    and the NFL demand code has never filtered on it. Filtering NFL on LIVE
+    counted every future NFL checkpoint as zero.
+    """
+
+    from app.models import Game, League
+
+    query = (select(func.count(Game.id)).join(League, League.id == Game.league_id)
+             .where(League.code == code, Game.status.in_(statuses),
+                    Game.starts_at >= start, Game.starts_at < end))
+    if code == "MLB":
+        query = query.where(Game.source_mode == "LIVE")
+    return int(session.scalar(query) or 0)
+
+
+def _day_need(session: Session, day: date) -> dict[str, int]:
+    """Projected objects for one FUTURE service day, from the persisted schedule.
+
+    MLB: games on that day at its funded rate. NFL: one checkpoint object per
+    game on that day, plus one Show Prep preview object per game whose preview
+    slot falls on that day -- the collector's own two rules, nothing added.
+    """
+
+    import math
+
+    from app.models import GameStatus
+    from app.services import nfl_paper_policy as policy
+    from app.services.service_day import service_day_bounds
+
+    start, end = service_day_bounds(day)
+    mlb = math.ceil(_count_games(session, "MLB", start, end, (GameStatus.SCHEDULED,))
+                    * MLB_OBJECTS_PER_GAME)
+    nfl = 0
+    if policy.ACTIVATED:
+        from app.services.allocation_demand import _preview_games_on_service_day
+
+        nfl = (_count_games(session, "NFL", start, end, (GameStatus.SCHEDULED,))
+               + _preview_games_on_service_day(session, start, end))
+    return {"mlb": mlb, "nfl": nfl}
+
+
+def _shaped_daily_total(session: Session, *, day: date, spendable: int,
+                        days_remaining: int, demand: dict[str, Any]) -> dict[str, Any]:
+    """Today's share of the month, shaped by demand instead of split evenly.
+
+    WHY
+    ---
+    An even `spendable // days_remaining` gives every day the same seventeen
+    objects. NFL demand does not arrive evenly: a Sunday needs fourteen NFL
+    checkpoints on top of fifteen MLB games, while a quiet Monday needs five.
+    In late September the month fitted (211 of 219) and the weekend still
+    starved MLB, because quiet days kept objects that weekends needed.
+
+    RULE
+    ----
+    Every remaining day of the billing month is given its projected need. When
+    the month can fund all of it, today gets its own need plus an even share of
+    whatever is left over. When it cannot, today gets the same fraction of its
+    need as every other day -- nobody's shortfall is dumped on one lane.
+
+    Nothing here moves the monthly total, the reserve or a quota. The live
+    balance and the reserve are still enforced on every grant, so a projection
+    that turns out wrong can refuse a spend but never overdraw the account. With
+    no schedule to project from, this is exactly the old even split.
+    """
+
+    import math
+
+    from app.models import GameStatus
+    from app.services.service_day import service_day_bounds
+
+    start, end = service_day_bounds(day)
+    today_games = _count_games(session, "MLB", start, end,
+                               (GameStatus.SCHEDULED, GameStatus.LIVE))
+    today_mlb = math.ceil(today_games * MLB_OBJECTS_PER_GAME)
+    today_nfl = sum(max(0, int(v)) for v in (demand.get("reservations") or {}).values())
+    today_need = today_mlb + today_nfl
+
+    future: list[dict[str, Any]] = []
+    for offset in range(1, max(1, days_remaining)):
+        other = day + timedelta(days=offset)
+        need = _day_need(session, other)
+        future.append({"date": other.isoformat(), **need, "total": need["mlb"] + need["nfl"]})
+    total_need = today_need + sum(entry["total"] for entry in future)
+
+    if total_need <= spendable:
+        slack = spendable - total_need
+        daily_total = today_need + slack // max(1, days_remaining)
+        basis = "NEED_PLUS_EVEN_SHARE_OF_SLACK"
+    else:
+        daily_total = (spendable * today_need) // total_need if total_need else 0
+        basis = "PRO_RATA_SHORTFALL"
+    daily_total = max(0, min(int(spendable), int(daily_total)))
+
+    return {
+        "basis": basis,
+        "daily_total": daily_total,
+        "even_split_would_have_been": spendable // max(1, days_remaining),
+        "spendable": spendable,
+        "month_projected_need": total_need,
+        "month_fits": total_need <= spendable,
+        "today": {"mlb": today_mlb, "mlb_games": today_games, "nfl": today_nfl,
+                  "total": today_need},
+        "future_days": future,
+        "mlb_objects_per_game": round(MLB_OBJECTS_PER_GAME, 4),
+    }
 
 
 def _same_billing_month(read_at: datetime | None, moment: datetime) -> bool:
