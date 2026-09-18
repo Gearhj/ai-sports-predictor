@@ -27,14 +27,20 @@ function state(f: CfbResearchForecast): string {
   if (p.decision) {
     return p.decision.position ? 'Position recorded' : `Checkpoint: ${(p.decision.reason ?? p.decision.recommendation).replace(/_/g, ' ').toLowerCase()}`
   }
-  if (p.discovery.state === 'CURRENT') return 'Eligible · no price held'
+  if (p.discovery.state === 'CURRENT' || p.discovery.state === 'EXPIRED_LEASE') {
+    // A lapsed lease between 15-minute ticks is renewal, not withdrawal; the
+    // checkpoint re-reads discovery before it decides.
+    return p.discovery.state === 'CURRENT' ? 'Eligible · no price held' : 'Lease renewing · no price held'
+  }
   return p.discovery.state.replace(/_/g, ' ').toLowerCase()
 }
 
 export function CfbSlateSection({ date }: { date?: string | null }) {
   const day = date || etToday()
   const { data, loading, error } = useCfbResearch(day)
-  const rows = data?.forecasts ?? []
+  // The board matches a UTC or an Eastern date; this list is an Eastern slate.
+  const rows = (data?.forecasts ?? []).filter(
+    (f) => new Date(f.game.kickoff_utc).toLocaleDateString('en-CA', { timeZone: ET }) === day)
   return (
     <section aria-label="College Football games" style={{ display: 'grid', gap: 8 }} data-testid="cfb-slate">
       <header>

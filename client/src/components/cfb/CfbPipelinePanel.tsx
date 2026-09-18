@@ -17,7 +17,7 @@ function when(iso: string | null | undefined): string {
 
 const LEASE: Record<string, string> = {
   CURRENT: 'Currently eligible (producer lease live)',
-  EXPIRED_LEASE: 'Lease expired — awaiting the producer’s next tick',
+  EXPIRED_LEASE: 'Lease lapsed since AISP’s last import — the producer renews it every 15 minutes, and the checkpoint re-reads discovery before deciding',
   HISTORICAL: 'Historical — the producer no longer vouches for it',
   NOT_IN_CURRENT_DISCOVERY: 'Not in the newest discovery manifest',
   GAME_STARTED: 'Game started — the pregame forecast is history',

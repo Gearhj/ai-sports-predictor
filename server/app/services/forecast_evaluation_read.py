@@ -291,6 +291,9 @@ class ForecastEvaluationReadService:
         ).all())
         out: dict[Any, dict[str, Any]] = defaultdict(dict)
         for game_id, is_home, abbreviation, name in rows:
+            # College Football teams carry their CFBD id as a code; show the school.
+            if abbreviation and abbreviation.startswith("CFBD") and abbreviation[4:].isdigit():
+                abbreviation = name
             out[game_id]["home" if is_home else "away"] = {
                 "abbreviation": abbreviation, "name": name,
             }

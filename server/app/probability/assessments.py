@@ -157,6 +157,9 @@ def _teams(session: Session, game_ids: list) -> dict[str, dict[str, Any]]:
         select(GameTeam.game_id, GameTeam.is_home, Team.abbreviation, Team.name)
         .join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id.in_(game_ids))
     ):
+        # College Football teams carry their CFBD id as a code; show the school.
+        if abbreviation and abbreviation.startswith("CFBD") and abbreviation[4:].isdigit():
+            abbreviation = name
         out.setdefault(str(game_id), {})["home" if is_home else "away"] = {
             "abbreviation": abbreviation or name, "name": name}
     for value in out.values():
