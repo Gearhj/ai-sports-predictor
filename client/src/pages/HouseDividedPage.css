@@ -359,3 +359,4 @@
 .hd-wager--hidden { background: var(--bx-accent-soft); }
 .hd-wager--hidden .hd-wager__terms { color: var(--bx-accent); }
 .lb-portal { display: contents; }
+@media (max-width: 1100px) { .hd-nav__item { white-space: nowrap; letter-spacing: .04em; font-size: 14px; gap: 8px; } .hd-nav__item--picks { font-size: 15px; } }
