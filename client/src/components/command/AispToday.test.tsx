@@ -36,6 +36,7 @@ describe('AISP Today summary', () => {
     expect(summary.openPositions).toBe(s.ledger.sports.flatMap((x) => x.positions).filter((p) => p.status !== 'SETTLED').length)
     // Closest excludes qualified games and games already under way.
     expect(summary.closest).toMatchObject({ matchup: b.matchup, edge: 0.021 })
+    expect(summary.closest?.text).toBe('model minus break-even +2.1 pts')
     expect(summary.nextWindow?.at).toBe(a.checkpoints.decision_window_opens_at)
     expect(summary.story).toMatch(/^4 games on the slate, 3 with a forecast and 2 with a current sportsbook price; 1 decision qualifies; 1 virtual position open; the next decision window opens at/)
   })

@@ -30,6 +30,7 @@ import {
 } from '../../services/probability'
 import { topPlay } from '../../services/topPlay'
 import { marketLine, modelLine, type StatusLine } from '../../services/pregameStatus'
+import { inputsLine, otherFigures, testLine, type EdgeMetrics } from '../../services/decisionEdges'
 import { MarketSections, TopOpportunity } from './TopOpportunity'
 import './assessments.css'
 
@@ -149,7 +150,7 @@ export function MarketBlock({ market, quote, game }: { market: typeof MARKETS[nu
   const reasons = new Set(Object.values(quote.sides).map((s) => s.edge_reason).filter(Boolean) as string[])
   // Without a verified population only the market's own numbers exist.
   const modeled = Object.values(quote.sides).some((s) => s.model)
-  const rows = modeled ? ['Price', 'Model', 'No-vig', 'Fair', 'Push', 'Edge · EV'] : ['Price', 'No-vig']
+  const rows = modeled ? ['Price', 'Model', 'No-vig', 'Fair', 'Push', 'Model − no-vig · return'] : ['Price', 'No-vig']
   return (
     <div className={`as-market ${quote.state === 'CURRENT' ? '' : 'is-stale'}`} aria-label={`${market.label} at ${quote.sportsbook ?? 'book'}`}>
       <h5>{market.label}<span className={`as-state ${quote.state === 'CURRENT' ? 'is-current' : 'is-stale'}`}>{state}</span></h5>
@@ -163,10 +164,10 @@ export function MarketBlock({ market, quote, game }: { market: typeof MARKETS[nu
           <tr><th scope="row">No-vig</th>{market.sides.map((s) => <td key={s}>{pct(quote.sides[s]?.no_vig)}</td>)}</tr>
           {modeled && <tr><th scope="row">Fair</th>{market.sides.map((s) => <td key={s}>{american(quote.sides[s]?.model?.fair_american)}</td>)}</tr>}
           {modeled && <tr><th scope="row">Push</th>{market.sides.map((s) => <td key={s}>{quote.sides[s]?.model ? pct(quote.sides[s].model?.push) : '—'}</td>)}</tr>}
-          {modeled && <tr><th scope="row">Edge · EV</th>{market.sides.map((s) => {
+          {modeled && <tr><th scope="row" title="Model minus the no-vig market, then the expected return per $1 at the offered price">Model − no-vig · return</th>{market.sides.map((s) => {
             const side = quote.sides[s]
             return <td key={s} className={side?.edge != null ? (side.edge >= 0 ? 'is-up' : 'is-down') : ''}>
-              {edgeText(side)}{side?.expected_return != null ? <small> · EV {(side.expected_return * 100).toFixed(1)}%</small> : null}
+              {edgeText(side)}{side?.expected_return != null ? <small> · return {(side.expected_return * 100).toFixed(1)}%</small> : null}
             </td>
           })}</tr>}
         </tbody>
@@ -224,6 +225,18 @@ export function PregameStatus({ game }: { game: CoverageGame | null }) {
   )
 }
 
+/** The policy's own tests, then the inputs, then any other recorded figure -- each named. */
+function EdgeTests({ metrics, book }: { metrics: EdgeMetrics; book: string }) {
+  const others = otherFigures(metrics)
+  return (
+    <div className="as-edges" aria-label="Policy tests">
+      {metrics.tests.map((t) => <p key={t.metric} className={t.passed ? 'is-pass' : 'is-fail'}>{testLine(t)}</p>)}
+      <p className="as-dim">{inputsLine(metrics)} · {book}</p>
+      {others && <p className="as-dim">Also recorded: {others}</p>}
+    </div>
+  )
+}
+
 export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card: AssessmentCardModel; day: string }) {
   const { game, item, assessment, sport } = card
   const channel = assessment?.binding ?? null
@@ -259,7 +272,9 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
         <small>Decision</small>
         <b>{card.status.label}{item?.selection && item.selection !== '—' ? ` · ${item.selection}` : ''}</b>
         {reasons.slice(0, 3).map((r) => <p key={r}>{r}</p>)}
-        {item?.edge != null && <p className="as-dim">Governed evaluation: edge {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · EV ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'}</p>}
+        {item?.edge_metrics
+          ? <EdgeTests metrics={item.edge_metrics} book={shortBook(item.sportsbook) || 'the recorded book'} />
+          : item?.edge != null && <p className="as-dim">Model minus the offered price's break-even: {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · expected return at the offered price ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'}</p>}
       </div>
       <footer className="as-actions">
         <Link to={gameHref(sport, card.key)}>Analyze</Link>

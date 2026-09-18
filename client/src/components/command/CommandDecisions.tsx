@@ -43,6 +43,7 @@ import { signedCents, topPlay } from '../../services/topPlay'
 import { ParlayLab } from './ParlayLab'
 import { AllMarkets, MyCard } from './MarketsAndCard'
 import { useMyCard } from '../../services/myCard'
+import { controllingMargin, testLine, testThresholdText, testValueText } from '../../services/decisionEdges'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
@@ -132,7 +133,7 @@ export function describeDecision(item: DecisionItem | null, game: CoverageGame |
 
 function pickItem(items: DecisionItem[]): DecisionItem | null {
   const rank = (i: DecisionItem) => (i.position ? 100 : 0) + (i.recommendation === 'QUALIFIED_BET' ? 20 : 0)
-    + (i.phase === 'FINAL_PREGAME' ? 10 : i.phase === 'LINEUP_CONFIRMED' ? 5 : 0) + (i.edge ?? -1)
+    + (i.phase === 'FINAL_PREGAME' ? 10 : i.phase === 'LINEUP_CONFIRMED' ? 5 : 0) + (controllingMargin(i) ?? i.edge ?? -1)
   return [...items].sort((a, b) => rank(b) - rank(a))[0] ?? null
 }
 
@@ -545,8 +546,16 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
         <div><dt>Price</dt><dd>{price ? price.text : '—'}</dd>
           <small>{price ? `${price.book}${price.when ? ` · ${relative(price.when)}` : ''}` : game?.price_state === 'STORED_REFERENCE_ONLY' ? 'stale reference only' : 'not collected'}</small></div>
         <div><dt>Market</dt><dd>{pct(marketP, 1)}</dd><small>no-vig</small></div>
-        <div><dt>Edge · EV</dt><dd className={item?.edge != null ? (item.edge >= 0 ? 'is-up' : 'is-down') : ''}>{item?.edge != null ? `${(item.edge * 100).toFixed(1)} pts` : '—'}</dd>
-          <small>{item?.expected_value != null ? `EV ${(item.expected_value * 100).toFixed(1)}%` : '—'}</small></div>
+        {item?.edge_metrics?.tests.length
+          ? (
+            <div title={item.edge_metrics.tests.map(testLine).join(' · ')}><dt>Policy test</dt>
+              <dd className={item.edge_metrics.tests[0].passed ? 'is-up' : 'is-down'}>{testValueText(item.edge_metrics.tests[0])}</dd>
+              <small>{item.edge_metrics.tests[1] ? `${item.edge_metrics.tests[1].metric.includes('adjusted') ? 'adj. ' : ''}return ${testValueText(item.edge_metrics.tests[1])}` : testThresholdText(item.edge_metrics.tests[0])}</small></div>
+          )
+          : (
+            <div><dt>vs break-even · return</dt><dd className={item?.edge != null ? (item.edge >= 0 ? 'is-up' : 'is-down') : ''}>{item?.edge != null ? `${(item.edge * 100).toFixed(1)} pts` : '—'}</dd>
+              <small>{item?.expected_value != null ? `return ${(item.expected_value * 100).toFixed(1)}%` : '—'}</small></div>
+          )}
       </dl>
       {twoSided && (
         <p className="cc-dcard__market">

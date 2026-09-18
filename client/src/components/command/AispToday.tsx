@@ -14,6 +14,7 @@ import {
   type CoverageGame, type DecisionItem, type Ledger, type SportCode,
 } from '../../services/commandCenter'
 import './assessments.css'
+import { controllingMargin, controllingTest, ptsText, testThresholdText, testValueText } from '../../services/decisionEdges'
 
 export interface TodaySummary {
   games: number
@@ -22,7 +23,8 @@ export interface TodaySummary {
   qualified: number
   openPositions: number
   nextWindow: { at: string; open: boolean; matchup: string | null } | null
-  closest: { matchup: string; edge: number; sport: SportCode } | null
+  /** Ranked by the policy's first test (margin to its minimum), not by the break-even figure. */
+  closest: { matchup: string; edge: number; sport: SportCode; text: string } | null
   story: string
 }
 
@@ -51,17 +53,27 @@ export function buildTodaySummary({ games, items, ledger, now }: {
   const startedById = new Map(games.map((g) => [g.game_id, g.starts_at ? Date.parse(g.starts_at) <= now : false]))
   let closest: TodaySummary['closest'] = null
   for (const i of items) {
-    if (i.edge == null || qualifiedGames.has(i.game_id) || i.position || startedById.get(i.game_id)) continue
+    const test = controllingTest(i)
+    // A payload without edge_metrics (an older cached read) falls back to the
+    // stored figure, named for what it is: the model minus the break-even.
+    const score = test ? controllingMargin(i) : i.edge
+    if (score == null || qualifiedGames.has(i.game_id) || i.position || startedById.get(i.game_id)) continue
     const sport = asSport(i.sport)
     if (!sport) continue
-    if (!closest || i.edge > closest.edge) closest = { matchup: i.matchup ?? 'Game', edge: i.edge, sport }
+    if (!closest || score > closest.edge) {
+      closest = {
+        matchup: i.matchup ?? 'Game', edge: score, sport,
+        text: test ? `${test.label.toLowerCase()} ${testValueText(test)}, ${testThresholdText(test)}`
+          : `model minus break-even ${ptsText(i.edge)}`,
+      }
+    }
   }
 
   const parts: string[] = []
   if (games.length === 0) parts.push('No MLB or NFL game is on today’s slate')
   else parts.push(`${plural(games.length, 'game')} on the slate, ${forecasts} with a forecast and ${currentPrices} with a current sportsbook price`)
   if (qualifiedGames.size) parts.push(`${plural(qualifiedGames.size, 'decision')} ${qualifiedGames.size === 1 ? 'qualifies' : 'qualify'}`)
-  else if (closest) parts.push(`nothing qualifies yet; ${closest.matchup} is closest at ${(closest.edge * 100).toFixed(1)} pts`)
+  else if (closest) parts.push(`nothing qualifies yet; ${closest.matchup} is closest (${closest.text})`)
   else if (games.length) parts.push('nothing qualifies yet')
   if (openPositions) parts.push(`${plural(openPositions, 'virtual position')} open`)
   if (nextWindow) parts.push(nextWindow.open ? `a decision window is open until ${etTime(nextWindow.at)}` : `the next decision window opens at ${etTime(nextWindow.at)}`)
@@ -118,7 +130,7 @@ export function AispToday({ summary, readiness, loading, decisionsHref }: {
         <div><dt>{summary.nextWindow?.open ? 'Window closes' : 'Next window'}</dt>
           <dd>{summary.nextWindow ? etTime(summary.nextWindow.at).replace(' ET', '') : '—'}<small>{summary.nextWindow?.matchup ? ` ${summary.nextWindow.matchup}` : ''}</small></dd></div>
         <div><dt>Closest to qualifying</dt>
-          <dd>{summary.closest ? <>{summary.closest.matchup}<small> {(summary.closest.edge * 100).toFixed(1)} pts</small></> : '—'}</dd></div>
+          <dd>{summary.closest ? <>{summary.closest.matchup}<small> {summary.closest.text}</small></> : '—'}</dd></div>
       </dl>
       <div className="at-strip" aria-label="Sport readiness">
         {SPORT_CODES.map((code) => {

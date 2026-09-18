@@ -9,6 +9,7 @@
  * price field.
  */
 import type { MarketStatus, ModelStatus } from './pregameStatus'
+import type { EdgeMetrics } from './decisionEdges'
 import { useCallback } from 'react'
 import { useApiResource } from '../hooks/useApiResource'
 import { apiRequest } from './api'
@@ -160,6 +161,12 @@ export interface DecisionItem {
   forecast_check?: ForecastCheck | null
   /** The policy's own adjusted edge and expected value, when it recorded them. */
   adjusted?: { edge: number | null; expected_value: number | null; probability: number | null } | null
+  /**
+   * Every edge figure the decision recorded, each named for what it is, and the
+   * policy's own tests. `edge` above is the model minus the offered price's
+   * break-even probability; it is NOT what the MLB/CFB minimum is applied to.
+   */
+  edge_metrics?: EdgeMetrics | null
   /** Human-readable qualification reasons only (machine codes removed server-side). */
   plain_reasons?: string[]
 }

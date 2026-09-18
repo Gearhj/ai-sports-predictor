@@ -335,3 +335,9 @@
 .as-pregame small { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--bx-dim, #75859a); font-weight: 700; }
 .as-pregame b { font-size: 13.5px; }
 .as-pregame span { font-size: 12px; line-height: 1.4; color: var(--bx-muted, #55677d); overflow-wrap: anywhere; }
+
+/* Policy tests under a decision: each figure named for what it is. */
+.as-edges { display: grid; gap: 1px; }
+.as-edges p { margin: 0; font-size: 12.5px; }
+.as-edges .is-pass { color: var(--bx-good, #1f7a4d); }
+.as-edges .is-fail { color: var(--bx-muted, #55677d); }

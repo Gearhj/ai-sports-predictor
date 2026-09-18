@@ -29,6 +29,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
+from app.services.edge_metrics import edge_metrics
 from sqlalchemy.orm import Session
 
 ET = ZoneInfo("America/New_York")
@@ -345,6 +346,9 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
             "market_integrity": integrity.get(str(did)),
             "forecast_check": forecasts_used.get(str(did)),
             "adjusted": _adjusted(evidence),
+            # Every edge figure the decision recorded, each named for what it is,
+            # with the policy's own controlling tests (services/edge_metrics).
+            "edge_metrics": edge_metrics(sport, american, model_p, no_vig, edge, ev, evidence),
             "plain_reasons": _plain_reasons(qualification),
             "decision_window": {"opens_at": _iso(start - WINDOW_OPENS), "closes_at": _iso(start - WINDOW_CLOSES)}
             if start else None,
