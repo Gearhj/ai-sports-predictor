@@ -94,21 +94,29 @@ export function marketLine(m: MarketStatus | null | undefined): StatusLine | nul
   }
 }
 
-function producerText(p: ProducerReceipt | null): string {
+/** The producer checks every five minutes from T-60; after that, a receipt older than this is itself news. */
+const RECEIPT_STALE_MINUTES = 20
+
+function producerText(p: ProducerReceipt | null, fastChecksFrom: string | null, now: number): string {
   if (!p) return ''
-  const when = `Producer receipt ${t(p.receipt_generated_at)}${p.receipt_age_minutes != null ? ` (${Math.round(p.receipt_age_minutes)} min ago)` : ''}`
+  const age = p.receipt_age_minutes != null ? Math.round(p.receipt_age_minutes) : null
+  const fast = fastChecksFrom != null && now >= Date.parse(fastChecksFrom)
+  const stale = fast && age != null && age > RECEIPT_STALE_MINUTES
+  const when = stale
+    ? `No producer receipt since ${t(p.receipt_generated_at)} (${age} min)`
+    : `Producer receipt ${t(p.receipt_generated_at)}${age != null ? ` (${age} min ago)` : ''}`
   if (p.game_status === 'NOT_IN_RECEIPT') return `${when}: this game is not listed`
   const why = p.blocker_text.length ? p.blocker_text.join('; ') : p.reason_text ?? p.reason ?? p.game_status.toLowerCase()
-  return `${when}: ${why}`
+  return stale ? `${when}; its last reason for this game: ${why}` : `${when}: ${why}`
 }
 
-export function modelLine(m: ModelStatus | null | undefined, engineName = 'V18'): StatusLine | null {
+export function modelLine(m: ModelStatus | null | undefined, engineName = 'V18', now = Date.now()): StatusLine | null {
   if (!m) return null
   const s = m.schedule
   const plan = s.publication_target
     ? `input checks from ${t(s.input_checks_from)} · publication target ${t(s.publication_target)} (a target, not a guaranteed arrival) · decision window ${t(s.window_opens_at)}–${t(s.window_closes_at)} ET`
     : `decision window ${t(s.window_opens_at)}–${t(s.window_closes_at)} ET`
-  const producer = producerText(m.producer)
+  const producer = producerText(m.producer, s.input_checks_from, now)
   const join = (...parts: string[]) => parts.filter(Boolean).join(' · ')
   switch (m.state) {
     case 'PUBLISHED':

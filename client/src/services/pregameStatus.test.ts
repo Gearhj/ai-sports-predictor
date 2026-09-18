@@ -29,7 +29,7 @@ describe('pregame status', () => {
   })
 
   it('labels the T-45 publication time as a target, with the input checks and window', () => {
-    const line = modelLine({ state: 'SCHEDULED', schedule, producer })!
+    const line = modelLine({ state: 'SCHEDULED', schedule, producer }, 'V18', Date.parse('2026-09-18T21:00:00Z'))!
     expect(line.label).toBe('V18 due by 5:55 PM (target)')
     expect(line.detail).toContain('input checks from 5:40 PM')
     expect(line.detail).toContain('publication target 5:55 PM (a target, not a guaranteed arrival)')
@@ -37,9 +37,14 @@ describe('pregame status', () => {
     expect(line.detail).toContain("Producer receipt 4:17 PM (41 min ago): the producer's next input check")
   })
 
+  it('says so when the producer receipt itself is stale', () => {
+    const line = modelLine({ state: 'OVERDUE', schedule, producer: { ...producer, receipt_age_minutes: 98 } }, 'V18', Date.parse('2026-09-18T21:56:00Z'))!
+    expect(line.detail).toContain('No producer receipt since 4:17 PM (98 min); its last reason for this game:')
+  })
+
   it('names the producer reason once the target passes', () => {
     const status: ModelStatus = { state: 'OVERDUE', schedule, producer: { ...producer, blocker_text: ["the away team's confirmed batting order is not available"] } }
-    const line = modelLine(status)!
+    const line = modelLine(status, 'V18', Date.parse('2026-09-18T21:56:00Z'))!
     expect(line.tone).toBe('bad')
     expect(line.label).toBe('V18 overdue')
     expect(line.detail).toContain('Publication target 5:55 PM passed')
@@ -48,6 +53,6 @@ describe('pregame status', () => {
 
   it('never says "quote" in the model line or "forecast" in the market line', () => {
     expect(marketLine(market)!.detail).not.toMatch(/forecast/i)
-    expect(modelLine({ state: 'SCHEDULED', schedule, producer })!.label).not.toMatch(/quote/i)
+    expect(modelLine({ state: 'SCHEDULED', schedule, producer }, 'V18', Date.parse('2026-09-18T21:00:00Z'))!.label).not.toMatch(/quote/i)
   })
 })
