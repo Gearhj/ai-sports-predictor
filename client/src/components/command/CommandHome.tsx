@@ -64,7 +64,11 @@ export function todaysSettlements(ledger: Ledger | null, day: string, sport?: Sp
 }
 
 const tone = (v: number | null | undefined) => (v == null || v === 0 ? '' : v > 0 ? 'is-up' : 'is-down')
-export function CommandHome({ withSport }: { withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
+export function CommandHome({ withSport, sport = 'ALL' }: {
+  withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  /** The global sport selection; 'ALL' (or any sport without a slate) shows every game. */
+  sport?: string
+}) {
   const day = todayEt()
   const ledger = useLedger()
   const decisions = useDecisionBoard(day)
@@ -73,8 +77,13 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
 
   const totals = ledger.data?.totals
   const today = todaysSettlements(ledger.data, day)
-  const games = useMemo(() => coverage.data?.games ?? [], [coverage.data])
-  const items = useMemo(() => decisions.data?.items ?? [], [decisions.data])
+  // The sport selector narrows the slate surfaces (hero, agenda, today's games);
+  // the bankroll panel stays the four-account total it is labelled as.
+  const only = asSport(sport)
+  const games = useMemo(() => (coverage.data?.games ?? []).filter((g) => !only || asSport(g.league) === only),
+    [coverage.data, only])
+  const items = useMemo(() => (decisions.data?.items ?? []).filter((i) => !only || asSport(i.sport) === only),
+    [decisions.data, only])
   const now = useMinute()
 
   const qualified = items.filter((i) => i.recommendation === 'QUALIFIED_BET' && i.phase === 'FINAL_PREGAME')
@@ -85,10 +94,11 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     const out: Partial<Record<SportCode, string>> = {}
     for (const s of readiness.data?.sports ?? []) {
       const code = asSport(s.sport)
+      if (only && code !== only) continue
       if (code && s.next_game && !games.some((g) => asSport(g.league) === code)) out[code] = `Next: ${s.next_game.matchup} · ${s.next_game.starts_label}`
     }
     return out
-  }, [readiness.data, games])
+  }, [readiness.data, games, only])
   const decisionsHref = withSport('/decisions')
   const board = useMemo(() => buildEdgeBoard({
     decisions: items, games, ledger: ledger.data, now,

@@ -316,11 +316,21 @@ export function buildEdgeBoard({ decisions, games, ledger, now, decisionsHref, a
   const forecasted = upcoming.filter((g) => g.model?.home_two_way != null && !evaluatedGames.has(g.game_id))
   if (forecasted.length) {
     const conviction = (g: CoverageGame) => Math.abs((g.model?.home_two_way ?? 0.5) - 0.5)
-    const cards = [...forecasted]
-      .sort((a, b) => conviction(b) - conviction(a)
-        || startMs(a.checkpoints.decision_window_opens_at) - startMs(b.checkpoints.decision_window_opens_at)
-        || (a.matchup ?? '').localeCompare(b.matchup ?? ''))
-      .map((g) => leanCard(g, asSport(g.league)!, analyzeHref(asSport(g.league)!, g.game_id)))
+    const byWindow = (a: CoverageGame, b: CoverageGame) =>
+      startMs(a.checkpoints.decision_window_opens_at) - startMs(b.checkpoints.decision_window_opens_at)
+      || (a.matchup ?? '').localeCompare(b.matchup ?? '')
+    // Forecasts land at different times: College Football publishes at midday,
+    // MLB's controlling forecast near first pitch. Ranking only the forecasted
+    // games by conviction then hides every earlier game still awaiting its
+    // forecast. So conviction ranks the board only when every upcoming game has
+    // one; otherwise the board runs in decision-window order, a lean card where
+    // a forecast exists and an on-deck card where it does not.
+    const pending = upcoming.filter((g) => g.model?.home_two_way == null && !evaluatedGames.has(g.game_id))
+    const cards = pending.length === 0
+      ? [...forecasted].sort((a, b) => conviction(b) - conviction(a) || byWindow(a, b))
+        .map((g) => leanCard(g, asSport(g.league)!, analyzeHref(asSport(g.league)!, g.game_id)))
+      : [...forecasted, ...pending].sort(byWindow)
+        .map((g) => (g.model?.home_two_way != null ? leanCard : deckCard)(g, asSport(g.league)!, analyzeHref(asSport(g.league)!, g.game_id)))
     const anyCurrent = forecasted.some((g) => g.price_state === 'CURRENT_PRICE')
     return {
       state: 'MODEL_LEANS',

@@ -64,6 +64,23 @@ describe('Home Edge Board', () => {
     expect(within(hero).getAllByText('Market collection').length).toBeGreaterThan(0)
   })
 
+  it('the sport selector narrows the hero: MLB shows no College Football card, CFB shows only it', async () => {
+    const base = namedScenario('forecasts-only', { now: Date.now() })
+    const cfb = { ...base.markets.games[0], game_id: 'cfb-1', league: 'CFB', matchup: 'Miami @ Wake Forest' }
+    const mlbCount = Math.min(4, base.markets.games.filter((g) => g.league === 'MLB').length)
+    for (const [sport, expected] of [['MLB', mlbCount], ['CFB', 1]] as const) {
+      current = { ...base, markets: { ...base.markets, games: [...base.markets.games, cfb] } }
+      render(<MemoryRouter><CommandHome withSport={(href) => href} sport={sport} /></MemoryRouter>)
+      const hero = await screen.findByRole('region', { name: /^Today’s Model/ })
+      await within(hero).findAllByRole('listitem')
+      const cards = [...hero.querySelectorAll('article')]
+      expect(cards).toHaveLength(expected)
+      const cfbCards = cards.filter((c) => c.querySelector('a[href*="college-football"]'))
+      expect(cfbCards).toHaveLength(sport === 'CFB' ? 1 : 0)
+      cleanup()
+    }
+  })
+
   it('before forecasts and prices: games on deck with the milestones still required', async () => {
     const hero = await renderScenario('pending-all')
     expect(within(hero).getByRole('heading', { level: 1 })).toHaveTextContent('Today’s Games on Deck')

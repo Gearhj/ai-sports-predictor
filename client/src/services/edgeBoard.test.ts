@@ -148,6 +148,19 @@ describe('hero states', () => {
     expect(board.cards[0].modelProbability).toBeCloseTo(0.69)
   })
 
+  it('a later game with an early forecast never hides earlier games still awaiting theirs', () => {
+    // The 2026-09-18 Home report: two evening CFB forecasts (published at midday)
+    // displaced every MLB game, whose forecasts arrive near first pitch.
+    const games = [
+      game('mlb-1840', { homeP: null, startIn: 170 }), game('mlb-1905', { homeP: null, startIn: 195 }),
+      game('cfb-1930', { homeP: 0.23, startIn: 220, league: 'CFB' }), game('cfb-2000', { homeP: 0.56, startIn: 250, league: 'CFB' }),
+    ]
+    const board = buildEdgeBoard(input([], games))
+    expect(board.state).toBe('MODEL_LEANS')
+    expect(board.cards.map((c) => c.gameId)).toEqual(['mlb-1840', 'mlb-1905', 'cfb-1930', 'cfb-2000'])
+    expect(board.cards.map((c) => c.status)).toEqual(['ON_DECK', 'ON_DECK', 'MARKET_PENDING', 'MARKET_PENDING'])
+  })
+
   it('partial price coverage: leans on priced games carry the market rail but still no edge', () => {
     const board = buildEdgeBoard(input([], [priced(game('1', { homeP: 0.6 }), 0.52), game('2', { homeP: 0.3 })]))
     expect(board.subtitle).toBe('Markets arriving · final evaluations pending')
