@@ -441,7 +441,7 @@ def _mirror_one(session: Session, james: CompetitionParticipant, account: Compet
         source=SOURCE_MODEL, status=WAGER_OPEN, game_id=game.id,
         market_type=MARKET_NAMES.get(market.market_type) if market else decision.market,
         market_outcome_id=decision.market_outcome_id,
-        selection_label=(outcome.label if outcome else decision.selection),
+        selection_label=(_selection_name(session, outcome) if outcome else decision.selection),
         line=line, sportsbook_id=snapshot.sportsbook_id if snapshot else None,
         sportsbook_key=(book.key if book else decision.sportsbook),
         odds_snapshot_id=decision.odds_snapshot_id, american_odds=decision.american_odds,
@@ -475,6 +475,19 @@ def _mirror_one(session: Session, james: CompetitionParticipant, account: Compet
 # ---------------------------------------------------------------------------
 # Scotty and Red Lou: drafts and submission
 # ---------------------------------------------------------------------------
+def _selection_name(session: Session, outcome: MarketOutcome) -> str:
+    """What a person calls the selection: the team, or Over/Under -- not a provider code."""
+
+    if outcome.participant_team_id is not None:
+        team = session.get(Team, outcome.participant_team_id)
+        if team is not None:
+            return team.name
+    label = (outcome.label or "").strip()
+    if label.lower() in ("over", "under"):
+        return label.capitalize()
+    return label
+
+
 def _authorize(participant: CompetitionParticipant, actor: User) -> None:
     if participant.is_model:
         raise CompetitionError("MODEL_ACCOUNT",
@@ -512,7 +525,7 @@ def _quote_terms(session: Session, snapshot_id: Any, *, now: datetime) -> dict[s
             raise CompetitionError("UNSUPPORTED_MARKET", "That quote's line cannot be settled.")
     book = session.get(Sportsbook, snapshot.sportsbook_id)
     return {"snapshot": snapshot, "outcome": outcome, "market": market, "game": game, "line": line,
-            "book": book}
+            "book": book, "selection_name": _selection_name(session, outcome)}
 
 
 def _current_problem(session: Session, terms: dict[str, Any], *, now: datetime) -> str | None:
@@ -636,7 +649,7 @@ def _apply_terms(wager: CompetitionWager, terms: dict[str, Any], account: Compet
     wager.game_id = terms["game"].id
     wager.market_type = MARKET_NAMES[terms["market"].market_type]
     wager.market_outcome_id = terms["outcome"].id
-    wager.selection_label = terms["outcome"].label
+    wager.selection_label = terms["selection_name"]
     wager.line = terms["line"]
     wager.sportsbook_id = snapshot.sportsbook_id
     wager.sportsbook_key = terms["book"].key if terms["book"] else None
@@ -1539,6 +1552,8 @@ def _slip_view(session: Session, wager: CompetitionWager, participant: Competiti
         "refund_rule": ("If it pushes or the game is cancelled, the stake is refunded." if push_possible
                         else "If the game is cancelled, the stake is refunded."),
         "confirmation_id": str(wager.id).split("-")[0].upper() if wager.status != WAGER_DRAFT else None,
+        "sportsbook_name": (session.get(Sportsbook, wager.sportsbook_id).name
+                            if wager.sportsbook_id and session.get(Sportsbook, wager.sportsbook_id) else wager.sportsbook_key),
     })
     return view
 

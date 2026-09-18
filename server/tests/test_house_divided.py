@@ -749,3 +749,19 @@ def test_the_main_line_is_the_balanced_pair_and_the_rest_are_more_wagers(world):
     assert card["spread_label"] == "Run line"
     assert card["totals"][0]["line"] == 8.5 and card["totals"][0]["under"] is not None, "balanced pair first"
     assert card["totals"][1]["line"] == 9.0, "the alternate total is a More wagers row"
+
+
+def test_a_pick_is_named_by_team_or_over_under_never_by_provider_code(world):
+    start(world)
+    session = world["session"]
+    game, o = add_game(world, tag="N")
+    total = session.get(Market, o["over_8.5"].market_id)
+    coded = MarketOutcome(market_id=total.id, outcome_key="UNDER:7.5", label="UNDER")
+    team_coded = MarketOutcome(market_id=session.get(Market, o["home_-1.5"].market_id).id,
+                               outcome_key="HOME:-2.5", label="HOME", participant_team_id=o["home_-1.5"].participant_team_id)
+    session.add_all([coded, team_coded])
+    session.flush()
+    now = KICK - timedelta(minutes=45)
+    under = place(world, "SCOTTY", quote(world, coded, at=now, american=-105, point=7.5), "5", now=now)
+    home = place(world, "RED_LOU", quote(world, team_coded, at=now, american=180, point=-2.5), "5", now=now)
+    assert under.selection_label == "Under" and home.selection_label == "HomeN"

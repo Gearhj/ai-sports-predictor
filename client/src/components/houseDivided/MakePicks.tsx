@@ -188,7 +188,7 @@ export function MakePicks({ sport, onSport, onChanged }: {
         } catch (e) {
           if (e instanceof CompetitionRefusal && (e.code === 'PRICE_CHANGED' || e.code === 'PRICE_UNAVAILABLE')) {
             setMoves((m) => ({ ...m, [d.wager_id]: {
-              previous: `${odds(d.american_odds)} at ${d.sportsbook ?? '—'}`,
+              previous: `${odds(d.american_odds)} at ${d.sportsbook_name ?? d.sportsbook ?? '—'}`,
               replacement: e.replacement, message: e.message } }))
             loadBoard()
           } else {
@@ -532,7 +532,7 @@ function SlipItem({ d, participant, sport, move, busy, now, onStake, onRemove, o
       </div>
       <div className="lb-item__price">
         <b>{odds(d.american_odds)}</b>
-        <span>{d.sportsbook}</span>
+        <span>{d.sportsbook_name ?? d.sportsbook}</span>
         <small>price as of {d.quote_observed_at ? clock(d.quote_observed_at) : '—'}</small>
       </div>
       {move && (
@@ -574,7 +574,7 @@ function Receipt({ r, onDismiss }: { r: SlipWager; onDismiss: () => void }) {
         <div><dt>Game</dt><dd>{r.matchup}</dd></div>
         <div><dt>Pick</dt><dd>{pickText(r)}</dd></div>
         <div><dt>Market</dt><dd>{r.market_label}</dd></div>
-        <div><dt>Odds</dt><dd>{odds(r.american_odds)} · {r.sportsbook}</dd></div>
+        <div><dt>Odds</dt><dd>{odds(r.american_odds)} · {r.sportsbook_name ?? r.sportsbook}</dd></div>
         <div><dt>Stake</dt><dd>{money(r.stake)}</dd></div>
         <div><dt>Payout if it wins</dt><dd>{money(r.potential_payout)}</dd></div>
         <div><dt>Submitted</dt><dd>{r.submitted_at ? new Date(r.submitted_at).toLocaleString('en-US', { ...ET, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }) + ' ET' : '—'}</dd></div>
@@ -596,7 +596,7 @@ function OpenPicks({ account }: { account: ParticipantAccount | null }) {
         <div key={w.wager_id} className="lb-open__row">
           <div>
             <strong>{pickText(w)} {odds(w.american_odds)}</strong>
-            <small>{w.matchup} · {w.market_label} · {w.sportsbook}</small>
+            <small>{w.matchup} · {w.market_label} · {w.sportsbook_name ?? w.sportsbook}</small>
           </div>
           <div className="lb-open__money"><strong>{money(w.stake)}</strong><small>#{w.confirmation_id}</small></div>
         </div>

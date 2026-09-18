@@ -242,6 +242,7 @@ export interface SlipWager extends WagerView {
   push_possible: boolean
   refund_rule: string
   confirmation_id: string | null
+  sportsbook_name?: string | null
   available_before?: number
   available_after?: number
 }
