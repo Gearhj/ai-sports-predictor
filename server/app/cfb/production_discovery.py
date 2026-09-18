@@ -41,6 +41,9 @@ from app.cfb.research_import import CfbImportError, read_pmfs, verify_package
 POINTER_SCHEMA = "CFB_GEN1_SLATE_DISCOVERY_POINTER_V1"
 MANIFEST_SCHEMA = "CFB_GEN1_SLATE_DISCOVERY_V1"
 HANDOFF_SCHEMA = "CFB_GEN1_STAGED_PRODUCER_HANDOFF_INDEX_V1"
+SUCCESSOR_HANDOFF_SCHEMA = "CFB_GEN1_REFRESH_SUCCESSOR_HANDOFF_V1"
+RECURRING_HANDOFF_SCHEMA = "CFB_RECURRING_ACTIVATION_HANDOFF_V1"
+GRANT_SCHEMA = "CFB_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1"
 CONFIGURATION = "CFB_GEN1_RIDGE_A100_PAIRED_RESIDUAL_V1"
 DRAW_COUNT = 10_000
 #: The producer closes publication at T-30m (its contract); AISP's pick lock is T-15m.
@@ -104,6 +107,10 @@ def verify_handoff(index_path: pathlib.Path, pin: str) -> HandoffVerdict:
     if digest != pin.lower() or digest != index_path.parent.name.lower():
         return HandoffVerdict(REJECTED, "HANDOFF_PIN_MISMATCH")
     index = json.loads(raw)
+    if index.get("schema") == RECURRING_HANDOFF_SCHEMA:
+        return _verify_recurring_handoff(index_path, index)
+    if index.get("schema") == SUCCESSOR_HANDOFF_SCHEMA:
+        return _verify_successor_handoff(index_path, index)
     if index.get("schema") != HANDOFF_SCHEMA:
         return HandoffVerdict(REJECTED, "HANDOFF_SCHEMA_UNKNOWN")
     for member in index.get("members", []):
@@ -123,6 +130,93 @@ def verify_handoff(index_path: pathlib.Path, pin: str) -> HandoffVerdict:
     return HandoffVerdict(ACTIVE, "HANDOFF_VERIFIED_AND_ACTIVATED", release.get("sha256"))
 
 
+def _verify_successor_handoff(index_path: pathlib.Path, index: dict[str, Any]) -> HandoffVerdict:
+    """``CFB_GEN1_REFRESH_SUCCESSOR_HANDOFF_V1``: the 2026-09-18 delivery handoff.
+
+    Its ``consumerActivated: false`` is the PRODUCER's statement that it has
+    not seen a consumer activate -- consumer activation is AISP's to decide
+    (the handoff says so: "consumer acceptance/authority requires a separate
+    approved path"). So a verified successor handoff is ACTIVE-capable, and
+    ``production_status`` still requires the operator's consumer switch.
+    What it binds -- the exact discovery manifest and both releases -- is
+    returned so the importer can refuse a manifest from any other lineage.
+    """
+
+    for member in index.get("members", []):
+        path = index_path.parent / member["relativePath"]
+        if not path.exists():
+            return HandoffVerdict(REJECTED, f"HANDOFF_MEMBER_MISSING:{member['relativePath']}")
+        body = path.read_bytes()
+        if _sha(body) != member["sha256"] or len(body) != int(member["bytes"]):
+            return HandoffVerdict(REJECTED, f"HANDOFF_MEMBER_TAMPERED:{member['relativePath']}")
+    if index.get("wageringAuthority") is not False:
+        return HandoffVerdict(REJECTED, "HANDOFF_CLAIMS_WAGERING_AUTHORITY")
+    try:
+        release = index["release"]
+        _bound(release, "release")
+        discovery_raw = _bound(index["discovery"], "bound discovery manifest")
+    except (CfbImportError, KeyError) as exc:
+        return HandoffVerdict(REJECTED, f"HANDOFF_BINDING_UNVERIFIED:{exc}")
+    discovery = json.loads(discovery_raw)
+    bound_release = str((discovery.get("release") or {}).get("sha256", "")).lower()
+    releases = sorted({str(release["sha256"]).lower(), bound_release} - {""})
+    return HandoffVerdict(ACTIVE, "SUCCESSOR_HANDOFF_VERIFIED", str(release["sha256"]).lower(), {
+        "handoff_schema": SUCCESSOR_HANDOFF_SCHEMA,
+        "handoff_sha256": index_path.parent.name.lower(),
+        "bound_discovery_sha256": str(index["discovery"]["sha256"]).lower(),
+        "accepted_release_sha256s": releases,
+        "producer_declares_consumer_activated": bool(index.get("consumerActivated")),
+    })
+
+
+def _verify_recurring_handoff(index_path: pathlib.Path, index: dict[str, Any]) -> HandoffVerdict:
+    """``CFB_RECURRING_ACTIVATION_HANDOFF_V1``: the installed producer, 2026-09-18.
+
+    Every hash-bound reference AISP relies on is proved from bytes: the discovery
+    snapshot it binds, the release, the deployment manifest, the final-result
+    index and the owner's virtual-policy grant. The grant must be James's
+    extension of the unchanged AISP_CFB_PAPER_POLICY_V1 terms; its expiry is
+    returned so the checkpoint can refuse to act after it. ``consumerActivationEstablished``
+    is the producer's observation, not a permission: activation is AISP's switch.
+    """
+
+    if index.get("realMoneyAuthority") is not False:
+        return HandoffVerdict(REJECTED, "HANDOFF_CLAIMS_REAL_MONEY_AUTHORITY")
+    if index.get("producerInstalled") is not True or index.get("installationAuthorized") is not True:
+        return HandoffVerdict(REJECTED, "PRODUCER_NOT_INSTALLED")
+    try:
+        release = index["release"]
+        _bound(release, "release")
+        _bound(index["discoverySnapshot"], "bound discovery snapshot")
+        _bound(index["deploymentManifest"], "deployment manifest")
+        _bound(index["finalResultIndex"], "final-result index")
+        grant = json.loads(_bound(index["paperPolicyAuthorization"], "paper-policy grant"))
+    except (CfbImportError, KeyError) as exc:
+        return HandoffVerdict(REJECTED, f"HANDOFF_BINDING_UNVERIFIED:{exc}")
+    terms = grant.get("policyAuthorization") or {}
+    if (grant.get("schema") != GRANT_SCHEMA or grant.get("approvedBy") != "James"
+            or grant.get("policyVersion") != "AISP_CFB_PAPER_POLICY_V1"
+            or grant.get("realMoneyAuthorized") is not False
+            or terms.get("mode") != "VIRTUAL_RESEARCH_ONLY"
+            or grant.get("modelConfiguration") != CONFIGURATION):
+        return HandoffVerdict(REJECTED, "GRANT_DOES_NOT_AUTHORIZE_THE_UNCHANGED_VIRTUAL_POLICY")
+    model = index.get("model") or {}
+    if model.get("configurationIdentity") != CONFIGURATION or int(model.get("pairedDraws") or 0) != DRAW_COUNT:
+        return HandoffVerdict(REJECTED, "HANDOFF_MODEL_IDENTITY_MISMATCH")
+    return HandoffVerdict(ACTIVE, "RECURRING_HANDOFF_VERIFIED", str(release["sha256"]).lower(), {
+        "handoff_schema": RECURRING_HANDOFF_SCHEMA,
+        "handoff_sha256": index_path.parent.name.lower(),
+        "bound_discovery_sha256": str(index["discoverySnapshot"]["sha256"]).lower(),
+        "deployment_id": index.get("deploymentId"),
+        "prediction_release": model.get("predictionReleaseIdentity"),
+        "grant_sha256": str(index["paperPolicyAuthorization"]["sha256"]).lower(),
+        "grant_valid_until_utc": grant.get("validUntilUtc"),
+        "grant_scope": grant.get("scope"),
+        "final_result_pointer": index.get("currentFinalResultPointer"),
+        "producer_declares_consumer_activated": bool(index.get("consumerActivationEstablished")),
+    })
+
+
 def production_status(settings: Any) -> HandoffVerdict:
     """NOT_RECEIVED unless both the path and the SHA-256 pin are configured."""
 
@@ -132,7 +226,7 @@ def production_status(settings: Any) -> HandoffVerdict:
         return HandoffVerdict(NOT_RECEIVED, "NO_PINNED_CFB_PRODUCTION_HANDOFF")
     verdict = verify_handoff(pathlib.Path(path), pin)
     if verdict.status == ACTIVE and not getattr(settings, "cfb_production_consumer_enabled", False):
-        return HandoffVerdict(STAGED, "CONSUMER_SWITCH_OFF", verdict.release_sha256)
+        return HandoffVerdict(STAGED, "CONSUMER_SWITCH_OFF", verdict.release_sha256, verdict.detail)
     return verdict
 
 

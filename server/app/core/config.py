@@ -254,6 +254,28 @@ class Settings(BaseSettings):
     cfb_production_handoff_path: str = ""
     cfb_production_handoff_sha256: str = ""
     cfb_production_consumer_enabled: bool = False
+    #: The discovery pointer the consumer reads; the pinned handoff must bind a
+    #: manifest reachable from it (same release lineage).
+    cfb_discovery_pointer_path: str = Field(default=str(
+        Path.home() / 'asp-model-exchange' / 'cfb-gen1-production-v1' / 'slate-discovery' / 'current.json'))
+    #: Independent orientation evidence: a raw CFBD /games capture (native
+    #: homeId/awayId). Never the producer's own adapted input.
+    cfb_independent_schedule_path: str = Field(default=str(
+        Path.home() / 'asp-model-studio' / 'outputs' / 'cfb-gen1-current-v1' / 'private-sources' / 'cfbd'
+        / 'games-2026.json'))
+    #: The producer's retained final-result evidence pointer. No network: the
+    #: finals consumer only reads what Codex already captured.
+    cfb_final_evidence_pointer_path: str = Field(default=str(
+        Path.home() / 'asp-model-exchange' / 'cfb-gen1-production-v1' / 'final-result-evidence' / 'current.json'))
+    #: Activation control for AISP_CFB_PAPER_POLICY_V1 positions. Off means the
+    #: checkpoint still evaluates and records its reason, but never positions.
+    cfb_paper_decisions_enabled: bool = False
+    #: SportsGameOdds CFB featured-slate lane: at most this many objects in
+    #: total for the 2026-09-18 assignment, and only from capacity both budget
+    #: guards leave uncommitted after MLB/NFL projected need.
+    cfb_sgo_lane_enabled: bool = False
+    cfb_sgo_lane_object_cap: int = 10
+    cfb_sgo_lane_authorized_until: str = "2026-10-01T00:00:00+00:00"
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports

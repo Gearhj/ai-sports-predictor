@@ -148,8 +148,16 @@ def read_pmfs(root: pathlib.Path, *, expected_draws: int) -> dict[str, Any]:
 
 def import_package(
     session: Session, root: pathlib.Path, *, now: datetime | None = None,
+    discovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Register the forecast. A second run returns the same row and writes nothing."""
+    """Register the forecast. A second run returns the same row and writes nothing.
+
+    ``discovery`` is supplied only by the production discovery consumer. It
+    carries the discovery-bound receipt's ``committedAtUtc`` -- the designated
+    publication clock -- and the manifest provenance, in place of the
+    package-local receipt this research importer otherwise reads. Without it,
+    behaviour is unchanged.
+    """
 
     moment = now or datetime.now(UTC)
     verified = verify_package(root)
@@ -249,7 +257,18 @@ def import_package(
             ((receipt or {}).get("document") or {}).get("publishedAtUtc")),
         imported_at=moment,
         research_only=True,
+        publication_clock_source="PACKAGE_LOCAL_RECEIPT_PUBLISHED_AT",
     )
+    if discovery is not None:
+        row.origin = "PRODUCTION_DISCOVERY"
+        row.publication_clock_source = "DISCOVERY_RECEIPT_COMMITTED_AT"
+        row.exchange_published_utc = _iso(discovery["committed_at_utc"])
+        row.publication_receipt_sha256 = discovery["receipt_sha256"]
+        row.discovery_receipt_sha256 = discovery["receipt_sha256"]
+        row.revision_key = discovery.get("revision_key")
+        row.first_manifest_sha256 = discovery["manifest_sha256"]
+        row.producer_status = str(document.get("status") or "")[:80] or None
+        row.orientation_check = discovery.get("orientation")
     session.add(row)
     session.flush()
 

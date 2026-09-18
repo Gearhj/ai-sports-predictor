@@ -65,11 +65,11 @@ export function buildAgenda(games: CoverageGame[], decisions: DecisionItem[], le
         label: started ? 'No forecast before first pitch' : 'Forecast expected', detail: started ? 'The controlling forecast was not published' : 'Final-pregame forecast expected by T-60 (publisher timing varies)' })
     }
 
-    // Sportsbook collection window
-    const cOpen = Date.parse(g.checkpoints.collection_opens_at)
+    // Sportsbook collection window (none for College Football: no collection is planned)
+    const cOpen = g.checkpoints.collection_opens_at ? Date.parse(g.checkpoints.collection_opens_at) : NaN
     const cClose = Date.parse(g.checkpoints.decision_window_closes_at)
     const collected = g.quotes.length > 0 && g.freshest_observed_at != null && Date.parse(g.freshest_observed_at) >= cOpen
-    events.push({ ...base, key: `${g.game_id}:collection`, kind: 'collection', at: cOpen, until: cClose,
+    if (!Number.isNaN(cOpen)) events.push({ ...base, key: `${g.game_id}:collection`, kind: 'collection', at: cOpen, until: cClose,
       status: collected ? 'done' : now >= cClose ? 'missed' : now >= cOpen ? 'open' : 'scheduled',
       label: collected ? 'Market collected' : now >= cClose ? 'No price collected' : now >= cOpen ? 'Collection window open' : 'Market collection scheduled',
       detail: collected ? `${g.fresh_books || g.books} books · latest ${new Date(Date.parse(g.freshest_observed_at as string)).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET` : 'Sportsbook prices for this game' })

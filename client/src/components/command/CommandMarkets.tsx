@@ -74,8 +74,9 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
   const largest = [...withQuotes].filter((g) => gapOf(g) != null).sort((a, b) => Math.abs(gapOf(b)!) - Math.abs(gapOf(a)!))[0] ?? null
   const current = (today.data?.games ?? []).filter((g) => g.price_state === 'CURRENT_PRICE').length
   const scheduled = (today.data?.games ?? [])
-    .filter((g) => g.price_state === 'NOT_COLLECTED' && g.starts_at && Date.parse(g.starts_at) > now)
-    .sort((a, b) => a.checkpoints.collection_opens_at.localeCompare(b.checkpoints.collection_opens_at))
+    .filter((g) => g.price_state === 'NOT_COLLECTED' && g.checkpoints.collection_opens_at != null
+      && g.starts_at && Date.parse(g.starts_at) > now)
+    .sort((a, b) => (a.checkpoints.collection_opens_at ?? '').localeCompare(b.checkpoints.collection_opens_at ?? ''))
   const evSummary = evidence.data?.summary
   const positions = useMemo(() => (ledger.data?.sports ?? []).flatMap((s) => s.positions.map((p) => ({ ...p, sport: s.sport }))), [ledger.data])
   const recorded = chosen ? positions.filter((p) => p.game_id === chosen.game_id) : []
@@ -96,7 +97,7 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
                 <li key={g.game_id} style={{ ['--sport' as string]: SPORT_COLORS[code] }}>
                   <Link to={gameHref(code, g.game_id)}><i className="cc-dot" /><b>{g.matchup}</b></Link>
                   <span>{etTime(g.starts_at).replace(' ET', '')} start</span>
-                  <span className="is-gold">{Date.parse(g.checkpoints.collection_opens_at) <= now ? 'collection open' : `collect in ${countdown(g.checkpoints.collection_opens_at, now)}`}</span>
+                  <span className="is-gold">{Date.parse(g.checkpoints.collection_opens_at ?? '') <= now ? 'collection open' : `collect in ${countdown(g.checkpoints.collection_opens_at ?? '', now)}`}</span>
                 </li>
               )
             })}

@@ -32,6 +32,7 @@
 import { useState } from 'react'
 import type { CfbResearchForecast } from '../../types/cfbResearch'
 import { CfbDistribution } from './CfbDistribution'
+import { CfbPipelinePanel } from './CfbPipelinePanel'
 import { CfbTotalScenarioInput } from './CfbTotalScenarioInput'
 
 /** The single multiplication by 100 on this path. */
@@ -82,6 +83,8 @@ export function CfbForecastCard({ forecast }: { forecast: CfbResearchForecast })
           {forecast.paper_eligibility && <li data-testid="cfb-eligibility">{forecast.paper_eligibility.label}</li>}
         </ul>
       )}
+
+      {forecast.pipeline && <CfbPipelinePanel pipeline={forecast.pipeline} home={game.home_team} away={game.away_team} />}
 
       {/* The pick. A forecast, and labelled as one. */}
       <p className="cfbcard__pick" data-testid="cfb-pick">{pick.label}</p>

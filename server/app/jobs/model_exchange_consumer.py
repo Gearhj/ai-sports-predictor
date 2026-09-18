@@ -260,6 +260,10 @@ def consume_forecast_bundles(
             outcome.accepted.append(record)
         already.add(address)
 
+    # CFB production discovery first, so a CFB paper-eligibility supplement can
+    # bind a forecast imported on this same pass. Its own pinned handoff and
+    # consumer switch gate it; nothing here widens the supplement allowlist.
+    cfb_discovery = _consume_cfb_discovery(session, settings, dry_run=dry_run)
     _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run)
     _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run)
     _consume_lab_study(session, settings, outcome, dry_run=dry_run)
@@ -269,7 +273,29 @@ def consume_forecast_bundles(
     # anything -- but a different manifest shape, so it gets its own scanner
     # rather than being forced through the bundle index.
     payload["v18"] = _consume_v18(session, settings, dry_run=dry_run)
+    payload["cfb_discovery"] = cfb_discovery
     return payload
+
+
+def _consume_cfb_discovery(session: Session, settings: Settings, *, dry_run: bool) -> dict[str, Any]:
+    """The CFB production discovery consumer, isolated so its failure is its own."""
+
+    if dry_run or not settings.cfb_production_consumer_enabled:
+        return {"enabled": bool(settings.cfb_production_consumer_enabled), "dry_run": dry_run,
+                "status": "NOT_RUN"}
+    from app.cfb.production_import import consume_discovery
+
+    # Whatever this pass already imported is committed first, so a CFB failure
+    # rolls back only CFB work.
+    session.commit()
+    try:
+        result = consume_discovery(session, settings)
+        session.commit()
+    except Exception as error:  # noqa: BLE001 -- isolated; never blocks MLB/NFL consumption
+        session.rollback()
+        return {"enabled": True, "status": f"FAILED:{type(error).__name__}:{error}"[:300]}
+    return {"enabled": True, **{k: v for k, v in result.items() if k != "handoff"},
+            "handoff_status": result["handoff"]["status"]}
 
 
 def _consume_v18(session: Session, settings: Settings, *, dry_run: bool) -> dict[str, Any]:
@@ -353,6 +379,12 @@ def _consume_supplements(session: Session, settings: Settings, exchange_root: Pa
         if address in registered:
             outcome.supplements_skipped.append(address)
             continue
+        # One SAVEPOINT per supplement. A refusal used to roll back the whole
+        # session -- discarding every supplement accepted earlier in the same
+        # pass while still reporting them accepted, so a supplement that sorted
+        # before a persistently refused one (today: an NBA record whose forecast
+        # is not imported) could never register.
+        savepoint = None if dry_run else session.begin_nested()
         try:
             verified = allowlisted.get(address) or verify_supplement(directory)
             if dry_run:
@@ -362,12 +394,15 @@ def _consume_supplements(session: Session, settings: Settings, exchange_root: Pa
                 })
                 continue
             record = register_supplement(session, verified)
+            savepoint.commit()
         except SupplementImportError as error:
-            session.rollback()
+            if savepoint is not None:
+                savepoint.rollback()
             outcome.supplements_rejected.append({"supplement_sha256": address, "reason": str(error)})
             continue
         except (OSError, ValueError) as error:
-            session.rollback()
+            if savepoint is not None:
+                savepoint.rollback()
             outcome.supplements_rejected.append({
                 "supplement_sha256": address, "reason": f"{type(error).__name__}: {error}",
             })

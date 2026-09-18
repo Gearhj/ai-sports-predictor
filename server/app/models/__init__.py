@@ -130,6 +130,12 @@ from app.models.cfb_research_forecast import (  # noqa: E402,F401
     CFB_SPORT_LABEL,
     CfbResearchForecast,
 )
+from app.models.cfb_consumer import (  # noqa: E402,F401
+    CfbDiscoveryManifest,
+    CfbDiscoveryObservation,
+    CfbFinalObservation,
+    PositionSettlementAdjustment,
+)
 
 # AISP DAY-BEFORE SHOW PREVIEW V1: research/editorial only, never read by the
 # governed decision, staking, bankroll or settlement code.

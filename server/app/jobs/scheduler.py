@@ -688,6 +688,26 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "evaluate-nfl-paper-checkpoint", "settings": settings},
         **common,
     )
+    # The CFB paper checkpoint (AISP_CFB_PAPER_POLICY_V1), same cadence and
+    # window as NFL. Registered only when the CFB consumer is on; positions
+    # additionally wait on CFB_PAPER_DECISIONS_ENABLED inside the owner.
+    if settings.cfb_production_consumer_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=5, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+            id="asp-cfb-paper-checkpoint",
+            kwargs={"job_name": "evaluate-cfb-paper-checkpoint", "settings": settings},
+            **common,
+        )
+        # CFB finals from retained producer evidence, then scoring. Reads local
+        # files only; settlement stays with finalize-games.
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=30, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=5),
+            id="asp-cfb-final-ingest",
+            kwargs={"job_name": "ingest-cfb-finals", "settings": settings},
+            **common,
+        )
     # NFL quarter breakdowns, one SportsGameOdds object per completed game.
     # Hourly is far more often than it needs to be and costs nothing on the runs
     # where every recent game already has its breakdown -- which is most of

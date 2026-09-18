@@ -37,12 +37,12 @@ export function CfbResearchPage() {
   return (
     <div className="cfbpage">
       <PageHeader
-        eyebrow="College Football · Research"
-        title="College Football research forecasts"
+        eyebrow="College Football"
+        title="College Football forecasts"
         description={
-          'Imported research forecasts. Market comparison is blocked: AISP holds no College Football '
-          + 'sportsbook price and no College Football schedule feed (only individual games are admitted), '
-          + 'so no assessment or paper position can occur. There is no College Football forecast scheduler.'
+          'Prospective forecasts verified from the producer’s slate discovery, shown with their original '
+          + 'publication clock. Each game shows whether its forecast is currently decision-eligible, what the '
+          + 'paper checkpoint (AISP_CFB_PAPER_POLICY_V1, virtual only) recorded, and why no price is held.'
         }
       />
       <PaperStatusStrip sport="CFB" />
@@ -85,9 +85,9 @@ export function CfbResearchGamePage() {
   return (
     <div className="cfbpage">
       <PageHeader
-        eyebrow="College Football · Research"
-        title={data ? data.game.matchup : 'College Football research forecast'}
-        description="Research analysis. No wagering authority, and no recorded market."
+        eyebrow="College Football"
+        title={data ? data.game.matchup : 'College Football forecast'}
+        description="Prospective forecast under a virtual-only paper policy. No real-money authority."
       />
       {loading && <p role="status">Loading the forecast…</p>}
       {error && (

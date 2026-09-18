@@ -99,6 +99,8 @@ AVAILABLE_JOBS = {
     "collect-nfl-live-scores": "Collect NFL In-Game Scores (tracked games)",
     "collect-nfl-pregame-odds": "Collect NFL Pregame Odds (one object, near the checkpoint)",
     "evaluate-nfl-paper-checkpoint": "Evaluate the NFL Paper Policy at its Final-Pregame Checkpoint",
+    "evaluate-cfb-paper-checkpoint": "Evaluate the CFB Paper Policy at its Final-Pregame Checkpoint",
+    "ingest-cfb-finals": "Admit CFB Finals From Retained Evidence and Score CFB Forecasts (no network)",
     "recover-governed-finals": "Recover Governed Finals For Completed Games",
     "refresh-provider-usage": "Refresh SportsGameOdds Account Usage",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
@@ -234,6 +236,8 @@ class JobOrchestrator:
             "collect-nfl-live-scores": self.collect_nfl_live_scores,
             "collect-nfl-pregame-odds": self.collect_nfl_pregame_odds,
             "evaluate-nfl-paper-checkpoint": self.evaluate_nfl_paper_checkpoint,
+            "evaluate-cfb-paper-checkpoint": self.evaluate_cfb_paper_checkpoint,
+            "ingest-cfb-finals": self.ingest_cfb_finals,
             "recover-governed-finals": self.recover_governed_finals,
             "refresh-provider-usage": self.refresh_provider_usage,
             "backfill-scoreboard": self.backfill_scoreboard,
@@ -1584,6 +1588,35 @@ class JobOrchestrator:
         from app.services.nfl_paper_decision import evaluate
 
         return evaluate(self.session, self.settings)
+
+    async def evaluate_cfb_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """AISP_CFB_PAPER_POLICY_V1 at T-30..T-15: one recorded outcome per game, always with its reason.
+
+        Refreshes the CFB discovery first (local files only) so the lease it
+        judges is the newest one. Calls no provider.
+        """
+
+        from app.cfb.paper_decision import evaluate
+
+        return evaluate(self.session, self.settings)
+
+    async def ingest_cfb_finals(self, event_date: date) -> dict[str, Any]:
+        """Admit CFB finals from the producer's retained evidence, then score. No network.
+
+        Settlement stays with finalize-games, which settles any experiment's
+        position once its game is FINAL with scores.
+        """
+
+        from app.cfb.evaluation import evaluate_cfb
+        from app.cfb.final_ingest import ingest_retained_finals
+
+        finals = ingest_retained_finals(self.session, self.settings)
+        self.session.commit()
+        scoring = evaluate_cfb(self.session)
+        self.session.commit()
+        return {"records": int(finals.get("observations_written", 0)) + int(scoring.get("scored", 0)),
+                "finals": {k: v for k, v in finals.items() if k != "skipped"},
+                "finals_skipped": finals.get("skipped", [])[:20], "scoring": scoring}
 
     async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:
         """Governed finals for completed games that have none, automatically.

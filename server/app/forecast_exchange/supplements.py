@@ -766,7 +766,8 @@ def _bind_research_forecast(session: Session, verified: VerifiedSupplement, spor
             "home probability": close(row["joint_home_win_probability"], frozen["homeWinProbability"]),
             "away probability": close(row["joint_away_win_probability"], frozen["awayWinProbability"]),
             "tie probability": close(row["tie_probability"], frozen["tieProbability"]),
-            "source cutoff": row["source_cutoff_utc"].astimezone(UTC) == cutoff,
+            "source cutoff": datetime.fromisoformat(str(row["source_cutoff_utc"])).replace(tzinfo=UTC) == cutoff
+            if isinstance(row["source_cutoff_utc"], str) else row["source_cutoff_utc"].astimezone(UTC) == cutoff,
             "provider game": (str(binding.get("providerGameId")) == row["source_game_id"]
                               and str(binding.get("eventId")) == f"cfbd:{row['source_game_id']}"),
             "model artifact": row["artifact"] == binding.get("modelArtifactSha256"),

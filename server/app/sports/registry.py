@@ -91,10 +91,12 @@ CFB = SportDefinition(
     short_label="CFB",
     official_positions_supported=False,
     official_positions_note=(
-        "Planned. AISP holds an imported research forecast for College Football and "
-        "nothing else: no admitted schedule source, no day surface, no read adapter, "
-        "no odds, no bankroll, no policy and no position. The forecast is readable at "
-        "the research href; it is research output and can never be funded."
+        "Virtual paper only. AISP imports the producer's verified College Football "
+        "slate discovery and decides each game at T-30..T-15 under the owner-approved "
+        "AISP_CFB_PAPER_POLICY_V1 ($1,000 virtual account). No College Football price "
+        "is collected this month, so checkpoints record explicit no-position reasons. "
+        "Games are listed on Games & Forecasts and at the research href; the sport is "
+        "not wired into the MLB/NFL day-surface and scoreboard adapters."
     ),
     # navigable=False is the whole point. A navigable sport is wired into the
     # day surface, scoreboard and odds adapters, none of which can serve College

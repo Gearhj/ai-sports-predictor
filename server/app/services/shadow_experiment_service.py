@@ -342,7 +342,13 @@ class ShadowExperimentService:
         ))
 
     def _realized_profit(self, experiment: ShadowExperiment) -> float:
-        return sum(float(row.profit_loss) for row in self._settlements(experiment))
+        # Original settlements plus any correction recorded beside them. No
+        # adjustment exists for MLB/NFL today, so this adds exactly 0.0 there.
+        from app.cfb.settlement_corrections import adjustment_total
+
+        settlements = self._settlements(experiment)
+        return (sum(float(row.profit_loss) for row in settlements)
+                + adjustment_total(self.session, [row.position_id for row in settlements]))
 
     def _reserved_open_stake(self, experiment: ShadowExperiment) -> float:
         return sum(

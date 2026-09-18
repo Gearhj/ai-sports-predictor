@@ -126,7 +126,7 @@ def _display_code(team: dict[str, Any] | None) -> str:
 
 #: Leagues with a governed final-pregame decision window. An admitted College
 #: Football or NBA game has none, so its row shows no window.
-DECISION_WINDOW_LEAGUES = ("MLB", "NFL")
+DECISION_WINDOW_LEAGUES = ("MLB", "NFL", "CFB")
 
 
 def _research_reference(session: Session, game_id: Any) -> dict[str, Any] | None:
@@ -146,10 +146,12 @@ def _research_reference(session: Session, game_id: Any) -> dict[str, Any] | None
         return None
     row = session.scalar(select(CfbResearchForecast).where(
         CfbResearchForecast.source_game_id == mapping.external_id)
-        .order_by(CfbResearchForecast.imported_at.desc()).limit(1))
+        .order_by(CfbResearchForecast.exchange_published_utc.desc().nullslast(),
+                  CfbResearchForecast.imported_at.desc()).limit(1))
     if row is None:
         return None
     home_lead = row.joint_home_win_probability >= 0.5
+    published = row.exchange_published_utc
     return {
         "forecast_id": row.forecast_id,
         "horizon": "PROSPECTIVE_RESEARCH",
@@ -157,8 +159,13 @@ def _research_reference(session: Session, game_id: Any) -> dict[str, Any] | None
         "pick": row.home_team_name if home_lead else row.away_team_name,
         "joint_probability": max(row.joint_home_win_probability, row.joint_away_win_probability),
         "ridge_expected_points": {"away": row.expected_away_points, "home": row.expected_home_points},
-        "label": ("Research forecast (prospective snapshot, not a Show Preview and not "
-                  "final pregame; research only)"),
+        # Its real availability time and source, never restamped as a preview.
+        "published_utc": published.astimezone(UTC).isoformat() if published else None,
+        "publication_clock_source": row.publication_clock_source,
+        "source_identity": {"origin": row.origin, "package_index_sha256": row.package_index_sha256,
+                            "configuration": row.baseline_configuration},
+        "label": ("Prospective forecast (published before kickoff at its receipt clock; not a Show "
+                  "Preview and not a final-pregame refresh)"),
     }
 
 

@@ -88,10 +88,12 @@ SPREAD_LABEL = {"MLB": "Run line", "NFL": "Spread", "NBA": "Spread", "CFB": "Spr
 
 MLB_POLICY = "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
 NFL_POLICY = "AISP_NFL_PAPER_POLICY_V1"
+CFB_POLICY = "AISP_CFB_PAPER_POLICY_V1"
 
 NOT_ELIGIBLE_REASON = {
     "NBA": "No official NBA model decision pipeline is active; NBA stays staged.",
-    "CFB": "College football forecasts are research-only; no official decision pipeline.",
+    "CFB": ("The College Football paper decision owner is not active (its consumer or activation "
+            "control is off), so there are no official model decisions to copy."),
 }
 
 
@@ -141,6 +143,20 @@ def official_experiment(session: Session, sport: str, *, now: datetime | None = 
         return session.scalar(select(ShadowExperiment).where(
             ShadowExperiment.sport == "NFL",
             ShadowExperiment.decision_policy == NFL_POLICY,
+            ShadowExperiment.is_active.is_(True),
+        ).order_by(ShadowExperiment.started_at.desc()).limit(1))
+    if sport == "CFB":
+        # Official only once its decision owner may position: the owner-approved
+        # AISP_CFB_PAPER_POLICY_V1 with its activation control on. Settlement is
+        # the shared finalize-games owner, which settles any experiment's
+        # position once its game is FINAL with scores.
+        from app.core.config import get_settings
+
+        if not (get_settings().cfb_production_consumer_enabled and get_settings().cfb_paper_decisions_enabled):
+            return None
+        return session.scalar(select(ShadowExperiment).where(
+            ShadowExperiment.sport == "CFB",
+            ShadowExperiment.decision_policy == CFB_POLICY,
             ShadowExperiment.is_active.is_(True),
         ).order_by(ShadowExperiment.started_at.desc()).limit(1))
     if sport != "MLB":
@@ -926,7 +942,11 @@ def _teams(session: Session, game_ids: list[Any]) -> dict[Any, dict[str, Any]]:
     for side, team in session.execute(
             select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id.in_(game_ids))):
         entry = out.setdefault(side.game_id, {})
-        entry["home" if side.is_home else "away"] = {"name": team.name, "abbreviation": team.abbreviation}
+        abbreviation = team.abbreviation
+        # College Football teams carry their CFBD id as a code; show the school.
+        if abbreviation and abbreviation.startswith("CFBD") and abbreviation[4:].isdigit():
+            abbreviation = team.name
+        entry["home" if side.is_home else "away"] = {"name": team.name, "abbreviation": abbreviation}
     return out
 
 
@@ -1508,7 +1528,10 @@ def market_board(session: Session, sport: str | None = None, day: Any = None, *,
                      "detail": None}
         else:
             state = {"code": "NO_COVERAGE", "label": "No sportsbook coverage",
-                     "detail": "No current sportsbook price has been collected for this game."}
+                     "detail": ("No College Football price is being collected this month: the "
+                                "SportsGameOdds budget has no capacity left after MLB and NFL."
+                                if sport == "CFB" else
+                                "No current sportsbook price has been collected for this game.")}
         card.update({
             "human_lock_at": lock_at.isoformat(), "lock_basis": lock_basis, "locked": locked,
             "lock_reason": state["detail"] if state["code"] == "GAME_LOCKED" else None,

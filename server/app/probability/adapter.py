@@ -512,17 +512,24 @@ def _cfb_channel(session: Session, settings: Settings, game_id: uuid.UUID) -> Ve
         ExternalIdMapping.entity_id == game_id)))
     if len(source_ids) != 1:
         raise ProbabilityUnavailable("FORECAST_UNAVAILABLE", "game has no single CFBD binding", status=404)
+    # The current revision by its designated publication clock -- the same
+    # choice every CFB surface and the paper checkpoint make.
     row = session.scalar(select(CfbResearchForecast)
                          .where(CfbResearchForecast.source_game_id == str(source_ids[0]))
-                         .order_by(CfbResearchForecast.forecast_created_utc.desc(),
+                         .order_by(CfbResearchForecast.exchange_published_utc.desc().nullslast(),
                                    CfbResearchForecast.imported_at.desc()).limit(1))
     if row is None:
         raise ProbabilityUnavailable("FORECAST_UNAVAILABLE", "no CFB research forecast for this game", status=404)
     if row.baseline_configuration != admitted["configuration_id"] or not row.joint_draws_sha256:
         raise ProbabilityUnavailable("IDENTITY_MISMATCH", "CFB forecast is not the admitted paired baseline")
     package = row.package_index_sha256
-    root = _inside(exchange_root(settings) / "cfb-gen1-research-v1",
-                   exchange_root(settings) / "cfb-gen1-research-v1" / "current-v1" / "packages" / "sha256" / package)
+    if row.origin == "PRODUCTION_DISCOVERY":
+        # Discovery packages live in the producer's production tree, content-addressed.
+        root = _inside(exchange_root(settings) / "cfb-gen1-production-v1",
+                       exchange_root(settings) / "cfb-gen1-production-v1" / "forecasts" / "sha256" / package)
+    else:
+        root = _inside(exchange_root(settings) / "cfb-gen1-research-v1",
+                       exchange_root(settings) / "cfb-gen1-research-v1" / "current-v1" / "packages" / "sha256" / package)
 
     def build():
         index = root / "index.json"

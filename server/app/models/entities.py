@@ -3270,6 +3270,11 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     shadow_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("shadow_forecasts.id"), index=True
     )
+    #: College Football forecasts live in their own research table; a CFB paper
+    #: decision names the exact imported row here instead.
+    cfb_research_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("cfb_research_forecasts.id"), index=True
+    )
     forecast_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_version: Mapped[str | None] = mapped_column(String(40))

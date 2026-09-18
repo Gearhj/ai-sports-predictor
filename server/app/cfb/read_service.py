@@ -38,19 +38,22 @@ SCHEMA_VERSION = "AISP_CFB_RESEARCH_VIEW_V1"
 #: Said once, here, so every surface says the same thing.
 AUTHORITY = {
     "sport": CFB_SPORT_CODE,
-    "status": "Research forecast",
-    # A virtual paper account and a paper policy exist for College Football
-    # (see /sports/readiness); what is missing is a bindable price. Saying "no
-    # bankroll" here contradicted the $1,000 Experiment page.
+    "status": "Prospective forecast · research model",
     "bankroll": "Virtual paper account only · no real money",
-    "policy": "Paper policy · no assessment without a price",
-    "market": "No sportsbook price held · market comparison blocked",
+    "policy": ("AISP_CFB_PAPER_POLICY_V1 (owner-approved 2026-09-15): moneyline only, quarter Kelly, "
+               "0.5% / $5 / 1% / 2% caps, 2-point minimum edge vs the same book's no-vig price, "
+               "decided 30 to 15 minutes before kickoff"),
+    "market": "No governed College Football price is held · market comparison unavailable",
     "research_only": True,
-    "note": ("College Football forecasts are research imports. A virtual paper account and "
-             "paper policy exist, but AISP holds no College Football sportsbook price and no "
-             "College Football schedule feed (only individual games are admitted), so no "
-             "assessment or paper position can occur. There is no College Football forecast scheduler, and importing this "
-             "forecast created no account or position."),
+    "controlling_channel": ("Joint score simulation (paired-residual draws) is the channel the paper policy "
+                            "decides on. Ridge (Development-calibrated) and Elo are shown beside it and never "
+                            "averaged with it or substituted for it."),
+    "note": ("Forecasts are verified from the producer's content-addressed discovery and imported with their "
+             "original publication clock. A paper position needs, at the checkpoint: a currently eligible "
+             "discovery lease, the producer's per-forecast eligibility record, and a fresh two-sided "
+             "SportsGameOdds moneyline. No College Football price is being collected this month because "
+             "the SportsGameOdds budget has no uncommitted capacity after MLB and NFL, so every checkpoint "
+             "records an explicit no-position reason."),
 }
 
 ATTRIBUTION = "Data provided by CollegeFootballData.com"
@@ -104,7 +107,7 @@ def _binding_and_eligibility(session: Session, row: CfbResearchForecast) -> dict
     from app.services.research_paper_policy import CFB, eligibility_status
 
     game_id = canonical_game_id(session, row.source_game_id)
-    elig = eligibility_status(session, CFB, forecast_id=row.forecast_id, event_id=row.source_game_id)
+    elig = eligibility_status(session, CFB, forecast_id=row.forecast_id, event_id=f"cfbd:{row.source_game_id}")
     return {
         "canonical_game": {
             "bound": game_id is not None,
@@ -117,13 +120,97 @@ def _binding_and_eligibility(session: Session, row: CfbResearchForecast) -> dict
         "paper_eligibility": {
             "eligible": bool(elig["eligible"]),
             "state": elig["state"],
-            "label": ("A producer paper-eligibility record binds this exact forecast; "
-                      "any assessment still needs a verified price"
+            "label": ("The producer's paper-eligibility record binds this exact forecast"
                       if elig["eligible"] else
-                      "Research only: no paper-eligibility record binds this forecast, so it "
-                      "cannot be assessed or positioned"),
+                      "Research only until the producer's paper-eligibility record binds this forecast; the checkpoint "
+                      "cannot position it"),
         },
+        "pipeline": _pipeline(session, row, game_id),
     }
+
+
+def _pipeline(session: Session, row: CfbResearchForecast, game_id: Any) -> dict[str, Any]:
+    """Discovery lease, decision, price, final and score -- each as AISP holds it now."""
+
+    from datetime import timedelta
+
+    from app.cfb.production_import import present_eligibility
+
+    out: dict[str, Any] = {
+        "origin": row.origin,
+        "publication_clock": {
+            "source": row.publication_clock_source,
+            "label": ("Discovery-bound receipt (committedAtUtc) — the producer's designated publication clock"
+                      if row.publication_clock_source == "DISCOVERY_RECEIPT_COMMITTED_AT"
+                      else "Package-local publication receipt (earlier research import)"),
+            "published_utc": row.exchange_published_utc.astimezone(UTC).isoformat()
+            if row.exchange_published_utc else None,
+        },
+        "discovery": present_eligibility(session, row) if row.origin == "PRODUCTION_DISCOVERY" else {
+            "state": "NOT_IN_PRODUCTION_DISCOVERY", "eligible": False,
+            "detail": "An earlier research package, retained as history; never decision-eligible."},
+    }
+    if game_id is None:
+        return out
+    from app.models import (
+        CfbFinalObservation, Game, OfficialAspPosition, ResearchForecastEvaluation, ShadowExperimentDecision,
+    )
+
+    decision = session.execute(
+        select(ShadowExperimentDecision, OfficialAspPosition)
+        .outerjoin(OfficialAspPosition, OfficialAspPosition.shadow_decision_id == ShadowExperimentDecision.id)
+        .where(ShadowExperimentDecision.game_id == game_id, ShadowExperimentDecision.sport == "CFB")
+        .order_by(ShadowExperimentDecision.recommended_at.desc()).limit(1)).first()
+    if decision is None:
+        out["decision"] = None
+    else:
+        row_d, pos = decision
+        recorded = row_d.recommended_at
+        out["decision"] = {
+            "recommendation": row_d.recommendation, "reason": (row_d.qualification_reasons or {}).get("reason"),
+            "detail": row_d.recommendation_reason,
+            "recorded_at": (recorded if recorded.tzinfo else recorded.replace(tzinfo=UTC)).astimezone(UTC).isoformat()
+            if recorded else None,
+            "position": None if pos is None else {
+                "position_id": str(pos.id), "stake": float(pos.stake), "status": str(pos.status),
+                "result": str(pos.result)}}
+    game = session.get(Game, game_id)
+    kickoff = None
+    if game is not None and game.starts_at is not None:
+        kickoff = (game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)).astimezone(UTC)
+        out["decision_window"] = {"opens_utc": (kickoff - timedelta(minutes=30)).isoformat(),
+                                  "closes_utc": (kickoff - timedelta(minutes=15)).isoformat()}
+    status = str(game.status).split(".")[-1].upper() if game is not None else None
+    out["game_status"] = status
+    if status == "FINAL":
+        final = session.scalar(select(CfbFinalObservation).where(CfbFinalObservation.game_id == game_id)
+                               .order_by(CfbFinalObservation.created_at.desc()).limit(1))
+        evaluation = session.scalar(select(ResearchForecastEvaluation).where(
+            ResearchForecastEvaluation.canonical_game_id == game_id, ResearchForecastEvaluation.is_current.is_(True),
+            ResearchForecastEvaluation.engine_id == "CFB_GEN1_JOINT_BASELINE").limit(1))
+        captured = final.captured_at_utc if final else None
+        out["final"] = {
+            "home_score": game.home_score, "away_score": game.away_score,
+            "source": "CFBD (retained by the producer)",
+            "observed_utc": (captured if captured.tzinfo else captured.replace(tzinfo=UTC)).isoformat()
+            if captured else None,
+            "completion_clock": final.completion_clock_status if final else None,
+            "overtime": bool((final.evidence_row or {}).get("overtime")) if final else None,
+        }
+        out["evaluation"] = None if evaluation is None else {
+            "channel": "Joint score simulation", "log_loss": evaluation.log_loss,
+            "two_way_brier": (evaluation.detail or {}).get("two_way_brier"),
+            "winner_correct": evaluation.winner_correct, "probability_of_actual": evaluation.probability_of_actual,
+            "margin_error": evaluation.margin_error, "total_error": evaluation.total_error,
+            "crps_margin": evaluation.crps_margin, "forecast_id": evaluation.forecast_identity,
+            "diagnostic_channels": (evaluation.detail or {}).get("diagnostic_channels")}
+    try:
+        from app.services.command_center import _cfb_price_note
+
+        out["price"] = _cfb_price_note(session)
+    except Exception:  # noqa: BLE001
+        out["price"] = None
+    return out
 
 EXPLANATION = (
     "Different methods estimate the same game differently. The score "
@@ -148,11 +235,14 @@ def _fmt(row: CfbResearchForecast, session: Session | None = None) -> dict[str, 
         "package_index_sha256": row.package_index_sha256,
         "publication_receipt_sha256": row.publication_receipt_sha256,
         "baseline_configuration": row.baseline_configuration,
-        "engine_label": "College Football Gen 1 — Early research forecast",
-        # Every imported CFB package is a PROSPECTIVE_RESEARCH snapshot taken at
-        # its source cutoff, never a final-pregame forecast.
+        "engine_label": ("College Football Gen 1 — prospective slate forecast"
+                         if row.origin == "PRODUCTION_DISCOVERY"
+                         else "College Football Gen 1 — Early research forecast"),
+        # A CFB package is a prospective snapshot taken at its source cutoff and
+        # published at its receipt clock. It is never relabelled as a
+        # final-pregame refresh or a day-before preview.
         "horizon": "PROSPECTIVE_RESEARCH",
-        "horizon_label": "Prospective research snapshot · not a final pregame forecast",
+        "horizon_label": "Prospective forecast · published before kickoff · not a final pregame forecast",
         **(_binding_and_eligibility(session, row) if session is not None else {}),
 
         "game": {
@@ -292,6 +382,18 @@ def research_board(session: Session, *, date_iso: str | None = None) -> dict[str
 
     rows = list(session.scalars(
         select(CfbResearchForecast).order_by(CfbResearchForecast.captured_kickoff_utc)))
+    # One card per game: its current revision by the designated publication
+    # clock. Earlier revisions stay in the table as history.
+    def utc(value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+    current: dict[str, CfbResearchForecast] = {}
+    for row in rows:
+        held = current.get(row.source_game_id)
+        clock = utc(row.exchange_published_utc or row.imported_at)
+        if held is None or clock > utc(held.exchange_published_utc or held.imported_at):
+            current[row.source_game_id] = row
+    rows = sorted(current.values(), key=lambda r: (utc(r.captured_kickoff_utc), r.source_game_id))
     forecasts = [_fmt(row, session) for row in rows]
     if date_iso:
         forecasts = [f for f in forecasts
@@ -300,19 +402,19 @@ def research_board(session: Session, *, date_iso: str | None = None) -> dict[str
     return {
         "schema_version": SCHEMA_VERSION,
         "sport": CFB_SPORT_CODE,
-        "label": "College Football · Research",
+        "label": "College Football",
         "date": date_iso,
         "forecasts": forecasts,
         "count": len(forecasts),
         # One forecast is not a slate. Said explicitly so an empty board reads as
         # "nothing published for this date" rather than "the page is broken".
         "empty_state": (
-            "No College Football research forecast has been published for this date. "
-            "AISP admits a College Football game only from a verified research forecast, "
+            "No College Football forecast has been published for this date. "
+            "AISP admits a College Football game only from a verified forecast, "
             "so games without one are not listed."),
         "coverage_note": (
-            "One imported forecast does not mean the College Football slate has "
-            "model coverage."),
+            "Coverage is the producer's scope: FBS-vs-FBS regular-season games it published "
+            "a verified forecast for. Other games are not listed."),
         "authority": AUTHORITY,
         "attribution": ATTRIBUTION,
     }
@@ -344,18 +446,20 @@ def resolve_source_game_id(session: Session, game_id: str) -> str:
 
 
 def game_detail(session: Session, *, source_game_id: str) -> dict[str, Any] | None:
+    from app.cfb.production_import import current_forecast_for_game
+
     source_game_id = resolve_source_game_id(session, source_game_id)
-    row = session.scalar(select(CfbResearchForecast).where(
-        CfbResearchForecast.source_game_id == str(source_game_id)))
+    row = current_forecast_for_game(session, str(source_game_id))
     return _fmt(row, session) if row else None
 
 
 def total_scenario(session: Session, *, source_game_id: str, line: float) -> dict[str, Any] | None:
     """Over/push/under from the complete PMF. Never from the expected total."""
 
+    from app.cfb.production_import import current_forecast_for_game
+
     source_game_id = resolve_source_game_id(session, source_game_id)
-    row = session.scalar(select(CfbResearchForecast).where(
-        CfbResearchForecast.source_game_id == str(source_game_id)))
+    row = current_forecast_for_game(session, str(source_game_id))
     if row is None:
         return None
     pmf = (row.pmfs or {}).get("total")

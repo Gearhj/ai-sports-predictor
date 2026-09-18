@@ -53,8 +53,10 @@ export const BookSpread = memo(function BookSpread({ game, market }: { game: Cov
     return (
       <p className="cc-empty">
         {PRICE_STATE_LABEL[game.price_state]} for {game.matchup} ({market.toLowerCase()}).{' '}
-        Collection opens {relative(game.checkpoints.collection_opens_at)}; the decision window opens{' '}
-        {relative(game.checkpoints.decision_window_opens_at)}.
+        {game.checkpoints.collection_opens_at
+          ? <>Collection opens {relative(game.checkpoints.collection_opens_at)}; the decision window opens{' '}
+            {relative(game.checkpoints.decision_window_opens_at)}.</>
+          : <>{game.price_unavailable?.detail ?? 'No collection is planned for this game.'}</>}
       </p>
     )
   }

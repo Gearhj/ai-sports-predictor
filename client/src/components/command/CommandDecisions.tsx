@@ -482,7 +482,9 @@ const AgendaRow = memo(function AgendaRow({ card, now, next }: { card: FeedCard;
           : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
       <span role="cell">{game
         ? game.price_state === 'CURRENT_PRICE' ? <b className="is-up">Collected</b>
-          : <><b>{etTime(game.checkpoints.collection_opens_at).replace(' ET', '')}</b><small>{Date.parse(game.checkpoints.collection_opens_at) > now ? `in ${countdown(game.checkpoints.collection_opens_at, now)}` : 'open'}</small></>
+          : game.checkpoints.collection_opens_at == null
+            ? <span className="is-gold" title={game.price_unavailable?.detail}>No collection</span>
+            : <><b>{etTime(game.checkpoints.collection_opens_at).replace(' ET', '')}</b><small>{Date.parse(game.checkpoints.collection_opens_at) > now ? `in ${countdown(game.checkpoints.collection_opens_at, now)}` : 'open'}</small></>
         : card.readiness
           ? <span title={card.readiness.price?.label}>{readinessPriceLabel(card.readiness.price?.state)}</span>
           : '—'}</span>

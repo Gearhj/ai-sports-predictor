@@ -40,6 +40,7 @@ from typing import Any
 THE_ODDS_API = "THE_ODDS_API"
 NFLVERSE = "NFLVERSE"
 MLB_STATS_API = "MLB_STATS_API"
+CFBD = "CFBD"
 OPERATOR_ENTERED = "OPERATOR_ENTERED"
 
 #: Lower is stronger.
@@ -47,6 +48,7 @@ RESULT_TIERS: dict[str, int] = {
     THE_ODDS_API: 1,
     NFLVERSE: 2,
     MLB_STATS_API: 2,
+    CFBD: 2,
     OPERATOR_ENTERED: 3,
 }
 
@@ -60,6 +62,11 @@ SOURCE_NOTES: dict[str, str] = {
                    "league's official wire for game state and final scores. It is "
                    "not the governed odds provider, so it is not described as "
                    "provider-verified and it grants no wagering authority.",
+    CFBD: "Recorded automatically from CollegeFootballData.com /games rows that the "
+          "producer retained under its approved capture plan (completed=true, points, "
+          "exact CFBD game and team ids). CFBD supplies no completion or revision "
+          "time; the capture time is shown as the observation time only. Not the "
+          "governed odds provider, so it is not described as provider-verified.",
 }
 
 #: An unclassified source outranks nothing.

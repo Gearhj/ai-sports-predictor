@@ -27,6 +27,8 @@
  * allowed to make.
  */
 import { SportReadiness } from '../components/readiness/SportReadiness'
+import { CfbSlateSection } from '../components/cfb/CfbSlateSection'
+import '../components/cfb/cfb.css'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable, SignalPill } from '../components/ui'
@@ -377,6 +379,8 @@ export function UnifiedGamesPage() {
           />
         )}
 
+        {(sport === 'ALL' || sport === 'CFB') && <CfbSlateSection date={dateParam} />}
+
         <details className="cc-below">
           <summary>Forecast and price readiness for each sport</summary>
           <SportReadiness sport={sport} title="Forecast and price readiness by sport" />
@@ -386,7 +390,7 @@ export function UnifiedGamesPage() {
             nothing in it. NBA holds imported research forecasts and no market;
             saying "no forecasts" here would contradict the surface that shows
             them. The registry's own research href decides which sentence runs. */}
-        {!['ALL', 'MLB', 'NFL'].includes(sport) && (
+        {!['ALL', 'MLB', 'NFL', 'CFB'].includes(sport) && (
           researchHref ? (
             <p className="bx-empty">
               {sport} has no slate, market or position in AISP. Its imported research

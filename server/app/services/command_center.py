@@ -37,6 +37,11 @@ COVERAGE_SCHEMA = "AISP_COMMAND_CENTER_MARKET_COVERAGE_V1"
 SPORTS = ("MLB", "NFL", "NBA", "CFB")
 #: Leagues whose games carry governed price collection and decision windows.
 PRICED_LEAGUES = ("MLB", "NFL")
+#: Leagues listed on the slate surfaces. College Football is listed because it
+#: now has a paper decision checkpoint (AISP_CFB_PAPER_POLICY_V1); it has no
+#: collection checkpoint, so its collection time is null and its price state
+#: names why (``cfb_price_unavailable``).
+LISTED_LEAGUES = ("MLB", "NFL", "CFB")
 SPORT_LABELS = {"MLB": "MLB", "NFL": "NFL", "NBA": "NBA", "CFB": "College Football"}
 QUOTE_FRESHNESS_MINUTES = 240
 WINDOW_OPENS = timedelta(minutes=30)
@@ -85,6 +90,10 @@ def _matchups(session: Session, game_ids: list[str]) -> dict[str, dict[str, Any]
         where gt.game_id = any(cast(:ids as uuid[]))"""), {"ids": game_ids}).all()
     out: dict[str, dict[str, Any]] = defaultdict(dict)
     for game_id, is_home, team_id, abbreviation, name in rows:
+        # College Football teams carry their CFBD id as a code (no abbreviation
+        # is invented); the school name is what a reader should see.
+        if abbreviation and str(abbreviation).startswith("CFBD") and str(abbreviation)[4:].isdigit():
+            abbreviation = name
         out[str(game_id)]["home" if is_home else "away"] = {
             "team_id": str(team_id), "abbreviation": abbreviation, "name": name}
     for value in out.values():
@@ -530,6 +539,67 @@ def _best(quotes: list[dict[str, Any]], side: str) -> dict[str, Any] | None:
             "provider": top["provider"], "observed_at": top["observed_at"]}
 
 
+def _cfb_models(session: Session, ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The current CFB forecast per admitted game, joint channel labelled as controlling."""
+
+    rows = session.execute(text("""
+        select distinct on (canonical_game_id) canonical_game_id, joint_home_win_probability,
+               joint_away_win_probability, expected_home_points, expected_away_points,
+               exchange_published_utc, forecast_id, ridge_home_win_probability, elo_home_win_probability,
+               origin, publication_clock_source
+        from cfb_research_forecasts
+        where canonical_game_id = any(cast(:ids as uuid[]))
+        order by canonical_game_id, exchange_published_utc desc nulls last, imported_at desc"""),
+        {"ids": ids}).all()
+    out: dict[str, dict[str, Any]] = {}
+    for (gid, home_p, away_p, exp_home, exp_away, published, forecast_id, ridge_home, elo_home,
+         origin, clock) in rows:
+        two_way = (home_p or 0) + (away_p or 0)
+        out[str(gid)] = {
+            "engine_id": "CFB_GEN1_JOINT_BASELINE", "home": home_p, "away": away_p,
+            "home_two_way": round(home_p / two_way, 4) if two_way else None,
+            "expected_home": round(exp_home, 2) if exp_home is not None else None,
+            "expected_away": round(exp_away, 2) if exp_away is not None else None,
+            "created_at": _iso(published), "forecast_id": forecast_id,
+            "controlling_channel": "JOINT_PAIRED_RESIDUAL_BASELINE",
+            "expected_points_channel": "RIDGE_ALPHA100",
+            "separate_channels": {"ridge_development_calibrated_home": ridge_home, "elo_diagnostic_home": elo_home},
+            "origin": origin, "publication_clock_source": clock,
+        }
+    return out
+
+
+_CFB_PRICE_NOTE: dict[str, Any] = {}
+
+
+def _cfb_price_note(session: Session) -> dict[str, Any]:
+    """Why a CFB game has no price, read from the capacity gate (writes nothing).
+
+    Held for ten minutes: the gate builds the allocator's projection, and the
+    answer moves on the scale of a day, not a page view.
+    """
+
+    cached = _CFB_PRICE_NOTE.get("value")
+    if cached is not None and (datetime.now(UTC) - _CFB_PRICE_NOTE["at"]) < timedelta(minutes=10):
+        return cached
+    try:
+        from app.cfb.sgo_lane import capacity
+        from app.core.config import get_settings
+
+        nested = session.begin_nested()
+        try:
+            gate = capacity(session, get_settings())
+        finally:
+            nested.rollback()
+        note = {"reason": gate["state"], "detail": gate["explanation"],
+                "reference_lines": ("CFBD /lines (one probe, 2026-09-18) carries no quote timestamps and "
+                                    "covers none of the current forecasts; reference only, never a price.")}
+        _CFB_PRICE_NOTE.update({"value": note, "at": datetime.now(UTC)})
+        return note
+    except Exception as error:  # noqa: BLE001 -- the note is explanatory; never break the slate
+        return {"reason": "PRICE_STATE_UNAVAILABLE", "detail": type(error).__name__}
+
+
 def market_coverage(session: Session, day: date, now: datetime | None = None,
                     *, as_of: datetime | None = None) -> dict[str, Any]:
     """Stored coverage for one slate. With ``as_of``, only observations made at or
@@ -548,7 +618,7 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
         from games g join leagues l on l.id = g.league_id
         where g.starts_at >= :lo and g.starts_at < :hi
           and l.code = any(:leagues)
-        order by g.starts_at, g.id"""), {"lo": lo, "hi": hi, "leagues": list(PRICED_LEAGUES)}).all()
+        order by g.starts_at, g.id"""), {"lo": lo, "hi": hi, "leagues": list(LISTED_LEAGUES)}).all()
     ids = [str(g[0]) for g in games]
     teams = _matchups(session, ids)
 
@@ -580,6 +650,10 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
         where canonical_game_id = any(cast(:ids as uuid[])) and engine_id = any(:engines)
         order by canonical_game_id, created_at desc"""),
         {"ids": ids, "engines": list(CONTROLLING_ENGINES.values())}).all()} if ids else {}
+
+    cfb_ids = [str(g[0]) for g in games if g[1] == "CFB"]
+    cfb_models = _cfb_models(session, cfb_ids) if cfb_ids else {}
+    cfb_price = _cfb_price_note(session) if cfb_ids else None
 
     by_game: dict[str, list[Any]] = defaultdict(list)
     for row in quote_rows:
@@ -647,6 +721,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                      "expected_home": round(exp_home, 2) if exp_home is not None else None,
                      "expected_away": round(exp_away, 2) if exp_away is not None else None,
                      "created_at": _iso(created)}
+        if league == "CFB":
+            model = cfb_models.get(gid)
         start = _aware(starts_at)
         closes = start - WINDOW_CLOSES
         if fresh_ml:
@@ -670,8 +746,10 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
             "best": {side: _best(fresh_ml, side) for side in ("HOME", "AWAY")},
             "model": model,
             "quotes": quotes,
+            **({"price_unavailable": cfb_price} if league == "CFB" and not quotes else {}),
             "checkpoints": {
-                "collection_opens_at": _iso(closes - timedelta(minutes=QUOTE_FRESHNESS_MINUTES)),
+                "collection_opens_at": (None if league == "CFB"
+                                        else _iso(closes - timedelta(minutes=QUOTE_FRESHNESS_MINUTES))),
                 "decision_window_opens_at": _iso(start - WINDOW_OPENS),
                 "decision_window_closes_at": _iso(closes),
             },
@@ -685,6 +763,7 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
     upcoming = [g for g in out_games if g["starts_at"] and g["starts_at"] > _iso(now)]
     next_collection = min((g["checkpoints"]["collection_opens_at"] for g in upcoming
                            if g["price_state"] != "CURRENT_PRICE"
+                           and g["checkpoints"]["collection_opens_at"]
                            and g["checkpoints"]["collection_opens_at"] > _iso(now)), default=None)
     return {
         "schema_version": COVERAGE_SCHEMA, "date": day.isoformat(), "generated_at": _iso(now),

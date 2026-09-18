@@ -362,69 +362,76 @@ def _nba(session: Session, now: datetime) -> dict[str, Any]:
 
 
 def _cfb(session: Session, now: datetime) -> dict[str, Any]:
+    from app.cfb.production_import import current_forecast_for_game, present_eligibility
+    from app.core.config import get_settings
     from app.models import CfbResearchForecast
     from app.services.research_paper_policy import CFB, eligibility_status
 
+    settings = get_settings()
+    active = bool(settings.cfb_production_consumer_enabled)
+    positions_on = active and bool(settings.cfb_paper_decisions_enabled)
     base = {"sport": "CFB", "label": "College Football", "policy_version": CFB.policy_version,
             "controlling_engine": CFB.controlling_engine,
             "controlling_configuration": CFB.controlling_configuration,
+            "controlling_channel": "JOINT_PAIRED_RESIDUAL_BASELINE",
             "account": _account(session, "CFB")}
-    row = session.scalar(select(CfbResearchForecast)
-                         .where(CfbResearchForecast.captured_kickoff_utc > now)
-                         .order_by(CfbResearchForecast.captured_kickoff_utc).limit(1))
+    upcoming = session.scalar(select(CfbResearchForecast.source_game_id)
+                              .where(CfbResearchForecast.captured_kickoff_utc > now + timedelta(minutes=15))
+                              .order_by(CfbResearchForecast.captured_kickoff_utc).limit(1))
+    row = current_forecast_for_game(session, upcoming) if upcoming else None
     if row is None:
         return {**base, "next_game": None,
-                "forecast": _state("NO_FORECAST", "No upcoming College Football research forecast"),
+                "forecast": _state("NO_FORECAST", "No upcoming College Football forecast"),
                 "price": _state("NOT_PLANNED", "No collection planned"),
                 "decision": _state("NO_WINDOW", "No decision window scheduled"),
-                "position": _state("NONE", "No College Football position"),
+                "position": _state("NONE", "No College Football position", **_positions(session, "CFB")),
                 "pipeline": {"ready": False, "blocker": "No upcoming forecast.", "could_qualify": None}}
     window = _window(row.captured_kickoff_utc)
-    elig = eligibility_status(session, CFB, forecast_id=row.forecast_id, event_id=row.source_game_id)
+    elig = eligibility_status(session, CFB, forecast_id=row.forecast_id, event_id=f"cfbd:{row.source_game_id}")
+    lease = present_eligibility(session, row, now=now) if row.origin == "PRODUCTION_DISCOVERY" else {
+        "state": "NOT_IN_PRODUCTION_DISCOVERY", "eligible": False}
     game_row = session.execute(text("""
         select entity_id from external_id_mappings where entity_type = 'game' and source = 'CFBD'
           and external_id = :x limit 1"""), {"x": row.source_game_id}).first()
-    has_game_row = game_row is not None
+    try:
+        from app.services.command_center import _cfb_price_note
+
+        price_note = _cfb_price_note(session)
+    except Exception:  # noqa: BLE001
+        price_note = {"reason": "PRICE_STATE_UNAVAILABLE", "detail": "Price state could not be read."}
     blockers = []
+    if not positions_on:
+        blockers.append("the CFB paper decision owner is not active")
+    if not lease.get("eligible"):
+        blockers.append(f"discovery lease {lease.get('state')}")
     if not elig["eligible"]:
-        blockers.append(f"research only: no producer paper-eligibility record binds this exact forecast "
-                        f"({CFB.eligibility_contract})")
-    if not has_game_row:
-        blockers.append("no canonical College Football game identity, because AISP has no admitted "
-                        "College Football schedule source — a quote cannot be bound or a position recorded")
+        blockers.append(f"no producer paper-eligibility record yet ({CFB.eligibility_contract})")
+    blockers.append(f"no governed price ({price_note.get('reason')})")
+    favourite = row.home_team_name if row.joint_home_win_probability >= 0.5 else row.away_team_name
     return {**base,
             "next_game": {"source_game_id": row.source_game_id,
                           "matchup": f"{row.away_team_name} @ {row.home_team_name}",
                           "starts_at": _iso(row.captured_kickoff_utc),
                           "starts_label": _et_label(row.captured_kickoff_utc),
-                          "canonical_game_id": str(game_row[0]) if has_game_row else None,
+                          "canonical_game_id": str(game_row[0]) if game_row else None,
                           "research_href": f"/college-football/games/{row.source_game_id}"},
-            "forecast": _state("RESEARCH_FORECAST_AVAILABLE",
-                               f"Research pick: {row.home_team_name if row.joint_home_win_probability >= 0.5 else row.away_team_name} "
-                               f"(joint {max(row.joint_home_win_probability, row.joint_away_win_probability):.2%})",
+            "forecast": _state("PROSPECTIVE_FORECAST_AVAILABLE",
+                               f"Forecast: {favourite} "
+                               f"(joint {max(row.joint_home_win_probability, row.joint_away_win_probability):.2%}) · "
+                               f"discovery {lease.get('state', '').replace('_', ' ').lower()}",
                                identity=row.forecast_id),
-            "price": (_state("COLLECTION_BLOCKED",
-                             "No price. No request is made: SportsGameOdds' College Football league identity "
-                             "(documented as NCAAF) is not verified in retained evidence. The game itself is "
-                             "bound to its CFBD id, so a verified quote could be matched to it.",
-                             blocker="SGO_LEAGUE_IDENTITY_UNVERIFIED")
-                      if has_game_row else
-                      _state("COLLECTION_BLOCKED",
-                             "No price. No request is made: SportsGameOdds' College Football league identity "
-                             "is not in retained evidence, and without a canonical game identity a returned "
-                             "quote could not be bound.",
-                             blocker="SGO_LEAGUE_IDENTITY_UNVERIFIED;NO_CANONICAL_GAME_IDENTITY")),
-            "decision": _state("WINDOW_NOT_OPEN", f"Decision window {window['label']}", window=_strip(window)),
-            "eligibility": {"eligible": elig["eligible"], "reason": elig["state"], "contract": elig["contract"]},
+            "price": _state("COLLECTION_BLOCKED", f"No price. {price_note.get('detail', '')}",
+                            blocker=price_note.get("reason")),
+            "decision": _state("WINDOW_NOT_OPEN" if positions_on else "OWNER_INACTIVE",
+                               f"Decision window {window['label']}" if positions_on
+                               else "The CFB paper checkpoint is not active", window=_strip(window)),
+            "eligibility": {"eligible": elig["eligible"], "reason": elig["state"], "contract": elig["contract"],
+                            "discovery_lease": lease.get("state")},
             "position": _state("NONE_YET", "No College Football position", **_positions(session, "CFB")),
-            "pipeline": {"ready": not blockers,
-                         "blocker": ("Research forecast available; " + "; ".join(blockers) + ".") if blockers else None,
-                         "could_qualify": ("No. Even with eligibility, a position needs a canonical game and a "
-                                           "bound two-sided price.") if not has_game_row
-                                 else ("No. This forecast is research only, and no verified College Football "
-                                       "price source exists.") if not elig["eligible"]
-                                 else "Only with a verified College Football price source and a fresh "
-                                      "two-sided quote inside the window."}}
+            "pipeline": {"ready": positions_on,
+                         "blocker": "; ".join(blockers).capitalize() + ".",
+                         "could_qualify": ("No: without a governed College Football price the checkpoint records "
+                                           "NO_TWO_SIDED_QUOTE, a legitimate no-position result.")}}
 
 
 BUILDERS = (("MLB", _mlb), ("NFL", _nfl), ("NBA", _nba), ("CFB", _cfb))

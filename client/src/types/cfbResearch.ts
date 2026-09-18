@@ -53,6 +53,23 @@ export interface CfbTotalScenario {
   note: string
 }
 
+export interface CfbPipeline {
+  origin: string
+  publication_clock: { source: string | null; label: string; published_utc: string | null }
+  discovery: { state: string; eligible: boolean; detail?: string; lease_valid_until?: string | null; manifest_sha256?: string }
+  decision?: {
+    recommendation: string; reason: string | null; detail: string | null; recorded_at: string | null
+    position: { position_id: string; stake: number; status: string; result: string } | null
+  } | null
+  decision_window?: { opens_utc: string; closes_utc: string }
+  game_status?: string | null
+  final?: { home_score: number | null; away_score: number | null; source: string; observed_utc: string | null
+    completion_clock: string | null; overtime: boolean | null }
+  evaluation?: { channel: string; log_loss: number; two_way_brier: number | null; winner_correct: boolean
+    probability_of_actual: number; margin_error: number | null; total_error: number | null } | null
+  price?: { reason: string; detail: string; reference_lines?: string } | null
+}
+
 export interface CfbResearchForecast {
   schema_version: string
   forecast_row_id: string
@@ -66,6 +83,8 @@ export interface CfbResearchForecast {
   horizon_label?: string
   canonical_game?: { bound: boolean; game_id: string | null; source: string; source_game_id: string; label: string }
   paper_eligibility?: { eligible: boolean; state: string; label: string }
+  /** Where the forecast stands now: lease, decision, price, final and score. */
+  pipeline?: CfbPipeline
   game: {
     source_provider: string
     source_game_id: string

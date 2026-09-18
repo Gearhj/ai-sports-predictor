@@ -445,7 +445,16 @@ class ExperimentAccountService:
             .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
             .where(OfficialAspPosition.shadow_experiment_id.in_(ids))
         )
-        return float(total or 0.0)
+        # Corrections are recorded beside the original settlement; count them.
+        from app.models import PositionSettlementAdjustment
+
+        adjustments = self.session.scalar(
+            select(func.coalesce(func.sum(PositionSettlementAdjustment.profit_loss_delta), 0))
+            .select_from(PositionSettlementAdjustment)
+            .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlementAdjustment.position_id)
+            .where(OfficialAspPosition.shadow_experiment_id.in_(ids))
+        )
+        return float(total or 0.0) + float(adjustments or 0.0)
 
     def reserved_stake(self, account: ExperimentAccount) -> float:
         """Stake locked in positions that are still open.

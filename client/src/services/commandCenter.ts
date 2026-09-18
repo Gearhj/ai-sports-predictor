@@ -245,7 +245,10 @@ export interface CoverageGame {
   best: Record<'HOME' | 'AWAY', { american: number | null; sportsbook: string | null; provider: string | null; observed_at: string } | null>
   model: { engine_id: string; home: number | null; away: number | null; home_two_way: number | null; expected_home?: number | null; expected_away?: number | null; created_at: string | null } | null
   quotes: CoverageQuote[]
-  checkpoints: { collection_opens_at: string; decision_window_opens_at: string; decision_window_closes_at: string }
+  /** College Football has no collection checkpoint: its collection time is null. */
+  checkpoints: { collection_opens_at: string | null; decision_window_opens_at: string; decision_window_closes_at: string }
+  /** Why a College Football game has no price (server-stated). */
+  price_unavailable?: { reason: string; detail: string; reference_lines?: string }
 }
 
 export interface MarketCoverage {
