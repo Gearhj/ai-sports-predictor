@@ -233,7 +233,7 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
   // ("Awaiting first forecast and quote"), which is wrong once quotes exist.
   // The market and model lines above say what is actually pending.
   const notYet = item?.recommendation === 'NOT_YET_EVALUATED'
-  const windowText = game ? `Evaluated in the ${etTime(game.checkpoints.decision_window_opens_at)}–${etTime(game.checkpoints.decision_window_closes_at)} ET decision window` : null
+  const windowText = game ? `Evaluated in the ${etTime(game.checkpoints.decision_window_opens_at)}–${etTime(game.checkpoints.decision_window_closes_at)} decision window` : null
   const reasons = notYet && game?.model_status ? (windowText ? [windowText] : [])
     : item?.plain_reasons?.length ? item.plain_reasons : card.status.detail ? [card.status.detail] : []
   return (
