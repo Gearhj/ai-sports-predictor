@@ -107,7 +107,26 @@ def measure(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
     if policy.ACTIVATED:
         pregame_games = [gid for gid, starts in nfl
                          if starts - moment > -NFL_PREGAME_HOLD]
-    pregame = min(len(pregame_games), NFL_PREGAME_PER_GAME) if pregame_games else 0
+    # ONE OBJECT PER GAME, which is what the constant has always said.
+    #
+    # This used to be `min(len(pregame_games), NFL_PREGAME_PER_GAME)`, so a
+    # fifteen-game Sunday reserved exactly as much as a one-game Thursday: one
+    # object. Every governed game after the first was unfundable, and the lane
+    # reported ALLOCATION_LANE_DAILY_ALLOWANCE_SPENT for the rest of the day.
+    # Demand is now the size of the slate, so a day with no NFL still reserves
+    # nothing and a full Sunday reserves what a full Sunday costs.
+    pregame = len(pregame_games) * NFL_PREGAME_PER_GAME
+
+    # 1b. The advance pass. Games beyond today that still have no recent price
+    #     at all, so Show Prep and the board have something to show before the
+    #     checkpoint window opens. Self-limiting: a game priced within the
+    #     refresh interval is not counted, so a covered slate reserves nothing.
+    advance = 0
+    if policy.ACTIVATED:
+        from app.services.sgo_nfl_pregame import due_games
+
+        advance = sum(1 for entry in due_games(session, now=moment)
+                      if entry.get("pass") == "ADVANCE")
 
     # 2. In-game checks only for a followed game that is actually in progress
     #    or about to be.
@@ -128,17 +147,21 @@ def measure(session: Session, *, now: datetime | None = None) -> dict[str, Any]:
     return {
         "service_date": day.isoformat(),
         "nfl_games_today": len(nfl),
+        "nfl_advance_games_needing_price": advance,
         "nfl_games_followed": len(followed),
         "reservations": {
-            "sgo_nfl_events": pregame,
+            "sgo_nfl_events": pregame + advance,
             "sgo_nfl_live": live,
             "sgo_nfl_periods": periods,
         },
         "why": {
             "sgo_nfl_events": (
-                f"{pregame} object reserved: an authorised NFL paper game is on "
-                "this service day." if pregame else
-                "No object reserved: no authorised NFL paper game today."),
+                f"{pregame} checkpoint object(s) for {len(pregame_games)} "
+                f"authorised NFL paper game(s) today, plus {advance} advance "
+                "object(s) for games with no recent price."
+                if (pregame or advance) else
+                "No object reserved: no authorised NFL paper game today and no "
+                "upcoming game missing a recent price."),
             "sgo_nfl_live": (
                 f"{live} reserved for {len(live_games)} followed game(s) at or "
                 "near kickoff." if live else

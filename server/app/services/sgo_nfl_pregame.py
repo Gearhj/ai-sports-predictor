@@ -52,13 +52,55 @@ SOURCE = "SPORTSGAMEODDS"
 WINDOW_OPENS_BEFORE_KICKOFF = timedelta(minutes=75)
 WINDOW_CLOSES_BEFORE_KICKOFF = timedelta(minutes=15)
 
+#: THE ADVANCE PASS.
+#:
+#: The checkpoint window above answers "what is the price now, at the moment a
+#: decision is made". It cannot answer "what does the slate look like", because
+#: it opens seventy-five minutes before kickoff -- hours after Show Prep is
+#: recorded and days after anyone wants to look at Sunday. Until this existed,
+#: the fifteen governed Week 2 games carried one quote each from 29 August.
+#:
+#: So a game inside this horizon is priced once, in advance, and then left
+#: alone until its checkpoint. Demand is self-limiting: a game whose newest
+#: moneyline is younger than ADVANCE_REFRESH is not due, so the pass costs one
+#: object per game per refresh interval and nothing at all once the slate is
+#: covered.
+ADVANCE_HORIZON = timedelta(hours=84)
+ADVANCE_REFRESH = timedelta(hours=24)
+#: Never advance-buy a game that will reach its own checkpoint soon. Without
+#: this, a Sunday game would be bought twice on Sunday -- once in the morning
+#: and again at its checkpoint -- which doubles the slate's cost for a price
+#: the checkpoint pass is about to replace anyway.
+ADVANCE_MIN_LEAD = timedelta(hours=12)
+
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _newest_moneyline(session: Session, game_id: Any) -> datetime | None:
+    """When this game's freshest persisted moneyline was observed."""
+
+    from app.models import Market, MarketOutcome, MarketType, OddsSnapshot
+
+    observed = session.scalar(
+        select(OddsSnapshot.observed_at)
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .join(Market, Market.id == MarketOutcome.market_id)
+        .where(Market.game_id == game_id, Market.market_type == MarketType.MONEYLINE)
+        .order_by(OddsSnapshot.observed_at.desc()).limit(1)
+    )
+    return _aware(observed) if observed is not None else None
+
+
 def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str, Any]]:
-    """NFL games inside the collection window, soonest first."""
+    """NFL games worth an object right now, checkpoint first, then advance.
+
+    Two passes, one lane. A CHECKPOINT game is inside the final window and needs
+    a price that is fresh when the decision is made. An ADVANCE game is further
+    out and has no recent price at all, so Show Prep and the board have nothing
+    to show; it is priced once and then not touched again until its checkpoint.
+    """
 
     moment = now or datetime.now(UTC)
     rows = session.execute(
@@ -67,26 +109,39 @@ def due_games(session: Session, *, now: datetime | None = None) -> list[dict[str
         .where(League.code == "NFL",
                Game.status == GameStatus.SCHEDULED,
                Game.starts_at > moment,
-               Game.starts_at <= moment + WINDOW_OPENS_BEFORE_KICKOFF)
+               Game.starts_at <= moment + ADVANCE_HORIZON)
         .order_by(Game.starts_at)
     ).all()
-    out: list[dict[str, Any]] = []
+    checkpoint: list[dict[str, Any]] = []
+    advance: list[dict[str, Any]] = []
     for game_id, starts_at in rows:
         starts = _aware(starts_at)
-        if starts - moment < WINDOW_CLOSES_BEFORE_KICKOFF:
+        to_kickoff = starts - moment
+        if to_kickoff < WINDOW_CLOSES_BEFORE_KICKOFF:
             continue  # inside the final 15 minutes: too late to be useful
+        in_checkpoint = to_kickoff <= WINDOW_OPENS_BEFORE_KICKOFF
+        if not in_checkpoint:
+            if to_kickoff < ADVANCE_MIN_LEAD:
+                continue  # its checkpoint is close enough to be the right buy
+            newest = _newest_moneyline(session, game_id)
+            if newest is not None and moment - newest <= ADVANCE_REFRESH:
+                continue  # already priced recently; a second object buys nothing
         sides = dict(session.execute(
             select(GameTeam.is_home, Team.abbreviation)
             .join(Team, Team.id == GameTeam.team_id)
             .where(GameTeam.game_id == game_id)
         ).all())
-        out.append({
+        entry = {
             "game_id": str(game_id),
             "starts_at": starts.isoformat(),
-            "minutes_to_kickoff": round((starts - moment).total_seconds() / 60, 1),
+            "minutes_to_kickoff": round(to_kickoff.total_seconds() / 60, 1),
             "away": sides.get(False), "home": sides.get(True),
-        })
-    return out
+            "pass": "CHECKPOINT" if in_checkpoint else "ADVANCE",
+        }
+        (checkpoint if in_checkpoint else advance).append(entry)
+    # Checkpoint games come first: if a grant cannot cover everything, the games
+    # with a decision to make are the ones that get paid for.
+    return checkpoint + advance
 
 
 def fetch_nfl_pregame(
@@ -149,28 +204,42 @@ def collect_nfl_pregame(
         return {"attempted": False, "reason": "PROVIDER_NOT_ELIGIBLE",
                 "objects": 0, "detail": reason, "games_due": due}
 
-    grant = request_objects(session, lane=LANE, wanted=1, now=moment)
+    # One object per due game, in ONE request. The provider bills the event
+    # object, not the call, so asking for the whole cluster at once costs
+    # exactly what asking for them one at a time would have cost -- and a
+    # fifteen-game Sunday is no longer fifteen separate chances to be starved
+    # by a lane that has already spent its day.
+    wanted = len(due)
+    grant = request_objects(session, lane=LANE, wanted=wanted, now=moment)
     if not grant.allowed:
         # Named, never borrowed from another lane.
         return {"attempted": False, "reason": f"ALLOCATION_{grant.reason}",
                 "objects": 0, "lane": LANE, "allocation": grant.as_dict(),
                 "games_due": due}
 
+    # A partial grant is spent, not refused: covering nine of fifteen games is
+    # nine games that can be priced, and the rest are named in the receipt.
+    granted = max(0, int(getattr(grant, "granted", wanted) or 0)) or wanted
+    granted = min(granted, wanted)
     budget = object_budget(session, now=moment)
-    allowed, refusal = budget.may_spend(1)
+    allowed, refusal = budget.may_spend(granted)
     if not allowed:
         return {"attempted": False, "reason": "OBJECT_RESERVE_GUARD",
                 "objects": 0, "detail": refusal, "budget": budget.as_dict()}
 
     reservation = record_request(
-        session, requested_at=moment, params={"leagueID": "NFL", "limit": "1"},
-        budget=budget, job_run_id=job_run_id, objects_requested=1,
+        session, requested_at=moment, params={"leagueID": "NFL", "limit": str(granted)},
+        budget=budget, job_run_id=job_run_id, objects_requested=granted,
         endpoint_key=LANE,
     )
     session.commit()
 
     try:
-        fetch = fetch_nfl_pregame(settings, limit=1, now=moment)
+        # The horizon has to reach the furthest game we are paying for, or the
+        # provider filters out the very events the objects were reserved for.
+        horizon = max(2, int(max(entry["minutes_to_kickoff"] for entry in due) // 60) + 2)
+        fetch = fetch_nfl_pregame(settings, limit=granted, now=moment,
+                                  starts_within_hours=horizon)
     except Exception as error:  # one attempt; the schedule owns the next one
         complete_request(session, reservation, objects=0, succeeded=False,
                          budget=budget, error=type(error).__name__,
@@ -193,7 +262,12 @@ def collect_nfl_pregame(
     return {
         "attempted": True, "reason": "COLLECTED", "lane": LANE,
         "objects": fetch.objects,
+        "objects_reserved": granted,
         "games_due": due,
+        "games_due_count": len(due),
+        # Named, never silently dropped: which due games this grant could not
+        # reach, so a reader can see the coverage gap rather than infer it.
+        "games_not_funded": [entry["game_id"] for entry in due[granted:]],
         "events": result["events"], "mapped_events": result["mapped_events"],
         "quotes": result["quotes"], "duplicates": result["duplicates"],
         "rejected_events": result["rejected_events"],
@@ -205,6 +279,7 @@ def collect_nfl_pregame(
     }
 
 
-__all__ = ["LANE", "SOURCE", "WINDOW_CLOSES_BEFORE_KICKOFF",
+__all__ = ["ADVANCE_HORIZON", "ADVANCE_MIN_LEAD", "ADVANCE_REFRESH", "LANE", "SOURCE",
+           "WINDOW_CLOSES_BEFORE_KICKOFF",
            "WINDOW_OPENS_BEFORE_KICKOFF", "collect_nfl_pregame", "due_games",
            "fetch_nfl_pregame"]
