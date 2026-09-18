@@ -9,10 +9,12 @@ refilled at 2,500 -- and the allocation plan would have zeroed October 1 as
 well, because it took the newest usage reading without asking which month it
 described.
 
-Phase 1 aligns the window and refuses a prior-month reading. It deliberately
-does NOT take the owner's scheduled September reserve of 300 into the local
-guard; that is phase 2 and it is a spending decision. So these tests pin both
-halves: the boundary is fixed, and September is not loosened by fixing it.
+Phase 1 aligns the window and refuses a prior-month reading. Phase 2
+(2026-09-18, on the owner's instruction applying the September 300 recorded
+2026-09-14) makes both guards read one instant-based schedule, ``reserve_at``:
+300 through the September 2026 billing month, the October default of 400 from
+2026-10-01T00:00Z -- including the four hours of the Sept 30 service day that
+already belong to October's bill.
 
 See docs/SGO_BUDGET_GUARD_AUDIT.md.
 """
@@ -25,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ProviderRequestLedger
 from app.services.provider_allocation import (
+    reserve_at,
     DEFAULT_OBJECT_RESERVE,
     FALLBACK_MONTHLY_CAP,
     PROVIDER,
@@ -90,12 +93,13 @@ def test_the_monthly_reset_releases_the_window_at_midnight_utc(session) -> None:
     would have kept counting until October 9.
     """
 
-    _spend(session, objects=1200, at=datetime(2026, 9, 10, 12, tzinfo=UTC))
+    # September's ceiling is 2,500 - 300 = 2,200 since phase 2 (owner's schedule).
+    _spend(session, objects=1300, at=datetime(2026, 9, 10, 12, tzinfo=UTC))
     _spend(session, objects=900, at=datetime(2026, 9, 25, 12, tzinfo=UTC))
 
     september = object_budget(session, now=SEPTEMBER_LATE)
     assert september.billing_month == "2026-09"
-    assert september.objects_used == 2100
+    assert september.objects_used == 2200
     assert september.spendable == 0, "September's allowance is spent"
 
     october = object_budget(session, now=OCTOBER_FIRST)
@@ -191,21 +195,46 @@ def test_the_opening_adjustment_is_counted_in_its_month_but_is_not_a_request(ses
 
 # -- 4. the 400-object reserve -----------------------------------------------
 
-def test_phase_one_holds_four_hundred_back_even_in_september(session) -> None:
-    """September's approved reduction to 300 belongs to the allocation plan.
+def test_phase_two_applies_the_owners_september_schedule_in_both_guards(session) -> None:
+    """Phase 2 (2026-09-18, owner instruction): guard B takes the schedule exactly.
 
-    Taking it here as well would release 100 more objects in September, which
-    is a spending decision the repair is not authorised to make. Phase 2 may.
+    The September 300 recorded 2026-09-14 (commit 21e1cab) used to reach only
+    guard A; both guards now read ``reserve_at``.
     """
 
-    assert reserve_for(service_date(datetime(2026, 9, 20, 12, tzinfo=UTC))) == 300
-    reserve, basis = phase1_reserve(datetime(2026, 9, 20, 12, tzinfo=UTC))
-    assert reserve == DEFAULT_OBJECT_RESERVE == 400
-    assert "phase 1" in basis
+    moment = datetime(2026, 9, 20, 12, tzinfo=UTC)
+    assert reserve_for(service_date(moment)) == reserve_at(moment) == 300
+    reserve, basis = phase1_reserve(moment)
+    assert reserve == 300 and "2026-09-14" in basis
 
-    budget = object_budget(session, now=datetime(2026, 9, 20, 12, tzinfo=UTC))
-    assert budget.reserve == 400
-    assert budget.spendable == FREE_TIER_OBJECTS - 400
+    budget = object_budget(session, now=moment)
+    assert budget.reserve == 300
+    assert budget.spendable == FREE_TIER_OBJECTS - 300
+
+
+def test_the_september_reserve_ends_at_the_providers_reset_not_eastern_midnight(session) -> None:
+    """Sept 30 8 PM ET is 2026-10-01T00:00Z: October's bill, still the Sept 30 service day."""
+
+    last_september = datetime(2026, 9, 30, 23, 59, 59, tzinfo=UTC)     # 19:59:59 ET Sept 30
+    first_october = datetime(2026, 10, 1, 0, 0, 0, tzinfo=UTC)          # 20:00 ET Sept 30
+    october_service_day = datetime(2026, 10, 1, 4, 30, tzinfo=UTC)      # 00:30 ET Oct 1
+    assert service_date(first_october).isoformat() == "2026-09-30"      # the trap
+    assert (reserve_at(last_september), reserve_at(first_october), reserve_at(october_service_day)) == (300, 400, 400)
+    assert phase1_reserve(last_september)[0] == 300 and phase1_reserve(first_october)[0] == 400
+    assert object_budget(session, now=last_september).reserve == 300
+    assert object_budget(session, now=first_october).reserve == 400
+    # The schedule starts on the Eastern service day 2026-09-14, not before.
+    assert reserve_at(datetime(2026, 9, 14, 3, 59, tzinfo=UTC)) == 400    # 23:59 ET Sept 13
+    assert reserve_at(datetime(2026, 9, 14, 4, 0, tzinfo=UTC)) == 300     # 00:00 ET Sept 14
+
+
+def test_guard_a_enforces_the_instant_reserve_even_on_the_sept_30_snapshot(session) -> None:
+    """The Sept 30 snapshot froze 300 at Eastern midnight; after the reset guard A holds 400."""
+
+    september_evening = datetime(2026, 9, 30, 12, tzinfo=UTC)
+    snapshot_plan = build_plan(session, now=september_evening)
+    assert snapshot_plan.reserve == 300
+    assert build_plan(session, now=datetime(2026, 10, 1, 0, 30, tzinfo=UTC)).reserve == 400
 
 
 def test_the_reserve_is_four_hundred_once_the_schedule_lapses(session) -> None:
@@ -215,11 +244,10 @@ def test_the_reserve_is_four_hundred_once_the_schedule_lapses(session) -> None:
     assert object_budget(session, now=october).reserve == 400
 
 
-def test_september_spendable_is_unchanged_by_the_repair(session) -> None:
-    """The equivalence check: phase 1 must not move September's number.
-
-    September's ledger begins on the 9th, so the calendar month and the old
-    rolling window cover exactly the same rows, and the reserve is still 400.
+def test_september_spendable_moves_by_exactly_the_approved_hundred(session) -> None:
+    """Phase 1 left September's number unchanged (verified 2026-09-15). Phase 2
+    releases exactly the 100 objects the owner approved: the window still covers
+    the same rows, and only the reserve moves from 400 to 300.
     """
 
     now = datetime(2026, 9, 15, 12, tzinfo=UTC)
@@ -233,12 +261,12 @@ def test_september_spendable_is_unchanged_by_the_repair(session) -> None:
         .where(ProviderRequestLedger.requested_at < rolling_since))
     assert rolling is None, "nothing in the ledger predates the old window"
     assert budget.objects_used == 1933
-    assert budget.spendable == FREE_TIER_OBJECTS - 400 - 1933 == 167
+    assert budget.spendable == FREE_TIER_OBJECTS - 300 - 1933 == 267
 
 
 def test_the_reserve_is_never_reachable(session) -> None:
     now = datetime(2026, 9, 20, 12, tzinfo=UTC)
-    _spend(session, objects=FREE_TIER_OBJECTS - OBJECT_RESERVE - 5, at=now - timedelta(days=1))
+    _spend(session, objects=FREE_TIER_OBJECTS - reserve_at(now) - 5, at=now - timedelta(days=1))
 
     budget = object_budget(session, now=now)
     assert budget.spendable == 5

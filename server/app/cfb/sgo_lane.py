@@ -18,11 +18,12 @@ reports a state every CFB price surface can show verbatim.
 WHAT IT DOES NOT DO
 -------------------
 Spend. ``app.cfb.sgo_price.collect`` is the only spender, and it asks this gate
-first. On 2026-09-18 guard B -- the binding guard, holding its standing 400
-reserve -- had 116 objects left against a projected 212 MLB/NFL need through
-September 30, so uncommitted capacity is zero and the lane grants nothing. The
-October plan (a CFB demand lane in the shaped allocator) is a separate owner
-decision.
+first. After budget-guard phase 2 (2026-09-18) both guards hold the owner's
+September 300 and had 216 objects against a projected 212 MLB/NFL need; the
+owner directed that the remaining four stay with MLB/NFL, which the protected
+headroom (``CFB_SGO_PROTECTED_HEADROOM``, 10) guarantees -- so the lane grants
+nothing in September. The October plan (a CFB demand lane in the shaped
+allocator) is a separate owner decision.
 """
 
 from __future__ import annotations
@@ -75,7 +76,8 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
     guard_b_spendable = int(guard_b.spendable or 0) if not guard_b.blocked_reason else 0
     binding = min(guard_a_spendable, guard_b_spendable)
     committed = None if future_need is None else today_room + future_need
-    uncommitted = 0 if committed is None else max(0, binding - committed)
+    protected = int(getattr(settings, "cfb_sgo_protected_headroom", 10) or 0)
+    uncommitted = 0 if committed is None else max(0, binding - committed - protected)
     cap = int(getattr(settings, "cfb_sgo_lane_object_cap", 10) or 0)
     spent = _lane_spent(session)
     until = datetime.fromisoformat(str(getattr(settings, "cfb_sgo_lane_authorized_until",
@@ -98,14 +100,16 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
         "guard_b": {"spendable": guard_b_spendable, "reserve": guard_b.reserve, "used": guard_b.objects_used,
                     "blocked_reason": guard_b.blocked_reason},
         "binding_guard": "B" if guard_b_spendable <= guard_a_spendable else "A",
-        "mlb_nfl_committed": {"today_remaining_room": today_room, "future_projected_need": future_need},
+        "mlb_nfl_committed": {"today_remaining_room": today_room, "future_projected_need": future_need,
+                              "protected_headroom": protected},
         "uncommitted": uncommitted, "assignment_cap": cap, "spent_on_lane": spent,
         "objects_allowed": allowed if state == AVAILABLE else 0,
         "authorized_until": until.isoformat(),
         "explanation": (
             f"Guard B has {guard_b_spendable} objects left above its reserve and guard A {guard_a_spendable}; "
             f"MLB/NFL still need about {committed if committed is not None else 'an unknown number of'} objects "
-            f"this month, so {uncommitted} are genuinely uncommitted. CFB takes the smaller of {cap - spent} "
+            f"this month and {protected} more are kept as their margin, so {uncommitted} are genuinely "
+            f"uncommitted. CFB takes the smaller of {cap - spent} "
             f"and that: {allowed if state == AVAILABLE else 0}."),
     }
 

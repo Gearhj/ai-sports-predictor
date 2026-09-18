@@ -67,6 +67,10 @@ RESERVE_SCHEDULE: tuple[dict[str, Any], ...] = (
     {
         "from_service_date": "2026-09-14",
         "until_service_date": "2026-09-30",
+        #: The provider's UTC billing month the reduction belongs to. The Sept 30
+        #: service day runs to 04:00 UTC Oct 1, four hours into October's bill;
+        #: without this bound the September 300 would leak into October.
+        "billing_month": "2026-09",
         "reserve": 300,
         "authority": "project owner, 2026-09-14",
         "reason": (
@@ -78,8 +82,36 @@ RESERVE_SCHEDULE: tuple[dict[str, Any], ...] = (
 )
 
 
+def reserve_at(moment: datetime) -> int:
+    """The reserve in force at an INSTANT -- the one rule BOTH budget guards apply.
+
+    A schedule entry holds only while both its Eastern service days and its
+    provider billing month hold. So the owner's September 300 (recorded
+    2026-09-14, commit 21e1cab) applies from 2026-09-14 00:00 ET until the
+    provider's October bill opens at 2026-10-01T00:00Z (Sept 30, 8 PM ET), and
+    the October default of 400 applies from that instant -- not from the
+    Eastern midnight four hours later.
+    """
+
+    from app.services.service_day import service_date
+
+    aware = moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+    day = service_date(aware)
+    month = aware.astimezone(UTC).strftime("%Y-%m")
+    for entry in RESERVE_SCHEDULE:
+        start = date.fromisoformat(entry["from_service_date"])
+        end = date.fromisoformat(entry["until_service_date"])
+        if start <= day <= end and entry.get("billing_month", month) == month:
+            return int(entry["reserve"])
+    return DEFAULT_OBJECT_RESERVE
+
+
 def reserve_for(day: date) -> int:
-    """The protected reserve in force on one Eastern service day."""
+    """The protected reserve in force on one Eastern service day.
+
+    A day-level view for receipts and projections. Enforcement uses
+    ``reserve_at`` so the billing-month boundary is honoured to the instant.
+    """
 
     for entry in RESERVE_SCHEDULE:
         start = date.fromisoformat(entry["from_service_date"])
@@ -107,8 +139,7 @@ def reserve_note(day: date) -> dict[str, Any]:
 #: Kept as a name for callers that still import it. Reads the schedule for
 #: today rather than pretending the reserve never changes.
 def _today_reserve() -> int:
-    from app.services.service_day import service_date
-    return reserve_for(service_date())
+    return reserve_at(datetime.now(UTC))
 
 
 OBJECT_RESERVE = DEFAULT_OBJECT_RESERVE
@@ -211,6 +242,27 @@ ALLOCATION_CHANGES: tuple[dict[str, Any], ...] = (
             "the 400-object reserve",
             "all incurred and in-flight usage",
             "the shared reservation controls",
+        ],
+    },
+    {
+        "effective_utc": "2026-09-18T21:00:00+00:00",
+        "authority": ("project owner: the September reserve of 300 recorded 2026-09-14 "
+                      "(RESERVE_SCHEDULE, commit 21e1cab), applied to both guards on the "
+                      "owner's 2026-09-18 instruction"),
+        "change": "BUDGET_GUARD_PHASE_2_SHARED_RESERVE_SCHEDULE",
+        "detail": (
+            "Guard B (sgo_collection.object_budget) held max(400, schedule) in phase 1, so "
+            "the owner's September 300 reached only guard A and 96 planned MLB/NFL objects "
+            "were unfundable from 2026-09-24. Both guards now apply reserve_at(): 300 for "
+            "Eastern service days 2026-09-14..09-30 within the 2026-09 billing month, 400 "
+            "from 2026-10-01T00:00Z onward. No other spending rule changes; the CFB lane "
+            "keeps its own protected headroom so the remaining margin stays with MLB/NFL."
+        ),
+        "scope": "virtual research only; no real-money wagering or execution",
+        "preserved": [
+            "the October default reserve of 400",
+            "the monthly entitlement, shares and demand shaping",
+            "all incurred and in-flight usage",
         ],
     },
 )
@@ -533,7 +585,7 @@ def daily_snapshot(session: Session, *, now: datetime | None = None):
         return existing
 
     cap, used, source, read_at = _provider_balance(session, moment)
-    reserve = reserve_for(day)
+    reserve = reserve_at(moment)
     replenishes = replenishment_date(moment)
     days_remaining = max(1, (replenishes - moment.date()).days)
     spendable = max(0, cap - used - reserve)
@@ -792,7 +844,10 @@ def build_plan(session: Session, *, now: datetime | None = None) -> Plan:
 
     snapshot = daily_snapshot(session, now=moment)
     cap = int(snapshot.monthly_cap)
-    reserve = int(snapshot.reserve)
+    # The reserve in force NOW, not the one frozen into the day's snapshot: the
+    # Sept 30 snapshot (300) outlives the September bill by four hours, and the
+    # October default must hold from the provider's reset.
+    reserve = reserve_at(moment)
     issued = dict(snapshot.lanes or {})
 
     if snapshot.balance_source == "LOCAL_LEDGER_COUNT_PRIOR_MONTH_READING_IGNORED":

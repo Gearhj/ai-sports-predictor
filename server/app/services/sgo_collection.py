@@ -513,24 +513,22 @@ def _blocked_budget(reason: str) -> ObjectBudget:
 
 
 def phase1_reserve(moment: datetime) -> tuple[int, str]:
-    """The reserve this guard holds back, and why.
+    """The reserve this guard holds back, and why -- the SAME schedule as guard A.
 
-    Phase 1 of the repair deliberately takes ``max(400, scheduled)`` rather than
-    the schedule itself. The owner's September reduction to 300 was approved for
-    the allocation plan; honouring it here as well would release 100 more
-    objects in September, which is a spending decision and not part of fixing a
-    window boundary. So this guard keeps 400 until that is decided separately.
+    Phase 1 (2026-09-15) held ``max(400, scheduled)`` so the repair itself
+    released nothing. Phase 2 (2026-09-18, on the owner's instruction applying
+    the September 300 recorded 2026-09-14, commit 21e1cab) takes
+    ``provider_allocation.reserve_at`` exactly: 300 through the September 2026
+    billing month, 400 from 2026-10-01T00:00Z. The name is kept for callers.
     """
 
-    from app.services.provider_allocation import reserve_for
-    from app.services.service_day import service_date
+    from app.services.provider_allocation import reserve_at
 
-    scheduled = int(reserve_for(service_date(moment)))
-    if scheduled >= OBJECT_RESERVE:
-        return scheduled, f"scheduled reserve {scheduled} for this service day"
-    return OBJECT_RESERVE, (
-        f"standing reserve {OBJECT_RESERVE} held; the scheduled {scheduled} is "
-        "lower and phase 1 of the budget-guard repair does not release it")
+    reserve = int(reserve_at(moment))
+    if reserve < OBJECT_RESERVE:
+        return reserve, (f"scheduled reserve {reserve} (owner, recorded 2026-09-14; both guards "
+                         "since phase 2, 2026-09-18) for this billing month")
+    return reserve, f"standing reserve {reserve}"
 
 
 def billing_month_window(moment: datetime) -> tuple[datetime, str]:

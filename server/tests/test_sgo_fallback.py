@@ -300,8 +300,12 @@ def test_the_reserve_is_never_spendable(session) -> None:
     from app.services.sgo_collection import (
         FREE_TIER_OBJECTS, OBJECT_RESERVE, object_budget)
 
-    budget = object_budget(session, now=datetime(2026, 9, 20, 12, 0, tzinfo=UTC))
-    assert budget.spendable == FREE_TIER_OBJECTS - OBJECT_RESERVE
+    from app.services.provider_allocation import reserve_at
+
+    moment = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
+    budget = object_budget(session, now=moment)
+    # The owner's September schedule (300) since phase 2; 400 otherwise.
+    assert budget.spendable == FREE_TIER_OBJECTS - reserve_at(moment)
     assert budget.may_spend(budget.spendable)[0] is True
     allowed, refusal = budget.may_spend(budget.spendable + 1)
     assert allowed is False and "reserve" in refusal
@@ -313,8 +317,10 @@ def test_the_guard_fails_closed_before_a_request_that_would_overrun(session) -> 
 
     now = datetime(2026, 9, 20, 12, 0, tzinfo=UTC)
     # Spend everything except five objects of headroom.
+    from app.services.provider_allocation import reserve_at
+
     _ledger_row(session, requested_at=now - timedelta(days=1),
-                objects=FREE_TIER_OBJECTS - OBJECT_RESERVE - 5)
+                objects=FREE_TIER_OBJECTS - reserve_at(now) - 5)
     budget = object_budget(session, now=now)
     assert budget.spendable == 5
     assert budget.may_spend(5)[0] is True
@@ -391,7 +397,9 @@ def test_the_terminal_row_records_objects_and_remaining_allowance(session) -> No
     assert terminal[0].records_received == 8
     # Objects, not credits: this provider has no credit concept.
     assert terminal[0].quota_cost is None
-    assert terminal[0].quota_remaining == FREE_TIER_OBJECTS - OBJECT_RESERVE - 8
+    from app.services.provider_allocation import reserve_at
+
+    assert terminal[0].quota_remaining == FREE_TIER_OBJECTS - reserve_at(now) - 8
 
 
 def test_a_failed_request_spends_no_objects_but_still_starts_the_cooldown(session) -> None:

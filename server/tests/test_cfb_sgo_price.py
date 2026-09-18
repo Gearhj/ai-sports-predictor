@@ -198,10 +198,18 @@ def test_the_capacity_gate_honours_the_cap_and_the_authorization_window(session,
         "spendable": 400, "lanes": {}, "reserve_never_spent": 300, "used_this_month": 1800, "monthly_cap": 2500}))
     monkeypatch.setattr(pa, "daily_snapshot", lambda *a, **k: SimpleNamespace(
         demand={"shaping": {"month_projected_need": 250}}))
-    settings = SimpleNamespace(cfb_sgo_lane_object_cap=10, cfb_sgo_lane_enabled=True,
+    settings = SimpleNamespace(cfb_sgo_lane_object_cap=10, cfb_sgo_lane_enabled=True, cfb_sgo_protected_headroom=10,
                                cfb_sgo_lane_authorized_until="2026-10-01T00:00:00+00:00")
     open_gate = sgo_lane.capacity(session, settings, now=KICK)
-    assert open_gate["uncommitted"] == 50 and open_gate["objects_allowed"] == 10   # the smaller of ten and 50
+    # min(guards) 300 - MLB/NFL 250 - protected 10 = 40; the smaller of ten and 40.
+    assert open_gate["uncommitted"] == 40 and open_gate["objects_allowed"] == 10
+    # The owner's September case: four spare beyond MLB/NFL stays with MLB/NFL.
+    monkeypatch.setattr(pa, "daily_snapshot", lambda *a, **k: SimpleNamespace(
+        demand={"shaping": {"month_projected_need": 296}}))
+    tight = sgo_lane.capacity(session, settings, now=KICK)
+    assert tight["uncommitted"] == 0 and tight["objects_allowed"] == 0 and tight["state"] == "NO_UNCOMMITTED_SGO_CAPACITY"
+    monkeypatch.setattr(pa, "daily_snapshot", lambda *a, **k: SimpleNamespace(
+        demand={"shaping": {"month_projected_need": 250}}))
     monkeypatch.setattr(sgo_lane, "_lane_spent", lambda *_a: 10)
     assert sgo_lane.capacity(session, settings, now=KICK)["state"] == "ASSIGNMENT_CAP_REACHED"
     monkeypatch.setattr(sgo_lane, "_lane_spent", lambda *_a: 0)
