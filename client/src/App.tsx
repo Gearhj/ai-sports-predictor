@@ -37,6 +37,7 @@ const NbaResearchPage = lazy(() => import('./pages/NbaResearchPage').then((modul
 const NbaResearchGamePage = lazy(() => import('./pages/NbaResearchGamePage').then((module) => ({ default: module.NbaResearchGamePage })))
 const CfbResearchPage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchPage })))
 const CfbResearchGamePage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchGamePage })))
+const HouseDividedPage = lazy(() => import('./pages/HouseDividedPage').then((module) => ({ default: module.HouseDividedPage })))
 
 function LegacySportRoute() {
   const { pathname, search, hash } = useLocation()
@@ -113,6 +114,7 @@ export default function App() {
                   <Route path="market-pulse" element={<LegacyMarketsRoute />} />
                   <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />
                   <Route path="experiment" element={<ExperimentRoute />} />
+                  <Route path="a-house-divided" element={<HouseDividedPage />} />
                   <Route path="methodology" element={<MethodologyPage />} />
                   <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
                   <Route path="account" element={<AuthPage />} />

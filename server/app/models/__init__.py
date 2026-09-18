@@ -153,4 +153,12 @@ from app.models.player_prop_quote import (  # noqa: E402,F401
     PlayerPropQuote,
 )
 
+# A House Divided: a prospective virtual competition. New accounts and wagers;
+# nothing here reads or writes the $1,000 Experiment or an official position.
+from app.models.house_divided import (  # noqa: E402,F401
+    CompetitionAccount,
+    CompetitionParticipant,
+    CompetitionWager,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

@@ -2223,8 +2223,30 @@ class JobOrchestrator:
         # Parlay tickets settle from the same governed finals this step just
         # refreshed, on the existing schedule rather than a new one.
         steps["parlay_tickets"] = await self.settle_parlay_tickets(event_date)
+        # A House Divided: settle virtual competition wagers and copy newly
+        # final official decisions. Reads the official ledger, never writes it.
+        steps["house_divided"] = await self.run_house_divided(event_date)
         steps["performance"] = await self.recalculate_performance(event_date)
         return {"records": sum(int(value.get("records", 0)) for value in steps.values()), "steps": steps}
+
+    async def run_house_divided(self, event_date: date) -> dict[str, Any]:
+        """The virtual competition's step, isolated so it can never fail finalize.
+
+        Runs in a savepoint after every official settlement step: a fault here
+        rolls back only the competition's own writes and is reported, while the
+        official positions, experiment and parlay settlement already committed.
+        """
+
+        from app.services import house_divided
+
+        try:
+            with self.session.begin_nested():
+                report = house_divided.run(self.session)
+            self.session.commit()
+            return report
+        except Exception as exc:  # noqa: BLE001 -- reported, never raised into finalize
+            self.session.rollback()
+            return {"records": 0, "error": f"{type(exc).__name__}: {exc}"[:400]}
 
     async def settle_parlay_tickets(self, event_date: date) -> dict[str, Any]:
         """Settle every open ticket whose games all have a governed final.

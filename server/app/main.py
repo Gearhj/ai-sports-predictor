@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.house_divided_routes import router as house_divided_router
 from app.api.routes import router
 from app.audit import install_immutability_guards
 from app.core.config import get_settings
@@ -83,6 +84,7 @@ def create_app(settings=None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
     application.include_router(router, prefix=settings.api_v1_prefix)
+    application.include_router(house_divided_router, prefix=settings.api_v1_prefix)
 
     @application.get("/healthz", include_in_schema=False)
     def healthz() -> dict:

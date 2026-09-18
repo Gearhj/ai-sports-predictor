@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck, Clapperboard } from 'lucide-react'
+import { Activity, Archive, Beaker, BookOpenText, CircleDollarSign, DatabaseZap, FlaskConical, LayoutDashboard, LockKeyhole, Menu, Radio, ShieldCheck, Trophy, Users, X, ClipboardCheck, Clapperboard, Swords } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { loadNflProductionStatus } from '../services/nflGovernance'
 import { useSportRegistry } from '../hooks/useSportRegistry'
@@ -22,6 +22,7 @@ const primaryNav = [
   { to: '/research/history', label: 'Historical Research', icon: Archive },
   { to: '/shadow-board', label: 'Shadow Board', icon: FlaskConical },
   { to: '/experiment', label: '$1,000 Experiment', icon: CircleDollarSign },
+  { to: '/a-house-divided', label: 'A House Divided', icon: Swords },
   { to: '/methodology', label: 'Methodology', icon: BookOpenText },
 ]
 

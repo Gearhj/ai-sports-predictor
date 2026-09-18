@@ -1,0 +1,132 @@
+/* A House Divided — built on the broadcast (.bx) tokens. */
+.hd .hd-head { align-items: flex-end; }
+.hd-virtual {
+  display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--bx-warn); background: var(--bx-warn-soft); border: 1px solid rgba(181, 116, 26, .35);
+}
+.hd-tabs button { position: relative; }
+.hd-tab-flag { margin-left: 6px; font-size: 11px; font-weight: 600; color: var(--bx-dim); }
+
+.hd-startline {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+  font-size: var(--bx-small); color: var(--bx-text);
+}
+
+/* Competitor cards ------------------------------------------------------- */
+.hd-cards { display: grid; gap: 20px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hd-card { border-top: 6px solid var(--hd-c); display: grid; gap: 16px; }
+.hd-card__top { display: flex; gap: 14px; align-items: center; }
+.hd-card__top h2 { font-size: 22px; line-height: 1.15; }
+.hd-card__top small { color: var(--bx-muted); font-size: 13px; }
+.hd-rank {
+  flex: 0 0 auto; display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%;
+  background: var(--hd-c); color: #fff; font-weight: 800; font-size: 18px;
+}
+.hd-card__bankroll { display: grid; gap: 2px; }
+.hd-card__bankroll small { color: var(--bx-muted); font-size: 13px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+.hd-card__bankroll strong { font-size: var(--bx-figure); letter-spacing: -.02em; }
+.hd-pl { font-weight: 700; color: var(--bx-muted); }
+.hd-pl.good { color: var(--bx-good); }
+.hd-pl.bad { color: var(--bx-bad); }
+.hd-card__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0; }
+.hd-card__stats div { display: grid; gap: 1px; }
+.hd-card__stats dt { font-size: 12px; color: var(--bx-muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.hd-card__stats dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hd-note { font-size: 13px; color: var(--bx-warn); margin: 0; }
+
+/* Chart ---------------------------------------------------------------- */
+.hd-chart svg { width: 100%; height: auto; display: block; }
+.hd-axis { stroke: var(--bx-line); stroke-width: 1; }
+.hd-axis--base { stroke: var(--bx-line-strong); stroke-dasharray: 6 5; }
+.hd-tick { font-size: 13px; fill: var(--bx-muted); font-variant-numeric: tabular-nums; }
+.hd-legend { display: flex; gap: 16px; flex-wrap: wrap; font-weight: 700; font-size: 14px; }
+.hd-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.hd-legend i, .hd-dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.hd-dot { margin-right: 8px; vertical-align: -1px; }
+.hd-chart__note { font-size: 13px; margin-top: 8px; }
+
+/* Where the House Is Divided ---------------------------------------------- */
+.hd-board__head, .hd-game {
+  display: grid; grid-template-columns: minmax(170px, 1.1fr) repeat(3, minmax(0, 1fr)); gap: 12px;
+}
+.hd-board__head { padding: 0 4px 8px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.hd-games { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.hd-game { padding: 12px; border: 1px solid var(--bx-line); border-radius: 12px; background: var(--bx-s1); align-items: start; }
+.hd-game--divided { border-color: var(--bx-bad); box-shadow: inset 4px 0 0 var(--bx-bad); }
+.hd-game__match { display: grid; gap: 3px; }
+.hd-game__match strong { font-size: 17px; }
+.hd-game__match small { color: var(--bx-muted); font-size: 13px; }
+.hd-lock { color: var(--bx-warn) !important; font-weight: 600; }
+.hd-rel { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; justify-self: start; background: var(--bx-s3); color: var(--bx-muted); }
+.hd-rel--directly_opposed { background: var(--bx-bad-soft); color: var(--bx-bad); }
+.hd-cell { display: grid; gap: 6px; padding-left: 10px; border-left: 3px solid var(--hd-c); min-width: 0; }
+.hd-cell__who { display: none; font-size: 12px; font-weight: 800; color: var(--hd-c); text-transform: uppercase; letter-spacing: .06em; }
+.hd-state { font-size: 14px; color: var(--bx-muted); font-style: italic; }
+.hd-state--model_passed { color: var(--bx-text); font-style: normal; font-weight: 600; }
+.hd-state--awaiting_model, .hd-state--importing { color: var(--bx-accent); font-style: normal; }
+.hd-wager { display: grid; gap: 2px; padding: 8px 10px; border-radius: 9px; background: var(--bx-s3); font-size: 14px; }
+.hd-wager__terms { font-weight: 700; overflow-wrap: anywhere; }
+.hd-wager__meta { color: var(--bx-muted); font-size: 13px; }
+.hd-wager__badge { justify-self: start; font-size: 12px; font-weight: 800; letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; background: var(--bx-accent-soft); color: var(--bx-accent); }
+.hd-wager--win .hd-wager__badge { background: var(--bx-good-soft); color: var(--bx-good); }
+.hd-wager--loss .hd-wager__badge { background: var(--bx-bad-soft); color: var(--bx-bad); }
+.hd-wager--push .hd-wager__badge, .hd-wager--void .hd-wager__badge { background: var(--bx-s1); color: var(--bx-muted); border: 1px solid var(--bx-line); }
+.hd-wager--not-funded .hd-wager__badge { background: var(--bx-warn-soft); color: var(--bx-warn); }
+
+/* Entry ---------------------------------------------------------------------- */
+.hd-entry { display: grid; gap: 14px; }
+.hd-entry--closed h2 { font-size: 20px; margin-bottom: 4px; }
+.hd-entry__grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hd-entry__grid .bx-field { display: grid; gap: 4px; }
+.hd-entry__grid .bx-field span { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bx-muted); }
+.hd-quotes { display: grid; gap: 12px; }
+.hd-quotes__list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.hd-quotes__list button {
+  display: grid; gap: 1px; text-align: left; padding: 8px 12px; min-width: 150px; border-radius: 10px;
+  border: 1px solid var(--bx-line-strong); background: var(--bx-s1); color: var(--bx-text); cursor: pointer; font: inherit;
+}
+.hd-quotes__list button[aria-pressed="true"] { border-color: var(--bx-accent); box-shadow: 0 0 0 2px var(--bx-accent-soft); }
+.hd-quotes__list small { color: var(--bx-dim); font-size: 12px; }
+.hd-entry__actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.hd-msg { margin: 0; font-weight: 700; }
+.hd-msg--good { color: var(--bx-good); }
+.hd-msg--bad { color: var(--bx-bad); }
+.hd-drafts { display: grid; gap: 8px; }
+.hd-draft { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px; border-radius: 10px; background: var(--bx-s3); }
+.hd-draft__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.hd-entry__rules { font-size: 13px; }
+
+/* History ------------------------------------------------------------------ */
+.hd-history__list { list-style: none; margin: 0; padding: 0; }
+.hd-history__list li + li { border-top: 1px solid var(--bx-line); }
+.hd-history__list summary {
+  display: grid; grid-template-columns: 12px minmax(70px, 110px) minmax(0, 1fr) auto auto; gap: 12px; align-items: center;
+  padding: 10px 4px; cursor: pointer; list-style: none;
+}
+.hd-history__list summary::-webkit-details-marker { display: none; }
+.hd-history__list summary i { width: 12px; height: 12px; border-radius: 3px; }
+.hd-history__who { font-weight: 800; }
+.hd-history__terms { overflow-wrap: anywhere; }
+.hd-history__stake { font-variant-numeric: tabular-nums; font-weight: 700; }
+.hd-history__result { font-weight: 800; font-size: 13px; }
+.hd-history__result--win { color: var(--bx-good); }
+.hd-history__result--loss { color: var(--bx-bad); }
+.hd-history__result--unfunded { color: var(--bx-warn); }
+.hd-history__detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 18px; margin: 0 0 12px 26px; font-size: 14px; }
+.hd-history__detail dt { font-size: 12px; font-weight: 700; color: var(--bx-muted); text-transform: uppercase; letter-spacing: .05em; }
+.hd-history__detail dd { margin: 0; overflow-wrap: anywhere; }
+.hd-empty h2 { font-size: 22px; margin-bottom: 6px; }
+.hd-table-wrap { overflow-x: auto; }
+
+/* Phone ------------------------------------------------------------------------ */
+@media (max-width: 900px) {
+  .hd-cards { grid-template-columns: minmax(0, 1fr); }
+  .hd-entry__grid { grid-template-columns: minmax(0, 1fr); }
+  .hd-board__head { display: none; }
+  .hd-game { grid-template-columns: minmax(0, 1fr); }
+  .hd-cell__who { display: block; }
+  .hd-history__list summary { grid-template-columns: 12px minmax(0, 1fr) auto; }
+  .hd-history__terms { grid-column: 2 / -1; font-size: 13px; }
+  .hd-history__detail { margin-left: 0; }
+}
