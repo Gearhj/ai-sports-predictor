@@ -274,6 +274,11 @@ class Settings(BaseSettings):
     #: total for the 2026-09-18 assignment, and only from capacity both budget
     #: guards leave uncommitted after MLB/NFL projected need.
     cfb_sgo_lane_enabled: bool = False
+    #: Unresolved production identities for the CFB price adapter. Empty means
+    #: unresolved and the adapter requests nothing; they are pinned only from a
+    #: live observation (see app/cfb/sgo_price.py LIVE_VALIDATION), never guessed.
+    cfb_sgo_league_id: str = ""
+    cfb_sgo_team_map_path: str = ""
     cfb_sgo_lane_object_cap: int = 10
     cfb_sgo_lane_authorized_until: str = "2026-10-01T00:00:00+00:00"
     # Optional local orchestration of the bounded Model Studio producer.  AISP

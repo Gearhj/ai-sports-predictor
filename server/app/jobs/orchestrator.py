@@ -101,6 +101,7 @@ AVAILABLE_JOBS = {
     "evaluate-nfl-paper-checkpoint": "Evaluate the NFL Paper Policy at its Final-Pregame Checkpoint",
     "evaluate-cfb-paper-checkpoint": "Evaluate the CFB Paper Policy at its Final-Pregame Checkpoint",
     "ingest-cfb-finals": "Admit CFB Finals From Retained Evidence and Score CFB Forecasts (no network)",
+    "collect-cfb-pregame-odds": "Collect CFB Pregame Odds (capacity-gated, at most ten objects)",
     "recover-governed-finals": "Recover Governed Finals For Completed Games",
     "refresh-provider-usage": "Refresh SportsGameOdds Account Usage",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
@@ -238,6 +239,7 @@ class JobOrchestrator:
             "evaluate-nfl-paper-checkpoint": self.evaluate_nfl_paper_checkpoint,
             "evaluate-cfb-paper-checkpoint": self.evaluate_cfb_paper_checkpoint,
             "ingest-cfb-finals": self.ingest_cfb_finals,
+            "collect-cfb-pregame-odds": self.collect_cfb_pregame_odds,
             "recover-governed-finals": self.recover_governed_finals,
             "refresh-provider-usage": self.refresh_provider_usage,
             "backfill-scoreboard": self.backfill_scoreboard,
@@ -1617,6 +1619,19 @@ class JobOrchestrator:
         return {"records": int(finals.get("observations_written", 0)) + int(scoring.get("scored", 0)),
                 "finals": {k: v for k, v in finals.items() if k != "skipped"},
                 "finals_skipped": finals.get("skipped", [])[:20], "scoring": scoring}
+
+    async def collect_cfb_pregame_odds(self, event_date: date) -> dict[str, Any]:
+        """CFB SportsGameOdds prices, only from genuinely uncommitted capacity.
+
+        Spends nothing while the lane is off, its identities are unresolved or
+        uncommitted capacity is zero; see app/cfb/sgo_price.py.
+        """
+
+        from app.cfb.sgo_price import collect
+
+        result = collect(self.session, self.settings)
+        self.session.commit()
+        return {"records": int(result.get("objects_spent", 0)), **result}
 
     async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:
         """Governed finals for completed games that have none, automatically.

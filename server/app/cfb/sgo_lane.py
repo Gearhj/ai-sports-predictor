@@ -17,12 +17,10 @@ reports a state every CFB price surface can show verbatim.
 
 WHAT IT DOES NOT DO
 -------------------
-Spend. On 2026-09-18 guard B -- the binding guard, holding its standing 400
-reserve -- had 119 objects left against a projected 212 MLB/NFL need through
-September 30, so uncommitted capacity is zero and the lane grants nothing. No
-SGO CFB event fetch or event-to-CFBD binding is built: SGO's NCAAF league and
-team identities have never been observed by AISP, and building an unexercised
-purchase path against guessed identities would be worse than having none. The
+Spend. ``app.cfb.sgo_price.collect`` is the only spender, and it asks this gate
+first. On 2026-09-18 guard B -- the binding guard, holding its standing 400
+reserve -- had 116 objects left against a projected 212 MLB/NFL need through
+September 30, so uncommitted capacity is zero and the lane grants nothing. The
 October plan (a CFB demand lane in the shaped allocator) is a separate owner
 decision.
 """
@@ -40,7 +38,7 @@ NO_CAPACITY = "NO_UNCOMMITTED_SGO_CAPACITY"
 LANE_DISABLED = "LANE_DISABLED"
 AUTHORIZATION_EXPIRED = "AUTHORIZATION_EXPIRED"
 CAP_REACHED = "ASSIGNMENT_CAP_REACHED"
-AVAILABLE_NOT_COLLECTING = "CAPACITY_AVAILABLE_COLLECTION_NOT_BUILT"
+AVAILABLE = "CAPACITY_AVAILABLE"
 
 
 def _lane_spent(session: Session) -> int:
@@ -92,7 +90,7 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
     elif not getattr(settings, "cfb_sgo_lane_enabled", False):
         state = LANE_DISABLED
     else:
-        state = AVAILABLE_NOT_COLLECTING
+        state = AVAILABLE
     return {
         "lane": LANE, "state": state, "checked_at": moment.isoformat(),
         "guard_a": {"spendable": guard_a_spendable, "reserve": plan_dict.get("reserve_never_spent"),
@@ -102,13 +100,13 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
         "binding_guard": "B" if guard_b_spendable <= guard_a_spendable else "A",
         "mlb_nfl_committed": {"today_remaining_room": today_room, "future_projected_need": future_need},
         "uncommitted": uncommitted, "assignment_cap": cap, "spent_on_lane": spent,
-        "objects_allowed": allowed if state == AVAILABLE_NOT_COLLECTING else 0,
+        "objects_allowed": allowed if state == AVAILABLE else 0,
         "authorized_until": until.isoformat(),
         "explanation": (
             f"Guard B has {guard_b_spendable} objects left above its reserve and guard A {guard_a_spendable}; "
             f"MLB/NFL still need about {committed if committed is not None else 'an unknown number of'} objects "
             f"this month, so {uncommitted} are genuinely uncommitted. CFB takes the smaller of {cap - spent} "
-            f"and that: {allowed if state == AVAILABLE_NOT_COLLECTING else 0}."),
+            f"and that: {allowed if state == AVAILABLE else 0}."),
     }
 
 

@@ -708,6 +708,16 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "ingest-cfb-finals", "settings": settings},
             **common,
         )
+        # CFB SportsGameOdds prices: registered only when the owner turns the
+        # lane on, and even then it spends only genuinely uncommitted capacity.
+        if settings.cfb_sgo_lane_enabled:
+            scheduler.add_job(
+                execute_scheduled_job, "interval", minutes=10, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=7),
+                id="asp-cfb-pregame-odds",
+                kwargs={"job_name": "collect-cfb-pregame-odds", "settings": settings},
+                **common,
+            )
     # NFL quarter breakdowns, one SportsGameOdds object per completed game.
     # Hourly is far more often than it needs to be and costs nothing on the runs
     # where every recent game already has its breakdown -- which is most of
