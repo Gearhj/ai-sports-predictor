@@ -12,6 +12,7 @@
  *    EXPECTED, labelled as such, because their timing belongs to other owners
  *    (the model publisher; the governed final).
  */
+import { modelLine } from './pregameStatus'
 import type { CoverageGame, DecisionItem, Ledger, SportCode } from './commandCenter'
 import { asSport } from './commandCenter'
 
@@ -59,6 +60,16 @@ export function buildAgenda(games: CoverageGame[], decisions: DecisionItem[], le
     if (g.model?.created_at) {
       events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at: Date.parse(g.model.created_at), status: 'done',
         label: 'Forecast published', detail: g.model.engine_id.replace(/_/g, ' ') })
+    } else if (g.model_status?.schedule.publication_target) {
+      // The producer contract: input checks from T-60, a T-45 publication
+      // TARGET (not a guaranteed arrival), decisions T-30..T-15.
+      const m = g.model_status
+      const at = Date.parse(m.schedule.publication_target as string)
+      const line = modelLine(m)
+      const late = m.state === 'OVERDUE' || m.state === 'MISSED'
+      events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at, status: started || m.state === 'MISSED' ? 'missed' : 'expected',
+        label: started ? 'No forecast before first pitch' : late ? (line?.label ?? 'Forecast overdue') : 'Forecast publication target',
+        detail: line?.detail ?? 'Publication target T-45 (a target, not a guaranteed arrival)' })
     } else {
       const at = start - FORECAST_EXPECTED_BEFORE
       events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at, status: started ? 'missed' : 'expected',

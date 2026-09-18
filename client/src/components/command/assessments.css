@@ -327,3 +327,11 @@
 .tp .tp-headline h4 { color: inherit; }
 .tp--official .tp-headline h4 { color: #ffffff; }
 .tp-figures { align-items: start; }
+
+/* Market and model status: two independent readings. */
+.as-pregame { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .as-pregame { grid-template-columns: minmax(0, 1fr); } }
+.as-pregame > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--bx-line, #e4e0da); min-width: 0; }
+.as-pregame small { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--bx-dim, #75859a); font-weight: 700; }
+.as-pregame b { font-size: 13.5px; }
+.as-pregame span { font-size: 12px; line-height: 1.4; color: var(--bx-muted, #55677d); overflow-wrap: anywhere; }

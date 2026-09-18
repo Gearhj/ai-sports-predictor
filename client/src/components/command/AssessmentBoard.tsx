@@ -29,6 +29,7 @@ import {
   type ResearchComparison,
 } from '../../services/probability'
 import { topPlay } from '../../services/topPlay'
+import { marketLine, modelLine, type StatusLine } from '../../services/pregameStatus'
 import { MarketSections, TopOpportunity } from './TopOpportunity'
 import './assessments.css'
 
@@ -202,12 +203,39 @@ function ForecastStrip({ channel, game, sport, labels }: {
   )
 }
 
+const LINE_TONE: Record<StatusLine['tone'], Tone> = { good: 'green', watch: 'gold', bad: 'red', neutral: 'gray' }
+
+/** Market and model, side by side and independent: one never stands in for the other. */
+export function PregameStatus({ game }: { game: CoverageGame | null }) {
+  const market = marketLine(game?.market_status)
+  const model = modelLine(game?.model_status, game?.league === 'NFL' ? 'M1' : 'V18')
+  if (!market && !model) return null
+  const rows: [string, StatusLine | null][] = [['Market', market], ['Model', model]]
+  return (
+    <div className="as-pregame" aria-label="Market and model status">
+      {rows.map(([title, line]) => line && (
+        <div key={title}>
+          <small>{title}</small>
+          <b className={`cc-tone--${LINE_TONE[line.tone]}`}>{line.label}</b>
+          <span>{line.detail}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card: AssessmentCardModel; day: string }) {
   const { game, item, assessment, sport } = card
   const channel = assessment?.binding ?? null
   const play = useMemo(() => topPlay(assessment, game, item), [assessment, game, item])
   const simulate = `/games/${card.key}/simulation?sport=${sport}`
-  const reasons = item?.plain_reasons?.length ? item.plain_reasons : card.status.detail ? [card.status.detail] : []
+  // A not-yet-evaluated decision carries the morning's placeholder reason
+  // ("Awaiting first forecast and quote"), which is wrong once quotes exist.
+  // The market and model lines above say what is actually pending.
+  const notYet = item?.recommendation === 'NOT_YET_EVALUATED'
+  const windowText = game ? `Evaluated in the ${etTime(game.checkpoints.decision_window_opens_at)}–${etTime(game.checkpoints.decision_window_closes_at)} ET decision window` : null
+  const reasons = notYet && game?.model_status ? (windowText ? [windowText] : [])
+    : item?.plain_reasons?.length ? item.plain_reasons : card.status.detail ? [card.status.detail] : []
   return (
     <article className={`as-card as-card--${card.status.tone}`} style={{ ['--sport' as string]: SPORT_COLORS[sport] }}
       aria-label={`${card.matchup}: ${card.status.label}`}>
@@ -223,6 +251,7 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
         {/* An official pick carries its status inside the top-opportunity panel. */}
         {play.state !== 'OFFICIAL' && <span className={`as-status cc-tone--${card.status.tone}`}>{card.status.label}</span>}
       </header>
+      <PregameStatus game={game} />
       <TopOpportunity play={play} game={game} item={item} sport={sport} status={card.status.label} channel={channel} />
       <ForecastStrip channel={channel} game={game} sport={sport} />
       <MarketSections play={play} assessment={assessment} game={game} sport={sport} />

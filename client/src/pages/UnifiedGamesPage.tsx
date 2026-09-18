@@ -42,6 +42,7 @@ import { loadNflProductionStatus, loadNflScoredCount, monitoringNote, slateBadge
 import { SLATE_SORT_LABEL, currentGap, hasCurrentPrice, hasForecast, sortSlate, type SlateSort } from '../services/slateSort'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
+import { marketLine, marketShort, modelLine } from '../services/pregameStatus'
 import { availabilityNote, engineShortName, isCurrent, type ForecastIdentity } from '../services/forecastSelection'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { useSportRegistry } from '../hooks/useSportRegistry'
@@ -517,15 +518,21 @@ function GameRow({
         )}
         {/* The band describes one side; the old bare signed number was always
             the home side, so the two disagreed in sign on every away edge. */}
-        <span className="bx-dim">
-          {edgeDescription({
-            edgeSide: game.edgeSide,
-            modelEdgePoints: game.modelEdgePoints,
-            homeEdgePoints: game.edgePoints,
-            homeAbbrev: game.home.abbreviation,
-            awayAbbrev: game.away.abbreviation,
-          }).text}
-        </span>
+        {/* With no controlling forecast there is nothing to compare, but the
+            price itself may be perfectly current: say that, not "No comparable price". */}
+        {evidence?.model_status && evidence.model_status.state !== 'PUBLISHED' && evidence.market_status
+          ? <span className="bx-dim" title={marketLine(evidence.market_status)?.detail}>{marketShort(evidence.market_status)}</span>
+          : (
+            <span className="bx-dim">
+              {edgeDescription({
+                edgeSide: game.edgeSide,
+                modelEdgePoints: game.modelEdgePoints,
+                homeEdgePoints: game.edgePoints,
+                homeAbbrev: game.home.abbreviation,
+                awayAbbrev: game.away.abbreviation,
+              }).text}
+            </span>
+          )}
       </div>
 
       <div className="bx-slate__actions">
@@ -634,6 +641,19 @@ function DecisionChip({ game, evidence }: { game: SlateGame; evidence?: Coverage
       <SignalPill label={wait.label} className={`signal-pill ${wait.state === 'NO_PREGAME_PRICE' ? 'signal-pill--closed' : 'signal-pill--watch'}`}
         title={wait.title} sub={wait.detail} />
     )
+  }
+  // No controlling forecast yet: the stored morning band is not a decision.
+  // Show where the model actually is -- its target, or the producer's reason.
+  const model = evidence?.model_status
+  if (model && model.state !== 'PUBLISHED' && !hasStarted(game.status)) {
+    const line = modelLine(model, game.league === 'NFL' ? 'M1' : 'V18')
+    if (line) {
+      return (
+        <SignalPill label={line.label}
+          className={`signal-pill ${line.tone === 'bad' ? 'signal-pill--closed' : line.tone === 'watch' ? 'signal-pill--watch' : 'signal-pill--neutral'}`}
+          title={line.detail} sub={model.schedule.publication_target ? 'target, not guaranteed' : undefined} />
+      )
+    }
   }
   if (game.researchOnly) {
     return (

@@ -651,6 +651,11 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
         order by canonical_game_id, created_at desc"""),
         {"ids": ids, "engines": list(CONTROLLING_ENGINES.values())}).all()} if ids else {}
 
+    from app.services import pregame_status
+
+    receipt = (pregame_status.latest_receipt(day)
+               if as_of is None and any(g[1] == "MLB" for g in games) else None)
+    permitted = {_provider_label(source) for source in PERMITTED_SOURCES}
     cfb_ids = [str(g[0]) for g in games if g[1] == "CFB"]
     cfb_models = _cfb_models(session, cfb_ids) if cfb_ids else {}
     cfb_price = _cfb_price_note(session) if cfb_ids else None
@@ -747,6 +752,11 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
             "model": model,
             "quotes": quotes,
             **({"price_unavailable": cfb_price} if league == "CFB" and not quotes else {}),
+            **({"market_status": pregame_status.market_status(moneylines, permitted, now=now,
+                                                              opens=start - WINDOW_OPENS, closes=closes),
+                "model_status": pregame_status.model_status(league, gid, start, model, now=now,
+                                                            receipt=receipt)}
+               if league in CONTROLLING_ENGINES else {}),
             "checkpoints": {
                 "collection_opens_at": (None if league == "CFB"
                                         else _iso(closes - timedelta(minutes=QUOTE_FRESHNESS_MINUTES))),

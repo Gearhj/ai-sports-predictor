@@ -284,6 +284,11 @@ class Settings(BaseSettings):
     #: any CFB object is uncommitted. Owner, 2026-09-18: retain the four objects
     #: the September projection leaves beyond MLB/NFL demand for those commitments.
     cfb_sgo_protected_headroom: int = 10
+    # The V18 producer's own daily slate receipts, read-only, so a card with no
+    # forecast can show the producer's actual per-game reason.
+    mlb_v18_slate_receipts_root: str = str(
+        Path.home() / 'asp-model-studio' / 'outputs' / 'mlb-v18-current-state-pipeline-v1' / 'slates'
+    )
     cfb_sgo_lane_authorized_until: str = "2026-10-01T00:00:00+00:00"
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing

@@ -8,6 +8,7 @@
  * only ever a persisted observation, and model output is never placed in a
  * price field.
  */
+import type { MarketStatus, ModelStatus } from './pregameStatus'
 import { useCallback } from 'react'
 import { useApiResource } from '../hooks/useApiResource'
 import { apiRequest } from './api'
@@ -249,6 +250,9 @@ export interface CoverageGame {
   checkpoints: { collection_opens_at: string | null; decision_window_opens_at: string; decision_window_closes_at: string }
   /** Why a College Football game has no price (server-stated). */
   price_unavailable?: { reason: string; detail: string; reference_lines?: string }
+  /** MLB/NFL: the market and the model, each from its own evidence (services/pregameStatus). */
+  market_status?: MarketStatus
+  model_status?: ModelStatus
 }
 
 export interface MarketCoverage {
