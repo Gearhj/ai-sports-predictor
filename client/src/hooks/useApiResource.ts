@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'r
 import type { DataMode, DataProvenance, ResourceState } from '../types/domain'
 import {
   STALE_TIME,
+  currentScope,
   fetchQuery,
   isStale,
   peek,
@@ -80,6 +81,10 @@ export function useApiResource<T>(
   // and this hook cannot disagree about where the entry lives.
   const key = explicitKey ?? `${localIdRef.current}#${loaderRevisionRef.current}`
 
+  // The subscription follows the access scope too: after sign-in the same raw
+  // key lives in a new namespace, and a listener left on the old one would
+  // never hear the answer.
+  const scope = currentScope()
   const entry = useSyncExternalStore(
     useCallback((listener: () => void) => {
       const unsubscribe = subscribe(key, listener)
@@ -87,8 +92,10 @@ export function useApiResource<T>(
       // so a page the reader has left cannot keep a connection from the one
       // they are looking at.
       return () => { unsubscribe(); release(key) }
-    }, [key]),
-    useCallback(() => peek<T>(key), [key]),
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- scope re-keys the subscription
+    }, [key, scope]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scope re-keys the snapshot
+    useCallback(() => peek<T>(key), [key, scope]),
     useCallback(() => undefined, []),
   )
 
@@ -102,9 +109,14 @@ export function useApiResource<T>(
 
   // Mount, and every key change, resolves from cache first and only fetches
   // when the entry is missing or past its refresh interval.
+  //
+  // So does a change of access scope. Signing in finishes after a page has
+  // mounted; the scope change clears the cache and wakes every subscriber,
+  // but the raw key is unchanged, so without the scope here nothing would
+  // ever fetch again and the page would wait on "loading" forever.
   useEffect(() => {
     run(false)
-  }, [run])
+  }, [run, scope])
 
   // A tab that is not on screen must not keep polling; a tab that comes back
   // refreshes immediately if what it is showing has gone stale.
