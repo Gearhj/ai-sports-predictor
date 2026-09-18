@@ -47,6 +47,8 @@ export interface ModelStatus {
   engine_id?: string | null
   /** shadow_forecasts.created_at: the START of AISP's import transaction (not insert, commit or publication). */
   import_transaction_started_at?: string | null
+  /** Older payloads carried the same value under this name. */
+  published_at?: string | null
   schedule: {
     input_checks_from: string | null
     publication_target: string | null
@@ -124,7 +126,7 @@ export function modelLine(m: ModelStatus | null | undefined, engineName = 'V18',
       // shadow_forecasts.created_at is AISP's IMPORT time, not the producer's
       // publication or creation time; say which clock this is.
       return { tone: 'good', label: `${engineName} forecast in AISP`,
-        detail: `AISP import transaction began ${t(m.import_transaction_started_at)} ET (the row is usable once that transaction commits; the exact insert and commit time is not recorded)` }
+        detail: `AISP import transaction began ${t(m.import_transaction_started_at ?? m.published_at)} ET (the row is usable once that transaction commits; the exact insert and commit time is not recorded)` }
     case 'PUBLISHED_NOT_IMPORTED':
       return { tone: 'watch', label: 'Published, import pending',
         detail: join(`The producer lists a published ${engineName} forecast that AISP has not bound yet (imports run every 5 minutes)`, producer) }
