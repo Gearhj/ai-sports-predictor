@@ -244,7 +244,7 @@ export function MakePicks({ sport, sports, onSport, onChanged }: {
 
       {notice && <p className={`hd-msg hd-msg--${notice.tone}`} role="status">{notice.text}</p>}
 
-      <div className="mp-layout">
+      <div className={`mp-layout${canEnter ? "" : " mp-layout--solo"}`}>
         <div className="mp-main">
           {boardError && <div className="bx-empty" role="alert">The market board could not be loaded: {boardError}</div>}
           {!board && !boardError && <div className="bx-empty" role="status">Loading the market board…</div>}
