@@ -186,6 +186,36 @@ def test_v2_refuses_a_receipt_that_disagrees_with_its_entry(session, world):
     assert obs.verified is False and obs.nba_gen1_forecast_id is None
 
 
+def test_v2_successor_ticks_record_only_new_manifests_and_never_reverify_known_packages(
+        session, world, monkeypatch):
+    package, first = _v2(world)
+    gen1_production.consume(session, world["settings"], now=NOW)
+    # The next producer tick: same package, fresh lease, predecessor = the first manifest.
+    fx.write_v2_discovery(world["root"], world["handoff"], [(package, {
+        "committedAtUtc": "2026-10-20T22:14:00+00:00", "currentlyEligible": True,
+        "eligibilityValidUntilUtc": (NOW + timedelta(minutes=25)).isoformat()})],
+        created="2026-10-20T22:30:00+00:00", predecessor=first)
+    monkeypatch.setattr(gen1_package, "verify_package",
+                        lambda *a, **k: pytest.fail("a known package is never fully re-verified"))
+    second = gen1_production.consume(session, world["settings"], now=NOW + timedelta(minutes=15))
+    assert len(second["manifests_recorded"]) == 1 and second["duplicate"] == 1 and second["imported"] == 0
+    row = session.scalar(select(NbaGen1Forecast))
+    assert gen1_production.present_eligibility(session, row, now=NOW + timedelta(minutes=20))["state"] == \
+        gen1_production.CURRENT
+
+
+def test_a_refused_admission_leaves_no_half_imported_forecast(session, world):
+    gen1_identity.admit_game(session, codex_game_id="nba-espn:game:990000001",
+                             home_franchise_id="nba-neil:franchise:FXH", away_franchise_id="nba-neil:franchise:FXA",
+                             home_code="FXH", away_code="FXA", tipoff_utc=fx.TIPOFF + timedelta(hours=3),
+                             season_end=2027)
+    package = fx.make_package(world["root"], world["handoff"])
+    fx.write_v1_discovery(world["root"], [package])
+    result = gen1_production.consume(session, world["settings"], now=NOW)
+    assert result["rejected"] == 1 and "IdentityRefused" in result["rejections"][0]["problems"][0]
+    assert session.scalar(select(NbaGen1Forecast)) is None
+
+
 # ----------------------------------------------------------------- identity --
 
 def test_admission_refuses_a_moved_tipoff_and_the_report_is_unique_both_ways(session, world):

@@ -234,7 +234,20 @@ def _entries(session: Session, record, entries: list[dict[str, Any]], *, verdict
                              "manifest_sha256": record.manifest_sha256}
             else:
                 discovery = {"manifest_sha256": record.manifest_sha256}
-            if not problems:
+            from app.models import NbaGen1Forecast
+
+            known = session.scalar(select(NbaGen1Forecast).where(NbaGen1Forecast.forecast_id == forecast_id))
+            if not problems and known is not None and known.package_index_sha256 == root.name.lower():
+                # Light path: the population and every summary number were proved at the
+                # first import, and the bytes cannot change without the index digest --
+                # the directory name, just re-bound above -- changing too.
+                if v2 and known.discovery_receipt_sha256 and \
+                        known.discovery_receipt_sha256 != discovery.get("receipt_sha256"):
+                    problems.append("RECEIPT_DIFFERS_FROM_FIRST_IMPORT")
+                else:
+                    row_id = known.id
+                    summary["duplicate"] += 1
+            elif not problems:
                 verified = package.verify_package(root, handoff_sha256=verdict.detail["handoff_sha256"],
                                                   effective_at=effective)
                 if str(verified["forecast"]["forecastId"]) != forecast_id:
@@ -247,7 +260,15 @@ def _entries(session: Session, record, entries: list[dict[str, Any]], *, verdict
                     if committed is None or created is None or committed < created:
                         problems.append("COMMITTED_BEFORE_CREATED")
                 if not problems:
-                    result = import_verified(session, verified, now=now, discovery=discovery, objects=objects)
+                    # One SAVEPOINT per package: a refusal after the row was written
+                    # (e.g. the game admission) leaves no half-imported forecast behind.
+                    nested = session.begin_nested()
+                    try:
+                        result = import_verified(session, verified, now=now, discovery=discovery, objects=objects)
+                        nested.commit()
+                    except Exception:
+                        nested.rollback()
+                        raise
                     row_id = result["row"].id
                     summary["imported" if result["result"] == "IMPORTED" else "duplicate"] += 1
         except package.PackageRefused as exc:
@@ -293,8 +314,11 @@ def consume(session: Session, settings: Any, *, now: datetime | None = None) -> 
     pointer = root / "slate-discovery" / "current.json"
     if pointer.is_file():
         summary["format"] = "V2"
+        from app.models import NbaDiscoveryManifest
+
+        recorded = {sha for (sha,) in session.execute(select(NbaDiscoveryManifest.manifest_sha256)).all()}
         try:
-            chain = _v2_chain(pointer, verdict)
+            chain = _v2_chain(pointer, verdict, recorded=recorded)
         except (common.BindingRefused, KeyError, ValueError) as exc:
             summary["status"] = f"DISCOVERY_REFUSED:{exc}"[:300]
             return summary
@@ -331,8 +355,14 @@ def consume(session: Session, settings: Any, *, now: datetime | None = None) -> 
     return summary
 
 
-def _v2_chain(pointer: pathlib.Path, verdict: handoff.HandoffVerdict, max_depth: int = 500):
-    """Pointer -> manifest -> predecessors, oldest first; each content-addressed and bound."""
+def _v2_chain(pointer: pathlib.Path, verdict: handoff.HandoffVerdict, *, recorded: set[str] | None = None,
+              max_depth: int = 500):
+    """Pointer -> manifest -> predecessors, oldest first; each content-addressed and bound.
+
+    The walk stops at the first manifest AISP already recorded: its ancestors
+    were verified when it was. A 15-minute producer tick adds one manifest, so
+    only the new ones are ever re-read.
+    """
 
     doc_pointer = json.loads(pointer.read_bytes())
     if doc_pointer.get("schemaVersion") != common.SLATE_POINTER_SCHEMA:
@@ -340,6 +370,8 @@ def _v2_chain(pointer: pathlib.Path, verdict: handoff.HandoffVerdict, max_depth:
     chain = []
     ref = doc_pointer["manifest"]
     for _ in range(max_depth):
+        if recorded and str(ref.get("sha256", "")).lower() in recorded:
+            return list(reversed(chain))
         raw = common.bound(ref, "slate discovery manifest")
         if pathlib.Path(ref["path"]).parent.name.lower() != str(ref["sha256"]).lower():
             raise ValueError("discovery manifest is not stored at its content address")

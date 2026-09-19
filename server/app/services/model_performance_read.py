@@ -123,7 +123,10 @@ class ModelPerformanceReadService:
             # prospective ones, and the three channels are never averaged.
             from app.nba.gen1_read import performance_models
 
-            models.extend(performance_models(self.session))
+            try:
+                models.extend(performance_models(self.session))
+            except Exception:  # noqa: BLE001 -- e.g. before migration 0048: say "nothing scored", never 500
+                self.session.rollback()
         scored = bool(models)
         return {
             "schema_version": SCHEMA_VERSION,
