@@ -19,3 +19,6 @@
 
 # Model Studio market-probability contract fixtures are hash-verified byte for byte.
 /server/tests/fixtures/market_probability_contract_v1/** -text
+
+# Vendored frozen V18 market-pilot protocol and packet schema: SHA-256 bound.
+/server/app/research_exports/frozen/** -text

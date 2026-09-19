@@ -1,4 +1,4 @@
-"""Scheduled-job execution lanes: prediction-market observation off the core thread.
+"""Scheduled-job execution lanes: observation and research exports off the core thread.
 
 WHY
 ---
@@ -13,13 +13,19 @@ thread drops checkpoints outright, not just delays them.
 
 WHAT
 ----
-Two single-worker lanes:
+Three single-worker lanes:
 
 * ``core`` -- every job that imports forecasts, collects decision inputs,
   evaluates checkpoints, settles or scores. Unchanged: one at a time.
 * ``prediction-markets`` -- the read-only Prediction Market Observer jobs
   (``asp-pm-*``). They touch only their own tables and their own providers,
   open their own session per run, and never gate an AISP decision.
+
+* ``research-export`` -- read-only private research exports (``asp-rx-*``),
+  such as the V18 market-pilot packet sealer. They read retained rows, write
+  only their own files outside the database, never call a provider and never
+  create a decision or position, so they must not wait behind -- or hold up --
+  an import or a decision checkpoint.
 
 Each lane is still serial, each job is still ``max_instances=1``, and each run
 still asks ``is_current_scheduler_owner()`` and opens a job-local session in
@@ -40,6 +46,14 @@ from typing import Any
 CORE_LANE = "core"
 PREDICTION_MARKET_LANE = "prediction-markets"
 PREDICTION_MARKET_JOB_PREFIX = "asp-pm-"
+RESEARCH_EXPORT_LANE = "research-export"
+RESEARCH_EXPORT_JOB_PREFIX = "asp-rx-"
+
+#: Scheduler-id prefix -> lane. Anything unlisted stays on the core lane.
+_LANE_PREFIXES: tuple[tuple[str, str], ...] = (
+    (PREDICTION_MARKET_JOB_PREFIX, PREDICTION_MARKET_LANE),
+    (RESEARCH_EXPORT_JOB_PREFIX, RESEARCH_EXPORT_LANE),
+)
 
 _EXECUTORS: dict[str, ThreadPoolExecutor] = {}
 _EXECUTORS_LOCK = threading.Lock()
@@ -49,7 +63,11 @@ _meta = threading.local()
 def lane_for(job_id: str | None) -> str:
     """The lane a registered job runs on, from its scheduler id."""
 
-    return PREDICTION_MARKET_LANE if str(job_id or "").startswith(PREDICTION_MARKET_JOB_PREFIX) else CORE_LANE
+    value = str(job_id or "")
+    for prefix, lane in _LANE_PREFIXES:
+        if value.startswith(prefix):
+            return lane
+    return CORE_LANE
 
 
 def executor(lane: str = CORE_LANE) -> ThreadPoolExecutor:
@@ -86,4 +104,7 @@ def current_meta() -> dict[str, Any] | None:
     return dict(value) if value else None
 
 
-__all__ = ["CORE_LANE", "PREDICTION_MARKET_LANE", "current_meta", "executor", "lane_for", "run_with_meta"]
+__all__ = [
+    "CORE_LANE", "PREDICTION_MARKET_LANE", "RESEARCH_EXPORT_LANE", "current_meta", "executor",
+    "lane_for", "run_with_meta",
+]

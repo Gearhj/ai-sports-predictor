@@ -339,6 +339,30 @@ class Settings(BaseSettings):
     prediction_market_min_depth: float = Field(default=50.0, ge=0)
     prediction_market_max_spread: float = Field(default=0.10, gt=0, le=1)
 
+    # ------------------------------------------------------------------
+    # V18 vs fresh-market prospective pilot: consumer pregame packet export.
+    # Private research only (protocol f75aeccd..., frozen 2026-09-18). OFF by
+    # default and inert when off: nothing is registered, nothing is written.
+    # When on, the sealer reads retained rows and writes write-once packets to
+    # its own directory -- no provider request, no decision, no position.
+    # ------------------------------------------------------------------
+    v18_market_pilot_export_enabled: bool = False
+    #: Where sealed packets, their .sha256 files and the append-only attempt
+    #: ledger are written. Created on first write, never overwritten.
+    v18_market_pilot_packet_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-packets"))
+    #: Sealer cadence. The protocol allows T-15 .. T-5, so ticks stay short.
+    v18_market_pilot_interval_minutes: int = Field(default=2, ge=1, le=2)
+    #: The producer's frozen protocol object, cross-checked against the
+    #: byte-exact vendored copy when readable. Never written.
+    v18_market_pilot_protocol_dir: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-market-prospective-v1" / "objects"
+        / "sha256" / "f75aeccd8f0e472b399d1f470c29d6a443d77078f7c69333023292019d956bf7"))
+    #: The whole-game MLB quarantine ledger applied before any packet is built.
+    v18_market_pilot_quarantine_ledger_path: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "server" / "artifacts" / "governance"
+        / "mlb-final-oot-quarantine-v1.json"))
+
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
     raw_data_root: Path = ASP_ROOT / "data" / "raw"

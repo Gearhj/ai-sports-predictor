@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "MLB_V18_FRESH_MARKET_PREGAME_PACKET_V1",
+  "title": "Private prospective pregame evidence packet; no outcome fields",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolSha256", "episodeKey", "sealedAtUtc", "attemptLedgerRef", "game", "anchor", "forecast", "selection", "market", "eligibility", "sourceRefs"],
+  "properties": {
+    "protocolSha256": {"$ref": "#/$defs/sha"},
+    "episodeKey": {"type": "string", "minLength": 1},
+    "sealedAtUtc": {"type": "string", "format": "date-time"},
+    "attemptLedgerRef": {"$ref": "#/$defs/ref"},
+    "game": {
+      "type": "object",
+      "required": ["canonicalGameId", "sourceGameIds", "homeId", "awayId", "scheduleRevision", "scheduledStartUtc", "phase", "phaseEvidenceRef", "firstSeenAtUtc", "quarantineIdentityGate"],
+      "properties": {
+        "canonicalGameId": {"type": "string"}, "sourceGameIds": {"type": "object"},
+        "homeId": {"type": "string"}, "awayId": {"type": "string"},
+        "scheduleRevision": {"type": "string"},
+        "scheduledStartUtc": {"type": "string", "format": "date-time"},
+        "firstSeenAtUtc": {"type": "string", "format": "date-time"},
+        "phase": {"enum": ["R", "POSTSEASON", "OTHER", "UNKNOWN"]},
+        "phaseEvidenceRef": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+        "quarantineIdentityGate": {"type": "object", "required": ["ledgerSha256", "eligible", "reasonCodes"]}
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "required": ["kind", "atUtc", "researchLockUtc", "sealDeadlineUtc", "decisionId", "candidateDecisionsRef"],
+      "properties": {
+        "kind": {"enum": ["ACTUAL_DECISION", "RESEARCH_T_MINUS_15", "NONE_EXCLUDED"]},
+        "atUtc": {"type": ["string", "null"], "format": "date-time"},
+        "researchLockUtc": {"type": "string", "format": "date-time"},
+        "sealDeadlineUtc": {"type": "string", "format": "date-time"},
+        "decisionId": {"type": ["string", "null"]},
+        "candidateDecisionsRef": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]}
+      }
+    },
+    "forecast": {
+      "anyOf": [{"type": "null"}, {
+        "type": "object",
+        "required": ["forecastIdentity", "objectRef", "modelIdentity", "inputSnapshotRef", "createdAtUtc", "publicationReceiptRef", "publicationCompletedAtUtc", "sourceCutoffUtc", "importReceiptRef", "pHome", "pAway", "scorePopulationRef", "simulationCount", "seed", "samplingError", "sourceClockEvidence", "operationalEvidence", "deploymentAttestation"],
+        "properties": {
+          "forecastIdentity": {"type": "string"},
+          "objectRef": {"$ref": "#/$defs/ref"}, "inputSnapshotRef": {"$ref": "#/$defs/ref"},
+          "modelIdentity": {"type": "object", "required": ["engine", "paSha256", "transitionSha256", "parentBundleSha256", "treatmentManifestSha256", "calibration"]},
+          "createdAtUtc": {"type": "string", "format": "date-time"},
+          "publicationReceiptRef": {"$ref": "#/$defs/ref"},
+          "publicationCompletedAtUtc": {"type": "string", "format": "date-time"},
+          "sourceCutoffUtc": {"type": "string", "format": "date-time"},
+          "importReceiptRef": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+          "pHome": {"type": "number", "minimum": 0, "maximum": 1},
+          "pAway": {"type": "number", "minimum": 0, "maximum": 1},
+          "scorePopulationRef": {"$ref": "#/$defs/ref"}, "simulationCount": {"const": 5000},
+          "seed": {"type": ["string", "integer"]},
+          "samplingError": {"type": "object", "required": ["producerField", "value", "meaning"]},
+          "sourceClockEvidence": {"type": "array"}, "operationalEvidence": {"type": "object"},
+          "deploymentAttestation": {"type": ["object", "null"]}
+        }
+      }]
+    },
+    "selection": {
+      "type": "object",
+      "required": ["statusAtResearchLock", "recordedAtUtc", "positionIds", "consumerExportRef", "completeAsOfExport", "reasonCodes"],
+      "properties": {
+        "statusAtResearchLock": {"enum": ["SELECTED", "EVALUATED_NOT_SELECTED", "NO_FINAL_DECISION", "UNRESOLVED"]},
+        "recordedAtUtc": {"type": "string", "format": "date-time"},
+        "positionIds": {"type": "array", "items": {"type": "string"}},
+        "consumerExportRef": {"anyOf": [{"$ref": "#/$defs/ref"}, {"type": "null"}]},
+        "completeAsOfExport": {"type": "boolean"},
+        "reasonCodes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "market": {
+      "type": "object",
+      "required": ["status", "candidates", "selectedBookKey", "selectedProviderKey", "pair", "qHome", "reasonCodes"],
+      "properties": {
+        "status": {"enum": ["FRESH_PAIRED", "UNPRICED"]},
+        "candidates": {"type": "array", "items": {"$ref": "#/$defs/bookPair"}},
+        "selectedBookKey": {"type": ["string", "null"]}, "selectedProviderKey": {"type": ["string", "null"]},
+        "pair": {"anyOf": [{"$ref": "#/$defs/bookPair"}, {"type": "null"}]},
+        "qHome": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "reasonCodes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "eligibility": {"type": "object", "required": ["forecastEligible", "priceEvaluable", "selectionAscertained", "reasonCodes", "firstFailure"]},
+    "sourceRefs": {"type": "array", "items": {"$ref": "#/$defs/ref"}}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ref": {"type": "object", "required": ["path", "sha256", "bytes"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha"}, "bytes": {"type": "integer", "minimum": 0}, "locator": {"type": ["string", "null"]}}},
+    "bookPair": {
+      "type": "object",
+      "required": ["bookKey", "providerKey", "marketId", "period", "conventions", "sourceResponseRef", "home", "away", "eligible", "reasonCodes"],
+      "properties": {
+        "bookKey": {"type": "string"}, "providerKey": {"type": "string"},
+        "marketId": {"type": "string"}, "period": {"type": "string"},
+        "conventions": {"type": "object"}, "sourceResponseRef": {"$ref": "#/$defs/ref"},
+        "home": {"anyOf": [{"$ref": "#/$defs/leg"}, {"type": "null"}]},
+        "away": {"anyOf": [{"$ref": "#/$defs/leg"}, {"type": "null"}]},
+        "eligible": {"type": "boolean"}, "reasonCodes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "leg": {
+      "type": "object",
+      "required": ["teamId", "american", "decimal", "quoteUpdatedAtUtc", "availableByUtc", "availabilityReceiptRef", "clockMeaning", "status"],
+      "properties": {
+        "teamId": {"type": "string"}, "american": {"type": "integer"}, "decimal": {"type": "number", "exclusiveMinimum": 1},
+        "quoteUpdatedAtUtc": {"type": "string", "format": "date-time"},
+        "availableByUtc": {"type": "string", "format": "date-time"},
+        "availabilityReceiptRef": {"$ref": "#/$defs/ref"},
+        "clockMeaning": {"type": "string"}, "status": {"type": "string"}
+      }
+    }
+  }
+}

@@ -359,6 +359,25 @@ async def execute_pm_finalize_pregame(settings: Settings) -> None:
     await execute_scheduled_job(action, settings)
 
 
+async def execute_v18_market_pilot_seal(settings: Settings) -> None:
+    """Research-export tick: run the sealer only when a packet or a first-seen
+    game is due, so an idle window writes no job row. Reads only."""
+
+    if not settings.v18_market_pilot_export_enabled:
+        return
+    from app.research_exports.v18_market_pilot_seal import JOB_NAME, work_due
+
+    try:
+        with SessionLocal() as session:
+            due = work_due(session, settings)
+    except Exception as exc:
+        logger.error("v18_market_pilot_due_check_failed", error=str(exc))
+        return
+    if not due:
+        return
+    await execute_scheduled_job(JOB_NAME, settings)
+
+
 async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
     """Spend NFL quota only when a bounded event-relative checkpoint is due."""
 
@@ -936,5 +955,16 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         scheduler.add_job(
             execute_pm_finalize_pregame, "interval", minutes=5,
             id="asp-pm-finalize-pregame", kwargs={"settings": settings}, **common,
+        )
+    if settings.v18_market_pilot_export_enabled:
+        # Private V18 vs fresh-market pilot export (protocol f75aeccd...). Its
+        # own lane (asp-rx-*): it only reads retained rows and writes its own
+        # write-once packet files, so it neither waits behind nor delays an
+        # import or a decision checkpoint. Registered only with the core jobs,
+        # in the one process that owns them, so there is a single writer.
+        scheduler.add_job(
+            execute_v18_market_pilot_seal, "interval",
+            minutes=settings.v18_market_pilot_interval_minutes, jitter=None,
+            id="asp-rx-v18-market-pilot-seal", kwargs={"settings": settings}, **common,
         )
     return scheduler
