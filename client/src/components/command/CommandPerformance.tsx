@@ -76,6 +76,9 @@ interface ModelEvidence {
   scoring_version: string
   snapshot_types: string[]
   evidence_classification: string
+  /** NBA Gen1 only: the channel scored, and whether it is a probability at all. */
+  channel?: string
+  is_probability?: boolean
   cohorts: { ALL: Metrics; VERIFIED_PUBLICATION: Metrics }
   cohort_note: string
   games: ScoredGame[]
@@ -107,6 +110,17 @@ const KNOWN_MODELS: Record<string, string> = {
   NFL_M1_XGBOOST: 'NFL M1 model',
   NBA_GEN1_JOINT_BASELINE: 'NBA research baseline',
   CFB_GEN1_JOINT_BASELINE: 'College Football research baseline',
+  NBA_GEN1_RIDGE_POINTS: 'NBA Gen1 · Ridge expected points',
+  NBA_GEN1_ELO_WINNER: 'NBA Gen1 · Elo win probability',
+  NBA_GEN1_JOINT_DISTRIBUTION: 'NBA Gen1 · Joint-distribution probabilities',
+}
+
+const HISTORICAL_EVIDENCE = 'HISTORICAL_RECONSTRUCTION_NOT_PROSPECTIVE'
+
+/** The model's name plus, when it applies, its evidence class -- never hidden in a tooltip. */
+function modelTitle(m: ModelEvidence): string {
+  const name = modelName(m.engine_id, m.engine_version, m.model_label)
+  return m.evidence_classification === HISTORICAL_EVIDENCE ? `${name} · HISTORICAL 2025–26` : name
 }
 
 /**
@@ -146,8 +160,11 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
       <section className="cc-dark cc-perf__head" aria-label="Model quality summary" style={{ ['--sport' as string]: color }}>
         <header className="cc-perf__top">
           <div>
-            <h1 className="cc-kicker cc-perf__title">Model performance · {SPORT_NAMES[sport]} · prospective research scores</h1>
-            <h2>{model ? modelName(model.engine_id, model.engine_version, model.model_label) : `${SPORT_NAMES[sport]} forecasts`}</h2>
+            <h1 className="cc-kicker cc-perf__title">
+              Model performance · {SPORT_NAMES[sport]} · {model?.evidence_classification === HISTORICAL_EVIDENCE
+                ? 'HISTORICAL reconstruction scores — not prospective' : 'prospective research scores'}
+            </h1>
+            <h2>{model ? modelTitle(model) : `${SPORT_NAMES[sport]} forecasts`}</h2>
             <span className="cc-perf__ident">{model ? `${model.engine_version} · ${model.scoring_version}` : ''}</span>
           </div>
           <div className="cc-perf__asof">
@@ -172,7 +189,7 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
               <select value={model ? `${model.engine_id}|${model.engine_version}` : ''} onChange={(e) => setEngine(e.target.value)}>
                 {data.models.map((m) => (
                   <option key={`${m.engine_id}|${m.engine_version}`} value={`${m.engine_id}|${m.engine_version}`}>
-                    {modelName(m.engine_id, m.engine_version, m.model_label)} · n={m.cohorts.ALL.n}
+                    {modelTitle(m)} · n={m.cohorts.ALL.n}
                   </option>
                 ))}
               </select>
@@ -190,7 +207,18 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
           ? <p className="cc-muted" role="status">{resource.error ? `Performance evidence is unavailable: ${resource.error}` : 'Loading scored forecasts…'}</p>
           : !model || !metrics
             ? <p className="cc-perf__none">{data.requirement ?? `No ${SPORT_NAMES[sport]} forecast has been scored.`}</p>
-            : (
+            : model.is_probability === false ? (
+              // A points-only channel (NBA Ridge): no probability metric exists, so none is drawn.
+              <dl className="cc-perf__tiles" data-testid="perf-points-only">
+                <div className="cc-perf__tile--wide"><dt>Evidence period · sample</dt>
+                  <dd>{metrics.n} games</dd>
+                  <small>{dateOnly(metrics.period.first_start_utc)} – {dateOnly(metrics.period.last_start_utc)} · expected points only</small></div>
+                <div><dt>Margin MAE</dt><dd>{f(metrics.margin_mae, 2)}</dd><small>points</small></div>
+                <div><dt>Total MAE</dt><dd>{f(metrics.total_mae, 2)}</dd><small>points</small></div>
+                <div className="cc-perf__tile--wide"><dt>Probability metrics</dt><dd>n/a</dd>
+                  <small>An expected score is not a probability: no log loss, Brier, accuracy or market comparison exists for this channel.</small></div>
+              </dl>
+            ) : (
               <dl className="cc-perf__tiles">
                 <div className="cc-perf__tile--wide"><dt>Evidence period · sample</dt>
                   <dd>{metrics.n} games</dd>
@@ -222,10 +250,14 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
             </div>
             <span className="cc-note" style={{ margin: 0 }}>{VIEW_NOTE[view]}</span>
           </div>
-          {view === 'CALIBRATION' && <CalibrationChart metrics={metrics} color={color} />}
-          {view === 'TIME' && <TimeChart metrics={metrics} color={color} />}
-          {view === 'MARKET' && <MarketScatter games={games} color={color} />}
-          {view === 'ERRORS' && <ErrorHistogram metrics={metrics} sport={sport} color={color} />}
+          {model.is_probability === false
+            ? <ErrorHistogram metrics={metrics} sport={sport} color={color} />
+            : <>
+              {view === 'CALIBRATION' && <CalibrationChart metrics={metrics} color={color} />}
+              {view === 'TIME' && <TimeChart metrics={metrics} color={color} />}
+              {view === 'MARKET' && <MarketScatter games={games} color={color} />}
+              {view === 'ERRORS' && <ErrorHistogram metrics={metrics} sport={sport} color={color} />}
+            </>}
         </section>
       )}
 
@@ -243,7 +275,8 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
                     <td>{g.final.away}–{g.final.home}</td>
                     <td>{pct(g.home_probability_two_way)}</td>
                     <td>{pct(g.market_no_vig_home)}</td>
-                    <td className={g.winner_correct ? 'is-up' : 'is-down'}>{g.winner_correct ? 'Correct' : 'Missed'}</td>
+                    <td className={g.winner_correct == null ? '' : g.winner_correct ? 'is-up' : 'is-down'}>
+                      {g.winner_correct == null ? '—' : g.winner_correct ? 'Correct' : 'Missed'}</td>
                     <td>{f(g.log_loss)}</td>
                     <td>{signed(g.margin_error, 1)}</td>
                     <td>{signed(g.total_error, 1)}</td>

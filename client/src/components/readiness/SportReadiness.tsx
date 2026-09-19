@@ -38,6 +38,31 @@ export interface SportReadinessEntry {
   account?: { funded: boolean; label: string; funding_key?: string; realized_bankroll?: number; available_capital?: number; season_id?: string; effective_on?: string }
   pipeline: { ready: boolean; blocker: string | null; could_qualify: string | null }
   slate?: { games: number; controlling_forecasts: number; with_fresh_price: number; positions: number }
+  /** NBA Gen1: per-component truth -- what is present and what is due, each on its own evidence. */
+  components?: Record<string, unknown>
+}
+
+const COMPONENT_LABELS: Record<string, string> = {
+  handoff: 'Model handoff', forecast: 'Production package', eligibility: 'Decision eligibility',
+  price: 'Price lane', decision: 'Paper checkpoint', outcomes: 'Outcomes & scoring',
+}
+
+function ComponentTruth({ components }: { components: Record<string, unknown> }) {
+  if (components.read_state === 'READ_FAILED') return null
+  return (
+    <details className="readiness__components" data-testid="readiness-components">
+      <summary>Component truth</summary>
+      <dl className="readiness__rows">
+        {Object.entries(COMPONENT_LABELS).map(([key, label]) => {
+          const part = components[key] as { state?: string; detail?: string; prospective?: string } | undefined
+          if (!part) return null
+          const state = (part.state ?? '—').replace(/_/g, ' ').toLowerCase()
+          const extra = key === 'outcomes' && part.prospective ? ` · prospective: ${part.prospective}` : ''
+          return <Row key={key} term={label} value={`${state}${part.detail ? ` — ${part.detail}` : ''}${extra}`} />
+        })}
+      </dl>
+    </details>
+  )
 }
 
 interface ReadinessPayload {
@@ -125,6 +150,7 @@ function SportCard({ entry }: { entry: SportReadinessEntry }) {
           : entry.account?.label} />
         <Row term="Position" value={positions} />
       </dl>
+      {entry.components && <ComponentTruth components={entry.components} />}
       {entry.pipeline.blocker && (
         <p className="readiness__blocker" data-testid={`readiness-blocker-${entry.sport}`}>
           <b>Waiting for:</b> {entry.pipeline.blocker}

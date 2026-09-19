@@ -17,7 +17,9 @@ const Diagnostics = lazy(() => import('./UnifiedResearchPage').then((m) => ({ de
 export function PerformanceRoute() {
   useBroadcastTheme()
   const { sport } = useSportSelection()
-  const initial = sport === 'NFL' || sport === 'MLB' ? sport : undefined
+  // Every scored sport opens on its own tab: NBA's HISTORICAL channel scores and
+  // College Football's prospective scores used to land on the MLB tab instead.
+  const initial = sport === 'NFL' || sport === 'MLB' || sport === 'NBA' || sport === 'CFB' ? sport : undefined
   return (
     <div className="bx bx-performance">
       <div className="bx__inner">

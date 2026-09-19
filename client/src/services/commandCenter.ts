@@ -259,7 +259,14 @@ export interface CoverageGame {
   consensus_is_current: boolean
   best: Record<'HOME' | 'AWAY', { american: number | null; sportsbook: string | null; provider: string | null; observed_at: string } | null>
   /** created_at is the START of AISP's import transaction (created_at_basis), not publication, insert or commit. */
-  model: { engine_id: string; home: number | null; away: number | null; home_two_way: number | null; expected_home?: number | null; expected_away?: number | null; created_at: string | null; created_at_basis?: string } | null
+  model: {
+    engine_id: string; home: number | null; away: number | null; home_two_way: number | null
+    expected_home?: number | null; expected_away?: number | null; created_at: string | null; created_at_basis?: string
+    /** NBA/CFB: which channel home/away came from, and which channel the expected points came from. */
+    controlling_channel?: string; expected_points_channel?: string
+    /** NBA: A_HISTORICAL_FINALIZED_RECORD_RECONSTRUCTION for 2025-26 rows; never prospective. */
+    evidence_class?: string; evidence_label?: string
+  } | null
   quotes: CoverageQuote[]
   /** College Football has no collection checkpoint: its collection time is null. */
   checkpoints: { collection_opens_at: string | null; decision_window_opens_at: string; decision_window_closes_at: string }
@@ -344,6 +351,22 @@ export function relative(iso: string | null | undefined, now = Date.now()): stri
   const abs = Math.abs(minutes)
   const text = abs < 60 ? `${abs} min` : abs < 48 * 60 ? `${Math.floor(abs / 60)} h ${abs % 60} min` : `${Math.round(abs / 1440)} days`
   return minutes >= 0 ? `in ${text}` : `${text} ago`
+}
+
+/**
+ * The small line under a slate card's model probability. For NBA the probability
+ * is the JOINT channel and the points are RIDGE -- two different models -- so the
+ * line names both rather than implying the percentage came from the points.
+ */
+export function modelNote(model: CoverageGame['model'], suffix = ' proj.'): string {
+  if (!model) return 'no forecast yet'
+  const points = model.expected_home != null && model.expected_away != null
+    ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)}` : null
+  if (model.controlling_channel === 'JOINT_DISTRIBUTION') {
+    const historical = model.evidence_class === 'A_HISTORICAL_FINALIZED_RECORD_RECONSTRUCTION' ? ' · HISTORICAL' : ''
+    return `joint${points ? ` · Ridge ${points} pts` : ''}${historical}`
+  }
+  return points ? `${points}${suffix}` : 'forecast'
 }
 
 export function gameHref(sport: string, gameId: string | null | undefined): string {

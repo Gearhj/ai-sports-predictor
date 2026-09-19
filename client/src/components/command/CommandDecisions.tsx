@@ -26,7 +26,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useSportReadiness, type SportReadinessEntry } from '../readiness/SportReadiness'
 import {
-  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, etTime, gameHref, money, relative, signedMoney,
+  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, etTime, gameHref, modelNote, money, relative, signedMoney,
   useDecisionBoard, useLedger, useMarketCoverage,
   type CoverageGame, type DecisionItem, type Ledger, type SportCode,
 } from '../../services/commandCenter'
@@ -205,14 +205,17 @@ export function buildFeed(items: DecisionItem[], games: CoverageGame[], readines
     const priceBlocker = typeof entry.price?.blocker === 'string' ? entry.price.blocker : null
     cards.push({
       key: `next-${code}`, sport: code,
-      href: code === 'NBA' ? '/nba/research' : code === 'CFB' ? '/college-football/research' : gameHref(code, entry.next_game.game_id),
+      href: code === 'NBA' ? (entry.next_game.research_href ?? '/nba/research')
+        : code === 'CFB' ? '/college-football/research' : gameHref(code, entry.next_game.game_id),
       matchup: entry.next_game.matchup, startsAt: (entry.next_game as { starts_at?: string }).starts_at ?? null,
       windowOpens: window?.opens_at ?? null, windowCloses: window?.closes_at ?? null, tab: 'WATCHING',
       // Each label names what is actually true: a blocked comparison says it is
       // blocked and why; the NBA regular season has not started, so its game is
       // a research example, not a live slate.
       status: code === 'NBA'
-        ? { label: 'Season not started · research example', tone: 'gray', detail: entry.price?.label ?? entry.pipeline.blocker }
+        ? { label: entry.forecast?.state === 'PRODUCTION_PACKAGE_AVAILABLE'
+              ? 'Season not started · production package held' : 'Season not started · research example',
+            tone: 'gray', detail: entry.price?.label ?? entry.pipeline.blocker }
         : blocked
           ? { label: 'Market comparison blocked', tone: 'gray', detail: entry.pipeline.blocker }
           : priceBlocker
@@ -515,7 +518,7 @@ const AgendaRow = memo(function AgendaRow({ card, now, next }: { card: FeedCard;
         <small>{pr.labels[Math.min(pr.reached + 1, 5)]}</small>
       </span>
       <span role="cell">{model && homeP != null
-        ? <><b>{homeP >= 0.5 ? game?.home?.abbreviation : game?.away?.abbreviation} {pct(homeP >= 0.5 ? homeP : 1 - homeP, 0)}</b><small>{model.expected_away != null && model.expected_home != null ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)}` : 'forecast'}</small></>
+        ? <><b>{homeP >= 0.5 ? game?.home?.abbreviation : game?.away?.abbreviation} {pct(homeP >= 0.5 ? homeP : 1 - homeP, 0)}</b><small>{modelNote(model, '')}</small></>
         : card.readiness
           ? <span title={card.readiness.forecast?.label}>{forecastHeld(card.readiness.forecast?.state) ? <b>Forecast held</b> : <span className="is-gold">Awaiting forecast</span>}</span>
           : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
@@ -580,7 +583,7 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
       <dl className="cc-dcard__facts">
         <div><dt>Model</dt>
           <dd>{homeP != null && game ? `${pickHome ? game.home?.abbreviation : game.away?.abbreviation} ${pct(pickHome ? homeP : 1 - homeP, 0)}` : item?.model_probability != null ? pct(item.model_probability, 0) : '—'}</dd>
-          <small>{model?.expected_home != null && model.expected_away != null ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)} proj.` : model ? 'forecast' : 'no forecast yet'}</small></div>
+          <small>{modelNote(model)}</small></div>
         <div><dt>Price</dt><dd>{price ? price.text : '—'}</dd>
           <small>{price ? `${price.book}${price.when ? ` · ${relative(price.when)}` : ''}` : game?.price_state === 'STORED_REFERENCE_ONLY' ? 'stale reference only' : 'not collected'}</small></div>
         <div><dt>Market</dt><dd>{pct(marketP, 1)}</dd><small>no-vig</small></div>

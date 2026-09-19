@@ -4088,6 +4088,31 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .nbares__facts dd { margin: 0; overflow-wrap: anywhere; }
 .nbares__back { margin: 0 0 18px; font-size: 13px; }
 .nbares__back a { display: inline-flex; align-items: center; gap: 5px; }
+/* NBA Gen1: three channels, side by side, never blended. */
+.nbag__channels {
+  display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin: 10px 0;
+}
+.nbag__channel { border: 1px solid var(--border, #e2e6ea); border-radius: 9px; padding: 12px 14px; min-width: 0; }
+.nbag__channel h4 {
+  margin: 0 0 8px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted, #667);
+}
+.nbag__badge {
+  display: inline-block; font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 9px; margin-right: 8px;
+}
+.nbag__badge--historical { background: #fff3d6; color: #6b4b00; }
+.nbag__badge--prospective { background: #e3f1ff; color: #0d4a86; }
+.nbag__totals, .nbag__scores { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.nbag__totals caption, .nbag__scores caption { text-align: left; color: var(--muted, #667); font-size: 11px; padding-bottom: 4px; }
+.nbag__totals th, .nbag__totals td, .nbag__scores th, .nbag__scores td {
+  border-bottom: 1px solid var(--border, #e2e6ea); padding: 4px 6px; text-align: left; white-space: nowrap;
+}
+.nbag__facts { font-size: 12px; overflow-wrap: anywhere; }
+.nbag__block { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--border, #e2e6ea); }
+@media (prefers-color-scheme: dark) {
+  .nbag__badge--historical { background: #4a3a10; color: #ffe3a3; }
+  .nbag__badge--prospective { background: #123456; color: #cfe6ff; }
+}
 .nbares__scope { margin-top: 18px; font-size: 12px; line-height: 1.55; }
 
 /* ─── Slate row score ────────────────────────────────────────────────────────
