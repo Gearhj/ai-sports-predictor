@@ -42,11 +42,27 @@ CAP_REACHED = "ASSIGNMENT_CAP_REACHED"
 AVAILABLE = "CAPACITY_AVAILABLE"
 
 
+DAILY_CAP_REACHED = "DAILY_CAP_REACHED"
+
+
 def _lane_spent(session: Session) -> int:
     from app.models import ProviderRequestLedger
 
     return int(session.scalar(select(func.coalesce(func.sum(ProviderRequestLedger.records_received), 0))
                               .where(ProviderRequestLedger.endpoint_key == LANE)) or 0)
+
+
+def _lane_spent_today(session: Session, moment: datetime) -> int:
+    """Objects this lane spent on the current Eastern service day."""
+
+    from app.models import ProviderRequestLedger
+    from app.services.service_day import service_date, service_day_bounds
+
+    start, end = service_day_bounds(service_date(moment))
+    return int(session.scalar(select(func.coalesce(func.sum(ProviderRequestLedger.records_received), 0))
+                              .where(ProviderRequestLedger.endpoint_key == LANE,
+                                     ProviderRequestLedger.requested_at >= start,
+                                     ProviderRequestLedger.requested_at < end)) or 0)
 
 
 def capacity(session: Session, settings: Any, *, now: datetime | None = None) -> dict[str, Any]:
@@ -83,12 +99,22 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
     until = datetime.fromisoformat(str(getattr(settings, "cfb_sgo_lane_authorized_until",
                                                "2026-10-01T00:00:00+00:00")))
     allowed = max(0, min(cap - spent, uncommitted))
+    # An owner's per-day bound (CFB_SGO_LANE_DAILY_OBJECT_CAP). Unset keeps the
+    # total-only cap exactly as before. It can only LOWER what is allowed: the
+    # guards, the reserve and the MLB/NFL commitments above still bind first.
+    daily_cap = getattr(settings, "cfb_sgo_lane_daily_object_cap", None)
+    spent_today = None
+    if daily_cap is not None:
+        spent_today = _lane_spent_today(session, moment)
+        allowed = max(0, min(allowed, int(daily_cap) - spent_today))
     if moment >= until:
         state = AUTHORIZATION_EXPIRED
     elif spent >= cap:
         state = CAP_REACHED
     elif uncommitted <= 0:
         state = NO_CAPACITY
+    elif daily_cap is not None and spent_today >= int(daily_cap):
+        state = DAILY_CAP_REACHED
     elif not getattr(settings, "cfb_sgo_lane_enabled", False):
         state = LANE_DISABLED
     else:
@@ -103,6 +129,7 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
         "mlb_nfl_committed": {"today_remaining_room": today_room, "future_projected_need": future_need,
                               "protected_headroom": protected},
         "uncommitted": uncommitted, "assignment_cap": cap, "spent_on_lane": spent,
+        "daily_cap": daily_cap, "spent_today": spent_today,
         "objects_allowed": allowed if state == AVAILABLE else 0,
         "authorized_until": until.isoformat(),
         "explanation": (
@@ -114,4 +141,4 @@ def capacity(session: Session, settings: Any, *, now: datetime | None = None) ->
     }
 
 
-__all__ = ["LANE", "NO_CAPACITY", "capacity"]
+__all__ = ["DAILY_CAP_REACHED", "LANE", "NO_CAPACITY", "capacity"]

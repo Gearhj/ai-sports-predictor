@@ -292,6 +292,10 @@ class Settings(BaseSettings):
     cfb_sgo_league_id: str = ""
     cfb_sgo_team_map_path: str = ""
     cfb_sgo_lane_object_cap: int = 10
+    #: An owner's per-day bound on the CFB lane. Unset keeps the total-only cap
+    #: above. It can only lower what the capacity gate allows; the lane itself
+    #: stays off (CFB_SGO_LANE_ENABLED) until the owner decides otherwise.
+    cfb_sgo_lane_daily_object_cap: int | None = Field(default=None, ge=0, le=20)
     #: Objects of month headroom always left to MLB/NFL (projection error) before
     #: any CFB object is uncommitted. Owner, 2026-09-18: retain the four objects
     #: the September projection leaves beyond MLB/NFL demand for those commitments.

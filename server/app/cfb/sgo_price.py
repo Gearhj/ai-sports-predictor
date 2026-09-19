@@ -349,6 +349,31 @@ def fetch_events(settings: Any, params: dict[str, str]) -> dict[str, Any]:
     return response.json()
 
 
+def fetch_events_archived(settings: Any, params: dict[str, str], *, requested_at: datetime,
+                          request_fingerprint: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``fetch_events`` that also keeps the response's exact bytes (the MLB/NFL rule, b56ed64).
+
+    Still exactly one request. The per-leg ``lastUpdatedAt`` stamps and the
+    response identity survive nowhere else; an archive fault is returned, never
+    raised, retried or waited on.
+    """
+
+    import httpx
+
+    from app.services.sgo_raw_archive import archive_response
+
+    url = f"{settings.sportsgameodds_base_url.rstrip('/')}/events"
+    headers = {"X-Api-Key": settings.sportsgameodds_api_key, "Accept": "application/json"}
+    with httpx.Client(timeout=30.0, follow_redirects=False) as client:
+        response = client.get(url, params=params, headers=headers)
+    if response.status_code != 200:
+        raise RuntimeError(f"SportsGameOdds returned HTTP {response.status_code}; not retried")
+    archive = archive_response(settings, response.content, requested_at=requested_at,
+                               request_fingerprint=request_fingerprint, lane=LANE,
+                               league=str(params.get("leagueID") or ""), filters=params)
+    return response.json(), archive
+
+
 def collect(session: Session, settings: Any, *, now: datetime | None = None,
             fetch: Callable[[Any, dict[str, str]], dict[str, Any]] | None = None,
             capacity_fn: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -382,8 +407,14 @@ def collect(session: Session, settings: Any, *, now: datetime | None = None,
         reservation = record_request(session, requested_at=moment, params=game["params"], budget=guard_b,
                                      endpoint_key=LANE, objects_requested=1)
         session.commit()
+        raw_archive = None
         try:
-            payload = fetcher(settings, game["params"])
+            if fetch is None:   # the live path keeps the exact response bytes
+                payload, raw_archive = fetch_events_archived(
+                    settings, game["params"], requested_at=moment,
+                    request_fingerprint=getattr(reservation, "request_fingerprint", None))
+            else:
+                payload = fetcher(settings, game["params"])
         except Exception as error:  # noqa: BLE001 -- recorded, never retried
             complete_request(session, reservation, objects=0, succeeded=False, budget=guard_b,
                              error=str(error)[:200], endpoint_key=LANE)
@@ -392,7 +423,8 @@ def collect(session: Session, settings: Any, *, now: datetime | None = None,
             continue
         objects = len(payload.get("data") or [])
         complete_request(session, reservation, objects=objects, succeeded=True, budget=guard_b, endpoint_key=LANE,
-                         extra_metadata={"league_id": binding.league_id, "cfbd_game_id": game["source_game_id"]})
+                         extra_metadata={"league_id": binding.league_id, "cfbd_game_id": game["source_game_id"],
+                                         "raw_archive": raw_archive})
         summary["objects_spent"] += objects
         parsed = parse_main_markets(payload, received_at=moment, now=moment, league_id=str(binding.league_id))
         outcome: dict[str, Any] = {"source_game_id": game["source_game_id"], "objects": objects,
