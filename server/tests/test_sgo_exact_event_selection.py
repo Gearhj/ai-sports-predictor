@@ -3,8 +3,8 @@
 Evidence reproduced (retained rows, 2026-09-18):
 
 * 14:30:40 ET -- limit=2, startsAfter 22:39:59Z bought both 18:40 ET games and
-  bound provider event HlLyaZ57OYshwp6JtLHH to KC @ PIT (07ddd2bf) and
-  6FTubPRaTm9wV2wr6mZ4 to CHC @ CIN (3e7914d7).
+  bound one provider event to KC @ PIT (07ddd2bf) and another
+  to CHC @ CIN (3e7914d7); synthetic IDs stand in for the real ones here.
 * 14:42:37 ET -- a refresh selected KC @ PIT alone. The request carried only
   leagueID=MLB, limit=1, startsAfter=2026-09-18T22:39:59Z,
   startsBefore=2026-09-18T23:42:37Z, finalized=false, oddsPresent=true -- no
@@ -27,7 +27,7 @@ from app.services import sgo_collection
 
 KC_PIT = "07ddd2bf-a64d-43ca-acfc-fe62feaac824"
 CHC_CIN = "3e7914d7-5840-4b6d-be27-053579c22f7c"
-EVENT = {KC_PIT: "HlLyaZ57OYshwp6JtLHH", CHC_CIN: "6FTubPRaTm9wV2wr6mZ4"}
+EVENT = {KC_PIT: "SyntheticEvtKcPit001", CHC_CIN: "SyntheticEvtChcCin01"}
 AT_1840 = datetime(2026, 9, 18, 22, 40, tzinfo=UTC)
 LATER = [(str(uuid.UUID(int=0xA000 + i)), AT_1840 + timedelta(minutes=m))
          for i, m in enumerate((25, 30, 30, 35))]             # 19:05, 19:10 x2, 19:15 ET
