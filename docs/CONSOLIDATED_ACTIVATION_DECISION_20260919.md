@@ -1,5 +1,7 @@
 # One consolidated activation decision: CFB sportsbook coverage and NBA launch
 
+> **SUPERSEDED 2026-09-19 18:30 ET.** The approved September CFB scope is **two** objects (one validation, one named target), not four. Only the delta is now requested, in `ADDITIONAL_PERMISSIONS_20260919.md`. The budget and cost figures below still hold.
+
 2026-09-19. Everything below is **implemented, reversible and shipped OFF**. Nothing spends, and no behaviour changes, until the settings in this document are set. Details: `CFB_SPORTSBOOK_COVERAGE_20260919.md`, `NBA_LAUNCH_PLAN_20260919.md`, `NBA_INTEGRATION_EVIDENCE_20260919.md`.
 
 ## The budget these numbers come from
