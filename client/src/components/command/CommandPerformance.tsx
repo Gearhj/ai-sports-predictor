@@ -280,7 +280,8 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
                     <td>{f(g.log_loss)}</td>
                     <td>{signed(g.margin_error, 1)}</td>
                     <td>{signed(g.total_error, 1)}</td>
-                    <td>{g.publication_clock === VERIFIED ? 'verified' : 'qualified'}</td>
+                    <td>{g.publication_clock === VERIFIED ? 'verified'
+                      : g.publication_clock === 'HISTORICAL_NO_PUBLICATION_CLOCK' ? 'historical' : 'qualified'}</td>
                   </tr>
                 ))}
               </tbody>

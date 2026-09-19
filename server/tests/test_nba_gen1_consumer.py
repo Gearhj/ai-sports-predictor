@@ -457,6 +457,33 @@ def test_the_slate_model_is_the_joint_channel_and_says_so(session, world):
     assert model["channels"][CHANNEL_ELO]["home"] == pytest.approx(0.64)
 
 
+def test_the_slate_block_labels_nba_and_says_why_there_is_no_price(session, world):
+    from app.services.command_center import _nba_coverage
+
+    package = fx.make_package(world["root"], world["handoff"])
+    fx.write_v1_discovery(world["root"], [package])
+    gen1_production.consume(session, world["settings"], now=NOW)
+    game_id = str(session.scalar(select(NbaGen1Forecast.canonical_game_id)))
+    block = _nba_coverage(session, [game_id], now=NOW)
+    model = block["models"][game_id]
+    assert model["controlling_channel"] == CHANNEL_JOINT and model["expected_points_channel"] == CHANNEL_RIDGE
+    assert model["evidence_class"] == EVIDENCE_PROSPECTIVE
+    assert block["price"]["reason"] == "LANE_DISABLED" and block["collection"]["active"] is False
+    assert block["eligibility"][game_id]["now"]["state"] == gen1_production.NO_LEASE
+
+
+def test_a_historical_row_on_the_slate_is_labelled_historical(session, world):
+    from app.services.command_center import _nba_coverage
+
+    configured = _historical_settings(world)
+    gen1_historical.import_historical(session, configured, now=NOW)
+    game_id = str(session.scalar(select(NbaHistoricalForecast.canonical_game_id)))
+    block = _nba_coverage(session, [game_id], now=NOW)
+    model = block["models"][game_id]
+    assert model["evidence_class"] == EVIDENCE_HISTORICAL and "HISTORICAL" in model["evidence_label"]
+    assert model["engine_id"] == "NBA_GEN1_HISTORICAL" and block["eligibility"] == {}
+
+
 def test_nothing_nba_is_scheduled_or_consumed_by_default(settings, monkeypatch):
     from app.jobs import scheduler as scheduler_module
     from app.jobs.model_exchange_consumer import _consume_nba_production

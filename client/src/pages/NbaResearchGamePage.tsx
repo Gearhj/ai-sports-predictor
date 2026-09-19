@@ -22,6 +22,8 @@ function when(iso: string | null | undefined): string {
   return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/New_York' }) + ' ET'
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function short(sha: string | null | undefined): string {
   return sha ? `${sha.slice(0, 12)}…` : '—'
 }
@@ -48,7 +50,10 @@ export function NbaResearchGamePage() {
         <Link to="/nba/research"><ArrowLeft size={13} aria-hidden="true" /> All NBA forecasts</Link>
       </p>
 
-      {gameId && <GameStory gameId={gameId} />}
+      {/* The story reads AISP's canonical id; an ESPN id in the URL is resolved first. */}
+      {(game?.game_id ?? (gameId && UUID.test(gameId) ? gameId : null)) && (
+        <GameStory gameId={(game?.game_id ?? gameId) as string} />
+      )}
 
       {game && (
         <section className="nbares" data-testid="nba-gen1-game">

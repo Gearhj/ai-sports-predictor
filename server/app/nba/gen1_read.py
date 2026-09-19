@@ -446,7 +446,7 @@ def _metrics(entries: list[Any], channel: str) -> dict[str, Any]:
         "two_way_n": len(two_way),
         "brier_two_way": mean([r.two_way_brier for r in entries if r.two_way_brier is not None]) if probability else None,
         "log_loss_two_way": mean([r.log_loss for r in entries if r.log_loss is not None]) if probability else None,
-        "auc": None,
+        "auc": _auc_of(two_way) if probability else None,
         "margin_mae": mean([abs(r.margin_error) for r in entries if r.margin_error is not None]),
         "total_mae": mean([abs(r.total_error) for r in entries if r.total_error is not None]),
         "team_score_mae": mean([(r.home_abs_error + r.away_abs_error) / 2 for r in entries
@@ -459,6 +459,12 @@ def _metrics(entries: list[Any], channel: str) -> dict[str, Any]:
         "calibration": bins,
         "series": series,
     }
+
+
+def _auc_of(two_way: list[tuple[Any, float, bool]]) -> float | None:
+    from app.services.model_performance_read import _auc
+
+    return _auc([(p, won) for _, p, won in two_way])
 
 
 def _game(row: Any, teams: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -474,7 +480,9 @@ def _game(row: Any, teams: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "winner_correct": row.winner_correct, "log_loss": row.log_loss, "brier_three_class": None,
         "predicted_score": {"home": row.predicted_home, "away": row.predicted_away},
         "margin_error": row.margin_error, "total_error": row.total_error, "market_no_vig_home": None,
-        "market_book": None, "publication_clock": None if row.forecast_published_utc is None else "PACKAGE_CLOCK",
+        "market_book": None,
+        "publication_clock": ("HISTORICAL_NO_PUBLICATION_CLOCK" if row.evidence_class == EVIDENCE_HISTORICAL
+                              else "PACKAGE_CLOCK"),
         "published_before_start_hours": None, "evidence_class": row.evidence_class, "channel": row.channel,
     }
 
