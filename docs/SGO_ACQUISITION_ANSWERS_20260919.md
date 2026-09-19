@@ -176,3 +176,5 @@ Show Prep is unaffected: 0 of 64 MLB games had a price at the day-before 16:30 f
 > Deploy `af82484` first so every CFB response keeps its bytes. No reserve change.
 
 Smallest useful version: S1 with h = 6, N_total = 4 (1 validation + 3), N_day = 3, today only for the 3 uniquely timed games, stop at 2026-09-19 23:59 ET. The residual risk is on MLB/NFL projection error: 4 objects of margin are consumed.
+
+> **Correction (2026-09-19, `docs/CFB_SPORTSBOOK_COVERAGE_20260919.md`):** h = 6 releases nothing (211 − 207 − 6 = −2; at 15:55 ET 186 − 182 − 6 = −2). Only h = 0 releases the 4 objects. The current decision, with the binder, validation path and October option, is in that document.
