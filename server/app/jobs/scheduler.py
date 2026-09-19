@@ -378,6 +378,26 @@ async def execute_v18_market_pilot_seal(settings: Settings) -> None:
     await execute_scheduled_job(JOB_NAME, settings)
 
 
+async def execute_v18_market_pilot_outcomes(settings: Settings) -> None:
+    """Research-export tick: export admitted outcomes for sealed pilot episodes
+    only when a revision, a reason or a stop is due, so an unchanged slate
+    writes no job row. Reads only (read-only transaction, rolled back)."""
+
+    if not settings.v18_market_pilot_outcomes_export_enabled:
+        return
+    from app.research_exports.v18_market_pilot_outcomes import JOB_NAME, work_due
+
+    try:
+        with SessionLocal() as session:
+            due = work_due(session, settings)
+    except Exception as exc:
+        logger.error("v18_market_pilot_outcomes_due_check_failed", error=str(exc))
+        return
+    if not due:
+        return
+    await execute_scheduled_job(JOB_NAME, settings)
+
+
 async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
     """Spend NFL quota only when a bounded event-relative checkpoint is due."""
 
@@ -966,5 +986,13 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             execute_v18_market_pilot_seal, "interval",
             minutes=settings.v18_market_pilot_interval_minutes, jitter=None,
             id="asp-rx-v18-market-pilot-seal", kwargs={"settings": settings}, **common,
+        )
+    if settings.v18_market_pilot_outcomes_export_enabled:
+        # The same pilot's admitted-outcome export: a separate switch, the same
+        # research-export lane and the same single-writer owner. Every 10
+        # minutes; it reads retained rows only and writes its own files.
+        scheduler.add_job(
+            execute_v18_market_pilot_outcomes, "interval", minutes=10, jitter=None,
+            id="asp-rx-v18-market-pilot-outcomes", kwargs={"settings": settings}, **common,
         )
     return scheduler

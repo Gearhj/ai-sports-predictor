@@ -60,7 +60,7 @@ async def test_each_lane_is_still_serial():
 def test_only_prediction_market_jobs_leave_the_core_lane(settings):
     scheduler = build_scheduler(settings.model_copy(update={
         "scheduler_core_jobs_enabled": True, "prediction_market_observer_enabled": True,
-        "v18_market_pilot_export_enabled": False}))
+        "v18_market_pilot_export_enabled": False, "v18_market_pilot_outcomes_export_enabled": False}))
     seen = {lanes.CORE_LANE: set(), lanes.PREDICTION_MARKET_LANE: set(), lanes.RESEARCH_EXPORT_LANE: set()}
     for job in scheduler.get_jobs():
         if inspect.iscoroutinefunction(job.func):

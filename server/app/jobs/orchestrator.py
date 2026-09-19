@@ -141,6 +141,7 @@ AVAILABLE_JOBS = {
     "capture-prediction-market-pregame-cuts": "Capture Scheduled Pregame Cuts (T-6h/T-2h/T-30m/T-5m)",
     "backfill-prediction-market-history": "Backfill Prediction-Market History (bounded)",
     "seal-v18-market-pilot-packets": "Seal V18 Market-Pilot Pregame Packets (read-only research export)",
+    "export-v18-market-pilot-outcomes": "Export V18 Market-Pilot Admitted Outcomes (read-only research export)",
 }
 
 ALIASES = {
@@ -286,6 +287,7 @@ class JobOrchestrator:
             "settle-shadow-experiment": self.settle_shadow_experiment,
             "register-practical-experiment-v2": self.register_practical_experiment_v2,
             "seal-v18-market-pilot-packets": self.seal_v18_market_pilot_packets,
+            "export-v18-market-pilot-outcomes": self.export_v18_market_pilot_outcomes,
         }
         return await handlers[name](event_date)
 
@@ -299,6 +301,20 @@ class JobOrchestrator:
         from app.research_exports.v18_market_pilot_seal import run_seal_tick
 
         return run_seal_tick(self.session, self.settings)
+
+    async def export_v18_market_pilot_outcomes(self, event_date: date) -> dict[str, Any]:
+        """Export admitted outcomes for sealed V18 market-pilot episodes.
+
+        Inert unless V18_MARKET_PILOT_OUTCOMES_EXPORT_ENABLED. Reads in its own
+        session under a READ ONLY transaction that is always rolled back, so
+        this job's run row is untouched; writes only its own write-once files
+        outside the packets directory. No provider request, no decision, no
+        position, no settlement.
+        """
+        from app.research_exports.v18_market_pilot_outcomes import run_outcomes_tick
+
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            return run_outcomes_tick(reader, self.settings)
 
     # -- Prediction Market Observer jobs (provider I/O confined here) -----
     def _pm_jobs(self):

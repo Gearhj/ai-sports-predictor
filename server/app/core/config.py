@@ -362,6 +362,14 @@ class Settings(BaseSettings):
     v18_market_pilot_quarantine_ledger_path: str = Field(default=str(
         Path.home() / "asp-model-studio" / "server" / "artifacts" / "governance"
         / "mlb-final-oot-quarantine-v1.json"))
+    #: The same pilot's consumer-admitted outcomes (Model Studio's "same-final
+    #: export"). A SEPARATE switch, OFF by default and inert when off. When on,
+    #: a 10-minute research-export job reads only episodes with an authentic
+    #: SEALED packet, under a read-only transaction, and writes write-once
+    #: outcome records to its own directory -- never into the packets directory.
+    v18_market_pilot_outcomes_export_enabled: bool = False
+    v18_market_pilot_outcomes_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes"))
 
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
