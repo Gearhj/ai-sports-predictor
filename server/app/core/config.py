@@ -450,6 +450,13 @@ class Settings(BaseSettings):
     #: Must not overlap the outcomes or packets directory.
     v18_market_pilot_outcomes_withheld_dir: str = Field(default=str(
         Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-withheld"))
+    #: V2 export for the accepted outcome amendment 7508ae72... (source-confirmed
+    #: terminal, capture-bound, finalAtUtc null with an explicit basis). A
+    #: SEPARATE switch, OFF by default and inert when off; V1 is unchanged. It
+    #: writes only its own sibling lane, never the packets, V1 or withheld dirs.
+    v18_market_pilot_outcomes_v2_enabled: bool = False
+    v18_market_pilot_outcomes_v2_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-v2"))
 
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False

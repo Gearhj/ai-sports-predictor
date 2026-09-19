@@ -398,6 +398,26 @@ async def execute_v18_market_pilot_outcomes(settings: Settings) -> None:
     await execute_scheduled_job(JOB_NAME, settings)
 
 
+async def execute_v18_market_pilot_outcomes_v2(settings: Settings) -> None:
+    """Research-export tick for the V2 (capture-bound) outcome lane: runs the
+    export only when a V2 revision, an unresolved reason or a stop is due.
+    Reads only (read-only transaction, rolled back)."""
+
+    if not settings.v18_market_pilot_outcomes_v2_enabled:
+        return
+    from app.research_exports.v18_market_pilot_outcomes_v2 import JOB_NAME, work_due
+
+    try:
+        with SessionLocal() as session:
+            due = work_due(session, settings)
+    except Exception as exc:
+        logger.error("v18_market_pilot_outcomes_v2_due_check_failed", error=str(exc))
+        return
+    if not due:
+        return
+    await execute_scheduled_job(JOB_NAME, settings)
+
+
 async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
     """Spend NFL quota only when a bounded event-relative checkpoint is due."""
 
@@ -1024,5 +1044,12 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         scheduler.add_job(
             execute_v18_market_pilot_outcomes, "interval", minutes=10, jitter=None,
             id="asp-rx-v18-market-pilot-outcomes", kwargs={"settings": settings}, **common,
+        )
+    if settings.v18_market_pilot_outcomes_v2_enabled:
+        # V2 outcome lane for the accepted amendment 7508ae72...: its own switch,
+        # the same research-export lane and single-writer owner, every 10 minutes.
+        scheduler.add_job(
+            execute_v18_market_pilot_outcomes_v2, "interval", minutes=10, jitter=None,
+            id="asp-rx-v18-market-pilot-outcomes-v2", kwargs={"settings": settings}, **common,
         )
     return scheduler

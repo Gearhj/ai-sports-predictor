@@ -146,6 +146,7 @@ AVAILABLE_JOBS = {
     "backfill-prediction-market-history": "Backfill Prediction-Market History (bounded)",
     "seal-v18-market-pilot-packets": "Seal V18 Market-Pilot Pregame Packets (read-only research export)",
     "export-v18-market-pilot-outcomes": "Export V18 Market-Pilot Admitted Outcomes (read-only research export)",
+    "export-v18-market-pilot-outcomes-v2": "Export V18 Market-Pilot Capture-Bound V2 Outcomes (read-only research export)",
 }
 
 ALIASES = {
@@ -296,6 +297,7 @@ class JobOrchestrator:
             "register-practical-experiment-v2": self.register_practical_experiment_v2,
             "seal-v18-market-pilot-packets": self.seal_v18_market_pilot_packets,
             "export-v18-market-pilot-outcomes": self.export_v18_market_pilot_outcomes,
+            "export-v18-market-pilot-outcomes-v2": self.export_v18_market_pilot_outcomes_v2,
         }
         return await handlers[name](event_date)
 
@@ -323,6 +325,18 @@ class JobOrchestrator:
 
         with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
             return run_outcomes_tick(reader, self.settings)
+
+    async def export_v18_market_pilot_outcomes_v2(self, event_date: date) -> dict[str, Any]:
+        """Export V2 (capture-bound) outcomes for sealed V18 market-pilot episodes.
+
+        Inert unless V18_MARKET_PILOT_OUTCOMES_V2_ENABLED. Same isolation as V1:
+        its own READ ONLY session, always rolled back; writes only its own
+        write-once lane. V1 and its withheld lane are untouched.
+        """
+        from app.research_exports.v18_market_pilot_outcomes_v2 import run_outcomes_v2_tick
+
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            return run_outcomes_v2_tick(reader, self.settings)
 
     # -- Prediction Market Observer jobs (provider I/O confined here) -----
     def _pm_jobs(self):
