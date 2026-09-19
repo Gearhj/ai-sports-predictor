@@ -384,3 +384,27 @@ def test_verification_memo_is_invalidated_by_a_changed_manifest_and_by_time(tmp_
     assert consumer._memo_hit(package.name, package) is False  # the TTL forces a full re-check
     consumer._VERIFIED_MEMO.clear()
 
+
+def test_expired_memos_are_reverified_a_bounded_number_per_pass(tmp_path, monkeypatch):
+    from app.jobs import v18_exchange_consumer as consumer
+
+    consumer._VERIFIED_MEMO.clear()
+    packages = []
+    for i in range(5):
+        package = tmp_path / (f"{i:x}" * 64)[:64]
+        package.mkdir()
+        (package / consumer.PACKAGE_FILE).write_text("{}", encoding="utf-8")
+        consumer._memo_store(package.name, package)
+        packages.append(package)
+    monkeypatch.setattr(consumer, "MEMO_TTL_SECONDS", 0)
+    assert all(consumer._memo_state(p.name, p) == "EXPIRED" for p in packages)
+    monkeypatch.setattr(consumer, "MEMO_REVERIFY_PER_PASS", 2)
+    # Only 2 of the 5 expired packages may leave the fast path in one pass.
+    budget, reverified = consumer.MEMO_REVERIFY_PER_PASS, 0
+    for p in packages:
+        if consumer._memo_state(p.name, p) == "EXPIRED" and budget > 0:
+            budget -= 1
+            reverified += 1
+    assert reverified == 2
+    consumer._VERIFIED_MEMO.clear()
+

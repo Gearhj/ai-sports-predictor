@@ -56,6 +56,12 @@ PACKAGE_FILE = "exchange-package.json"
 #: elapsing forces full verification again.
 _VERIFIED_MEMO: dict[str, tuple[int, int, float]] = {}
 MEMO_TTL_SECONDS = 6 * 3600
+#: At most this many TTL-expired packages are re-verified per pass; the rest
+#: keep their memo until their turn. Without the cap every package expired in
+#: the same pass (2026-09-19 03:28 ET: a 275 s pass, checkpoints waiting up to
+#: 470 s), which inside a decision window re-creates the delay the memo removed.
+#: New or changed packages are never capped.
+MEMO_REVERIFY_PER_PASS = 20
 
 
 def _manifest_stamp(package_dir: Path) -> tuple[int, int] | None:
@@ -66,14 +72,20 @@ def _manifest_stamp(package_dir: Path) -> tuple[int, int] | None:
     return stat.st_size, stat.st_mtime_ns
 
 
-def _memo_hit(address: str, package_dir: Path) -> bool:
+def _memo_state(address: str, package_dir: Path) -> str:
+    """HIT (use the memo), EXPIRED (unchanged but due for re-verification) or MISS."""
+
     from time import monotonic
 
     entry = _VERIFIED_MEMO.get(address)
     stamp = _manifest_stamp(package_dir)
     if entry is None or stamp is None or (entry[0], entry[1]) != stamp:
-        return False
-    return monotonic() - entry[2] < MEMO_TTL_SECONDS
+        return "MISS"
+    return "HIT" if monotonic() - entry[2] < MEMO_TTL_SECONDS else "EXPIRED"
+
+
+def _memo_hit(address: str, package_dir: Path) -> bool:
+    return _memo_state(address, package_dir) == "HIT"
 
 
 def _memo_store(address: str, package_dir: Path) -> None:
@@ -225,7 +237,11 @@ def consume_v18_packages(
         })
         return outcome.as_dict()
 
-    for package_dir in discover_packages(exchange_root):
+    reverify_budget = MEMO_REVERIFY_PER_PASS
+    # Oldest memo first, so the periodic re-verification rolls through every package.
+    packages = sorted(discover_packages(exchange_root),
+                      key=lambda d: _VERIFIED_MEMO.get(d.name.lower(), (0, 0, 0.0))[2])
+    for package_dir in packages:
         outcome.scanned += 1
         address = package_dir.name.lower()
         try:
@@ -239,12 +255,19 @@ def consume_v18_packages(
         if kind is None:
             outcome.rejected.append({"package": address, "reason": reason})
             continue
-        if kind != "ACCOUNTING" and not dry_run and _memo_hit(address, package_dir):
-            outcome.reused.append({
-                "package": address, "registered": 0,
-                "fast_path": "VERIFIED_AND_FULLY_REGISTERED_EARLIER_IN_THIS_PROCESS",
-            })
-            continue
+        if kind != "ACCOUNTING" and not dry_run:
+            state = _memo_state(address, package_dir)
+            if state == "EXPIRED":
+                if reverify_budget > 0:
+                    reverify_budget -= 1  # falls through to full verification this pass
+                else:
+                    state = "HIT"  # unchanged manifest; re-verified on a later pass
+            if state == "HIT":
+                outcome.reused.append({
+                    "package": address, "registered": 0,
+                    "fast_path": "VERIFIED_AND_FULLY_REGISTERED_EARLIER_IN_THIS_PROCESS",
+                })
+                continue
         if kind == "ACCOUNTING":
             # Counted, never imported. This is the producer telling us it could
             # not forecast a slate, which is evidence in itself.
