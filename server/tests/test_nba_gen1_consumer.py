@@ -860,7 +860,7 @@ REAL_GRANT_RELEASE = (REAL_PAPER
                       / "release/sha256/b1d1327cc14e3fb37e27d542e2e1ea2db052c218fec15e3193091a66dcee7950/receipt.json")
 #: The real slate release staged for tonight, with its genuine effective clock.
 REAL_RELEASE = pathlib.Path(
-    r"C:\Users\james\asp-model-studio-source-nba-delivery\outputs\nba-gen1-delivery-completion-20260919-v1"
+    r"C:\Users\james\asp-model-studio\outputs\nba-gen1-delivery-completion-20260919-v1"
     r"\release-installable\releases\sha256"
     r"\9c5de22ce0cf9d366d7297202cccd4b18ba8738c2a8fccf1449cd8fdc17a4a0b\release.json")
 PINNED_HANDOFF = "7113b71ff5819c89103ad19d5f9afb22c51dbc92980be12b56ce8826cb34ccaf"
