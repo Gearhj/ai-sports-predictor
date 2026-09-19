@@ -216,12 +216,17 @@ def fetch_pregame_moneylines(
     settings: Settings, *, limit: int = 10, now: datetime | None = None,
     starts_within_hours: int = 12, cache_path: "Path | None" = None,
     starts_after: datetime | None = None, request_fingerprint: str | None = None,
-    lane: str = ENDPOINT_KEY,
+    lane: str = ENDPOINT_KEY, event_ids: list[str] | None = None,
 ) -> FallbackFetch:
     """Exactly one request for upcoming MLB events. No retry, no pagination.
 
     A second page would be a second request and a second object charge, so the
     caller is told what was returned and decides; nothing here loops.
+
+    ``event_ids`` adds the provider event-ID filter (``EVENT_ID_FILTER_PARAM``).
+    Only the exact-selection path passes it, and only while
+    ``sgo_exact_event_selection_enabled`` is on -- see that constant for why it
+    is off by default.
     """
     ok, reason = eligible(settings, now=now)
     if not ok:
@@ -254,6 +259,8 @@ def fetch_pregame_moneylines(
         "finalized": "false",
         "oddsPresent": "true",
     }
+    if event_ids:
+        params[EVENT_ID_FILTER_PARAM] = ",".join(event_ids)
     url = f"{settings.sportsgameodds_base_url.rstrip('/')}/events"
     headers = {"X-Api-Key": settings.sportsgameodds_api_key, "Accept": "application/json"}
 
@@ -807,6 +814,148 @@ def complete_request(
     session.flush()
 
 
+# --- never send a request the provider may answer with a different game ------
+#
+# THE FAULT (2026-09-18 14:42:37 ET, halt aa24c634)
+# --------------------------------------------------
+# A request names games only through `limit` and a start-time window; it
+# carries no event identity. The provider answers with the earliest `limit`
+# events in the window, and orders events that share a first pitch its own way.
+# The refresh that halted the lane selected KC @ PIT (07ddd2bf) with limit=1
+# over a window whose earliest start, 18:40 ET, was shared with CHC @ CIN
+# (3e7914d7). The provider returned CHC @ CIN -- an answer the filters allowed.
+# Any request whose selection is not exactly the earliest `limit` games of its
+# window can do the same: a strict subset of a tied first pitch, or a selected
+# game with an unselected one starting before it inside the window.
+#
+# THE REPAIR
+# ----------
+# Before a request is sent, the selection is reduced to its longest
+# unambiguous prefix: whole start-time groups, earliest first, every game of
+# the window up to the last kept start selected. What remains is DEFERRED by
+# name -- never widened, never bought as an extra object. The mismatch check
+# and the halt after the request are unchanged. When the selection is already
+# unambiguous (every request since 09-14 except the one that halted), the
+# request is byte-identical to before.
+
+#: The provider's event-ID filter name, as SportsGameOdds is generally
+#: described. NOT established by any retained AISP evidence: every request AISP
+#: has sent used only leagueID, limit, startsAfter, startsBefore, finalized and
+#: oddsPresent, and the provider SILENTLY IGNORED the one undocumented
+#: parameter ever sent (``oddsAvailable``, 2026-09-09,
+#: outputs/sportsgameodds-validation/FALLBACK_ACTIVATION.md). An ignored ID
+#: filter would reproduce the ambiguous request exactly, so this path stays off
+#: (``sgo_exact_event_selection_enabled``) until one owner-authorised request
+#: shows the provider honours it.
+EVENT_ID_FILTER_PARAM = "eventIDs"
+DEFERRED_TIED_START = "DEFERRED_AMBIGUOUS_TIED_START_NO_VERIFIED_EVENT_ID"
+DEFERRED_EARLIER_GAME = "DEFERRED_AMBIGUOUS_UNSELECTED_EARLIER_GAME_IN_WINDOW_NO_VERIFIED_EVENT_ID"
+
+
+def verified_sgo_event_ids(session: Session, game_ids: list[str]) -> dict[str, str]:
+    """The SportsGameOdds event ID AISP itself bound to each game, when unambiguous.
+
+    Only IDs on SPORTSGAMEODDS quote rows count. Those rows exist only when the
+    canonical normalizer bound the provider event to that exact game: same
+    league, same home/away orientation, first pitch within tolerance, a unique
+    nearest candidate (``CanonicalNormalizer._match_game``). An ID is verified
+    only when the game carries exactly one such ID and no other game carries
+    it. Unbound-event receipts, NFL franchise mappings and anything else are
+    not identities for an MLB game and are ignored.
+    """
+
+    if not game_ids:
+        return {}
+    from sqlalchemy import func, select
+
+    from app.models import Market, MarketOutcome, OddsSnapshot
+
+    ids = [str(value) for value in game_ids]
+    rows = session.execute(
+        select(Market.game_id, OddsSnapshot.source_event_id)
+        .join(MarketOutcome, MarketOutcome.market_id == Market.id)
+        .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
+        .where(
+            Market.game_id.in_([_uuid(value) for value in ids]),
+            OddsSnapshot.source == SPORTSGAMEODDS,
+            OddsSnapshot.source_event_id.is_not(None),
+        )
+        .distinct()
+    ).all()
+    per_game: dict[str, set[str]] = {}
+    for game_id, event_id in rows:
+        if str(event_id or "").strip():
+            per_game.setdefault(str(game_id), set()).add(str(event_id))
+    candidates = {g: next(iter(v)) for g, v in per_game.items() if len(v) == 1}
+    if not candidates:
+        return {}
+    # An ID bound to a second game anywhere is not an identity for either.
+    shared = session.execute(
+        select(OddsSnapshot.source_event_id, func.count(func.distinct(Market.game_id)))
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .join(Market, Market.id == MarketOutcome.market_id)
+        .where(OddsSnapshot.source == SPORTSGAMEODDS,
+               OddsSnapshot.source_event_id.in_(sorted(set(candidates.values()))))
+        .group_by(OddsSnapshot.source_event_id)
+    ).all()
+    reused = {str(event_id) for event_id, games in shared if int(games) > 1}
+    return {g: e for g, e in candidates.items() if e not in reused}
+
+
+def _event_start(event: dict[str, Any]) -> datetime:
+    value = datetime.fromisoformat(event["starts_at_utc"])
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
+
+
+def unambiguous_prefix(
+    selected: list[dict[str, Any]], events: list[dict[str, Any]], *,
+    window_start: datetime, window_end: datetime, moment: datetime,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The part of ``selected`` the provider's answer is certain to equal.
+
+    ``events`` is every canonical game on the slate. The provider answers with
+    the earliest ``limit`` events in [window_start, window_end]; ties at one
+    first pitch come back in its own order. So a selection is safe exactly when,
+    walking the window's start-time groups earliest first, each group is either
+    wholly selected or lies after the last selected game. Returns (kept,
+    deferred); each deferred entry names its game and reason.
+    """
+
+    chosen = {str(e.get("game_id")) for e in selected}
+    window = sorted(
+        (e for e in events
+         if window_start <= _event_start(e) <= window_end and _event_start(e) > moment),
+        key=lambda e: (_event_start(e), str(e.get("game_id"))),
+    )
+    groups: list[tuple[datetime, list[dict[str, Any]]]] = []
+    for event in window:
+        start = _event_start(event)
+        if groups and groups[-1][0] == start:
+            groups[-1][1].append(event)
+        else:
+            groups.append((start, [event]))
+    kept_ids: list[str] = []
+    for _start, group in groups:
+        ids = {str(e.get("game_id")) for e in group}
+        if len(kept_ids) == len(chosen):
+            break
+        if ids <= chosen:
+            kept_ids.extend(sorted(ids))
+            continue
+        break
+    kept = [e for e in selected if str(e.get("game_id")) in set(kept_ids)]
+    deferred = []
+    unselected_starts = {_event_start(e) for e in window if str(e.get("game_id")) not in chosen}
+    for event in selected:
+        if str(event.get("game_id")) in set(kept_ids):
+            continue
+        tied = _event_start(event) in unselected_starts
+        deferred.append({"game_id": str(event.get("game_id")),
+                         "starts_at_utc": _event_start(event).isoformat(),
+                         "reason": DEFERRED_TIED_START if tied else DEFERRED_EARLIER_GAME})
+    return kept, deferred
+
+
 def collect_for_open_cutoffs(
     session: Session,
     settings: Settings,
@@ -995,13 +1144,42 @@ def collect_for_open_cutoffs(
         datetime.fromisoformat(event["starts_at_utc"]) for event in covered
     ) - timedelta(seconds=1)
     anchor = max(anchor.astimezone(UTC), moment)
+    window_end = moment + timedelta(hours=horizon_hours)
+
+    # NEVER A REQUEST THE PROVIDER MAY ANSWER WITH A DIFFERENT GAME.
+    #
+    # Exact selection names the provider events AISP itself bound to these
+    # games -- only when switched on and only when every selected game has one.
+    # Otherwise the selection is cut to its unambiguous prefix and the rest is
+    # deferred by name; if nothing unambiguous is left, nothing is requested.
+    exact_ids: list[str] | None = None
+    deferred: list[dict[str, Any]] = []
+    if getattr(settings, "sgo_exact_event_selection_enabled", False):
+        verified = verified_sgo_event_ids(session, [str(e.get("game_id")) for e in covered])
+        if all(str(e.get("game_id")) in verified for e in covered):
+            exact_ids = [verified[str(e.get("game_id"))] for e in covered]
+    if exact_ids is None:
+        covered, deferred = unambiguous_prefix(
+            covered, coverage["events"], window_start=anchor, window_end=window_end, moment=moment)
+        if not covered:
+            return {"attempted": False, "reason": "DEFERRED_AMBIGUOUS_SELECTION", "objects": 0,
+                    "games_deferred": deferred,
+                    "games_unsupported_today": [str(e.get("game_id")) for e in unsupported],
+                    "detail": ("Every selected game shares its request window with an "
+                               "unselected game the provider could return instead, and no "
+                               "verified provider event ID can name it. No request was "
+                               "sent; no object was spent."),
+                    "selection_rule": SELECTION_RULE}
+        wanted = len(covered)
 
     params = {
         "leagueID": "MLB", "limit": str(wanted),
         "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": (moment + timedelta(hours=horizon_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsBefore": window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finalized": "false", "oddsPresent": "true",
     }
+    if exact_ids is not None:
+        params[EVENT_ID_FILTER_PARAM] = ",".join(exact_ids)
     reservation = record_request(session, requested_at=moment, params=params,
                                  budget=budget, job_run_id=job_run_id,
                                  objects_requested=wanted)
@@ -1014,7 +1192,8 @@ def collect_for_open_cutoffs(
         fetch = fetch_pregame_moneylines(
             settings, limit=wanted, now=moment,
             starts_within_hours=horizon_hours, starts_after=anchor,
-            request_fingerprint=getattr(reservation, "request_fingerprint", None))
+            request_fingerprint=getattr(reservation, "request_fingerprint", None),
+            **({} if exact_ids is None else {"event_ids": exact_ids}))
     except Exception as error:  # one attempt; the cooldown owns the next one
         complete_request(session, reservation, objects=0, succeeded=False, budget=budget,
                          error=type(error).__name__, job_run_id=job_run_id)
@@ -1058,7 +1237,15 @@ def collect_for_open_cutoffs(
         )
     session.commit()
     after = object_budget(session, now=moment)
+    # Named only when they happened, so an unambiguous request's receipt is
+    # unchanged.
+    selection_receipt: dict[str, Any] = {}
+    if deferred:
+        selection_receipt["games_deferred"] = deferred
+    if exact_ids is not None:
+        selection_receipt["exact_event_ids"] = exact_ids
     return {
+        **selection_receipt,
         "attempted": True, "reason": "FALLBACK_COLLECTED",
         "objects": fetch.objects,
         "games_open_before_cutoff": len(open_games),

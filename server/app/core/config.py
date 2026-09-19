@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     #: remembering: from this date The Odds API is primary again. Empty means no
     #: authorized window at all, not an open one.
     sportsgameodds_fallback_until: str = ""
+    #: Name the provider events AISP itself bound to the selected MLB games
+    #: (``eventIDs``) instead of relying on limit + start window. OFF: whether
+    #: SportsGameOdds honours that filter is not established by retained
+    #: evidence, and an ignored filter would reproduce the ambiguous request.
+    #: With it off, an ambiguous selection is deferred, never sent.
+    sgo_exact_event_selection_enabled: bool = False
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False
     demo_mode: bool = True
