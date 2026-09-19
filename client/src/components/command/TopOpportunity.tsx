@@ -64,8 +64,11 @@ export function WhyDetails({ outcome, channel, item, summary = 'Why?' }: {
         {b && <div><dt>Sportsbook implied</dt><dd>{pct(1 / b.decimal)} at {american(b.american)} ({b.decimal.toFixed(3)})</dd></div>}
         <div><dt>No-vig</dt><dd>{pct(side?.no_vig)}</dd></div>
         <div><dt>Fair price</dt><dd>{american(m?.fair_american)}</dd></div>
-        <div><dt>Raw edge</dt><dd>{pts(side?.edge)}</dd></div>
-        {item?.adjusted?.edge != null && <div><dt>Policy-adjusted edge</dt><dd>{pts(item.adjusted.edge)} (official decision)</dd></div>}
+        {/* side.edge is the CURRENT model minus the CURRENT no-vig for this quote
+            (probability/assessments.py): a live research comparison, unadjusted.
+            item.adjusted.edge is what the official decision recorded. */}
+        <div><dt>Current model − no-vig (unadjusted, research)</dt><dd>{pts(side?.edge)}</dd></div>
+        <div><dt>Recorded policy-adjusted edge</dt><dd>{item?.adjusted?.edge != null ? `${pts(item.adjusted.edge)} (official decision, as recorded)` : 'unavailable'}</dd></div>
         {m && b && outcome.expectedProfit != null && (
           <div><dt>Expected profit</dt><dd>{pct(m.win)} × ({b.decimal.toFixed(3)} − 1) − {pct(m.loss)} = {signedCents(outcome.expectedProfit)} per $1 · expected return {money2(outcome.expectedReturn!)}</dd></div>
         )}
