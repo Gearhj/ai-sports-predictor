@@ -8,7 +8,7 @@ import { myCard, pickKey, useMyCard, type PickOrigin } from '../../services/myCa
 import { PARLAY_UNAVAILABLE, american, legLabel, pct, type Channel, type GameAssessment } from '../../services/probability'
 import {
   MARKET_ORDER, PRICE_BLOCKED_TEXT, TOP_LABEL, expectedProfitText, expectedReturnText, marketLabel, money2,
-  payoutText, profitIfWinText, selectionText, shortBook, signedCents, teamShort,
+  noCurrentPriceText, payoutText, profitIfWinText, selectionText, shortBook, signedCents, teamShort,
   type Outcome, type TopPlay,
 } from '../../services/topPlay'
 import { pickFrom } from './MarketsAndCard'
@@ -178,8 +178,8 @@ export const TopOpportunity = memo(function TopOpportunity({ play, game, item, s
       {state === 'PENDING_FORECAST' && (
         <p className="tp-msg">{PRICE_BLOCKED_TEXT.PENDING}.{play.outcomes.some((o) => o.best?.current) ? ' Current prices and $1 payouts are listed under the markets below.' : ''}</p>
       )}
-      {state === 'PRICE_NEEDED' && (
-        <p className="tp-msg">{PRICE_BLOCKED_TEXT.STALE}. AISP ranks a game’s markets only from a current sportsbook price.</p>
+      {(state === 'PRICE_NEEDED' || state === 'NO_COVERAGE') && (
+        <p className="tp-msg">{noCurrentPriceText(play, game)}. AISP ranks a game’s markets only from a current sportsbook price.</p>
       )}
     </section>
   )

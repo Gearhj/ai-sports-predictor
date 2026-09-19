@@ -589,6 +589,14 @@ def _cfb_price_note(session: Session) -> dict[str, Any]:
     cached = _CFB_PRICE_NOTE.get("value")
     if cached is not None and (datetime.now(UTC) - _CFB_PRICE_NOTE["at"]) < timedelta(minutes=10):
         return cached
+    # The owner's lane switch is read on its own: a switched-off lane has no
+    # collector registered at all, whatever the capacity gate says.
+    try:
+        from app.core.config import get_settings
+
+        lane_enabled: bool | None = bool(getattr(get_settings(), "cfb_sgo_lane_enabled", False))
+    except Exception:  # noqa: BLE001
+        lane_enabled = None
     try:
         from app.cfb.sgo_lane import capacity
         from app.core.config import get_settings
@@ -599,12 +607,83 @@ def _cfb_price_note(session: Session) -> dict[str, Any]:
         finally:
             nested.rollback()
         note = {"reason": gate["state"], "detail": gate["explanation"],
+                "lane": gate.get("lane"), "lane_enabled": lane_enabled,
+                "objects_allowed": gate.get("objects_allowed"), "spent_on_lane": gate.get("spent_on_lane"),
                 "reference_lines": ("CFBD /lines (one probe, 2026-09-18) carries no quote timestamps and "
                                     "covers none of the current forecasts; reference only, never a price.")}
         _CFB_PRICE_NOTE.update({"value": note, "at": datetime.now(UTC)})
         return note
     except Exception as error:  # noqa: BLE001 -- the note is explanatory; never break the slate
-        return {"reason": "PRICE_STATE_UNAVAILABLE", "detail": type(error).__name__}
+        return {"reason": "PRICE_STATE_UNAVAILABLE", "detail": type(error).__name__, "lane_enabled": lane_enabled}
+
+
+def _cfb_eligibility(session: Session, models: dict[str, dict[str, Any]], *, now: datetime,
+                     as_of: datetime | None = None) -> dict[str, dict[str, Any]]:
+    """Per CFB game: the present discovery lease of its forecast, and its recorded checkpoint.
+
+    The present reading is the NEWEST verified manifest's observation of the
+    exact forecast -- the manifest ``production_import.present_eligibility``
+    reads -- without its kickoff short-cut, so a started game still shows when
+    its lease lapsed. The checkpoint is the latest recorded FINAL_PREGAME
+    decision under the CFB paper policy, exactly as written (its own evidence
+    carries the lease it saw). Reads only; with ``as_of``, only what AISP had
+    recorded by then.
+    """
+
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from app.cfb.production_import import NO_DISCOVERY, NOT_IN_CURRENT_DISCOVERY, _lease_state
+    from app.models import CfbDiscoveryManifest, CfbDiscoveryObservation, ShadowExperiment, ShadowExperimentDecision
+    from app.services.research_paper_policy import CFB as CFB_POLICY
+
+    forecast_ids = {m["forecast_id"] for m in models.values() if m and m.get("forecast_id")}
+    newest = select(CfbDiscoveryManifest).order_by(CfbDiscoveryManifest.producer_created_utc.desc().nullslast(),
+                                                   CfbDiscoveryManifest.first_verified_at.desc()).limit(1)
+    if as_of is not None:
+        newest = newest.where(CfbDiscoveryManifest.first_verified_at <= as_of)
+    manifest = session.scalar(newest)
+    observations: dict[str, Any] = {}
+    if manifest is not None and forecast_ids:
+        for obs in session.scalars(select(CfbDiscoveryObservation).where(
+                CfbDiscoveryObservation.manifest_id == manifest.id,
+                CfbDiscoveryObservation.forecast_id.in_(sorted(forecast_ids)))):
+            observations[obs.forecast_id] = obs
+
+    decisions = select(ShadowExperimentDecision).join(
+        ShadowExperiment, ShadowExperiment.id == ShadowExperimentDecision.experiment_id).where(
+        ShadowExperiment.decision_policy == CFB_POLICY.policy_version,
+        ShadowExperimentDecision.phase == "FINAL_PREGAME",
+        ShadowExperimentDecision.game_id.in_([_uuid.UUID(g) for g in models]))
+    if as_of is not None:
+        decisions = decisions.where(ShadowExperimentDecision.recommended_at <= as_of)
+    checkpoints: dict[str, dict[str, Any]] = {}
+    for row in session.scalars(decisions.order_by(ShadowExperimentDecision.recommended_at)):
+        evidence = row.evidence if isinstance(row.evidence, dict) else {}
+        reasons = row.qualification_reasons if isinstance(row.qualification_reasons, dict) else {}
+        checkpoints[str(row.game_id)] = {
+            "decision_id": str(row.id), "recorded_at": _iso(row.recommended_at),
+            "recommendation": row.recommendation, "reason": reasons.get("reason"),
+            "detail": row.recommendation_reason, "discovery": evidence.get("discovery")}
+
+    manifest_fields = ({"manifest_sha256": manifest.manifest_sha256,
+                        "manifest_created_utc": _iso(manifest.producer_created_utc)} if manifest else {})
+    out: dict[str, dict[str, Any]] = {}
+    for gid, model in models.items():
+        reading = None
+        if model and model.get("forecast_id"):
+            obs = observations.get(model["forecast_id"])
+            if manifest is None:
+                reading = {"state": NO_DISCOVERY}
+            elif obs is None:
+                reading = {"state": NOT_IN_CURRENT_DISCOVERY, **manifest_fields}
+            else:
+                reading = {"state": _lease_state(obs, now), **manifest_fields,
+                           "lease_valid_until": _iso(obs.eligibility_valid_until_utc),
+                           "producer_status": obs.producer_status}
+        out[gid] = {"now": reading, "checkpoint": checkpoints.get(gid)}
+    return out
 
 
 def market_coverage(session: Session, day: date, now: datetime | None = None,
@@ -666,6 +745,12 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
     cfb_ids = [str(g[0]) for g in games if g[1] == "CFB"]
     cfb_models = _cfb_models(session, cfb_ids) if cfb_ids else {}
     cfb_price = _cfb_price_note(session) if cfb_ids else None
+    cfb_collection = pregame_status.cfb_collection(cfb_price) if cfb_ids else None
+    cfb_eligibility = (_cfb_eligibility(session, {gid: cfb_models.get(gid) for gid in cfb_ids},
+                                        now=now, as_of=as_of) if cfb_ids else {})
+    from app.services.research_paper_policy import CFB as CFB_POLICY
+
+    cfb_permitted = {_provider_label(source) for source in CFB_POLICY.permitted_quote_sources}
 
     by_game: dict[str, list[Any]] = defaultdict(list)
     for row in quote_rows:
@@ -766,6 +851,15 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                 "model_status": pregame_status.model_status(league, gid, start, model, now=now,
                                                             receipt=receipt)}
                if league in CONTROLLING_ENGINES else {}),
+            # College Football: whether any collector can fetch a price, and the
+            # producer's eligibility lease -- two facts, each on its own evidence.
+            **({"market_status": pregame_status.cfb_market_status(
+                    moneylines, len(quotes), cfb_collection or {}, cfb_permitted, now=now,
+                    opens=start - WINDOW_OPENS, closes=closes),
+                "model_status": pregame_status.cfb_model_status(
+                    model, eligibility_now=(cfb_eligibility.get(gid) or {}).get("now"),
+                    checkpoint=(cfb_eligibility.get(gid) or {}).get("checkpoint"), starts_at=start)}
+               if league == "CFB" else {}),
             "checkpoints": {
                 "collection_opens_at": (None if league == "CFB"
                                         else _iso(closes - timedelta(minutes=QUOTE_FRESHNESS_MINUTES))),

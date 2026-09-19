@@ -95,3 +95,100 @@ def test_a_receipt_whose_address_does_not_match_is_ignored(tmp_path):
                                                           "receiptSha256": "d" * 64, "games": []}))
     ps._cache.clear()
     assert ps.latest_receipt(date(2026, 9, 18), root=tmp_path) is None
+
+
+# -- College Football: Akron @ Minnesota, 2026-09-19 12:00 PM ET ---------------
+# No quote row, no active collector (SGO CFB lane: no uncommitted capacity,
+# switched off, 0 objects spent), and a producer lease that expired at
+# 08:20:44 ET; the 11:30 ET checkpoint recorded BLOCKED / DISCOVERY_NOT_CURRENT.
+
+AKRON_KICK = datetime(2026, 9, 19, 16, 0, tzinfo=UTC)
+AKRON_OPENS, AKRON_CLOSES = AKRON_KICK - timedelta(minutes=30), AKRON_KICK - timedelta(minutes=15)
+AKRON_NOTE = {"reason": "NO_UNCOMMITTED_SGO_CAPACITY", "lane": "sgo_cfb_events", "lane_enabled": False,
+              "objects_allowed": 0, "spent_on_lane": 0,
+              "detail": "... so 0 are genuinely uncommitted. CFB takes the smaller of 10 and that: 0."}
+EXPIRED = {"state": "EXPIRED_LEASE", "lease_valid_until": "2026-09-19T08:20:44.067209-04:00",
+           "manifest_sha256": "03ba7f58", "manifest_created_utc": "2026-09-19T08:05:46.539274-04:00",
+           "producer_status": "CURRENT_ELIGIBLE"}
+AKRON_CHECKPOINT = {"decision_id": "29d99c43", "recorded_at": "2026-09-19T15:30:55.019582+00:00",
+                    "recommendation": "BLOCKED", "reason": "DISCOVERY_NOT_CURRENT",
+                    "detail": "EXPIRED_LEASE: The producer's eligibility lease has expired; a new owner tick must renew it.",
+                    "discovery": {**EXPIRED, "eligible": False}}
+AKRON_MODEL = {"engine_id": "CFB_GEN1_JOINT_BASELINE", "forecast_id": "cfb-gen1:ea85d35a", "home": 0.7831}
+CFB_PERMITTED = {"SportsGameOdds"}
+
+
+def test_cfb_with_no_quote_and_no_collector_is_inactive_not_waiting():
+    collection = ps.cfb_collection(AKRON_NOTE)
+    assert collection["active"] is False and collection["allocation_state"] == "NO_UNCOMMITTED_SGO_CAPACITY"
+    assert collection["spent_on_lane"] == 0 and collection["objects_allowed"] == 0
+    status = ps.cfb_market_status([], 0, collection, CFB_PERMITTED, now=AKRON_OPENS - timedelta(minutes=30),
+                                  opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert status["state"] == ps.COLLECTION_INACTIVE
+    assert status["quotes_stored"] == 0 and status["books_two_sided"] == 0
+    # Still inactive once the window has closed: nothing ever fetched a price.
+    late = ps.cfb_market_status([], 0, collection, CFB_PERMITTED, now=AKRON_KICK, opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert late["state"] == ps.COLLECTION_INACTIVE
+
+
+def test_a_switched_off_lane_is_inactive_even_when_the_gate_cannot_be_read():
+    unreadable = ps.cfb_collection({"reason": "PRICE_STATE_UNAVAILABLE", "detail": "OperationalError", "lane_enabled": False})
+    assert unreadable["active"] is False
+    unknown = ps.cfb_collection({"reason": "PRICE_STATE_UNAVAILABLE", "lane_enabled": True})
+    assert unknown["active"] is None
+    status = ps.cfb_market_status([], 0, unknown, CFB_PERMITTED, now=AKRON_OPENS, opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert status["state"] == ps.COLLECTION_STATE_UNKNOWN
+
+
+def test_only_an_active_collector_makes_a_missing_quote_no_quotes_yet():
+    active = ps.cfb_collection({**AKRON_NOTE, "reason": "CAPACITY_AVAILABLE", "lane_enabled": True, "objects_allowed": 4})
+    assert active["active"] is True and active["objects_allowed"] == 4
+    status = ps.cfb_market_status([], 0, active, CFB_PERMITTED, now=AKRON_OPENS, opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert status["state"] == ps.NO_QUOTES_YET
+    # Switched on with zero capacity is still no collector.
+    assert ps.cfb_collection({**AKRON_NOTE, "lane_enabled": True})["active"] is False
+
+
+def test_cfb_stored_quotes_get_the_ordinary_reading_against_the_cfb_permitted_source():
+    now = AKRON_OPENS - timedelta(minutes=20)
+    status = ps.cfb_market_status([_quote(now - timedelta(minutes=10))], 1, ps.cfb_collection(AKRON_NOTE),
+                                  CFB_PERMITTED, now=now, opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert status["state"] == "ELIGIBLE_THROUGH_WINDOW"
+    stale = ps.cfb_market_status([_quote(now - timedelta(minutes=300))], 1, ps.cfb_collection(AKRON_NOTE),
+                                 CFB_PERMITTED, now=now, opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert stale["state"] == "STORED_REFERENCE_ONLY"
+    odds_api_only = ps.cfb_market_status([_quote(now, provider="The Odds API")], 1, ps.cfb_collection(AKRON_NOTE),
+                                         CFB_PERMITTED, now=now, opens=AKRON_OPENS, closes=AKRON_CLOSES)
+    assert odds_api_only["state"] == "NO_TWO_SIDED_QUOTE"
+
+
+def test_cfb_eligibility_after_the_checkpoint_is_the_lease_the_checkpoint_recorded():
+    status = ps.cfb_model_status(AKRON_MODEL, eligibility_now=EXPIRED, checkpoint=AKRON_CHECKPOINT, starts_at=AKRON_KICK)
+    assert status["state"] == ps.ELIGIBILITY_EXPIRED
+    assert status["basis"] == "RECORDED_AT_CHECKPOINT"
+    assert status["eligibility"]["lease_valid_until"] == "2026-09-19T08:20:44.067209-04:00"
+    assert status["checkpoint"]["reason"] == "DISCOVERY_NOT_CURRENT"
+    assert status["renewed_since_checkpoint"] is False
+    assert status["schedule"]["publication_target"] is None     # no invented producer target for CFB
+
+
+def test_cfb_eligibility_before_the_checkpoint_reads_the_present_manifest():
+    status = ps.cfb_model_status(AKRON_MODEL, eligibility_now=EXPIRED, checkpoint=None, starts_at=AKRON_KICK)
+    assert (status["state"], status["basis"]) == (ps.ELIGIBILITY_EXPIRED, "PRESENT_DISCOVERY")
+    current = ps.cfb_model_status(AKRON_MODEL, eligibility_now={**EXPIRED, "state": "CURRENT"}, checkpoint=None,
+                                  starts_at=AKRON_KICK)
+    assert current["state"] == ps.ELIGIBILITY_CURRENT
+    unlisted = ps.cfb_model_status(AKRON_MODEL, eligibility_now={"state": "NOT_IN_CURRENT_DISCOVERY"},
+                                   checkpoint=None, starts_at=AKRON_KICK)
+    assert unlisted["state"] == ps.ELIGIBILITY_NOT_CURRENT
+    assert ps.cfb_model_status(None, eligibility_now=None, checkpoint=None, starts_at=AKRON_KICK)["state"] == "NOT_PUBLISHED"
+
+
+def test_a_renewal_after_the_checkpoint_never_rewrites_what_the_checkpoint_recorded():
+    renewed = {**EXPIRED, "state": "CURRENT", "lease_valid_until": "2026-09-19T12:05:00-04:00",
+               "manifest_created_utc": "2026-09-19T11:50:00-04:00"}
+    status = ps.cfb_model_status(AKRON_MODEL, eligibility_now=renewed, checkpoint=AKRON_CHECKPOINT, starts_at=AKRON_KICK)
+    assert status["state"] == ps.ELIGIBILITY_EXPIRED
+    assert status["eligibility"] == AKRON_CHECKPOINT["discovery"]
+    assert status["eligibility_now"]["state"] == "CURRENT"
+    assert status["renewed_since_checkpoint"] is True

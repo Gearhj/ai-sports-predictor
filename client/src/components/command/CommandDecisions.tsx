@@ -40,6 +40,7 @@ import { AssessmentBoard, classifyAssessments } from './AssessmentBoard'
 import { TOP_ORIENTATION } from './TopOpportunity'
 import { american } from '../../services/probability'
 import { signedCents, topPlay } from '../../services/topPlay'
+import { marketLine, modelLine } from '../../services/pregameStatus'
 import { ParlayLab } from './ParlayLab'
 import { AllMarkets, MyCard } from './MarketsAndCard'
 import { useMyCard } from '../../services/myCard'
@@ -91,6 +92,9 @@ const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v 
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
 
+/** A CFB checkpoint's recorded reason when the producer's discovery lease blocked it ("EXPIRED_LEASE: ..."). */
+const LEASE_BLOCK = /^(EXPIRED_LEASE|HISTORICAL|NOT_IN_CURRENT_DISCOVERY|REJECTED|NO_VERIFIED_DISCOVERY|GAME_STARTED):/
+
 /** Why a final evaluation passed, from its recorded reason; "edge below policy" only when that is the reason. */
 export function passedLabel(reason: string | null): string {
   const text = reason ?? ''
@@ -121,12 +125,33 @@ export function describeDecision(item: DecisionItem | null, game: CoverageGame |
     return started ? { label: 'Qualified · not positioned', tone: 'red', detail: reason } : { label: 'Qualifies now', tone: 'green', detail: reason }
   }
   if (rec === 'NO_BET' && item?.phase === 'FINAL_PREGAME') return { label: passedLabel(reason), tone: 'red', detail: reason }
-  if (rec === 'BLOCKED') return { label: /eligib/i.test(reason ?? '') ? 'Awaiting producer eligibility' : 'Blocked by policy', tone: 'red', detail: reason }
+  if (rec === 'BLOCKED') {
+    // A College Football checkpoint blocked on the producer's discovery lease is a
+    // recorded result, not a wait: its own recorded reason names the lease state.
+    const lease = LEASE_BLOCK.exec(reason ?? '')?.[1]
+    if (lease) {
+      return { label: lease === 'EXPIRED_LEASE' ? 'Blocked · forecast eligibility expired' : 'Blocked · forecast not currently eligible',
+        tone: 'red', detail: modelLine(game?.model_status)?.detail ?? reason }
+    }
+    return { label: /eligib/i.test(reason ?? '') ? 'Awaiting producer eligibility' : 'Blocked by policy', tone: 'red', detail: reason }
+  }
   if (started) return { label: 'Window closed · no final evaluation', tone: 'red', detail: reason }
   if (rec === 'PROVISIONAL_EDGE') return { label: 'Early edge · awaiting final check', tone: 'gold', detail: reason }
   if (rec === 'WATCH') return { label: 'Near the threshold', tone: 'gold', detail: reason }
   if (rec === 'QUALIFIED_BET') return { label: 'Morning read qualifies · awaiting final check', tone: 'gold', detail: reason }
   if (game && !game.model) return { label: 'Waiting for the forecast', tone: 'gold', detail: reason }
+  // College Football before its checkpoint: an expired producer lease and a price
+  // lane with no collector are stated as facts. Neither is "waiting for" anything.
+  const eligibility = game?.model_status?.state
+  if (eligibility === 'ELIGIBILITY_EXPIRED' || eligibility === 'ELIGIBILITY_NOT_CURRENT') {
+    const line = modelLine(game?.model_status)
+    if (line) return { label: line.label, tone: 'gold', detail: line.detail }
+  }
+  const coverage = game?.market_status?.state
+  if (coverage === 'COLLECTION_INACTIVE_NO_ALLOCATION' || coverage === 'COLLECTION_STATE_UNKNOWN') {
+    const line = marketLine(game?.market_status)
+    if (line) return { label: line.label, tone: 'gray', detail: line.detail }
+  }
   if (game && game.price_state !== 'CURRENT_PRICE') return { label: 'Waiting for a sportsbook price', tone: 'gold', detail: reason }
   return { label: 'Waiting for the decision window', tone: 'gold', detail: reason }
 }
@@ -223,10 +248,13 @@ export function progress(card: FeedCard, now: number): { reached: number; states
   const evaluated = item?.phase === 'FINAL_PREGAME' && item.recommendation !== 'NOT_YET_EVALUATED'
   const positioned = Boolean(item?.position)
   const settled = item?.position?.status === 'SETTLED'
+  // No active collector (College Football today): the price stage is not pending.
+  const noCollector = !card.readiness && !priced && !game?.quotes.length
+    && game?.market_status?.state === 'COLLECTION_INACTIVE_NO_ALLOCATION'
   const states: ('done' | 'wait' | 'miss' | 'na')[] = [
     'done',
     forecast ? 'done' : started ? 'miss' : 'wait',
-    priced ? 'done' : started ? 'miss' : 'wait',
+    priced ? 'done' : noCollector ? 'na' : started ? 'miss' : 'wait',
     evaluated ? 'done' : started ? 'miss' : 'wait',
     positioned ? 'done' : evaluated || started ? 'na' : 'wait',
     settled ? 'done' : positioned ? 'wait' : 'na',
@@ -235,7 +263,8 @@ export function progress(card: FeedCard, now: number): { reached: number; states
     'Scheduled',
     forecast ? 'Forecast available' : started ? 'No forecast' : 'Forecast preparing',
     card.readiness ? readinessPriceLabel(card.readiness.price?.state)
-      : priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only' : started ? 'No price collected' : 'Collection scheduled',
+      : priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only'
+        : noCollector ? 'No collection (no allocation)' : started ? 'No price collected' : 'Collection scheduled',
     evaluated ? (item?.recommendation === 'QUALIFIED_BET' ? 'Qualified' : item?.recommendation === 'NO_BET' ? 'Evaluated · no bet' : 'Evaluated') : started ? 'Not evaluated' : 'Evaluation pending',
     positioned ? 'Position recorded' : 'No position',
     settled ? `Settled ${item?.position?.result ?? ''}` : positioned ? 'Awaiting settlement' : '—',

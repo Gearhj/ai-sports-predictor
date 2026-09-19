@@ -8,6 +8,7 @@ import type { GameAssessment } from '../../services/probability'
 import { topPlay } from '../../services/topPlay'
 import { DIFFERS_NOTE, MarketSections, RESEARCH_NOTE, TopOpportunity } from './TopOpportunity'
 import { MyCard } from './MarketsAndCard'
+import { akronAssessment, akronBlockedItem, akronGame } from '../../test/cfbAkronFixture'
 
 type Fx = { assessment: GameAssessment; game: CoverageGame; item: DecisionItem }
 const real = (matchup: string) => (fixture.games as unknown as Fx[]).find((g) => g.game.matchup === matchup)!
@@ -114,5 +115,16 @@ describe('My Card from the top opportunity', () => {
     expect(screen.getByRole('region', { name: 'Top opportunity: CURRENT PRICE NEEDED' }))
       .toHaveTextContent('Stored reference price — current expected return unavailable')
     expect(screen.queryAllByRole('button', { name: /^Add / })).toHaveLength(0)
+  })
+
+  it('Akron @ Minnesota: no quote row and no collector is never a "stored reference price"', () => {
+    const game = akronGame()
+    const play = topPlay(akronAssessment, game, akronBlockedItem)
+    render(<MemoryRouter>
+      <TopOpportunity play={play} game={game} item={akronBlockedItem} sport="CFB" status="Blocked · forecast eligibility expired" channel={akronAssessment.binding} />
+    </MemoryRouter>)
+    const panel = screen.getByRole('region', { name: 'Top opportunity: NO SPORTSBOOK COVERAGE' })
+    expect(panel).toHaveTextContent('No sportsbook price is stored for this game: CFB price collection is not active (no allocation).')
+    expect(panel.textContent).not.toMatch(/stored reference|waiting/i)
   })
 })

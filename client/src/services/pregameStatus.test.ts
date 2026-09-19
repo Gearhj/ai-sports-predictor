@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { marketLine, marketShort, modelLine, type MarketStatus, type ModelStatus } from './pregameStatus'
+import { akronMarketStatus, akronModelAfter, akronModelBefore, expiredLease } from '../test/cfbAkronFixture'
 
 const market: MarketStatus = {
   state: 'ELIGIBLE_THROUGH_WINDOW', rule: '', books_two_sided: 9, books_fresh_now: 9, books_fresh_through_window: 9,
@@ -54,5 +55,60 @@ describe('pregame status', () => {
   it('never says "quote" in the model line or "forecast" in the market line', () => {
     expect(marketLine(market)!.detail).not.toMatch(/forecast/i)
     expect(modelLine({ state: 'SCHEDULED', schedule, producer }, 'V18', Date.parse('2026-09-18T21:00:00Z'))!.label).not.toMatch(/quote/i)
+  })
+})
+
+describe('College Football: coverage and eligibility are two separate lines (Akron @ Minnesota, 2026-09-19)', () => {
+  it('no quote row and no active collector: states no coverage, never "waiting" or "stored reference"', () => {
+    const line = marketLine(akronMarketStatus)!
+    expect(line.label).toBe('No sportsbook coverage')
+    expect(line.tone).toBe('neutral')
+    expect(line.detail).toBe('CFB price collection is not active (no allocation): no uncommitted SportsGameOdds capacity is left '
+      + 'after MLB/NFL; the CFB lane is not switched on; 0 objects spent on it · no quote is stored for this game')
+    expect(`${line.label} ${line.detail}`).not.toMatch(/waiting|stored reference|forecast/i)
+    expect(marketShort(akronMarketStatus)).toBe('No sportsbook coverage')
+  })
+
+  it('an active collector with nothing stored yet is the only "yet"', () => {
+    const active: MarketStatus = { ...akronMarketStatus, state: 'NO_QUOTES_YET',
+      collection: { ...akronMarketStatus.collection!, active: true, lane_enabled: true, allocation_state: 'CAPACITY_AVAILABLE', objects_allowed: 4 } }
+    expect(marketLine(active)).toMatchObject({ label: 'No quotes yet', tone: 'watch' })
+    expect(marketLine(active)!.detail).toContain('CFB price collection is active (4 objects allowed)')
+    const unknown: MarketStatus = { ...akronMarketStatus, state: 'COLLECTION_STATE_UNKNOWN' }
+    expect(marketLine(unknown)!.label).toBe('Sportsbook coverage unknown')
+  })
+
+  it('after the checkpoint: the expired lease with its time, no renewal, and the blocked checkpoint', () => {
+    const line = modelLine(akronModelAfter, 'CFB', Date.parse('2026-09-19T16:24:00Z'))!
+    expect(line.tone).toBe('bad')
+    expect(line.label).toBe('Forecast eligibility expired')
+    expect(line.detail).toBe('Forecast eligibility expired at 8:20 AM ET; the publisher has not renewed it (newest manifest 8:05 AM ET); '
+      + 'the 11:30 AM ET checkpoint was blocked (DISCOVERY_NOT_CURRENT)')
+    expect(`${line.label} ${line.detail}`).not.toMatch(/quote|price|research only/i)
+  })
+
+  it('before the checkpoint: names what the checkpoint will need, without predicting its outcome', () => {
+    const line = modelLine(akronModelBefore, 'CFB')!
+    expect(line.detail).toBe('Forecast eligibility expired at 8:20 AM ET; the publisher has not renewed it (newest manifest 8:05 AM ET); '
+      + 'the 11:30 AM ET checkpoint needs a current lease')
+  })
+
+  it('a renewal after the checkpoint is shown beside the record and never replaces it', () => {
+    const renewed: ModelStatus = { ...akronModelAfter, renewed_since_checkpoint: true,
+      eligibility_now: { ...expiredLease, state: 'CURRENT', manifest_created_utc: '2026-09-19T15:50:00Z', lease_valid_until: '2026-09-19T16:05:00Z' } }
+    const line = modelLine(renewed, 'CFB')!
+    expect(line.label).toBe('Forecast eligibility expired')
+    expect(line.detail).toContain('expired at 8:20 AM ET')
+    expect(line.detail).toContain('renewed after the checkpoint: current until 12:05 PM ET (newest manifest 11:50 AM ET); the recorded checkpoint stands')
+    expect(line.detail).toContain('the 11:30 AM ET checkpoint was blocked (DISCOVERY_NOT_CURRENT)')
+  })
+
+  it('a current lease reads as eligible, and a forecast the manifest no longer lists is not', () => {
+    const current: ModelStatus = { ...akronModelBefore, state: 'ELIGIBILITY_CURRENT',
+      eligibility: { ...expiredLease, state: 'CURRENT', lease_valid_until: '2026-09-19T15:35:00Z', manifest_created_utc: '2026-09-19T15:20:00Z' } }
+    expect(modelLine(current, 'CFB')).toMatchObject({ tone: 'good', label: 'Forecast eligible' })
+    expect(modelLine(current, 'CFB')!.detail).toContain('Publisher lease current until 11:35 AM ET (manifest 11:20 AM ET)')
+    const unlisted: ModelStatus = { ...akronModelBefore, state: 'ELIGIBILITY_NOT_CURRENT', eligibility: { state: 'NOT_IN_CURRENT_DISCOVERY' } }
+    expect(modelLine(unlisted, 'CFB')!.detail).toContain("Forecast not eligible: the producer's newest manifest does not list this forecast")
   })
 })

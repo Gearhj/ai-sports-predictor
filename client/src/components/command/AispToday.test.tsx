@@ -56,6 +56,11 @@ describe('AISP Today summary', () => {
     ] as SportReadinessEntry[]
     expect(readinessLine(readiness[1], 'NBA').authority).toMatch(/research only/)
     expect(readinessLine(undefined, 'CFB')).toMatchObject({ authority: 'Research only', eligibility: 'Not eligible' })
+    // College Football 2026-09-19: the eligibility record is present but the producer's discovery lease lapsed.
+    const cfb = { sport: 'CFB', label: 'College Football', controlling_engine: 'CFB_GEN1_JOINT_BASELINE', pipeline: { ready: true, blocker: null, could_qualify: null },
+      eligibility: { eligible: true, reason: 'ELIGIBLE', contract: 'ASP_CFB_PAPER_RESEARCH_ELIGIBILITY_V1', discovery_lease: 'EXPIRED_LEASE' } } as SportReadinessEntry
+    expect(readinessLine(cfb, 'CFB').eligibility).toBe('Eligibility lease expired')
+    expect(readinessLine({ ...cfb, eligibility: { ...cfb.eligibility!, discovery_lease: 'CURRENT' } }, 'CFB').eligibility).toBe('Paper research eligible')
     const summary = buildTodaySummary({ games: [], items: [], ledger: null, now: Date.now() })
     render(<MemoryRouter><AispToday summary={summary} readiness={readiness} loading={false} decisionsHref="/decisions" /></MemoryRouter>)
     const region = screen.getByRole('region', { name: 'AISP Today' })

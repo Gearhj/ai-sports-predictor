@@ -108,7 +108,11 @@ export function readinessLine(entry: SportReadinessEntry | undefined, code: Spor
     forecast: entry?.forecast ? FORECAST_SHORT[entry.forecast.state] ?? entry.forecast.state.replace(/_/g, ' ').toLowerCase() : '—',
     price: entry?.price ? PRICE_SHORT[entry.price.state] ?? entry.price.state.replace(/_/g, ' ').toLowerCase() : '—',
     eligibility: entry?.eligibility
-      ? (entry.eligibility.eligible ? (research ? 'Paper research eligible' : 'Eligible') : 'Not eligible')
+      ? (!entry.eligibility.eligible ? 'Not eligible'
+        // College Football: a present eligibility record with a lapsed discovery lease is not eligible.
+        : entry.eligibility.discovery_lease && entry.eligibility.discovery_lease !== 'CURRENT'
+          ? (entry.eligibility.discovery_lease === 'EXPIRED_LEASE' ? 'Eligibility lease expired' : 'Not currently eligible')
+          : research ? 'Paper research eligible' : 'Eligible')
       : research ? 'Not eligible' : 'Decided by policy at the window',
     next: entry?.next_game ? `${entry.next_game.matchup} · ${entry.next_game.starts_label}` : 'No game scheduled',
   }

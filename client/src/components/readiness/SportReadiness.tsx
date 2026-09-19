@@ -32,7 +32,8 @@ export interface SportReadinessEntry {
   forecast?: ReadinessState
   price?: ReadinessState
   decision?: ReadinessState
-  eligibility?: { eligible: boolean; reason: string; contract?: string }
+  /** College Football adds the producer's discovery lease (CURRENT / EXPIRED_LEASE / ...), a separate gate. */
+  eligibility?: { eligible: boolean; reason: string; contract?: string; discovery_lease?: string | null }
   position?: ReadinessState & { open?: number; settled?: number }
   account?: { funded: boolean; label: string; funding_key?: string; realized_bankroll?: number; available_capital?: number; season_id?: string; effective_on?: string }
   pipeline: { ready: boolean; blocker: string | null; could_qualify: string | null }
@@ -106,11 +107,19 @@ function SportCard({ entry }: { entry: SportReadinessEntry }) {
         <Row term="Forecast" value={entry.forecast?.label} />
         <Row term="Price" value={entry.price?.label} />
         <Row term="Decision" value={entry.decision?.label} />
-        {entry.eligibility && (
-          <Row term="Eligibility" value={entry.eligibility.eligible ? 'Producer eligibility present'
-            : `Awaiting producer evidence (${entry.eligibility.reason})`}
-               tone={entry.eligibility.eligible ? 'readiness__ok' : 'readiness__warn'} />
-        )}
+        {entry.eligibility && (() => {
+          // The eligibility record and the discovery lease are separate gates; a
+          // present record with a lapsed lease is not eligible for the checkpoint.
+          const lease = entry.eligibility.discovery_lease
+          const lapsed = entry.eligibility.eligible && lease != null && lease !== 'CURRENT'
+          return (
+            <Row term="Eligibility" value={lapsed
+              ? `Producer eligibility record present; discovery lease ${lease === 'EXPIRED_LEASE' ? 'expired' : lease.replace(/_/g, ' ').toLowerCase()}`
+              : entry.eligibility.eligible ? 'Producer eligibility present'
+                : `Awaiting producer evidence (${entry.eligibility.reason})`}
+                 tone={entry.eligibility.eligible && !lapsed ? 'readiness__ok' : 'readiness__warn'} />
+          )
+        })()}
         <Row term="Account" value={entry.account?.funded
           ? `${entry.account.label}${entry.account.effective_on ? ` · effective ${entry.account.effective_on}` : ''}`
           : entry.account?.label} />

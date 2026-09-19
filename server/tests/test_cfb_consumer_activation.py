@@ -378,6 +378,88 @@ def test_settlement_then_a_correction_keeps_the_original_and_adds_an_adjustment(
     assert world.session.scalar(select(func.count()).select_from(CfbDiscoveryManifest)) >= 1
 
 
+def _lapsed_then_blocked(world, era, monkeypatch):
+    """The Akron @ Minnesota shape: the lease lapses before T-30 and the checkpoint blocks on it."""
+
+    first = KICK - timedelta(minutes=60)
+    ref = world.publish(world.entries, lease_until=first + timedelta(minutes=15))
+    world.anchor["sha"] = ref["sha256"]
+    _consume(world, now=first)
+    monkeypatch.setattr(paper_decision, "_supplement_published", lambda *_a: first - timedelta(hours=2))
+    monkeypatch.setattr(paper_decision, "eligibility_status", lambda *a, **k: (
+        {"eligible": True, "state": "ELIGIBLE", "record_id": "rec", "contract": "c", "experiment_key": "k"}))
+    checkpoint = KICK - timedelta(minutes=29)
+    result = paper_decision.evaluate(world.session, world.settings, now=checkpoint)
+    assert {d["reason"] for d in result["decisions"]} == {"DISCOVERY_NOT_CURRENT"}
+    rows = {r.id: (r.recommendation, r.recommendation_reason, r.recommended_at.replace(tzinfo=UTC), dict(r.qualification_reasons))
+            for r in world.session.scalars(select(ShadowExperimentDecision))}
+    return ref, checkpoint, rows
+
+
+def _models(world):
+    out = {}
+    for row in world.session.scalars(select(CfbResearchForecast)):
+        out[str(row.canonical_game_id)] = {"forecast_id": row.forecast_id}
+    return out
+
+
+def test_a_recovered_manifest_after_the_window_is_accepted_normally_and_the_blocked_checkpoint_stands(world, era, monkeypatch):
+    from app.services import command_center, pregame_status
+
+    ref, checkpoint, before = _lapsed_then_blocked(world, era, monkeypatch)
+    # The producer recovers after the T-15 close: a hash-bound successor renews the lease.
+    recovered = KICK - timedelta(minutes=10)
+    world.publish(world.entries, predecessor=ref, lease_until=recovered + timedelta(minutes=15))
+    accepted = _consume(world, now=recovered)          # the NORMAL consumer path, nothing special
+    assert accepted["status"] == "MANIFEST_RECORDED" and accepted["currently_eligible"] == 2
+    forecast = production_import.current_forecast_for_game(world.session, "401")
+    assert production_import.present_eligibility(world.session, forecast, now=recovered)["state"] == "CURRENT"
+
+    # The checkpoint is over: no new evaluation, and the recorded block is untouched (no backdating).
+    late = paper_decision.evaluate(world.session, world.settings, now=recovered)
+    assert late["reason"] == "NO_CFB_GAME_AT_ITS_CHECKPOINT" and late["decisions"] == []
+    after = {r.id: (r.recommendation, r.recommendation_reason, r.recommended_at.replace(tzinfo=UTC), dict(r.qualification_reasons))
+             for r in world.session.scalars(select(ShadowExperimentDecision))}
+    assert after == before
+    assert {v[2] for v in after.values()} == {checkpoint}
+
+    # The card reads the lease the checkpoint recorded, with the renewal beside it.
+    readings = command_center._cfb_eligibility(world.session, _models(world), now=recovered)
+    gid = str(forecast.canonical_game_id)
+    assert readings[gid]["now"]["state"] == "CURRENT"
+    assert readings[gid]["checkpoint"]["reason"] == "DISCOVERY_NOT_CURRENT"
+    assert readings[gid]["checkpoint"]["discovery"]["state"] == "EXPIRED_LEASE"
+    status = pregame_status.cfb_model_status({"forecast_id": forecast.forecast_id}, eligibility_now=readings[gid]["now"],
+                                             checkpoint=readings[gid]["checkpoint"], starts_at=KICK)
+    assert (status["state"], status["basis"], status["renewed_since_checkpoint"]) == (
+        "ELIGIBILITY_EXPIRED", "RECORDED_AT_CHECKPOINT", True)
+
+
+def test_a_recovery_inside_the_window_adds_a_new_evaluation_at_its_own_time(world, era, monkeypatch):
+    ref, checkpoint, before = _lapsed_then_blocked(world, era, monkeypatch)
+    recovered = KICK - timedelta(minutes=25)
+    world.publish(world.entries, predecessor=ref, lease_until=recovered + timedelta(minutes=15))
+    # The checkpoint's own discovery refresh accepts the successor, then decides on it.
+    result = paper_decision.evaluate(world.session, world.settings, now=recovered)
+    assert result["discovery_refresh"]["status"] == "MANIFEST_RECORDED"
+    assert {d["reason"] for d in result["decisions"]} == {"NO_TWO_SIDED_QUOTE"}
+    rows = list(world.session.scalars(select(ShadowExperimentDecision)))
+    assert len(rows) == 2 * len(before)
+    for row in rows:
+        if row.id in before:
+            # The earlier block is kept exactly as written.
+            assert (row.recommendation, row.recommendation_reason, row.recommended_at.replace(tzinfo=UTC),
+                    dict(row.qualification_reasons)) == before[row.id]
+        else:
+            assert row.recommended_at.replace(tzinfo=UTC) == recovered      # its own time, never backdated
+            assert row.qualification_reasons["reason"] == "NO_TWO_SIDED_QUOTE"
+    from app.services import command_center
+
+    readings = command_center._cfb_eligibility(world.session, _models(world), now=recovered)
+    latest = next(iter(readings.values()))["checkpoint"]
+    assert latest["reason"] == "NO_TWO_SIDED_QUOTE" and latest["discovery"]["state"] == "CURRENT"
+
+
 def test_a_saturday_night_decision_is_filed_under_its_eastern_date(world, era, monkeypatch):
     moment, game = _in_window(world, era, monkeypatch, eligible=False)
     paper_decision.evaluate(world.session, world.settings, now=moment)

@@ -3,9 +3,10 @@ import fixture from '../test/topPlayFixture.json'
 import type { CoverageGame, DecisionItem } from './commandCenter'
 import type { AssessedQuote, GameAssessment, LegMasses } from './probability'
 import {
-  decimalFromAmerican, expectation, expectedProfitText, expectedReturnText, payoutText, profitIfWinText,
-  rankOutcomes, rankableParlays, topPlay, winPayout,
+  PRICE_BLOCKED_TEXT, decimalFromAmerican, expectation, expectedProfitText, expectedReturnText, noCurrentPriceText, payoutText,
+  profitIfWinText, rankOutcomes, rankableParlays, topPlay, winPayout,
 } from './topPlay'
+import { akronAssessment, akronGame } from '../test/cfbAkronFixture'
 
 type Fx = { assessment: GameAssessment; game: CoverageGame; item: DecisionItem }
 const real = (matchup: string) => (fixture.games as unknown as Fx[]).find((g) => g.game.matchup === matchup)!
@@ -177,5 +178,30 @@ describe('states', () => {
     const q = quote('MONEYLINE', null, 'Book A', { AWAY: [100, masses(0.55, 0.45)], HOME: [100, masses(0.55, 0.45)] })
     const rows = rankOutcomes(assessment([q]), GAME, { key: 'MONEYLINE|HOME|', adjustedEdge: 0.05 })
     expect(rows.find((r) => r.side === 'HOME')!.rank).toBe(1)
+  })
+})
+
+describe('no current price: named for what is actually stored', () => {
+  it('Akron @ Minnesota: no quote row and no collector is NO SPORTSBOOK COVERAGE, never a stored reference', () => {
+    const play = topPlay(akronAssessment, akronGame(), null)
+    expect(play.state).toBe('NO_COVERAGE')
+    expect(play.stored).toBe(false)
+    expect(play.outcomes).toHaveLength(0)
+    expect(noCurrentPriceText(play, akronGame())).toBe('No sportsbook price is stored for this game: CFB price collection is not active (no allocation)')
+  })
+
+  it('a stored stale quote is still a stored reference price (unchanged)', () => {
+    const stale = quote('MONEYLINE', null, 'Book A', { AWAY: [260, masses(0.3, 0.7)], HOME: [-300, masses(0.7, 0.3)] },
+      { state: 'STORED_REFERENCE_ONLY', fresh: false })
+    const play = topPlay(assessment([stale]), GAME, null)
+    expect(play.state).toBe('PRICE_NEEDED')
+    expect(play.stored).toBe(true)
+    expect(noCurrentPriceText(play, GAME)).toBe(PRICE_BLOCKED_TEXT.STALE)
+  })
+
+  it('no quote row at all is never called a stored reference price', () => {
+    const play = topPlay(assessment([]), GAME, null)
+    expect(play.state).toBe('PRICE_NEEDED')
+    expect(noCurrentPriceText(play, GAME)).toBe('No sportsbook price is stored for this game yet')
   })
 })

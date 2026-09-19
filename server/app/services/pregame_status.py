@@ -27,6 +27,23 @@ arrival -- and AISP's final-pregame window T-30..T-15. When no forecast is
 bound, the producer's latest slate receipt is read (read-only; it is the
 producer's own record, not an exchange object) for that game's actual reason.
 
+COLLEGE FOOTBALL
+----------------
+Two facts that are independent of each other, and neither is the MLB reading:
+
+* Market coverage. A CFB game can have no collector at all: the SportsGameOdds
+  CFB lane grants objects only from genuinely uncommitted capacity and only when
+  the owner switches it on. With no stored quote, the state says whether any
+  collector is active -- ``COLLECTION_INACTIVE_NO_ALLOCATION`` (nothing will
+  fetch a price) versus ``NO_QUOTES_YET`` (a collector is active) -- so a card
+  never says "waiting for" a price nobody will fetch, nor "stored reference"
+  when no quote row exists.
+* Forecast eligibility. The paper checkpoint needs the producer's discovery
+  lease to be current (``production_import.present_eligibility``). The state
+  names the lease -- ``ELIGIBILITY_EXPIRED`` with its expiry time -- and, once
+  the checkpoint has run, reads the lease AS THE CHECKPOINT RECORDED IT. A later
+  manifest is shown beside that record ("renewed since") and never replaces it.
+
 Nothing here requests a price, evaluates a policy or writes a row.
 """
 
@@ -257,4 +274,97 @@ def model_status(league: str, game_id: str, starts_at: datetime, model: dict[str
     return {"state": state, "engine_id": "MLB_V18_WHOLE_GAME", "schedule": schedule, "producer": producer}
 
 
-__all__ = ["QUOTE_FRESHNESS_MINUTES", "latest_receipt", "market_status", "model_status", "reason_text"]
+# -- College Football --------------------------------------------------------
+
+COLLECTION_INACTIVE = "COLLECTION_INACTIVE_NO_ALLOCATION"
+NO_QUOTES_YET = "NO_QUOTES_YET"
+COLLECTION_STATE_UNKNOWN = "COLLECTION_STATE_UNKNOWN"
+ELIGIBILITY_CURRENT = "ELIGIBILITY_CURRENT"
+ELIGIBILITY_EXPIRED = "ELIGIBILITY_EXPIRED"
+ELIGIBILITY_NOT_CURRENT = "ELIGIBILITY_NOT_CURRENT"
+#: The SportsGameOdds CFB lane's own capacity state that grants objects.
+CFB_CAPACITY_AVAILABLE = "CAPACITY_AVAILABLE"
+
+
+def cfb_collection(note: dict[str, Any] | None) -> dict[str, Any]:
+    """Whether any CFB price collector is active, from the capacity gate's note.
+
+    Active needs both: the owner's lane switch on AND the gate granting at
+    least one object. A switched-off lane is inactive even when the gate cannot
+    be read; an unreadable gate on a switched-on lane is unknown, never active.
+    """
+
+    note = note or {}
+    enabled = note.get("lane_enabled")
+    allocation = note.get("reason")
+    allowed = int(note.get("objects_allowed") or 0)
+    if enabled is False:
+        active: bool | None = False
+    elif enabled is None or allocation in (None, "PRICE_STATE_UNAVAILABLE"):
+        active = None
+    else:
+        active = allocation == CFB_CAPACITY_AVAILABLE and allowed > 0
+    return {"lane": note.get("lane"), "active": active, "lane_enabled": enabled,
+            "allocation_state": allocation, "objects_allowed": allowed if active else 0,
+            "spent_on_lane": note.get("spent_on_lane"), "explanation": note.get("detail")}
+
+
+def cfb_market_status(moneylines: list[dict[str, Any]], quotes_stored: int, collection: dict[str, Any],
+                      permitted: set[str], *, now: datetime, opens: datetime, closes: datetime) -> dict[str, Any]:
+    """A CFB game's market coverage. Stored quotes get the ordinary reading;
+    no stored quote gets a state that says whether anything will fetch one."""
+
+    status = market_status(moneylines, permitted, now=now, opens=opens, closes=closes)
+    if quotes_stored == 0:
+        active = collection.get("active")
+        status["state"] = (COLLECTION_STATE_UNKNOWN if active is None
+                           else NO_QUOTES_YET if active else COLLECTION_INACTIVE)
+    return {**status, "quotes_stored": quotes_stored, "collection": collection}
+
+
+def _lease_reading(reading: dict[str, Any] | None) -> str | None:
+    return (reading or {}).get("state")
+
+
+def _eligibility_state(lease: str | None) -> str:
+    if lease == "CURRENT":
+        return ELIGIBILITY_CURRENT
+    if lease == "EXPIRED_LEASE":
+        return ELIGIBILITY_EXPIRED
+    return ELIGIBILITY_NOT_CURRENT
+
+
+def cfb_model_status(model: dict[str, Any] | None, *, eligibility_now: dict[str, Any] | None,
+                     checkpoint: dict[str, Any] | None, starts_at: datetime) -> dict[str, Any]:
+    """A CFB forecast's decision eligibility: the producer's discovery lease.
+
+    ``eligibility_now`` is the newest verified manifest's reading of the
+    forecast (``state``: CURRENT / EXPIRED_LEASE / HISTORICAL / REJECTED /
+    NOT_IN_CURRENT_DISCOVERY / NO_VERIFIED_DISCOVERY, ``lease_valid_until``,
+    ``manifest_created_utc``). ``checkpoint`` is the recorded FINAL_PREGAME
+    decision, with the lease its evaluation recorded (``discovery``). Once a
+    checkpoint recorded a lease, that recorded lease is the state; the present
+    reading is reported beside it and never rewrites it.
+    """
+
+    start = _aware(starts_at)
+    schedule = {"input_checks_from": None, "publication_target": None,
+                "window_opens_at": _iso(start - WINDOW_OPENS), "window_closes_at": _iso(start - WINDOW_CLOSES),
+                "target_is_guaranteed": False}
+    base = {"engine_id": "CFB_GEN1_JOINT_BASELINE", "schedule": schedule, "producer": None,
+            "eligibility_now": eligibility_now, "checkpoint": checkpoint}
+    if model is None:
+        return {**base, "state": "NOT_PUBLISHED", "basis": None, "eligibility": None}
+    recorded = (checkpoint or {}).get("discovery")
+    basis, reading = ("RECORDED_AT_CHECKPOINT", recorded) if recorded else ("PRESENT_DISCOVERY", eligibility_now)
+    renewed = bool(recorded and _lease_reading(recorded) != "CURRENT"
+                   and _lease_reading(eligibility_now) == "CURRENT")
+    return {**base, "state": _eligibility_state(_lease_reading(reading)), "basis": basis,
+            "forecast_id": model.get("forecast_id"), "eligibility": reading,
+            "renewed_since_checkpoint": renewed}
+
+
+__all__ = ["COLLECTION_INACTIVE", "COLLECTION_STATE_UNKNOWN", "ELIGIBILITY_CURRENT", "ELIGIBILITY_EXPIRED",
+           "ELIGIBILITY_NOT_CURRENT", "NO_QUOTES_YET", "QUOTE_FRESHNESS_MINUTES", "cfb_collection",
+           "cfb_market_status", "cfb_model_status", "latest_receipt", "market_status", "model_status",
+           "reason_text"]

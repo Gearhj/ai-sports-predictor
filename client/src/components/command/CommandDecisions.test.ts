@@ -3,8 +3,11 @@
  * category reserving space it does not use.
  */
 import { describe, expect, it } from 'vitest'
-import { buildFeed, countdown, describeDecision } from './CommandDecisions'
+import { buildFeed, countdown, describeDecision, progress } from './CommandDecisions'
 import type { CoverageGame, DecisionItem } from '../../services/commandCenter'
+import {
+  AFTER_CHECKPOINT, BEFORE_CHECKPOINT, akronBlockedItem, akronGame, akronModelBefore, expiredLease,
+} from '../../test/cfbAkronFixture'
 
 const NOW = Date.parse('2026-09-15T16:00:00Z')
 
@@ -78,5 +81,49 @@ describe('countdown', () => {
   it('reads hours and minutes, and says now once the moment has passed', () => {
     expect(countdown('2026-09-15T18:25:00Z', NOW)).toBe('2h 25m')
     expect(countdown('2026-09-15T15:00:00Z', NOW)).toBe('now')
+  })
+})
+
+describe('College Football: Akron @ Minnesota, 2026-09-19', () => {
+  it('after its checkpoint: a recorded block on an expired lease, with the lease time, not "awaiting"', () => {
+    const status = describeDecision(akronBlockedItem, akronGame(), false)
+    expect(status.label).toBe('Blocked · forecast eligibility expired')
+    expect(status.tone).toBe('red')
+    expect(status.detail).toContain('Forecast eligibility expired at 8:20 AM ET; the publisher has not renewed it')
+    expect(status.detail).toContain('the 11:30 AM ET checkpoint was blocked (DISCOVERY_NOT_CURRENT)')
+    const [card] = buildFeed([akronBlockedItem], [akronGame()], [], AFTER_CHECKPOINT)
+    expect(card.tab).toBe('PASSED')
+  })
+
+  it('before its checkpoint: the lapsed lease is stated as a fact and the game stays in Watching', () => {
+    const status = describeDecision(null, akronGame(akronModelBefore), false)
+    expect(status).toMatchObject({ label: 'Forecast eligibility expired', tone: 'gold' })
+    const [card] = buildFeed([], [akronGame(akronModelBefore)], [], BEFORE_CHECKPOINT)
+    expect(card.tab).toBe('WATCHING')
+  })
+
+  it('with a current lease, no collector means no coverage, never "Waiting for a sportsbook price"', () => {
+    const current = { ...akronModelBefore, state: 'ELIGIBILITY_CURRENT' as const, eligibility: { ...expiredLease, state: 'CURRENT' } }
+    const status = describeDecision(null, akronGame(current), false)
+    expect(status.label).toBe('No sportsbook coverage')
+    expect(status.tone).toBe('gray')
+    expect(status.detail).toContain('CFB price collection is not active (no allocation)')
+  })
+
+  it('the audit progress names no collection instead of "Collection scheduled"', () => {
+    const card = buildFeed([], [akronGame(akronModelBefore)], [], BEFORE_CHECKPOINT)[0]
+    const pr = progress(card, BEFORE_CHECKPOINT)
+    expect(pr.labels[2]).toBe('No collection (no allocation)')
+    expect(pr.states[2]).toBe('na')
+    expect(pr.labels).not.toContain('Collection scheduled')
+  })
+
+  it('MLB and NFL keep their wording', () => {
+    const forecast = { engine_id: 'MLB_V18_WHOLE_GAME', home: 0.5, away: 0.5, home_two_way: 0.5, created_at: null }
+    expect(describeDecision(null, game('1', '2026-09-15T22:40:00Z', { model: forecast }), false).label).toBe('Waiting for a sportsbook price')
+    expect(describeDecision(item('1', { phase: 'FINAL_PREGAME', recommendation: 'BLOCKED', reason: 'AWAITING_PRODUCER_ELIGIBILITY' }), null, false).label)
+      .toBe('Awaiting producer eligibility')
+    const card = buildFeed([], [game('1', '2026-09-15T22:40:00Z')], [], NOW)[0]
+    expect(progress(card, NOW).labels[2]).toBe('Collection scheduled')
   })
 })

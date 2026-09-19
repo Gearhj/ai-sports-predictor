@@ -212,7 +212,7 @@ export function officialOutcome(item: DecisionItem | null, game: Pick<CoverageGa
   return { market, side, key: outcomeKey(market, side, null) }
 }
 
-export type TopState = 'OFFICIAL' | 'MODEL_VALUE' | 'NO_POSITIVE' | 'PENDING_FORECAST' | 'PRICE_NEEDED'
+export type TopState = 'OFFICIAL' | 'MODEL_VALUE' | 'NO_POSITIVE' | 'PENDING_FORECAST' | 'PRICE_NEEDED' | 'NO_COVERAGE'
 
 export const TOP_LABEL: Record<TopState, string> = {
   OFFICIAL: '#1 AISP PICK',
@@ -220,6 +220,24 @@ export const TOP_LABEL: Record<TopState, string> = {
   NO_POSITIVE: 'NO POSITIVE MODEL VALUE',
   PENDING_FORECAST: 'MODEL GUIDANCE PENDING',
   PRICE_NEEDED: 'CURRENT PRICE NEEDED',
+  NO_COVERAGE: 'NO SPORTSBOOK COVERAGE',
+}
+
+/**
+ * Why no current price exists, named for what is stored. "Stored reference
+ * price" only when a quote row exists; with none, the game's own coverage
+ * state (College Football: whether any collector is active) says why.
+ */
+export function noCurrentPriceText(play: Pick<TopPlay, 'stored'>, game: Pick<CoverageGame, 'market_status'> | null): string {
+  if (play.stored) return PRICE_BLOCKED_TEXT.STALE
+  switch (game?.market_status?.state) {
+    case 'COLLECTION_INACTIVE_NO_ALLOCATION':
+      return 'No sportsbook price is stored for this game: CFB price collection is not active (no allocation)'
+    case 'COLLECTION_STATE_UNKNOWN':
+      return 'No sportsbook price is stored for this game'
+    default:
+      return 'No sportsbook price is stored for this game yet'
+  }
 }
 
 export interface TopPlay {
@@ -231,6 +249,8 @@ export interface TopPlay {
   bestValue: Outcome | null
   /** True when the official pick and the best cross-market value are different outcomes. */
   differs: boolean
+  /** True when any quote row (current or not) is stored for the game. */
+  stored: boolean
 }
 
 export function topPlay(assessment: GameAssessment | null, game: CoverageGame | null, item: DecisionItem | null): TopPlay {
@@ -241,13 +261,16 @@ export function topPlay(assessment: GameAssessment | null, game: CoverageGame | 
   const official = officialRef ? outcomes.find((o) => o.key === officialRef.key) ?? null : null
   const supported = assessment?.binding?.status === 'SUPPORTED'
   const anyCurrent = outcomes.some((o) => o.books.some((b) => b.current))
+  const stored = outcomes.some((o) => o.books.length > 0)
   let state: TopState
   if (officialRef) state = 'OFFICIAL'
   else if (bestValue) state = 'MODEL_VALUE'
   else if (!supported) state = 'PENDING_FORECAST'
+  // No quote row and no active collector: nothing will fetch a price, so none is "needed" from anyone.
+  else if (!stored && game?.market_status?.state === 'COLLECTION_INACTIVE_NO_ALLOCATION') state = 'NO_COVERAGE'
   else if (!anyCurrent) state = 'PRICE_NEEDED'
   // A forecast and current prices, but no outcome the server could assess (e.g. provider not permitted).
   else if (ranked.length === 0) state = 'PENDING_FORECAST'
   else state = 'NO_POSITIVE'
-  return { state, outcomes, official, bestValue, differs: Boolean(officialRef && bestValue && bestValue.key !== officialRef.key) }
+  return { state, outcomes, official, bestValue, differs: Boolean(officialRef && bestValue && bestValue.key !== officialRef.key), stored }
 }

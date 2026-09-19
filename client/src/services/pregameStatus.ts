@@ -10,6 +10,20 @@
 export type MarketState =
   | 'ELIGIBLE_THROUGH_WINDOW' | 'EXPIRES_DURING_WINDOW' | 'EXPIRES_BEFORE_WINDOW'
   | 'STORED_REFERENCE_ONLY' | 'NO_TWO_SIDED_QUOTE' | 'WINDOW_CLOSED'
+  // College Football with no stored quote: whether any collector will fetch one.
+  | 'COLLECTION_INACTIVE_NO_ALLOCATION' | 'NO_QUOTES_YET' | 'COLLECTION_STATE_UNKNOWN'
+
+/** College Football's price lane, as the server read it from the capacity gate. */
+export interface CollectionLane {
+  lane: string | null
+  /** false: nothing will fetch a price; null: the gate could not be read. */
+  active: boolean | null
+  lane_enabled: boolean | null
+  allocation_state: string | null
+  objects_allowed: number
+  spent_on_lane: number | null
+  explanation: string | null
+}
 
 export interface MarketStatus {
   state: MarketState
@@ -24,10 +38,35 @@ export interface MarketStatus {
   earliest_expiry: string | null
   window_opens_at: string
   window_closes_at: string
+  /** College Football only. */
+  quotes_stored?: number
+  collection?: CollectionLane
 }
 
 export type ModelState =
   | 'PUBLISHED' | 'PUBLISHED_NOT_IMPORTED' | 'SCHEDULED' | 'WAITING_ON_INPUTS' | 'OVERDUE' | 'MISSED' | 'NOT_PUBLISHED'
+  // College Football: the producer's discovery lease on the forecast.
+  | 'ELIGIBILITY_CURRENT' | 'ELIGIBILITY_EXPIRED' | 'ELIGIBILITY_NOT_CURRENT'
+
+/** One discovery reading of a CFB forecast's lease (present, or as a checkpoint recorded it). */
+export interface LeaseReading {
+  state: string
+  lease_valid_until?: string | null
+  manifest_sha256?: string
+  /** The producer's own manifest creation time: its last publication. */
+  manifest_created_utc?: string | null
+  producer_status?: string | null
+}
+
+/** A recorded CFB paper checkpoint, exactly as written. */
+export interface RecordedCheckpoint {
+  decision_id: string
+  recorded_at: string | null
+  recommendation: string
+  reason: string | null
+  detail: string | null
+  discovery?: LeaseReading | null
+}
 
 export interface ProducerReceipt {
   receipt_sha256: string | null
@@ -57,6 +96,12 @@ export interface ModelStatus {
     target_is_guaranteed: false
   }
   producer: ProducerReceipt | null
+  /** College Football only: the lease the state was read from, the present one, and the checkpoint. */
+  basis?: 'RECORDED_AT_CHECKPOINT' | 'PRESENT_DISCOVERY' | null
+  eligibility?: LeaseReading | null
+  eligibility_now?: LeaseReading | null
+  checkpoint?: RecordedCheckpoint | null
+  renewed_since_checkpoint?: boolean
 }
 
 export type Tone = 'good' | 'watch' | 'bad' | 'neutral'
@@ -94,6 +139,93 @@ export function marketLine(m: MarketStatus | null | undefined): StatusLine | nul
     case 'WINDOW_CLOSED':
       return { tone: 'neutral', label: 'Decision window closed',
         detail: `${books(m.books_fresh_now)} two-sided · ${legs}` }
+    // College Football with no stored quote. Never "waiting": say whether anything will fetch one.
+    case 'COLLECTION_INACTIVE_NO_ALLOCATION':
+      return { tone: 'neutral', label: 'No sportsbook coverage',
+        detail: `CFB price collection is not active (no allocation)${laneWhy(m.collection)} · no quote is stored for this game` }
+    case 'NO_QUOTES_YET':
+      return { tone: 'watch', label: 'No quotes yet',
+        detail: `CFB price collection is active (${m.collection?.objects_allowed ?? 0} objects allowed); no quote is stored for this game yet` }
+    case 'COLLECTION_STATE_UNKNOWN':
+      return { tone: 'neutral', label: 'Sportsbook coverage unknown',
+        detail: 'The CFB price-collection gate could not be read · no quote is stored for this game' }
+  }
+}
+
+const ALLOCATION_TEXT: Record<string, string> = {
+  NO_UNCOMMITTED_SGO_CAPACITY: 'no uncommitted SportsGameOdds capacity is left after MLB/NFL',
+  LANE_DISABLED: 'the CFB lane is switched off',
+  AUTHORIZATION_EXPIRED: 'the CFB lane authorization has expired',
+  ASSIGNMENT_CAP_REACHED: 'the CFB lane has used its object cap',
+}
+
+/** Why the CFB lane grants nothing, from the server's reading of the gate. */
+function laneWhy(c: CollectionLane | undefined): string {
+  if (!c) return ''
+  const parts: string[] = []
+  if (c.allocation_state && c.allocation_state !== 'CAPACITY_AVAILABLE' && c.allocation_state !== 'PRICE_STATE_UNAVAILABLE') {
+    parts.push(ALLOCATION_TEXT[c.allocation_state] ?? c.allocation_state.replace(/_/g, ' ').toLowerCase())
+  }
+  if (c.lane_enabled === false && c.allocation_state !== 'LANE_DISABLED') parts.push('the CFB lane is not switched on')
+  if (c.spent_on_lane != null) parts.push(`${c.spent_on_lane} object${c.spent_on_lane === 1 ? '' : 's'} spent on it`)
+  return parts.length ? `: ${parts.join('; ')}` : ''
+}
+
+const LEASE_TEXT: Record<string, string> = {
+  HISTORICAL: 'the producer lists this forecast as historical, not currently eligible',
+  NOT_IN_CURRENT_DISCOVERY: "the producer's newest manifest does not list this forecast",
+  REJECTED: 'AISP could not verify this package in the newest manifest',
+  NO_VERIFIED_DISCOVERY: 'AISP has verified no discovery manifest',
+}
+
+function checkpointText(c: RecordedCheckpoint | null | undefined): string {
+  if (!c) return ''
+  const verb = c.recommendation === 'BLOCKED' ? 'was blocked'
+    : c.recommendation === 'DECLINED' ? 'declined'
+      : c.recommendation === 'QUALIFIED_BET' ? 'qualified' : `recorded ${c.recommendation.toLowerCase()}`
+  return `the ${t(c.recorded_at)} ET checkpoint ${verb}${c.reason ? ` (${c.reason})` : ''}`
+}
+
+/** What the publisher has done since: the present lease, told apart from the recorded one. */
+function renewalText(m: ModelStatus): string {
+  const now = m.eligibility_now
+  if (!now) return ''
+  const manifest = now.manifest_created_utc ? ` (newest manifest ${t(now.manifest_created_utc)} ET)` : ''
+  if (m.renewed_since_checkpoint) {
+    return `renewed after the checkpoint: current until ${t(now.lease_valid_until)} ET${manifest}; the recorded checkpoint stands`
+  }
+  if (now.state === 'EXPIRED_LEASE') {
+    const same = !m.eligibility?.lease_valid_until || now.lease_valid_until === m.eligibility.lease_valid_until
+      || Date.parse(now.lease_valid_until ?? '') === Date.parse(m.eligibility.lease_valid_until)
+    return same ? `the publisher has not renewed it${manifest}` : `its newest lease also expired, at ${t(now.lease_valid_until)} ET${manifest}`
+  }
+  if (now.state === 'CURRENT') return `lease current until ${t(now.lease_valid_until)} ET${manifest}`
+  return `now: ${LEASE_TEXT[now.state] ?? now.state.replace(/_/g, ' ').toLowerCase()}${manifest}`
+}
+
+/** College Football: the producer's eligibility lease, never the price. */
+function eligibilityLine(m: ModelStatus): StatusLine | null {
+  const lease = m.eligibility
+  const recorded = m.basis === 'RECORDED_AT_CHECKPOINT'
+  const checkpoint = checkpointText(m.checkpoint)
+    || `the ${t(m.schedule.window_opens_at)} ET checkpoint needs a current lease`
+  const join = (...parts: string[]) => parts.filter(Boolean).join('; ')
+  switch (m.state) {
+    case 'ELIGIBILITY_EXPIRED':
+      return { tone: 'bad', label: 'Forecast eligibility expired',
+        detail: join(`Forecast eligibility expired at ${t(lease?.lease_valid_until)} ET`, renewalText(m), checkpoint) }
+    case 'ELIGIBILITY_CURRENT':
+      return { tone: 'good', label: 'Forecast eligible',
+        detail: recorded
+          ? join(`Lease current at the checkpoint (valid until ${t(lease?.lease_valid_until)} ET)`, checkpoint)
+          : join(`Publisher lease current until ${t(lease?.lease_valid_until)} ET${lease?.manifest_created_utc ? ` (manifest ${t(lease.manifest_created_utc)} ET)` : ''}`, checkpoint) }
+    case 'ELIGIBILITY_NOT_CURRENT': {
+      const why = lease ? LEASE_TEXT[lease.state] ?? lease.state.replace(/_/g, ' ').toLowerCase() : 'no discovery reading'
+      return { tone: 'bad', label: 'Forecast not currently eligible',
+        detail: join(`Forecast not eligible: ${why}`, recorded ? renewalText(m) : '', checkpoint) }
+    }
+    default:
+      return null
   }
 }
 
@@ -142,6 +274,10 @@ export function modelLine(m: ModelStatus | null | undefined, engineName = 'V18',
         detail: join(`No forecast arrived before the ${t(s.window_closes_at)} ET decision deadline`, producer) }
     case 'NOT_PUBLISHED':
       return { tone: 'neutral', label: 'No forecast bound', detail: plan }
+    case 'ELIGIBILITY_CURRENT':
+    case 'ELIGIBILITY_EXPIRED':
+    case 'ELIGIBILITY_NOT_CURRENT':
+      return eligibilityLine(m)
   }
 }
 

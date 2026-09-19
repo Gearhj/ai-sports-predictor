@@ -255,7 +255,7 @@
 .tp-label { font-size: 12px; font-weight: 900; letter-spacing: .12em; }
 .tp--official .tp-label { color: #3fd8c4; }
 .tp--model_value .tp-label { color: #0b6f62; }
-.tp--no_positive .tp-label, .tp--pending_forecast .tp-label, .tp--price_needed .tp-label { color: #55677d; }
+.tp--no_positive .tp-label, .tp--pending_forecast .tp-label, .tp--price_needed .tp-label, .tp--no_coverage .tp-label { color: #55677d; }
 .tp-status { font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 999px; background: rgba(243, 194, 87, .18); color: #f3c257; }
 .tp-note { margin: 0; font-size: 12.5px; font-weight: 700; color: #0b6f62; }
 .tp-body, .tp-alt { display: grid; gap: 8px; min-width: 0; }
