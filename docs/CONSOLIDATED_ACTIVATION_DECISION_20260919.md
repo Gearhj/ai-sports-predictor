@@ -42,9 +42,9 @@
 > 4. **Import the 2025-26 history once,** for model performance: pin the two assessment receipts and run the import job once. It admits 1,225 FINAL games as RESEARCH_SHADOW. **(O3.)**
 > 5. **Ask Codex to install its NBA publisher and approve its source refresh,** so real 2026-27 packages and eligibility leases arrive from 2026-10-13. It costs $0, as it uses a public CC BY 4.0 schedule asset. **(O1.)**
 > 6. **October SGO for NBA: 100 objects** (`NBA_SGO_LANE_ENABLED=true`, `NBA_SGO_LANE_OBJECT_CAP=100`, `NBA_SGO_LANE_AUTHORIZED_UNTIL=2026-11-01T00:00:00Z`), covering 84 games plus at most 16 for setup, with 1 validation object on the first game (2026-10-20). **(O6.)**
-> 7. **Paper positions (policy choice):** grant the NBA paper policy in the CFB pattern, then `NBA_PAPER_DECISIONS_ENABLED=true`. **(O4.)**
-> 8. **Which channel decides an NBA moneyline (policy choice):** the approved policy names the **joint** win probability, and the checkpoint implements exactly that, recording Elo beside it. Codex's later contract calls Elo the controlling winner channel. Choosing Elo would be a policy change. **(O5.)**
-> 9. **2026-27 finals source:** either Codex publishes a retained final-result pointer, as CFB does, or you pin each retained capture object. AISP requests nothing either way. **(O7.)**
+> 7. **Paper positions:** only a release-bound `NBA_RECURRING_PAPER_AUTHORIZATION_V1` can carry paper authority, and today's release carries none (`paperEligibilityAuthorization: null`), so the checkpoint reports `NO_PAPER_AUTHORIZATION` and evidence imports as usual. If Codex issues one, pin it and set `NBA_PAPER_DECISIONS_ENABLED=true`. Its season-wide scope is wider than the 2026-09-15 single-game approval and is a separate decision. **(O4, O4b.)**
+> 8. **Which channel decides an NBA moneyline: settled, not a choice.** The approved policy names the joint 10,000-draw probability, and Codex's completed contract says the paper lane uses that exact joint baseline, never Elo. The checkpoint does exactly that and records Elo beside it.
+> 9. **2026-27 finals: settled.** Codex's source-confirmed finals lane (`finals-discovery/current.json`) is the production final path and AISP reads it; retained season exports stay a separate historical lane. AISP requests nothing either way. **(O7.)**
 > 10. **The Odds API for NBA: recommended decline.** No NBA sport key exists in retained evidence, and its NBA budget lane is 0. **(O8.)**
 >
 > ### October totals, if A2, B6 and the MLB/NFL estimate all hold

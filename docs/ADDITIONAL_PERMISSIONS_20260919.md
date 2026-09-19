@@ -48,7 +48,8 @@ October: 2,500 less the 400 reserve leaves **2,100 spendable**; estimated MLB an
 >
 > ### 3. NBA paper positions beyond the original single-game authority (separate)
 >
-> - The existing grant covers one game. Season-wide or recurring paper positions need a **new** grant; AISP will not widen the original implicitly.
+> - Paper authority can only come from a release-bound `NBA_RECURRING_PAPER_AUTHORIZATION_V1`. Codex's grant `6c30bcf2…` validates only from 2026-10-13, and today's release carries `paperEligibilityAuthorization: null`, so AISP reports `NO_PAPER_AUTHORIZATION`.
+> - The existing approval covers one game. A season-wide grant is **wider** and needs your separate decision; AISP will not widen it implicitly.
 > - Until you grant it, NBA imports, displays and scores evidence with no paper authority, and takes no positions.
 > - The controlling channel stays **joint**, 10,000 draws, with Elo labelled separately.
 
