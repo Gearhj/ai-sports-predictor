@@ -35,9 +35,9 @@ def _terminal(session):
         ProviderRequestLedger.status == "SUCCEEDED").all()
 
 
-def _seed_verified_row(session):
-    """A prior exact-ID purchase that came back matching -- evidence only; it must
-    never change VALIDATE's behaviour."""
+def _seed_verified_row(session, *, test_kind: str | None = None, passed: bool | None = None):
+    """A prior exact-ID purchase on the ledger. Without ``test_kind`` it is a plain
+    (non-discriminating) match; with DISCRIMINATING_TEST it is the one test."""
     from app.data_sources.provider_registry import SPORTSGAMEODDS
     from app.models import ProviderRequestLedger
 
@@ -48,13 +48,27 @@ def _seed_verified_row(session):
         source_mode="LIVE", response_metadata={})
     session.add(reserved)
     session.flush()
+    record = {"mode": "VALIDATE", "requested_ids": ["X"], "returned_ids": ["X"], "match": True}
+    metadata: dict = {"exact_event_selection": record}
+    if test_kind:
+        record.update({"test_kind": test_kind, "discriminating": True, "passed": passed,
+                       "match": bool(passed)})
+        if passed:
+            metadata["exact_event_selection_transition"] = {
+                "from": "VALIDATE", "to": "ON_EQUIVALENT", "at": at.isoformat(),
+                "basis_ledger_id": str(reserved.id), "basis_request_fingerprint": "fp-verified",
+                "raw_archive_sha": "cd" * 32}
     session.add(ProviderRequestLedger(
         provider=SPORTSGAMEODDS, endpoint_key=sgo_collection.ENDPOINT_KEY, status="SUCCEEDED",
         requested_at=at, completed_at=at, reservation_id=reserved.id, request_fingerprint="fp-verified",
         records_received=1, controlled_live_request=True, source_mode="LIVE",
-        response_metadata={"exact_event_selection": {"mode": "VALIDATE", "requested_ids": ["X"],
-                                                     "returned_ids": ["X"], "match": True}}))
+        response_metadata=metadata))
     session.commit()
+
+
+def _transitions(session) -> int:
+    return sum(1 for row in _terminal(session)
+               if (row.response_metadata or {}).get("exact_event_selection_transition"))
 
 
 # -- VALIDATE ------------------------------------------------------------------
@@ -80,7 +94,11 @@ def test_validate_uses_ids_on_an_unambiguous_all_verified_selection(session, set
     assert record["terminal_ledger_id"] == str(terminal.id)
     stored = terminal.response_metadata["exact_event_selection"]
     assert stored == {k: v for k, v in record.items() if k != "terminal_ledger_id"}
-    assert not hasattr(sgo_collection, "exact_selection_verified")   # no self-promotion path
+    # An unambiguous-window match is not the discriminating test and transitions nothing.
+    assert record["test_kind"] == "UNAMBIGUOUS_WINDOW_MATCH" and record["discriminating"] is False
+    assert record["passed"] is None and "exact_event_selection_transition" not in result
+    assert sgo_collection.discriminating_test_state(session)["attempted"] is False
+    assert _transitions(session) == 0
 
 
 def test_validate_uses_no_ids_while_any_selected_game_is_unverified(session, settings, monkeypatch):
@@ -92,27 +110,118 @@ def test_validate_uses_no_ids_while_any_selected_game_is_unverified(session, set
     assert "exact_event_selection" not in result and provider.calls[0]["event_ids"] is None
 
 
-def test_validate_defers_an_ambiguous_selection(session, settings, monkeypatch):
+def test_the_first_ambiguous_all_verified_selection_is_the_discriminating_test(session, settings, monkeypatch):
+    """KC @ PIT alone out of the tied 18:40 pair -- the 09-18 shape -- sent by ID once."""
+
     _bind(session, BOTH)
+    provider = Provider(honours_ids=True)
+    _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
+    assert sgo_collection.discriminating_test_state(session)["attempted"] is False
+    result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
+
+    assert result["request_filters"]["eventIDs"] == EVENT[KC_PIT]
+    assert result["request_filters"]["limit"] == "1" and result["objects"] == 1      # the same purchase
+    assert result["games_ingested"] == [KC_PIT] and result["lane_halted"] is False
+    record = result["exact_event_selection"]
+    assert record["test_kind"] == sgo_collection.DISCRIMINATING_TEST and record["discriminating"] is True
+    assert record["window_alone_would_select_the_same"] is False
+    assert record["passed"] is True and record["match"] is True and record["reasons"] == []
+    transition = result["exact_event_selection_transition"]
+    assert transition["from"] == "VALIDATE" and transition["to"] == "ON_EQUIVALENT"
+    assert transition["basis_ledger_id"] == record["reservation_ledger_id"]
+    assert transition["basis_request_fingerprint"] == record["request_fingerprint"]
+    assert transition["raw_archive_sha"] == "ab" * 32
+    assert _terminal(session)[0].response_metadata["exact_event_selection_transition"] == transition
+    state = sgo_collection.discriminating_test_state(session)
+    assert state["attempted"] is True and state["passed"] is True
+    assert len(provider.calls) == 1                                                  # no retry
+
+
+def test_after_a_failed_test_an_ambiguous_selection_defers(session, settings, monkeypatch):
+    _bind(session, BOTH)
+    _seed_verified_row(session, test_kind=sgo_collection.DISCRIMINATING_TEST, passed=False)
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
     assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION" and provider.calls == []
-    assert _ledger_requests(session) == []
+    assert result["discriminating_test_state"]["attempted"] is True
+    assert result["discriminating_test_state"]["passed"] is False
+    assert [r.request_fingerprint for r in _ledger_requests(session)] == ["fp-verified"]  # nothing new
 
 
-def test_validate_defers_an_ambiguous_selection_even_after_a_verified_match(session, settings, monkeypatch):
-    """A prior matching row is evidence for the owner, never a promotion."""
+def test_a_plain_match_on_the_ledger_is_not_the_test(session, settings, monkeypatch):
+    """A non-discriminating match neither transitions nor uses the test up."""
 
     _bind(session, BOTH)
-    _seed_verified_row(session)
+    _seed_verified_row(session)                                    # plain, no test_kind
+    state = sgo_collection.discriminating_test_state(session)
+    assert state["attempted"] is False and state["passed"] is False
+
+
+@pytest.mark.parametrize("granted,label", [(1, "ambiguous"), (2, "unambiguous")])
+def test_after_a_passed_test_validate_behaves_as_on(session, settings, monkeypatch, granted, label):
+    _bind(session, BOTH)
+    _seed_verified_row(session, test_kind=sgo_collection.DISCRIMINATING_TEST, passed=True)
+    provider = Provider(honours_ids=True)
+    _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider,
+             granted=granted)
+    result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
+    assert "eventIDs" in result["request_filters"]
+    assert result["request_filters"]["limit"] == str(granted) and result["objects"] == granted
+    assert result["exact_event_selection"]["basis"] == "VALIDATE_ON_EQUIVALENT"
+    assert result["exact_event_selection"]["test_kind"] == "ON_EQUIVALENT"
+    assert "exact_event_selection_transition" not in result         # recorded once, on the test
+    assert _transitions(session) == 1
+
+
+def test_an_ambiguous_selection_with_an_unverified_id_defers_and_keeps_the_test(
+        session, settings, monkeypatch):
+    _bind(session, [(CHC_CIN, EVENT[CHC_CIN], "SPORTSGAMEODDS")])   # KC @ PIT has no verified ID
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
-    assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION"
-    assert result["games_deferred"][0]["reason"] == sgo_collection.DEFERRED_TIED_START
-    assert provider.calls == []
-    assert [r.request_fingerprint for r in _ledger_requests(session)] == ["fp-verified"]  # nothing new
+    assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION" and provider.calls == []
+    assert sgo_collection.discriminating_test_state(session)["attempted"] is False
+
+
+def test_a_mismatch_on_the_test_rejects_halts_and_uses_the_test(session, settings, monkeypatch):
+    """If the provider ignored the IDs, the 09-18 answer comes back: rejected, halted."""
+
+    _bind(session, BOTH)
+    provider = Provider(honours_ids=False)                          # the filter is ignored
+    _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
+    result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
+    assert result["request_filters"]["eventIDs"] == EVENT[KC_PIT]
+    assert result["games_ingested"] == []                           # CHC @ CIN rejected
+    assert result["lane_halted"] is True and _active_halt(session) is not None
+    record = result["exact_event_selection"]
+    assert record["test_kind"] == sgo_collection.DISCRIMINATING_TEST and record["passed"] is False
+    assert set(record["reasons"]) >= {"EXTRA_EVENT_IDS", "MISSING_EVENT_IDS", "MISMATCH_HALT"}
+    assert "exact_event_selection_transition" not in result and _transitions(session) == 0
+    state = sgo_collection.discriminating_test_state(session)
+    assert state["attempted"] is True and state["passed"] is False  # used; VALIDATE stays deferral-only
+    assert result["objects"] == 1 and result["request_filters"]["limit"] == "1"
+
+
+def test_a_test_without_an_archived_response_does_not_pass(session, settings, monkeypatch):
+    _bind(session, BOTH)
+    provider = Provider(honours_ids=True)
+    _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
+    real_fetch = sgo_collection.fetch_pregame_moneylines
+
+    def _no_archive(*args, **kwargs):
+        fetch = real_fetch(*args, **kwargs)
+        fetch.raw_archive = {"status": "FAILED"}
+        return fetch
+
+    monkeypatch.setattr(sgo_collection, "fetch_pregame_moneylines", _no_archive)
+    result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
+    record = result["exact_event_selection"]
+    assert record["match"] is True and record["passed"] is False
+    assert record["reasons"] == ["RAW_ARCHIVE_MISSING"]
+    assert "exact_event_selection_transition" not in result
+    state = sgo_collection.discriminating_test_state(session)
+    assert state["attempted"] is True and state["passed"] is False
 
 
 def test_on_uses_ids_for_an_ambiguous_all_verified_selection(session, settings, monkeypatch):

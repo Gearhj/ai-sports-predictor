@@ -178,12 +178,14 @@ class Settings(BaseSettings):
     #: Whether the MLB fallback names the provider events AISP itself bound to
     #: the selected games (``eventIDs``; see sgo_collection.EVENT_ID_FILTER_PARAM
     #: for the retained provider documentation). OFF: never; an ambiguous
-    #: selection is deferred. VALIDATE: only for selections the window rule
-    #: already makes unambiguous; ambiguous ones ALWAYS defer, and each ID
-    #: purchase records its evidence (exact_event_selection) for the owner's
-    #: review -- VALIDATE never promotes itself. ON: whenever every selected
-    #: game has a verified ID; switching to ON is the owner's decision.
-    #: Every ID request is checked locally before sending and before ingesting.
+    #: selection is deferred. VALIDATE: IDs for selections the window rule
+    #: already makes unambiguous (evidence only); the FIRST ambiguous
+    #: all-verified selection is sent by ID once as the owner-authorised
+    #: DISCRIMINATING_TEST. If it passes, VALIDATE behaves as ON from then on
+    #: (transition recorded once in the ledger); if it fails, VALIDATE stays
+    #: deferral-only. ON: whenever every selected game has a verified ID.
+    #: Every ID request is checked locally before sending and before ingesting,
+    #: and every ID purchase records exact_event_selection evidence.
     sgo_exact_event_selection_mode: Literal["OFF", "VALIDATE", "ON"] = "OFF"
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False

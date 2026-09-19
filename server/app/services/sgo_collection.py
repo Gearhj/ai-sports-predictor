@@ -907,6 +907,48 @@ def exact_selection_mode(settings: Any) -> str:
     return value if value in EXACT_MODES else "OFF"
 
 
+#: The one owner-authorised live test that CAN show whether the provider filters
+#: by ID: an ambiguous selection -- one the window alone could answer with a
+#: different game -- sent by ID. Authorised once, inside the existing purchase
+#: and allowance; never retried.
+DISCRIMINATING_TEST = "DISCRIMINATING_TEST"
+
+
+def discriminating_test_state(session: Session) -> dict[str, Any]:
+    """Has VALIDATE's one discriminating test been used, and did it pass?
+
+    Read from the ledger at request time (terminal rows of this lane, SUCCEEDED
+    or FAILED), so the transition needs no restart. Any recorded test counts as
+    used, whatever its result; only a passed test with its transition record
+    lets VALIDATE behave as ON.
+    """
+
+    from sqlalchemy import String, cast, select
+
+    from app.models import ProviderRequestLedger
+
+    rows = session.execute(
+        select(ProviderRequestLedger.id, ProviderRequestLedger.requested_at,
+               ProviderRequestLedger.response_metadata).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            ProviderRequestLedger.endpoint_key == ENDPOINT_KEY,
+            ProviderRequestLedger.status.in_(("SUCCEEDED", "FAILED")),
+            cast(ProviderRequestLedger.response_metadata, String).like(f"%{DISCRIMINATING_TEST}%"),
+        ).order_by(ProviderRequestLedger.requested_at)
+    ).all()
+    tests = [(row_id, at, metadata or {}) for row_id, at, metadata in rows
+             if ((metadata or {}).get("exact_event_selection") or {}).get("test_kind")
+             == DISCRIMINATING_TEST]
+    if not tests:
+        return {"attempted": False, "passed": False, "test_ledger_id": None, "transition": None}
+    row_id, at, metadata = tests[0]
+    record = metadata.get("exact_event_selection") or {}
+    transition = metadata.get("exact_event_selection_transition")
+    return {"attempted": True, "passed": bool(record.get("passed") is True and transition),
+            "test_ledger_id": str(row_id), "tested_at": at.isoformat() if at else None,
+            "transition": transition}
+
+
 def exact_id_blockers(
     session: Session, events: list[dict[str, Any]], verified: dict[str, str], *, moment: datetime,
 ) -> list[dict[str, Any]]:
@@ -1328,16 +1370,21 @@ def collect_for_open_cutoffs(
     # Exact selection names the provider events AISP itself bound to these
     # games (sgo_exact_event_selection_mode):
     #   OFF       never.
-    #   VALIDATE  only when every selected game has a verified ID, passes the
-    #             local pre-send checks, AND the selection is already
-    #             unambiguous under the window rule -- so the answer cannot
-    #             differ even if the ID filter were ignored. Such a match cannot
-    #             prove the provider honoured the IDs, so VALIDATE NEVER
-    #             promotes itself: an ambiguous selection always defers here.
-    #             Each ID purchase records its evidence for the owner's review;
-    #             moving to ON is the owner's decision. No extra request or
-    #             object: the evidence rides on a purchase the schedule makes
-    #             anyway.
+    #   VALIDATE  every selected game must have a verified ID and pass the
+    #             local pre-send checks, then:
+    #             * an UNAMBIGUOUS selection is sent by ID. Its match is evidence
+    #               only: the window alone selects the same games, so it proves
+    #               nothing about the ID filter and never transitions anything.
+    #             * the FIRST ambiguous selection -- one the window could answer
+    #               with a different game -- is sent by ID ONCE, as the owner's
+    #               authorised DISCRIMINATING_TEST: the purchase the schedule
+    #               makes anyway, same limit, same objects, no retry, no wider
+    #               query. At most one test ever, whatever its result.
+    #             * if that test PASSED (exact IDs back, every local check, no
+    #               halt, raw response archived) VALIDATE behaves as ON from
+    #               then on; the transition is recorded once, on the passing
+    #               purchase. If it failed, VALIDATE stays deferral-only.
+    #             Both facts are read from the ledger at request time.
     #   ON        whenever every selected game has a verified ID and passes.
     # Otherwise the selection is cut to its unambiguous prefix and the rest is
     # deferred by name; if nothing unambiguous is left, nothing is requested.
@@ -1345,9 +1392,11 @@ def collect_for_open_cutoffs(
     exact_ids: list[str] | None = None
     exact_by_game: dict[str, str] = {}
     exact_basis: str | None = None
+    test_kind: str | None = None
     window_equivalent: bool | None = None
     id_blockers: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
+    test_state: dict[str, Any] | None = None
     if mode != "OFF":
         selected_game_ids = [str(e.get("game_id")) for e in covered]
         verified = verified_sgo_event_ids(session, selected_game_ids)
@@ -1359,9 +1408,17 @@ def collect_for_open_cutoffs(
                     moment=moment)
                 window_equivalent = not would_defer
                 if mode == "ON":
-                    exact_basis = "MODE_ON"
-                elif window_equivalent:
-                    exact_basis = "VALIDATE_UNAMBIGUOUS_SELECTION"
+                    exact_basis, test_kind = "MODE_ON", "ON"
+                else:
+                    test_state = discriminating_test_state(session)
+                    if test_state["passed"]:
+                        exact_basis, test_kind = "VALIDATE_ON_EQUIVALENT", "ON_EQUIVALENT"
+                    elif window_equivalent:
+                        exact_basis, test_kind = ("VALIDATE_UNAMBIGUOUS_SELECTION",
+                                                  "UNAMBIGUOUS_WINDOW_MATCH")
+                    elif not test_state["attempted"]:
+                        exact_basis, test_kind = ("VALIDATE_DISCRIMINATING_TEST",
+                                                  DISCRIMINATING_TEST)
                 if exact_basis is not None:
                     exact_by_game = {game_id: verified[game_id] for game_id in selected_game_ids}
                     exact_ids = [verified[game_id] for game_id in selected_game_ids]
@@ -1370,7 +1427,8 @@ def collect_for_open_cutoffs(
             covered, coverage["events"], window_start=anchor, window_end=window_end, moment=moment)
         if not covered:
             return {**({} if mode == "OFF" else {"exact_event_selection_mode": mode,
-                                                  "exact_id_blockers": id_blockers}),
+                                                  "exact_id_blockers": id_blockers,
+                                                  "discriminating_test_state": test_state}),
                     "attempted": False, "reason": "DEFERRED_AMBIGUOUS_SELECTION", "objects": 0,
                     "games_deferred": deferred,
                     "games_unsupported_today": [str(e.get("game_id")) for e in unsupported],
@@ -1404,45 +1462,94 @@ def collect_for_open_cutoffs(
             request_fingerprint=getattr(reservation, "request_fingerprint", None),
             **({} if exact_ids is None else {"event_ids": exact_ids}))
     except Exception as error:  # one attempt; the cooldown owns the next one
+        # An ID request that failed in transport is still recorded as evidence;
+        # a discriminating test that failed this way has been used.
+        failed_evidence = None if exact_ids is None else {"exact_event_selection": {
+            "mode": mode, "basis": exact_basis, "test_kind": test_kind,
+            "discriminating": test_kind == DISCRIMINATING_TEST,
+            "requested_ids": sorted(set(exact_ids)), "returned_ids": [], "match": False,
+            "passed": False if test_kind == DISCRIMINATING_TEST else None,
+            "reasons": [f"REQUEST_FAILED_{type(error).__name__}"],
+            "window_alone_would_select_the_same": window_equivalent,
+            "reservation_ledger_id": str(getattr(reservation, "id", "") or "") or None,
+            "request_fingerprint": getattr(reservation, "request_fingerprint", None)}}
         complete_request(session, reservation, objects=0, succeeded=False, budget=budget,
-                         error=type(error).__name__, job_run_id=job_run_id)
+                         error=type(error).__name__, job_run_id=job_run_id,
+                         **({} if failed_evidence is None else {"extra_metadata": failed_evidence}))
         session.commit()
-        return {"attempted": True, "reason": "FALLBACK_REQUEST_FAILED", "objects": 0,
+        return {**({} if failed_evidence is None else failed_evidence),
+                "attempted": True, "reason": "FALLBACK_REQUEST_FAILED", "objects": 0,
                 "error_type": type(error).__name__}
 
     # AN ID ANSWER IS CHECKED LOCALLY BEFORE ANYTHING IS INGESTED. The provider
     # applied none of the window/status filters to it, so an event that fails
     # identity, status or schedule is dropped here with its reason.
     exact_check: dict[str, Any] | None = None
-    exact_record: dict[str, Any] | None = None
     if exact_ids is not None:
         exact_check = check_exact_response(session, fetch, exact_by_game, moment=moment)
         _restrict_to_events(fetch, exact_check["allowed_ids"])
-        # EVIDENCE FOR THE OWNER'S REVIEW, written on every ID purchase, matched
-        # or not. Nothing reads it to change behaviour: VALIDATE never promotes
-        # itself; moving to ON is the owner's decision.
+    ingest(session, settings, fetch, league_code="MLB")
+    ingested = _ingested_game_ids(session, fetch)
+
+    # The mismatch is decided here -- before the terminal row is written -- so
+    # the evidence can say whether this purchase halted the lane. The halt
+    # itself still follows below, unchanged.
+    selected_ids = [str(event.get("game_id")) for event in covered]
+    divergence = selection_mismatch(selected_ids, ingested)
+    # On an ID request, ANY difference between the IDs asked for and the IDs
+    # returned -- an extra event or a missing one -- is a mismatch too, and it
+    # takes the same halt. The unrequested event was never ingested above.
+    if divergence is None and exact_check is not None and (
+            exact_check["extra_ids"] or exact_check["missing_ids"]):
+        divergence = {"unselected_games_returned": [], "games_selected": sorted(selected_ids),
+                      "games_ingested": sorted(ingested), "selected_games_missing": [],
+                      "unrequested_event_ids_returned": exact_check["extra_ids"],
+                      "requested_event_ids_missing": exact_check["missing_ids"],
+                      "requested_event_ids": exact_check["requested_ids"],
+                      "returned_event_ids": exact_check["returned_ids"]}
+
+    # EVIDENCE, written on every ID purchase, matched or not.
+    exact_record: dict[str, Any] | None = None
+    transition: dict[str, Any] | None = None
+    if exact_check is not None:
+        archive_sha = (fetch.raw_archive or {}).get("responseBodySha256")
+        reasons = ((["EXTRA_EVENT_IDS"] if exact_check["extra_ids"] else [])
+                   + (["MISSING_EVENT_IDS"] if exact_check["missing_ids"] else [])
+                   + (["LOCAL_CHECK_FAILURES"] if exact_check["failures"] else [])
+                   + (["MISMATCH_HALT"] if divergence is not None else [])
+                   + ([] if archive_sha else ["RAW_ARCHIVE_MISSING"]))
+        passed = exact_check["match"] and divergence is None and bool(archive_sha)
         exact_record = {
-            "mode": mode, "basis": exact_basis,
+            "mode": mode, "basis": exact_basis, "test_kind": test_kind,
+            # A match on an unambiguous selection proves nothing about the ID
+            # filter; only the one DISCRIMINATING_TEST can.
+            "discriminating": test_kind == DISCRIMINATING_TEST,
             "requested_ids": exact_check["requested_ids"],
             "returned_ids": exact_check["returned_ids"],
             "extra_ids": exact_check["extra_ids"], "missing_ids": exact_check["missing_ids"],
             "failures": exact_check["failures"],
             "match": exact_check["match"],
-            # True when the window alone would have given the same answer: the
-            # match shows the IDs came back and passed, NOT that the provider
-            # applied the ID filter rather than the window.
+            "passed": passed if test_kind == DISCRIMINATING_TEST else None,
+            "reasons": reasons,
             "window_alone_would_select_the_same": window_equivalent,
-            "raw_archive_sha256": (fetch.raw_archive or {}).get("responseBodySha256"),
+            "raw_archive_sha256": archive_sha,
             # The RESERVED row this terminal row settles, and the fingerprint
             # the archived response is bound to.
             "reservation_ledger_id": str(getattr(reservation, "id", "") or "") or None,
             "request_fingerprint": getattr(reservation, "request_fingerprint", None),
         }
-    ingest(session, settings, fetch, league_code="MLB")
-    ingested = _ingested_game_ids(session, fetch)
+        if test_kind == DISCRIMINATING_TEST and passed:
+            # The owner-authorised bounded transition, recorded once, on the
+            # purchase that earned it.
+            transition = {"from": "VALIDATE", "to": "ON_EQUIVALENT", "at": moment.isoformat(),
+                          "basis_ledger_id": exact_record["reservation_ledger_id"],
+                          "basis_request_fingerprint": exact_record["request_fingerprint"],
+                          "raw_archive_sha": archive_sha}
     terminal_metadata: dict[str, Any] = {"raw_archive": fetch.raw_archive}
     if exact_record is not None:
         terminal_metadata["exact_event_selection"] = exact_record
+    if transition is not None:
+        terminal_metadata["exact_event_selection_transition"] = transition
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id,
                      extra_metadata=terminal_metadata)
@@ -1469,20 +1576,8 @@ def collect_for_open_cutoffs(
     # The rows already written stay. They are real prices from a real response
     # and deleting them would destroy the evidence of what happened. The
     # completed reservation stays too: the object WAS charged, and a ledger that
-    # hid that would be worse than the fault it was hiding.
-    selected_ids = [str(event.get("game_id")) for event in covered]
-    divergence = selection_mismatch(selected_ids, ingested)
-    # On an ID request, ANY difference between the IDs asked for and the IDs
-    # returned -- an extra event or a missing one -- is a mismatch too, and it
-    # takes the same halt. The unrequested event was never ingested above.
-    if divergence is None and exact_check is not None and (
-            exact_check["extra_ids"] or exact_check["missing_ids"]):
-        divergence = {"unselected_games_returned": [], "games_selected": sorted(selected_ids),
-                      "games_ingested": sorted(ingested), "selected_games_missing": [],
-                      "unrequested_event_ids_returned": exact_check["extra_ids"],
-                      "requested_event_ids_missing": exact_check["missing_ids"],
-                      "requested_event_ids": exact_check["requested_ids"],
-                      "returned_event_ids": exact_check["returned_ids"]}
+    # hid that would be worse than the fault it was hiding. (`divergence` was
+    # decided above, before the terminal row, so the evidence could name it.)
     halted = None
     if divergence is not None:
         halted = halt_lane(
@@ -1511,6 +1606,10 @@ def collect_for_open_cutoffs(
         selection_receipt["exact_id_blockers"] = id_blockers
         if exact_record is not None:
             selection_receipt["exact_event_selection"] = exact_record
+        if transition is not None:
+            selection_receipt["exact_event_selection_transition"] = transition
+        if test_state is not None:
+            selection_receipt["discriminating_test_state"] = test_state
     return {
         **selection_receipt,
         "attempted": True, "reason": "FALLBACK_COLLECTED",
