@@ -81,8 +81,11 @@ everything else, including "Suspended" and "Delayed Start", maps to scheduled.
 AISP admitted state for the episode                   status       notes
 ====================================================  ===========  =========================
 scorer admits a final; a live or final observation    DECISIVE     integer homeScore/awayScore
-  exists at S; home != away                                        from the admitted row
+  exists at S; home != away; the row has a genuine                 from the admitted row
+  source ``final_at``
 same, home == away                                    TIE          integer scores
+DECISIVE/TIE as above but ``final_at`` is null        WITHHELD     not in the input lane; see
+                                                                   WITHHELD FINALS below
 canonical ``postponed`` observed at S (latest of      VOID         the episode was not played
   postponed/canceled at S)                                         at its sealed start; may be
                                                                    known before first pitch
@@ -106,6 +109,31 @@ there when the linked raw capture is readable and consistent with the row.
 Nothing is ever inferred from a position, a settlement or a profit/loss. This
 module does not read those tables, and a P/L-shaped key in a record or
 evidence document is refused.
+
+WITHHELD FINALS (Model Studio, 2026-09-19 "staged export corrections")
+----------------------------------------------------------------------
+Model Studio's frozen reader requires ``finalAtUtc`` for every status except
+PENDING. A DECISIVE or TIE record with a null ``finalAtUtc`` would therefore
+fail its scheduled assessment instead of staying pending.
+
+Such a final is never written to the input lane. It is written, with the same
+fields and evidence, to the separate ``v18_market_pilot_outcomes_withheld_dir``
+(default: the sibling ``consumer-outcomes-withheld``):
+
+* record type ``MLB_V18_MARKET_WITHHELD_OUTCOME_V1``;
+* reason ``WITHHELD_FINAL_AT_UNAVAILABLE_INCOMPATIBLE_WITH_FROZEN_READER``;
+* recorded in the ledger as ``REVISION_WITHHELD``.
+
+Its ``supersedesRevisionId`` names the input lane's latest revision, the one it
+would have superseded. ``previousWithheldRevisionId`` chains the withheld
+history.
+
+Nothing is substituted. There is no fabricated completion time, no capture or
+admission clock in ``finalAtUtc``, and no PENDING relabel. A PENDING revision
+written earlier, while the game was live, stays the lane's latest word. If the
+admitted final later gains a genuine ``final_at``, a normal admitted record is
+written then. The withheld files stay as history. VOID, NO_CONTEST and PENDING
+keep their semantics and stay in the input lane.
 
 REVISIONS
 ---------
@@ -139,15 +167,20 @@ admittedAtUtc
     of the inserting transaction. If a candidate writer run is still in
     flight, or none exists, the record waits.
 finalAtUtc
-    The admitted row's ``final_at``. The MLB schedule feed supplies no
-    trustworthy completion time and AISP stores null rather than first pitch,
-    so for MLB this is null, with ``FINAL_AT_NOT_PROVIDED_BY_SOURCE`` in
-    ``reasonCodes``. It is always null for VOID, NO_CONTEST and PENDING.
+    The admitted row's ``final_at``, as the source supplied it, and never any
+    other clock. The MLB schedule feed supplies no trustworthy completion time,
+    and AISP stores null rather than first pitch. Such a final is therefore
+    WITHHELD, with ``FINAL_AT_NOT_PROVIDED_BY_SOURCE`` in ``reasonCodes``, and
+    is not admitted with a null. It is always null for VOID, NO_CONTEST and
+    PENDING.
 
 FILES (all write-once, read-only after; nothing is ever overwritten)
 --------------------------------------------------------------------
-A game directory holds only ``<sha>.json`` records and one ``evidence/``
-subdirectory, so a reader that lists the records sees nothing else.
+The input lane (``v18_market_pilot_outcomes_dir``) and the withheld directory
+use the same layout. A game directory holds only ``<sha>.json`` records and one
+``evidence/`` subdirectory, so a reader that lists the records sees nothing
+else. The two directories may not overlap each other or the packets
+directory.
 
 ``<gameId>/<sha>.json``
     The record.
@@ -158,10 +191,10 @@ subdirectory, so a reader that lists the records sees nothing else.
 ``<gameId>/evidence/<recordSha>.sha256``
     sha256sum lines for the record (``../<sha>.json``) and its evidence
     document.
-``outcomes-ledger.jsonl``
-    Append-only and hash-chained, with no scores. It records every written or
-    adopted revision, every distinct reason for writing nothing, and every
-    systemic stop.
+``outcomes-ledger.jsonl`` (input-lane root only)
+    Append-only and hash-chained, with no scores. It records every written,
+    withheld or adopted revision, every distinct reason for writing nothing,
+    and every systemic stop.
 
 WHAT IT MAY NOT DO
 ------------------
@@ -199,6 +232,10 @@ from app.services.forecast_evaluation import _NONFINAL_STATUSES as SCORER_NONFIN
 from app.services.forecast_evaluation import ForecastEvaluationService
 
 RECORD_TYPE = "MLB_V18_MARKET_ADMITTED_OUTCOME_V1"
+#: A completed final kept OUT of the input lane (see WITHHELD FINALS).
+WITHHELD_RECORD_TYPE = "MLB_V18_MARKET_WITHHELD_OUTCOME_V1"
+WITHHELD_FINAL_AT_REASON = "WITHHELD_FINAL_AT_UNAVAILABLE_INCOMPATIBLE_WITH_FROZEN_READER"
+LANE_ADMITTED, LANE_WITHHELD = "ADMITTED", "WITHHELD"
 EXPORT_IDENTITY = "AISP_V18_MARKET_PILOT_CONSUMER_OUTCOME_EXPORT_V1"
 EVIDENCE_SCHEMA = "AISP_V18_MARKET_PILOT_OUTCOME_EVIDENCE_V1"
 LEDGER_NAME = "outcomes-ledger.jsonl"
@@ -259,11 +296,17 @@ CLOCK_MEANINGS = {
         "run when runs overlapped). The commit happened no later than this. Never created_at, which "
         "is the start of the inserting transaction."),
     "finalAtUtc": (
-        "game_state_observations.final_at of the admitted observation, as supplied by the source. "
-        "The MLB schedule feed supplies no trustworthy completion time and AISP stores null rather "
-        "than reuse first pitch, so null here means unknown, not omitted. Always null for VOID, "
-        "NO_CONTEST and PENDING."),
+        "game_state_observations.final_at of the admitted observation, exactly as the source supplied "
+        "it; never a capture, admission or scheduled-start clock. An admitted DECISIVE/TIE record always "
+        "carries one. A completed final whose source supplied none is WITHHELD from the input lane with "
+        "finalAtUtc null (unknown, not omitted). Always null for VOID, NO_CONTEST and PENDING."),
 }
+
+WITHHELD_NOTE = (
+    "Withheld from the consumer-outcomes input lane: AISP admitted this final under its own rule, but its "
+    "source supplied no completion time, and Model Studio's frozen reader requires finalAtUtc for every "
+    "non-PENDING status. No completion time is fabricated or substituted, and the game is not relabelled "
+    "PENDING. Kept here with its evidence as an explicit unresolved final.")
 
 
 class OutcomeExportRefused(RuntimeError):
@@ -612,6 +655,13 @@ class Disposition:
     def is_record(self) -> bool:
         return self.code is None
 
+    @property
+    def withheld(self) -> bool:
+        """A completed final with no source completion time: kept out of the input lane."""
+
+        return (self.is_record and self.status in PLAYED_STATUSES
+                and (self.content or {}).get("finalAtUtc") is None)
+
 
 def _no_record(episode: SealedEpisode, code: str, detail: str = "", **extra: Any) -> Disposition:
     return Disposition(episode=episode, code=code, detail=detail, **extra)
@@ -833,6 +883,8 @@ def _evidence_document(d: Disposition, provider: dict[str, Any] | None) -> dict[
         "rawCaptureLink": d.ingestion_code or "LINKED",
         "contentId": d.content_id,
         "gameStatusProjectionAtExport": (d.game_row or {}).get("status"),
+        "inputLane": LANE_WITHHELD if d.withheld else LANE_ADMITTED,
+        "withheldReason": WITHHELD_FINAL_AT_REASON if d.withheld else None,
     }
     return {
         "schemaVersion": EVIDENCE_SCHEMA,
@@ -854,10 +906,12 @@ def _evidence_document(d: Disposition, provider: dict[str, Any] | None) -> dict[
 
 
 def _record(d: Disposition, revision: str, supersedes: str | None, provider: dict[str, Any] | None,
-            raw_ref: dict[str, Any] | None, raw_code: str | None, evidence_ref: dict[str, Any]
-            ) -> dict[str, Any]:
+            raw_ref: dict[str, Any] | None, raw_code: str | None, evidence_ref: dict[str, Any],
+            *, previous_withheld: str | None = None) -> dict[str, Any]:
     content = d.content or {}
     reasons = list(d.reason_codes)
+    if d.withheld:
+        reasons.insert(0, WITHHELD_FINAL_AT_REASON)
     if raw_code:
         reasons.append(raw_code)
 
@@ -868,8 +922,15 @@ def _record(d: Disposition, revision: str, supersedes: str | None, provider: dic
         at(f"/rows/game_state_observations/{d.anchor.id}")]
     admission_refs = [at("/notes/admission")] + [
         at(f"/rows/job_runs/{run['id']}") for run in (d.receipt.runs if d.receipt else ())]
+    withheld = {
+        "inputLaneAdmitted": False,
+        "withheldReason": WITHHELD_FINAL_AT_REASON,
+        "withheldNote": WITHHELD_NOTE,
+        "previousWithheldRevisionId": previous_withheld,
+    } if d.withheld else {}
     return {
-        "recordType": RECORD_TYPE,
+        **withheld,
+        "recordType": WITHHELD_RECORD_TYPE if d.withheld else RECORD_TYPE,
         "protocolSha256": pilot.PROTOCOL_SHA256,
         "exportIdentity": EXPORT_IDENTITY,
         "gameId": content["gameId"],
@@ -918,8 +979,11 @@ class Plan:
     episodes: int = 0
 
 
-def _last_by_episode(entries: list[dict[str, Any]]) -> tuple[dict[str, dict], dict[str, dict]]:
+def _last_by_episode(entries: list[dict[str, Any]]) -> tuple[dict[str, dict], dict[str, dict], dict[str, dict]]:
+    """(latest input-lane revision, latest withheld revision, latest entry) per episode."""
+
     latest_revision: dict[str, dict] = {}
+    latest_withheld: dict[str, dict] = {}
     latest_entry: dict[str, dict] = {}
     for entry in entries:
         key = entry.get("episodeKey")
@@ -927,8 +991,10 @@ def _last_by_episode(entries: list[dict[str, Any]]) -> tuple[dict[str, dict], di
             continue
         if entry.get("kind") == "REVISION_WRITTEN":
             latest_revision[key] = entry
+        elif entry.get("kind") == "REVISION_WITHHELD":
+            latest_withheld[key] = entry
         latest_entry[key] = entry
-    return latest_revision, latest_entry
+    return latest_revision, latest_withheld, latest_entry
 
 
 def _plan(session: Session, packet_dir: Path, entries: list[dict[str, Any]]) -> Plan:
@@ -940,7 +1006,7 @@ def _plan(session: Session, packet_dir: Path, entries: list[dict[str, Any]]) -> 
         if not (last.get("kind") == "SYSTEMIC_STOP" and (last.get("code"), last.get("detail")) == scan.systemic):
             plan.actions.append(("SYSTEMIC_STOP", scan.systemic))
         return plan
-    latest_revision, latest_entry = _last_by_episode(entries)
+    latest_revision, latest_withheld, latest_entry = _last_by_episode(entries)
     for key, code, detail in scan.refused:
         last = latest_entry.get(key) or {}
         if not (last.get("kind") == "SEALED_PACKET_NOT_VERIFIED" and (last.get("code"), last.get("detail"))
@@ -956,12 +1022,24 @@ def _plan(session: Session, packet_dir: Path, entries: list[dict[str, Any]]) -> 
                 plan.actions.append(("NO_RECORD", disposition))
             continue
         previous = latest_revision.get(episode.episode_key)
-        if previous and previous.get("contentId") == disposition.content_id:
-            # Unchanged. Only say so when a "nothing admitted" entry came after it.
-            if last.get("kind") in ("NO_RECORD", "SEALED_PACKET_NOT_VERIFIED"):
-                plan.actions.append(("STATE_RETURNED_TO_LATEST_REVISION", (disposition, previous)))
+        head = previous.get("revisionId") if previous else None
+        if disposition.withheld:
+            # Never into the input lane. It names the lane head it would have superseded,
+            # so the same final is withheld again only if that head (or its content) moved.
+            prior = latest_withheld.get(episode.episode_key)
+            if prior and prior.get("revisionId") == revision_id(disposition.content_id or "", head):
+                if last.get("revisionId") != prior.get("revisionId"):
+                    plan.actions.append(("STATE_RETURNED_TO_LATEST_REVISION", (disposition, prior, LANE_WITHHELD)))
+                continue
+            plan.actions.append(("WITHHOLD_REVISION",
+                                 (disposition, head, prior.get("revisionId") if prior else None)))
             continue
-        plan.actions.append(("WRITE_REVISION", (disposition, previous.get("revisionId") if previous else None)))
+        if previous and previous.get("contentId") == disposition.content_id:
+            # Unchanged. Only say so when another entry came after it.
+            if last.get("revisionId") != head:
+                plan.actions.append(("STATE_RETURNED_TO_LATEST_REVISION", (disposition, previous, LANE_ADMITTED)))
+            continue
+        plan.actions.append(("WRITE_REVISION", (disposition, head)))
     return plan
 
 
@@ -1017,15 +1095,27 @@ def _restore_sidecar(game_dir: Path, record_path: Path, data: bytes) -> None:
 
 
 def write_revision(directory: Path, d: Disposition, supersedes: str | None, *, ledger: AttemptLedger,
-                   clock: Callable[[], datetime]) -> dict[str, Any]:
+                   clock: Callable[[], datetime], withheld_dir: Path | None = None,
+                   previous_withheld: str | None = None) -> dict[str, Any]:
+    """Write one revision: to the input lane, or -- for a withheld final -- to ``withheld_dir``."""
+
+    if d.withheld:
+        if withheld_dir is None:
+            raise OutcomeExportRefused("A final without a source completion time needs the withheld directory")
+        directory = withheld_dir
+    elif d.status in PLAYED_STATUSES and not (d.content or {}).get("finalAtUtc"):
+        raise OutcomeExportRefused("Refusing to admit a completed final without finalAtUtc")
     game_dir = Path(directory) / d.episode.game_id
     revision = revision_id(d.content_id or "", supersedes)
-    base = {"kind": "REVISION_WRITTEN", "episodeKey": d.episode.episode_key,
+    base = {"kind": "REVISION_WITHHELD" if d.withheld else "REVISION_WRITTEN",
+            "lane": LANE_WITHHELD if d.withheld else LANE_ADMITTED, "episodeKey": d.episode.episode_key,
             "canonicalGameId": d.episode.game_id, "revisionId": revision, "supersedesRevisionId": supersedes,
             "contentId": d.content_id, "status": d.status,
             "sourceRevisionIdentity": (d.content or {}).get("sourceRevisionIdentity"),
             "sourceCapturedAtUtc": (d.content or {}).get("sourceCapturedAtUtc"),
             "admittedAtUtc": (d.content or {}).get("admittedAtUtc")}
+    if d.withheld:
+        base.update({"reason": WITHHELD_FINAL_AT_REASON, "previousWithheldRevisionId": previous_withheld})
     existing = _find_revision(game_dir, revision)
     if existing is not None:
         # Written by an earlier tick that stopped before its ledger line.
@@ -1034,7 +1124,7 @@ def write_revision(directory: Path, d: Disposition, supersedes: str | None, *, l
         ledger.append({**base, "recordFile": f"{d.episode.game_id}/{path.name}", "recordSha256": _sha(data),
                        "recordBytes": len(data), "adoptedExistingFile": True}, now=pilot.aware(clock()))
         return {"revisionId": revision, "file": path.name, "status": d.status, "adopted": True,
-                "supersedesRevisionId": supersedes}
+                "lane": base["lane"], "supersedesRevisionId": supersedes}
 
     game_pk = (d.identity or {}).get("sourceGameIds", {}).get("MLB_STATS_API")
     if d.ingestion_code:
@@ -1047,7 +1137,8 @@ def write_revision(directory: Path, d: Disposition, supersedes: str | None, *, l
     evidence_sha = _sha(evidence_bytes)
     evidence_rel = f"{EVIDENCE_DIR}/{evidence_sha}.json"
     evidence_ref = {"path": evidence_rel, "sha256": evidence_sha, "bytes": len(evidence_bytes)}
-    record = _record(d, revision, supersedes, provider, raw_ref, raw_code, evidence_ref)
+    record = _record(d, revision, supersedes, provider, raw_ref, raw_code, evidence_ref,
+                     previous_withheld=previous_withheld)
     assert_no_pnl_fields(record, "record")
     missing = [k for k in REQUIRED_FIELDS if k not in record]
     if missing:
@@ -1061,7 +1152,7 @@ def write_revision(directory: Path, d: Disposition, supersedes: str | None, *, l
                    "recordBytes": len(record_bytes), "evidenceFile": f"{d.episode.game_id}/{evidence_rel}",
                    "evidenceSha256": evidence_sha, "reasonCodes": record["reasonCodes"]},
                   now=pilot.aware(clock()))
-    return {"revisionId": revision, "file": f"{record_sha}.json", "status": d.status,
+    return {"revisionId": revision, "file": f"{record_sha}.json", "status": d.status, "lane": base["lane"],
             "supersedesRevisionId": supersedes}
 
 
@@ -1073,14 +1164,26 @@ def _overlap(outcomes_dir: Path, packet_dir: Path) -> bool:
     return a == b or b in a.parents or a in b.parents
 
 
+def directories(settings: Settings) -> tuple[Path, Path, Path, str | None]:
+    """(input lane, withheld, packets, refusal code or None). No two may overlap."""
+
+    directory = Path(settings.v18_market_pilot_outcomes_dir)
+    withheld = Path(settings.v18_market_pilot_outcomes_withheld_dir)
+    packet_dir = Path(settings.v18_market_pilot_packet_dir)
+    if _overlap(directory, packet_dir):
+        return directory, withheld, packet_dir, "OUTCOMES_DIR_OVERLAPS_PACKET_DIR"
+    if _overlap(withheld, packet_dir) or _overlap(withheld, directory):
+        return directory, withheld, packet_dir, "WITHHELD_DIR_OVERLAPS_PACKET_OR_OUTCOMES_DIR"
+    return directory, withheld, packet_dir, None
+
+
 def work_due(session: Session, settings: Settings) -> bool:
     """Is a record, a reason or a stop due? Read-only; writes nothing, creates no job row."""
 
     if not settings.v18_market_pilot_outcomes_export_enabled:
         return False
-    directory = Path(settings.v18_market_pilot_outcomes_dir)
-    packet_dir = Path(settings.v18_market_pilot_packet_dir)
-    if _overlap(directory, packet_dir):
+    directory, _, packet_dir, refused = directories(settings)
+    if refused:
         return False
     entries = AttemptLedger(directory, name=LEDGER_NAME).entries()
     with read_only(session):
@@ -1096,17 +1199,17 @@ def run_outcomes_tick(session: Session, settings: Settings, *, now: datetime | N
         return {"records": 0, "enabled": False,
                 "note": "V18_MARKET_PILOT_OUTCOMES_EXPORT_ENABLED is off; nothing read or written"}
     clock = clock or (lambda: datetime.now(UTC))
-    directory = Path(settings.v18_market_pilot_outcomes_dir)
-    packet_dir = Path(settings.v18_market_pilot_packet_dir)
-    if _overlap(directory, packet_dir):
-        logger.error("v18_market_pilot_outcomes_dir_overlaps_packets", outcomes=str(directory),
-                     packets=str(packet_dir))
-        return {"records": 0, "enabled": True, "refused": "OUTCOMES_DIR_OVERLAPS_PACKET_DIR"}
+    directory, withheld_dir, packet_dir, refused = directories(settings)
+    if refused:
+        logger.error("v18_market_pilot_outcomes_directories_overlap", code=refused, outcomes=str(directory),
+                     withheld=str(withheld_dir), packets=str(packet_dir))
+        return {"records": 0, "enabled": True, "refused": refused}
     ledger = AttemptLedger(directory, name=LEDGER_NAME)
     with read_only(session):
         plan = _plan(session, packet_dir, ledger.entries())
     summary: dict[str, Any] = {"enabled": True, "protocolSha256": pilot.PROTOCOL_SHA256,
-                               "directory": str(directory), "sealedEpisodes": plan.episodes, "written": [],
+                               "directory": str(directory), "withheldDirectory": str(withheld_dir),
+                               "sealedEpisodes": plan.episodes, "written": [], "withheld": [],
                                "noRecord": [], "notVerified": [], "systemic": plan.systemic}
     for kind, payload in plan.actions:
         at = pilot.aware(now or clock())
@@ -1124,20 +1227,27 @@ def run_outcomes_tick(session: Session, settings: Settings, *, now: datetime | N
                            "canonicalGameId": d.episode.game_id, "code": d.code, "detail": d.detail}, now=at)
             summary["noRecord"].append({"episodeKey": d.episode.episode_key, "code": d.code})
         elif kind == "STATE_RETURNED_TO_LATEST_REVISION":
-            d, previous = payload
-            ledger.append({"kind": kind, "episodeKey": d.episode.episode_key, "canonicalGameId": d.episode.game_id,
-                           "revisionId": previous.get("revisionId"), "contentId": d.content_id}, now=at)
+            d, previous, lane = payload
+            ledger.append({"kind": kind, "lane": lane, "episodeKey": d.episode.episode_key,
+                           "canonicalGameId": d.episode.game_id, "revisionId": previous.get("revisionId"),
+                           "contentId": d.content_id}, now=at)
         elif kind == "WRITE_REVISION":
             d, supersedes = payload
             summary["written"].append({"episodeKey": d.episode.episode_key,
                                        **write_revision(directory, d, supersedes, ledger=ledger, clock=clock)})
+        elif kind == "WITHHOLD_REVISION":
+            d, supersedes, previous_withheld = payload
+            summary["withheld"].append({"episodeKey": d.episode.episode_key, **write_revision(
+                directory, d, supersedes, ledger=ledger, clock=clock, withheld_dir=withheld_dir,
+                previous_withheld=previous_withheld)})
     summary["records"] = len(summary["written"])
     return summary
 
 
 __all__ = [
     "DECISIVE", "EXPORT_IDENTITY", "INTERVAL_MINUTES", "JOB_NAME", "LEDGER_NAME", "NO_CONTEST", "PENDING",
-    "RECORD_TYPE", "REQUIRED_FIELDS", "SCHEDULER_ID", "STATUSES", "TIE", "VOID", "Disposition",
-    "OutcomeExportRefused", "SealedEpisode", "admitted_state", "assert_no_pnl_fields", "read_only",
-    "revision_id", "run_outcomes_tick", "sealed_episodes", "work_due", "write_revision",
+    "RECORD_TYPE", "REQUIRED_FIELDS", "SCHEDULER_ID", "STATUSES", "TIE", "VOID", "WITHHELD_FINAL_AT_REASON",
+    "WITHHELD_RECORD_TYPE", "Disposition", "OutcomeExportRefused", "SealedEpisode", "admitted_state",
+    "assert_no_pnl_fields", "directories", "read_only", "revision_id", "run_outcomes_tick", "sealed_episodes",
+    "work_due", "write_revision",
 ]

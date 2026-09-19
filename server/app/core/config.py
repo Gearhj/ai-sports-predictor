@@ -370,6 +370,12 @@ class Settings(BaseSettings):
     v18_market_pilot_outcomes_export_enabled: bool = False
     v18_market_pilot_outcomes_dir: str = Field(default=str(
         Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes"))
+    #: Completed finals AISP admitted but whose source supplied no completion
+    #: time: Model Studio's frozen reader needs finalAtUtc, so they are kept
+    #: OUT of the input lane above, write-once, with their evidence and reason.
+    #: Must not overlap the outcomes or packets directory.
+    v18_market_pilot_outcomes_withheld_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-withheld"))
 
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
