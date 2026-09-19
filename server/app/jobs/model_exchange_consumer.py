@@ -33,6 +33,8 @@ and is never backdated.
 
 from __future__ import annotations
 
+from time import perf_counter
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -185,6 +187,7 @@ def consume_forecast_bundles(
     from app.services.shadow_board_service import ShadowBoardService
 
     exchange_root = Path(root or settings.model_exchange_forecast_bundle_dir)
+    started = perf_counter()
     outcome = ConsumeOutcome(root=str(exchange_root), dry_run=dry_run)
     if not exchange_root.is_dir():
         outcome.rejected.append({
@@ -263,17 +266,31 @@ def consume_forecast_bundles(
     # CFB production discovery first, so a CFB paper-eligibility supplement can
     # bind a forecast imported on this same pass. Its own pinned handoff and
     # consumer switch gate it; nothing here widens the supplement allowlist.
-    cfb_discovery = _consume_cfb_discovery(session, settings, dry_run=dry_run)
-    _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run)
-    _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run)
-    _consume_lab_study(session, settings, outcome, dry_run=dry_run)
+    # Per-stage wall time, recorded with the run: the whole pass is one
+    # transaction committed at the end, so a V18 forecast is visible to the
+    # decision checkpoint only after every stage below has finished
+    # (CHC @ CIN 2026-09-18: stamped 22:13:57Z, usable ~22:16:13Z).
+    stage_seconds: dict[str, float] = {"bundles": round(perf_counter() - started, 3)}
+
+    def timed(name, call):
+        t0 = perf_counter()
+        try:
+            return call()
+        finally:
+            stage_seconds[name] = round(perf_counter() - t0, 3)
+
+    cfb_discovery = timed("cfb_discovery", lambda: _consume_cfb_discovery(session, settings, dry_run=dry_run))
+    timed("supplements", lambda: _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run))
+    timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run))
+    timed("lab_study", lambda: _consume_lab_study(session, settings, outcome, dry_run=dry_run))
     payload = outcome.as_dict()
     # MLB V18 publishes its own content-addressed packages beside the NFL
     # bundles. Same single owner, same cadence, same refusal to execute
     # anything -- but a different manifest shape, so it gets its own scanner
     # rather than being forced through the bundle index.
-    payload["v18"] = _consume_v18(session, settings, dry_run=dry_run)
+    payload["v18"] = timed("v18", lambda: _consume_v18(session, settings, dry_run=dry_run))
     payload["cfb_discovery"] = cfb_discovery
+    payload["stage_seconds"] = stage_seconds
     return payload
 
 
