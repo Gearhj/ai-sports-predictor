@@ -36,7 +36,8 @@ def _terminal(session):
 
 
 def _seed_verified_row(session):
-    """A prior exact-ID purchase that came back matching (the live verification)."""
+    """A prior exact-ID purchase that came back matching -- evidence only; it must
+    never change VALIDATE's behaviour."""
     from app.data_sources.provider_registry import SPORTSGAMEODDS
     from app.models import ProviderRequestLedger
 
@@ -71,9 +72,15 @@ def test_validate_uses_ids_on_an_unambiguous_all_verified_selection(session, set
     assert record["match"] is True and record["basis"] == "VALIDATE_UNAMBIGUOUS_SELECTION"
     assert record["requested_ids"] == record["returned_ids"] == sorted(EVENT.values())
     assert record["raw_archive_sha256"] == "ab" * 32
-    assert record["window_alone_would_select_the_same"] is True
-    assert _terminal(session)[0].response_metadata["exact_event_selection"] == record
-    assert sgo_collection.exact_selection_verified(session) is True
+    assert record["window_alone_would_select_the_same"] is True   # not proof the IDs were applied
+    reserved = _ledger_requests(session)[0]
+    terminal = _terminal(session)[0]
+    assert record["reservation_ledger_id"] == str(reserved.id)
+    assert record["request_fingerprint"] == reserved.request_fingerprint
+    assert record["terminal_ledger_id"] == str(terminal.id)
+    stored = terminal.response_metadata["exact_event_selection"]
+    assert stored == {k: v for k, v in record.items() if k != "terminal_ledger_id"}
+    assert not hasattr(sgo_collection, "exact_selection_verified")   # no self-promotion path
 
 
 def test_validate_uses_no_ids_while_any_selected_game_is_unverified(session, settings, monkeypatch):
@@ -85,27 +92,27 @@ def test_validate_uses_no_ids_while_any_selected_game_is_unverified(session, set
     assert "exact_event_selection" not in result and provider.calls[0]["event_ids"] is None
 
 
-def test_an_ambiguous_selection_defers_before_verification(session, settings, monkeypatch):
+def test_validate_defers_an_ambiguous_selection(session, settings, monkeypatch):
     _bind(session, BOTH)
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
-    assert sgo_collection.exact_selection_verified(session) is False
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
     assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION" and provider.calls == []
     assert _ledger_requests(session) == []
 
 
-def test_an_ambiguous_selection_uses_ids_once_a_live_match_is_verified(session, settings, monkeypatch):
+def test_validate_defers_an_ambiguous_selection_even_after_a_verified_match(session, settings, monkeypatch):
+    """A prior matching row is evidence for the owner, never a promotion."""
+
     _bind(session, BOTH)
     _seed_verified_row(session)
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
-    assert result["request_filters"]["eventIDs"] == EVENT[KC_PIT]
-    assert result["request_filters"]["limit"] == "1" and result["objects"] == 1
-    assert result["games_ingested"] == [KC_PIT] and result["lane_halted"] is False
-    assert result["exact_event_selection"]["basis"] == "VALIDATE_LIVE_MATCH_VERIFIED"
-    assert result["exact_event_selection"]["window_alone_would_select_the_same"] is False
+    assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION"
+    assert result["games_deferred"][0]["reason"] == sgo_collection.DEFERRED_TIED_START
+    assert provider.calls == []
+    assert [r.request_fingerprint for r in _ledger_requests(session)] == ["fp-verified"]  # nothing new
 
 
 def test_on_uses_ids_for_an_ambiguous_all_verified_selection(session, settings, monkeypatch):
@@ -113,8 +120,12 @@ def test_on_uses_ids_for_an_ambiguous_all_verified_selection(session, settings, 
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "ON"), now=REFRESH_AT)
-    assert result["request_filters"]["eventIDs"] == EVENT[KC_PIT] and result["games_ingested"] == [KC_PIT]
-    assert result["exact_event_selection"]["basis"] == "MODE_ON"
+    assert result["request_filters"]["eventIDs"] == EVENT[KC_PIT]
+    assert result["request_filters"]["limit"] == "1" and result["objects"] == 1
+    assert result["games_ingested"] == [KC_PIT] and result["lane_halted"] is False
+    record = result["exact_event_selection"]
+    assert record["basis"] == "MODE_ON" and record["match"] is True
+    assert record["window_alone_would_select_the_same"] is False    # a discriminating match
 
 
 # -- local checks before sending ---------------------------------------------------
@@ -151,8 +162,9 @@ def test_an_extra_event_is_rejected_and_halts(session, settings, monkeypatch):
     assert extra not in result["games_ingested"]
     assert result["selection_mismatch"]["unrequested_event_ids_returned"] == [EVENT_OF[extra]]
     assert result["lane_halted"] is True and _active_halt(session) is not None
-    assert "exact_event_selection" not in result
-    assert sgo_collection.exact_selection_verified(session) is False
+    record = result["exact_event_selection"]                        # evidence kept on every ID buy
+    assert record["match"] is False and record["extra_ids"] == [EVENT_OF[extra]]
+    assert _terminal(session)[0].response_metadata["exact_event_selection"]["match"] is False
 
 
 def test_a_missing_event_halts(session, settings, monkeypatch):
@@ -162,7 +174,8 @@ def test_a_missing_event_halts(session, settings, monkeypatch):
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
     assert result["selection_mismatch"]["requested_event_ids_missing"] == [EVENT[CHC_CIN]]
     assert result["lane_halted"] is True
-    assert "exact_event_selection" not in result
+    record = result["exact_event_selection"]
+    assert record["match"] is False and record["missing_ids"] == [EVENT[CHC_CIN]]
 
 
 @pytest.mark.parametrize("provider_kwargs,reason", [
@@ -177,11 +190,10 @@ def test_an_event_failing_a_local_check_is_not_ingested(session, settings, monke
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=2)
     result = sgo_collection.collect_for_open_cutoffs(session, _mode(settings, "VALIDATE"), now=REFRESH_AT)
     assert result["games_ingested"] == [CHC_CIN]                 # KC @ PIT dropped, CHC @ CIN kept
-    rejected = result["exact_event_selection_rejected"]
-    assert rejected["failures"] == {EVENT[KC_PIT]: reason} and rejected["match"] is False
-    assert "exact_event_selection" not in result                 # verification only on an exact match
+    record = result["exact_event_selection"]
+    assert record["failures"] == {EVENT[KC_PIT]: reason}
+    assert record["match"] is False                              # a failed check is never a match
     assert result["lane_halted"] is False                        # the sets matched: not a mismatch
-    assert sgo_collection.exact_selection_verified(session) is False
     assert result["objects"] == 2                                # both objects were billed
 
 

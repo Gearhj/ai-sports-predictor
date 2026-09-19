@@ -359,7 +359,7 @@ def test_an_ignored_id_filter_still_halts_rather_than_admitting_the_wrong_game(
     assert result["selection_mismatch"]["unrequested_event_ids_returned"] == [EVENT[CHC_CIN]]
     assert result["selection_mismatch"]["requested_event_ids_missing"] == [EVENT[KC_PIT]]
     assert _active_halt(session).reason == "PROVIDER_RETURNED_UNSELECTED_GAME"
-    assert "exact_event_selection" not in result
+    assert result["exact_event_selection"]["match"] is False     # evidence kept, not a match
 
 
 def test_a_halted_lane_is_never_lifted_here(session, settings, monkeypatch):

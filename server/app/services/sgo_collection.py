@@ -907,29 +907,6 @@ def exact_selection_mode(settings: Any) -> str:
     return value if value in EXACT_MODES else "OFF"
 
 
-def exact_selection_verified(session: Session) -> bool:
-    """Has at least one exact-ID purchase come back matching and passing every check?
-
-    Read from the ledger's terminal rows at request time, so promotion needs no
-    restart: the first such row is the live verification.
-    """
-
-    from sqlalchemy import String, cast, select
-
-    from app.models import ProviderRequestLedger
-
-    rows = session.scalars(
-        select(ProviderRequestLedger.response_metadata).where(
-            ProviderRequestLedger.provider == SPORTSGAMEODDS,
-            ProviderRequestLedger.endpoint_key == ENDPOINT_KEY,
-            ProviderRequestLedger.status == "SUCCEEDED",
-            cast(ProviderRequestLedger.response_metadata, String).like('%"exact_event_selection"%'),
-        )
-    ).all()
-    return any(((metadata or {}).get("exact_event_selection") or {}).get("match") is True
-               for metadata in rows)
-
-
 def exact_id_blockers(
     session: Session, events: list[dict[str, Any]], verified: dict[str, str], *, moment: datetime,
 ) -> list[dict[str, Any]]:
@@ -1354,10 +1331,13 @@ def collect_for_open_cutoffs(
     #   VALIDATE  only when every selected game has a verified ID, passes the
     #             local pre-send checks, AND the selection is already
     #             unambiguous under the window rule -- so the answer cannot
-    #             differ even if the ID filter were ignored. Once a live exact
-    #             match is on the ledger, an ambiguous all-verified selection
-    #             may use IDs too. No extra request or object: the check rides
-    #             on a purchase the schedule makes anyway.
+    #             differ even if the ID filter were ignored. Such a match cannot
+    #             prove the provider honoured the IDs, so VALIDATE NEVER
+    #             promotes itself: an ambiguous selection always defers here.
+    #             Each ID purchase records its evidence for the owner's review;
+    #             moving to ON is the owner's decision. No extra request or
+    #             object: the evidence rides on a purchase the schedule makes
+    #             anyway.
     #   ON        whenever every selected game has a verified ID and passes.
     # Otherwise the selection is cut to its unambiguous prefix and the rest is
     # deferred by name; if nothing unambiguous is left, nothing is requested.
@@ -1365,6 +1345,7 @@ def collect_for_open_cutoffs(
     exact_ids: list[str] | None = None
     exact_by_game: dict[str, str] = {}
     exact_basis: str | None = None
+    window_equivalent: bool | None = None
     id_blockers: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
     if mode != "OFF":
@@ -1376,12 +1357,11 @@ def collect_for_open_cutoffs(
                 _kept, would_defer = unambiguous_prefix(
                     covered, coverage["events"], window_start=anchor, window_end=window_end,
                     moment=moment)
+                window_equivalent = not would_defer
                 if mode == "ON":
                     exact_basis = "MODE_ON"
-                elif not would_defer:
+                elif window_equivalent:
                     exact_basis = "VALIDATE_UNAMBIGUOUS_SELECTION"
-                elif exact_selection_verified(session):
-                    exact_basis = "VALIDATE_LIVE_MATCH_VERIFIED"
                 if exact_basis is not None:
                     exact_by_game = {game_id: verified[game_id] for game_id in selected_game_ids}
                     exact_ids = [verified[game_id] for game_id in selected_game_ids]
@@ -1438,29 +1418,45 @@ def collect_for_open_cutoffs(
     if exact_ids is not None:
         exact_check = check_exact_response(session, fetch, exact_by_game, moment=moment)
         _restrict_to_events(fetch, exact_check["allowed_ids"])
-        if exact_check["match"]:
-            exact_record = {
-                "mode": mode, "basis": exact_basis,
-                "requested_ids": exact_check["requested_ids"],
-                "returned_ids": exact_check["returned_ids"], "match": True,
-                # When the window alone would have given the same answer, this
-                # match shows the IDs came back and passed; it cannot show the
-                # provider applied the ID filter rather than the window.
-                "window_alone_would_select_the_same": exact_basis == "VALIDATE_UNAMBIGUOUS_SELECTION",
-                "raw_archive_sha256": (fetch.raw_archive or {}).get("responseBodySha256"),
-            }
+        # EVIDENCE FOR THE OWNER'S REVIEW, written on every ID purchase, matched
+        # or not. Nothing reads it to change behaviour: VALIDATE never promotes
+        # itself; moving to ON is the owner's decision.
+        exact_record = {
+            "mode": mode, "basis": exact_basis,
+            "requested_ids": exact_check["requested_ids"],
+            "returned_ids": exact_check["returned_ids"],
+            "extra_ids": exact_check["extra_ids"], "missing_ids": exact_check["missing_ids"],
+            "failures": exact_check["failures"],
+            "match": exact_check["match"],
+            # True when the window alone would have given the same answer: the
+            # match shows the IDs came back and passed, NOT that the provider
+            # applied the ID filter rather than the window.
+            "window_alone_would_select_the_same": window_equivalent,
+            "raw_archive_sha256": (fetch.raw_archive or {}).get("responseBodySha256"),
+            # The RESERVED row this terminal row settles, and the fingerprint
+            # the archived response is bound to.
+            "reservation_ledger_id": str(getattr(reservation, "id", "") or "") or None,
+            "request_fingerprint": getattr(reservation, "request_fingerprint", None),
+        }
     ingest(session, settings, fetch, league_code="MLB")
     ingested = _ingested_game_ids(session, fetch)
     terminal_metadata: dict[str, Any] = {"raw_archive": fetch.raw_archive}
     if exact_record is not None:
         terminal_metadata["exact_event_selection"] = exact_record
-    elif exact_check is not None:
-        terminal_metadata["exact_event_selection_rejected"] = {
-            "mode": mode, "basis": exact_basis, **{k: exact_check[k] for k in (
-                "requested_ids", "returned_ids", "extra_ids", "missing_ids", "failures")}, "match": False}
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id,
                      extra_metadata=terminal_metadata)
+    if exact_record is not None:
+        from sqlalchemy import select as _select
+
+        from app.models import ProviderRequestLedger
+
+        # The terminal row's own id, for the job result (the row itself is
+        # append-only, so it names its reservation instead).
+        exact_record = {**exact_record, "terminal_ledger_id": str(session.scalar(
+            _select(ProviderRequestLedger.id).where(
+                ProviderRequestLedger.reservation_id == reservation.id,
+                ProviderRequestLedger.status == "SUCCEEDED")) or "") or None}
 
     # THE FIRST MISMATCH STOPS THE LANE.
     #
@@ -1515,9 +1511,6 @@ def collect_for_open_cutoffs(
         selection_receipt["exact_id_blockers"] = id_blockers
         if exact_record is not None:
             selection_receipt["exact_event_selection"] = exact_record
-        elif exact_check is not None:
-            selection_receipt["exact_event_selection_rejected"] = terminal_metadata[
-                "exact_event_selection_rejected"]
     return {
         **selection_receipt,
         "attempted": True, "reason": "FALLBACK_COLLECTED",

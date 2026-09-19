@@ -179,8 +179,10 @@ class Settings(BaseSettings):
     #: the selected games (``eventIDs``; see sgo_collection.EVENT_ID_FILTER_PARAM
     #: for the retained provider documentation). OFF: never; an ambiguous
     #: selection is deferred. VALIDATE: only for selections the window rule
-    #: already makes unambiguous, and for ambiguous ones once a live exact match
-    #: is on the ledger. ON: whenever every selected game has a verified ID.
+    #: already makes unambiguous; ambiguous ones ALWAYS defer, and each ID
+    #: purchase records its evidence (exact_event_selection) for the owner's
+    #: review -- VALIDATE never promotes itself. ON: whenever every selected
+    #: game has a verified ID; switching to ON is the owner's decision.
     #: Every ID request is checked locally before sending and before ingesting.
     sgo_exact_event_selection_mode: Literal["OFF", "VALIDATE", "ON"] = "OFF"
     open_meteo_enabled: bool = True
