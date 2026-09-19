@@ -64,6 +64,46 @@ PREREQUISITE_REASONS = frozenset({
 })
 
 
+#: What a recorded checkpoint MEANS, read from its own recommendation and
+#: reason. Three results a reader must never confuse:
+#:   NO_BET    evaluated against a usable same-book price; no side cleared the
+#:             policy's edge/return test -- a valid pass;
+#:   NO_PRICE  evaluated, but no usable two-sided price existed (none stored,
+#:             provider not permitted, or its older leg too old) -- DECLINED;
+#:   BLOCKED   not evaluated at all: a prerequisite (forecast, discovery lease,
+#:             eligibility record, policy grant) was missing.
+#: Derived for display; the recorded row is never rewritten and no threshold moves.
+NO_PRICE_REASONS = frozenset({"NO_TWO_SIDED_QUOTE", "NO_PERMITTED_PROVIDER", "QUOTE_TOO_STALE"})
+CHECKPOINT_TEXT = {
+    "NO_BET": "Evaluated at a usable price: no side cleared the policy's 2-point edge test (a valid no-bet)",
+    "NO_PRICE": "Evaluated, but no usable two-sided price was held (declined, not a no-bet)",
+    "BLOCKED": "Not evaluated: a prerequisite was missing at the checkpoint",
+    "QUALIFIED": "Every gate passed; a paper position was recorded",
+    "QUALIFIED_NOT_ACTIVATED": "Every gate passed, but the activation control was off; no position was recorded",
+    "UNKNOWN": "Recorded result not recognised",
+}
+
+
+def checkpoint_semantics(recommendation: str | None, reason: str | None) -> dict[str, Any]:
+    """The class of a recorded CFB checkpoint (NO_BET / NO_PRICE / BLOCKED / ...), from its own fields."""
+
+    rec, why = str(recommendation or "").upper(), str(reason or "").upper()
+    if rec == "BLOCKED":
+        kind = "BLOCKED"
+    elif why == "NO_QUALIFYING_EDGE":
+        kind = "NO_BET"
+    elif why in NO_PRICE_REASONS:
+        kind = "NO_PRICE"
+    elif why == "ACTIVATION_CONTROL_OFF":
+        kind = "QUALIFIED_NOT_ACTIVATED"
+    elif rec in ("QUALIFIED_BET", "QUALIFIED") or why == "ALL_GATES_PASSED":
+        kind = "QUALIFIED"
+    else:
+        kind = "UNKNOWN"
+    return {"class": kind, "reason": reason, "evaluated": kind not in ("BLOCKED", "UNKNOWN"),
+            "priced": kind in ("NO_BET", "QUALIFIED", "QUALIFIED_NOT_ACTIVATED"), "text": CHECKPOINT_TEXT[kind]}
+
+
 def _aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -335,4 +375,5 @@ def evaluate(session: Session, settings: Any, *, now: datetime | None = None) ->
                       "discovery_refresh": discovery, "decisions": decisions})
 
 
-__all__ = ["PHASE", "WINDOW_CLOSES", "WINDOW_OPENS", "decide", "evaluate", "games_at_checkpoint", "record"]
+__all__ = ["CHECKPOINT_TEXT", "NO_PRICE_REASONS", "PHASE", "WINDOW_CLOSES", "WINDOW_OPENS", "checkpoint_semantics",
+           "decide", "evaluate", "games_at_checkpoint", "record"]

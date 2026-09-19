@@ -18,9 +18,11 @@ words rather than hidden.
 
 WHAT THIS NEVER RETURNS
 -----------------------
-A price, an offered line, an expected betting return, or a recommendation. There
-is no recorded College Football market, and a scenario probability beside an
-invented price would read as one.
+An invented price or line, an expected betting return, or a recommendation. A
+game's ``pipeline.market`` lists only STORED SportsGameOdds quotes (with their
+quote, fetch and receipt clocks) and compares them with the joint simulation
+alone (``app.cfb.market_read``); a game with no stored quote says so. An
+illustrative scenario line is labelled as one and never stands in for a quote.
 """
 
 from __future__ import annotations
@@ -43,7 +45,8 @@ AUTHORITY = {
     "policy": ("AISP_CFB_PAPER_POLICY_V1 (owner-approved 2026-09-15): moneyline only, quarter Kelly, "
                "0.5% / $5 / 1% / 2% caps, 2-point minimum edge vs the same book's no-vig price, "
                "decided 30 to 15 minutes before kickoff"),
-    "market": "No governed College Football price is held · market comparison unavailable",
+    "market": ("College Football prices come only from the SportsGameOdds CFB lane; each game states whether a "
+               "quote is stored, and compares a stored quote with the joint simulation only"),
     "research_only": True,
     "controlling_channel": ("Joint score simulation (paired-residual draws) is the channel the paper policy "
                             "decides on. Ridge (Development-calibrated) and Elo are shown beside it and never "
@@ -51,9 +54,9 @@ AUTHORITY = {
     "note": ("Forecasts are verified from the producer's content-addressed discovery and imported with their "
              "original publication clock. A paper position needs, at the checkpoint: a currently eligible "
              "discovery lease, the producer's per-forecast eligibility record, and a fresh two-sided "
-             "SportsGameOdds moneyline. No College Football price is being collected this month because "
-             "the SportsGameOdds budget has no uncommitted capacity after MLB and NFL, so every checkpoint "
-             "records an explicit no-position reason."),
+             "SportsGameOdds moneyline. Whether any collector is fetching a price is stated per game from the "
+             "CFB lane's capacity gate; a checkpoint with no usable price records an explicit no-position "
+             "reason (declined, not a no-bet)."),
 }
 
 ATTRIBUTION = "Data provided by CollegeFootballData.com"
@@ -164,10 +167,16 @@ def _pipeline(session: Session, row: CfbResearchForecast, game_id: Any) -> dict[
     if decision is None:
         out["decision"] = None
     else:
+        from app.cfb.paper_decision import checkpoint_semantics
+
         row_d, pos = decision
         recorded = row_d.recommended_at
+        reason = (row_d.qualification_reasons or {}).get("reason")
         out["decision"] = {
-            "recommendation": row_d.recommendation, "reason": (row_d.qualification_reasons or {}).get("reason"),
+            "recommendation": row_d.recommendation, "reason": reason,
+            # NO_BET (priced, edge below policy) vs NO_PRICE (declined, no usable
+            # pair) vs BLOCKED (not evaluated) -- read from the row, never rewritten.
+            "semantics": checkpoint_semantics(row_d.recommendation, reason),
             "detail": row_d.recommendation_reason,
             "recorded_at": (recorded if recorded.tzinfo else recorded.replace(tzinfo=UTC)).astimezone(UTC).isoformat()
             if recorded else None,
@@ -210,6 +219,14 @@ def _pipeline(session: Session, row: CfbResearchForecast, game_id: Any) -> dict[
         out["price"] = _cfb_price_note(session)
     except Exception:  # noqa: BLE001
         out["price"] = None
+    try:
+        from app.cfb.market_read import game_market
+
+        # Stored quotes with their three clocks, compared with the joint channel
+        # only; with none stored, the coverage note above says why.
+        out["market"] = game_market(session, game_id, row, price_note=out.get("price"))
+    except Exception:  # noqa: BLE001 -- the market reading is explanatory; never break the page
+        out["market"] = None
     return out
 
 EXPLANATION = (
@@ -226,6 +243,11 @@ def _fmt(row: CfbResearchForecast, session: Session | None = None) -> dict[str, 
     for band in row.intervals or []:
         by_metric.setdefault(str(band["metric"]), {})[int(band["level"])] = {
             "lower": band["lower"], "upper": band["upper"]}
+    bound = _binding_and_eligibility(session, row) if session is not None else {}
+    stored = (((bound.get("pipeline") or {}).get("market") or {}).get("quotes")) or []
+    illustrative_label = ("Illustrative line · not the stored sportsbook total (see Market)"
+                          if any(q.get("market") == "TOTAL" for q in stored)
+                          else "Illustrative line · no sportsbook quote recorded")
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -243,7 +265,7 @@ def _fmt(row: CfbResearchForecast, session: Session | None = None) -> dict[str, 
         # final-pregame refresh or a day-before preview.
         "horizon": "PROSPECTIVE_RESEARCH",
         "horizon_label": "Prospective forecast · published before kickoff · not a final pregame forecast",
-        **(_binding_and_eligibility(session, row) if session is not None else {}),
+        **bound,
 
         "game": {
             "source_provider": row.source_provider,
@@ -302,7 +324,7 @@ def _fmt(row: CfbResearchForecast, session: Session | None = None) -> dict[str, 
         "margin_sentence": _margin_sentence(by_metric, home, away),
         "pmfs": row.pmfs,
         "illustrative_totals": [
-            {**scenario, "label": "Illustrative line · no sportsbook quote recorded"}
+            {**scenario, "label": illustrative_label}
             for scenario in (row.illustrative_totals or [])
         ],
 
@@ -470,6 +492,15 @@ def total_scenario(session: Session, *, source_game_id: str, line: float) -> dic
     over = sum(c for v, c in zip(values, counts) if v > line)
     push = sum(c for v, c in zip(values, counts) if v == line)
     under = sum(c for v, c in zip(values, counts) if v < line)
+    # Whether a sportsbook actually offered AISP this exact total: a stored
+    # SportsGameOdds pair at this line, not the illustrative line typed here.
+    recorded = False
+    if row.canonical_game_id is not None:
+        from app.cfb.market_read import stored_quotes
+
+        recorded = any(q["market"] == "TOTAL" and q.get("line") is not None and float(q["line"]) == float(line)
+                       for q in stored_quotes(session, [row.canonical_game_id], now=datetime.now(UTC))
+                       .get(str(row.canonical_game_id), []))
     return {
         "line": line,
         "over": over / draws,
@@ -479,11 +510,13 @@ def total_scenario(session: Session, *, source_game_id: str, line: float) -> dic
         "counts": {"over": over, "push": push, "under": under},
         "integer_line": float(line).is_integer(),
         "push_possible": float(line).is_integer(),
-        "label": "Illustrative line · no sportsbook quote recorded",
-        "market_recorded": False,
+        "label": ("Stored sportsbook line · see Market for its price and clocks" if recorded
+                  else "Illustrative line · no sportsbook quote recorded"),
+        "market_recorded": recorded,
         "note": ("Computed from the complete retained total distribution over "
                  f"{draws:,} simulated games, not from the expected total. "
-                 "No sportsbook offered this line to AISP."),
+                 + ("A stored sportsbook quote exists at this line." if recorded
+                    else "No sportsbook offered this line to AISP.")),
     }
 
 

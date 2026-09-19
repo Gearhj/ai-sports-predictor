@@ -218,8 +218,9 @@ def _facts(league: str | None, channel, channel_block: dict[str, Any], market: d
         facts.append({"kind": "MISSING", "text": f"No verified score population: {error.get('message', 'unavailable')}."})
     elif league not in ("MLB", "NFL"):
         facts.append({"kind": "MISSING", "text": (
-            "Research sport: no governed College Football price is collected this month; the SportsGameOdds budget has no "
-            "capacity left after MLB and NFL." if league == "CFB"
+            "Research sport: this page shows no College Football sportsbook comparison. Any stored SportsGameOdds "
+            "quote, with its clocks and the joint-model comparison, is on the College Football game page, which "
+            "also states whether any price collector is active." if league == "CFB"
             else "Research sport: AISP collects no governed sportsbook price for this game.")})
     elif not market or not market["quotes"]:
         facts.append({"kind": "MISSING", "text": "No sportsbook quote is stored for this game yet."})

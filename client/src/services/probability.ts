@@ -11,6 +11,7 @@ import { useCallback } from 'react'
 import { useApiResource } from '../hooks/useApiResource'
 import { apiRequest } from './api'
 import { expectSchema, type SportCode } from './commandCenter'
+import type { QuoteClocks } from './cfbMarket'
 import { STALE_TIME, cacheKey } from './queryCache'
 
 export const CROSS_GAME_CODE = 'CROSS_GAME_CALIBRATION_NOT_VALIDATED'
@@ -80,6 +81,8 @@ export interface AssessedQuote {
   fresh: boolean
   state: 'CURRENT' | 'STORED_REFERENCE_ONLY'
   sides: Record<string, AssessedSide>
+  /** College Football only: per-side book clocks, AISP's fetch and receipt clocks. */
+  clocks?: QuoteClocks
 }
 
 export interface Leg {
@@ -129,7 +132,8 @@ export interface ResearchComparison {
   away?: { abbreviation: string; name: string }
   starts_at: string | null
   channels: Channel[]
-  price_state: 'NO_GOVERNED_PRICE'
+  /** STORED_QUOTES: a College Football game with stored SportsGameOdds quotes (listed on its slate card). */
+  price_state: 'NO_GOVERNED_PRICE' | 'STORED_QUOTES'
   price_note: string
 }
 

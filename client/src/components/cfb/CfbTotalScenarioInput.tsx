@@ -54,7 +54,8 @@ export function CfbTotalScenarioInput({ forecast }: { forecast: CfbResearchForec
     <section className="cfbtotals" data-testid="cfb-total-scenarios">
       <h4>Illustrative total scenarios</h4>
       <p className="cfbtotals__label" data-testid="cfb-totals-label">
-        Illustrative line · no sportsbook quote recorded
+        {/* Server-stated: it says so when a stored sportsbook total exists (see Market). */}
+        {forecast.illustrative_totals[0]?.label ?? 'Illustrative line · no sportsbook quote recorded'}
       </p>
 
       <table className="cfbtotals__table">

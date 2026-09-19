@@ -350,6 +350,9 @@ def decision_board(session: Session, day: date, now: datetime | None = None) -> 
             # with the policy's own controlling tests (services/edge_metrics).
             "edge_metrics": edge_metrics(sport, american, model_p, no_vig, edge, ev, evidence),
             "plain_reasons": _plain_reasons(qualification),
+            # College Football: what the recorded checkpoint means -- a priced
+            # no-bet, a declined no-price, or a block that evaluated nothing.
+            **({"checkpoint_semantics": _cfb_semantics(rec, qualification)} if sport == "CFB" else {}),
             "decision_window": {"opens_at": _iso(start - WINDOW_OPENS), "closes_at": _iso(start - WINDOW_CLOSES)}
             if start else None,
             "group": group,
@@ -494,6 +497,13 @@ def _adjusted(evidence: Any) -> dict[str, Any] | None:
     return {"edge": edge, "expected_value": ev, "probability": evidence.get("adjusted_probability")}
 
 
+def _cfb_semantics(recommendation: Any, qualification: Any) -> dict[str, Any]:
+    from app.cfb.paper_decision import checkpoint_semantics
+
+    reason = qualification.get("reason") if isinstance(qualification, dict) else None
+    return checkpoint_semantics(str(recommendation) if recommendation is not None else None, reason)
+
+
 def _plain_reasons(qualification: Any) -> list[str]:
     """Human sentences only; machine codes (ALL_CAPS_WITH_UNDERSCORES) are dropped."""
 
@@ -553,27 +563,45 @@ def _cfb_models(session: Session, ids: list[str]) -> dict[str, dict[str, Any]]:
         select distinct on (canonical_game_id) canonical_game_id, joint_home_win_probability,
                joint_away_win_probability, expected_home_points, expected_away_points,
                exchange_published_utc, forecast_id, ridge_home_win_probability, elo_home_win_probability,
-               origin, publication_clock_source
+               origin, publication_clock_source, pmfs
         from cfb_research_forecasts
         where canonical_game_id = any(cast(:ids as uuid[]))
         order by canonical_game_id, exchange_published_utc desc nulls last, imported_at desc"""),
         {"ids": ids}).all()
-    out: dict[str, dict[str, Any]] = {}
-    for (gid, home_p, away_p, exp_home, exp_away, published, forecast_id, ridge_home, elo_home,
-         origin, clock) in rows:
-        two_way = (home_p or 0) + (away_p or 0)
-        out[str(gid)] = {
-            "engine_id": "CFB_GEN1_JOINT_BASELINE", "home": home_p, "away": away_p,
-            "home_two_way": round(home_p / two_way, 4) if two_way else None,
-            "expected_home": round(exp_home, 2) if exp_home is not None else None,
-            "expected_away": round(exp_away, 2) if exp_away is not None else None,
-            "created_at": _iso(published), "forecast_id": forecast_id,
-            "controlling_channel": "JOINT_PAIRED_RESIDUAL_BASELINE",
-            "expected_points_channel": "RIDGE_ALPHA100",
-            "separate_channels": {"ridge_development_calibrated_home": ridge_home, "elo_diagnostic_home": elo_home},
-            "origin": origin, "publication_clock_source": clock,
-        }
-    return out
+    return {str(row[0]): cfb_model_entry(*row[1:]) for row in rows}
+
+
+def cfb_model_entry(home_p: Any, away_p: Any, exp_home: Any, exp_away: Any, published: Any, forecast_id: Any,
+                    ridge_home: Any, elo_home: Any, origin: Any, clock: Any, pmfs: Any) -> dict[str, Any]:
+    """One CFB game's model reading for the slate surfaces -- every number from the JOINT channel.
+
+    The projected score shown beside the joint win probability is the mean of
+    the joint simulation's own draws, never Ridge's expected points: a card
+    that put a Ridge score next to a joint probability would be quoting two
+    models as one. Ridge and Elo stay available, labelled, as separate channels.
+    """
+
+    from app.cfb.market_read import joint_expected_points
+
+    if isinstance(pmfs, str):
+        import json as _json
+
+        pmfs = _json.loads(pmfs)
+    two_way = (home_p or 0) + (away_p or 0)
+    joint_points = joint_expected_points(pmfs)
+    return {
+        "engine_id": "CFB_GEN1_JOINT_BASELINE", "home": home_p, "away": away_p,
+        "home_two_way": round(home_p / two_way, 4) if two_way else None,
+        "expected_home": round(joint_points["home"], 2) if joint_points else None,
+        "expected_away": round(joint_points["away"], 2) if joint_points else None,
+        "created_at": _iso(published), "forecast_id": forecast_id,
+        "controlling_channel": "JOINT_PAIRED_RESIDUAL_BASELINE",
+        "expected_points_channel": "JOINT_SCORE_DISTRIBUTION_MEAN" if joint_points else None,
+        "separate_channels": {"ridge_development_calibrated_home": ridge_home, "elo_diagnostic_home": elo_home,
+                              "ridge_expected_home_points": round(exp_home, 2) if exp_home is not None else None,
+                              "ridge_expected_away_points": round(exp_away, 2) if exp_away is not None else None},
+        "origin": origin, "publication_clock_source": clock,
+    }
 
 
 _CFB_PRICE_NOTE: dict[str, Any] = {}
@@ -658,6 +686,8 @@ def _cfb_eligibility(session: Session, models: dict[str, dict[str, Any]], *, now
         ShadowExperimentDecision.game_id.in_([_uuid.UUID(g) for g in models]))
     if as_of is not None:
         decisions = decisions.where(ShadowExperimentDecision.recommended_at <= as_of)
+    from app.cfb.paper_decision import checkpoint_semantics
+
     checkpoints: dict[str, dict[str, Any]] = {}
     for row in session.scalars(decisions.order_by(ShadowExperimentDecision.recommended_at)):
         evidence = row.evidence if isinstance(row.evidence, dict) else {}
@@ -665,6 +695,7 @@ def _cfb_eligibility(session: Session, models: dict[str, dict[str, Any]], *, now
         checkpoints[str(row.game_id)] = {
             "decision_id": str(row.id), "recorded_at": _iso(row.recommended_at),
             "recommendation": row.recommendation, "reason": reasons.get("reason"),
+            "semantics": checkpoint_semantics(row.recommendation, reasons.get("reason")),
             "detail": row.recommendation_reason, "discovery": evidence.get("discovery")}
 
     manifest_fields = ({"manifest_sha256": manifest.manifest_sha256,
@@ -712,7 +743,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
         with latest as (
           select distinct on (os.market_outcome_id, os.sportsbook_id, os.source)
                  os.market_outcome_id, os.sportsbook_id, os.source, os.observed_at,
-                 os.american_odds, os.decimal_odds, os.point, os.source_mode
+                 os.american_odds, os.decimal_odds, os.point, os.source_mode,
+                 os.available_as_of, os.raw_payload->>'response_received_at' as response_received_at
           from odds_snapshots os
           join market_outcomes mo on mo.id = os.market_outcome_id
           join markets mk on mk.id = mo.market_id
@@ -721,7 +753,7 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
         )
         select mk.game_id, mk.market_type, mk.period, mo.outcome_key, mo.participant_team_id,
                sb.name, sb.key, l.source, l.observed_at, l.american_odds, l.decimal_odds, l.point,
-               l.source_mode
+               l.source_mode, l.available_as_of, l.response_received_at
         from latest l
         join market_outcomes mo on mo.id = l.market_outcome_id
         join markets mk on mk.id = mo.market_id
@@ -763,7 +795,7 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
         # (market, book_key, source, line) -> side -> row ; pairs never cross book or provider
         buckets: dict[tuple, dict[str, Any]] = defaultdict(dict)
         for (_, market_type, period, outcome_key, participant, book_name, book_key, source,
-             observed_at, american, dec, point, row_mode) in by_game.get(gid, []):
+             observed_at, american, dec, point, row_mode, available_as_of, received_at) in by_game.get(gid, []):
             # Only real provider observations: a demo/fixture row is never a quote.
             # (NFL games are RESEARCH_SHADOW rows whose quotes are LIVE observations.)
             if row_mode != "LIVE" or (period and str(period).split(".")[-1].lower() != "full_game"):
@@ -777,7 +809,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                 line = point
             elif market in ("SPREAD", "RUN_LINE"):
                 line = point if side == "HOME" else (-point if point is not None else None)
-            buckets[(market, book_key, book_name, source, line)][side] = (observed_at, american, dec, point)
+            buckets[(market, book_key, book_name, source, line)][side] = (observed_at, american, dec, point,
+                                                                         available_as_of, received_at)
 
         quotes: list[dict[str, Any]] = []
         newest_per_book_market: dict[tuple, dict[str, Any]] = {}
@@ -795,6 +828,15 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                 "sides": {a: {"american": sides[a][1], "decimal": sides[a][2]},
                           b: {"american": sides[b][1], "decimal": sides[b][2]}},
             }
+            if league == "CFB":
+                # The CFB SportsGameOdds path stamps each side with its own book
+                # clock and keeps AISP's fetch and receipt clocks beside it; say
+                # all three. (MLB rows carry one clock on both legs, so they get none.)
+                from app.cfb.market_read import quote_clocks
+
+                quote["clocks"] = quote_clocks(
+                    {s: {"observed_at": sides[s][0], "available_as_of": sides[s][4],
+                         "response_received_at": sides[s][5]} for s in (a, b)}, now=now)
             key = (market, book_key, source)
             if key not in newest_per_book_market or quote["observed_at"] > newest_per_book_market[key]["observed_at"]:
                 newest_per_book_market[key] = quote

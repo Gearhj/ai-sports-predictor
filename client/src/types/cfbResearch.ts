@@ -5,6 +5,7 @@
  * single multiplication by 100 happens in the view. Typing them as fractions is
  * the cheapest way to stop a second multiplication appearing later.
  */
+import type { CfbMarket, CheckpointSemantics } from '../services/cfbMarket'
 
 export interface CfbInterval {
   lower: number
@@ -49,7 +50,8 @@ export interface CfbTotalScenario {
   integer_line: boolean
   push_possible: boolean
   label: string
-  market_recorded: false
+  /** True only when a stored sportsbook total exists at exactly this line. */
+  market_recorded: boolean
   note: string
 }
 
@@ -59,6 +61,8 @@ export interface CfbPipeline {
   discovery: { state: string; eligible: boolean; detail?: string; lease_valid_until?: string | null; manifest_sha256?: string }
   decision?: {
     recommendation: string; reason: string | null; detail: string | null; recorded_at: string | null
+    /** NO_BET vs NO_PRICE vs BLOCKED, derived from the recorded row. */
+    semantics?: CheckpointSemantics | null
     position: { position_id: string; stake: number; status: string; result: string } | null
   } | null
   decision_window?: { opens_utc: string; closes_utc: string }
@@ -68,6 +72,8 @@ export interface CfbPipeline {
   evaluation?: { channel: string; log_loss: number; two_way_brier: number | null; winner_correct: boolean
     probability_of_actual: number; margin_error: number | null; total_error: number | null } | null
   price?: { reason: string; detail: string; reference_lines?: string } | null
+  /** Stored SportsGameOdds quotes with their clocks, compared with the joint channel only. */
+  market?: CfbMarket | null
 }
 
 export interface CfbResearchForecast {

@@ -6,6 +6,7 @@
  * from its own evidence (services/pregame_status.py); this turns those answers
  * into card lines. A publication time is always a TARGET, never a promise.
  */
+import type { CheckpointSemantics } from './cfbMarket'
 
 export type MarketState =
   | 'ELIGIBLE_THROUGH_WINDOW' | 'EXPIRES_DURING_WINDOW' | 'EXPIRES_BEFORE_WINDOW'
@@ -66,6 +67,8 @@ export interface RecordedCheckpoint {
   reason: string | null
   detail: string | null
   discovery?: LeaseReading | null
+  /** NO_BET (priced, edge below policy) vs NO_PRICE (declined) vs BLOCKED (not evaluated). */
+  semantics?: CheckpointSemantics | null
 }
 
 export interface ProducerReceipt {
@@ -180,9 +183,14 @@ const LEASE_TEXT: Record<string, string> = {
 
 function checkpointText(c: RecordedCheckpoint | null | undefined): string {
   if (!c) return ''
-  const verb = c.recommendation === 'BLOCKED' ? 'was blocked'
-    : c.recommendation === 'DECLINED' ? 'declined'
-      : c.recommendation === 'QUALIFIED_BET' ? 'qualified' : `recorded ${c.recommendation.toLowerCase()}`
+  // A priced no-bet, a declined no-price and a block are three different results.
+  const kind = c.semantics?.class
+  const verb = kind === 'NO_BET' ? 'evaluated at a usable price and found no bet'
+    : kind === 'NO_PRICE' ? 'declined: no usable two-sided price'
+      : kind === 'BLOCKED' || c.recommendation === 'BLOCKED' ? 'was blocked'
+        : kind === 'QUALIFIED_NOT_ACTIVATED' ? 'qualified, but the activation control was off'
+          : c.recommendation === 'DECLINED' ? 'declined'
+            : c.recommendation === 'QUALIFIED_BET' ? 'qualified' : `recorded ${c.recommendation.toLowerCase()}`
   return `the ${t(c.recorded_at)} ET checkpoint ${verb}${c.reason ? ` (${c.reason})` : ''}`
 }
 

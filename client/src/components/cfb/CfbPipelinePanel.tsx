@@ -7,6 +7,9 @@
  * probability, and a missing price is named with its reason, never left blank.
  */
 import type { CfbPipeline } from '../../types/cfbResearch'
+import {
+  checkpointLabel, clocksLine, comparisonText, freshnessText, marketName, quoteText, type CfbMarket,
+} from '../../services/cfbMarket'
 
 const ET = 'America/New_York'
 
@@ -28,6 +31,10 @@ const LEASE: Record<string, string> = {
 
 const REASON: Record<string, string> = {
   NO_TWO_SIDED_QUOTE: 'No position: no governed two-sided price was held',
+  NO_PERMITTED_PROVIDER: 'No position: stored prices came only from a provider the policy does not permit',
+  ELIGIBILITY_RECORD_INVALID: 'No position: the producer’s eligibility record was not valid for this checkpoint',
+  POLICY_GRANT_EXPIRED: 'No position: the virtual-policy grant had expired',
+  NO_FORECAST: 'No position: no verified forecast was held',
   AWAITING_PRODUCER_ELIGIBILITY: 'No position: the producer’s eligibility record was not yet imported',
   DISCOVERY_NOT_CURRENT: 'No position: the discovery lease was not current',
   QUOTE_TOO_STALE: 'No position: the price was older than 240 minutes',
@@ -36,9 +43,40 @@ const REASON: Record<string, string> = {
   ALL_GATES_PASSED: 'Position recorded',
 }
 
+/**
+ * Stored SportsGameOdds quotes, each with its three clocks, and the joint-model
+ * comparison for that market. Only what is stored; a missing market is absent.
+ */
+export function CfbMarketQuotes({ market, home, away }: { market: CfbMarket; home: string; away: string }) {
+  return (
+    <div className="cfbmarket" data-testid="cfb-market">
+      <ul>
+        {market.quotes.map((q, i) => {
+          const comparison = market.comparisons[i]
+          return (
+            <li key={`${q.market}|${q.sportsbook_key}|${q.line}`} data-testid={`cfb-quote-${q.market.toLowerCase()}`}
+              className={q.fresh ? '' : 'is-stale'}>
+              <b>{marketName(q.market)}</b> · {q.sportsbook ?? 'Sportsbook'} ({q.provider ?? 'provider'}): {quoteText(q, home, away)}
+              {q.rebound_from_archive ? ' · bound from its retained response after review' : ''}
+              <br /><small data-testid="cfb-quote-clocks">{clocksLine(q.clocks)} · {freshnessText(q.clocks)}</small>
+              {comparison && (
+                <><br /><small data-testid="cfb-quote-comparison">{comparisonText(comparison, home, away)}
+                  {comparison.available && comparison.channel_label ? ` · ${comparison.channel_label}` : ''}
+                  {comparison.policy_test ? ' · the policy tests this market only at its checkpoint' : ' · research comparison; the policy does not test this market'}</small></>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      <small>{market.note}</small>
+    </div>
+  )
+}
+
 export function CfbPipelinePanel({ pipeline, home, away }: { pipeline: CfbPipeline; home: string; away: string }) {
   const lease = pipeline.discovery
   const decision = pipeline.decision
+  const market = pipeline.market
   const final = pipeline.final
   const evaluation = pipeline.evaluation
   return (
@@ -56,8 +94,8 @@ export function CfbPipelinePanel({ pipeline, home, away }: { pipeline: CfbPipeli
         <dt>Paper checkpoint</dt>
         <dd data-testid="cfb-decision">
           {decision
-            ? <>{REASON[decision.reason ?? ''] ?? decision.recommendation}{' '}
-              <small>recorded {when(decision.recorded_at)}{decision.position ? ` · $${decision.position.stake.toFixed(2)} ${decision.position.status}` : ''}</small></>
+            ? <>{checkpointLabel(decision.semantics) ?? REASON[decision.reason ?? ''] ?? decision.recommendation}{' '}
+              <small>{decision.semantics ? `${REASON[decision.reason ?? ''] ?? decision.reason ?? ''} · ` : ''}recorded {when(decision.recorded_at)}{decision.position ? ` · $${decision.position.stake.toFixed(2)} ${decision.position.status}` : ''}</small></>
             : pipeline.decision_window
               ? <>Window {when(pipeline.decision_window.opens_utc)}–{when(pipeline.decision_window.closes_utc)} <small>AISP_CFB_PAPER_POLICY_V1</small></>
               : '—'}
@@ -65,7 +103,11 @@ export function CfbPipelinePanel({ pipeline, home, away }: { pipeline: CfbPipeli
       </div>
       <div>
         <dt>Price</dt>
-        <dd data-testid="cfb-price">{pipeline.price ? <>{pipeline.price.detail} <small>{pipeline.price.reference_lines}</small></> : 'Unavailable'}</dd>
+        <dd data-testid="cfb-price">
+          {market && market.quotes.length > 0
+            ? <CfbMarketQuotes market={market} home={home} away={away} />
+            : pipeline.price ? <>{pipeline.price.detail} <small>{pipeline.price.reference_lines}</small></> : 'Unavailable'}
+        </dd>
       </div>
       {final && (
         <div>

@@ -56,6 +56,9 @@ def _quote_assessment(channel: adapter.VerifiedChannel | None, quote: dict[str, 
     sides = _SIDES.get(market)
     out = {k: quote.get(k) for k in ("market", "line", "sportsbook", "sportsbook_key", "provider",
                                      "classification", "observed_at", "age_minutes", "fresh")}
+    if quote.get("clocks"):
+        # College Football quotes: per-side book clocks, AISP's fetch and receipt clocks.
+        out["clocks"] = quote["clocks"]
     out["state"] = "CURRENT" if quote.get("fresh") else "STORED_REFERENCE_ONLY"
     out["sides"] = {}
     if sides is None:
@@ -190,6 +193,9 @@ def _research_games(session: Session, settings: Settings, lo: datetime) -> list[
         first.setdefault(row[1], row)
     chosen = [first[code] for code in sorted(first)]
     teams = _teams(session, [r[0] for r in chosen])
+    from app.cfb.market_read import stored_quotes
+
+    cfb_quoted = stored_quotes(session, [r[0] for r in chosen if r[1] == "CFB"], now=datetime.now(UTC))
     out = []
     for game_id, league, starts_at in chosen:
         described = adapter.describe(session, settings, game_id)
@@ -204,8 +210,13 @@ def _research_games(session: Session, settings: Settings, lo: datetime) -> list[
             "home": matchup.get("home"), "away": matchup.get("away"),
             "starts_at": starts_at.isoformat() if starts_at else None,
             "channels": described["channels"],
-            "price_state": "NO_GOVERNED_PRICE",
-            "price_note": "Research sport: AISP collects no governed sportsbook price, so no edge is assessed.",
+            **({"price_state": "STORED_QUOTES",
+                "price_note": ("Stored SportsGameOdds quotes exist for this game; they are assessed against the "
+                               "joint simulation on its slate card.")}
+               if cfb_quoted.get(str(game_id)) else
+               {"price_state": "NO_GOVERNED_PRICE",
+                "price_note": ("Research sport: no sportsbook price is stored for this game, so no edge is "
+                               "assessed.")}),
         })
     return out
 

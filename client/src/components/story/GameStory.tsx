@@ -425,8 +425,13 @@ export function BookLadder({ story, away, home }: { story: Story; away: string; 
   const { ref, width } = useWidth<HTMLDivElement>(640)
   const { tip, show, hide, frame } = useTooltip()
   const quotes = (story.market?.quotes ?? []).filter((q) => q.market === 'MONEYLINE')
-  if (story.game.sport === 'NBA' || story.game.sport === 'CFB') {
+  if (story.game.sport === 'NBA') {
     return <Unavailable title="Sportsbook comparison" reason="Research sport: AISP collects no governed sportsbook price for this game." />
+  }
+  if (story.game.sport === 'CFB') {
+    // Stored CFB quotes (and whether any collector is active) are stated on the
+    // College Football game page with their clocks; this page does not restate them.
+    return <Unavailable title="Sportsbook comparison" reason="Research sport: College Football sportsbook quotes, when stored, are shown with their clocks on the College Football game page." />
   }
   if (quotes.length === 0) {
     return <Unavailable title="Sportsbook comparison" reason="No moneyline quote is stored for this game." />

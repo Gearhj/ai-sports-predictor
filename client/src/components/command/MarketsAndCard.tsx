@@ -198,8 +198,8 @@ export function AllMarkets({ games, data, now, onOpenLab, preview = false }: {
       )}
       {withQuotes.length === 0 && <p className="cc-empty">No sportsbook market is stored for this slate.</p>}
       {withQuotes.map((g) => <MarketGameRow key={g.gameId} entry={g} now={now} onOpenLab={onOpenLab} props={propsByGame.get(g.gameId)} />)}
-      {(data?.research.length ?? 0) > 0 && (
-        <p className="am__research">Research sports ({data!.research.map((r) => r.matchup).join(', ')}) have no governed sportsbook market in AISP, so nothing is listed for them.</p>
+      {(data?.research ?? []).filter((r) => r.price_state !== 'STORED_QUOTES').length > 0 && (
+        <p className="am__research">Research sports ({data!.research.filter((r) => r.price_state !== 'STORED_QUOTES').map((r) => r.matchup).join(', ')}) have no governed sportsbook market in AISP, so nothing is listed for them.</p>
       )}
     </section>
   )

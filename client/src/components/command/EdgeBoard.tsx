@@ -16,6 +16,7 @@ import { STATUS_LABEL, type EdgeBoard as Board, type EdgeCard } from '../../serv
 import { teamIdentity } from '../../services/teamIdentity'
 import { ProbabilityRail, WinSplit } from './ProbabilityRail'
 import { countdown } from './CommandDecisions'
+import { clocksLine, type QuoteClocks } from '../../services/cfbMarket'
 
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
@@ -169,6 +170,7 @@ function EvaluatedBody({ card, color, showReason }: { card: EdgeCard; color: str
           {price.provider ? ` · ${price.provider}` : ''}{price.classification ? ` ${price.classification.toLowerCase()}` : ''}
         </p>
       )}
+      {cardQuoteClocks(card) && <p className="cc-ecard__book" data-testid="card-quote-clocks">{clocksLine(cardQuoteClocks(card))}</p>}
       <dl className="cc-ecard__nums">
         <div><dt>Model</dt><dd>{pct(card.modelProbability)}</dd></div>
         <div><dt>No-vig</dt><dd>{pct(card.marketProbability)}</dd></div>
@@ -222,12 +224,24 @@ function DeckBody({ card, now }: { card: EdgeCard; now: number }) {
   return <Milestones card={card} now={now} forecast />
 }
 
+/**
+ * College Football moneyline quotes carry three clocks (book per side, AISP fetch,
+ * AISP receipt): the card's book first, else the newest clocked moneyline.
+ */
+export function cardQuoteClocks(card: Pick<EdgeCard, 'game' | 'price'>): QuoteClocks | null {
+  const quotes = (card.game?.quotes ?? []).filter((q) => q.market === 'MONEYLINE' && q.clocks)
+  const book = shortBook(card.price?.sportsbook)
+  return (quotes.find((q) => book && shortBook(q.sportsbook) === book) ?? quotes[0])?.clocks ?? null
+}
+
 function Milestones({ card, now, forecast = false }: { card: EdgeCard; now: number; forecast?: boolean }) {
   const collection = card.collectionOpensAt
   const priceCurrent = card.status === 'EVALUATION_PENDING'
   const collected = card.game?.price_state === 'CURRENT_PRICE'
+  const clocks = cardQuoteClocks(card)
   return (
     <ul className="cc-ecard__miles">
+      {clocks && <li className="cc-ecard__clocks" data-testid="card-quote-clocks"><span>Quote clocks</span><b>{clocksLine(clocks)}</b></li>}
       {forecast && card.startsAt && (
         <li><span>Forecast</span><b className="is-gold">expected by {clock(new Date(Date.parse(card.startsAt) - 60 * 60_000).toISOString())}</b></li>
       )}

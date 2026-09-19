@@ -12,6 +12,7 @@ import {
   type Outcome, type TopPlay,
 } from '../../services/topPlay'
 import { pickFrom } from './MarketsAndCard'
+import { clocksLine } from '../../services/cfbMarket'
 
 export const TOP_ORIENTATION = 'Start with each game’s #1 opportunity. Open the other markets to compare payouts and model value.'
 export const RESEARCH_NOTE = 'Preliminary research comparison · not an official AISP decision'
@@ -74,6 +75,7 @@ export function WhyDetails({ outcome, channel, item, summary = 'Why?' }: {
         )}
         {outcome.blocked && <div><dt>Expected profit</dt><dd>{PRICE_BLOCKED_TEXT[outcome.blocked]}</dd></div>}
         {b && <div><dt>Quote</dt><dd>{b.sportsbook} · {b.quote.provider ?? 'provider'}{b.quote.classification === 'RESEARCH' ? ' (research-classified)' : ''} · observed {etTime(b.quote.observed_at, true)} ({b.current ? 'current' : 'stored reference'})</dd></div>}
+        {b?.quote.clocks && <div><dt>Clocks</dt><dd data-testid="quote-clocks">{clocksLine(b.quote.clocks)}</dd></div>}
         {channel?.forecast_created_at && <div><dt>Forecast</dt><dd>created {etTime(channel.forecast_created_at, true)} ({relative(channel.forecast_created_at)})</dd></div>}
         {channel?.binding && <div><dt>Model / population</dt><dd className="tp-ident">{channel.binding.modelId} · forecast {channel.binding.forecastId} · {channel.binding.drawCount.toLocaleString()} paired simulated scores</dd></div>}
         {outcome.books.length > 1 && (

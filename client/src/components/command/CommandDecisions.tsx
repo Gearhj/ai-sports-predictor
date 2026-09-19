@@ -41,6 +41,7 @@ import { TOP_ORIENTATION } from './TopOpportunity'
 import { american } from '../../services/probability'
 import { signedCents, topPlay } from '../../services/topPlay'
 import { marketLine, modelLine } from '../../services/pregameStatus'
+import { CHECKPOINT_LABEL, checkpointLabel } from '../../services/cfbMarket'
 import { ParlayLab } from './ParlayLab'
 import { AllMarkets, MyCard } from './MarketsAndCard'
 import { useMyCard } from '../../services/myCard'
@@ -121,6 +122,14 @@ export function describeDecision(item: DecisionItem | null, game: CoverageGame |
     return { label: 'Position open', tone: 'green', detail: reason }
   }
   const rec = item?.recommendation ?? 'NOT_YET_EVALUATED'
+  // College Football: a priced no-bet, a declined no-price and a block are three
+  // different recorded results (server-derived from the row, never re-judged here).
+  const semantics = item?.checkpoint_semantics
+  if (semantics && item?.phase === 'FINAL_PREGAME') {
+    if (semantics.class === 'NO_BET') return { label: CHECKPOINT_LABEL.NO_BET, tone: 'red', detail: reason ?? semantics.text }
+    if (semantics.class === 'NO_PRICE') return { label: checkpointLabel(semantics) ?? CHECKPOINT_LABEL.NO_PRICE, tone: 'gray', detail: reason ?? semantics.text }
+    if (semantics.class === 'QUALIFIED_NOT_ACTIVATED') return { label: CHECKPOINT_LABEL.QUALIFIED_NOT_ACTIVATED, tone: 'gold', detail: reason ?? semantics.text }
+  }
   if (rec === 'QUALIFIED_BET' && item?.phase === 'FINAL_PREGAME') {
     return started ? { label: 'Qualified · not positioned', tone: 'red', detail: reason } : { label: 'Qualifies now', tone: 'green', detail: reason }
   }

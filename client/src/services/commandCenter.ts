@@ -10,6 +10,7 @@
  */
 import type { MarketStatus, ModelStatus } from './pregameStatus'
 import type { EdgeMetrics } from './decisionEdges'
+import type { CheckpointSemantics, QuoteClocks } from './cfbMarket'
 import { useCallback } from 'react'
 import { useApiResource } from '../hooks/useApiResource'
 import { apiRequest } from './api'
@@ -169,6 +170,8 @@ export interface DecisionItem {
   edge_metrics?: EdgeMetrics | null
   /** Human-readable qualification reasons only (machine codes removed server-side). */
   plain_reasons?: string[]
+  /** College Football: NO_BET (priced, edge below policy) vs NO_PRICE (declined) vs BLOCKED (not evaluated). */
+  checkpoint_semantics?: CheckpointSemantics
 }
 
 export interface MarketIntegrity {
@@ -235,6 +238,8 @@ export interface CoverageQuote {
   fresh: boolean
   sides: Record<string, { american: number | null; decimal: number | null }>
   no_vig_home?: number
+  /** College Football only: per-side book clocks, AISP's fetch and receipt clocks. */
+  clocks?: QuoteClocks
 }
 
 export interface CoverageGame {
