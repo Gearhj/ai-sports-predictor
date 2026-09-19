@@ -288,7 +288,8 @@ class Settings(BaseSettings):
     cfb_sgo_lane_enabled: bool = False
     #: Unresolved production identities for the CFB price adapter. Empty means
     #: unresolved and the adapter requests nothing; they are pinned only from a
-    #: live observation (see app/cfb/sgo_price.py LIVE_VALIDATION), never guessed.
+    #: live observation (see app/cfb/sgo_price.py LIVE_VALIDATION) through a
+    #: reviewed binding artifact (app/cfb/sgo_binding.py), never guessed.
     cfb_sgo_league_id: str = ""
     cfb_sgo_team_map_path: str = ""
     cfb_sgo_lane_object_cap: int = 10
@@ -300,6 +301,17 @@ class Settings(BaseSettings):
     #: any CFB object is uncommitted. Owner, 2026-09-18: retain the four objects
     #: the September projection leaves beyond MLB/NFL demand for those commitments.
     cfb_sgo_protected_headroom: int = 10
+    #: The ONE live validation request that observes the provider's real CFB
+    #: league and team identifiers (app/cfb/sgo_price.py LIVE_VALIDATION). Off by
+    #: default; even when on, it spends only through the lane (switched on, with
+    #: capacity), at most ``cfb_sgo_validation_max_requests`` requests in total,
+    #: and it prices nothing: it writes a binding review artifact a person
+    #: reviews before CFB_SGO_LEAGUE_ID and the team map are pinned.
+    cfb_sgo_validation_enabled: bool = False
+    #: The provider's DOCUMENTED College Football league key (its OpenAPI example
+    #: data, retained 2026-09-19). A request filter only -- never a pinned identity.
+    cfb_sgo_validation_league_candidate: str = "NCAAF"
+    cfb_sgo_validation_max_requests: int = Field(default=1, ge=0, le=3)
     # The V18 producer's own daily slate receipts, read-only, so a card with no
     # forecast can show the producer's actual per-game reason.
     mlb_v18_slate_receipts_root: str = str(
