@@ -243,6 +243,17 @@ def consume_v18_packages(
             outcome.imported.append(record)
             continue
 
+        if already_fully_registered(session, verified):
+            # Every forecast, and both view supplements on each, are already
+            # registered under this exact handoff. Re-running registration
+            # would reload every V18 forecast row twice per item for nothing
+            # (214 of a 217-second consumer pass on 2026-09-18), holding the
+            # core lane in front of the decision checkpoints.
+            record.update({"registered": 0, "already_present": len(verified.forecasts),
+                           "fast_path": "ALREADY_FULLY_REGISTERED"})
+            outcome.reused.append(record)
+            continue
+
         try:
             result = register_daily_slate(session, verified)
         except DailyV18ImportError as error:
@@ -260,6 +271,52 @@ def consume_v18_packages(
         (outcome.imported if registered else outcome.reused).append(record)
 
     return outcome.as_dict()
+
+
+def already_fully_registered(session: Session, verified: Any) -> bool:
+    """True only when registering ``verified`` again would change nothing.
+
+    Read-only. Requires the handoff's own bundle row, every forecast present
+    under its object-addressed identity for the same game and object, and --
+    where the forecast carries them -- both view supplements already attached
+    with the same supplement hash (the exact checks the registration functions
+    make before they skip). Anything else, including a new cumulative handoff
+    whose forecasts are already present, takes the full registration path.
+    """
+
+    from sqlalchemy import select
+
+    from app.models import ShadowForecast, ShadowForecastBundle
+    from app.shadow_import.mlb_v18_daily import forecast_identity
+    from app.shadow_import.mlb_v18_play_geometry import LINEAGE_KEY as PLAY_KEY
+    from app.shadow_import.mlb_v18_population_geometry import LINEAGE_KEY as POPULATION_KEY
+
+    forecasts = list(getattr(verified, "forecasts", ()) or ())
+    if not forecasts:
+        return False
+    bundle = session.scalar(select(ShadowForecastBundle.id).where(
+        ShadowForecastBundle.bundle_sha256 == verified.handoff_sha256))
+    if bundle is None:
+        return False
+    identities = {forecast_identity(item.object_sha256): item for item in forecasts}
+    rows = session.execute(
+        select(ShadowForecast.forecast_id, ShadowForecast.canonical_game_id, ShadowForecast.lineage_detail)
+        .where(ShadowForecast.forecast_id.in_(list(identities)))
+    ).all()
+    if len(rows) != len(identities):
+        return False
+    for forecast_id, game_id, lineage in rows:
+        item = identities.get(forecast_id)
+        lineage = lineage or {}
+        if item is None or str(game_id) != str(item.forecast.get("gameId")):
+            return False
+        if lineage.get("objectSha256") != item.object_sha256:
+            return False
+        if item.play_geometry is not None and str((lineage.get(PLAY_KEY) or {}).get("supplementSha256"))                 != item.play_geometry.supplement_sha256:
+            return False
+        if item.population_geometry is not None and str((lineage.get(POPULATION_KEY) or {}).get("supplementSha256"))                 != item.population_geometry.supplement_sha256:
+            return False
+    return True
 
 
 def _default_root(settings: Settings) -> Path:

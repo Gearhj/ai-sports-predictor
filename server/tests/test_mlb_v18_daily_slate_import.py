@@ -326,3 +326,41 @@ async def test_capture_at_first_pitch_is_rejected(session, settings, tmp_path):
     )
     with pytest.raises(DailyV18ImportError, match="at or after first pitch"):
         verify_daily_slate(handoff, receipt)
+
+
+@pytest.mark.asyncio
+async def test_consumer_fast_path_only_skips_a_package_that_is_already_fully_registered(
+    session, settings, tmp_path,
+):
+    from app.jobs.v18_exchange_consumer import already_fully_registered
+
+    await seed_demo_data(session, settings, SLATE)
+    forecasts = session.scalars(select(Forecast).order_by(Forecast.game_id)).all()
+    game = session.get(Game, forecasts[0].game_id)
+    skip_game = session.get(Game, forecasts[1].game_id)
+    handoff, receipt, object_sha = _daily_slate(
+        tmp_path, game_id=str(game.id), skip_game_id=str(skip_game.id), scheduled=game.starts_at,
+    )
+    verified = verify_daily_slate(handoff, receipt)
+
+    # Nothing registered yet: the full path must run.
+    assert already_fully_registered(session, verified) is False
+    register_daily_slate(session, verified)
+    session.commit()
+    # Same handoff, every forecast present: registration would change nothing.
+    assert already_fully_registered(session, verified) is True
+
+    # A package that names the same object for a different game is never
+    # waved through (rows are append-only, so vary the incoming package).
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    item = verified.forecasts[0]
+    moved = replace(item, forecast={**item.forecast, "gameId": str(skip_game.id)})
+    assert already_fully_registered(
+        session, SimpleNamespace(forecasts=(moved,), handoff_sha256=verified.handoff_sha256)) is False
+
+    # A new cumulative handoff (no bundle row yet) takes the full path even
+    # though its forecast is already present.
+    assert already_fully_registered(
+        session, SimpleNamespace(forecasts=verified.forecasts, handoff_sha256="f" * 64)) is False
