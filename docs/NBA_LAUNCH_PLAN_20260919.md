@@ -168,7 +168,7 @@ activation (§6, E1).
 **If nothing is approved:** AISP keeps showing the PHI at NYK package, and any HISTORICAL rows imported
 under O3. Every NBA checkpoint surface reports why it is idle. Nothing is bought.
 
-## 5. What the adapters do today (flag-off, synthetic tests only)
+## 5. What the adapters do today
 
 - **Source-confirmed finals lane** (`app/nba/gen1_final_exchange.py`, `app/nba/gen1_finals.py`) — **the
   production final path, on by default because it is a delivery path, not a spending one.** It reads
