@@ -46,6 +46,9 @@ describe('Home Edge Board', () => {
     expect(cards[0]).toHaveAccessibleName(/^1\. .*Qualified$/)
     expect(cards.map((c) => c.getAttribute('aria-label')!.split(', ').pop())).toEqual(['Qualified', 'Qualified', 'Qualified', 'Declined'])
     expect(within(cards[0]).getByTitle('+7.1 pts')).toBeInTheDocument()
+    // The recorded policy value, named as such; the stored break-even figure never carries this name.
+    expect(within(cards[0]).getByText('Recorded policy-adjusted edge')).toBeInTheDocument()
+    expect(within(hero).queryByText(/^Edge$|^Adj\. edge$/)).toBeNull()
     expect(within(hero).getAllByRole('link', { name: /View decision/ })).toHaveLength(4)
     expect(within(hero).getByText('+2 more on Daily Decisions')).toBeInTheDocument()
     const rail = within(cards[0]).getAllByRole('img').find((el) => /win probability: model/.test(el.getAttribute('aria-label') ?? ''))!
@@ -57,7 +60,7 @@ describe('Home Edge Board', () => {
     const hero = await renderScenario('forecasts-only')
     expect(within(hero).getByRole('heading', { level: 1 })).toHaveTextContent('Today’s Model Leans')
     expect(within(hero).getByText('Sportsbook markets pending')).toBeInTheDocument()
-    expect(within(hero).queryByText(/Adj\. edge|Exp\. return|Declined|NO BET/i)).toBeNull()
+    expect(within(hero).queryByText(/Adj\. edge|Exp\. return|policy-adjusted|Unadjusted model return|Declined|NO BET/i)).toBeNull()
     expect(within(hero).getAllByText('Market pending')).toHaveLength(4)
     expect(within(hero).getAllByRole('link', { name: /Analyze game/ })).toHaveLength(4)
     expect(within(hero).getAllByRole('img', { name: /Model win split/ })).toHaveLength(4)
