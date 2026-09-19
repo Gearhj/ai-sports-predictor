@@ -283,11 +283,12 @@ def test_a_tie_is_tie_with_integer_scores(world, settings):
 
 def test_postponed_at_the_sealed_start_is_void_known_before_first_pitch(world, settings):
     world.seal()
-    world.observe("postponed", START - timedelta(minutes=8))
+    world.observe("postponed", START - timedelta(minutes=8))        # MLB supplies no final time: withheld
     world.project(GameStatus.POSTPONED)
     world.tick(settings, START - timedelta(minutes=6))              # before scheduled first pitch
-    [(_, record)] = world.records()
-    assert record["status"] == "VOID" and not world.withheld.exists()   # stays in the input lane
+    assert world.records() == [] and world.lane_files() == []
+    [(_, record)] = world.records("REVISION_WITHHELD")
+    assert record["status"] == "VOID" and record["recordType"] == "MLB_V18_MARKET_WITHHELD_OUTCOME_V1"
     assert (record["homeScore"], record["awayScore"], record["finalAtUtc"]) == (None, None, None)
     state = record["admission"]["sourceState"]
     assert state["aispCanonicalStatus"] == "postponed"
@@ -299,7 +300,8 @@ def test_postponed_at_the_sealed_start_is_void_known_before_first_pitch(world, s
     world.observe("final", makeup + timedelta(hours=3), 2, 6, scheduled=makeup)
     world.project(GameStatus.FINAL, 2, 6)
     world.tick(settings, makeup + timedelta(hours=4))
-    assert [r["status"] for _, r in world.records()] == ["VOID"]
+    assert [r["status"] for _, r in world.records("REVISION_WITHHELD")] == ["VOID"]
+    assert world.records() == [] and world.lane_files() == []
 
 
 def test_cancelled_is_no_contest(world, settings):
@@ -307,9 +309,49 @@ def test_cancelled_is_no_contest(world, settings):
     world.observe("canceled", START + timedelta(minutes=40))
     world.project(GameStatus.CANCELED)
     world.tick(settings, AFTER)
-    [(_, record)] = world.records()
-    assert record["status"] == "NO_CONTEST" and not world.withheld.exists()
+    assert world.lane_files() == []
+    [(_, record)] = world.records("REVISION_WITHHELD")
+    assert record["status"] == "NO_CONTEST"
     assert record["admission"]["sourceState"]["provider"]["detailedState"] == "Cancelled"
+
+
+@pytest.mark.parametrize("state, status", [("postponed", "VOID"), ("canceled", "NO_CONTEST")])
+def test_void_and_no_contest_without_a_final_time_are_withheld_keeping_their_status(world, settings, state,
+                                                                                     status):
+    world.seal()
+    world.observe(state, START + timedelta(minutes=12))
+    world.project(GameStatus.POSTPONED if state == "postponed" else GameStatus.CANCELED)
+    summary = world.tick(settings, AFTER)
+    assert summary["records"] == 0 and [w["status"] for w in summary["withheld"]] == [status]
+    # The frozen reader would parse finalAtUtc=None for a non-PENDING status and abort: never in the lane.
+    assert world.records() == [] and world.lane_files() == []
+    assert not (world.outcomes / world.game_id).exists()
+    [(path, record)] = world.records("REVISION_WITHHELD")
+    assert path.parent == world.withheld / world.game_id and not os.access(path, os.W_OK)
+    for name in outcomes.REQUIRED_FIELDS:
+        assert name in record, name
+    assert record["status"] == status and record["finalAtUtc"] is None
+    assert record["withheldReason"] == outcomes.WITHHELD_FINAL_AT_REASON == record["reasonCodes"][0]
+    assert "FINAL_AT_NOT_PROVIDED_BY_SOURCE" in record["reasonCodes"]
+    # No capture, admission or schedule clock is substituted.
+    assert record["sourceCapturedAtUtc"] == pilot.iso(START + timedelta(minutes=12))
+    assert record["finalAtUtc"] not in (record["sourceCapturedAtUtc"], record["admittedAtUtc"],
+                                        record["scheduledStartUtc"])
+    [entry] = [e for e in world.ledger() if e["kind"] == "REVISION_WITHHELD"]
+    assert entry["status"] == status and entry["reason"] == outcomes.WITHHELD_FINAL_AT_REASON
+    world.tick(settings, AFTER + timedelta(minutes=10))
+    assert len(world.records("REVISION_WITHHELD")) == 1 and world.lane_files() == []
+
+
+def test_a_void_whose_source_supplies_a_final_time_is_admitted_with_exactly_that_time(world, settings):
+    world.seal()
+    source_final = START - timedelta(minutes=20)
+    world.observe("postponed", START - timedelta(minutes=8), final_at=source_final)
+    world.project(GameStatus.POSTPONED)
+    world.tick(settings, START - timedelta(minutes=6))
+    [(_, record)] = world.records()
+    assert record["status"] == "VOID" and record["finalAtUtc"] == pilot.iso(source_final)
+    assert record["recordType"] == "MLB_V18_MARKET_ADMITTED_OUTCOME_V1" and not world.withheld.exists()
 
 
 def test_live_is_pending_then_the_admitted_final_supersedes_it(world, settings):
@@ -319,8 +361,12 @@ def test_live_is_pending_then_the_admitted_final_supersedes_it(world, settings):
     world.tick(settings, START + timedelta(minutes=40))
     [(pending_path, pending)] = world.records()
     before = pending_path.read_bytes()
+    # PENDING (null finalAtUtc is the contract's own allowance) is admitted to the input lane.
     assert pending["status"] == "PENDING" and pending["finalAtUtc"] is None and not world.withheld.exists()
+    assert pending["recordType"] == "MLB_V18_MARKET_ADMITTED_OUTCOME_V1"
+    assert world.lane_files() == [pending_path] and world.records("REVISION_WITHHELD") == []
     assert (pending["homeScore"], pending["awayScore"]) == (None, None)
+    assert "FINAL_AT_NOT_PROVIDED_BY_SOURCE" not in pending["reasonCodes"]
 
     world.observe("live", START + timedelta(hours=1), 3, 1)          # still the same PENDING revision
     world.tick(settings, START + timedelta(hours=1, minutes=10))
@@ -420,19 +466,29 @@ def test_a_final_without_a_source_completion_time_is_withheld_not_admitted(world
         seal.write_once(path, b"{}")
 
 
-def test_a_withheld_disposition_can_never_be_written_to_the_input_lane(world, settings):
+@pytest.mark.parametrize("state, status, game_status", [
+    ("final", "DECISIVE", GameStatus.FINAL), ("postponed", "VOID", GameStatus.POSTPONED),
+    ("canceled", "NO_CONTEST", GameStatus.CANCELED)])
+def test_the_writer_refuses_any_non_pending_record_without_final_at_in_the_input_lane(world, settings, state,
+                                                                                      status, game_status):
+    import dataclasses
+
     world.seal()
-    world.observe("final", START + timedelta(hours=3), 5, 3, final_at=None)
-    world.project(GameStatus.FINAL, 5, 3)
+    world.observe(state, START + timedelta(hours=3), *((5, 3) if state == "final" else ()), final_at=None)
+    world.project(game_status, *((5, 3) if state == "final" else ()))
     world.session.commit()
     [episode] = outcomes.sealed_episodes(world.packets).episodes
     with outcomes.read_only(world.session):
         disposition = outcomes.admitted_state(world.session, episode)
-    assert disposition.withheld and disposition.status == "DECISIVE"
+    assert disposition.withheld and disposition.status == status
+    ledger = seal.AttemptLedger(world.outcomes, name=outcomes.LEDGER_NAME)
+    with pytest.raises(outcomes.OutcomeExportRefused):             # no withheld directory: never the lane
+        outcomes.write_revision(world.outcomes, disposition, None, ledger=ledger, clock=lambda: AFTER)
+    # The generic guard: any non-PENDING record whose finalAtUtc is not a real value is refused.
+    blank = dataclasses.replace(disposition, content={**disposition.content, "finalAtUtc": ""})
+    assert not blank.withheld
     with pytest.raises(outcomes.OutcomeExportRefused):
-        outcomes.write_revision(world.outcomes, disposition, None,
-                                ledger=seal.AttemptLedger(world.outcomes, name=outcomes.LEDGER_NAME),
-                                clock=lambda: AFTER)
+        outcomes.write_revision(world.outcomes, blank, None, ledger=ledger, clock=lambda: AFTER)
     assert not world.outcomes.exists()
 
 

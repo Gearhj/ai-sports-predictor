@@ -77,30 +77,40 @@ detailedState containing "final" or "completed" maps to final, one containing
 maps to live, "postpon" maps to postponed, "cancel" maps to canceled, and
 everything else, including "Suspended" and "Delayed Start", maps to scheduled.
 
-====================================================  ===========  =========================
-AISP admitted state for the episode                   status       notes
-====================================================  ===========  =========================
-scorer admits a final; a live or final observation    DECISIVE     integer homeScore/awayScore
-  exists at S; home != away; the row has a genuine                 from the admitted row
-  source ``final_at``
-same, home == away                                    TIE          integer scores
-DECISIVE/TIE as above but ``final_at`` is null        WITHHELD     not in the input lane; see
-                                                                   WITHHELD FINALS below
-canonical ``postponed`` observed at S (latest of      VOID         the episode was not played
-  postponed/canceled at S)                                         at its sealed start; may be
-                                                                   known before first pitch
-canonical ``canceled`` observed at S (latest of       NO_CONTEST   never played
+Status is what AISP admitted. The lane is where the record goes: IN (the
+``consumer-outcomes`` input lane) or WITHHELD (see WITHHELD RECORDS below).
+
+====================================================  ===========  ========  =====================
+AISP admitted state for the episode                   status       lane      notes
+====================================================  ===========  ========  =====================
+scorer admits a final; a live or final observation    DECISIVE     IN if     integer homeScore/
+  exists at S; home != away                                        final_at  awayScore from the
+                                                                   is set,   admitted row
+                                                                   else
+                                                                   WITHHELD
+same, home == away                                    TIE          same      integer scores
+canonical ``postponed`` observed at S (latest of      VOID         same      not played at its
+  postponed/canceled at S)                                                   sealed start; may be
+                                                                             known before first
+                                                                             pitch
+canonical ``canceled`` observed at S (latest of       NO_CONTEST   same      never played
   postponed/canceled at S)
-canonical ``live`` observed at S, no admitted final   PENDING      play started, not final;
-                                                                   finalAtUtc null, no scores
-postponed/canceled AND live/final both at S           no record    conflict, ledger reason
-admitted final, but no live/final observation at S    no record    final belongs to another
-                                                                   start, ledger reason
-only ``scheduled`` (incl. Suspended/Delayed Start)    no record    ledger reason
-no completed admission receipt yet                    no record    retried each tick
-PUSH, REFUND                                          never        wager settlements, not game
-                                                                   states AISP admits
-====================================================  ===========  =========================
+canonical ``live`` observed at S, no admitted final   PENDING      IN        play started, not
+                                                                             final; finalAtUtc
+                                                                             null, no scores
+postponed/canceled AND live/final both at S           no record    -         conflict, ledger reason
+admitted final, but no live/final observation at S    no record    -         final belongs to another
+                                                                             start, ledger reason
+only ``scheduled`` (incl. Suspended/Delayed Start)    no record    -         ledger reason
+no completed admission receipt yet                    no record    -         retried each tick
+PUSH, REFUND                                          never        -         wager settlements, not
+                                                                             game states AISP
+                                                                             admits
+====================================================  ===========  ========  =====================
+
+The MLB schedule feed never supplies ``final_at``. With the current source,
+every DECISIVE, TIE, VOID and NO_CONTEST is therefore WITHHELD, and only
+PENDING reaches the input lane.
 
 The verbatim source state goes into ``admission.sourceState``. AISP's
 canonical value is always there. The provider's own status object
@@ -110,15 +120,18 @@ Nothing is ever inferred from a position, a settlement or a profit/loss. This
 module does not read those tables, and a P/L-shaped key in a record or
 evidence document is refused.
 
-WITHHELD FINALS (Model Studio, 2026-09-19 "staged export corrections")
-----------------------------------------------------------------------
-Model Studio's frozen reader requires ``finalAtUtc`` for every status except
-PENDING. A DECISIVE or TIE record with a null ``finalAtUtc`` would therefore
-fail its scheduled assessment instead of staying pending.
+WITHHELD RECORDS (Model Studio, 2026-09-19 "staged export corrections")
+-----------------------------------------------------------------------
+Model Studio's frozen reader parses ``finalAtUtc`` for every status except
+PENDING. That covers DECISIVE, TIE, VOID and NO_CONTEST
+(``mlb_v18_market_assessment._latest_outcomes``). A null value raises there and
+aborts the whole assessment run.
 
-Such a final is never written to the input lane. It is written, with the same
-fields and evidence, to the separate ``v18_market_pilot_outcomes_withheld_dir``
-(default: the sibling ``consumer-outcomes-withheld``):
+So any non-PENDING record whose ``finalAtUtc`` is null is never written to the
+input lane. It is written, with the same fields and evidence and its admitted
+status kept (for example VOID), to the separate
+``v18_market_pilot_outcomes_withheld_dir`` (default: the sibling
+``consumer-outcomes-withheld``):
 
 * record type ``MLB_V18_MARKET_WITHHELD_OUTCOME_V1``;
 * reason ``WITHHELD_FINAL_AT_UNAVAILABLE_INCOMPATIBLE_WITH_FROZEN_READER``;
@@ -126,14 +139,15 @@ fields and evidence, to the separate ``v18_market_pilot_outcomes_withheld_dir``
 
 Its ``supersedesRevisionId`` names the input lane's latest revision, the one it
 would have superseded. ``previousWithheldRevisionId`` chains the withheld
-history.
+history. The writer refuses any non-PENDING record with a null ``finalAtUtc``
+in the input lane.
 
-Nothing is substituted. There is no fabricated completion time, no capture or
-admission clock in ``finalAtUtc``, and no PENDING relabel. A PENDING revision
-written earlier, while the game was live, stays the lane's latest word. If the
-admitted final later gains a genuine ``final_at``, a normal admitted record is
-written then. The withheld files stay as history. VOID, NO_CONTEST and PENDING
-keep their semantics and stay in the input lane.
+Nothing is substituted. There is no fabricated completion time, no capture,
+admission or schedule clock in ``finalAtUtc``, and no PENDING relabel. A
+PENDING revision written earlier, while the game was live, stays the lane's
+latest word. If the admitted state later carries a genuine source
+``final_at``, a normal admitted record is written then. The withheld files stay
+as history. PENDING is unchanged and stays in the input lane.
 
 REVISIONS
 ---------
@@ -167,12 +181,12 @@ admittedAtUtc
     of the inserting transaction. If a candidate writer run is still in
     flight, or none exists, the record waits.
 finalAtUtc
-    The admitted row's ``final_at``, as the source supplied it, and never any
-    other clock. The MLB schedule feed supplies no trustworthy completion time,
-    and AISP stores null rather than first pitch. Such a final is therefore
-    WITHHELD, with ``FINAL_AT_NOT_PROVIDED_BY_SOURCE`` in ``reasonCodes``, and
-    is not admitted with a null. It is always null for VOID, NO_CONTEST and
-    PENDING.
+    The anchor row's ``final_at``, as the source supplied it, and never any
+    other clock. This applies to every non-PENDING status and is always null
+    for PENDING. The MLB schedule feed supplies no trustworthy completion time,
+    and AISP stores null rather than first pitch. A non-PENDING record without
+    one is therefore WITHHELD, with ``FINAL_AT_NOT_PROVIDED_BY_SOURCE`` in
+    ``reasonCodes``, and is never admitted with a null.
 
 FILES (all write-once, read-only after; nothing is ever overwritten)
 --------------------------------------------------------------------
@@ -232,7 +246,8 @@ from app.services.forecast_evaluation import _NONFINAL_STATUSES as SCORER_NONFIN
 from app.services.forecast_evaluation import ForecastEvaluationService
 
 RECORD_TYPE = "MLB_V18_MARKET_ADMITTED_OUTCOME_V1"
-#: A completed final kept OUT of the input lane (see WITHHELD FINALS).
+#: A non-PENDING record with no source finalAtUtc, kept OUT of the input lane
+#: (see WITHHELD RECORDS).
 WITHHELD_RECORD_TYPE = "MLB_V18_MARKET_WITHHELD_OUTCOME_V1"
 WITHHELD_FINAL_AT_REASON = "WITHHELD_FINAL_AT_UNAVAILABLE_INCOMPATIBLE_WITH_FROZEN_READER"
 LANE_ADMITTED, LANE_WITHHELD = "ADMITTED", "WITHHELD"
@@ -296,17 +311,18 @@ CLOCK_MEANINGS = {
         "run when runs overlapped). The commit happened no later than this. Never created_at, which "
         "is the start of the inserting transaction."),
     "finalAtUtc": (
-        "game_state_observations.final_at of the admitted observation, exactly as the source supplied "
-        "it; never a capture, admission or scheduled-start clock. An admitted DECISIVE/TIE record always "
-        "carries one. A completed final whose source supplied none is WITHHELD from the input lane with "
-        "finalAtUtc null (unknown, not omitted). Always null for VOID, NO_CONTEST and PENDING."),
+        "game_state_observations.final_at of the anchor observation, exactly as the source supplied it; "
+        "never a capture, admission or scheduled-start clock. Every admitted non-PENDING record (DECISIVE, "
+        "TIE, VOID, NO_CONTEST) carries one. A non-PENDING state whose source supplied none is WITHHELD "
+        "from the input lane with finalAtUtc null (unknown, not omitted). Always null for PENDING."),
 }
 
 WITHHELD_NOTE = (
-    "Withheld from the consumer-outcomes input lane: AISP admitted this final under its own rule, but its "
-    "source supplied no completion time, and Model Studio's frozen reader requires finalAtUtc for every "
-    "non-PENDING status. No completion time is fabricated or substituted, and the game is not relabelled "
-    "PENDING. Kept here with its evidence as an explicit unresolved final.")
+    "Withheld from the consumer-outcomes input lane: AISP admitted this state under its own rule, but its "
+    "source supplied no final time, and Model Studio's frozen reader parses finalAtUtc for every "
+    "non-PENDING status (DECISIVE, TIE, VOID, NO_CONTEST). No time is fabricated or substituted, the "
+    "admitted status is kept, and the game is not relabelled PENDING. Kept here with its evidence as an "
+    "explicit unresolved outcome.")
 
 
 class OutcomeExportRefused(RuntimeError):
@@ -657,9 +673,9 @@ class Disposition:
 
     @property
     def withheld(self) -> bool:
-        """A completed final with no source completion time: kept out of the input lane."""
+        """Any non-PENDING record with no source finalAtUtc: kept out of the input lane."""
 
-        return (self.is_record and self.status in PLAYED_STATUSES
+        return (self.is_record and self.status != PENDING
                 and (self.content or {}).get("finalAtUtc") is None)
 
 
@@ -741,8 +757,9 @@ def admitted_state(session: Session, episode: SealedEpisode) -> Disposition:
 
     reasons: list[str] = list(receipt.reason_codes)
     played = status in PLAYED_STATUSES
-    final_at = anchor.final_at if played else None
-    if played and final_at is None:
+    # Only ever the source's own final_at; a PENDING game has none by definition.
+    final_at = anchor.final_at if status != PENDING else None
+    if status != PENDING and final_at is None:
         reasons.append("FINAL_AT_NOT_PROVIDED_BY_SOURCE")
     if played and (game_row["status"] != _FINAL or (game_row["home_score"], game_row["away_score"])
                    != (anchor.home_score, anchor.away_score)):
@@ -1025,7 +1042,7 @@ def _plan(session: Session, packet_dir: Path, entries: list[dict[str, Any]]) -> 
         head = previous.get("revisionId") if previous else None
         if disposition.withheld:
             # Never into the input lane. It names the lane head it would have superseded,
-            # so the same final is withheld again only if that head (or its content) moved.
+            # so the same state is withheld again only if that head (or its content) moved.
             prior = latest_withheld.get(episode.episode_key)
             if prior and prior.get("revisionId") == revision_id(disposition.content_id or "", head):
                 if last.get("revisionId") != prior.get("revisionId"):
@@ -1097,14 +1114,15 @@ def _restore_sidecar(game_dir: Path, record_path: Path, data: bytes) -> None:
 def write_revision(directory: Path, d: Disposition, supersedes: str | None, *, ledger: AttemptLedger,
                    clock: Callable[[], datetime], withheld_dir: Path | None = None,
                    previous_withheld: str | None = None) -> dict[str, Any]:
-    """Write one revision: to the input lane, or -- for a withheld final -- to ``withheld_dir``."""
+    """Write one revision: to the input lane, or -- for a withheld record -- to ``withheld_dir``."""
 
     if d.withheld:
         if withheld_dir is None:
-            raise OutcomeExportRefused("A final without a source completion time needs the withheld directory")
+            raise OutcomeExportRefused("A non-PENDING record without a source finalAtUtc needs the withheld "
+                                       "directory; it may never enter the input lane")
         directory = withheld_dir
-    elif d.status in PLAYED_STATUSES and not (d.content or {}).get("finalAtUtc"):
-        raise OutcomeExportRefused("Refusing to admit a completed final without finalAtUtc")
+    elif d.status != PENDING and not (d.content or {}).get("finalAtUtc"):
+        raise OutcomeExportRefused(f"Refusing a {d.status} record without finalAtUtc in the input lane")
     game_dir = Path(directory) / d.episode.game_id
     revision = revision_id(d.content_id or "", supersedes)
     base = {"kind": "REVISION_WITHHELD" if d.withheld else "REVISION_WRITTEN",
