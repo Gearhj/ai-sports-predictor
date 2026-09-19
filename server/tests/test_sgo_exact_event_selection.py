@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -33,6 +34,14 @@ LATER = [(str(uuid.UUID(int=0xA000 + i)), AT_1840 + timedelta(minutes=m))
          for i, m in enumerate((25, 30, 30, 35))]             # 19:05, 19:10 x2, 19:15 ET
 SLATE = [(KC_PIT, AT_1840), (CHC_CIN, AT_1840), *LATER]
 REFRESH_AT = datetime(2026, 9, 18, 18, 42, 37, 76937, tzinfo=UTC)   # the halted request
+#: (home, away) team names, as the provider's names.long and AISP's Team.name.
+TEAMS = {KC_PIT: ("Pittsburgh Pirates", "Kansas City Royals"),
+         CHC_CIN: ("Cincinnati Reds", "Chicago Cubs"),
+         **{gid: (f"Home Club {i}", f"Away Club {i}") for i, (gid, _) in enumerate(LATER)}}
+#: Synthetic provider event IDs for every slate game.
+EVENT_OF = {**EVENT, **{gid: f"SyntheticEvtLater{i:02d}" for i, (gid, _) in enumerate(LATER)}}
+GAME_OF = {event: gid for gid, event in EVENT_OF.items()}
+START_OF = dict(SLATE)
 
 
 def _events(needs: dict[str, bool]) -> list[dict[str, Any]]:
@@ -60,27 +69,48 @@ class _Grant:
 
 
 class Provider:
-    """Answers like SportsGameOdds: earliest `limit` events in the window, ties in
-    ITS order (reverse of AISP's id order here). Honours the ID filter only when
-    told to, because honouring it is exactly what retained evidence has not shown."""
+    """Answers like SportsGameOdds.
 
-    def __init__(self, *, honours_ids: bool = False, force: list[str] | None = None) -> None:
+    Without IDs: the earliest `limit` events in the window, ties in ITS order
+    (reverse of AISP's id order here). With IDs and ``honours_ids`` (what the
+    retained FAQ documents): exactly those events, every other filter ignored.
+    ``status`` overrides an event's own status flags; ``extra``/``drop`` add an
+    unrequested event or withhold a requested one; ``force`` answers verbatim.
+    """
+
+    def __init__(self, *, honours_ids: bool = False, force: list[str] | None = None,
+                 status: dict[str, dict[str, bool]] | None = None, extra: list[str] | None = None,
+                 drop: list[str] | None = None, starts: dict[str, datetime] | None = None) -> None:
         self.honours_ids = honours_ids
         self.force = force
+        self.status = status or {}
+        self.extra = extra or []
+        self.drop = drop or []
+        self.starts = starts or {}
         self.calls: list[dict[str, Any]] = []
         self.returned: list[str] = []
 
     def answer(self, *, limit, now, starts_within_hours, starts_after, event_ids=None) -> list[str]:
         self.calls.append({"limit": limit, "starts_after": starts_after, "event_ids": event_ids})
         if self.force is not None:
-            return list(self.force)
-        if event_ids and self.honours_ids:
-            by_event = {v: k for k, v in EVENT.items()}
-            return [by_event[e] for e in event_ids if e in by_event][:limit]
-        hi = now + timedelta(hours=starts_within_hours)
-        pool = [(s, gid) for gid, s in SLATE if starts_after <= s <= hi and s > now]
-        pool.sort(key=lambda item: (item[0], [-ord(c) for c in item[1]]))
-        return [gid for _, gid in pool[:limit]]
+            games = list(self.force)
+        elif event_ids and self.honours_ids:
+            games = [GAME_OF[e] for e in event_ids if e in GAME_OF][:limit]
+        else:
+            hi = now + timedelta(hours=starts_within_hours)
+            pool = [(s, gid) for gid, s in SLATE if starts_after <= s <= hi and s > now]
+            pool.sort(key=lambda item: (item[0], [-ord(c) for c in item[1]]))
+            games = [gid for _, gid in pool[:limit]]
+        return [g for g in games if g not in self.drop] + list(self.extra)
+
+    def event(self, game_id: str) -> dict[str, Any]:
+        home, away = TEAMS[game_id]
+        flags = {flag: False for flag in ("started", "live", "completed", "ended", "cancelled", "finalized")}
+        flags.update(self.status.get(game_id, {}))
+        start = self.starts.get(game_id, START_OF[game_id])
+        return {"event_id": EVENT_OF[game_id], "league_id": "MLB",
+                "starts_at": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "status": flags,
+                "home_name": home, "away_name": away}
 
 
 def _install(monkeypatch, *, events, provider: Provider, granted: int) -> None:
@@ -95,11 +125,17 @@ def _install(monkeypatch, *, events, provider: Provider, granted: int) -> None:
         ids = provider.answer(limit=limit, now=now, starts_within_hours=starts_within_hours,
                               starts_after=starts_after, event_ids=event_ids)
         provider.returned = ids
-        return sgo_collection.FallbackFetch(requested_at=now, objects=len(ids), pairs=[],
-                                            parse=ParseResult(), main=None, provider_league="MLB")
+        pairs = [SimpleNamespace(event_id=EVENT_OF[g], timestamp_skew_seconds=0.0,
+                                 bookmaker_key="draftkings") for g in ids]
+        return sgo_collection.FallbackFetch(
+            requested_at=now, objects=len(ids), pairs=pairs, parse=ParseResult(), main=None,
+            provider_league="MLB", raw_archive={"status": "ARCHIVED", "responseBodySha256": "ab" * 32},
+            returned_events=[provider.event(g) for g in ids])
 
     def _ingest(session, settings, fetch, *, league_code, event_date=None):
-        fetch.events_ingested = len(provider.returned)
+        # Only what survived the local checks reaches ingestion.
+        provider.ingested = sorted(GAME_OF[p.event_id] for p in fetch.pairs)
+        fetch.events_ingested = len(provider.ingested)
         return fetch
 
     monkeypatch.setattr("app.services.quote_coverage.QuoteCoverageService", _Coverage)
@@ -107,7 +143,7 @@ def _install(monkeypatch, *, events, provider: Provider, granted: int) -> None:
     monkeypatch.setattr(sgo_collection, "fetch_pregame_moneylines", _fetch)
     monkeypatch.setattr(sgo_collection, "ingest", _ingest)
     monkeypatch.setattr(sgo_collection, "_ingested_game_ids",
-                        lambda session, fetch: sorted(provider.returned))
+                        lambda session, fetch: list(getattr(provider, "ingested", [])))
     monkeypatch.setattr(sgo_collection, "_games_missing_total", lambda session, ids: set())
     monkeypatch.setattr("app.services.provider_allocation.request_objects",
                         lambda session, *, lane, wanted, now=None: _Grant(wanted, min(wanted, granted)))
@@ -127,10 +163,13 @@ def _active_halt(session):
     return active_halt(session, lane=sgo_collection.ENDPOINT_KEY)
 
 
-def _bind(session, bindings: list[tuple[str, str | None, str]]) -> None:
-    """Quote rows as the canonical normalizer writes them: (game id, event id, source)."""
-    from app.models import (Game, GameStatus, League, Market, MarketOutcome, MarketType,
-                            OddsSnapshot, Sport, Sportsbook)
+def _bind(session, bindings: list[tuple[str, str | None, str]], *,
+          scheduled_at_binding: dict[str, datetime] | None = None,
+          status: dict[str, Any] | None = None, postponed: set[str] | None = None) -> None:
+    """Games with their teams and schedule observations, and quote rows as the
+    canonical normalizer writes them: (game id, event id, source)."""
+    from app.models import (Game, GameStateObservation, GameStatus, GameTeam, League, Market,
+                            MarketOutcome, MarketType, OddsSnapshot, Sport, Sportsbook, Team)
 
     sport = Sport(code="BASEBALL", name="Baseball", active=True)
     session.add(sport)
@@ -145,9 +184,30 @@ def _bind(session, bindings: list[tuple[str, str | None, str]]) -> None:
     at = datetime(2026, 9, 18, 18, 30, 40, tzinfo=UTC)
     for gid, event_id, source in bindings:
         if gid not in markets:
-            game = Game(id=uuid.UUID(gid), league_id=league.id, starts_at=AT_1840,
-                        status=GameStatus.SCHEDULED, source_mode="LIVE")
+            game = Game(id=uuid.UUID(gid), league_id=league.id, starts_at=START_OF.get(gid, AT_1840),
+                        status=(status or {}).get(gid, GameStatus.SCHEDULED), source_mode="LIVE")
             session.add(game)
+            session.flush()
+            teams = []
+            for is_home, name in ((True, TEAMS[gid][0]), (False, TEAMS[gid][1])):
+                team = Team(league_id=league.id, name=name, abbreviation=name[:3].upper(), active=True)
+                session.add(team)
+                session.flush()
+                session.add(GameTeam(game_id=game.id, team_id=team.id, is_home=is_home))
+                teams.append(team)
+            # The schedule AISP held when the ID was bound (an hour before), and now.
+            before = at - timedelta(hours=1)
+            session.add(GameStateObservation(
+                game_id=game.id, home_team_id=teams[0].id, away_team_id=teams[1].id,
+                scheduled_at=(scheduled_at_binding or {}).get(gid, game.starts_at), status="scheduled",
+                is_postponed=False, observed_at=before, available_as_of=before,
+                source="MLB_STATS_API", source_mode="LIVE", payload_checksum=f"b-{gid}"))
+            if gid in (postponed or set()):
+                session.add(GameStateObservation(
+                    game_id=game.id, home_team_id=teams[0].id, away_team_id=teams[1].id,
+                    scheduled_at=game.starts_at, status="postponed", is_postponed=True,
+                    observed_at=at + timedelta(minutes=5), available_as_of=at + timedelta(minutes=5),
+                    source="MLB_STATS_API", source_mode="LIVE", payload_checksum=f"p-{gid}"))
             session.flush()
             market = Market(game_id=game.id, market_type=MarketType.MONEYLINE, period="full_game")
             session.add(market)
@@ -223,7 +283,7 @@ def test_exact_selection_names_the_verified_event_when_enabled(session, settings
                     (CHC_CIN, EVENT[CHC_CIN], "SPORTSGAMEODDS")])
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
-    on = settings.model_copy(update={"sgo_exact_event_selection_enabled": True})
+    on = settings.model_copy(update={"sgo_exact_event_selection_mode": "ON"})
     result = sgo_collection.collect_for_open_cutoffs(session, on, now=REFRESH_AT)
 
     assert result["reason"] == "FALLBACK_COLLECTED"
@@ -240,7 +300,7 @@ def test_exact_selection_is_off_by_default(session, settings, monkeypatch):
                     (CHC_CIN, EVENT[CHC_CIN], "SPORTSGAMEODDS")])
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
-    assert settings.sgo_exact_event_selection_enabled is False
+    assert settings.sgo_exact_event_selection_mode == "OFF"
     result = sgo_collection.collect_for_open_cutoffs(session, settings, now=REFRESH_AT)
     assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION" and provider.calls == []
 
@@ -262,7 +322,7 @@ def test_an_unverified_id_is_ignored(session, settings, monkeypatch, bindings):
     assert KC_PIT not in sgo_collection.verified_sgo_event_ids(session, [KC_PIT])
     provider = Provider(honours_ids=True)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
-    on = settings.model_copy(update={"sgo_exact_event_selection_enabled": True})
+    on = settings.model_copy(update={"sgo_exact_event_selection_mode": "ON"})
     result = sgo_collection.collect_for_open_cutoffs(session, on, now=REFRESH_AT)
     assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION"     # falls back to deferral
     assert provider.calls == [] and _ledger_requests(session) == []
@@ -292,9 +352,14 @@ def test_an_ignored_id_filter_still_halts_rather_than_admitting_the_wrong_game(
                     (CHC_CIN, EVENT[CHC_CIN], "SPORTSGAMEODDS")])
     provider = Provider(honours_ids=False)
     _install(monkeypatch, events=_events({KC_PIT: True, CHC_CIN: True}), provider=provider, granted=1)
-    on = settings.model_copy(update={"sgo_exact_event_selection_enabled": True})
+    on = settings.model_copy(update={"sgo_exact_event_selection_mode": "ON"})
     result = sgo_collection.collect_for_open_cutoffs(session, on, now=REFRESH_AT)
-    assert result["games_ingested"] == [CHC_CIN] and result["lane_halted"] is True
+    # The unrequested event is rejected (never ingested) and the lane latches.
+    assert result["games_ingested"] == [] and result["lane_halted"] is True
+    assert result["selection_mismatch"]["unrequested_event_ids_returned"] == [EVENT[CHC_CIN]]
+    assert result["selection_mismatch"]["requested_event_ids_missing"] == [EVENT[KC_PIT]]
+    assert _active_halt(session).reason == "PROVIDER_RETURNED_UNSELECTED_GAME"
+    assert "exact_event_selection" not in result
 
 
 def test_a_halted_lane_is_never_lifted_here(session, settings, monkeypatch):
@@ -349,5 +414,5 @@ def test_a_partly_ambiguous_selection_keeps_its_safe_prefix_and_buys_no_extra(
 def test_the_setting_defaults_off():
     from app.core.config import Settings
 
-    assert Settings.model_fields["sgo_exact_event_selection_enabled"].default is False
+    assert Settings.model_fields["sgo_exact_event_selection_mode"].default == "OFF"
     assert sgo_collection.EVENT_ID_FILTER_PARAM == "eventIDs"

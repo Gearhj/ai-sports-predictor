@@ -139,6 +139,9 @@ class FallbackFetch:
     #: What happened to the response's original bytes
     #: (app.services.sgo_raw_archive.archive_response). Never a reason to fail.
     raw_archive: dict[str, Any] | None = None
+    #: Identity, schedule and status fields of every event the response carried
+    #: (no prices), for the local checks an exact event-ID request needs.
+    returned_events: list = field(default_factory=list)
 
     def skew_summary(self) -> dict[str, Any]:
         skews = [pair.timestamp_skew_seconds for pair in self.pairs]
@@ -224,9 +227,8 @@ def fetch_pregame_moneylines(
     caller is told what was returned and decides; nothing here loops.
 
     ``event_ids`` adds the provider event-ID filter (``EVENT_ID_FILTER_PARAM``).
-    Only the exact-selection path passes it, and only while
-    ``sgo_exact_event_selection_enabled`` is on -- see that constant for why it
-    is off by default.
+    Only the exact-selection path passes it (``sgo_exact_event_selection_mode``
+    VALIDATE or ON); see that constant for what the provider does with it.
     """
     ok, reason = eligible(settings, now=now)
     if not ok:
@@ -299,7 +301,32 @@ def fetch_pregame_moneylines(
         main=main,
         provider_league="MLB",
         raw_archive=raw_archive,
+        returned_events=returned_event_fields(payload),
     )
+
+
+_STATUS_FLAGS = ("started", "live", "completed", "ended", "cancelled", "finalized")
+
+
+def returned_event_fields(payload: Any) -> list[dict[str, Any]]:
+    """Identity, schedule and status of each returned event -- no prices."""
+
+    out: list[dict[str, Any]] = []
+    for event in (payload.get("data") or []) if isinstance(payload, dict) else []:
+        if not isinstance(event, dict):
+            continue
+        status = event.get("status") if isinstance(event.get("status"), dict) else {}
+        teams = event.get("teams") if isinstance(event.get("teams"), dict) else {}
+        home, away = teams.get("home") or {}, teams.get("away") or {}
+        out.append({
+            "event_id": str(event.get("eventID") or ""),
+            "league_id": str(event.get("leagueID") or ""),
+            "starts_at": status.get("startsAt"),
+            "status": {flag: bool(status.get(flag)) for flag in _STATUS_FLAGS},
+            "home_name": str((home.get("names") or {}).get("long") or home.get("teamID") or ""),
+            "away_name": str((away.get("names") or {}).get("long") or away.get("teamID") or ""),
+        })
+    return out
 
 
 def _games_missing_total(session: Session, game_ids: "list[str]") -> set[str]:
@@ -838,18 +865,191 @@ def complete_request(
 # unambiguous (every request since 09-14 except the one that halted), the
 # request is byte-identical to before.
 
-#: The provider's event-ID filter name, as SportsGameOdds is generally
-#: described. NOT established by any retained AISP evidence: every request AISP
-#: has sent used only leagueID, limit, startsAfter, startsBefore, finalized and
-#: oddsPresent, and the provider SILENTLY IGNORED the one undocumented
-#: parameter ever sent (``oddsAvailable``, 2026-09-09,
-#: outputs/sportsgameodds-validation/FALLBACK_ACTIVATION.md). An ignored ID
-#: filter would reproduce the ambiguous request exactly, so this path stays off
-#: (``sgo_exact_event_selection_enabled``) until one owner-authorised request
-#: shows the provider honours it.
+#: The provider's documented event-ID filter on GET /events.
+#:
+#: What the retained provider documentation says (paraphrased; the copies are
+#: git-ignored under data/raw and are never copied into the repository):
+#:
+#: * OpenAPI, data/raw/provider-docs/sportsgameodds/openapi-20260919T182608Z.json
+#:   (sha256 f4de66395961792d7536fbd772c6ee5ba024969c8c25575a8c95cd1a44bce9bb,
+#:   retrieved 2026-09-19T18:26:08Z): ``eventIDs`` is a string query parameter
+#:   holding a comma-separated list of event IDs to return data for; ``limit``
+#:   is the maximum number of events returned.
+#: * FAQ, data/raw/provider-docs/sportsgameodds/faq-20260919T182608Z.html
+#:   (sha256 67b071ad4d5205981667e21cb27ee79d487e3b1204a02c2d2fec75c1ba79bda6,
+#:   same retrieval, "Why are my filters ignored when I pass eventID?"): when
+#:   ``eventID``/``eventIDs`` is given, only those IDs select the result and
+#:   EVERY other filter -- leagueID, started, finalized, startsAfter,
+#:   startsBefore and the rest -- is ignored; response-shaping parameters still
+#:   apply.
+#:
+#: So an ID request carries none of the protection the filters used to give:
+#: a finalized, started or moved event comes back if it is named. That is why
+#: the ID path checks every selected game locally before sending and every
+#: returned event locally before ingesting (``exact_id_blockers``,
+#: ``check_exact_response``), and why any difference between the IDs asked for
+#: and the IDs returned goes through the unchanged mismatch halt. The window
+#: filters are still sent: harmless when the IDs are honoured, and the same
+#: safety net as today if they ever were not.
 EVENT_ID_FILTER_PARAM = "eventIDs"
 DEFERRED_TIED_START = "DEFERRED_AMBIGUOUS_TIED_START_NO_VERIFIED_EVENT_ID"
 DEFERRED_EARLIER_GAME = "DEFERRED_AMBIGUOUS_UNSELECTED_EARLIER_GAME_IN_WINDOW_NO_VERIFIED_EVENT_ID"
+EXACT_MODES = ("OFF", "VALIDATE", "ON")
+#: Tolerance for "the start AISP holds now is the start it held when the ID was
+#: bound". Any real reschedule is larger than this.
+START_UNCHANGED_TOLERANCE = timedelta(seconds=60)
+
+
+def exact_selection_mode(settings: Any) -> str:
+    """OFF, VALIDATE or ON. Anything unrecognised is OFF."""
+
+    value = str(getattr(settings, "sgo_exact_event_selection_mode", "OFF") or "OFF").strip().upper()
+    return value if value in EXACT_MODES else "OFF"
+
+
+def exact_selection_verified(session: Session) -> bool:
+    """Has at least one exact-ID purchase come back matching and passing every check?
+
+    Read from the ledger's terminal rows at request time, so promotion needs no
+    restart: the first such row is the live verification.
+    """
+
+    from sqlalchemy import String, cast, select
+
+    from app.models import ProviderRequestLedger
+
+    rows = session.scalars(
+        select(ProviderRequestLedger.response_metadata).where(
+            ProviderRequestLedger.provider == SPORTSGAMEODDS,
+            ProviderRequestLedger.endpoint_key == ENDPOINT_KEY,
+            ProviderRequestLedger.status == "SUCCEEDED",
+            cast(ProviderRequestLedger.response_metadata, String).like('%"exact_event_selection"%'),
+        )
+    ).all()
+    return any(((metadata or {}).get("exact_event_selection") or {}).get("match") is True
+               for metadata in rows)
+
+
+def exact_id_blockers(
+    session: Session, events: list[dict[str, Any]], verified: dict[str, str], *, moment: datetime,
+) -> list[dict[str, Any]]:
+    """Why any selected game may not be requested by ID right now (empty: none).
+
+    The provider ignores every other filter on an ID request, so AISP's own
+    state has to say what the filters used to: still pregame (scheduled, not
+    started, not postponed or cancelled), its purchase cutoff still open, and
+    the first pitch AISP holds now equal to the one it held when this ID was
+    bound -- a moved game may no longer be the event the ID was bound as.
+    """
+
+    from sqlalchemy import func, select
+
+    from app.models import Game, GameStateObservation, GameStatus, Market, MarketOutcome, OddsSnapshot
+
+    blockers: list[dict[str, Any]] = []
+    for event in events:
+        game_id = str(event.get("game_id"))
+        event_id = verified.get(game_id)
+        reason = None
+        game = session.get(Game, _uuid(game_id))
+        if event_id is None:
+            reason = "NO_VERIFIED_EVENT_ID"
+        elif game is None:
+            reason = "GAME_NOT_FOUND"
+        elif str(getattr(game.status, "value", game.status)) != GameStatus.SCHEDULED.value:
+            reason = f"GAME_NOT_PREGAME_{str(getattr(game.status, 'value', game.status)).upper()}"
+        elif _aware_utc(game.starts_at) <= moment:
+            reason = "GAME_ALREADY_STARTED"
+        elif datetime.fromisoformat(event["cutoff_utc"]) <= moment:
+            reason = "PURCHASE_CUTOFF_PASSED"
+        else:
+            latest = session.scalar(
+                select(GameStateObservation).where(GameStateObservation.game_id == game.id)
+                .order_by(GameStateObservation.available_as_of.desc()).limit(1))
+            bound_at = session.scalar(
+                select(func.min(OddsSnapshot.available_as_of))
+                .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+                .join(Market, Market.id == MarketOutcome.market_id)
+                .where(Market.game_id == game.id, OddsSnapshot.source == SPORTSGAMEODDS,
+                       OddsSnapshot.source_event_id == event_id))
+            at_binding = None if bound_at is None else session.scalar(
+                select(GameStateObservation.scheduled_at)
+                .where(GameStateObservation.game_id == game.id,
+                       GameStateObservation.available_as_of <= bound_at)
+                .order_by(GameStateObservation.available_as_of.desc()).limit(1))
+            if latest is not None and bool(latest.is_postponed):
+                reason = "GAME_POSTPONED"
+            elif at_binding is None:
+                reason = "START_AT_BINDING_UNKNOWN"
+            elif abs(_aware_utc(at_binding) - _aware_utc(game.starts_at)) > START_UNCHANGED_TOLERANCE:
+                reason = "START_MOVED_SINCE_ID_BOUND"
+        if reason:
+            blockers.append({"game_id": game_id, "event_id": event_id, "reason": reason})
+    return blockers
+
+
+def check_exact_response(
+    session: Session, fetch: "FallbackFetch", requested: dict[str, str], *, moment: datetime,
+) -> dict[str, Any]:
+    """Every local check an exact-ID answer must pass before anything is ingested.
+
+    ``requested`` maps game id -> event id. The returned IDs must equal the
+    requested set; each returned event must be MLB, pregame by its own status
+    fields (not started, live, completed, ended, cancelled or finalized), start
+    in the future, and bind to exactly its requested game through the canonical
+    binder (league, teams and orientation, start within the binder's tolerance).
+    """
+
+    from app.ingestion.normalizer import CanonicalNormalizer
+    from app.models import Game
+
+    by_event = {str(e.get("event_id")): e for e in fetch.returned_events if e.get("event_id")}
+    returned = sorted(by_event)
+    wanted = sorted(set(requested.values()))
+    extra = sorted(set(returned) - set(wanted))
+    missing = sorted(set(wanted) - set(returned))
+    game_of = {event_id: game_id for game_id, event_id in requested.items()}
+    normalizer = CanonicalNormalizer(session)
+    failures: dict[str, str] = {}
+    for event_id in sorted(set(returned) & set(wanted)):
+        event = by_event[event_id]
+        flags = [flag for flag, on in (event.get("status") or {}).items() if on]
+        starts = None
+        try:
+            starts = datetime.fromisoformat(str(event.get("starts_at")).replace("Z", "+00:00"))
+        except ValueError:
+            starts = None
+        if event.get("league_id") != "MLB":
+            failures[event_id] = "EVENT_LEAGUE_NOT_MLB"
+        elif flags:
+            failures[event_id] = f"EVENT_STATUS_{flags[0].upper()}"
+        elif starts is None:
+            failures[event_id] = "EVENT_START_MISSING"
+        elif _aware_utc(starts) <= moment:
+            failures[event_id] = "EVENT_ALREADY_STARTED"
+        else:
+            game = session.get(Game, _uuid(game_of[event_id]))
+            match, why = (None, "GAME_NOT_FOUND") if game is None else normalizer._match_game(
+                [game], event.get("home_name") or "", event.get("away_name") or "", _aware_utc(starts))
+            if match is None:
+                failures[event_id] = f"EVENT_IDENTITY_{str(why).upper()}"
+    allowed = sorted(event_id for event_id in set(returned) & set(wanted) if event_id not in failures)
+    return {"requested_ids": wanted, "returned_ids": returned, "extra_ids": extra,
+            "missing_ids": missing, "failures": failures, "allowed_ids": allowed,
+            "match": not extra and not missing and not failures}
+
+
+def _restrict_to_events(fetch: "FallbackFetch", allowed: list[str]) -> None:
+    """Drop every quote from an event that failed a check; nothing else changes."""
+
+    keep = set(allowed)
+    fetch.pairs = [pair for pair in fetch.pairs if str(pair.event_id) in keep]
+    if fetch.main is not None:
+        fetch.main.quotes = [quote for quote in fetch.main.quotes if str(quote.event_id) in keep]
+
+
+def _aware_utc(value: datetime) -> datetime:
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
 
 
 def verified_sgo_event_ids(session: Session, game_ids: list[str]) -> dict[str, str]:
@@ -1149,20 +1349,49 @@ def collect_for_open_cutoffs(
     # NEVER A REQUEST THE PROVIDER MAY ANSWER WITH A DIFFERENT GAME.
     #
     # Exact selection names the provider events AISP itself bound to these
-    # games -- only when switched on and only when every selected game has one.
+    # games (sgo_exact_event_selection_mode):
+    #   OFF       never.
+    #   VALIDATE  only when every selected game has a verified ID, passes the
+    #             local pre-send checks, AND the selection is already
+    #             unambiguous under the window rule -- so the answer cannot
+    #             differ even if the ID filter were ignored. Once a live exact
+    #             match is on the ledger, an ambiguous all-verified selection
+    #             may use IDs too. No extra request or object: the check rides
+    #             on a purchase the schedule makes anyway.
+    #   ON        whenever every selected game has a verified ID and passes.
     # Otherwise the selection is cut to its unambiguous prefix and the rest is
     # deferred by name; if nothing unambiguous is left, nothing is requested.
+    mode = exact_selection_mode(settings)
     exact_ids: list[str] | None = None
+    exact_by_game: dict[str, str] = {}
+    exact_basis: str | None = None
+    id_blockers: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
-    if getattr(settings, "sgo_exact_event_selection_enabled", False):
-        verified = verified_sgo_event_ids(session, [str(e.get("game_id")) for e in covered])
-        if all(str(e.get("game_id")) in verified for e in covered):
-            exact_ids = [verified[str(e.get("game_id"))] for e in covered]
+    if mode != "OFF":
+        selected_game_ids = [str(e.get("game_id")) for e in covered]
+        verified = verified_sgo_event_ids(session, selected_game_ids)
+        if all(game_id in verified for game_id in selected_game_ids):
+            id_blockers = exact_id_blockers(session, covered, verified, moment=moment)
+            if not id_blockers:
+                _kept, would_defer = unambiguous_prefix(
+                    covered, coverage["events"], window_start=anchor, window_end=window_end,
+                    moment=moment)
+                if mode == "ON":
+                    exact_basis = "MODE_ON"
+                elif not would_defer:
+                    exact_basis = "VALIDATE_UNAMBIGUOUS_SELECTION"
+                elif exact_selection_verified(session):
+                    exact_basis = "VALIDATE_LIVE_MATCH_VERIFIED"
+                if exact_basis is not None:
+                    exact_by_game = {game_id: verified[game_id] for game_id in selected_game_ids}
+                    exact_ids = [verified[game_id] for game_id in selected_game_ids]
     if exact_ids is None:
         covered, deferred = unambiguous_prefix(
             covered, coverage["events"], window_start=anchor, window_end=window_end, moment=moment)
         if not covered:
-            return {"attempted": False, "reason": "DEFERRED_AMBIGUOUS_SELECTION", "objects": 0,
+            return {**({} if mode == "OFF" else {"exact_event_selection_mode": mode,
+                                                  "exact_id_blockers": id_blockers}),
+                    "attempted": False, "reason": "DEFERRED_AMBIGUOUS_SELECTION", "objects": 0,
                     "games_deferred": deferred,
                     "games_unsupported_today": [str(e.get("game_id")) for e in unsupported],
                     "detail": ("Every selected game shares its request window with an "
@@ -1201,11 +1430,37 @@ def collect_for_open_cutoffs(
         return {"attempted": True, "reason": "FALLBACK_REQUEST_FAILED", "objects": 0,
                 "error_type": type(error).__name__}
 
+    # AN ID ANSWER IS CHECKED LOCALLY BEFORE ANYTHING IS INGESTED. The provider
+    # applied none of the window/status filters to it, so an event that fails
+    # identity, status or schedule is dropped here with its reason.
+    exact_check: dict[str, Any] | None = None
+    exact_record: dict[str, Any] | None = None
+    if exact_ids is not None:
+        exact_check = check_exact_response(session, fetch, exact_by_game, moment=moment)
+        _restrict_to_events(fetch, exact_check["allowed_ids"])
+        if exact_check["match"]:
+            exact_record = {
+                "mode": mode, "basis": exact_basis,
+                "requested_ids": exact_check["requested_ids"],
+                "returned_ids": exact_check["returned_ids"], "match": True,
+                # When the window alone would have given the same answer, this
+                # match shows the IDs came back and passed; it cannot show the
+                # provider applied the ID filter rather than the window.
+                "window_alone_would_select_the_same": exact_basis == "VALIDATE_UNAMBIGUOUS_SELECTION",
+                "raw_archive_sha256": (fetch.raw_archive or {}).get("responseBodySha256"),
+            }
     ingest(session, settings, fetch, league_code="MLB")
     ingested = _ingested_game_ids(session, fetch)
+    terminal_metadata: dict[str, Any] = {"raw_archive": fetch.raw_archive}
+    if exact_record is not None:
+        terminal_metadata["exact_event_selection"] = exact_record
+    elif exact_check is not None:
+        terminal_metadata["exact_event_selection_rejected"] = {
+            "mode": mode, "basis": exact_basis, **{k: exact_check[k] for k in (
+                "requested_ids", "returned_ids", "extra_ids", "missing_ids", "failures")}, "match": False}
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id,
-                     extra_metadata={"raw_archive": fetch.raw_archive})
+                     extra_metadata=terminal_metadata)
 
     # THE FIRST MISMATCH STOPS THE LANE.
     #
@@ -1221,6 +1476,17 @@ def collect_for_open_cutoffs(
     # hid that would be worse than the fault it was hiding.
     selected_ids = [str(event.get("game_id")) for event in covered]
     divergence = selection_mismatch(selected_ids, ingested)
+    # On an ID request, ANY difference between the IDs asked for and the IDs
+    # returned -- an extra event or a missing one -- is a mismatch too, and it
+    # takes the same halt. The unrequested event was never ingested above.
+    if divergence is None and exact_check is not None and (
+            exact_check["extra_ids"] or exact_check["missing_ids"]):
+        divergence = {"unselected_games_returned": [], "games_selected": sorted(selected_ids),
+                      "games_ingested": sorted(ingested), "selected_games_missing": [],
+                      "unrequested_event_ids_returned": exact_check["extra_ids"],
+                      "requested_event_ids_missing": exact_check["missing_ids"],
+                      "requested_event_ids": exact_check["requested_ids"],
+                      "returned_event_ids": exact_check["returned_ids"]}
     halted = None
     if divergence is not None:
         halted = halt_lane(
@@ -1244,6 +1510,14 @@ def collect_for_open_cutoffs(
         selection_receipt["games_deferred"] = deferred
     if exact_ids is not None:
         selection_receipt["exact_event_ids"] = exact_ids
+    if mode != "OFF":
+        selection_receipt["exact_event_selection_mode"] = mode
+        selection_receipt["exact_id_blockers"] = id_blockers
+        if exact_record is not None:
+            selection_receipt["exact_event_selection"] = exact_record
+        elif exact_check is not None:
+            selection_receipt["exact_event_selection_rejected"] = terminal_metadata[
+                "exact_event_selection_rejected"]
     return {
         **selection_receipt,
         "attempted": True, "reason": "FALLBACK_COLLECTED",

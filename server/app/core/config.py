@@ -175,12 +175,14 @@ class Settings(BaseSettings):
     #: remembering: from this date The Odds API is primary again. Empty means no
     #: authorized window at all, not an open one.
     sportsgameodds_fallback_until: str = ""
-    #: Name the provider events AISP itself bound to the selected MLB games
-    #: (``eventIDs``) instead of relying on limit + start window. OFF: whether
-    #: SportsGameOdds honours that filter is not established by retained
-    #: evidence, and an ignored filter would reproduce the ambiguous request.
-    #: With it off, an ambiguous selection is deferred, never sent.
-    sgo_exact_event_selection_enabled: bool = False
+    #: Whether the MLB fallback names the provider events AISP itself bound to
+    #: the selected games (``eventIDs``; see sgo_collection.EVENT_ID_FILTER_PARAM
+    #: for the retained provider documentation). OFF: never; an ambiguous
+    #: selection is deferred. VALIDATE: only for selections the window rule
+    #: already makes unambiguous, and for ambiguous ones once a live exact match
+    #: is on the ledger. ON: whenever every selected game has a verified ID.
+    #: Every ID request is checked locally before sending and before ingesting.
+    sgo_exact_event_selection_mode: Literal["OFF", "VALIDATE", "ON"] = "OFF"
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False
     demo_mode: bool = True
@@ -409,6 +411,13 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_optional_key(cls, value: object) -> str:
         return "" if value is None else str(value).strip()
+
+    @field_validator("sgo_exact_event_selection_mode", mode="before")
+    @classmethod
+    def normalize_exact_selection_mode(cls, value: object) -> str:
+        """``validate`` and ``VALIDATE`` are the same; empty is OFF."""
+        text = "" if value is None else str(value).strip().upper()
+        return text or "OFF"
 
     @model_validator(mode="after")
     def require_explicit_credentials(self) -> "Settings":
