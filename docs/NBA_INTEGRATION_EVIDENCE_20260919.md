@@ -102,9 +102,12 @@ AISP's own scoring reproduces Model Studio's published figures:
 
 | Channel | AISP | Model Studio's report |
 |---|---|---|
-| Elo | log loss **0.606258**, Brier **0.208971**, **832/1225** correct | 0.606258 / 0.208971 / 832/1225 |
+| Elo | log loss **0.606258**, Brier **0.208971**, **832/1225** correct, AUC 0.7285 | 0.606258 / 0.208971 / 832/1225 |
 | Ridge (ordinary-rest) | margin MAE **11.393**, total MAE **15.178** | 11.393 / 15.178 |
-| Joint | total CRPS **10.8207**, margin CRPS **8.1643**; log loss 0.598537, Brier 0.205900, 80% coverage total 81.6% / margin 78.5% | 10.8207 / 8.1643 (2025-26 row) |
+| Joint | total CRPS **10.8207**, margin CRPS **8.1643**; log loss 0.598537, Brier 0.205900, AUC 0.7348, 80% coverage total 81.6% / margin 78.5% | 10.8207 / 8.1643 (2025-26 row) |
+
+AUC is AISP's own addition (the producer's report does not quote one); it is computed only for the two
+probability channels and is null for Ridge, where it has no meaning.
 
 54 of the 1,225 games went to overtime.
 

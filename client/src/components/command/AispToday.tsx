@@ -88,6 +88,9 @@ export function buildTodaySummary({ games, items, ledger, now }: {
 const FORECAST_SHORT: Record<string, string> = {
   CONTROLLING_FORECAST_AVAILABLE: 'held',
   RESEARCH_FORECAST_AVAILABLE: 'research held',
+  // NBA Gen1: a verified production package, which is not the same as a research example.
+  PRODUCTION_PACKAGE_AVAILABLE: 'production package held',
+  PROSPECTIVE_FORECAST_AVAILABLE: 'prospective held',
   FORECAST_AWAITING_PRODUCER: 'awaiting',
   FORECAST_UNAVAILABLE: 'none',
 }
