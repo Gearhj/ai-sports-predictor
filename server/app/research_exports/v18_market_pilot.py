@@ -92,6 +92,25 @@ receipts, phase, producer object (dispositions 2, 1, 4 and 6)
   is bound physically to its exact producer object (manifest content address,
   ``execution-inputs.json`` population, ``pregame-evidence.json``) and AISP's
   numbers must equal the object's; anything unverifiable excludes the forecast.
+readable canonical originals (SOURCE_ACCESS_REPAIR_PROPOSAL f69c0bf6...)
+  The exchange package AISP imported is ACL-restricted to elevated tokens, so
+  those physical refs cannot be opened by the producer's own private reader.
+  For a packet that is NOT yet sealed, the object's manifest, pregame evidence,
+  execution inputs and forecast file are re-resolved to Model Studio's
+  already-readable originals under
+  ``mlb-v18-current-state-pipeline-v1/objects/sha256/<objectSHA>/``, and
+  ``publicationReceiptRef`` to the exact per-object
+  ``incremental-publication.json`` under
+  ``mlb-v18-unattended-v1/objects/sha256/<receiptSHA>/``. The object is always
+  the one already chosen (its directory is named by ``lineage.objectSha256``);
+  substitution needs the same digest and byte length as the identity the packet
+  already binds, and the receipt needs the same game and object, that object
+  selected, ``completedObjectIncluded``, and a real ``packageExposedAtUtc`` no
+  later than the anchor. Anything short of that keeps the current reference and
+  records why. Readability alone grants nothing: every eligibility gate is
+  unchanged, no clock moves (atomic exposure is reported as its own clock), and
+  sealed packets are never rebuilt. ``forecast.operationalEvidence.referenceBasis``
+  and the evidence note of the same name say which class each ref belongs to.
 
 Every database row a packet relies on is copied (identity columns only) into a
 write-once evidence document beside the packet, and the packet's refs point
@@ -103,6 +122,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import re
 import uuid
 from collections import Counter
@@ -170,7 +190,7 @@ EXPORT_IDENTITY = "AISP_V18_MARKET_PILOT_CONSUMER_EXPORT_V1"
 #: ``consumerIdentity`` and ``selection.consumerExportRevision``) so Model Studio
 #: can tell them from packets sealed under earlier rules; earlier packets are
 #: never rewritten.
-EXPORT_REVISION = "R2-2026-09-19-MODEL-STUDIO-DISPOSITIONS-1-6-MARKET-EVIDENCE-GATE"
+EXPORT_REVISION = "R3-2026-09-19-MODEL-STUDIO-READABLE-CANONICAL-ORIGINALS"
 EVIDENCE_SCHEMA = "AISP_V18_MARKET_PILOT_CONSUMER_EVIDENCE_V1"
 V18_IMPORT_JOB = "consume-model-exchange-research-artifacts"
 FREEZE_JOB = "freeze-shadow-experiment"
@@ -187,6 +207,48 @@ REGULAR_GAME_TYPE = "R"
 
 MODE_PROSPECTIVE = "PROSPECTIVE_SEAL"
 MODE_FEASIBILITY = "RETROSPECTIVE_FEASIBILITY_NOT_ENROLLMENT"
+
+# ---------------------------------------------------------------------------
+# Reference classes (Model Studio SOURCE_ACCESS_REPAIR_PROPOSAL.json,
+# f69c0bf6aca205926bf707ccc8c665d89a86d711e07d1f34987fdbfbdb7e0572, 2026-09-19).
+#
+# The exchange package AISP imported is ACL-restricted to elevated tokens, so a
+# packet whose forecast references resolve into it cannot be read by the
+# producer's own unelevated private reader. Model Studio's own outputs hold the
+# SAME bytes at paths that are already readable. For a packet that is not yet
+# sealed, and ONLY when the physically read digest and byte length equal the
+# identity the packet already binds, those references move to the readable
+# originals. Readability alone grants nothing: every other gate is unchanged,
+# and a forecast is never swapped for a different one because it can be read.
+# ---------------------------------------------------------------------------
+#: The exchange package the consumer's importer read (elevated-token ACL).
+REFERENCE_CLASS_EXCHANGE = "EXCHANGE_PACKAGE_OBJECT"
+#: Model Studio's canonical pipeline object directory: the same object's bytes.
+REFERENCE_CLASS_CANONICAL = "MODEL_STUDIO_CANONICAL_ORIGINAL"
+#: The per-object atomic publication receipt (incremental-publication.json).
+REFERENCE_CLASS_RECEIPT = "MODEL_STUDIO_ATOMIC_PUBLICATION_RECEIPT"
+#: A pointer into this packet's own consumer evidence document (no file bound).
+REFERENCE_CLASS_EVIDENCE = "CONSUMER_EVIDENCE_DOCUMENT"
+
+#: Model Studio's proposal that named these classes and their conditions
+#: (outputs/mlb-v18-market-prospective-v1/outcome-contract-v2/SOURCE_ACCESS_REPAIR_PROPOSAL.json).
+SOURCE_ACCESS_REPAIR_PROPOSAL_SHA256 = "f69c0bf6aca205926bf707ccc8c665d89a86d711e07d1f34987fdbfbdb7e0572"
+
+PUBLICATION_RECEIPT_FILE = "incremental-publication.json"
+PUBLICATION_RECEIPT_SCHEMA = "MLB_V18_INCREMENTAL_PUBLICATION_V1"
+CANONICAL_HANDOFF_FILE = "aisp-handoff.json"
+
+#: ``verify_producer_object`` reason codes that mean only "this exporter could
+#: not read those bytes" -- the ACL case the readable originals repair. Every
+#: other reason is a substantive integrity failure of the exchange copy and is
+#: never substituted away by reading a different path.
+READABILITY_ONLY_REASONS = frozenset({
+    "FORECAST_PRODUCER_OBJECT_NOT_PHYSICALLY_VERIFIED_UNREADABLE_BY_EXPORTER",
+    "FORECAST_SCORE_POPULATION_NOT_PHYSICALLY_VERIFIED_UNREADABLE",
+    "FORECAST_INPUT_SNAPSHOT_NOT_PHYSICALLY_VERIFIED_UNREADABLE",
+    "FORECAST_NUMERICAL_IDENTITY_NOT_VERIFIED_UNREADABLE",
+    "FORECAST_NUMERICAL_IDENTITY_NOT_VERIFIED_FORECAST_FILE_NOT_NAMED_BY_HANDOFF",
+})
 
 #: Deterministic first-failure order. Limitations (``LIMITATION_*``) never fail.
 FIRST_FAILURE_ORDER: tuple[str, ...] = (
@@ -1699,6 +1761,12 @@ class BuildInputs:
     raw_data_root: Path
     experiment_id: str = V18_EXPERIMENT_ID
     mode: str = MODE_PROSPECTIVE
+    #: Model Studio's already-readable originals. Unset (None) is inert: every
+    #: reference then stays in the exchange class exactly as before, with the
+    #: reason recorded. See REFERENCE_CLASS_* above.
+    canonical_object_root: Path | None = None
+    canonical_handoff_root: Path | None = None
+    publication_receipt_root: Path | None = None
 
 
 @dataclass
@@ -1951,7 +2019,7 @@ def build_packet(
     # -- forecast ------------------------------------------------------------
     anchor_at = anchor.at
     forecast_block, forecast_reasons, forecast_diag = _forecast_block(
-        session, game, anchor, anchor_at, lock, deadline, evidence)
+        session, game, anchor, anchor_at, lock, deadline, evidence, inputs=inputs)
 
     # -- market ---------------------------------------------------------------
     if anchor_at is not None:
@@ -2119,7 +2187,8 @@ def build_packet(
 # Forecast block
 # ---------------------------------------------------------------------------
 def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, anchor_at: datetime | None,
-                    lock: datetime, deadline: datetime, evidence: EvidenceDocument
+                    lock: datetime, deadline: datetime, evidence: EvidenceDocument,
+                    *, inputs: "BuildInputs | None" = None
                     ) -> tuple[dict[str, Any] | None, list[str], dict[str, Any]]:
     diag: dict[str, Any] = {"forecastIdentity": None, "forecastPublishedAtUtc": None,
                             "forecastImportReceiptUtc": None, "exchangeFileRefs": []}
@@ -2250,7 +2319,7 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
     # Disposition 4 and 6: bind the EXACT original producer object physically
     # (manifest content address, execution-inputs.json population, pregame
     # evidence) and check AISP's numbers against it. Unverifiable = excluded.
-    verification = verify_producer_object(object_root, lineage.get("objectSha256"), bundle.logical_uri, {
+    aisp_identity = {
         "paSha256": forecast.model_artifact_sha256 or None,
         "parentBundleSha256": lineage.get("parentBundleSha256"),
         "seed": forecast.simulator_seed,
@@ -2259,14 +2328,41 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
         "pAway": forecast.full_away_win_probability,
         "samplingError": uncertainty.get("monteCarloStandardError"),
         "gameId": str(forecast.canonical_game_id) if forecast.canonical_game_id else None,
-    })
+    }
+    exchange_verification = verify_producer_object(object_root, lineage.get("objectSha256"),
+                                                   bundle.logical_uri, aisp_identity)
+    # Model Studio's readable canonical originals for the SAME named object.
+    # Declined -> everything below stays exactly as it was, with the reason.
+    canonical = resolve_canonical_originals(
+        canonical_root=getattr(inputs, "canonical_object_root", None),
+        handoff_root=getattr(inputs, "canonical_handoff_root", None),
+        object_sha=lineage.get("objectSha256"), handoff_sha256=bundle.bundle_sha256,
+        aisp=aisp_identity, exchange=exchange_verification,
+        exchange_handoff_path=bundle.logical_uri)
+    verification = canonical["verification"] if canonical["used"] else exchange_verification
+    reasons.extend(canonical["reasonCodes"])
     if not verification["verified"]:
         reasons.append("FORECAST_INTEGRITY_FAILED")
         reasons.extend(verification["reasonCodes"])
     object_ref = verification["objectRef"]
     evidence_ref = verification["inputSnapshotRef"]
     population_ref = verification["populationRef"]
-    for ref in (handoff_ref, object_ref, population_ref, evidence_ref, verification["forecastFileRef"]):
+    # The exact per-object atomic publication receipt. It is the only reference
+    # that changes class independently of the object; the producer's slate
+    # handoff keeps its own identity in the evidence and in the receipt itself.
+    publication = find_publication_receipt(
+        getattr(inputs, "publication_receipt_root", None), object_sha=lineage.get("objectSha256"),
+        game_id=str(forecast.canonical_game_id) if forecast.canonical_game_id else None,
+        handoff_sha256=bundle.bundle_sha256, anchor_at=anchor_at)
+    reasons.extend(publication["reasonCodes"])
+    publication_ref = publication["ref"] if publication["bound"] else None
+    # sourceRefs repeats publicationReceiptRef, so it carries whichever of the
+    # two the packet actually binds -- never both. When the receipt is bound the
+    # slate handoff keeps its identity in the evidence (path and registered
+    # handoffSha256) and inside the receipt itself, not as a duplicate physical
+    # reference the producer's reader would have to open.
+    for ref in (publication_ref or handoff_ref, object_ref, population_ref, evidence_ref,
+                verification["forecastFileRef"]):
         if ref:
             exchange_refs.append(ref)
     if not exchange_refs:
@@ -2275,12 +2371,50 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
         **{k: v for k, v in verification.items()}, "objectRoot": object_root,
         "objectSha256": lineage.get("objectSha256"), "handoffPath": bundle.logical_uri,
         "handoffRegisteredSha256": bundle.bundle_sha256,
+        "referenceClass": canonical["referenceClass"],
         "meaning": ("Physical verification of the exact original producer object at export time. The consumer "
                     "keeps its own nulls for transition/treatment/calibration identities; producerObjectHashes "
                     "lists hash-valued parentAuthority fields found in the object, as recovery provenance only."),
     })
+    reference_basis = {
+        "proposalSha256": SOURCE_ACCESS_REPAIR_PROPOSAL_SHA256,
+        "objectReferenceClass": canonical["referenceClass"],
+        "publicationReceiptReferenceClass": (publication["referenceClass"] if publication["bound"]
+                                             else REFERENCE_CLASS_EXCHANGE if handoff_ref
+                                             else REFERENCE_CLASS_EVIDENCE),
+        "fields": {
+            "forecast.objectRef": canonical["referenceClass"] if object_ref else REFERENCE_CLASS_EVIDENCE,
+            "forecast.inputSnapshotRef": (canonical["referenceClass"] if evidence_ref
+                                          else REFERENCE_CLASS_EVIDENCE),
+            "forecast.scorePopulationRef": (canonical["referenceClass"] if population_ref
+                                            else REFERENCE_CLASS_EVIDENCE),
+            "forecast.publicationReceiptRef": (REFERENCE_CLASS_RECEIPT if publication_ref
+                                               else REFERENCE_CLASS_EXCHANGE if handoff_ref
+                                               else REFERENCE_CLASS_EVIDENCE),
+        },
+        "canonicalOriginals": {
+            "used": canonical["used"], "root": canonical["root"], "reasonCodes": canonical["reasonCodes"],
+            "handoffCopy": canonical["handoff"], "digestAgreementWithExchange": canonical["agreement"],
+            "detail": canonical["detail"],
+            "exchangeVerification": {"verified": exchange_verification["verified"],
+                                     "reasonCodes": exchange_verification["reasonCodes"]},
+        },
+        "atomicPublicationReceipt": {
+            "bound": publication["bound"], "root": publication["root"],
+            "reasonCodes": publication["reasonCodes"], "candidates": publication["candidates"],
+            "receipt": publication["receipt"],
+        },
+        "meaning": ("Which class each physical reference belongs to. The exchange package is ACL-restricted to "
+                    "elevated tokens; a reference moves to Model Studio's already-readable original only when "
+                    "the physically read digest and byte length equal the identity this packet already binds "
+                    "through producer identity. Readability alone grants no eligibility, no clock and no "
+                    "different forecast. Already-sealed packets are never rebuilt or amended."),
+    }
+    reference_basis_ptr = evidence.note("referenceBasis", reference_basis)
     evidence.note("exchangeFiles", {"readable": exchange_refs, "objectRoot": object_root,
-                                    "handoffPath": bundle.logical_uri})
+                                    "handoffPath": bundle.logical_uri,
+                                    "canonicalObjectRoot": canonical["root"],
+                                    "publicationReceiptRoot": publication["root"]})
 
     se = uncertainty.get("monteCarloStandardError")
     p_home = float(forecast.full_home_win_probability)
@@ -2333,11 +2467,21 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
             "physical": False, "reasonCodes": verification["reasonCodes"]}),
         "createdAtUtc": iso(created) or iso(forecast.created_at),
         "aispImportTransactionStartedAtUtc": iso(forecast.created_at),
-        "publicationReceiptRef": handoff_ref or bundle_ptr,
+        # The exact per-object atomic publication receipt when one matched every
+        # condition; otherwise exactly what it was before -- the producer's slate
+        # handoff when readable, else the consumer bundle row in the evidence.
+        "publicationReceiptRef": publication_ref or handoff_ref or bundle_ptr,
+        # UNCHANGED by the receipt: still the producer's slate handoff generatedAt.
+        # Atomic exposure is a separate clock and is reported as one, below.
         "publicationCompletedAtUtc": iso(published) or iso(created) or iso(forecast.created_at),
         "publicationClockMeaning": "shadow_forecast_bundles.generated_at: the producer's hash-bound slate "
                                    "handoff generatedAt (handoffSha256 in the evidence), an upper bound on "
-                                   "producer availability; not a consumer receipt",
+                                   "producer availability; not a consumer receipt. When "
+                                   "publicationReceiptRef is an atomic publication receipt, that receipt's "
+                                   "packageExposedAtUtc -- the actual exchange-directory rename -- is a "
+                                   "SEPARATE clock, reported unrounded in "
+                                   "operationalEvidence.atomicPublicationReceipt and never merged into this "
+                                   "field, into createdAtUtc or into the local-completion clock",
         "sourceCutoffUtc": iso(cutoff) or iso(created) or iso(forecast.created_at),
         "importReceiptRef": receipt_ptr,
         "importReceiptCompletedAtUtc": iso(import_completed),
@@ -2384,6 +2528,29 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
                 "identityChecks": verification["identityChecks"],
                 "reasonCodes": verification["reasonCodes"],
                 "ref": verification_ptr,
+            },
+            # Which class each physical reference above belongs to, so the reader
+            # can tell a readable canonical original from an exchange path it
+            # cannot open. New provenance only -- no clock and no gate moved.
+            "referenceBasis": {
+                "proposalSha256": SOURCE_ACCESS_REPAIR_PROPOSAL_SHA256,
+                "fields": reference_basis["fields"],
+                "canonicalOriginalsUsed": canonical["used"],
+                "canonicalOriginalsRoot": canonical["root"],
+                "reasonCodes": list(dict.fromkeys(canonical["reasonCodes"] + publication["reasonCodes"])),
+                "ref": reference_basis_ptr,
+            },
+            # The producer's atomic exchange-directory rename for this exact
+            # object, when its receipt matched every condition. Separate from
+            # publicationCompletedAtUtc (the slate handoff's generatedAt) and
+            # from the receipt's own validated-local-completion clock, which is
+            # reported here under its own name and is never called exposure.
+            "atomicPublicationReceipt": {
+                "bound": publication["bound"],
+                "packageExposedAtUtc": publication["exposedAtUtc"],
+                "receipt": publication["receipt"],
+                "reasonCodes": publication["reasonCodes"],
+                "ref": publication_ref,
             },
         },
         "deploymentAttestation": None,
@@ -2633,6 +2800,252 @@ def verify_producer_object(object_root: str | Path | None, object_sha: str | Non
                                           if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)}
     result["verified"] = not reasons
     return result
+
+
+# ---------------------------------------------------------------------------
+# Readable canonical originals (Model Studio SOURCE_ACCESS_REPAIR_PROPOSAL,
+# f69c0bf6aca205926bf707ccc8c665d89a86d711e07d1f34987fdbfbdb7e0572)
+# ---------------------------------------------------------------------------
+def _canonical_handoff(handoff_root: str | Path | None, handoff_sha256: str | None) -> dict[str, Any]:
+    """The producer's own copy of the EXACT handoff AISP registered, or why not.
+
+    Read only to learn the member file names (``manifestFile``/``forecastFile``)
+    the handoff names for the object; never emitted as a packet reference. The
+    copy is accepted only when its content address is the handoff SHA-256 AISP
+    already stores for the bundle -- the same check the importer makes -- so a
+    different slate handoff can never be substituted here.
+    """
+
+    out: dict[str, Any] = {"path": None, "sha256": None, "bytes": None, "contentAddressOk": None}
+    sha = str(handoff_sha256 or "").lower()
+    if not handoff_root or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        return out
+    path = Path(handoff_root) / sha / CANONICAL_HANDOFF_FILE
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return out
+    out.update({"path": str(path), "sha256": _sha(data), "bytes": len(data),
+                "contentAddressOk": _handoff_content_address_ok(str(path), sha)})
+    return out
+
+
+def resolve_canonical_originals(*, canonical_root: str | Path | None, handoff_root: str | Path | None,
+                                object_sha: str | None, handoff_sha256: str | None,
+                                aisp: dict[str, Any], exchange: dict[str, Any],
+                                exchange_handoff_path: str | None = None) -> dict[str, Any]:
+    """Re-resolve the EXACT named producer object to its already-readable originals.
+
+    The object is always the one the packet already chose: the directory is
+    named by ``lineage.objectSha256`` and nothing else is ever looked up, so a
+    forecast is never exchanged for one whose evidence happens to be readable.
+    The originals are accepted only when
+
+    * the exchange copy failed for readability alone (an unreadable path), never
+      for a content failure -- a bad digest there stays a bad digest;
+    * the canonical object passes the SAME physical verification
+      (``verify_producer_object``): directory named by its content address,
+      manifest body hashing to it, every child digest-checked against the
+      manifest, and AISP's own numbers agreeing with the object's forecast;
+    * every reference the exchange copy did bind agrees byte for byte.
+
+    Returns the decision, the verification that produced the refs, and explicit
+    ``LIMITATION_CANONICAL_ORIGINALS_*`` reasons when it declined.
+    """
+
+    out: dict[str, Any] = {
+        "used": False, "referenceClass": REFERENCE_CLASS_EXCHANGE, "reasonCodes": [], "root": None,
+        "verification": None, "handoff": None, "agreement": {}, "detail": {},
+    }
+    reasons: list[str] = out["reasonCodes"]
+    sha = str(object_sha or "").lower()
+    if not canonical_root:
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_ROOT_NOT_CONFIGURED")
+        return out
+    if not re.fullmatch(r"[0-9a-f]{64}", sha):
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_OBJECT_NOT_NAMED_BY_LINEAGE")
+        return out
+    root = Path(canonical_root) / sha
+    out["root"] = str(root)
+    substantive = [r for r in exchange.get("reasonCodes") or [] if r not in READABILITY_ONLY_REASONS]
+    if substantive:
+        # The exchange copy was readable and did not hold up. Reading the same
+        # object somewhere else must not make that failure disappear.
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_NOT_SUBSTITUTED_EXCHANGE_OBJECT_FAILED_ON_CONTENT")
+        out["detail"]["exchangeSubstantiveReasonCodes"] = substantive
+        return out
+    if not root.is_dir():
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_OBJECT_DIRECTORY_MISSING")
+        return out
+    handoff = _canonical_handoff(handoff_root, handoff_sha256)
+    out["handoff"] = handoff
+    # The handoff names this object's member files. Either copy will do, as long
+    # as its content address is the handoff SHA-256 AISP registered: the
+    # producer's own (readable unelevated) or the exchange one when this process
+    # can read it. It is never emitted as a packet reference.
+    handoff_for_names = handoff["path"] if handoff["contentAddressOk"] is True else None
+    if handoff_for_names is None and _handoff_content_address_ok(exchange_handoff_path,
+                                                                 handoff_sha256) is True:
+        handoff_for_names = exchange_handoff_path
+        out["handoff"] = {**handoff, "namesTakenFrom": "EXCHANGE_HANDOFF_CONTENT_ADDRESS_VERIFIED"}
+    if handoff_for_names is None:
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_HANDOFF_COPY_NOT_CONTENT_ADDRESS_VERIFIED")
+        return out
+    verification = verify_producer_object(root, sha, handoff_for_names, aisp)
+    out["verification"] = verification
+    if not verification["verified"]:
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_NOT_PHYSICALLY_VERIFIED")
+        out["detail"]["canonicalReasonCodes"] = list(verification["reasonCodes"])
+        return out
+    disagreed = False
+    for field in ("objectRef", "inputSnapshotRef", "populationRef", "forecastFileRef"):
+        bound, found = exchange.get(field), verification.get(field)
+        if not bound or not found:
+            out["agreement"][field] = None
+            continue
+        agree = bound.get("sha256") == found.get("sha256") and bound.get("bytes") == found.get("bytes")
+        out["agreement"][field] = agree
+        if not agree:
+            disagreed = True
+            out["detail"].setdefault("digestDisagreements", {})[field] = {
+                "boundByPacket": {k: bound.get(k) for k in ("path", "sha256", "bytes")},
+                "canonicalOriginal": {k: found.get(k) for k in ("path", "sha256", "bytes")}}
+    if disagreed:
+        reasons.append("LIMITATION_CANONICAL_ORIGINALS_DIGEST_DIFFERS_FROM_BOUND_IDENTITY")
+        return out
+    out["used"] = True
+    out["referenceClass"] = REFERENCE_CLASS_CANONICAL
+    reasons.append("LIMITATION_FORECAST_EVIDENCE_RESOLVED_TO_MODEL_STUDIO_CANONICAL_ORIGINALS")
+    return out
+
+
+def read_publication_receipt(path: str | Path) -> dict[str, Any] | None:
+    """One ``incremental-publication.json``, with its own content address checked."""
+
+    path = Path(path)
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        document = json.loads(data)
+    except ValueError:
+        return None
+    if not isinstance(document, dict):
+        return None
+    return {"path": str(path), "sha256": _sha(data), "bytes": len(data), "document": document,
+            "contentAddressOk": _sha(data) == path.parent.name.lower()}
+
+
+def _receipt_failures(candidate: dict[str, Any], *, object_sha: str, game_id: str | None,
+                      handoff_sha256: str | None, anchor_at: datetime) -> tuple[list[str], datetime | None]:
+    """Every condition Model Studio requires of a per-object publication receipt."""
+
+    document, failures = candidate["document"], []
+    if not candidate["contentAddressOk"]:
+        failures.append("RECEIPT_FILE_IS_NOT_ITS_CONTENT_ADDRESS")
+    if str(document.get("schemaVersion") or "") != PUBLICATION_RECEIPT_SCHEMA:
+        failures.append("RECEIPT_SCHEMA_IS_NOT_THE_INCREMENTAL_PUBLICATION_SCHEMA")
+    if str(document.get("objectSha256") or "").lower() != object_sha:
+        failures.append("RECEIPT_IS_FOR_A_DIFFERENT_OBJECT")
+    if str(document.get("selectedObjectSha256") or "").lower() != object_sha:
+        failures.append("RECEIPT_OBJECT_IS_NOT_THE_SELECTED_OBJECT")
+    if game_id and str(document.get("gameId") or "").lower() != str(game_id).lower():
+        failures.append("RECEIPT_IS_FOR_A_DIFFERENT_GAME")
+    if document.get("completedObjectIncluded") is not True:
+        failures.append("RECEIPT_COMPLETED_OBJECT_NOT_INCLUDED")
+    bound = None
+    for holder in (document.get("handoff"), (document.get("slate") or {}).get("handoff"),
+                   ((document.get("slate") or {}).get("exchange") or {}).get("handoff")):
+        if isinstance(holder, dict) and holder.get("logicalHandoffSha256"):
+            bound = str(holder["logicalHandoffSha256"]).lower()
+            break
+    if not handoff_sha256 or bound != str(handoff_sha256).lower():
+        failures.append("RECEIPT_DOES_NOT_BIND_THE_PACKETS_HANDOFF")
+    exposed = aware(document.get("packageExposedAtUtc"))
+    if document.get("packageExposedAtUtc") in (None, "") or exposed is None:
+        # A retained (already published) package exposes nothing; exposure is
+        # then unproved and is never inferred from generatedAt or completion.
+        failures.append("RECEIPT_PACKAGE_EXPOSED_AT_UTC_ABSENT_EXPOSURE_UNPROVED")
+    elif exposed > anchor_at:
+        failures.append("RECEIPT_EXPOSURE_AFTER_THE_ANCHOR")
+    return failures, exposed
+
+
+def find_publication_receipt(receipt_root: str | Path | None, *, object_sha: str | None, game_id: str | None,
+                             handoff_sha256: str | None, anchor_at: datetime | None) -> dict[str, Any]:
+    """The exact per-object atomic publication receipt for this object, or why not.
+
+    Every ``<receiptSHA>/incremental-publication.json`` under the root is read
+    and every condition checked; the earliest supported exposure wins when more
+    than one qualifies. Nothing is inferred: a receipt without a real
+    ``packageExposedAtUtc``, or one exposed after the anchor, is rejected.
+    """
+
+    out: dict[str, Any] = {"bound": False, "referenceClass": None, "ref": None, "reasonCodes": [],
+                           "exposedAtUtc": None, "root": None, "candidates": [], "receipt": None}
+    reasons: list[str] = out["reasonCodes"]
+    sha = str(object_sha or "").lower()
+    if not receipt_root:
+        reasons.append("LIMITATION_PUBLICATION_RECEIPT_ROOT_NOT_CONFIGURED")
+        return out
+    if anchor_at is None or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        reasons.append("LIMITATION_PUBLICATION_RECEIPT_NOT_LOOKED_UP_NO_ANCHOR_OR_OBJECT")
+        return out
+    root = Path(receipt_root)
+    out["root"] = str(root)
+    try:
+        entries = sorted(e.path for e in os.scandir(root) if e.is_dir())
+    except OSError:
+        reasons.append("LIMITATION_PUBLICATION_RECEIPT_ROOT_UNREADABLE")
+        return out
+    qualified: list[tuple[datetime, dict[str, Any]]] = []
+    for entry in entries:
+        candidate = read_publication_receipt(Path(entry) / PUBLICATION_RECEIPT_FILE)
+        if candidate is None:
+            continue
+        document = candidate["document"]
+        if str(document.get("objectSha256") or "").lower() != sha:
+            continue                            # a receipt for another object: not this packet's business
+        failures, exposed = _receipt_failures(candidate, object_sha=sha, game_id=game_id,
+                                              handoff_sha256=handoff_sha256, anchor_at=anchor_at)
+        out["candidates"].append({"path": candidate["path"], "sha256": candidate["sha256"],
+                                  "bytes": candidate["bytes"], "packageExposedAtUtc": iso(exposed),
+                                  "failures": failures})
+        if not failures and exposed is not None:
+            qualified.append((exposed, candidate))
+    if not out["candidates"]:
+        reasons.append("LIMITATION_PUBLICATION_RECEIPT_NOT_FOUND_FOR_THIS_OBJECT")
+        return out
+    if not qualified:
+        reasons.append("LIMITATION_PUBLICATION_RECEIPT_FOUND_BUT_CONDITIONS_NOT_MET")
+        return out
+    exposed, candidate = min(qualified, key=lambda pair: (pair[0], pair[1]["path"]))
+    document = candidate["document"]
+    out.update({
+        "bound": True, "referenceClass": REFERENCE_CLASS_RECEIPT, "exposedAtUtc": iso(exposed),
+        "ref": {"path": candidate["path"], "sha256": candidate["sha256"], "bytes": candidate["bytes"],
+                "locator": (f"{PUBLICATION_RECEIPT_FILE}: the producer's per-object atomic publication "
+                            f"receipt for object {sha}; packageExposedAtUtc={iso(exposed)} is the actual "
+                            "exchange-directory rename, selectedObjectSha256 and completedObjectIncluded "
+                            "verified, exposure at or before this packet's anchor")},
+        "receipt": {
+            "packageExposedAtUtc": iso(exposed),
+            "publicationCompletedAtUtcLocalCompletion": iso(document.get("publicationCompletedAtUtc")),
+            "callbackConfirmedAtUtc": iso(document.get("callbackConfirmedAtUtc")),
+            "forecastCreatedAtUtc": iso(document.get("forecastCreatedAt")),
+            "capturedAtUtc": iso(document.get("capturedAt")),
+            "gameId": document.get("gameId"),
+            "objectSha256": document.get("objectSha256"),
+            "selectedObjectSha256": document.get("selectedObjectSha256"),
+            "completedObjectIncluded": document.get("completedObjectIncluded"),
+            "newInference": document.get("newInference"),
+            "deploymentIdentity": document.get("deploymentIdentity"),
+            "publicationClockMeaning": document.get("publicationClockMeaning"),
+        },
+    })
+    reasons.append("LIMITATION_PUBLICATION_RECEIPT_BOUND_ATOMIC_EXPOSURE_IS_A_SEPARATE_CLOCK")
+    return out
 
 
 # ---------------------------------------------------------------------------

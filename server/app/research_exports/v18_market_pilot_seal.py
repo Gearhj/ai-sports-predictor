@@ -255,11 +255,20 @@ def _game_pk(session: Session, game_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 def build_inputs(settings: Settings) -> pilot.BuildInputs:
     protocol = pilot.load_frozen_protocol(settings.v18_market_pilot_protocol_dir or None)
+    def _root(value: str | None) -> Path | None:
+        return Path(value) if value else None
+
     return pilot.BuildInputs(
         protocol=protocol,
         quarantine_ledger_path=Path(settings.v18_market_pilot_quarantine_ledger_path),
         raw_data_root=Path(settings.raw_data_root),
         mode=pilot.MODE_PROSPECTIVE,
+        # Model Studio's already-readable originals for the SAME bytes the
+        # ACL-restricted exchange package holds. Read-only, and only ever used
+        # when the physical digest and length equal the bound identity.
+        canonical_object_root=_root(settings.v18_market_pilot_canonical_object_root),
+        canonical_handoff_root=_root(settings.v18_market_pilot_canonical_handoff_root),
+        publication_receipt_root=_root(settings.v18_market_pilot_publication_receipt_root),
     )
 
 

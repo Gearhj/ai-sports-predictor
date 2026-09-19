@@ -435,6 +435,28 @@ class Settings(BaseSettings):
     v18_market_pilot_quarantine_ledger_path: str = Field(default=str(
         Path.home() / "asp-model-studio" / "server" / "artifacts" / "governance"
         / "mlb-final-oot-quarantine-v1.json"))
+    # -- Model Studio's readable canonical originals (SOURCE_ACCESS_REPAIR_PROPOSAL
+    # f69c0bf6aca205926bf707ccc8c665d89a86d711e07d1f34987fdbfbdb7e0572, 2026-09-19).
+    # The exchange package the importer read is ACL-restricted to elevated tokens,
+    # so a packet's object/input/receipt references resolve to files the producer's
+    # own private reader cannot open. These roots hold the SAME bytes, already
+    # readable unelevated. They are only ever read; a reference moves to them only
+    # when the physically read digest and length equal the identity the packet
+    # already binds, and never for an already-sealed packet.
+    #: <root>/<objectSHA>/manifest.json, pregame-evidence.json, execution-inputs.json.
+    v18_market_pilot_canonical_object_root: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-current-state-pipeline-v1"
+        / "objects" / "sha256"))
+    #: <root>/<logicalHandoffSHA>/aisp-handoff.json. Read only to learn the exact
+    #: member file names the handoff names; never emitted as a packet reference.
+    v18_market_pilot_canonical_handoff_root: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-current-state-pipeline-v1"
+        / "handoffs" / "sha256"))
+    #: <root>/<receiptSHA>/incremental-publication.json: the per-object atomic
+    #: publication receipt whose packageExposedAtUtc is the exchange-directory rename.
+    v18_market_pilot_publication_receipt_root: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-unattended-v1"
+        / "objects" / "sha256"))
     #: The same pilot's consumer-admitted outcomes (Model Studio's "same-final
     #: export"). A SEPARATE switch, OFF by default and inert when off. When on,
     #: a 10-minute research-export job reads only episodes with an authentic
