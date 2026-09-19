@@ -251,15 +251,21 @@ def ingest_exchange(session: Session, settings: Any, *, now: datetime | None = N
                     "already_recorded": existing is not None and existing.game_state_observation_id is not None})
             continue
 
-        if existing is not None:
+        if existing is not None and existing.game_state_observation_id is not None:
             existing.currently_source_confirmed = True
             existing.disposition = lane.CONFIRMED
             existing.final_discovery_manifest_id = manifest_row.id
             existing.discovery_manifest_sha256 = manifest_row.manifest_sha256
+            # The identity now agrees, so an earlier reconciliation note is spent.
+            existing.reconciliation_required = False
+            existing.reconciliation_reason = None
             summary["observations_reused"] += 1
             touched.add(game.id)
             continue
 
+        # Either the first time this record is seen, or a revision that was
+        # retained WITHOUT a final (withdrawn, or unreconciled) and that the
+        # source now confirms again. Both need a state observation written.
         state = GameStateObservation(
             game_id=game.id, home_team_id=sides.get(True), away_team_id=sides.get(False),
             scheduled_at=game.starts_at, status=GameStatus.FINAL.value,
@@ -270,10 +276,22 @@ def ingest_exchange(session: Session, settings: Any, *, now: datetime | None = N
             payload_checksum=record.record_sha256)
         session.add(state)
         session.flush()
-        row = _retained_row(record, game_id=game.id, manifest=manifest_row, disposition=lane.CONFIRMED,
-                            reconciliation=None, confirmed=True)
-        row.game_state_observation_id = state.id
-        session.add(row)
+        if existing is not None:
+            # One row per revision: the retained row is re-confirmed in place, never
+            # duplicated, and now carries the final the source confirms again.
+            row = existing
+            row.currently_source_confirmed = True
+            row.disposition = lane.CONFIRMED
+            row.final_discovery_manifest_id = manifest_row.id
+            row.discovery_manifest_sha256 = manifest_row.manifest_sha256
+            row.reconciliation_required = False
+            row.reconciliation_reason = None
+            row.game_state_observation_id = state.id
+        else:
+            row = _retained_row(record, game_id=game.id, manifest=manifest_row, disposition=lane.CONFIRMED,
+                                reconciliation=None, confirmed=True)
+            row.game_state_observation_id = state.id
+            session.add(row)
         session.flush()
         existing_rows[record.record_sha256] = row
         summary["observations_written"] += 1

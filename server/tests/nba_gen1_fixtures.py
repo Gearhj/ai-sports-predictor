@@ -345,8 +345,14 @@ def write_finals_lane(root: pathlib.Path, handoff: dict, entries: list[dict[str,
         if entry.get("mutate"):
             entry["mutate"](record)
         record_ref = ref(content_addressed(finals_root / "finals", "final.json", record))
-        outcomes.append({"gameId": record["gameId"], "revisionKey": record["revisionKey"],
-                         "record": record_ref, "currentlySourceConfirmed": entry.get("confirmed", True)})
+        retained = next((o for o in outcomes if o["revisionKey"] == record["revisionKey"]), None)
+        if retained is not None:
+            # Exactly what the producer does when the same witness reappears: the
+            # preserved outcome is re-marked current, never listed twice.
+            retained["currentlySourceConfirmed"] = entry.get("confirmed", True)
+        else:
+            outcomes.append({"gameId": record["gameId"], "revisionKey": record["revisionKey"],
+                             "record": record_ref, "currentlySourceConfirmed": entry.get("confirmed", True)})
         built[str(record["gameId"])] = {"record": record_ref, "document": record}
 
     inventory = games if games is not None else [

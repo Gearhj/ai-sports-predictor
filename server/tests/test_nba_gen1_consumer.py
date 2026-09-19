@@ -716,6 +716,29 @@ def test_a_withdrawn_final_is_retained_as_ineligible_and_demands_reconciliation(
     assert (game.home_score, game.away_score) == (121, 117)
 
 
+def test_a_withdrawn_final_the_source_confirms_again_is_settled_without_a_duplicate_row(session, world):
+    """Membership can come back. One row per revision, and the final is recorded then."""
+
+    row = _admitted(session, world)
+    first, configured = _lane(world, [{"game": fx.game(), "home": 121, "away": 117}])
+    gen1_finals.ingest_exchange(session, configured, now=NOW + timedelta(hours=5))
+    _, withdrawn = _lane(world, [], previous=first, captured="2026-10-21T05:20:00+00:00",
+                         games=[{"gameId": "nba-espn:game:990000001", "sourceGameId": 990000001,
+                                 "disposition": "NOT_SOURCE_FINAL", "sourceStatus": "STATUS_SUSPENDED",
+                                 "scheduledTipoffUtc": fx.TIPOFF.isoformat(), "reason": None,
+                                 "currentFinal": None}])
+    gen1_finals.ingest_exchange(session, withdrawn, now=NOW + timedelta(hours=8))
+    # The same witness reappears under the original capture: membership returns.
+    _, restored = _lane(world, [{"game": fx.game(), "home": 121, "away": 117}], previous=first)
+    result = gen1_finals.ingest_exchange(session, restored, now=NOW + timedelta(hours=9))
+    assert result["currently_source_confirmed"] == 1, result
+    rows = list(session.scalars(select(NbaFinalObservation)))
+    assert len(rows) == 1 and rows[0].currently_source_confirmed is True
+    assert rows[0].game_state_observation_id is not None and rows[0].reconciliation_required is False
+    assert rows[0].disposition == "SOURCE_CONFIRMED_FINAL"
+    game = session.get(Game, row.canonical_game_id)
+    assert game.status == GameStatus.FINAL and (game.home_score, game.away_score) == (121, 117)
+
 def test_a_final_whose_schedule_or_participants_moved_is_never_settled_automatically(session, world):
     row = _admitted(session, world)
     moved = fx.game(tipoff=fx.TIPOFF + timedelta(hours=2))

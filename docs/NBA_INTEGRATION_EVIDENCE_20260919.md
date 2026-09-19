@@ -261,3 +261,70 @@ the owner activates the consumer (plan O1/O2) the first real import will record,
 
 Until that import happens, the honest statement is the one this branch makes everywhere: the evidence
 verifies, nothing is eligible, and no paper authority exists.
+
+## 8. The acknowledgement AISP sends Model Studio once this is deployed
+
+Send this verbatim, filling in only the deployed commit and the deploy time. It
+claims nothing that has not happened.
+
+> **AISP consumer conformance acknowledgement — NBA Gen1, 2026-09-19**
+>
+> AISP has implemented the three corrections from your conformance review and
+> read your own bytes to prove them.
+>
+> 1. **V2 package effective clock.** A `…FORECAST_PACKAGE_INDEX_V2` package is now
+>    dated by the slate release it binds in `forecast.bindings.slateRelease`,
+>    verified by path, SHA-256 and byte count, and required to be the same object
+>    the package index names. The pinned model handoff
+>    `7113b71ff5819c89103ad19d5f9afb22c51dbc92980be12b56ce8826cb34ccaf` is checked
+>    independently and is unchanged. V1 packages keep their handoff comparison. We
+>    read release `9c5de22ce0cf9d366d7297202cccd4b18ba8738c2a8fccf1449cd8fdc17a4a0b`
+>    and record its effective clock `2026-09-19T20:26:29.236061Z` as the clock a V2
+>    package published under it must carry. No preserved older package is re-dated
+>    by a newer release; each row keeps its own release SHA-256 and its own clock.
+>
+> 2. **Source-confirmed finals lane.** `finals-discovery/current.json` →
+>    `NBA_GEN1_FINAL_DISCOVERY_V1` → `NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1` is
+>    implemented as the production final path, with the retained season exports
+>    kept as a separate historical-reconstruction lane. We verified your shipped
+>    fixture lane end to end in the AISP process: manifest
+>    `4acfb73e378b4a606db4c8979cf4efbb56350803150b94e5fbbe925f5996256c`, current
+>    record `a38c637a70ee7f322b19081daefa3fec060fff4878deed2d15f95dad0e696e62`
+>    (DET 112 – BOS 109), preserved revision
+>    `4e16756e4ded62d7c962e2736aedc5ee3cfcd5829bd61a670775d4c005958464` retained
+>    with membership false, contract
+>    `e5e070165dcd164faddf323bb30370ed6d465983d12884a23a76c1c6c5224ec1`.
+>    `completedAtUtc` is null in our store and a database CHECK keeps it null;
+>    `capturedAtUtc`, `sourceValidatedAtUtc` and `admittedAtUtc` are stored as
+>    themselves and never substituted for completion. Withdrawn, corrected-away,
+>    absent, identity-changed and rejected finals are retained as explicitly
+>    ineligible evidence and reported for explicit reconciliation; none is settled
+>    automatically. We join only exact game, franchise and tipoff identities, and a
+>    game we do not hold is listed, never guessed.
+>
+> 3. **Recurring paper authorisation.** We accept only a release-bound
+>    `NBA_RECURRING_PAPER_AUTHORIZATION_V1`, checked against your own required
+>    fields, the unchanged policy terms and their prior supplement, the approval
+>    interval, and the release that binds it. Your grant
+>    `6c30bcf2f761545ce3cc3916deae60424f0d7e8c2a908be24739529860377aa5` validates
+>    inside `2026-10-13T18:00Z → 2027-04-19T04:00Z` and reports `GRANT_NOT_CURRENT`
+>    today. Today's release carries `paperEligibilityAuthorization: null`, so our
+>    checkpoint reports `NO_PAPER_AUTHORIZATION`, writes no companions and imports
+>    evidence as usual. We have not widened the 2026-09-15 single-game
+>    authorisation: every position still requires the per-forecast
+>    `ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1` companion and a current lease, and a
+>    season-scoped grant is recorded as a separate owner proposal.
+>
+> Unchanged and still true: `NO_LEASE_IN_SCHEMA` for V1 discovery; the joint
+> 10,000-draw distribution is the controlling paper channel with Elo recorded
+> separately and never blended; no September clock is treated as fresh
+> eligibility.
+>
+> **Still not done, and we are not claiming it:** no real V2 forecast package
+> exists yet, so V2 package import has been exercised only on fixtures shaped from
+> your publisher source and on your release document. The first real verification
+> is due at your first publication checkpoint, 2026-10-13T19:00Z. Nothing NBA is
+> switched on in AISP: the consumer, the paper decisions and the price lane are
+> all off, and no provider request has been made.
+>
+> Deployed: `<commit>` (migrations `20260919_0048`, `20260919_0049`) at `<time>`.

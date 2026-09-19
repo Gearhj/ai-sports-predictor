@@ -146,6 +146,15 @@ def _advisory_bind(ref: Any, label: str, advisories: list[str]) -> dict[str, Any
         return {"bytes": len(raw)}
 
 
+def _clock(value: Any) -> datetime | None:
+    """One clock from a record, or None. A malformed clock refuses ONE final, not the lane."""
+
+    try:
+        return common.ts(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def _contract_ok(ref: Any) -> bool:
     """Prove one finals-exchange contract document from its own bytes."""
 
@@ -168,8 +177,12 @@ def _verify_record(outcome: dict[str, Any], manifest: dict[str, Any], *,
     cached = (known or {}).get(sha)
     if cached is not None:
         # The bytes cannot change without the SHA-256 changing, and the SHA-256 is
-        # what the manifest binds. Membership is the only thing that moves.
-        record = FinalRecord(**{**cached.__dict__, "currently_confirmed": confirmed})
+        # what the manifest binds. Membership is the only thing that moves -- and
+        # the one check that depends on it is re-run here rather than assumed.
+        record = FinalRecord(**{**cached.__dict__, "currently_confirmed": confirmed,
+                                "problems": list(cached.problems)})
+        if confirmed and _ref_sha(record.doc.get("source")) != _ref_sha(manifest.get("source")):
+            record.problems.append("CURRENT_RECORD_NAMES_A_DIFFERENT_SOURCE_OBJECT")
         return record
     doc: dict[str, Any] = {}
     try:
@@ -221,14 +234,14 @@ def _verify_record(outcome: dict[str, Any], manifest: dict[str, Any], *,
     except (KeyError, TypeError, ValueError):
         problems.append("FINAL_SCORE_MISSING_OR_NONINTEGRAL")
 
-    captured = common.ts(doc.get("capturedAtUtc"))
-    validated = common.ts(doc.get("sourceValidatedAtUtc"))
-    admitted = common.ts(doc.get("admittedAtUtc"))
+    captured = _clock(doc.get("capturedAtUtc"))
+    validated = _clock(doc.get("sourceValidatedAtUtc"))
+    admitted = _clock(doc.get("admittedAtUtc"))
     if captured is None or validated is None or admitted is None:
         problems.append("CAPTURE_VALIDATION_ADMISSION_CLOCK_MISSING")
     elif not captured <= validated <= admitted:
         problems.append("CLOCK_ORDER_CAPTURE_VALIDATION_ADMISSION")
-    tipoff = common.ts(game.get("scheduled_tipoff_utc"))
+    tipoff = _clock(game.get("scheduled_tipoff_utc"))
     if tipoff is None:
         problems.append("SOURCE_TIPOFF_MISSING")
     elif captured is not None and tipoff >= captured:
@@ -360,7 +373,7 @@ def verify_lane(pointer_path: Any, *, handoff_sha256: str | None = None,
         "pointer_path": str(pointer_file), "manifest_sha256": manifest_sha,
         "manifest_bytes": len(manifest_raw), "manifest": manifest,
         "schema_version": manifest.get("schemaVersion"),
-        "created_at_utc": common.ts(manifest.get("createdAtUtc")),
+        "created_at_utc": _clock(manifest.get("createdAtUtc")),
         "predecessor_sha256": _ref_sha(manifest.get("predecessor")) or None,
         "contract_sha256": _ref_sha(manifest.get("contract")) or None,
         "release_sha256": _ref_sha(manifest.get("release")) or None,
