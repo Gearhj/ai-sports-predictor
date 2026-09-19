@@ -172,8 +172,12 @@ function EvaluatedBody({ card, color, showReason }: { card: EdgeCard; color: str
       <dl className="cc-ecard__nums">
         <div><dt>Model</dt><dd>{pct(card.modelProbability)}</dd></div>
         <div><dt>No-vig</dt><dd>{pct(card.marketProbability)}</dd></div>
-        <div><dt>{card.edgeBasis === 'ADJUSTED' ? 'Adj. edge' : 'Edge'}</dt><dd className={!declined && (card.edge ?? 0) > 0 ? 'is-up' : ''} title={pts(card.edge)}>{pts(card.edge).replace(' pts', '')}<small> pts</small></dd></div>
-        <div><dt>Exp. return</dt><dd className={!declined && (card.expectedValue ?? 0) > 0 ? 'is-up' : ''}>{signedPct(card.expectedValue)}</dd></div>
+        {/* The recorded policy value only; the stored unadjusted break-even figure is never shown under this name. */}
+        <div><dt>Recorded policy-adjusted edge</dt>
+          {card.recordedPolicyEdge == null
+            ? <dd className="is-dim">unavailable</dd>
+            : <dd className={!declined && card.recordedPolicyEdge > 0 ? 'is-up' : ''} title={pts(card.recordedPolicyEdge)}>{pts(card.recordedPolicyEdge).replace(' pts', '')}<small> pts</small></dd>}</div>
+        <div><dt>{card.expectedValueBasis === 'UNADJUSTED_MODEL' ? 'Unadjusted model return' : 'Recorded policy-adjusted return'}</dt><dd className={!declined && (card.expectedValue ?? 0) > 0 ? 'is-up' : ''}>{signedPct(card.expectedValue)}</dd></div>
       </dl>
       <ProbabilityRail label={`${card.selectionLabel ?? 'Selection'} win probability`} range={card.range} consensus={card.consensus}
         consensusCurrent={card.consensusCurrent} model={card.modelProbability} bookProbability={card.marketProbability}

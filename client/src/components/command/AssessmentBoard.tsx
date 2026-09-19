@@ -30,7 +30,7 @@ import {
 } from '../../services/probability'
 import { topPlay } from '../../services/topPlay'
 import { marketLine, modelLine, type StatusLine } from '../../services/pregameStatus'
-import { inputsLine, otherFigures, testLine, type EdgeMetrics } from '../../services/decisionEdges'
+import { inputsLine, otherFields, testLine, valueText, type EdgeMetrics } from '../../services/decisionEdges'
 import { MarketSections, TopOpportunity } from './TopOpportunity'
 import './assessments.css'
 
@@ -226,13 +226,20 @@ export function PregameStatus({ game }: { game: CoverageGame | null }) {
 }
 
 /** The policy's own tests, then the inputs, then any other recorded figure -- each named. */
+/**
+ * What this decision recorded, as recorded: the policy's own tests first, then
+ * the recorded inputs, then every other stored figure under its own name.
+ * Nothing here is recomputed from current quotes or current forecasts.
+ */
 function EdgeTests({ metrics, book }: { metrics: EdgeMetrics; book: string }) {
-  const others = otherFigures(metrics)
+  const others = otherFields(metrics)
   return (
-    <div className="as-edges" aria-label="Policy tests">
+    <div className="as-edges" aria-label="Recorded policy tests">
       {metrics.tests.map((t) => <p key={t.metric} className={t.passed ? 'is-pass' : 'is-fail'}>{testLine(t)}</p>)}
       <p className="as-dim">{inputsLine(metrics)} · {book}</p>
-      {others && <p className="as-dim">Also recorded: {others}</p>}
+      {others.map((f) => (
+        <p key={f.key} className="as-dim" title={f.source}>{f.label}: {valueText(f)}{f.note && !f.available ? ` (${f.note})` : ''}</p>
+      ))}
     </div>
   )
 }
@@ -274,7 +281,7 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day }: { card
         {reasons.slice(0, 3).map((r) => <p key={r}>{r}</p>)}
         {item?.edge_metrics
           ? <EdgeTests metrics={item.edge_metrics} book={shortBook(item.sportsbook) || 'the recorded book'} />
-          : item?.edge != null && <p className="as-dim">Model minus the offered price's break-even: {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · expected return at the offered price ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'}</p>}
+          : item?.edge != null && <p className="as-dim">Unadjusted model probability minus the offered price's break-even probability: {(item.edge * 100).toFixed(1)} pts{item.expected_value != null ? ` · unadjusted model-implied expected return at the offered odds ${(item.expected_value * 100).toFixed(1)}%` : ''} at {shortBook(item.sportsbook) || 'the recorded book'} · recorded policy-adjusted edge {item.adjusted?.edge != null ? `${(item.adjusted.edge * 100).toFixed(1)} pts` : 'unavailable'}</p>}
       </div>
       <footer className="as-actions">
         <Link to={gameHref(sport, card.key)}>Analyze</Link>

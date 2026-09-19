@@ -90,7 +90,11 @@ export interface EdgeCard {
   range: [number, number] | null
   edge: number | null
   edgeBasis: 'ADJUSTED' | 'RECORDED' | null
+  /** Display only: evidence.adjusted_edge exactly as the decision recorded it; null = unavailable. */
+  recordedPolicyEdge: number | null
   expectedValue: number | null
+  /** Which return `expectedValue` is: the recorded policy-adjusted one, or the stored unadjusted model return. */
+  expectedValueBasis: 'RECORDED_POLICY_ADJUSTED' | 'UNADJUSTED_MODEL' | null
   price: PriceTerms | null
   position: { american: number | null; sportsbook: string | null; stake: number | null; status: string; result: string | null; profitLoss: number | null } | null
   reason: string | null
@@ -215,7 +219,10 @@ export function evaluatedCard(item: DecisionItem, game: CoverageGame | null, led
     range: side && game ? rangeForSide(bookRange(game), side) : null,
     edge: adjusted ? item.adjusted!.edge : item.edge,
     edgeBasis: adjusted ? 'ADJUSTED' : 'RECORDED',
+    recordedPolicyEdge: item.adjusted?.edge ?? null,
     expectedValue: item.adjusted?.expected_value ?? item.expected_value,
+    expectedValueBasis: item.adjusted?.expected_value != null ? 'RECORDED_POLICY_ADJUSTED'
+      : item.expected_value != null ? 'UNADJUSTED_MODEL' : null,
     price,
     position: positionFor(item, ledger),
     reason: plainReason(item),
@@ -246,7 +253,9 @@ export function leanCard(game: CoverageGame, sport: SportCode, analyzeHref: stri
     range: current && side ? rangeForSide(bookRange(game), side) : null,
     edge: null,
     edgeBasis: null,
+    recordedPolicyEdge: null,
     expectedValue: null,
+    expectedValueBasis: null,
     price: best && best.american != null
       ? { american: best.american, sportsbook: best.sportsbook, provider: best.provider, classification: null, observedAt: best.observed_at, basis: 'BEST_CURRENT' }
       : reference ? { american: null, sportsbook: null, provider: null, classification: null, observedAt: game.freshest_observed_at, basis: 'REFERENCE' } : null,

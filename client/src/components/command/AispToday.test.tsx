@@ -17,7 +17,7 @@ describe('AISP Today summary', () => {
     const items = [
       decision(clock, '1', a, { recommendation: 'QUALIFIED_BET', edge: 0.06 }),
       decision(clock, '1b', a, { recommendation: 'QUALIFIED_BET', edge: 0.05 }),
-      decision(clock, '2', b, { recommendation: 'WATCH', phase: 'LINEUP_CONFIRMED', edge: 0.021 }),
+      decision(clock, '2', b, { recommendation: 'WATCH', phase: 'LINEUP_CONFIRMED', edge: 0.021, adjusted: { edge: 0.015, expected_value: 0.01, probability: 0.5 } }),
       decision(clock, '4', started, { recommendation: 'NO_BET', edge: 0.09 }),
     ]
     const positions = [{
@@ -35,8 +35,10 @@ describe('AISP Today summary', () => {
     expect(summary.qualified).toBe(1)
     expect(summary.openPositions).toBe(s.ledger.sports.flatMap((x) => x.positions).filter((p) => p.status !== 'SETTLED').length)
     // Closest excludes qualified games and games already under way.
-    expect(summary.closest).toMatchObject({ matchup: b.matchup, edge: 0.021 })
-    expect(summary.closest?.text).toBe('model minus break-even +2.1 pts')
+    // Ranked on the recorded policy-adjusted edge, not the stored break-even figure (0.021).
+    expect(summary.closest).toMatchObject({ matchup: b.matchup })
+    expect(summary.closest?.edge).toBeCloseTo(0.015 - 0.02, 6)
+    expect(summary.closest?.text).toBe('recorded policy-adjusted edge +1.5 pts, policy requires ≥ 2.0 pts')
     expect(summary.nextWindow?.at).toBe(a.checkpoints.decision_window_opens_at)
     expect(summary.story).toMatch(/^4 games on the slate, 3 with a forecast and 2 with a current sportsbook price; 1 decision qualifies; 1 virtual position open; the next decision window opens at/)
   })

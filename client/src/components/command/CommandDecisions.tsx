@@ -43,7 +43,7 @@ import { signedCents, topPlay } from '../../services/topPlay'
 import { ParlayLab } from './ParlayLab'
 import { AllMarkets, MyCard } from './MarketsAndCard'
 import { useMyCard } from '../../services/myCard'
-import { controllingMargin, testLine, testThresholdText, testValueText } from '../../services/decisionEdges'
+import { controllingMargin, recordedPolicyEdge, testLine, testThresholdText, valueText } from '../../services/decisionEdges'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
@@ -546,16 +546,21 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
         <div><dt>Price</dt><dd>{price ? price.text : '—'}</dd>
           <small>{price ? `${price.book}${price.when ? ` · ${relative(price.when)}` : ''}` : game?.price_state === 'STORED_REFERENCE_ONLY' ? 'stale reference only' : 'not collected'}</small></div>
         <div><dt>Market</dt><dd>{pct(marketP, 1)}</dd><small>no-vig</small></div>
-        {item?.edge_metrics?.tests.length
-          ? (
-            <div title={item.edge_metrics.tests.map(testLine).join(' · ')}><dt>Policy test</dt>
-              <dd className={item.edge_metrics.tests[0].passed ? 'is-up' : 'is-down'}>{testValueText(item.edge_metrics.tests[0])}</dd>
-              <small>{item.edge_metrics.tests[1] ? `${item.edge_metrics.tests[1].metric.includes('adjusted') ? 'adj. ' : ''}return ${testValueText(item.edge_metrics.tests[1])}` : testThresholdText(item.edge_metrics.tests[0])}</small></div>
+        {(() => {
+          // What the decision recorded, never a figure recomputed now. The
+          // stored `edge` column (unadjusted model minus break-even) is not
+          // the policy edge and is not shown under that name.
+          const recorded = item ? recordedPolicyEdge(item) : null
+          const value = recorded ? recorded.value : item?.adjusted?.edge ?? null
+          const second = item?.edge_metrics?.tests.find((t) => t.metric !== 'recorded_policy_adjusted_edge') ?? null
+          return (
+            <div title={item?.edge_metrics ? item.edge_metrics.tests.map(testLine).join(' · ') : undefined}>
+              <dt>Recorded policy-adjusted edge</dt>
+              <dd className={value == null ? '' : value >= 0.02 ? 'is-up' : 'is-down'}>{value == null ? 'unavailable' : valueText({ value, unit: 'probability_points' })}</dd>
+              <small>{second ? `${second.label.replace(/^Recorded /, 'recorded ').replace(' at the offered odds', '')}: ${valueText(second)}` : item?.edge_metrics?.tests[0] ? testThresholdText(item.edge_metrics.tests[0]) : '—'}</small>
+            </div>
           )
-          : (
-            <div><dt>vs break-even · return</dt><dd className={item?.edge != null ? (item.edge >= 0 ? 'is-up' : 'is-down') : ''}>{item?.edge != null ? `${(item.edge * 100).toFixed(1)} pts` : '—'}</dd>
-              <small>{item?.expected_value != null ? `return ${(item.expected_value * 100).toFixed(1)}%` : '—'}</small></div>
-          )}
+        })()}
       </dl>
       {twoSided && (
         <p className="cc-dcard__market">

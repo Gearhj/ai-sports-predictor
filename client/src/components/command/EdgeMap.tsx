@@ -12,7 +12,7 @@ import {
   SPORT_COLORS, SPORT_NAMES, gameHref, type DecisionGroup, type DecisionItem, type SportCode,
 } from '../../services/commandCenter'
 import { ChartTable, Tooltip, activate, useReducedMotion, useTooltip, useWidth } from './chartKit'
-import { advantageOverNoVig, controllingTest, ptsText, testThresholdText, testValueText } from '../../services/decisionEdges'
+import { controllingTest, ptsText, testThresholdText, unadjustedOverNoVig, valueText } from '../../services/decisionEdges'
 
 const GROUP_LABEL: Record<DecisionGroup, string> = {
   READY: 'Ready now', WATCHING: 'Watching', POSITION: 'Position', PASSED: 'Passed', CLOSED: 'Closed',
@@ -55,8 +55,8 @@ export const EdgeMap = memo(function EdgeMap({ items }: { items: DecisionItem[] 
       <dl>
         <dt>Model</dt><dd>{pct(d.model_probability)}</dd>
         <dt>Market (no-vig)</dt><dd>{pct(d.market_probability)}</dd>
-        <dt>Model − no-vig</dt><dd>{ptsText(advantageOverNoVig(d))}</dd>
-        {controllingTest(d) && <><dt>Policy test</dt><dd>{testValueText(controllingTest(d)!)} ({testThresholdText(controllingTest(d)!)})</dd></>}
+        <dt>Unadjusted model − no-vig</dt><dd>{ptsText(unadjustedOverNoVig(d))}</dd>
+        {controllingTest(d) && <><dt>{controllingTest(d)!.label}</dt><dd>{valueText(controllingTest(d)!)} ({testThresholdText(controllingTest(d)!)})</dd></>}
         <dt>Price</dt><dd>{d.american == null ? '—' : `${d.american > 0 ? '+' : ''}${d.american}`}{d.sportsbook ? ` · ${d.sportsbook}` : ''}</dd>
         <dt>Evaluation</dt><dd>{d.recommendation.replace(/_/g, ' ').toLowerCase()} · {d.phase.replace(/_/g, ' ').toLowerCase()}</dd>
         <dt>Status</dt><dd>{GROUP_LABEL[d.group]}{d.position?.stake != null ? ` · $${d.position.stake.toFixed(2)}` : ''}</dd>
@@ -125,13 +125,13 @@ export const EdgeMap = memo(function EdgeMap({ items }: { items: DecisionItem[] 
         {unplotted ? ` ${unplotted} evaluation${unplotted === 1 ? ' has' : 's have'} no persisted price and ${unplotted === 1 ? 'is' : 'are'} not plotted.` : ''}
       </p>
       <ChartTable caption="Evaluations with model and market probabilities">
-        <thead><tr><th>Sport</th><th>Game</th><th>Selection</th><th>Model</th><th>Market</th><th>Model − no-vig</th><th>Status</th></tr></thead>
+        <thead><tr><th>Sport</th><th>Game</th><th>Selection</th><th>Model</th><th>Market</th><th>Unadjusted model − no-vig</th><th>Status</th></tr></thead>
         <tbody>
           {plotted.map((d) => (
             <tr key={d.decision_id}>
               <td>{d.sport}</td><td>{d.matchup}</td><td>{d.selection}</td>
               <td>{pct(d.model_probability)}</td><td>{pct(d.market_probability)}</td>
-              <td>{ptsText(advantageOverNoVig(d))}</td><td>{GROUP_LABEL[d.group]}</td>
+              <td>{ptsText(unadjustedOverNoVig(d))}</td><td>{GROUP_LABEL[d.group]}</td>
             </tr>
           ))}
         </tbody>

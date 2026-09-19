@@ -1,35 +1,43 @@
-"""The edge figures behind one recorded decision, each named for what it is.
+"""The edge figures a decision RECORDED, each named for what it is.
 
 WHY
 ---
 CHC @ CIN on 2026-09-18 showed "+0.1 pts" in its reason and "edge -0.1 pts" one
-line below. Both were right; they were different quantities under one word:
+line below. Both were right; they were different quantities under one word.
+Traced from the code that wrote them:
 
-* the policy's ADJUSTED ADVANTAGE OVER THE NO-VIG MARKET,
-  ``evidence.adjusted_edge`` = (0.5718 - 0.02 starter) - 0.5507 = +0.11 pts;
-* the stored ``shadow_experiment_decisions.edge``, which is
-  ``forecast_exchange.pricing``'s raw model probability minus the offered
-  price's BREAK-EVEN probability (1/decimal, vig included) =
-  0.5718 - 0.57265 = -0.085 pts.
+* ``evidence.adjusted_edge`` -- practical_policy.py: the ADJUSTED model
+  probability (after the decision's recorded uncertainty and evidence
+  penalties) minus the same-book no-vig probability: (0.5718 - 0.02) - 0.5507
+  = +0.11 pts. The MLB policy's first test (>= 2.0 pts). Shown as
+  "Recorded policy-adjusted edge".
+* ``evidence.adjusted_expected_value`` -- practical_policy.py: the adjusted
+  probability's expected return at the offered decimal odds, p_adj*d - 1
+  (-3.64%). The MLB policy's second test (> 0).
+* ``shadow_experiment_decisions.edge`` -- forecast_exchange/pricing.py:286 via
+  the opportunity candidate's ``raw_edge``: the UNADJUSTED model probability
+  minus the offered price's BREAK-EVEN probability 1/d, vig included:
+  0.5718 - 0.57265 = -0.085 pts. Not a policy test.
+* ``shadow_experiment_decisions.expected_value`` -- pricing.py
+  ``expected_value(model.raw_win(), decimal)``: the UNADJUSTED model-implied
+  expected return at the offered odds, p_raw*d - 1 (-0.15%). Not a policy test.
 
-And the price the stake is paid at is a third quantity: the EXPECTED RETURN AT
-THE OFFERED PRICE, p x decimal - 1 (raw -0.15%, adjusted -3.64%).
+RULES
+-----
+Every value here is read from what the decision stored. Nothing is recomputed
+from current quotes, current forecasts, or the sampling-error mapping corrected
+on 2026-09-18 (e428b99): a decision made before that keeps the edge it was made
+on. A value the decision did not record is None and is shown as unavailable.
+The only arithmetic is 1/d of the recorded price, stated as the break-even.
 
-Exact identity, with q the same-book no-vig probability and d the decimal price:
-``p*d - 1 = (p - q)*d + (q*d - 1)`` -- the advantage over the no-vig market,
-scaled by the price, plus the market's own return at that price (the vig cost).
-
-WHAT EACH POLICY CONTROLS ON (unchanged; read from the recorded decision)
------------------------------------------------------------------------
-* MLB ``AISP_PRACTICAL_PREGAME_POLICY_V2_1``: adjusted advantage over no-vig
-  >= 2.0 pts AND adjusted expected return at the offered price > 0.
-* CFB ``AISP_CFB_PAPER_POLICY_V1`` (``research_paper_policy.moneyline_terms``):
-  advantage over no-vig >= 2.0 pts AND expected return > 0 (no penalties).
-* NFL ``AISP_NFL_PAPER_POLICY_V1``: tie-aware expected return per $1 at the
-  offered price >= 0.02; it has no no-vig advantage test.
-
-This module only reads what each decision recorded. It changes no decision,
-threshold or stored value.
+POLICY TESTS (unchanged; read from the recorded decision)
+--------------------------------------------------------
+* MLB ``AISP_PRACTICAL_PREGAME_POLICY_V2_1``: recorded policy-adjusted edge
+  >= 2.0 pts AND recorded policy-adjusted expected return > 0.
+* CFB ``AISP_CFB_PAPER_POLICY_V1``: recorded edge vs no-vig >= 2.0 pts AND
+  recorded expected return > 0 (this policy applies no adjustments).
+* NFL ``AISP_NFL_PAPER_POLICY_V1``: recorded tie-aware expected return per $1
+  >= 0.02; it records no no-vig edge.
 """
 
 from __future__ import annotations
@@ -39,6 +47,9 @@ from typing import Any
 MLB_POLICY = "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
 NFL_POLICY = "AISP_NFL_PAPER_POLICY_V1"
 CFB_POLICY = "AISP_CFB_PAPER_POLICY_V1"
+
+POINTS = "probability_points"
+RETURN = "return_per_dollar"
 
 
 def _decimal(american: Any) -> float | None:
@@ -58,10 +69,17 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def _test(metric: str, label: str, value: float | None, threshold: float, operator: str) -> dict[str, Any]:
+def _field(key: str, label: str, value: Any, unit: str, source: str, *, policy_test: bool = False,
+           note: str | None = None) -> dict[str, Any]:
+    return {"key": key, "label": label, "value": _num(value), "unit": unit, "source": source,
+            "policy_test": policy_test, "available": value is not None, "note": note}
+
+
+def _test(field: dict[str, Any], threshold: float, operator: str) -> dict[str, Any]:
+    value = field["value"]
     passed = None if value is None else (value >= threshold if operator == ">=" else value > threshold)
-    return {"metric": metric, "label": label, "value": value, "threshold": threshold,
-            "operator": operator, "passed": passed}
+    return {"metric": field["key"], "label": field["label"], "value": value, "unit": field["unit"],
+            "threshold": threshold, "operator": operator, "passed": passed}
 
 
 def edge_metrics(sport: str, american: Any, model_probability: Any, no_vig: Any,
@@ -72,40 +90,44 @@ def edge_metrics(sport: str, american: Any, model_probability: Any, no_vig: Any,
     if d is None:
         return None
     ev = evidence if isinstance(evidence, dict) else {}
-    break_even = 1.0 / d
+    offered = {"american": american, "decimal": round(d, 6), "break_even_probability": round(1.0 / d, 6)}
     sport = str(sport or "").upper()
 
     if sport in ("MLB", "BASEBALL_MLB"):
         from app.services.practical_policy import MIN_ADJUSTED_EDGE
 
-        p = _num(ev.get("raw_model_probability")) if ev.get("raw_model_probability") is not None else _num(model_probability)
-        q = _num(ev.get("market_probability")) if ev.get("market_probability") is not None else _num(no_vig)
-        p_adj = _num(ev.get("adjusted_probability"))
-        adv_adj = _num(ev.get("adjusted_edge"))
-        ret_adj = _num(ev.get("adjusted_expected_value"))
-        policy = ev.get("policy_version") or (MLB_POLICY if adv_adj is not None else None)
-        tests = ([
-            _test("advantage_vs_no_vig.adjusted", "Adjusted advantage over the no-vig market",
-                  adv_adj, MIN_ADJUSTED_EDGE, ">="),
-            _test("return_at_offered_price.adjusted", "Adjusted expected return at the offered price",
-                  ret_adj, 0.0, ">"),
-        ] if policy == MLB_POLICY else [])
-        penalties = ({"uncertainty": _num(ev.get("uncertainty_adjustment")), "starter": _num(ev.get("starter_penalty")),
-                      "lineup": _num(ev.get("lineup_penalty"))} if p_adj is not None else None)
+        policy = ev.get("policy_version") or (MLB_POLICY if "adjusted_edge" in ev else None)
+        edge = _field("recorded_policy_adjusted_edge", "Recorded policy-adjusted edge", ev.get("adjusted_edge"),
+                      POINTS, "shadow_experiment_decisions.evidence.adjusted_edge", policy_test=True,
+                      note="adjusted model probability minus the same-book no-vig probability, as recorded")
+        ret = _field("recorded_policy_adjusted_return",
+                     "Recorded policy-adjusted expected return at the offered odds",
+                     ev.get("adjusted_expected_value"), RETURN,
+                     "shadow_experiment_decisions.evidence.adjusted_expected_value", policy_test=True)
+        fields = [
+            edge, ret,
+            _field("unadjusted_edge_vs_break_even",
+                   "Unadjusted model probability minus the offered price's break-even probability",
+                   stored_edge, POINTS, "shadow_experiment_decisions.edge (forecast_exchange.pricing raw_edge)"),
+            _field("unadjusted_model_return", "Unadjusted model-implied expected return at the offered odds",
+                   stored_expected_value, RETURN, "shadow_experiment_decisions.expected_value"),
+            _field("recorded_unadjusted_edge_vs_no_vig",
+                   "Recorded unadjusted model probability minus the no-vig probability",
+                   ev.get("raw_edge"), POINTS, "shadow_experiment_decisions.evidence.raw_edge"),
+        ]
         return {
-            "policy": policy,
-            "offered": {"american": american, "decimal": round(d, 6), "break_even_probability": round(break_even, 6)},
-            "no_vig_probability": q,
-            "model_probability": {"raw": p, "adjusted": p_adj, "penalties": penalties},
-            "advantage_vs_no_vig": {"raw": (p - q) if p is not None and q is not None else None, "adjusted": adv_adj},
-            "advantage_vs_break_even": {"raw": _num(stored_edge) if stored_edge is not None
-                                        else ((p - break_even) if p is not None else None),
-                                        "adjusted": (p_adj - break_even) if p_adj is not None else None},
-            "return_at_offered_price": {"raw": _num(stored_expected_value) if stored_expected_value is not None
-                                        else ((p * d - 1) if p is not None else None),
-                                        "adjusted": ret_adj},
-            "vig_cost_at_offered_price": (q * d - 1) if q is not None else None,
-            "tests": tests,
+            "policy": policy, "offered": offered,
+            "inputs": {
+                "model_probability": _num(ev.get("raw_model_probability", model_probability)),
+                "adjusted_probability": _num(ev.get("adjusted_probability")),
+                "no_vig_probability": _num(ev.get("market_probability", no_vig)),
+                "penalties": ({"uncertainty": _num(ev.get("uncertainty_adjustment")),
+                               "starter": _num(ev.get("starter_penalty")),
+                               "lineup": _num(ev.get("lineup_penalty"))}
+                              if "adjusted_probability" in ev else None),
+            },
+            "fields": fields,
+            "tests": [_test(edge, MIN_ADJUSTED_EDGE, ">="), _test(ret, 0.0, ">")] if policy == MLB_POLICY else [],
         }
 
     if sport == "CFB":
@@ -113,53 +135,48 @@ def edge_metrics(sport: str, american: Any, model_probability: Any, no_vig: Any,
 
         chosen = ev.get("selection") or ev.get("best") or {}
         terms = chosen.get("terms") or {}
-        p = _num(chosen.get("win_probability")) if chosen else _num(model_probability)
-        q = _num(terms.get("no_vig_probability"))
-        adv = _num(terms.get("edge"))
-        ret = _num(terms.get("expected_return_per_dollar")) if terms else _num(stored_expected_value)
+        edge = _field("recorded_policy_edge", "Recorded policy edge (this policy applies no adjustments)",
+                      terms.get("edge"), POINTS, "evidence.selection.terms.edge", policy_test=True,
+                      note="model probability minus the same-book no-vig probability, as recorded")
+        ret = _field("recorded_policy_return", "Recorded policy expected return at the offered odds",
+                     terms.get("expected_return_per_dollar"), RETURN,
+                     "evidence.selection.terms.expected_return_per_dollar", policy_test=True)
         return {
-            "policy": CFB_POLICY,
-            "offered": {"american": american, "decimal": round(d, 6), "break_even_probability": round(break_even, 6)},
-            "no_vig_probability": q,
-            "model_probability": {"raw": p, "adjusted": None, "penalties": None},
-            "advantage_vs_no_vig": {"raw": adv, "adjusted": None},
-            "advantage_vs_break_even": {"raw": (p - break_even) if p is not None else None, "adjusted": None},
-            "return_at_offered_price": {"raw": ret, "adjusted": None},
-            "vig_cost_at_offered_price": (q * d - 1) if q is not None else None,
-            "tests": [
-                _test("advantage_vs_no_vig.raw", "Advantage over the no-vig market", adv, CFB.min_adjusted_edge, ">="),
-                _test("return_at_offered_price.raw", "Expected return at the offered price", ret, 0.0, ">"),
-            ] if terms else [],
+            "policy": CFB_POLICY, "offered": offered,
+            "inputs": {"model_probability": _num(chosen.get("win_probability", model_probability)),
+                       "adjusted_probability": None,
+                       "no_vig_probability": _num(terms.get("no_vig_probability")), "penalties": None},
+            "fields": [edge, ret],
+            "tests": [_test(edge, CFB.min_adjusted_edge, ">="), _test(ret, 0.0, ">")] if terms else [],
         }
 
     if sport == "NFL":
         from app.services.nfl_paper_policy import MIN_ADJUSTED_EDGE as NFL_MIN
 
         chosen = ev.get("selection") or ev.get("best") or {}
-        p = _num(chosen.get("win_probability")) if chosen else _num(model_probability)
-        ret = _num(chosen.get("expected_value")) if chosen else _num(stored_expected_value)
+        ret = _field("recorded_policy_return", "Recorded policy expected return at the offered odds (tie-aware)",
+                     chosen.get("expected_value", stored_expected_value) if chosen else stored_expected_value,
+                     RETURN, "evidence.selection.expected_value", policy_test=True)
+        edge = _field("recorded_policy_adjusted_edge", "Recorded policy-adjusted edge", None, POINTS,
+                      "not recorded", note="the NFL paper policy records no no-vig edge")
         return {
-            "policy": NFL_POLICY,
-            "offered": {"american": american, "decimal": round(d, 6), "break_even_probability": None},
-            "no_vig_probability": None,
-            "model_probability": {"raw": p, "adjusted": None, "penalties": None,
-                                  "tie": _num(chosen.get("tie_probability")) if chosen else None},
-            "advantage_vs_no_vig": {"raw": None, "adjusted": None},
-            "advantage_vs_break_even": {"raw": None, "adjusted": None},
-            "return_at_offered_price": {"raw": ret, "adjusted": None},
-            "vig_cost_at_offered_price": None,
-            "tests": [_test("return_at_offered_price.raw", "Tie-aware expected return at the offered price",
-                            ret, NFL_MIN, ">=")] if ret is not None else [],
+            "policy": NFL_POLICY, "offered": {**offered, "break_even_probability": None},
+            "inputs": {"model_probability": _num(chosen.get("win_probability", model_probability)) if chosen
+                       else _num(model_probability),
+                       "adjusted_probability": None, "no_vig_probability": None, "penalties": None,
+                       "tie_probability": _num(chosen.get("tie_probability")) if chosen else None},
+            "fields": [ret, edge],
+            "tests": [_test(ret, NFL_MIN, ">=")] if ret["value"] is not None else [],
         }
     return None
 
 
-def controlling_advantage(metrics: dict[str, Any] | None) -> float | None:
-    """The figure a 'closest to qualifying' ranking should use: the policy's first test."""
+def controlling_value(metrics: dict[str, Any] | None) -> float | None:
+    """The policy's first recorded test value, for a 'closest to qualifying' ranking."""
 
     if not metrics or not metrics.get("tests"):
         return None
     return metrics["tests"][0]["value"]
 
 
-__all__ = ["edge_metrics", "controlling_advantage"]
+__all__ = ["edge_metrics", "controlling_value"]

@@ -14,7 +14,7 @@ import {
   type CoverageGame, type DecisionItem, type Ledger, type SportCode,
 } from '../../services/commandCenter'
 import './assessments.css'
-import { controllingMargin, controllingTest, ptsText, testThresholdText, testValueText } from '../../services/decisionEdges'
+import { controllingMargin, controllingTest, ptsText, testThresholdText, valueText } from '../../services/decisionEdges'
 
 export interface TodaySummary {
   games: number
@@ -54,17 +54,20 @@ export function buildTodaySummary({ games, items, ledger, now }: {
   let closest: TodaySummary['closest'] = null
   for (const i of items) {
     const test = controllingTest(i)
-    // A payload without edge_metrics (an older cached read) falls back to the
-    // stored figure, named for what it is: the model minus the break-even.
-    const score = test ? controllingMargin(i) : i.edge
+    // "Closest to qualifying" ranks on what the policy tests, as recorded. A
+    // payload without edge_metrics falls back to the recorded policy-adjusted
+    // edge (item.adjusted.edge), never to the stored unadjusted break-even
+    // figure, which is not a policy test.
+    const recorded = i.adjusted?.edge ?? null
+    const score = test ? controllingMargin(i) : recorded != null ? recorded - 0.02 : null
     if (score == null || qualifiedGames.has(i.game_id) || i.position || startedById.get(i.game_id)) continue
     const sport = asSport(i.sport)
     if (!sport) continue
     if (!closest || score > closest.edge) {
       closest = {
         matchup: i.matchup ?? 'Game', edge: score, sport,
-        text: test ? `${test.label.toLowerCase()} ${testValueText(test)}, ${testThresholdText(test)}`
-          : `model minus break-even ${ptsText(i.edge)}`,
+        text: test ? `${test.label.toLowerCase()} ${valueText(test)}, ${testThresholdText(test)}`
+          : `recorded policy-adjusted edge ${ptsText(recorded)}, policy requires ≥ 2.0 pts`,
       }
     }
   }
