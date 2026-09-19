@@ -136,7 +136,9 @@ def import_verified(session: Session, verified: dict[str, Any], *, now: datetime
         envelope_schema=verified["schema"], revision_key=verified.get("revision_key"),
         configuration_identity=forecast["configurationIdentity"],
         distribution_configuration_identity=forecast["distributionConfigurationIdentity"],
-        handoff_sha256=verified["handoff_sha256"],
+        handoff_sha256=verified["handoff_sha256"], slate_release_sha256=verified.get("slate_release_sha256"),
+        # The package's OWN clock, as its own bytes state it. For V2 it was proved
+        # against the slate release THIS package binds, never against a newer one.
         prospective_effective_at_utc=common.ts(forecast.get("prospectiveEffectiveAtUtc")),
         codex_game_id=str(game["game_id"]), source_game_id=str(game["source_game_id"]),
         home_franchise_id=game["home_team_id"], away_franchise_id=game["away_team_id"],
@@ -209,6 +211,10 @@ def _entries(session: Session, record, entries: list[dict[str, Any]], *, verdict
              objects: list[source.SourceObject], v2: bool, summary: dict[str, Any]) -> None:
     from app.models import NbaDiscoveryObservation
 
+    # The PINNED MODEL HANDOFF's clock. V1 packages are compared against it; a V2
+    # package carries its own slate release and is compared against THAT (see
+    # gen1_package.verify_package), so a newer release never re-dates an older
+    # preserved package.
     effective = (verdict.detail.get("identity") or {}).get("prospective_effective_at_utc")
     verified_count = current_count = 0
     for entry in entries:

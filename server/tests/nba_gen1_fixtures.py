@@ -23,7 +23,11 @@ import polars as pl
 
 CONFIG = "NBA_GEN1_ELO_WIN_RIDGE_A100_ORDINARY_REST_V1"
 LATTICE = "NBA_GEN1_JOINT_FINAL_PAIRED_OOF_LATTICE_V1"
+#: The pinned MODEL handoff's clock (September 18). V1 packages are dated by it.
 EFFECTIVE = "2026-09-18T01:16:08.176807+00:00"
+#: A LATER slate-release clock, deliberately different from the handoff's, so a
+#: V2 package proves its effective time against its own bound release.
+RELEASE_EFFECTIVE = "2026-09-19T20:26:29.236061+00:00"
 TIPOFF = datetime(2026, 10, 20, 23, 0, tzinfo=UTC)
 
 
@@ -136,10 +140,39 @@ def game(espn: int = 990000001, home: str = "FXH", away: str = "FXA", tipoff: da
             "source_revision": "github-asset:0:sha256:" + "d" * 64, "status": "SCHEDULED"}
 
 
+def make_release(root: pathlib.Path, handoff: dict, *, effective: str = RELEASE_EFFECTIVE,
+                 paper_grant: dict | None = None, refresh_plan: dict | None = None,
+                 finals_contract: dict | None = None, mutate=None) -> dict:
+    """One ``NBA_GEN1_SLATE_RELEASE_V1``: the clock, the model and the optional grant a V2 package binds."""
+
+    doc = {"schema": "NBA_GEN1_SLATE_RELEASE_V1", "createdAtUtc": effective,
+           "prospectiveEffectiveAtUtc": effective, "modelHandoff": handoff,
+           "configurationIdentity": CONFIG, "distributionConfigurationIdentity": LATTICE,
+           "drawCount": 10_000, "masterSeed": 20260914,
+           "paperEligibilityAuthorization": paper_grant, "refreshPlan": refresh_plan,
+           "finalsExchangeContract": finals_contract, "networkEnabledByDefault": False,
+           "authority": {"producerInstalled": False, "consumerActivated": False, "wageringAuthority": False,
+                         "decisionAuthority": False, "positionAuthority": False,
+                         "modelPromotionAuthority": False}}
+    if mutate:
+        mutate(doc)
+    return ref(content_addressed(root / "releases", "release.json", doc))
+
+
 def make_package(root: pathlib.Path, handoff: dict, *, g: dict | None = None, schema: str = "V1",
-                 created: str = "2026-09-18T02:00:00+00:00", seed: int = 7, elo_home: float = 0.64,
-                 ridge: tuple[float, float] = (116.2, 111.4), mutate=None) -> pathlib.Path:
+                 created: str | None = None, seed: int = 7, elo_home: float = 0.64,
+                 ridge: tuple[float, float] = (116.2, 111.4), mutate=None,
+                 release: dict | None = None) -> pathlib.Path:
     g = g or game()
+    if schema == "V2":
+        # A V2 package carries its OWN slate release; its effective clock is that
+        # release's, not the model handoff's.
+        release = release or make_release(root, handoff)
+        effective = json.loads(pathlib.Path(release["path"]).read_bytes())["prospectiveEffectiveAtUtc"]
+        created = created or "2026-09-19T21:00:00+00:00"
+    else:
+        release, effective = None, EFFECTIVE
+        created = created or "2026-09-18T02:00:00+00:00"
     home, away = draws(seed)
     build = root / f"build-{seed}-{schema}-{g['source_game_id']}"
     (build / "population").mkdir(parents=True, exist_ok=True)
@@ -156,7 +189,7 @@ def make_package(root: pathlib.Path, handoff: dict, *, g: dict | None = None, sc
     forecast = {
         "schema": "NBA_GEN1_PRODUCTION_FORECAST_V1", "forecastHorizon": "PREGAME_PRODUCTION_BASELINE",
         "configurationIdentity": CONFIG, "distributionConfigurationIdentity": LATTICE, "createdAtUtc": created,
-        "publishedAtUtc": published, "prospectiveEffectiveAtUtc": EFFECTIVE,
+        "publishedAtUtc": published, "prospectiveEffectiveAtUtc": effective,
         "sourceCutoffUtc": "2026-09-14T13:04:43.697362+00:00", "game": g,
         "ridgePointExpectations": {"home": ridge[0], "away": ridge[1], "total": ridge[0] + ridge[1],
                                    "homeMargin": ridge[0] - ridge[1], "units": "points including overtime"},
@@ -166,7 +199,8 @@ def make_package(root: pathlib.Path, handoff: dict, *, g: dict | None = None, sc
         "jointSimulation": joint_simulation(home, away), "population": population,
         "channelSemantics": "FIXTURE: Ridge points; Elo winner; joint draws.",
         "closeScoreChallenger": {"enabled": False, "disposition": "TESTED_AND_REJECTED"},
-        "bindings": {"productionHandoff": handoff, "pointModel": {"sha256": "b" * 64}},
+        "bindings": {"productionHandoff": handoff, "pointModel": {"sha256": "b" * 64},
+                     **({"slateRelease": release} if release else {})},
         "monitoring": {"firstReviewCompletedGames": 50}, "limitations": ["FIXTURE"],
         "authority": {"productionBaseline": True, "prospectiveOnly": True, "requiresConsumerPin": True,
                       "wageringAuthority": False, "decisionAuthority": False, "positionAuthority": False,
@@ -184,7 +218,9 @@ def make_package(root: pathlib.Path, handoff: dict, *, g: dict | None = None, sc
              "publishedAtUtc": published, "forecastId": forecast["forecastId"], "game": g,
              "configurationIdentity": CONFIG, "distributionConfigurationIdentity": LATTICE, "drawCount": 10_000,
              "population": population, "forecastSha256": sha((build / "forecast.json").read_bytes()),
-             "productionHandoff": handoff, "files": files, "consumerAcknowledged": False,
+             # V1 repeats the model handoff here; V2 names the slate release, exactly
+             # as the producer's slate publisher writes it.
+             "productionHandoff": release or handoff, "files": files, "consumerAcknowledged": False,
              **({"revisionKey": f"rev-{seed}"} if schema == "V2" else {})}
     raw = canonical(index)
     target = root / "forecasts" / "sha256" / sha(raw)
@@ -212,11 +248,15 @@ def write_v1_discovery(root: pathlib.Path, packages: list[pathlib.Path]) -> path
 
 def write_v2_discovery(root: pathlib.Path, handoff: dict, packages: list[tuple[pathlib.Path, dict]], *,
                        created: str = "2026-10-20T22:15:00+00:00", release_handoff: dict | None = None,
-                       predecessor: dict | None = None, receipt_override: dict | None = None) -> dict:
-    """packages: [(package_dir, {committedAtUtc, currentlyEligible, eligibilityValidUntilUtc})]."""
+                       predecessor: dict | None = None, receipt_override: dict | None = None,
+                       release: dict | None = None) -> dict:
+    """packages: [(package_dir, {committedAtUtc, currentlyEligible, eligibilityValidUntilUtc})].
 
-    release = content_addressed(root / "releases", "release.json",
-                                {"schema": "FIXTURE_RELEASE", "modelHandoff": release_handoff or handoff})
+    The discovery release may legitimately be NEWER than a preserved package's own
+    bound release; nothing here copies one onto the other.
+    """
+
+    release = release or make_release(root, release_handoff or handoff)
     entries = []
     for package, lease in packages:
         index = json.loads((package / "index.json").read_bytes())
@@ -232,11 +272,102 @@ def write_v2_discovery(root: pathlib.Path, handoff: dict, packages: list[tuple[p
                         "status": "CURRENT_ELIGIBLE" if lease["currentlyEligible"] else "PRESERVED_HISTORICAL_VERSION"})
     manifest = content_addressed(root / "slate-discovery" / "versions", "index.json", {
         "schemaVersion": "NBA_GEN1_SLATE_DISCOVERY_V1", "createdAtUtc": created, "predecessor": predecessor,
-        "inputVersion": None, "release": ref(release), "packages": entries, "preservedEarlierPackages": [],
+        "inputVersion": None, "release": release, "packages": entries, "preservedEarlierPackages": [],
         "games": [{"gameId": e["gameId"], "disposition": "DUE"} for e in entries], "consumerAcknowledged": False})
     pointer = root / "slate-discovery" / "current.json"
     pointer.write_bytes(canonical({"schemaVersion": "NBA_GEN1_SLATE_DISCOVERY_POINTER_V1", "manifest": ref(manifest)}))
     return ref(manifest)
+
+
+#: The producer's finals-exchange contract, copied literally from its own source.
+FINALS_CONTRACT = {
+    "schema": "NBA_GEN1_FINAL_EXCHANGE_CONTRACT_V1",
+    "recordSchema": "NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1",
+    "discoverySchema": "NBA_GEN1_FINAL_DISCOVERY_V1",
+    "lane": "finals-discovery/current.json",
+    "sourceStatuses": ["STATUS_FINAL/post/completed=true"],
+    "competition": "NBA_REGULAR_SEASON_STANDARD_NONNEUTRAL",
+    "scoreConvention": "FULL_GAME_INCLUDING_OVERTIME",
+    "completionClock": ("Unknown: completedAtUtc is null; never replace with tipoff, capture, "
+                        "admission or last-play time"),
+    "captureClock": "Actual retained original source acquisition, unchanged by HTTP 304",
+    "admissionClock": "Actual per-final projection verification time; not game completion",
+    "revisions": ("Append-only physical source witness; corrections/retractions preserve previous "
+                  "records and explicitly replace current membership"),
+    "joins": ("Exact source/canonical game, home/away team IDs and original scheduled tipoff; changed "
+              "identity or schedule requires consumer reconciliation, never silent alias or remap"),
+    "authority": "Evidence delivery only: no consumer settlement, decision, policy or wagering authority",
+}
+
+
+def write_finals_lane(root: pathlib.Path, handoff: dict, entries: list[dict[str, Any]], *,
+                      previous: dict | None = None, captured: str = "2026-10-21T03:20:00+00:00",
+                      validated: str | None = None, admitted: str = "2026-10-21T04:00:00+00:00",
+                      created: str | None = None, contract: dict | None = None, release: dict | None = None,
+                      games: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """One ``finals-discovery/current.json`` lane: pointer, manifest and per-game records.
+
+    ``entries``: ``[{"game": <game dict>, "home": int, "away": int, "mutate": fn}]``.
+    ``previous``: an earlier result, whose outcomes are PRESERVED here with their
+    membership withdrawn -- exactly as the producer does for a correction.
+    """
+
+    validated = validated or captured
+    finals_root = root / "finals-lane"
+    source_path = content_addressed(finals_root / "source", "source.json", {"fixtureCapturedAtUtc": captured})
+    source_ref = ref(source_path)
+    capture_ref = ref(content_addressed(finals_root / "captures", "receipt.json", {
+        "schema": "NBA_GOVERNED_SCHEDULE_CAPTURE_V1", "httpStatus": 200, "capturedAtUtc": captured,
+        "validatedAtUtc": validated, "source": source_ref}))
+    contract_ref = contract or ref(content_addressed(finals_root / "contract", "contract.json", FINALS_CONTRACT))
+    release_ref = release or make_release(root, handoff, finals_contract=contract_ref)
+
+    outcomes = [{**o, "currentlySourceConfirmed": False} for o in ((previous or {}).get("outcomes") or [])]
+    built: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        g = entry.get("game") or game()
+        identity = {k: g[k] for k in ("game_id", "source_game_id", "season_end", "game_date", "home_team_id",
+                                      "away_team_id", "home_team_code", "away_team_code",
+                                      "scheduled_tipoff_utc", "neutral_site", "season_type")}
+        key = sha(canonical({"source": source_ref["sha256"], "game": identity,
+                             "homeScore": entry["home"], "awayScore": entry["away"]}))
+        record = {"schemaVersion": "NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1", "gameId": g["game_id"],
+                  "game": identity, "status": "FINAL", "sourceStatus": "STATUS_FINAL",
+                  "homeScore": entry["home"], "awayScore": entry["away"], "completedAtUtc": None,
+                  "completionClockBasis": "NOT_RETAINED_BY_ADMITTED_SOURCE",
+                  "capturedAtUtc": captured, "sourceValidatedAtUtc": validated, "admittedAtUtc": admitted,
+                  "scoreConvention": "FULL_GAME_INCLUDING_OVERTIME", "source": source_ref,
+                  "captureReceipt": capture_ref, "release": release_ref, "contract": contract_ref,
+                  "revisionKey": key,
+                  "predecessorRevisions": [o["record"] for o in outcomes if o["gameId"] == g["game_id"]],
+                  "admissionScope": "PER_GAME_FINAL_ONLY_NOT_MODEL_HISTORY_MEMBERSHIP",
+                  "consumerAuthority": "EVIDENCE_ONLY_NO_SETTLEMENT_AUTHORITY"}
+        if entry.get("mutate"):
+            entry["mutate"](record)
+        record_ref = ref(content_addressed(finals_root / "finals", "final.json", record))
+        outcomes.append({"gameId": record["gameId"], "revisionKey": record["revisionKey"],
+                         "record": record_ref, "currentlySourceConfirmed": entry.get("confirmed", True)})
+        built[str(record["gameId"])] = {"record": record_ref, "document": record}
+
+    inventory = games if games is not None else [
+        {"gameId": gid, "sourceGameId": int(str(gid).rsplit(":", 1)[-1]),
+         "disposition": "SOURCE_CONFIRMED_FINAL", "sourceStatus": "STATUS_FINAL",
+         "scheduledTipoffUtc": built[gid]["document"]["game"]["scheduled_tipoff_utc"],
+         "reason": None, "currentFinal": built[gid]["record"]} for gid in built]
+    manifest = {"schemaVersion": "NBA_GEN1_FINAL_DISCOVERY_V1", "createdAtUtc": created or admitted,
+                "predecessor": (previous or {}).get("manifest"), "captureReceipt": capture_ref,
+                "source": source_ref, "contract": contract_ref, "release": release_ref,
+                "outcomes": outcomes, "games": inventory,
+                "semantics": ("Current source membership, not settlement or completion-time authority; "
+                              "preserve all prior revisions")}
+    manifest_ref = ref(content_addressed(finals_root / "finals-discovery" / "versions", "index.json", manifest))
+    pointer = finals_root / "finals-discovery" / "current.json"
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_bytes(canonical({"schemaVersion": "NBA_GEN1_FINAL_DISCOVERY_POINTER_V1",
+                                   "manifest": manifest_ref}))
+    return {"pointer": str(pointer), "manifest": manifest_ref, "outcomes": outcomes, "records": built,
+            "contract": contract_ref, "release": release_ref, "source": source_ref, "capture": capture_ref,
+            "settings": {"nba_finals_exchange_pointer": str(pointer)}}
 
 
 def write_schedule_object(root: pathlib.Path, rows: list[dict[str, Any]], *, receipt: bool = True,

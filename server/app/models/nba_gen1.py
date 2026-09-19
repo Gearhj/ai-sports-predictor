@@ -72,6 +72,11 @@ CHANNELS = (CHANNEL_RIDGE, CHANNEL_ELO, CHANNEL_JOINT)
 EVIDENCE_PROSPECTIVE = "PROSPECTIVE_PRODUCTION_PACKAGE"
 EVIDENCE_HISTORICAL = "A_HISTORICAL_FINALIZED_RECORD_RECONSTRUCTION"
 
+#: Final lanes. The exchange lane is the production path for 2026-27 finals; the
+#: retained-source lane is historical reconstruction and stays separate.
+LANE_EXCHANGE = "EXCHANGE_SOURCE_CONFIRMED"
+LANE_RETAINED = "RETAINED_SOURCE_HISTORICAL"
+
 
 class _ChannelColumns:
     """The three channel groups, shared by production and historical rows."""
@@ -121,6 +126,9 @@ class NbaGen1Forecast(UUIDPrimaryKeyMixin, CreatedAtMixin, _ChannelColumns, Base
     configuration_identity: Mapped[str] = mapped_column(String(120), nullable=False)
     distribution_configuration_identity: Mapped[str] = mapped_column(String(120), nullable=False)
     handoff_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: V2 only: the slate release THIS package binds. Its effective clock is the
+    #: package's own; a newer release never re-dates a preserved older package.
+    slate_release_sha256: Mapped[str | None] = mapped_column(String(64))
     prospective_effective_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     #: Codex's identities, exactly as delivered.
@@ -255,18 +263,70 @@ class NbaDiscoveryObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (UniqueConstraint("manifest_sha256", "forecast_id", name="uq_nba_discovery_obs"),)
 
 
+class NbaFinalDiscoveryManifest(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One ``NBA_GEN1_FINAL_DISCOVERY_V1`` manifest AISP verified from bytes.
+
+    The PRODUCTION final path. ``finals-discovery/current.json`` points here; the
+    manifest's ``outcomes`` bind the per-game records physically, and only
+    ``currentlySourceConfirmed`` entries are the source's current membership.
+    """
+
+    __tablename__ = "nba_final_discovery_manifests"
+
+    manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    producer_created_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    predecessor_sha256: Mapped[str | None] = mapped_column(String(64))
+    contract_sha256: Mapped[str | None] = mapped_column(String(64))
+    release_sha256: Mapped[str | None] = mapped_column(String(64))
+    capture_receipt_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_object_sha256: Mapped[str | None] = mapped_column(String(64))
+    outcomes_listed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    outcomes_current: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_verified: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_refused: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    games_listed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dispositions: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    first_verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (UniqueConstraint("manifest_sha256", name="uq_nba_final_discovery_manifest_sha"),)
+
+
 class NbaFinalObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """One retained ESPN schedule row with a completed final, bound to an AISP game."""
+    """One NBA final AISP holds as evidence, from either lane.
+
+    ``lane`` says which:
+
+    ``EXCHANGE_SOURCE_CONFIRMED``  a ``NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1`` record
+                                   bound by a finals-discovery manifest. THE
+                                   PRODUCTION PATH for 2026-27 finals.
+    ``RETAINED_SOURCE_HISTORICAL`` a row re-read from a retained ESPN season
+                                   export. Historical reconstruction only.
+
+    Every revision is kept. ``currently_source_confirmed`` is the producer's
+    membership at the last check, so a withdrawn or corrected final stays here as
+    retained, explicitly ineligible evidence instead of disappearing.
+    ``completed_at_utc`` is always null by constraint: no admitted source retains a
+    completion clock, and capture/validation/admission never stand in for one.
+    """
 
     __tablename__ = "nba_final_observations"
 
     game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), nullable=False, index=True)
-    game_state_observation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("game_state_observations.id"), nullable=False)
+    #: Null when nothing was projected: a withdrawn, corrected-away, rejected or
+    #: unreconciled final is retained as evidence WITHOUT a FINAL state row.
+    game_state_observation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("game_state_observations.id"))
+    lane: Mapped[str] = mapped_column(String(40), nullable=False, default="RETAINED_SOURCE_HISTORICAL")
     source: Mapped[str] = mapped_column(String(40), nullable=False)
     source_game_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    home_espn_team_id: Mapped[str] = mapped_column(String(16), nullable=False)
-    away_espn_team_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    #: Retained lane only. The exchange lane identifies teams by canonical
+    #: franchise id (see ``evidence_row``), so these stay null there rather than
+    #: being filled in from somewhere else.
+    home_espn_team_id: Mapped[str | None] = mapped_column(String(16))
+    away_espn_team_id: Mapped[str | None] = mapped_column(String(16))
     home_points: Mapped[int] = mapped_column(Integer, nullable=False)
     away_points: Mapped[int] = mapped_column(Integer, nullable=False)
     periods: Mapped[int | None] = mapped_column(Integer)
@@ -281,7 +341,32 @@ class NbaFinalObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     payload_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
     evidence_row: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
-    __table_args__ = (UniqueConstraint("game_id", "payload_checksum", name="uq_nba_final_obs"),)
+    # -- exchange lane only -------------------------------------------------
+    final_discovery_manifest_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("nba_final_discovery_manifests.id"), index=True)
+    discovery_manifest_sha256: Mapped[str | None] = mapped_column(String(64))
+    final_record_sha256: Mapped[str | None] = mapped_column(String(64))
+    final_record_bytes: Mapped[int | None] = mapped_column(Integer)
+    revision_key: Mapped[str | None] = mapped_column(String(80))
+    codex_game_id: Mapped[str | None] = mapped_column(String(80))
+    #: The producer's current source membership at the last verified manifest.
+    currently_source_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: SOURCE_CONFIRMED_FINAL / WITHDRAWN_BY_SOURCE / SUPERSEDED_BY_CORRECTION / ...
+    disposition: Mapped[str | None] = mapped_column(String(48))
+    #: The producer's actual clocks, kept apart and never merged.
+    source_validated_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    admitted_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Always NULL, by constraint. See the class docstring.
+    completed_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: True when settlement must NOT follow automatically (withdrawal, changed
+    #: identity or schedule). The reason is stated, never resolved by guessing.
+    reconciliation_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reconciliation_reason: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("game_id", "payload_checksum", name="uq_nba_final_obs"),
+        CheckConstraint("completed_at_utc IS NULL", name="ck_nba_final_no_completion_clock"),
+    )
 
 
 class NbaChannelEvaluation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -347,6 +432,7 @@ class NbaChannelEvaluation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
 __all__ = [
     "CHANNELS", "CHANNEL_ELO", "CHANNEL_JOINT", "CHANNEL_RIDGE", "EVIDENCE_HISTORICAL",
-    "EVIDENCE_PROSPECTIVE", "NbaChannelEvaluation", "NbaDiscoveryManifest", "NbaDiscoveryObservation",
+    "EVIDENCE_PROSPECTIVE", "LANE_EXCHANGE", "LANE_RETAINED", "NbaChannelEvaluation",
+    "NbaDiscoveryManifest", "NbaDiscoveryObservation", "NbaFinalDiscoveryManifest",
     "NbaFinalObservation", "NbaGen1Forecast", "NbaHistoricalForecast",
 ]

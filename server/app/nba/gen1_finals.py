@@ -1,31 +1,39 @@
-"""NBA finals from retained ESPN schedule objects -- validated, bound, projected. No network.
+"""NBA finals, in two separate lanes. No network, no provider request, no invented clock.
 
-WHERE FINALS COME FROM
-----------------------
-Only from the content-addressed schedule objects Model Studio already captured
-(``app.nba.gen1_source``). AISP makes no request of its own, and there is no NBA
-poller. A 2026-27 final appears here only after Model Studio's reviewed refresh
-has captured an object that contains it and the owner has pinned that object.
+LANE 1 -- THE PRODUCTION PATH (``EXCHANGE_SOURCE_CONFIRMED``)
+------------------------------------------------------------
+``finals-discovery/current.json`` -> ``NBA_GEN1_FINAL_DISCOVERY_V1`` ->
+``NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1`` records, each bound by path, SHA-256 and
+byte count (``app.nba.gen1_final_exchange`` proves them). This is how a 2026-27
+NBA final reaches AISP. Only ``currentlySourceConfirmed`` records are current
+source membership; every other revision is kept as retained, explicitly
+INELIGIBLE evidence with its disposition stated.
 
-WHAT IS CHECKED BEFORE ANYTHING IS RECORDED
--------------------------------------------
-* The object hashes to its pin (and its receipt, when given, names it).
-* The row literally says ``STATUS_FINAL`` with ``completed`` true and both scores.
-* The game is one AISP holds, by exact ESPN game id.
-* Home and away ESPN team ids equal the AISP game's teams' bound ``NBA_ESPN_TEAM``
-  ids. Names are never compared. A team with no ESPN binding cannot be checked,
-  so its final is refused (``TEAM_ESPN_BINDING_ABSENT``) rather than assumed.
-* The source tipoff equals the admitted tipoff. A moved game is reported and
-  left alone.
+LANE 2 -- HISTORICAL RECONSTRUCTION (``RETAINED_SOURCE_HISTORICAL``)
+-------------------------------------------------------------------
+Rows re-read from the retained ESPN season exports (``app.nba.gen1_source``).
+This is how the finished 2025-26 season is reconstructed for historical scoring.
+It is NOT the production path and never becomes one.
 
-WHAT IS NOT CLAIMED
--------------------
-The export carries no completion or revision time. The acquisition clock (from
-the bound receipt) is the OBSERVATION time; ``games.final_at`` stays empty.
-Overtime is read from the period count (more than four). The moneyline settles
-on the final score including overtime. A later object with different points is
-a second observation; the projection follows provenance rank and recency, and
-any settled position is corrected by an adjustment beside its settlement.
+WHAT IS CHECKED BEFORE ANYTHING IS RECORDED (BOTH LANES)
+--------------------------------------------------------
+* The evidence proves from bytes against its own content address.
+* The game is one AISP holds, by exact ESPN game id. Nothing is joined by name
+  or by date, and an unheld game is listed, never guessed into existence.
+* Team identity is compared exactly: the exchange lane against the AISP game's
+  bound ``NBA_NEIL_FRANCHISE`` ids, the retained lane against its bound
+  ``NBA_ESPN_TEAM`` ids. A team with no binding cannot be checked, so its final
+  is refused rather than assumed.
+* The source tipoff equals the admitted tipoff, to the second.
+
+WHAT IS NEVER DONE
+------------------
+No completion clock is invented: ``completedAtUtc`` is null in every record and
+``games.final_at`` stays empty; capture, validation and admission are recorded as
+what they are. A withdrawn, corrected-away, absent or identity-changed final is
+NOT settled automatically -- it is retained, flagged ``reconciliation_required``
+and reported. Settlement corrections for an already-settled position are written
+beside the settlement, never by editing it.
 """
 
 from __future__ import annotations
@@ -38,9 +46,15 @@ from sqlalchemy.orm import Session
 
 from app.gen2.exchange.canonical_json import canonical_sha256
 from app.nba import gen1_common as common
+from app.nba import gen1_final_exchange as lane
 from app.nba import gen1_source as source
 
 JOB_NAME = "ingest-nba-finals"
+EXCHANGE_JOB_NAME = "ingest-nba-source-confirmed-finals"
+#: The provenance source string for a lane-1 final. Distinct from the retained
+#: export reader, so one game's two lanes are never counted as two results.
+EXCHANGE_SOURCE = "NBA_GEN1_SOURCE_CONFIRMED_FINAL"
+EXCHANGE_SCHEMA_VERSION = "AISP_NBA_SOURCE_CONFIRMED_FINALS_V1"
 
 
 def _team_espn(session: Session, team_id: Any) -> str | None:
@@ -65,17 +79,300 @@ def held_games(session: Session) -> dict[str, Any]:
     return {str(espn): gid for espn, gid in rows}
 
 
-def ingest(session: Session, settings: Any, *, now: datetime | None = None) -> dict[str, Any]:
-    """One pass over the pinned objects. Idempotent by result checksum."""
+def _franchise_ids(session: Session) -> dict[Any, str]:
+    """AISP team id -> its bound Codex franchise id (exact mapping only)."""
+
+    from app.models import ExternalIdMapping
+
+    rows = session.execute(select(ExternalIdMapping.entity_id, ExternalIdMapping.external_id).where(
+        ExternalIdMapping.entity_type == "team", ExternalIdMapping.source == common.SOURCE_FRANCHISE)).all()
+    return {team_id: str(external) for team_id, external in rows}
+
+
+# ---------------------------------------------------------------------------
+# Lane 1: the source-confirmed finals exchange (the production path)
+# ---------------------------------------------------------------------------
+
+def ingest_exchange(session: Session, settings: Any, *, now: datetime | None = None) -> dict[str, Any]:
+    """One pass over ``finals-discovery/current.json``. Idempotent by record SHA-256."""
+
+    from app.cfb.final_ingest import _project  # sport-neutral projection onto games/game_teams
+    from app.cfb.settlement_corrections import correct_settled_positions
+    from app.models import (
+        Game, GameStateObservation, GameStatus, GameTeam, IngestionRun,
+        NbaFinalDiscoveryManifest, NbaFinalObservation, RunStatus,
+    )
+    from app.models.nba_gen1 import LANE_EXCHANGE
+
+    moment = now or datetime.now(UTC)
+    summary: dict[str, Any] = {
+        "job": EXCHANGE_JOB_NAME, "lane": LANE_EXCHANGE, "source": EXCHANGE_SOURCE,
+        "provider_requests": 0, "records_listed": 0, "records_verified": 0, "records_refused": 0,
+        "currently_source_confirmed": 0, "observations_written": 0, "observations_reused": 0,
+        "retained_ineligible": 0, "games_projected_final": 0, "unbound_games": [],
+        "reconciliation_required": [], "refused_records": [], "corrections": [], "advisories": [],
+    }
+    if not bool(getattr(settings, "nba_finals_exchange_enabled", True)):
+        summary["status"] = "LANE_DISABLED"
+        return summary
+    pointer = lane.pointer_path(settings)
+    if pointer is None or not pointer.is_file():
+        summary["status"] = "NO_FINALS_DISCOVERY_POINTER"
+        summary["pointer_path"] = str(pointer) if pointer else None
+        return summary
+    try:
+        verified = lane.verify_lane(
+            pointer, handoff_sha256=str(getattr(settings, "nba_production_handoff_sha256", "") or "") or None)
+    except lane.FinalsLaneRefused as exc:
+        summary["status"] = "LANE_REFUSED"
+        summary["problems"] = exc.problems
+        return summary
+    except (ValueError, OSError) as exc:
+        summary["status"] = f"LANE_UNREADABLE:{type(exc).__name__}:{exc}"[:300]
+        return summary
+
+    summary.update({"pointer_path": verified["pointer_path"], "manifest_sha256": verified["manifest_sha256"],
+                    "predecessor_sha256": verified["predecessor_sha256"],
+                    "contract_sha256": verified["contract_sha256"],
+                    "release_sha256": verified["release_sha256"],
+                    "capture_receipt_sha256": verified["capture_receipt_sha256"],
+                    "source_object_sha256": verified["source_object_sha256"],
+                    "dispositions": verified["dispositions"], "advisories": verified["advisories"],
+                    "games_listed": len(verified["games"])})
+    records = verified["records"]
+    summary["records_listed"] = len(records)
+    summary["records_verified"] = sum(1 for r in records if r.verified)
+    summary["records_refused"] = sum(1 for r in records if not r.verified)
+    summary["currently_source_confirmed"] = sum(1 for r in records if r.currently_confirmed and r.verified)
+    summary["refused_records"] = [r.describe() for r in records if not r.verified][:20]
+
+    manifest_row = session.scalar(select(NbaFinalDiscoveryManifest).where(
+        NbaFinalDiscoveryManifest.manifest_sha256 == verified["manifest_sha256"]))
+    new_manifest = manifest_row is None
+    if new_manifest:
+        manifest_row = NbaFinalDiscoveryManifest(
+            manifest_sha256=verified["manifest_sha256"], manifest_bytes=verified["manifest_bytes"],
+            schema_version=verified["schema_version"], producer_created_utc=verified["created_at_utc"],
+            predecessor_sha256=verified["predecessor_sha256"], contract_sha256=verified["contract_sha256"],
+            release_sha256=verified["release_sha256"],
+            capture_receipt_sha256=verified["capture_receipt_sha256"],
+            source_object_sha256=verified["source_object_sha256"],
+            outcomes_listed=len(records), outcomes_current=summary["currently_source_confirmed"],
+            records_verified=summary["records_verified"], records_refused=summary["records_refused"],
+            games_listed=len(verified["games"]), dispositions=verified["dispositions"],
+            detail={"semantics": verified["semantics"], "advisories": verified["advisories"],
+                    "refused_records": summary["refused_records"],
+                    "games": [g for g in verified["games"]
+                              if g.get("disposition") != lane.DISPOSITION_CONFIRMED][:400]},
+            first_verified_at=moment)
+        session.add(manifest_row)
+        session.flush()
+    summary["manifest_first_seen"] = new_manifest
+
+    held = held_games(session)
+    franchises = _franchise_ids(session)
+    existing_rows = {
+        str(row.final_record_sha256): row for row in session.scalars(
+            select(NbaFinalObservation).where(NbaFinalObservation.lane == LANE_EXCHANGE))
+        if row.final_record_sha256}
+    manifest_shas = {r.record_sha256 for r in records}
+    current_games = {r.codex_game_id for r in records if r.currently_confirmed and r.verified}
+    touched: set[Any] = set()
+
+    for record in records:
+        if not record.verified:
+            continue
+        espn = record.source_game_id
+        game_id = held.get(espn)
+        if game_id is None:
+            # Listed, never guessed: no AISP game carries this ESPN id yet.
+            if record.currently_confirmed:
+                summary["unbound_games"].append({"codex_game_id": record.codex_game_id, "espn_game_id": espn,
+                                                 "record_sha256": record.record_sha256,
+                                                 "state": "NO_AISP_GAME_FOR_THIS_ESPN_ID"})
+            continue
+        game = session.get(Game, game_id)
+        sides = {side.is_home: side.team_id for side in session.scalars(
+            select(GameTeam).where(GameTeam.game_id == game.id))}
+        home_franchise = franchises.get(sides.get(True))
+        away_franchise = franchises.get(sides.get(False))
+        reason = None
+        if home_franchise is None or away_franchise is None:
+            reason = "TEAM_FRANCHISE_BINDING_ABSENT"
+        elif (home_franchise, away_franchise) != (record.home_franchise_id, record.away_franchise_id):
+            reason = "PARTICIPANTS_DIFFER_FROM_ADMITTED_GAME"
+        elif record.tipoff is None or common.aware(game.starts_at) != record.tipoff:
+            reason = "TIPOFF_DIFFERS_FROM_ADMITTED_GAME"
+        existing = existing_rows.get(record.record_sha256)
+
+        if reason is not None:
+            # Changed participants or schedule: explicit reconciliation, never
+            # automatic settlement. The record is retained as evidence, unsettled.
+            summary["reconciliation_required"].append({
+                "codex_game_id": record.codex_game_id, "game_id": str(game.id), "reason": reason,
+                "record_sha256": record.record_sha256,
+                "source_tipoff_utc": common.iso(record.tipoff),
+                "admitted_tipoff_utc": common.iso(game.starts_at)})
+            if existing is None:
+                session.add(_retained_row(record, game_id=game.id, manifest=manifest_row,
+                                          disposition=lane.UNRECONCILED, reconciliation=reason,
+                                          confirmed=record.currently_confirmed))
+                summary["retained_ineligible"] += 1
+                session.flush()
+            else:
+                existing.currently_source_confirmed = record.currently_confirmed
+                existing.reconciliation_required = True
+                existing.reconciliation_reason = reason
+                existing.disposition = lane.UNRECONCILED
+            continue
+
+        if not record.currently_confirmed:
+            # A preserved earlier revision: superseded if this game has a current
+            # record, withdrawn if the source no longer confirms any final for it.
+            disposition = lane.SUPERSEDED if record.codex_game_id in current_games else lane.WITHDRAWN
+            needs_reconciliation = disposition == lane.WITHDRAWN
+            if existing is None:
+                session.add(_retained_row(record, game_id=game.id, manifest=manifest_row,
+                                          disposition=disposition,
+                                          reconciliation="SOURCE_WITHDREW_THIS_FINAL" if needs_reconciliation else None,
+                                          confirmed=False))
+                summary["retained_ineligible"] += 1
+                session.flush()
+            else:
+                existing.currently_source_confirmed = False
+                existing.disposition = disposition
+                if needs_reconciliation and existing.game_state_observation_id is not None:
+                    existing.reconciliation_required = True
+                    existing.reconciliation_reason = "SOURCE_WITHDREW_A_FINAL AISP HAD ALREADY RECORDED"
+            if needs_reconciliation:
+                summary["reconciliation_required"].append({
+                    "codex_game_id": record.codex_game_id, "game_id": str(game.id),
+                    "reason": "FINAL_WITHDRAWN_BY_SOURCE", "record_sha256": record.record_sha256,
+                    "already_recorded": existing is not None and existing.game_state_observation_id is not None})
+            continue
+
+        if existing is not None:
+            existing.currently_source_confirmed = True
+            existing.disposition = lane.CONFIRMED
+            existing.final_discovery_manifest_id = manifest_row.id
+            existing.discovery_manifest_sha256 = manifest_row.manifest_sha256
+            summary["observations_reused"] += 1
+            touched.add(game.id)
+            continue
+
+        state = GameStateObservation(
+            game_id=game.id, home_team_id=sides.get(True), away_team_id=sides.get(False),
+            scheduled_at=game.starts_at, status=GameStatus.FINAL.value,
+            home_score=record.home_score, away_score=record.away_score,
+            # No completion clock exists in this lane; admission is an OBSERVATION time.
+            final_at=None, observed_at=record.admitted_at or moment, available_as_of=moment,
+            source=EXCHANGE_SOURCE, source_mode=common.SOURCE_MODE, source_record_id=espn,
+            payload_checksum=record.record_sha256)
+        session.add(state)
+        session.flush()
+        row = _retained_row(record, game_id=game.id, manifest=manifest_row, disposition=lane.CONFIRMED,
+                            reconciliation=None, confirmed=True)
+        row.game_state_observation_id = state.id
+        session.add(row)
+        session.flush()
+        existing_rows[record.record_sha256] = row
+        summary["observations_written"] += 1
+        touched.add(game.id)
+
+    # Anything AISP holds from this lane that the current discovery no longer lists
+    # at all stays as evidence, with its membership withdrawn and stated.
+    for sha, row in existing_rows.items():
+        if sha in manifest_shas or row.disposition == lane.MISSING:
+            continue
+        row.currently_source_confirmed = False
+        row.disposition = lane.MISSING
+        if row.game_state_observation_id is not None:
+            row.reconciliation_required = True
+            row.reconciliation_reason = "A RECORDED FINAL IS ABSENT FROM THE CURRENT DISCOVERY MANIFEST"
+            summary["reconciliation_required"].append({
+                "game_id": str(row.game_id), "codex_game_id": row.codex_game_id,
+                "reason": "ABSENT_FROM_CURRENT_DISCOVERY", "record_sha256": sha})
+
+    for game_id in sorted(touched, key=str):
+        game = session.get(Game, game_id)
+        projection = _project(session, game)
+        summary["games_projected_final"] += int(bool(projection.get("changed")))
+        summary["corrections"].extend(correct_settled_positions(
+            session, game, observation_id=projection.get("observation_id"), now=moment))
+
+    manifest_row.outcomes_current = summary["currently_source_confirmed"]
+    if summary["observations_written"] or summary["games_projected_final"] or new_manifest:
+        session.add(IngestionRun(
+            source=EXCHANGE_SOURCE, job_name=EXCHANGE_JOB_NAME, status=RunStatus.SUCCEEDED, started_at=moment,
+            completed_at=datetime.now(UTC), records_processed=summary["observations_written"],
+            schema_version=EXCHANGE_SCHEMA_VERSION,
+            source_metadata={k: summary[k] for k in (
+                "manifest_sha256", "records_listed", "records_verified", "records_refused",
+                "currently_source_confirmed", "observations_written", "observations_reused",
+                "retained_ineligible", "games_projected_final")}))
+    session.flush()
+    summary["status"] = "OK"
+    return summary
+
+
+def _retained_row(record: lane.FinalRecord, *, game_id: Any, manifest: Any, disposition: str,
+                  reconciliation: str | None, confirmed: bool):
+    """One ``nba_final_observations`` row for one source-confirmed-final revision."""
+
+    from app.models import NbaFinalObservation
+    from app.models.nba_gen1 import LANE_EXCHANGE
+
+    return NbaFinalObservation(
+        game_id=game_id, game_state_observation_id=None, lane=LANE_EXCHANGE, source=EXCHANGE_SOURCE,
+        source_game_id=record.source_game_id,
+        # This lane identifies teams by canonical franchise id, not by ESPN team id.
+        home_espn_team_id=None, away_espn_team_id=None,
+        home_points=record.home_score, away_points=record.away_score, periods=None, overtime=None,
+        source_status=record.source_status, source_object_sha256=record.record_sha256,
+        source_object_bytes=record.record_bytes, captured_at_utc=record.captured_at,
+        completion_clock_status=common.COMPLETION_CLOCK_BASIS, payload_checksum=record.record_sha256,
+        final_discovery_manifest_id=manifest.id, discovery_manifest_sha256=manifest.manifest_sha256,
+        final_record_sha256=record.record_sha256, final_record_bytes=record.record_bytes,
+        revision_key=record.revision_key, codex_game_id=record.codex_game_id,
+        currently_source_confirmed=confirmed, disposition=disposition,
+        source_validated_at_utc=record.validated_at, admitted_at_utc=record.admitted_at,
+        completed_at_utc=None, reconciliation_required=bool(reconciliation),
+        reconciliation_reason=reconciliation,
+        evidence_row={"codex_game_id": record.codex_game_id, "revision_key": record.revision_key,
+                      "home_franchise_id": record.home_franchise_id,
+                      "away_franchise_id": record.away_franchise_id,
+                      "home_team_code": record.home_code, "away_team_code": record.away_code,
+                      "scores": {"home": record.home_score, "away": record.away_score},
+                      "source_tipoff_utc": common.iso(record.tipoff), "game_date": record.game_date,
+                      "season_end": record.season_end, "season_type": record.season_type,
+                      "neutral_site": record.neutral_site,
+                      "clocks": {"captured_at_utc": common.iso(record.captured_at),
+                                 "source_validated_at_utc": common.iso(record.validated_at),
+                                 "admitted_at_utc": common.iso(record.admitted_at),
+                                 "completed_at_utc": None,
+                                 "completion_clock_basis": common.COMPLETION_CLOCK_BASIS},
+                      "predecessor_revisions": record.predecessors,
+                      "record_schema": common.FINAL_RECORD_SCHEMA,
+                      "consumer_authority": "EVIDENCE_ONLY_NO_SETTLEMENT_AUTHORITY"})
+
+
+# ---------------------------------------------------------------------------
+# Lane 2: historical reconstruction from retained season exports
+# ---------------------------------------------------------------------------
+
+def ingest_retained(session: Session, settings: Any, *, now: datetime | None = None) -> dict[str, Any]:
+    """One pass over the pinned retained exports. Historical lane. Idempotent by checksum."""
 
     from app.cfb.final_ingest import _project  # sport-neutral projection onto games/game_teams
     from app.cfb.settlement_corrections import correct_settled_positions
     from app.models import Game, GameStateObservation, GameStatus, GameTeam, IngestionRun, NbaFinalObservation, RunStatus
+    from app.models.nba_gen1 import LANE_RETAINED
 
     moment = now or datetime.now(UTC)
-    summary: dict[str, Any] = {"job": JOB_NAME, "source": source.SOURCE, "provider_requests": 0,
-                               "held_games": 0, "finals_in_source": 0, "observations_written": 0,
-                               "observations_reused": 0, "games_projected_final": 0, "not_final_yet": 0,
+    summary: dict[str, Any] = {"job": JOB_NAME, "lane": LANE_RETAINED, "source": source.SOURCE,
+                               "provider_requests": 0, "held_games": 0, "finals_in_source": 0,
+                               "observations_written": 0, "observations_reused": 0,
+                               "games_projected_final": 0, "not_final_yet": 0,
                                "skipped": [], "corrections": []}
     objects, problems = source.load_objects(settings)
     summary["source_objects"] = [o.describe() for o in objects]
@@ -124,12 +421,14 @@ def ingest(session: Session, settings: Any, *, now: datetime | None = None) -> d
             session.add(state)
             session.flush()
             session.add(NbaFinalObservation(
-                game_id=game.id, game_state_observation_id=state.id, source=source.SOURCE, source_game_id=espn,
+                game_id=game.id, game_state_observation_id=state.id, lane=LANE_RETAINED,
+                source=source.SOURCE, source_game_id=espn,
                 home_espn_team_id=facts["homeEspnTeamId"], away_espn_team_id=facts["awayEspnTeamId"],
                 home_points=facts["homePoints"], away_points=facts["awayPoints"], periods=facts["periods"],
                 overtime=facts["overtime"], source_status=str(row.get("status_type_name")),
                 source_object_sha256=obj.sha256, source_object_bytes=obj.bytes, captured_at_utc=obj.captured_at,
                 completion_clock_status=source.COMPLETION_CLOCK_ABSENT, payload_checksum=checksum,
+                currently_source_confirmed=False, disposition="RETAINED_EXPORT_ROW",
                 evidence_row={"facts": facts, "season": row.get("season"), "season_type": row.get("season_type"),
                               "type_abbreviation": row.get("type_abbreviation"),
                               "source_tipoff_utc": common.iso(tipoff),
@@ -155,4 +454,19 @@ def ingest(session: Session, settings: Any, *, now: datetime | None = None) -> d
     return summary
 
 
-__all__ = ["JOB_NAME", "held_games", "ingest"]
+def ingest(session: Session, settings: Any, *, now: datetime | None = None) -> dict[str, Any]:
+    """Both lanes, reported separately and never merged into one count."""
+
+    moment = now or datetime.now(UTC)
+    exchange = ingest_exchange(session, settings, now=moment)
+    retained = ingest_retained(session, settings, now=moment)
+    return {"job": JOB_NAME, "provider_requests": 0,
+            "production_lane": exchange, "historical_lane": retained,
+            "observations_written": exchange["observations_written"] + retained["observations_written"],
+            "games_projected_final": exchange["games_projected_final"] + retained["games_projected_final"],
+            "reconciliation_required": exchange["reconciliation_required"],
+            "status": f"{exchange['status']}/{retained['status']}"}
+
+
+__all__ = ["EXCHANGE_JOB_NAME", "EXCHANGE_SOURCE", "JOB_NAME", "held_games", "ingest",
+           "ingest_exchange", "ingest_retained"]

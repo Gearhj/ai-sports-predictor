@@ -45,14 +45,20 @@ def era(session):
     return experiment
 
 
-def _eligible_game(session, world, *, lease_minutes=10, confirmed=True):
-    """A V2 package with a live lease at DECIDE_AT, imported; orientation optionally CONFIRMED."""
+def _eligible_game(session, world, *, lease_minutes=10, confirmed=True, grant=None):
+    """A V2 package with a live lease at DECIDE_AT, imported; orientation optionally CONFIRMED.
 
-    package = fx.make_package(world["root"], world["handoff"], schema="V2", created="2026-10-20T22:00:00+00:00")
+    ``grant`` (from ``_grant``) makes the package's own slate release bind that
+    recurring paper authorisation, which is what the release-bound gate requires.
+    """
+
+    release = grant["release"](world) if grant else None
+    package = fx.make_package(world["root"], world["handoff"], schema="V2", created="2026-10-20T22:00:00+00:00",
+                              release=release)
     fx.write_v2_discovery(world["root"], world["handoff"], [(package, {
         "committedAtUtc": "2026-10-20T22:05:00+00:00", "currentlyEligible": True,
         "eligibilityValidUntilUtc": (DECIDE_AT + timedelta(minutes=lease_minutes)).isoformat()})],
-        created="2026-10-20T22:05:00+00:00")
+        created="2026-10-20T22:05:00+00:00", release=release)
     gen1_production.consume(session, world["settings"], now=DECIDE_AT - timedelta(minutes=5))
     from app.models import NbaGen1Forecast
 
@@ -70,13 +76,50 @@ def _permit(monkeypatch, *, eligible=True):
         if eligible else {"eligible": False, "state": "AWAITING_PRODUCER_ELIGIBILITY", "detail": "none"}))
 
 
-def _grant(tmp_path, *, until="2026-11-01T00:00:00+00:00", **override):
-    document = {"schema": gen1_paper.GRANT_SCHEMA, "approvedBy": "James", "policyVersion": "AISP_NBA_PAPER_POLICY_V1",
-                "realMoneyAuthorized": False, "policyAuthorization": {"mode": "VIRTUAL_RESEARCH_ONLY"},
-                "modelConfiguration": fx.LATTICE, "validUntilUtc": until, "scope": "FIXTURE", **override}
+#: The owner's 2026-09-15 terms, written out literally. If AISP's own policy ever
+#: drifts from these numbers, the grant check must fail rather than adopt them.
+TERMS = {"policyVersion": "AISP_NBA_PAPER_POLICY_V1", "mode": "VIRTUAL_RESEARCH_ONLY",
+         "realMoneyAuthorized": False, "realMoneyExecutionAllowed": False,
+         "wageringOutsideAispAllowed": False, "modelPromotionClaim": False,
+         "consumerVirtualExperimentAuthorized": True, "kellyFraction": 0.25,
+         "positionCapFraction": 0.005, "initialPositionCapUsd": 5, "sameGameCapFraction": 0.01,
+         "dailyCapFraction": 0.02, "minimumAdjustedEdgeFraction": 0.02, "marketScope": ["MONEYLINE"]}
+
+
+def _grant(tmp_path, *, valid_from="2026-09-19T00:00:00+00:00", until="2027-04-19T04:00:00+00:00",
+           terms=None, bind_release=True, **override):
+    """One ``NBA_RECURRING_PAPER_AUTHORIZATION_V1``, with its prior supplement and refresh plan.
+
+    Returns the settings pins, the grant's own reference, and a factory that
+    builds the slate release binding it -- the grant is only authority when the
+    release a package binds names it.
+    """
+
+    prior = tmp_path / "prior-supplement.json"
+    prior.write_bytes(fx.canonical({"artifactVersion": "ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1", "sport": "NBA",
+                                    "kind": "PAPER_RESEARCH_ELIGIBILITY",
+                                    "summaries": {"authorization": terms or TERMS}}))
+    plan = tmp_path / "refresh-plan.json"
+    plan.write_bytes(fx.canonical({"schema": "NBA_SAME_OWNER_REFRESH_PLAN_V1", "networkEnabledByDefault": False}))
+    plan_ref = fx.ref(plan)
+    document = {"schema": gen1_paper.GRANT_SCHEMA, "approvedBy": "James",
+                "authorizedAtUtc": "2026-09-19T00:00:00+00:00",
+                "consumerVirtualExperimentAuthorized": True, "realMoneyAuthorized": False,
+                "modelPromotionAuthorized": False, "noAispWriteAuthorityForProducer": True,
+                "configurationIdentity": fx.LATTICE, "pointConfigurationIdentity": fx.CONFIG,
+                "policyVersion": "AISP_NBA_PAPER_POLICY_V1", "seasonId": "2026-27",
+                "scope": "ALL_SUPPORTED_2026_27_REGULAR_SEASON_FORECASTS",
+                "policyAuthorization": terms or TERMS, "priorPolicySupplement": fx.ref(prior),
+                "refreshPlanSha256": plan_ref["sha256"], "validFromUtc": valid_from,
+                "validUntilUtc": until, **override}
     path = tmp_path / "grant.json"
     path.write_bytes(fx.canonical(document))
-    return {"nba_paper_policy_grant_path": str(path), "nba_paper_policy_grant_sha256": fx.sha(path.read_bytes())}
+    grant_ref = fx.ref(path)
+    return {"settings": {"nba_paper_policy_grant_path": str(path), "nba_paper_policy_grant_sha256": grant_ref["sha256"]},
+            "ref": grant_ref, "plan": plan_ref, "document": document,
+            "release": lambda world: fx.make_release(
+                world["root"], world["handoff"], paper_grant=grant_ref if bind_release else None,
+                refresh_plan=plan_ref)}
 
 
 # ------------------------------------------------------------ checkpoint ----
@@ -112,17 +155,64 @@ def test_no_owner_grant_blocks_before_any_price_is_read(session, world, era, mon
     monkeypatch.setattr("app.services.nfl_paper_decision.paired_quotes",
                         lambda *a: pytest.fail("no price may be read without the owner's grant"))
     decision = gen1_paper.evaluate(session, world["settings"], now=DECIDE_AT)["decisions"][0]
-    assert decision["reason"] == "NO_OWNER_POLICY_EXTENSION" and "NO_GRANT_PINNED" in decision["detail"]
+    assert decision["reason"] == "NO_PAPER_AUTHORIZATION" and "NO_GRANT_PINNED" in decision["detail"]
 
 
 @pytest.mark.parametrize("override, state", [
-    ({"approvedBy": "Someone"}, "GRANT_DOES_NOT_AUTHORIZE_THE_UNCHANGED_VIRTUAL_POLICY"),
-    ({"realMoneyAuthorized": True}, "GRANT_DOES_NOT_AUTHORIZE_THE_UNCHANGED_VIRTUAL_POLICY"),
-    ({"validUntilUtc": "2026-10-01T00:00:00+00:00"}, "GRANT_EXPIRED_OR_UNBOUNDED"),
+    ({"approvedBy": "Someone"}, "GRANT_AUTHORITY_FLAGS_DIFFER"),
+    ({"realMoneyAuthorized": True}, "GRANT_AUTHORITY_FLAGS_DIFFER"),
+    ({"modelPromotionAuthorized": True}, "GRANT_AUTHORITY_FLAGS_DIFFER"),
+    ({"noAispWriteAuthorityForProducer": False}, "GRANT_AUTHORITY_FLAGS_DIFFER"),
+    ({"scope": "ONE_GAME"}, "GRANT_AUTHORITY_FLAGS_DIFFER"),
+    ({"schema": "NBA_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1"}, "GRANT_SCHEMA_UNKNOWN"),
+    ({"configurationIdentity": fx.CONFIG}, "GRANT_NAMES_A_DIFFERENT_MODEL"),
+    ({"pointConfigurationIdentity": "SOMETHING_ELSE"}, "GRANT_NAMES_A_DIFFERENT_MODEL"),
+    ({"seasonId": "2027-28"}, "GRANT_NAMES_A_DIFFERENT_POLICY_OR_SEASON"),
+    ({"validUntilUtc": "2026-10-01T00:00:00+00:00"}, "GRANT_NOT_CURRENT"),
+    ({"validFromUtc": "2026-11-01T00:00:00+00:00", "validUntilUtc": "2027-04-19T04:00:00+00:00"},
+     "GRANT_NOT_CURRENT"),
+    ({"authorizedAtUtc": "2026-12-01T00:00:00+00:00"}, "GRANT_AUTHORIZED_IN_THE_FUTURE"),
 ])
-def test_a_grant_must_be_the_owners_unchanged_virtual_policy_and_unexpired(settings, tmp_path, override, state):
-    configured = settings.model_copy(update=_grant(tmp_path, **override))
+def test_a_grant_must_be_the_owners_unchanged_authorisation(settings, tmp_path, override, state):
+    configured = settings.model_copy(update=_grant(tmp_path, **override)["settings"])
     assert gen1_paper.policy_grant(configured, now=DECIDE_AT)["state"] == state
+
+
+def test_a_grant_that_changes_one_authorised_number_is_refused(settings, tmp_path):
+    """Not adopted, not averaged: a different number is a different policy."""
+
+    changed = {**TERMS, "kellyFraction": 0.5}
+    configured = settings.model_copy(update=_grant(tmp_path, terms=changed)["settings"])
+    verdict = gen1_paper.policy_grant(configured, now=DECIDE_AT)
+    assert verdict["state"] == "GRANT_CHANGES_THE_AUTHORISED_TERMS" and verdict["fields"] == ["kellyFraction"]
+
+
+def test_a_grant_no_release_binds_authorises_nothing(session, world, era, monkeypatch, tmp_path):
+    """The document can be perfect and still carry no authority until a release names it."""
+
+    grant = _grant(tmp_path, bind_release=False)
+    _eligible_game(session, world, grant=grant)
+    _permit(monkeypatch)
+    configured = world["settings"].model_copy(update=grant["settings"])
+    decision = gen1_paper.evaluate(session, configured, now=DECIDE_AT)["decisions"][0]
+    assert decision["reason"] == "NO_PAPER_AUTHORIZATION"
+    assert decision["grant"]["state"] == "RELEASE_DOES_NOT_BIND_THIS_GRANT"
+
+
+def test_a_v1_package_can_never_reach_the_release_bound_paper_lane(session, world, era, monkeypatch, tmp_path):
+    """The 2026-09-15 single-game approval is not widened to a package with no release."""
+
+    grant = _grant(tmp_path)
+    package = fx.make_package(world["root"], world["handoff"])
+    fx.write_v1_discovery(world["root"], [package])
+    gen1_production.consume(session, world["settings"], now=DECIDE_AT - timedelta(minutes=5))
+    from app.models import NbaGen1Forecast
+
+    row = session.scalar(select(NbaGen1Forecast))
+    assert row.slate_release_sha256 is None
+    assert gen1_paper.bound_release(row) is None
+    assert gen1_paper.policy_grant(world["settings"].model_copy(update=grant["settings"]),
+                                   now=DECIDE_AT, release=gen1_paper.bound_release(row))["state"] ==         "GRANT_NOT_BOUND_TO_A_VERIFIED_RELEASE"
 
 
 def _price(session, game_id, *, home_ml=-150, away_ml=+130, at=BUY_AT):
@@ -139,10 +229,11 @@ def _price(session, game_id, *, home_ml=-150, away_ml=+130, at=BUY_AT):
 
 
 def test_every_gate_passes_but_the_activation_control_is_off(session, world, era, monkeypatch, tmp_path):
-    row = _eligible_game(session, world)
+    grant = _grant(tmp_path)
+    row = _eligible_game(session, world, grant=grant)
     _permit(monkeypatch)
     _price(session, row.canonical_game_id, home_ml=+150, away_ml=-170)
-    configured = world["settings"].model_copy(update=_grant(tmp_path))
+    configured = world["settings"].model_copy(update=grant["settings"])
     decision = gen1_paper.evaluate(session, configured, now=DECIDE_AT)["decisions"][0]
     assert decision["reason"] in {"ACTIVATION_CONTROL_OFF", "NO_QUALIFYING_EDGE"}
     assert session.scalar(select(func.count()).select_from(OfficialAspPosition)) == 0
@@ -150,12 +241,13 @@ def test_every_gate_passes_but_the_activation_control_is_off(session, world, era
 
 def test_with_the_owners_grant_and_switch_a_qualifying_edge_positions_within_the_caps(
         session, world, era, monkeypatch, tmp_path):
-    row = _eligible_game(session, world)
+    grant = _grant(tmp_path)
+    row = _eligible_game(session, world, grant=grant)
     _permit(monkeypatch)
     # Price the home side far longer than the joint probability implies.
     p = row.joint_home_win_probability
     _price(session, row.canonical_game_id, home_ml=+250 if p > 0.4 else +500, away_ml=-300)
-    configured = world["settings"].model_copy(update={**_grant(tmp_path), "nba_paper_decisions_enabled": True})
+    configured = world["settings"].model_copy(update={**grant["settings"], "nba_paper_decisions_enabled": True})
     decision = gen1_paper.evaluate(session, configured, now=DECIDE_AT)["decisions"][0]
     assert decision["reason"] == "ALL_GATES_PASSED", decision
     assert decision["selection"]["channel"] == "JOINT_DISTRIBUTION"

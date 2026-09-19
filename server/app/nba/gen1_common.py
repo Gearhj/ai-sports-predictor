@@ -54,6 +54,18 @@ HANDOFF_MANIFEST_SCHEMA = "NBA_GEN1_PRODUCTION_BASELINE_HANDOFF_V2"
 DISCOVERY_V1_SCHEMA = "NBA_GEN1_PRODUCTION_DISCOVERY_V1"
 SLATE_POINTER_SCHEMA = "NBA_GEN1_SLATE_DISCOVERY_POINTER_V1"
 SLATE_DISCOVERY_SCHEMA = "NBA_GEN1_SLATE_DISCOVERY_V1"
+#: The release a V2 package binds in ``forecast.bindings.slateRelease``. It carries
+#: that package's OWN ``prospectiveEffectiveAtUtc`` and the model handoff it selects.
+SLATE_RELEASE_SCHEMA = "NBA_GEN1_SLATE_RELEASE_V1"
+#: The source-confirmed finals lane (production final path).
+FINAL_POINTER_SCHEMA = "NBA_GEN1_FINAL_DISCOVERY_POINTER_V1"
+FINAL_DISCOVERY_SCHEMA = "NBA_GEN1_FINAL_DISCOVERY_V1"
+FINAL_RECORD_SCHEMA = "NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1"
+FINAL_CONTRACT_SCHEMA = "NBA_GEN1_FINAL_EXCHANGE_CONTRACT_V1"
+#: The producer's explicit unknown: no admitted source retains a completion clock.
+COMPLETION_CLOCK_BASIS = "NOT_RETAINED_BY_ADMITTED_SOURCE"
+#: The only optional grant that can carry recurring paper authority.
+PAPER_GRANT_SCHEMA = "NBA_RECURRING_PAPER_AUTHORIZATION_V1"
 
 LEAGUE_CODE = "NBA"
 SOURCE_ESPN_GAME = "NBA_ESPN"               # external_id_mappings.source for games (existing)
@@ -281,10 +293,12 @@ def spread_probabilities(joint_summary: dict[str, Any], home_line: float) -> dic
 
 
 __all__ = [
-    "BindingRefused", "CHANNEL_ROLES", "CONFIGURATION", "DISCOVERY_V1_SCHEMA", "DISTRIBUTION_CONFIGURATION",
-    "DRAW_COUNT", "FORECAST_SCHEMA", "HANDOFF_INDEX_SCHEMA", "HANDOFF_MANIFEST_SCHEMA", "INDEX_SCHEMA_V1",
-    "INDEX_SCHEMA_V2", "LEAGUE_CODE", "MARKET_CHANNELS", "RETAINED_LIMITATIONS", "SLATE_DISCOVERY_SCHEMA",
-    "SLATE_POINTER_SCHEMA", "SOURCE_ESPN_GAME", "SOURCE_ESPN_TEAM", "SOURCE_FRANCHISE", "SOURCE_MODE",
+    "BindingRefused", "CHANNEL_ROLES", "COMPLETION_CLOCK_BASIS", "CONFIGURATION", "DISCOVERY_V1_SCHEMA",
+    "DISTRIBUTION_CONFIGURATION", "DRAW_COUNT", "FINAL_CONTRACT_SCHEMA", "FINAL_DISCOVERY_SCHEMA",
+    "FINAL_POINTER_SCHEMA", "FINAL_RECORD_SCHEMA", "FORECAST_SCHEMA", "HANDOFF_INDEX_SCHEMA",
+    "HANDOFF_MANIFEST_SCHEMA", "INDEX_SCHEMA_V1", "INDEX_SCHEMA_V2", "LEAGUE_CODE", "MARKET_CHANNELS",
+    "PAPER_GRANT_SCHEMA", "RETAINED_LIMITATIONS", "SLATE_DISCOVERY_SCHEMA", "SLATE_POINTER_SCHEMA",
+    "SLATE_RELEASE_SCHEMA", "SOURCE_ESPN_GAME", "SOURCE_ESPN_TEAM", "SOURCE_FRANCHISE", "SOURCE_MODE",
     "aware", "bound", "canonical_bytes", "channels_for", "interval_from_pmf", "iso", "pmf", "pmf_probability",
     "sha256_bytes", "spread_probabilities", "summarize_counts", "summarize_draws", "totals_query", "ts",
     "weighted_pmf", "with_intervals",

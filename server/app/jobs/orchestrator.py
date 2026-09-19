@@ -1703,7 +1703,13 @@ class JobOrchestrator:
         return evaluate(self.session, self.settings)
 
     async def ingest_nba_finals(self, event_date: date) -> dict[str, Any]:
-        """Admit NBA finals from pinned retained ESPN objects, then score each channel. No network."""
+        """Both NBA final lanes, then per-channel scoring. Local bytes only; no network.
+
+        Lane 1 is the PRODUCTION path: the producer's source-confirmed finals
+        exchange (``finals-discovery/current.json``). Lane 2 is the separate
+        historical reconstruction from retained ESPN season exports. They are
+        reported separately and never summed into one "finals" count.
+        """
 
         from app.nba.gen1_evaluation import evaluate as evaluate_nba
         from app.nba.gen1_finals import ingest
@@ -1712,9 +1718,16 @@ class JobOrchestrator:
         self.session.commit()
         scoring = evaluate_nba(self.session)
         self.session.commit()
+        production = finals.get("production_lane") or {}
+        historical = finals.get("historical_lane") or {}
         return {"records": int(finals.get("observations_written", 0)) + int(scoring.get("written", 0)),
-                "finals": {k: v for k, v in finals.items() if k not in ("skipped", "source_objects")},
-                "finals_skipped": finals.get("skipped", [])[:20],
+                "status": finals.get("status"),
+                "production_lane": {k: v for k, v in production.items()
+                                    if k not in ("refused_records", "advisories")},
+                "historical_lane": {k: v for k, v in historical.items()
+                                    if k not in ("skipped", "source_objects")},
+                "finals_skipped": historical.get("skipped", [])[:20],
+                "reconciliation_required": finals.get("reconciliation_required", [])[:20],
                 "scoring": {k: v for k, v in scoring.items() if k != "skipped"}}
 
     async def collect_nba_pregame_odds(self, event_date: date) -> dict[str, Any]:
@@ -1750,7 +1763,9 @@ class JobOrchestrator:
         return {"records": int(imported.get("imported", 0)),
                 "historical": {k: v for k, v in imported.items() if k not in ("skipped", "source_objects")},
                 "historical_skipped": imported.get("skipped", [])[:20],
-                "finals": {k: v for k, v in finals.items() if k not in ("skipped", "source_objects")},
+                "finals": {"status": finals.get("status"),
+                           "historical_lane": {k: v for k, v in (finals.get("historical_lane") or {}).items()
+                                               if k not in ("skipped", "source_objects")}},
                 "scoring": {k: v for k, v in scoring.items() if k != "skipped"}}
 
     async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:

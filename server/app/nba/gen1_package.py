@@ -165,19 +165,51 @@ def verify_package(root: pathlib.Path, *, handoff_sha256: str, effective_at: Any
         if authority.get(claim) is not False:
             problems.append(f"AUTHORITY_{claim.upper()}_NOT_FALSE")
 
-    handoff_ref = (forecast.get("bindings") or {}).get("productionHandoff") or index.get("productionHandoff") or {}
-    bound_handoff = str(handoff_ref.get("sha256", "")).lower()
-    if schema == common.INDEX_SCHEMA_V1 and bound_handoff != handoff_sha256.lower():
+    bindings = forecast.get("bindings") or {}
+    # The pinned model handoff is checked the same way for both schemas, from the
+    # FORECAST's own binding. For V1 the index repeats it, so the index is an
+    # accepted fallback; for V2 the index names the slate release instead and is
+    # never read here, or a release hash could be mistaken for a handoff hash.
+    handoff_ref = bindings.get("productionHandoff") or (
+        {} if schema == common.INDEX_SCHEMA_V2 else (index.get("productionHandoff") or {}))
+    model_handoff = str((handoff_ref or {}).get("sha256", "")).lower()
+    if model_handoff != handoff_sha256.lower():
         problems.append("PACKAGE_NOT_BOUND_TO_PINNED_HANDOFF")
-    if schema == common.INDEX_SCHEMA_V2:
-        # V2 binds the slate release, which itself binds the model handoff. The
-        # model handoff SHA must still be reachable: the forecast's bindings carry it.
-        model_handoff = str(((forecast.get("bindings") or {}).get("productionHandoff") or {}).get("sha256", "")).lower()
-        if model_handoff != handoff_sha256.lower():
-            problems.append("PACKAGE_NOT_BOUND_TO_PINNED_HANDOFF")
     effective = common.ts(forecast.get("prospectiveEffectiveAtUtc"))
-    if effective is None or effective != common.ts(effective_at):
-        problems.append("EFFECTIVE_TIME_DIFFERS_FROM_HANDOFF")
+    release: dict[str, Any] | None = None
+    release_ref: dict[str, Any] | None = None
+    if schema == common.INDEX_SCHEMA_V2:
+        # A V2 package's effective clock belongs to ITS OWN slate release, which is
+        # physically bound in its forecast. The pinned model handoff is checked
+        # independently (above and through the release), and the newest release's
+        # clock is never copied onto a preserved older package.
+        release_ref = bindings.get("slateRelease")
+        if not isinstance(release_ref, dict) or not release_ref.get("sha256"):
+            problems.append("SLATE_RELEASE_NOT_BOUND")
+        else:
+            try:
+                release = json.loads(common.bound(release_ref, "slate release"))
+            except (common.BindingRefused, ValueError) as exc:
+                problems.append(f"SLATE_RELEASE_UNVERIFIED:{exc}"[:200])
+        if release is not None:
+            if release.get("schema") != common.SLATE_RELEASE_SCHEMA:
+                problems.append(f"SLATE_RELEASE_SCHEMA_UNKNOWN:{release.get('schema')!r}")
+            if str((release.get("modelHandoff") or {}).get("sha256", "")).lower() != handoff_sha256.lower():
+                problems.append("RELEASE_DOES_NOT_BIND_PINNED_MODEL_HANDOFF")
+            if (release.get("configurationIdentity") != common.CONFIGURATION
+                    or release.get("distributionConfigurationIdentity") != common.DISTRIBUTION_CONFIGURATION
+                    or int(release.get("drawCount") or 0) != common.DRAW_COUNT):
+                problems.append("RELEASE_MODEL_IDENTITY_MISMATCH")
+            index_release = index.get("productionHandoff")
+            if index_release is not None and str((index_release or {}).get("sha256", "")).lower() != \
+                    str(release_ref.get("sha256", "")).lower():
+                problems.append("INDEX_RELEASE_DIFFERS_FROM_FORECAST")
+            release_effective = common.ts(release.get("prospectiveEffectiveAtUtc"))
+            if effective is None or release_effective is None or effective != release_effective:
+                problems.append("EFFECTIVE_TIME_DIFFERS_FROM_BOUND_SLATE_RELEASE")
+    else:
+        if effective is None or effective != common.ts(effective_at):
+            problems.append("EFFECTIVE_TIME_DIFFERS_FROM_HANDOFF")
     created = common.ts(forecast.get("createdAtUtc"))
     if created is None or effective is None or created < effective:
         problems.append("CREATED_BEFORE_PROSPECTIVE_EFFECTIVE_TIME")
@@ -245,6 +277,11 @@ def verify_package(root: pathlib.Path, *, handoff_sha256: str, effective_at: Any
         "members": members, "joint_summary": summary, "population_artifact_sha256": str(artifact["sha256"]).lower(),
         "population_logical_sha256": summary_extra["logical_sha256"],
         "handoff_sha256": handoff_sha256.lower(), "revision_key": index.get("revisionKey"),
+        # V2 only: the package's OWN release and the effective clock it binds.
+        "slate_release_sha256": str((release_ref or {}).get("sha256", "")).lower() or None,
+        "slate_release": release_ref, "release_effective_at_utc": common.iso(effective),
+        "paper_authorization_ref": (release or {}).get("paperEligibilityAuthorization"),
+        "finals_contract_ref": (release or {}).get("finalsExchangeContract"),
     }
 
 

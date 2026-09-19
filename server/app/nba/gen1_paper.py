@@ -20,11 +20,14 @@ THE GATES, IN ORDER
    (``CONFIRMED`` only).
 4. The producer's ``ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1`` record binds this
    policy to that exact forecast, published before T-30.
-5. The owner's extension of the policy to PRODUCTION packages. The 2026-09-15
-   authorisation covered research-eligibility records; CFB needed a signed grant
-   (2026-09-18) before its policy reached production forecasts. The NBA grant is
-   pinned by ``NBA_PAPER_POLICY_GRANT_PATH`` / ``_SHA256`` (empty: blocks with
-   ``NO_OWNER_POLICY_EXTENSION``) -- an owner decision, never assumed.
+5. A release-bound ``NBA_RECURRING_PAPER_AUTHORIZATION_V1`` grant. It is OPTIONAL
+   by contract: without one the producer reports ``NO_PAPER_AUTHORIZATION``,
+   writes no companions and continues ordinary evidence delivery, and AISP says
+   the same words and records no position. It is pinned by
+   ``NBA_PAPER_POLICY_GRANT_PATH`` / ``_SHA256``, must repeat the unchanged
+   2026-09-15 terms and the prior policy supplement's own authorization, and
+   must be the grant THIS package's slate release binds -- an owner decision,
+   never assumed, and never widened from the 2026-09-15 single-game approval.
 6. A two-sided moneyline from one permitted provider, book and market, no older
    than 240 minutes on its STALER leg.
 7. The policy's own edge and expected-return rule.
@@ -63,7 +66,7 @@ CONTROLLING_CHANNEL = "JOINT_DISTRIBUTION"
 
 PREREQUISITE_REASONS = frozenset({
     "NO_FORECAST", "DISCOVERY_NOT_CURRENT", "ORIENTATION_NOT_CONFIRMED", "AWAITING_PRODUCER_ELIGIBILITY",
-    "ELIGIBILITY_RECORD_INVALID", "NO_OWNER_POLICY_EXTENSION", "NO_TWO_SIDED_QUOTE", "NO_PERMITTED_PROVIDER",
+    "ELIGIBILITY_RECORD_INVALID", "NO_PAPER_AUTHORIZATION", "NO_TWO_SIDED_QUOTE", "NO_PERMITTED_PROVIDER",
     "QUOTE_TOO_STALE",
 })
 
@@ -173,13 +176,17 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
                 "detail": "The producer's eligibility record was not published before T-30."}
     base["eligibility"] = {k: permission.get(k) for k in ("state", "record_id", "contract", "experiment_key")}
 
-    grant = policy_grant(settings, now=moment)
+    release = bound_release(forecast)
+    grant = policy_grant(settings, now=moment, release=release)
     base["grant"] = {k: v for k, v in grant.items() if k != "document"}
+    base["grant"]["release_sha256"] = forecast.slate_release_sha256
     if not grant["valid"]:
-        return {**base, "outcome": "BLOCKED", "reason": "NO_OWNER_POLICY_EXTENSION",
-                "detail": ("AISP_NBA_PAPER_POLICY_V1 was authorised on 2026-09-15 for research-eligibility records. "
-                           f"Extending it to production packages needs the owner's grant ({grant['state']}); "
-                           "see docs/NBA_LAUNCH_PLAN_20260919.md.")}
+        return {**base, "outcome": "BLOCKED", "reason": "NO_PAPER_AUTHORIZATION",
+                "detail": ("No release-bound NBA_RECURRING_PAPER_AUTHORIZATION_V1 grant authorises this "
+                           f"forecast ({grant['state']}). AISP_NBA_PAPER_POLICY_V1 was authorised on "
+                           "2026-09-15 for research-eligibility records only; evidence still imports and "
+                           "this decision is recorded, but no paper authority exists. See "
+                           "docs/NBA_LAUNCH_PLAN_20260919.md.")}
 
     pairs = paired_quotes(session, game["game_id"])
     if not pairs:
@@ -228,15 +235,76 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
     return {**base, "outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED", "selection": best, "bankroll": bankroll}
 
 
-GRANT_SCHEMA = "NBA_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1"
+#: The producer's optional, release-bound recurring paper grant. THE ONLY
+#: document that can carry paper authority for NBA production packages. Its
+#: absence is reported as NO_PAPER_AUTHORIZATION and changes nothing else:
+#: evidence still imports, decisions are still recorded, no position forms.
+GRANT_SCHEMA = common.PAPER_GRANT_SCHEMA
+
+#: Exactly the scope string the producer validates. A different scope is a
+#: different grant, not a wider reading of this one.
+GRANT_SCOPE = "ALL_SUPPORTED_2026_27_REGULAR_SEASON_FORECASTS"
+
+#: Flags that must be literally these values, or the grant is not this grant.
+GRANT_FLAGS: dict[str, Any] = {
+    "approvedBy": "James",
+    "consumerVirtualExperimentAuthorized": True,
+    "realMoneyAuthorized": False,
+    "modelPromotionAuthorized": False,
+    "noAispWriteAuthorityForProducer": True,
+    "scope": GRANT_SCOPE,
+}
 
 
-def policy_grant(settings: Any, *, now: datetime) -> dict[str, Any]:
-    """The owner's extension of AISP_NBA_PAPER_POLICY_V1 to production packages. Empty = none.
+def _policy_terms() -> dict[str, Any]:
+    """AISP's OWN unchanged 2026-09-15 terms, in the producer's field names.
 
-    Mirrors the CFB grant (``CFB_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1``): James's
-    approval, this exact policy version, virtual research only, no real money, the
-    controlling configuration, and an expiry. Pinned by path and SHA-256.
+    The grant must repeat these numbers exactly. A grant that changes one is a
+    different policy and is refused rather than adopted.
+    """
+
+    return {
+        "policyVersion": POLICY.policy_version, "mode": "VIRTUAL_RESEARCH_ONLY",
+        "realMoneyAuthorized": False, "realMoneyExecutionAllowed": False,
+        "wageringOutsideAispAllowed": False, "modelPromotionClaim": False,
+        "consumerVirtualExperimentAuthorized": True,
+        "kellyFraction": POLICY.kelly_fraction, "positionCapFraction": POLICY.max_position_percentage,
+        "initialPositionCapUsd": POLICY.max_stake, "sameGameCapFraction": POLICY.max_same_game_percentage,
+        "dailyCapFraction": POLICY.max_daily_percentage,
+        "minimumAdjustedEdgeFraction": POLICY.min_adjusted_edge,
+        "marketScope": list(POLICY.markets),
+    }
+
+
+def policy_grant(settings: Any, *, now: datetime, release: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The producer's ``NBA_RECURRING_PAPER_AUTHORIZATION_V1``, proved from bytes.
+
+    Optional by design. Without it the owner reports ``NO_PAPER_AUTHORIZATION``,
+    writes no companions and continues ordinary evidence delivery -- so AISP
+    blocks with the same words and imports everything else exactly as before.
+
+    What is proved when one IS pinned (``NBA_PAPER_POLICY_GRANT_PATH`` /
+    ``_SHA256``):
+
+    * the schema, James's approval and every authority flag, literally;
+    * the selected model: ``configurationIdentity`` is the joint lattice this
+      policy controls and ``pointConfigurationIdentity`` is the Ridge/Elo
+      configuration -- the grant names both, and neither may drift;
+    * the season and scope strings, unchanged;
+    * ``policyAuthorization`` equal to AISP's own unchanged terms AND to the
+      prior policy supplement's ``summaries.authorization``, read from the
+      grant's physically bound ``priorPolicySupplement``;
+    * the approval interval: ``authorizedAtUtc`` in the past, a non-empty
+      interval, and ``now`` inside it;
+    * the RELEASE BINDING, when a release is supplied: that release's
+      ``paperEligibilityAuthorization`` must be this exact grant by SHA-256 and
+      byte count. A grant that no release binds authorises nothing here.
+
+    A season-scoped grant still does not widen anything by itself: every
+    position also needs the producer's per-forecast
+    ``ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1`` companion (gate 4) and a current
+    discovery lease (gate 2). The 2026-09-15 single-game BOS-DET authorisation is
+    never stretched to another game or to a season.
     """
 
     import json
@@ -252,19 +320,86 @@ def policy_grant(settings: Any, *, now: datetime) -> dict[str, Any]:
         return {"valid": False, "state": "GRANT_MISSING"}
     if common.sha256_bytes(raw) != pin:
         return {"valid": False, "state": "GRANT_SHA256_MISMATCH"}
-    grant = json.loads(raw)
+    try:
+        grant = json.loads(raw)
+    except ValueError:
+        return {"valid": False, "state": "GRANT_UNREADABLE", "sha256": pin}
+    base = {"sha256": pin, "bytes": len(raw), "schema": grant.get("schema"),
+            "scope": grant.get("scope"), "season_id": grant.get("seasonId")}
+
+    if grant.get("schema") != GRANT_SCHEMA:
+        return {"valid": False, "state": "GRANT_SCHEMA_UNKNOWN", **base}
+    if any(grant.get(key) != value for key, value in GRANT_FLAGS.items()):
+        return {"valid": False, "state": "GRANT_AUTHORITY_FLAGS_DIFFER", **base}
+    if (grant.get("configurationIdentity") != POLICY.controlling_configuration
+            or grant.get("pointConfigurationIdentity") != common.CONFIGURATION):
+        return {"valid": False, "state": "GRANT_NAMES_A_DIFFERENT_MODEL", **base}
+    if grant.get("policyVersion") != POLICY.policy_version or grant.get("seasonId") != POLICY.season_id:
+        return {"valid": False, "state": "GRANT_NAMES_A_DIFFERENT_POLICY_OR_SEASON", **base}
+
     terms = grant.get("policyAuthorization") or {}
-    if (grant.get("schema") != GRANT_SCHEMA or grant.get("approvedBy") != "James"
-            or grant.get("policyVersion") != POLICY.policy_version or grant.get("realMoneyAuthorized") is not False
-            or terms.get("mode") != "VIRTUAL_RESEARCH_ONLY"
-            or grant.get("modelConfiguration") != POLICY.controlling_configuration):
-        return {"valid": False, "state": "GRANT_DOES_NOT_AUTHORIZE_THE_UNCHANGED_VIRTUAL_POLICY", "sha256": pin}
-    until = common.ts(grant.get("validUntilUtc"))
-    if until is None or now >= until:
-        return {"valid": False, "state": "GRANT_EXPIRED_OR_UNBOUNDED", "sha256": pin,
-                "valid_until": common.iso(until)}
-    return {"valid": True, "state": "GRANT_VALID", "sha256": pin, "valid_until": until.isoformat(),
-            "scope": grant.get("scope")}
+    expected = _policy_terms()
+    differs = sorted(k for k, v in expected.items() if terms.get(k) != v)
+    if differs:
+        return {"valid": False, "state": "GRANT_CHANGES_THE_AUTHORISED_TERMS", "fields": differs, **base}
+
+    prior_ref = grant.get("priorPolicySupplement")
+    try:
+        prior = json.loads(common.bound(prior_ref, "prior policy supplement"))
+    except (common.BindingRefused, ValueError, TypeError) as exc:
+        return {"valid": False, "state": f"PRIOR_POLICY_SUPPLEMENT_UNVERIFIED:{exc}"[:160], **base}
+    if prior.get("artifactVersion") != POLICY.eligibility_contract or prior.get("sport") != POLICY.sport:
+        return {"valid": False, "state": "PRIOR_POLICY_SUPPLEMENT_IS_NOT_THIS_CONTRACT", **base}
+    if terms != ((prior.get("summaries") or {}).get("authorization")):
+        return {"valid": False, "state": "GRANT_TERMS_DIFFER_FROM_THE_PRIOR_SUPPLEMENT", **base}
+
+    authorized = common.ts(grant.get("authorizedAtUtc"))
+    start, until = common.ts(grant.get("validFromUtc")), common.ts(grant.get("validUntilUtc"))
+    window = {"authorized_at": common.iso(authorized), "valid_from": common.iso(start),
+              "valid_until": common.iso(until)}
+    if authorized is None or start is None or until is None or until <= start:
+        return {"valid": False, "state": "GRANT_INTERVAL_MISSING_OR_EMPTY", **base, **window}
+    if authorized > now:
+        return {"valid": False, "state": "GRANT_AUTHORIZED_IN_THE_FUTURE", **base, **window}
+    if not start <= now < until:
+        return {"valid": False, "state": "GRANT_NOT_CURRENT", **base, **window}
+
+    if release is None:
+        return {"valid": False, "state": "GRANT_NOT_BOUND_TO_A_VERIFIED_RELEASE", **base, **window}
+    bound_ref = release.get("paperEligibilityAuthorization")
+    if not isinstance(bound_ref, dict) or str(bound_ref.get("sha256", "")).lower() != pin \
+            or int(bound_ref.get("bytes") or -1) != len(raw):
+        return {"valid": False, "state": "RELEASE_DOES_NOT_BIND_THIS_GRANT", **base, **window,
+                "release_binds": str((bound_ref or {}).get("sha256", "")) if isinstance(bound_ref, dict) else None}
+    if str(grant.get("refreshPlanSha256", "")).lower() != \
+            str((release.get("refreshPlan") or {}).get("sha256", "")).lower():
+        return {"valid": False, "state": "GRANT_NAMES_A_DIFFERENT_REFRESH_PLAN", **base, **window}
+    return {"valid": True, "state": "GRANT_VALID", **base, **window,
+            "prior_policy_supplement_sha256": str((prior_ref or {}).get("sha256", "")).lower(),
+            "note": ("Season-scoped, and still not sufficient on its own: each position also needs the "
+                     "producer's per-forecast eligibility companion and a current discovery lease.")}
+
+
+def bound_release(forecast: Any) -> dict[str, Any] | None:
+    """The slate release THIS forecast binds, re-proved from its recorded binding.
+
+    V1 packages bind no slate release, so they can never reach the release-bound
+    paper lane -- which is correct: the 2026-09-15 single-game authorisation is
+    not widened to them.
+    """
+
+    import json
+
+    ref = ((forecast.detail or {}).get("bindings") or {}).get("slateRelease")
+    if not isinstance(ref, dict) or not ref.get("sha256"):
+        return None
+    if forecast.slate_release_sha256 and \
+            str(ref["sha256"]).lower() != str(forecast.slate_release_sha256).lower():
+        return None
+    try:
+        return json.loads(common.bound(ref, "slate release"))
+    except (common.BindingRefused, ValueError, TypeError):
+        return None
 
 
 def record(session: Session, era: ShadowExperiment, game: dict[str, Any], decision: dict[str, Any],

@@ -174,6 +174,7 @@ from app.models.nba_gen1 import (  # noqa: E402,F401
     NbaChannelEvaluation,
     NbaDiscoveryManifest,
     NbaDiscoveryObservation,
+    NbaFinalDiscoveryManifest,
     NbaFinalObservation,
     NbaGen1Forecast,
     NbaHistoricalForecast,

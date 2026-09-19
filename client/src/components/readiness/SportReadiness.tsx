@@ -45,6 +45,7 @@ export interface SportReadinessEntry {
 const COMPONENT_LABELS: Record<string, string> = {
   handoff: 'Model handoff', forecast: 'Production package', eligibility: 'Decision eligibility',
   price: 'Price lane', decision: 'Paper checkpoint', outcomes: 'Outcomes & scoring',
+  finals_lane: 'Source-confirmed finals lane',
 }
 
 function ComponentTruth({ components }: { components: Record<string, unknown> }) {

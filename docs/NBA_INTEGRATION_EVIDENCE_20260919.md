@@ -145,9 +145,9 @@ probability channels and is null for Ridge, where it has no meaning.
 | 2026-10-13T18:00Z | Earliest legitimate Codex NBA capture, if the refresh proposal is approved and the publisher installed (O1). |
 | 2026-10-13T19:00Z | First producer publication checkpoint (T−7d). First V2 slate discovery on **real** bytes; confirm the AISP V2 import and lease recording (so far tested on fixtures only). |
 | 2026-10-20, 13:45–14:25 ET | 1-object SGO identity validation on BOS at DET (15:00 ET), if O6 is approved. Records the NBA league id, team ids and the older-leg lag. |
-| 2026-10-20T18:30–18:45Z | First possible NBA paper checkpoint (BOS at DET, T−30..T−15). With shipped settings it records `DISCOVERY_NOT_CURRENT` or `NO_OWNER_POLICY_EXTENSION`, and no position. |
+| 2026-10-20T18:30–18:45Z | First possible NBA paper checkpoint (BOS at DET, T−30..T−15). With shipped settings it records `DISCOVERY_NOT_CURRENT` or `NO_PAPER_AUTHORIZATION`, and no position. |
 | 2026-10-20T23:00Z | PHI at NYK tipoff. A V1 package is never eligible; its checkpoint records `DISCOVERY_NOT_CURRENT`. |
-| After ~2026-10-21T03:00Z | First 2026-27 final (PHI at NYK), **once a capture containing it is retained and pinned** (O7). Prospective per-channel scoring of package `8a725a43…` follows. |
+| After ~2026-10-21T03:00Z | First 2026-27 final (PHI at NYK), delivered on the producer's source-confirmed finals lane (`finals-discovery/current.json`). AISP verifies the manifest and the per-game record, joins the exact game/franchises/tipoff, records `completedAtUtc` as the explicit unknown it is, and scores each channel. |
 | ~2026-10-26 | Codex's first monitoring review point: 50 completed games (cumulative 52 by 10-26 ET). |
 | ~2026-11-01/02 | Second review point: 100 completed games. |
 
@@ -157,10 +157,107 @@ probability channels and is null for Ridge, where it has no meaning.
 2. Point the settings at the files above.
 3. Run, in order:
    - `gen1_historical.import_historical`
-   - `gen1_finals.ingest`
+   - `gen1_finals.ingest` (both lanes: `ingest_exchange` = the production
+     source-confirmed finals lane, `ingest_retained` = historical reconstruction)
    - `gen1_production.consume` (consumer on, pin `7113b71f…`)
    - `gen1_evaluation.evaluate`
 
 The whole season takes about 60 s. The one test that reads the real exchange,
 `tests/test_nba_gen1_consumer.py::test_codex_selected_phi_at_nyk_package_verifies_byte_for_byte`, skips
 when the files are absent.
+
+## 6. The three contract corrections (2026-09-19 evening)
+
+Model Studio's conformance review named three places where this consumer would not have matched its
+completed contract. Each was changed in code and proved against **Codex's own bytes**, not against a
+fixture of our shape.
+
+### 6.1 A V2 package's effective clock is its own release's
+
+`app/nba/gen1_package.py` now, for `NBA_GEN1_PRODUCTION_FORECAST_PACKAGE_INDEX_V2` only, verifies the
+package's `forecast.bindings.slateRelease` physically (`path`, `sha256`, `bytes`), requires that release to
+be `NBA_GEN1_SLATE_RELEASE_V1`, to name the pinned model handoff, to carry the same configuration identities
+and draw count, and to be the same object the package index names — and then compares the package's
+`prospectiveEffectiveAtUtc` to **that release's** clock. The pinned model handoff is still checked
+independently, from the forecast's own `bindings.productionHandoff`. V1 packages are unchanged: they are
+still compared with the handoff's clock.
+
+| Object | Identity | Clock |
+|---|---|---|
+| Selected model handoff (unchanged) | `7113b71ff5819c89103ad19d5f9afb22c51dbc92980be12b56ce8826cb34ccaf` | `2026-09-18T01:16:08.176807Z` |
+| Slate release staged 2026-09-19 | `9c5de22ce0cf9d366d7297202cccd4b18ba8738c2a8fccf1449cd8fdc17a4a0b` | `2026-09-19T20:26:29.236061Z` |
+| Deployment / manifest it names | `05729a535e02409b1fca4b68c54e8ddde9b5a9006732d4d1d817f745061a8c88` / `eb636f3eb7c4414d5f91e777ce553205de5dd611feaad42136d13604416c46e5` | staged, not installed |
+
+The release's `paperEligibilityAuthorization` is `null`, which is exactly why the paper lane reports
+`NO_PAPER_AUTHORIZATION` (§6.3). **A newer release never re-dates an older preserved package**: the package
+carries its own release binding, that binding is what is compared, and the stored row keeps both
+(`nba_gen1_forecasts.slate_release_sha256`, `prospective_effective_at_utc`).
+
+### 6.2 The source-confirmed finals lane is the production final path
+
+`app/nba/gen1_final_exchange.py` + `app/nba/gen1_finals.py::ingest_exchange`. Verified end to end against
+Model Studio's own shipped fixture lane
+(`outputs/nba-finals-fixtures/0300382f6d834473a3faae3933e414df/fixture-exchange`):
+
+| Object | SHA-256 |
+|---|---|
+| Discovery manifest (`NBA_GEN1_FINAL_DISCOVERY_V1`) | `4acfb73e378b4a606db4c8979cf4efbb56350803150b94e5fbbe925f5996256c` |
+| Current record (`NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1`, DET 112 – BOS 109) | `a38c637a70ee7f322b19081daefa3fec060fff4878deed2d15f95dad0e696e62` |
+| Preserved earlier revision, membership false | `4e16756e4ded62d7c962e2736aedc5ee3cfcd5829bd61a670775d4c005958464` |
+| Finals-exchange contract | `e5e070165dcd164faddf323bb30370ed6d465983d12884a23a76c1c6c5224ec1` |
+
+Reading it admitted one final and retained one withdrawn revision as ineligible evidence
+(`tests/test_nba_gen1_consumer.py::test_the_producers_own_finals_lane_verifies_and_admits`). What the lane
+does and refuses:
+
+- `completedAtUtc` is null in the record and stays null in AISP — `nba_final_observations.completed_at_utc`
+  carries a `CHECK (completed_at_utc IS NULL)` so no code can promote a capture, validation or admission
+  time into it. `games.final_at` also stays empty.
+- Only `currentlySourceConfirmed` revisions are current membership. A correction keeps the old record
+  (`SUPERSEDED_BY_CORRECTION`); a withdrawal keeps it as `WITHDRAWN_FROM_SOURCE_MEMBERSHIP`; a record the
+  current manifest no longer lists becomes `ABSENT_FROM_CURRENT_DISCOVERY`. None of these is deleted.
+- A changed tipoff or changed participants is **never settled automatically**: the record is retained with
+  `reconciliation_required` and the reason, and the game is left alone.
+- A record that claims a completion clock, a different completion basis, a tie, a non-final source status,
+  out-of-order clocks, consumer settlement authority, or a franchise id that does not name its own code is
+  refused individually — the rest of the manifest still imports.
+- A game AISP does not hold by exact ESPN id is listed as unbound. It is never guessed into existence.
+- Retained ESPN season exports remain a **separate** historical lane (`ingest_retained`), reported
+  separately and never summed with the production lane.
+
+### 6.3 The optional recurring paper grant
+
+`app/nba/gen1_paper.py::policy_grant` now validates `NBA_RECURRING_PAPER_AUTHORIZATION_V1` and nothing else.
+Proved against Codex's real grant document
+(`outputs/nba-paper-fixtures/05437214250c4efba616e8b6a2e464db/grants/sha256/6c30bcf2…/receipt.json`, bound by
+release `b1d1327c…`):
+
+- inside its interval it is `GRANT_VALID` (`2026-10-13T18:00Z → 2027-04-19T04:00Z`, scope
+  `ALL_SUPPORTED_2026_27_REGULAR_SEASON_FORECASTS`);
+- **today it is `GRANT_NOT_CURRENT`** — a September clock never becomes fresh eligibility;
+- without the release that binds it, it is `GRANT_NOT_BOUND_TO_A_VERIFIED_RELEASE`.
+
+No grant is pinned in this branch, so the checkpoint blocks with `NO_PAPER_AUTHORIZATION`, evidence still
+imports, and every gate before it still runs. The season-wide scope is **listed as a separate proposal**
+(plan O4b) and is not applied: each position still needs the per-forecast
+`ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1` companion and a current discovery lease, so the 2026-09-15
+single-game approval is not widened by anything here.
+
+## 7. What a live import receipt will contain
+
+Everything above was produced against synthetic fixtures and Codex's shipped fixture lanes on a scratch
+SQLite database. **That is not a live import receipt**, and this document does not present it as one. When
+the owner activates the consumer (plan O1/O2) the first real import will record, and AISP can then publish:
+
+| Field | Source |
+|---|---|
+| Package index / forecast / population SHA-256 | `nba_gen1_forecasts.package_index_sha256`, `.forecast_sha256`, `.population_artifact_sha256` and `.population_logical_sha256` — each recomputed from the bytes at import |
+| Slate release and model handoff | `.slate_release_sha256`, `.handoff_sha256`, with `prospective_effective_at_utc` from the bound release |
+| Publication clock and its authority | `.exchange_published_utc` + `.publication_clock_source` (V2 = the bound receipt's `committedAtUtc`), `.discovery_receipt_sha256`, `.first_manifest_sha256` |
+| Import job start and completion | the `ingestion_runs` row for `ingest-nba-source-confirmed-finals` / the exchange-consumer job: `started_at`, `completed_at`, `records_processed`, `schema_version` |
+| Consumer deployment identity | the deployed commit and migration head (`20260919_0049`) recorded by the release runbook |
+| Eligibility disposition, honestly | `nba_discovery_observations.lease_at_check` (`CURRENT` / `EXPIRED_LEASE` / `NO_LEASE_IN_SCHEMA`) and the checkpoint's recorded reason — today `NO_PAPER_AUTHORIZATION`, with no position |
+| Finals lane | `nba_final_discovery_manifests.manifest_sha256` + per-record `final_record_sha256`, `revision_key`, `currently_source_confirmed`, and `completed_at_utc` null with basis `NOT_RETAINED_BY_ADMITTED_SOURCE` |
+
+Until that import happens, the honest statement is the one this branch makes everywhere: the evidence
+verifies, nothing is eligible, and no paper authority exists.

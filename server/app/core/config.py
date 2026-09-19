@@ -341,16 +341,27 @@ class Settings(BaseSettings):
     nba_historical_assessment_receipt_sha256: str = ""
     nba_historical_joint_receipt_path: str = ""
     nba_historical_joint_receipt_sha256: str = ""
-    #: The retained ESPN-derived schedule objects (content-addressed parquet files
-    #: Model Studio captured). Finals are re-read from these bytes only; no
-    #: request is ever made. ';'-separated "<path>|<sha256>" pairs.
+    #: THE PRODUCTION FINAL PATH: the source-confirmed finals exchange lane
+    #: (finals-discovery/current.json -> NBA_GEN1_FINAL_DISCOVERY_V1 ->
+    #: NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1 records). Empty uses
+    #: <NBA_EXCHANGE_ROOT>/finals-discovery/current.json. An absent pointer is a
+    #: no-op, never an error; the lane is on because it is the delivery path, and
+    #: it spends nothing and requests nothing.
+    nba_finals_exchange_pointer: str = ""
+    nba_finals_exchange_enabled: bool = True
+    #: The SEPARATE HISTORICAL lane: retained ESPN-derived schedule objects
+    #: (content-addressed parquet files Model Studio captured). Finals are
+    #: re-read from these bytes only; no request is ever made. ';'-separated
+    #: "<path>|<sha256>" pairs. This lane reconstructs finished seasons; it is
+    #: not the production path.
     nba_final_source_objects: str = ""
     #: Activation control for AISP_NBA_PAPER_POLICY_V1 positions. Off: the NBA
     #: checkpoint still evaluates and records its reason, but never positions.
     nba_paper_decisions_enabled: bool = False
-    #: The owner's extension of AISP_NBA_PAPER_POLICY_V1 to PRODUCTION packages
-    #: (schema NBA_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1, mirroring the CFB
-    #: grant). Empty = no extension; the checkpoint blocks NO_OWNER_POLICY_EXTENSION.
+    #: The producer's OPTIONAL, release-bound recurring paper grant (schema
+    #: NBA_RECURRING_PAPER_AUTHORIZATION_V1). Empty = no paper authority; the
+    #: checkpoint blocks NO_PAPER_AUTHORIZATION and everything else still
+    #: imports. A grant must be the one THIS package's slate release binds.
     nba_paper_policy_grant_path: str = ""
     nba_paper_policy_grant_sha256: str = ""
     #: SportsGameOdds NBA price lane. Off, and the league id and reviewed team map

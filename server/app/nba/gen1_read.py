@@ -489,12 +489,46 @@ def _game(row: Any, teams: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 # ----------------------------------------------------------- readiness ------
 
+def _finals_lane(session: Session, settings: Any) -> dict[str, Any]:
+    """The PRODUCTION final path's state: the pointer, the newest verified manifest, membership."""
+
+    from app.models import NbaFinalDiscoveryManifest, NbaFinalObservation
+    from app.models.nba_gen1 import LANE_EXCHANGE
+    from app.nba import gen1_final_exchange as lane
+
+    pointer = lane.pointer_path(settings)
+    newest = session.scalar(select(NbaFinalDiscoveryManifest)
+                            .order_by(NbaFinalDiscoveryManifest.first_verified_at.desc()).limit(1))
+    rows = session.scalars(select(NbaFinalObservation).where(NbaFinalObservation.lane == LANE_EXCHANGE)).all()
+    retained = [r for r in rows if not r.currently_source_confirmed]
+    pending = [r for r in rows if r.reconciliation_required]
+    return {
+        "lane": LANE_EXCHANGE, "schema": common.FINAL_DISCOVERY_SCHEMA,
+        "record_schema": common.FINAL_RECORD_SCHEMA,
+        "pointer": str(pointer) if pointer else None,
+        "state": ("MANIFEST_VERIFIED" if newest is not None else
+                  "POINTER_PRESENT_NOT_YET_VERIFIED" if pointer and pointer.is_file() else
+                  "NO_FINALS_DISCOVERY_POINTER"),
+        "manifest_sha256": newest.manifest_sha256 if newest else None,
+        "outcomes_current": newest.outcomes_current if newest else 0,
+        "records_refused": newest.records_refused if newest else 0,
+        "currently_source_confirmed": sum(1 for r in rows if r.currently_source_confirmed),
+        "retained_ineligible": len(retained),
+        "awaiting_reconciliation": [{"game_id": str(r.game_id), "codex_game_id": r.codex_game_id,
+                                     "reason": r.reconciliation_reason} for r in pending][:20],
+        "completion_clock": common.COMPLETION_CLOCK_BASIS,
+        "detail": ("The source-confirmed finals exchange is the production final path. Retained ESPN season "
+                   "exports remain a separate historical-reconstruction lane. No completion clock exists in "
+                   "either lane; capture, validation and admission are never used as one."),
+    }
+
+
 def readiness(session: Session, settings: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """Per-component truth for NBA. Each component states what is PRESENT and what is DUE, with dates."""
 
     from app.models import Game, League, NbaChannelEvaluation, NbaGen1Forecast, NbaHistoricalForecast
     from app.nba.gen1_handoff import production_status
-    from app.nba.gen1_paper import experiment, policy_grant
+    from app.nba.gen1_paper import bound_release, experiment, policy_grant
 
     moment = now or datetime.now(UTC)
     verdict = production_status(settings)
@@ -503,7 +537,10 @@ def readiness(session: Session, settings: Any, *, now: datetime | None = None) -
     next_game = session.scalar(select(Game).join(League, League.id == Game.league_id).where(
         League.code == common.LEAGUE_CODE, Game.starts_at > moment).order_by(Game.starts_at).limit(1))
     price = price_note(session, settings)
-    grant = policy_grant(settings, now=moment)
+    # The grant is release-bound, so it is judged against the release the newest
+    # held package binds -- not in the abstract.
+    grant = policy_grant(settings, now=moment,
+                         release=bound_release(upcoming) if upcoming is not None else None)
     era = experiment(session)
     historical = session.scalar(select(func.count()).select_from(NbaHistoricalForecast)) or 0
     scored_hist = session.scalar(select(func.count(func.distinct(NbaChannelEvaluation.canonical_game_id))).where(
@@ -528,11 +565,13 @@ def readiness(session: Session, settings: Any, *, now: datetime | None = None) -
         "decision": {"state": ("OWNER_INACTIVE" if not getattr(settings, "nba_paper_decisions_enabled", False)
                                else "ACTIVE"),
                      "grant": grant["state"], "experiment": str(era.id) if era else None,
-                     "detail": "AISP_NBA_PAPER_POLICY_V1 exists with its $1,000 virtual account; positions need "
-                               "the owner's production-policy grant and NBA_PAPER_DECISIONS_ENABLED."},
+                     "detail": "AISP_NBA_PAPER_POLICY_V1 exists with its $1,000 virtual account; positions need a "
+                               "release-bound NBA_RECURRING_PAPER_AUTHORIZATION_V1 grant (optional by contract; "
+                               "without one: NO_PAPER_AUTHORIZATION) and NBA_PAPER_DECISIONS_ENABLED."},
         "outcomes": {"state": "HISTORICAL_SCORED" if scored_hist else "NONE_SCORED", "historical_rows": historical,
                      "historical_games_scored": scored_hist,
                      "prospective": f"NOT YET DUE — first 2026-27 final after {opening.date().isoformat()}"},
+        "finals_lane": _finals_lane(session, settings),
         "next_game": ({"game_id": str(next_game.id), "starts_at": common.iso(next_game.starts_at)}
                       if next_game is not None else None),
     }
