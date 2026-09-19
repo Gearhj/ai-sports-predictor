@@ -8,6 +8,7 @@ anywhere, and the research-export lane.
 """
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import os
@@ -194,7 +195,8 @@ class World:
     # -- quotes ---------------------------------------------------------------
     def quote(self, book: str, *, fetched: datetime, observed: datetime, home: int = -120, away: int = 110,
               receipt: bool = True, receipt_delay: timedelta = timedelta(seconds=3),
-              job_delay: timedelta = timedelta(seconds=4), home_leg: bool = True) -> None:
+              job_delay: timedelta = timedelta(seconds=4), home_leg: bool = True,
+              skew: dict | None = None) -> None:
         sportsbook = self.books.get(book)
         if sportsbook is None:
             sportsbook = self.books[book] = Sportsbook(key=f"sgo:{book}", name=book)
@@ -210,8 +212,10 @@ class World:
                 payload_checksum=uuid.uuid4().hex))
         if receipt and not self.session.query(ProviderRequestLedger).filter_by(
                 requested_at=fetched, status="SUCCEEDED").count():
+            filters = {"leagueID": "MLB", "limit": "1", "startsAfter": f"{fetched:%Y-%m-%dT%H:%M:%SZ}"}
             job = JobRun(job_name="collect-odds-checkpoint", status=RunStatus.SUCCEEDED, started_at=fetched,
-                         completed_at=fetched + job_delay)
+                         completed_at=fetched + job_delay,
+                         result={"fallback": {"skew": skew, "request_filters": filters}} if skew else None)
             self.session.add(job)
             self.session.flush()
             fingerprint = uuid.uuid4().hex
@@ -222,8 +226,76 @@ class World:
             self.session.add(ProviderRequestLedger(
                 provider=pilot.SGO, endpoint_key="sgo_mlb_events", requested_at=fetched,
                 completed_at=fetched + receipt_delay, status="SUCCEEDED", request_fingerprint=fingerprint,
-                records_received=1, job_run_id=job.id, reservation_id=reserved.id))
+                records_received=1, job_run_id=job.id, reservation_id=reserved.id,
+                response_metadata={"request_shape": {"filters": filters}, "objects_returned": 1}))
         self.session.flush()
+
+    def sgo_response(self, *, archived: datetime, books: dict[str, tuple[str, str, str, str]],
+                     modified: datetime | None = None, wrapped: bool = True, event_id: str = "EVT1") -> Path:
+        """A retained SGO /events response, shaped like the real retained files.
+
+        ``books`` maps a bookmaker to (home odds, home lastUpdatedAt, away odds,
+        away lastUpdatedAt) as the provider sends them (strings). The body
+        carries the fields the real response has -- including outcome-bearing
+        ones (``score``, ``results``, closing odds) that must never be copied.
+        """
+
+        def side(odd_id, opposing, entity, which):
+            return {
+                "oddID": odd_id, "opposingOddID": opposing, "marketName": "Moneyline", "statID": "points",
+                "statEntityID": entity, "periodID": "game", "betTypeID": "ml", "sideID": entity,
+                "started": False, "ended": False, "cancelled": False, "bookOddsAvailable": True,
+                "fairOddsAvailable": True, "fairOdds": "+101", "bookOdds": "-105", "scoringSupported": True,
+                "openBookOdds": "-110", "openFairOdds": "+100", "closeBookOdds": "-125", "score": 31337,
+                "byBookmaker": {name: {"odds": v[0 if which == "home" else 2],
+                                       "lastUpdatedAt": v[1 if which == "home" else 3], "available": True,
+                                       "deeplink": f"https://example.invalid/{name}"}
+                                for name, v in books.items()},
+            }
+
+        def regulation(odd_id, entity):
+            return {"oddID": odd_id, "marketName": "Regulation 3-Way Moneyline", "statID": "points",
+                    "statEntityID": entity, "periodID": "reg", "betTypeID": "ml3way", "sideID": entity,
+                    "byBookmaker": {}}
+
+        body = {
+            "success": True,
+            "notice": "Response is missing 10445 bookmaker odds. Upgrade your API key to access all data.",
+            "nextCursor": "CMLwBRoJKQD6U4igAQAAGhY6FEJDR1lr",
+            "data": [{
+                "eventID": event_id, "sportID": "BASEBALL", "leagueID": "MLB", "type": "match",
+                "teams": {"home": {"teamID": "BALTIMORE_ORIOLES_MLB", "statEntityID": "home", "score": 31337,
+                                   "names": {"long": "Baltimore Orioles", "short": "BAL"}},
+                          "away": {"teamID": "MILWAUKEE_BREWERS_MLB", "statEntityID": "away", "score": 27182,
+                                   "names": {"long": "Milwaukee Brewers", "short": "MIL"}}},
+                "status": {"started": False, "completed": False, "cancelled": False, "ended": False,
+                           "live": False, "startsAt": "2026-09-20T20:05:00.000Z", "hardStart": True,
+                           "previousStartsAt": [], "oddsPresent": True, "oddsAvailable": True, "finalized": False},
+                "info": {"venue": {"name": "Oriole Park at Camden Yards"}},
+                "links": {"bookmakers": {name: f"https://example.invalid/{name}" for name in books}},
+                "players": {"SHANE_BAZ_1_MLB": {"playerID": "SHANE_BAZ_1_MLB", "teamID": "BALTIMORE_ORIOLES_MLB",
+                                                "name": "Shane Baz"}},
+                "results": {"game": {"home": {"points": 31337}, "away": {"points": 27182}}},
+                "odds": {
+                    "points-home-game-ml-home": side("points-home-game-ml-home", "points-away-game-ml-away",
+                                                     "home", "home"),
+                    "points-away-game-ml-away": side("points-away-game-ml-away", "points-home-game-ml-home",
+                                                     "away", "away"),
+                    "points-home-reg-ml3way-home": regulation("points-home-reg-ml3way-home", "home"),
+                    "points-all-reg-ml3way-draw": regulation("points-all-reg-ml3way-draw", "all"),
+                },
+            }],
+        }
+        folder = self.raw / pilot.SGO_RAW_DIRECTORY / f"{archived:%Y}" / f"{archived:%m}" / f"{archived:%d}"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{archived:%H%M%S}_{archived:%f}_{uuid.uuid4().hex[:10]}.json"
+        document = ({"metadata": {"source": pilot.SGO, "ingestion_timestamp": archived.isoformat(),
+                                  "checksum": "5" * 64, "status": "success", "request_fingerprint": None},
+                     "payload": body} if wrapped else body)
+        path.write_text(json.dumps(document, indent=2, sort_keys=True), encoding="utf-8")
+        stamp = (modified or archived).timestamp()
+        os.utime(path, (stamp, stamp))
+        return path
 
     # -- build ----------------------------------------------------------------
     def inputs(self, mode: str = pilot.MODE_PROSPECTIVE) -> pilot.BuildInputs:
@@ -347,6 +419,221 @@ def test_choose_primary_book_ignores_ineligible_snapshots():
     chosen = pilot.choose_primary_book(reps)
     assert (chosen.book_key, chosen.provider_key) == ("bbb", "X")
     assert pilot.choose_primary_book([snap("a", "b", False)]) is None
+
+
+# ---------------------------------------------------------------------------
+# Retained raw SGO responses: per-leg clocks, response identity, conventions
+# ---------------------------------------------------------------------------
+def _sgo_clock(moment: datetime) -> str:
+    """A clock written the way SportsGameOdds writes lastUpdatedAt (milliseconds, Z)."""
+
+    return f"{moment:%Y-%m-%dT%H:%M:%S}.{moment.microsecond // 1000:03d}Z"
+
+
+FETCHED = LOCK - timedelta(minutes=4)
+ARCHIVED = FETCHED + timedelta(seconds=2)       # inside [requested_at, receipt]: receipt +3s, job +4s
+HOME_STAMP = LOCK - timedelta(minutes=6)        # the newer side
+AWAY_STAMP = LOCK - timedelta(minutes=9)        # the older side: what AISP stored on BOTH legs
+
+
+def _retained_pair(world, *, home_stamp=HOME_STAMP, away_stamp=AWAY_STAMP, home="-120", away="+110",
+                   **response) -> Path:
+    world.quote("draftkings", fetched=FETCHED, observed=min(home_stamp, away_stamp))
+    return world.sgo_response(archived=response.pop("archived", ARCHIVED), books={
+        "draftkings": (home, _sgo_clock(home_stamp), away, _sgo_clock(away_stamp))}, **response)
+
+
+def test_per_leg_clocks_are_recovered_from_the_retained_response(world):
+    _retained_pair(world)
+    build = world.build()
+    assert build.schema_errors == []
+    market = build.packet["market"]
+    assert market["status"] == "FRESH_PAIRED"
+    pair = market["pair"]
+    assert pair["perLegClocksRecovered"] is True
+    home, away = pair["home"], pair["away"]
+    # Each leg carries ITS OWN provider stamp, not the older one stored on both.
+    assert home["quoteUpdatedAtUtc"] == pilot.iso(HOME_STAMP) and home["quoteUpdatedAtIsPerLeg"] is True
+    assert away["quoteUpdatedAtUtc"] == pilot.iso(AWAY_STAMP) and away["quoteUpdatedAtIsPerLeg"] is True
+    assert home["perLegClock"]["status"] == "RECOVERED_FROM_RETAINED_RESPONSE"
+    assert home["perLegClock"]["providerField"] == (
+        "data[eventID=EVT1].odds[points-home-game-ml-home].byBookmaker[draftkings].lastUpdatedAt")
+    assert home["perLegClock"]["storedObservedAtUtc"] == pilot.iso(AWAY_STAMP)
+    assert home["ageMinutesAtAnchor"] == 6.0 and away["ageMinutesAtAnchor"] == 9.0
+    assert pair["legSkewSeconds"] == 180.0
+    assert "LIMITATION_SGO_PER_LEG_PROVIDER_STAMPS_NOT_RETAINED_OLDER_SIDE_APPLIED_TO_BOTH" not in pair["reasonCodes"]
+    assert "LIMITATION_RAW_PROVIDER_RESPONSE_NOT_ARCHIVED" not in market["reasonCodes"]
+    # The fetch clock is labelled as such and is never an update clock.
+    assert pair["sourceResponse"]["fetchClockUtc"] == pilot.iso(FETCHED)
+    assert pilot.iso(FETCHED) not in (home["quoteUpdatedAtUtc"], away["quoteUpdatedAtUtc"])
+    assert build.diagnostics["primaryPerLegClocksRecovered"] is True
+    assert build.diagnostics["sgoLegsPerLegClockRecovered"] == 2
+
+
+def test_the_age_rule_reads_each_recovered_leg_clock(world):
+    # Stored rows alone (older side on both legs, 9 minutes) look fresh ...
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
+    assert world.build().packet["market"]["status"] == "FRESH_PAIRED"
+    # ... but the retained response shows the home side stamped AFTER the anchor.
+    after = LOCK + timedelta(minutes=1)
+    world.sgo_response(archived=ARCHIVED, books={
+        "draftkings": ("-120", _sgo_clock(after), "+110", _sgo_clock(AWAY_STAMP))})
+    build = world.build()
+    assert build.packet["market"]["pair"] is None
+    candidate = build.packet["market"]["candidates"][0]
+    assert candidate["home"]["quoteUpdatedAtUtc"] == pilot.iso(after)
+    assert "LEG_QUOTE_AGE_NEGATIVE_HOME" in candidate["reasonCodes"]
+    assert build.packet["eligibility"]["firstFailure"] == "MARKET_QUOTE_AGE_NEGATIVE"
+
+
+def test_the_pairs_response_identity_is_the_retained_file(world):
+    path = _retained_pair(world)
+    data = path.read_bytes()
+    build = world.build()
+    pair = build.packet["market"]["pair"]
+    ref = pair["sourceResponseRef"]
+    assert (ref["path"], ref["sha256"], ref["bytes"]) == (str(path), hashlib.sha256(data).hexdigest(), len(data))
+    assert ref["locator"] == ("data[eventID=EVT1].odds[points-home-game-ml-home|points-away-game-ml-away]"
+                              ".byBookmaker[draftkings]")
+    identity = pair["sourceResponse"]
+    assert identity["status"] == "LINKED" and identity["retained"] is True
+    assert identity["sha256"] == ref["sha256"] and identity["bytes"] == len(data)
+    assert identity["archivedAtUtc"] == pilot.iso(ARCHIVED)
+    assert identity["archiveClockSource"] == "RAW_ARCHIVE_METADATA_INGESTION_TIMESTAMP"
+    assert identity["rawArchivePayloadChecksum"] == "5" * 64
+    assert identity["ledgerRowId"] and identity["requestFingerprint"]
+    assert identity["providerEventId"] == "EVT1" and identity["providerBookmakerKey"] == "draftkings"
+    # Both legs were read from that one response.
+    assert pair["home"]["perLegClock"]["retainedResponseSha256"] == ref["sha256"]
+    assert pair["away"]["perLegClock"]["retainedResponseSha256"] == ref["sha256"]
+    # Nothing outcome-bearing in the raw body (score, results, closing odds) is copied.
+    for document in (build.packet, build.evidence):
+        for key, value in _walk(document):
+            assert key not in pilot.FORBIDDEN_OUTCOME_KEYS, key
+            assert key not in ("closeBookOdds", "fairOdds", "bookOdds"), key
+            assert value not in (31337, 27182), (key, value)
+
+
+def test_conventions_are_carried_only_as_the_provider_states_them(world):
+    _retained_pair(world)
+    conventions = world.build().packet["market"]["pair"]["conventions"]
+    # Stated by the provider, cited by field.
+    home = conventions["providerStated"]["home"]
+    assert home["source"] == "data[eventID=EVT1].odds[points-home-game-ml-home]"
+    assert home["fields"]["periodID"] == "game" and home["fields"]["betTypeID"] == "ml"
+    assert home["fields"]["marketName"] == "Moneyline" and home["fields"]["sideID"] == "home"
+    assert home["fields"]["opposingOddID"] == "points-away-game-ml-away"
+    assert {"periodID": "reg", "betTypeID": "ml3way", "marketName": "Regulation 3-Way Moneyline"} in (
+        conventions["otherMoneylineMarketsListed"])
+    assert conventions["providerStatedSource"]["sha256"]
+    assert conventions["providerPeriodId"] == "game"
+    # Not stated by the provider: a status at the usual key, a null value, a reason; never asserted.
+    for name in ("extraInnings", "settlementRule", "pitcherActionRule"):
+        assert conventions[name] == "NOT_STATED_BY_PROVIDER"
+        assert conventions["conventionDetails"][name]["value"] is None
+    assert conventions["proved"] is False
+    assert set(conventions["unprovedFields"]) == {"extraInnings", "settlementRule", "pitcherActionRule"}
+    assert "LIMITATION_PITCHER_ACTION_CONVENTION_NOT_STATED_BY_PROVIDER" in conventions["reasonCodes"]
+    assert "LIMITATION_EXTRA_INNINGS_INCLUSION_NOT_STATED_BY_PROVIDER" in conventions["reasonCodes"]
+    assert "INCLUDED" not in json.dumps(conventions) and "TWO_WAY_NO_TIE" not in json.dumps(conventions)
+
+
+def test_a_missing_raw_response_is_kept_explicit(world):
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
+    build = world.build()
+    market = build.packet["market"]
+    # Eligibility keeps the stored older-side clock, flagged as not per-leg.
+    assert market["status"] == "FRESH_PAIRED"
+    pair = market["pair"]
+    identity = pair["sourceResponse"]
+    assert identity["status"] == "NOT_RETAINED" and identity["retained"] is False
+    assert (identity["path"], identity["sha256"], identity["bytes"], identity["archivedAtUtc"]) == (
+        None, None, None, None)
+    assert identity["reasonCodes"] == ["RAW_RESPONSE_NOT_RETAINED_FOR_THIS_FETCH"]
+    assert identity["fetchClockUtc"] == pilot.iso(FETCHED)
+    assert pair["sourceResponseRef"]["locator"].startswith("/notes/response:")
+    for leg in (pair["home"], pair["away"]):
+        assert leg["quoteUpdatedAtUtc"] == pilot.iso(AWAY_STAMP)
+        assert leg["quoteUpdatedAtIsPerLeg"] is False
+        assert leg["perLegClock"]["providerLastUpdatedAtUtc"] is None
+        assert leg["perLegClock"]["reasonCode"] == "PER_LEG_CLOCK_NOT_RECOVERED_NOT_RETAINED"
+    assert pair["perLegClocksRecovered"] is False and pair["legSkewSeconds"] is None
+    conventions = pair["conventions"]
+    assert conventions["providerStated"] is None and conventions["providerStatedSource"] is None
+    assert conventions["pitcherActionRule"] == "UNKNOWN_NO_MATCHING_RETAINED_RESPONSE"
+    assert conventions["conventionDetails"]["extraInnings"]["value"] is None
+    for code in ("LIMITATION_RAW_PROVIDER_RESPONSE_NOT_ARCHIVED",
+                 "LIMITATION_SGO_PER_LEG_PROVIDER_STAMPS_NOT_RETAINED_OLDER_SIDE_APPLIED_TO_BOTH",
+                 "LIMITATION_PITCHER_ACTION_CONVENTION_NOT_RETAINED"):
+        assert code in market["reasonCodes"]
+    assert build.packet["eligibility"]["firstFailure"] == "NONE"
+
+
+@pytest.mark.parametrize("where", ["after_the_receipt", "modified_after_the_anchor", "other_event"])
+def test_a_response_not_bound_to_this_fetch_supplies_nothing(world, where):
+    options = {"after_the_receipt": {"archived": FETCHED + timedelta(seconds=30)},
+               "modified_after_the_anchor": {"modified": LOCK + timedelta(seconds=1)},
+               "other_event": {"event_id": "EVT2"}}[where]
+    _retained_pair(world, **options)
+    pair = world.build().packet["market"]["pair"]
+    expected = "RETAINED_RESPONSE_DOES_NOT_CONTAIN_EVENT" if where == "other_event" else "NOT_RETAINED"
+    assert pair["sourceResponse"]["status"] == expected
+    assert pair["perLegClocksRecovered"] is False
+    assert pair["home"]["quoteUpdatedAtUtc"] == pilot.iso(AWAY_STAMP)
+
+
+def test_a_retained_response_that_disagrees_with_the_stored_legs_supplies_no_clock(world):
+    _retained_pair(world, home="-135")                       # stored home price is -120
+    pair = world.build().packet["market"]["pair"]
+    identity = pair["sourceResponse"]
+    assert identity["status"] == "RETAINED_RESPONSE_DISAGREES_WITH_STORED_LEGS"
+    assert identity["reasonCodes"] == ["RETAINED_PRICE_DIFFERS_FROM_STORED"]
+    assert identity["sha256"] is None and pair["perLegClocksRecovered"] is False
+    assert "LIMITATION_RAW_PROVIDER_RESPONSE_RETAINED_RESPONSE_DISAGREES_WITH_STORED_LEGS" in pair["reasonCodes"]
+
+
+def test_a_bare_provider_body_is_dated_by_its_archive_name(world):
+    _retained_pair(world, wrapped=False)
+    identity = world.build().packet["market"]["pair"]["sourceResponse"]
+    assert identity["status"] == "LINKED"
+    assert identity["archiveClockSource"] == "RAW_ARCHIVE_FILE_NAME_STAMP"
+    assert identity["rawArchivePayloadChecksum"] is None
+
+
+def test_the_collectors_skew_receipt_is_evidence_never_a_clock(world):
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP,
+                skew={"pairs": 12, "max_skew_seconds": 0.0, "pairs_with_skew": 0, "simultaneity_claimed": False})
+    build = world.build()
+    pair = build.packet["market"]["pair"]
+    receipt = pair["ingestParseSkewReceipt"]
+    assert receipt["zeroSkewForEveryPair"] is True and receipt["pairs"] == 12
+    assert receipt["field"] == "job_runs.result.fallback.skew"
+    assert pair["home"]["quoteUpdatedAtIsPerLeg"] is False and pair["legSkewSeconds"] is None
+    job_rows = build.evidence["rows"]["job_runs"]
+    assert any(row.get("ingest_parse_skew_receipt") == receipt for row in job_rows.values())
+    assert build.diagnostics["primaryZeroSkewReceipt"] is True
+
+
+def test_link_requires_the_older_stamp_to_equal_the_stored_observation():
+    response = pilot.RetainedResponse(
+        path="r.json", sha256="1" * 64, bytes=1, archived_at=ARCHIVED, archive_clock_source="X",
+        file_modified_at=ARCHIVED, payload_checksum=None, request_fingerprint=None,
+        payload={"data": [{"eventID": "E", "odds": {
+            pilot.SGO_HOME_ODD_ID: {"oddID": pilot.SGO_HOME_ODD_ID, "opposingOddID": pilot.SGO_AWAY_ODD_ID,
+                                    "periodID": "game", "betTypeID": "ml", "byBookmaker": {"fanduel": {
+                                        "odds": "-120", "lastUpdatedAt": _sgo_clock(HOME_STAMP), "available": True}}},
+            pilot.SGO_AWAY_ODD_ID: {"oddID": pilot.SGO_AWAY_ODD_ID, "opposingOddID": pilot.SGO_HOME_ODD_ID,
+                                    "periodID": "game", "betTypeID": "ml", "byBookmaker": {"fanduel": {
+                                        "odds": "+110", "lastUpdatedAt": _sgo_clock(AWAY_STAMP), "available": True}}},
+        }}]})
+    common = dict(event_id="E", book_key="fanduel", home_american=-120, away_american=110)
+    assert pilot.link_sgo_pair([response], stored_observed=AWAY_STAMP, **common).linked
+    moved = pilot.link_sgo_pair([response], stored_observed=AWAY_STAMP - timedelta(seconds=1), **common)
+    assert moved.status == pilot.RAW_DISAGREES
+    assert moved.reason_codes == ["RETAINED_OLDER_SIDE_STAMP_DIFFERS_FROM_STORED_OBSERVED_AT"]
+    assert pilot.link_sgo_pair([], stored_observed=AWAY_STAMP, **common).status == pilot.RAW_NOT_RETAINED
+    twin = pilot.RetainedResponse(**{**response.__dict__, "path": "s.json", "sha256": "2" * 64})
+    assert pilot.link_sgo_pair([response, twin], stored_observed=AWAY_STAMP, **common).status == pilot.RAW_AMBIGUOUS
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,24 @@ market
   request names its job run, that run's ``completed_at`` -- the later of the
   two, an upper bound on the commit. ``available_as_of`` alone (SGO: the
   fetch's ``requested_at``) is never treated as a receipt.
+market: per-leg clocks, response identity and conventions (SGO)
+  AISP's SGO rows store the pair's OLDER provider ``lastUpdatedAt`` on both
+  legs (``observed_at``) and a per-row ``payload_checksum`` of the stored
+  outcome, so neither per-leg clocks nor a response identity live in the
+  database. Each SGO pair is therefore linked to the retained raw response of
+  its OWN fetch: a ``RawArchive`` file under ``<raw_data_root>/sportsgameodds``
+  archived inside that fetch's completed-receipt window, last modified by the
+  anchor, whose event/book shows both exact full-game moneyline oddIDs at the
+  stored prices with the older ``lastUpdatedAt`` equal to the stored
+  ``observed_at``. Only then does each leg carry its own provider clock (and
+  the 0..15-minute rule read it), and the pair's ``sourceResponseRef`` name
+  that file (path, sha256, bytes; fetch clock and archive clock labelled as
+  such). Otherwise every field stays null with a reason code and the leg keeps
+  the stored older-side clock, flagged ``quoteUpdatedAtIsPerLeg=false``.
+  Conventions are carried exactly as the retained response states them (cited
+  by JSON locator); what it does not state -- extra innings, tie handling,
+  pitcher/action -- stays null. The collector's own ingest-time skew record
+  (``job_runs.result.fallback.skew``) is carried as evidence, never as a clock.
 
 Every database row a packet relies on is copied (identity columns only) into a
 write-once evidence document beside the packet, and the packet's refs point
@@ -69,6 +87,7 @@ import json
 import math
 import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from fractions import Fraction
@@ -76,7 +95,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -515,6 +534,28 @@ class Leg:
     job_run_id: str | None = None
     job_completed_at: datetime | None = None
     receipt_reason: str | None = None
+    #: This leg's OWN provider update clock (SGO ``byBookmaker[book].lastUpdatedAt``),
+    #: read from the retained raw response of the fetch that produced the row.
+    #: None unless that response was retained and matched the stored rows.
+    provider_updated_at: datetime | None = None
+    #: JSON locator of ``provider_updated_at`` inside the retained response.
+    provider_updated_field: str | None = None
+
+    @property
+    def quote_clock(self) -> datetime | None:
+        """The update clock the 0..15-minute rule reads for this leg.
+
+        The genuine per-leg provider stamp when it was recovered from the
+        retained response; otherwise the stored ``observed_at`` (for SGO, the
+        pair's OLDER side stamp written on both legs), flagged as not per-leg.
+        A fetch or ``available_as_of`` clock is never used.
+        """
+
+        return self.provider_updated_at or self.observed_at
+
+    @property
+    def per_leg_clock(self) -> bool:
+        return self.provider_updated_at is not None
 
     @property
     def available_by(self) -> datetime | None:
@@ -547,10 +588,14 @@ class Snapshot:
     stage: int = 0
     q_home: Fraction | None = None
     overround: Fraction | None = None
+    #: The retained raw response this snapshot was linked to (SGO only).
+    raw_link: "SgoRawLink | None" = None
+    #: The collector's ingest-time skew receipt for this fetch (SGO only).
+    skew_receipt: dict[str, Any] | None = None
 
     @property
     def older_observed(self) -> datetime | None:
-        clocks = [leg.observed_at for leg in (self.home, self.away) if leg and leg.observed_at]
+        clocks = [leg.quote_clock for leg in (self.home, self.away) if leg and leg.quote_clock]
         return min(clocks) if len(clocks) == 2 else None
 
     @property
@@ -624,7 +669,9 @@ def evaluate_snapshot(snapshot: Snapshot, anchor: datetime, home_team_id: str | 
     stage = 3
     ages: list[str] = []
     for leg in (snapshot.home, snapshot.away):
-        failure = quote_age_failure(leg.observed_at, anchor)
+        # The leg's own recovered provider clock where one exists; otherwise the
+        # stored older-side clock (unchanged behaviour, flagged in the packet).
+        failure = quote_age_failure(leg.quote_clock, anchor)
         if failure:
             ages.append(f"{failure}_{leg.side}")
     snapshot.failures, snapshot.stage = ages, (stage if ages else 4)
@@ -678,6 +725,323 @@ def canonical_book_key(sportsbook_key: str, provider: str) -> str:
     if provider == SGO and key.startswith("sgo:"):
         return key[4:]
     return key
+
+
+# ---------------------------------------------------------------------------
+# Retained SportsGameOdds raw responses: per-leg clocks, identity, conventions
+# ---------------------------------------------------------------------------
+#: ``RawArchive`` partition for SportsGameOdds (``<raw_data_root>/sportsgameodds``).
+SGO_RAW_DIRECTORY = "sportsgameodds"
+SGO_HOME_ODD_ID = "points-home-game-ml-home"
+SGO_AWAY_ODD_ID = "points-away-game-ml-away"
+#: The oddID/period/bet type AISP's SGO parser required before writing a row.
+SGO_PERIOD_ID = "game"
+SGO_BET_TYPE_ID = "ml"
+#: Identity fields of one SGO odds entry that may be copied. Deliberately NOT
+#: ``score``, ``started``/``ended``, ``closeBookOdds``/``closeFairOdds``,
+#: consensus odds or anything under ``results``/``teams``/``status``.
+_SGO_ODD_IDENTITY_FIELDS = ("oddID", "opposingOddID", "marketName", "statID", "statEntityID",
+                            "periodID", "betTypeID", "sideID", "cancelled")
+_SGO_AMERICAN = re.compile(r"^[+-]?\d+$")
+
+#: Link outcomes. Only LINKED carries per-leg clocks.
+RAW_LINKED = "LINKED"
+RAW_NOT_RETAINED = "NOT_RETAINED"
+RAW_NO_RECEIPT_WINDOW = "NOT_BINDABLE_NO_COMPLETED_RECEIPT"
+RAW_EVENT_ABSENT = "RETAINED_RESPONSE_DOES_NOT_CONTAIN_EVENT"
+RAW_DISAGREES = "RETAINED_RESPONSE_DISAGREES_WITH_STORED_LEGS"
+RAW_AMBIGUOUS = "AMBIGUOUS_MULTIPLE_RETAINED_RESPONSES_MATCH"
+
+
+@dataclass(frozen=True)
+class RetainedResponse:
+    """One retained raw SGO response file bound to one fetch's receipt window."""
+
+    path: str
+    sha256: str
+    bytes: int
+    archived_at: datetime
+    archive_clock_source: str
+    file_modified_at: datetime
+    payload_checksum: str | None
+    request_fingerprint: str | None
+    payload: dict[str, Any] = field(repr=False, compare=False)
+
+
+@dataclass
+class SgoRawLink:
+    """How one stored SGO pair relates to the retained raw response of its fetch."""
+
+    status: str
+    reason_codes: list[str]
+    candidates_examined: int = 0
+    response: RetainedResponse | None = None
+    event_id: str | None = None
+    provider_book_key: str | None = None
+    home_updated_at: datetime | None = None
+    away_updated_at: datetime | None = None
+    home_field: str | None = None
+    away_field: str | None = None
+    #: Provider-stated identity of the two odds entries (whitelisted fields only).
+    stated: dict[str, Any] | None = None
+    #: Other moneyline-style periods the same event lists (periodID/betTypeID/marketName).
+    other_moneyline_markets: list[dict[str, Any]] | None = None
+
+    @property
+    def linked(self) -> bool:
+        return self.status == RAW_LINKED
+
+
+def sgo_retained_responses(raw_root: str | Path | None, window_start: datetime | None,
+                           window_end: datetime | None, *, not_after: datetime,
+                           request_fingerprint: str | None = None) -> list[RetainedResponse]:
+    """Retained SGO responses archived inside ONE fetch's completed-receipt window.
+
+    A file is a candidate only when all of these hold:
+
+    * it sits in the ``RawArchive`` layout ``sportsgameodds/YYYY/MM/DD/HHMMSS_ffffff_<hex>.json``
+      and its name stamp lies in ``[window_start, window_end]`` -- the fetch's
+      ``requested_at`` and its completed receipt;
+    * a ``RawArchive`` wrapper's ``metadata.source`` is SPORTSGAMEODDS, its
+      ``metadata.ingestion_timestamp`` lies in the same window and any
+      ``metadata.request_fingerprint`` equals the ledger's; a bare provider
+      body (``{"data": [...]}``) is dated by its name stamp;
+    * the file was last modified no later than ``not_after`` (the anchor), so a
+      file written after the anchor can never supply a clock.
+    """
+
+    start, end, cap = aware(window_start), aware(window_end), aware(not_after)
+    if raw_root is None or start is None or end is None or end < start:
+        return []
+    base = Path(raw_root) / SGO_RAW_DIRECTORY
+    found: list[RetainedResponse] = []
+    day = start.date()
+    while day <= end.date():
+        folder = base / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
+        try:
+            names = sorted(p.name for p in folder.iterdir() if _RAW_NAME.match(p.name))
+        except OSError:
+            names = []
+        for name in names:
+            match = _RAW_NAME.match(name)
+            stamp = datetime.strptime(f"{day:%Y%m%d}{match.group(1)}{match.group(2)}",
+                                      "%Y%m%d%H%M%S%f").replace(tzinfo=UTC)
+            if not start <= stamp <= end:
+                continue
+            path = folder / name
+            try:
+                data = path.read_bytes()
+                modified = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+            except OSError:
+                continue
+            if modified > cap:
+                continue
+            try:
+                document = json.loads(data)
+            except ValueError:
+                continue
+            if not isinstance(document, dict):
+                continue
+            metadata = document.get("metadata")
+            if isinstance(metadata, dict) and isinstance(document.get("payload"), dict):
+                if str(metadata.get("source") or "").upper() != SGO:
+                    continue
+                archived = aware(metadata.get("ingestion_timestamp"))
+                if archived is None or not start <= archived <= end:
+                    continue
+                fingerprint = metadata.get("request_fingerprint")
+                if fingerprint and request_fingerprint and str(fingerprint) != str(request_fingerprint):
+                    continue
+                payload, clock_source = document["payload"], "RAW_ARCHIVE_METADATA_INGESTION_TIMESTAMP"
+                checksum = metadata.get("checksum")
+            elif isinstance(document.get("data"), list):
+                payload, archived, clock_source = document, stamp, "RAW_ARCHIVE_FILE_NAME_STAMP"
+                checksum, fingerprint = None, None
+            else:
+                continue
+            if not isinstance(payload.get("data"), list):
+                continue
+            found.append(RetainedResponse(
+                path=str(path), sha256=_sha(data), bytes=len(data), archived_at=archived,
+                archive_clock_source=clock_source, file_modified_at=modified,
+                payload_checksum=str(checksum) if checksum else None,
+                request_fingerprint=str(fingerprint) if fingerprint else None, payload=payload))
+        day += timedelta(days=1)
+    return found
+
+
+def _sgo_american(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and _SGO_AMERICAN.match(value.strip()):
+        return int(value.strip())
+    return None
+
+
+def _odd_locator(event_id: str, odd_id: str, book: str | None = None, name: str | None = None) -> str:
+    text = f"data[eventID={event_id}].odds[{odd_id}]"
+    if book is not None:
+        text += f".byBookmaker[{book}]"
+    return f"{text}.{name}" if name else text
+
+
+def _sgo_moneyline_from_event(event: dict[str, Any], event_id: str, book_key: str
+                              ) -> tuple[dict[str, Any] | None, str | None]:
+    """Whitelisted moneyline fields of one book in one event, or the reason it is unusable."""
+
+    odds = event.get("odds")
+    if not isinstance(odds, dict):
+        return None, "EVENT_HAS_NO_ODDS_OBJECT"
+    home, away = odds.get(SGO_HOME_ODD_ID), odds.get(SGO_AWAY_ODD_ID)
+    if not isinstance(home, dict) or not isinstance(away, dict):
+        return None, "MONEYLINE_ODD_ID_ABSENT"
+    if (home.get("oddID") != SGO_HOME_ODD_ID or home.get("opposingOddID") != SGO_AWAY_ODD_ID
+            or away.get("oddID") != SGO_AWAY_ODD_ID or away.get("opposingOddID") != SGO_HOME_ODD_ID):
+        return None, "ODD_ID_PAIRING_DOES_NOT_RECONCILE"
+    for entry in (home, away):
+        if entry.get("periodID") != SGO_PERIOD_ID or entry.get("betTypeID") != SGO_BET_TYPE_ID:
+            return None, "PERIOD_OR_BET_TYPE_DIFFERS"
+    sides: dict[str, Any] = {}
+    for side, entry, odd_id in (("home", home, SGO_HOME_ODD_ID), ("away", away, SGO_AWAY_ODD_ID)):
+        books = entry.get("byBookmaker")
+        keys = [k for k in (books or {}) if str(k).strip().lower() == book_key] if isinstance(books, dict) else []
+        if len(keys) != 1:
+            return None, "BOOKMAKER_NOT_ON_BOTH_SIDES"
+        raw = books[keys[0]]
+        if not isinstance(raw, dict):
+            return None, "BOOKMAKER_ENTRY_MALFORMED"
+        updated = aware(raw.get("lastUpdatedAt")) if isinstance(raw.get("lastUpdatedAt"), str) else None
+        sides[side] = {
+            "providerBookKey": keys[0],
+            "american": _sgo_american(raw.get("odds")),
+            "oddsAsSent": raw.get("odds") if isinstance(raw.get("odds"), (str, int)) else None,
+            "lastUpdatedAt": raw.get("lastUpdatedAt") if isinstance(raw.get("lastUpdatedAt"), str) else None,
+            "lastUpdatedAtUtc": updated,
+            "available": raw.get("available") if isinstance(raw.get("available"), bool) else None,
+            "stated": {name: entry.get(name) for name in _SGO_ODD_IDENTITY_FIELDS
+                       if name in entry and isinstance(entry.get(name), (str, bool))},
+            "clockField": _odd_locator(event_id, odd_id, keys[0], "lastUpdatedAt"),
+        }
+    return sides, None
+
+
+def _other_moneyline_markets(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Distinct (periodID, betTypeID, marketName) of the event's run-moneyline entries, as stated."""
+
+    seen: set[tuple[str, str, str]] = set()
+    odds = event.get("odds") if isinstance(event.get("odds"), dict) else {}
+    for entry in odds.values():
+        if not isinstance(entry, dict) or entry.get("statID") != "points":
+            continue
+        if entry.get("betTypeID") not in ("ml", "ml3way"):
+            continue
+        seen.add((str(entry.get("periodID") or ""), str(entry.get("betTypeID") or ""),
+                  str(entry.get("marketName") or "")))
+    return [{"periodID": p, "betTypeID": b, "marketName": m} for p, b, m in sorted(seen)]
+
+
+def link_sgo_pair(candidates: list[RetainedResponse], *, event_id: str | None, book_key: str,
+                  home_american: int | None, away_american: int | None,
+                  stored_observed: datetime | None) -> SgoRawLink:
+    """Tie one stored SGO pair to the retained response it came from, or say why not.
+
+    A response matches only when the same event and book appear on BOTH sides
+    of the exact full-game moneyline oddIDs, both prices equal the stored
+    American prices, both sides carry ``lastUpdatedAt`` and are available, and
+    the OLDER of the two stamps equals the stored ``observed_at`` -- the value
+    AISP's parser wrote on both legs. Anything else leaves the pair unlinked.
+    """
+
+    if not candidates:
+        return SgoRawLink(RAW_NOT_RETAINED, ["RAW_RESPONSE_NOT_RETAINED_FOR_THIS_FETCH"], 0)
+    matches: list[tuple[RetainedResponse, dict[str, Any], dict[str, Any]]] = []
+    problems: list[str] = []
+    containing = 0
+    for response in candidates:
+        events = [e for e in response.payload.get("data") or []
+                  if isinstance(e, dict) and str(e.get("eventID") or "") == str(event_id or "")]
+        if not events:
+            continue
+        containing += 1
+        if len(events) > 1:
+            problems.append("EVENT_ID_REPEATED_IN_RESPONSE")
+            continue
+        sides, problem = _sgo_moneyline_from_event(events[0], str(event_id), book_key)
+        if problem:
+            problems.append(problem)
+            continue
+        home, away = sides["home"], sides["away"]
+        if home["american"] is None or away["american"] is None:
+            problems.append("RETAINED_PRICE_INVALID")
+        elif (home["american"], away["american"]) != (home_american, away_american):
+            problems.append("RETAINED_PRICE_DIFFERS_FROM_STORED")
+        elif home["lastUpdatedAtUtc"] is None or away["lastUpdatedAtUtc"] is None:
+            problems.append("RETAINED_LAST_UPDATED_AT_MISSING")
+        elif home["available"] is not True or away["available"] is not True:
+            problems.append("RETAINED_SIDE_NOT_AVAILABLE")
+        elif stored_observed is None or min(home["lastUpdatedAtUtc"], away["lastUpdatedAtUtc"]) != aware(stored_observed):
+            problems.append("RETAINED_OLDER_SIDE_STAMP_DIFFERS_FROM_STORED_OBSERVED_AT")
+        else:
+            matches.append((response, sides, events[0]))
+    if not containing:
+        return SgoRawLink(RAW_EVENT_ABSENT, ["RAW_RESPONSE_RETAINED_BUT_EVENT_ABSENT"], len(candidates))
+    if not matches:
+        return SgoRawLink(RAW_DISAGREES, sorted(set(problems)) or ["RAW_RESPONSE_DISAGREES"], len(candidates))
+    if len({m[0].sha256 for m in matches}) > 1:
+        return SgoRawLink(RAW_AMBIGUOUS, ["RAW_RESPONSE_AMBIGUOUS_MULTIPLE_FILES_MATCH"], len(candidates))
+    response, sides, event = matches[0]
+    return SgoRawLink(
+        RAW_LINKED, [], len(candidates), response=response, event_id=str(event_id),
+        provider_book_key=sides["home"]["providerBookKey"],
+        home_updated_at=sides["home"]["lastUpdatedAtUtc"], away_updated_at=sides["away"]["lastUpdatedAtUtc"],
+        home_field=sides["home"]["clockField"], away_field=sides["away"]["clockField"],
+        stated={side: {**sides[side]["stated"], "oddsAsSent": sides[side]["oddsAsSent"],
+                       "lastUpdatedAt": sides[side]["lastUpdatedAt"], "available": sides[side]["available"]}
+                for side in ("home", "away")},
+        other_moneyline_markets=_other_moneyline_markets(event))
+
+
+def sgo_skew_receipt(job: Any, ledger: Any, succeeded_rows_for_job: int) -> dict[str, Any] | None:
+    """The collector's ingest-time skew receipt for one fetch, when it names that fetch alone.
+
+    ``collect-odds-checkpoint`` records ``result.fallback.skew`` -- pairs,
+    pairs whose two sides carried different ``lastUpdatedAt`` values, and the
+    largest difference -- over every two-sided moneyline pair it parsed from
+    the response. It is attributed to a fetch only when the job made exactly
+    one successful SGO request and its recorded filters equal the ledger's.
+    It is carried as evidence; it is never used as a per-leg clock.
+    """
+
+    result = getattr(job, "result", None)
+    fallback = result.get("fallback") if isinstance(result, dict) else None
+    skew = fallback.get("skew") if isinstance(fallback, dict) else None
+    if not isinstance(skew, dict) or succeeded_rows_for_job != 1:
+        return None
+    pairs, with_skew, largest = skew.get("pairs"), skew.get("pairs_with_skew"), skew.get("max_skew_seconds")
+    if not isinstance(pairs, int) or not isinstance(with_skew, int):
+        return None
+    shape = ((getattr(ledger, "response_metadata", None) or {}).get("request_shape") or {}).get("filters")
+    filters_match = shape is not None and shape == fallback.get("request_filters")
+    if not filters_match:
+        return None
+    return {
+        "jobRunId": str(job.id),
+        "jobName": job.job_name,
+        "jobCompletedAtUtc": iso(job.completed_at),
+        "field": "job_runs.result.fallback.skew",
+        "pairs": pairs,
+        "pairsWithSkew": with_skew,
+        "maxSkewSeconds": largest,
+        "simultaneityClaimed": skew.get("simultaneity_claimed"),
+        "zeroSkewForEveryPair": bool(pairs > 0 and with_skew == 0 and largest in (0, 0.0)),
+        "requestFiltersMatchLedger": True,
+        "meaning": ("Recorded by the collector when it parsed this response: over every two-sided moneyline "
+                    "pair it held, pairsWithSkew pairs had differing home/away lastUpdatedAt and the largest "
+                    "difference was maxSkewSeconds. An ingest-time receipt, not re-verifiable from retained "
+                    "bytes; carried as evidence and never used as a per-leg clock."),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1309,7 +1673,7 @@ def build_packet(
     # -- market ---------------------------------------------------------------
     if anchor_at is not None:
         market_block, market_reasons, market_diag = _market_block(
-            session, game, anchor_at, home_team, away_team, evidence)
+            session, game, anchor_at, home_team, away_team, evidence, raw_data_root=inputs.raw_data_root)
     else:
         market_block = {"status": "UNPRICED", "candidates": [], "selectedBookKey": None,
                         "selectedProviderKey": None, "pair": None, "qHome": None,
@@ -1413,9 +1777,16 @@ def build_packet(
         "clockConventions": {
             "created_at_transaction_start": "PostgreSQL now(): the start of the inserting transaction; "
                                             "not an insertion, commit or publication time",
-            "odds_available_as_of": "SGO: fetch.requested_at; not a receipt",
+            "odds_available_as_of": "SGO: fetch.requested_at; not a receipt and never an update clock",
+            "odds_observed_at": "SGO: the OLDER of the pair's two provider lastUpdatedAt stamps, written by "
+                                "the ingest parser on BOTH legs; not per-leg",
+            "leg_quoteUpdatedAtUtc": "the leg's own SGO byBookmaker lastUpdatedAt when recovered from the "
+                                     "retained raw response of its fetch (quoteUpdatedAtIsPerLeg=true); "
+                                     "otherwise odds_observed_at (quoteUpdatedAtIsPerLeg=false)",
             "leg_availableByUtc": "max(provider_request_ledger.completed_at, job_runs.completed_at of the "
                                   "requesting job) -- a completed-receipt upper bound on commit",
+            "retained_response_archivedAtUtc": "RawArchive metadata.ingestion_timestamp (or its file-name "
+                                               "stamp); when AISP wrote the bytes, not an update clock",
         },
         "rows": evidence.rows,
         "files": evidence.files,
@@ -1778,7 +2149,7 @@ def _object_manifest_name(handoff_path: str, object_sha: str | None) -> str | No
 # Market block
 # ---------------------------------------------------------------------------
 def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, home_team: str | None,
-                  away_team: str | None, evidence: EvidenceDocument
+                  away_team: str | None, evidence: EvidenceDocument, *, raw_data_root: str | Path | None = None
                   ) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
     rows = session.execute(
         select(OddsSnapshot.id, OddsSnapshot.market_outcome_id, OddsSnapshot.sportsbook_id,
@@ -1805,7 +2176,7 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
                      "minutesLatestFetchBeforeAnchor": None, "books": 0, "booksWithCompletePair": 0,
                      "eligibleBooks": 0, "eligibleBooksLedgerOnlyBound": 0,
                      "marketFailureCategory": "MARKET_NO_QUOTE_FETCHED_BY_ANCHOR", "primaryBook": None,
-                     "primaryOverround": None})
+                     "primaryOverround": None, **_raw_diagnostics([], None)})
         return block, ["MARKET_NO_QUOTE_FETCHED_BY_ANCHOR"], diag
 
     # Completed receipts for every fetch clock, by exact requested_at match.
@@ -1819,19 +2190,28 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
                    ProviderRequestLedger.requested_at, ProviderRequestLedger.completed_at,
                    ProviderRequestLedger.status, ProviderRequestLedger.request_fingerprint,
                    ProviderRequestLedger.records_received, ProviderRequestLedger.job_run_id,
-                   ProviderRequestLedger.reservation_id)
+                   ProviderRequestLedger.reservation_id, ProviderRequestLedger.response_metadata)
             .where(ProviderRequestLedger.provider == source, ProviderRequestLedger.status == "SUCCEEDED",
                    ProviderRequestLedger.requested_at.in_(sorted(clocks)))
         ).all():
             receipts.setdefault((source, aware(ledger.requested_at)), []).append(ledger)
     job_ids = {l.job_run_id for group in receipts.values() for l in group if l.job_run_id}
     jobs = {}
+    succeeded_per_job: dict[Any, int] = {}
     if job_ids:
         for job in session.execute(
-            select(JobRun.id, JobRun.job_name, JobRun.status, JobRun.started_at, JobRun.completed_at)
+            select(JobRun.id, JobRun.job_name, JobRun.status, JobRun.started_at, JobRun.completed_at,
+                   JobRun.result)
             .where(JobRun.id.in_(list(job_ids)))
         ).all():
             jobs[job.id] = job
+        for job_id, count in session.execute(
+            select(ProviderRequestLedger.job_run_id, func.count())
+            .where(ProviderRequestLedger.job_run_id.in_(list(job_ids)), ProviderRequestLedger.provider == SGO,
+                   ProviderRequestLedger.status == "SUCCEEDED")
+            .group_by(ProviderRequestLedger.job_run_id)
+        ).all():
+            succeeded_per_job[job_id] = int(count)
 
     snapshots: dict[str, Snapshot] = {}
     for r in rows:
@@ -1883,8 +2263,23 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
         else:
             snap.away = leg
 
+    # Link every SGO pair to the retained raw response of ITS fetch (bound by
+    # that fetch's completed receipt window). Only a matched response supplies
+    # per-leg clocks; everything else keeps the stored older-side clock.
+    candidates_by_fetch: dict[tuple[str, datetime], list[RetainedResponse]] = {}
+    for snap in snapshots.values():
+        if snap.provider_key != SGO:
+            continue
+        group = receipts.get((snap.provider_key, snap.fetch_clock), [])
+        ledger = group[0] if len(group) == 1 else None
+        if ledger is not None and ledger.job_run_id in jobs:
+            snap.skew_receipt = sgo_skew_receipt(jobs[ledger.job_run_id], ledger,
+                                                 succeeded_per_job.get(ledger.job_run_id, 0))
+        _link_snapshot(snap, ledger, raw_data_root, anchor_at, candidates_by_fetch)
+
     for snap in snapshots.values():
         evaluate_snapshot(snap, anchor_at, home_team, away_team)
+        snap.limitations = _snapshot_limitations(snap)
 
     by_book: dict[tuple[str, str], list[Snapshot]] = {}
     for snap in snapshots.values():
@@ -1902,11 +2297,9 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
         best = max(failing, key=stage_order.index) if failing else "MARKET_NO_TWO_SIDED_SAME_RESPONSE_PAIR"
         market_reasons.append(best)
         market_reasons.append("MARKET_NO_ELIGIBLE_BOOK")
-    limitations = []
-    if any(s.provider_key == SGO for s in representatives):
-        limitations = ["LIMITATION_SGO_PER_LEG_PROVIDER_STAMPS_NOT_RETAINED_OLDER_SIDE_APPLIED_TO_BOTH",
-                       "LIMITATION_PITCHER_ACTION_CONVENTION_NOT_RETAINED",
-                       "LIMITATION_RAW_PROVIDER_RESPONSE_NOT_ARCHIVED"]
+    # Limitations never fail a pair; they say, per candidate, what could not be
+    # proved (per-leg clocks, the retained response, provider-stated conventions).
+    limitations = list(dict.fromkeys(code for s in representatives for code in s.limitations))
     primary_pair = None
     q_home = None
     if primary is not None:
@@ -1927,7 +2320,7 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
     }
 
     # Feasibility diagnostics (never part of an eligibility rule).
-    all_legs = [leg for s in snapshots.values() for leg in (s.home, s.away) if leg and leg.observed_at]
+    all_legs = [leg for s in snapshots.values() for leg in (s.home, s.away) if leg and leg.quote_clock]
     available_legs = [leg for leg in all_legs if leg.available_by is not None and leg.available_by <= anchor_at]
     complete = [s for s in snapshots.values() if s.stage >= 2]
     receipted = [s for s in snapshots.values() if s.stage >= 3]
@@ -1935,9 +2328,10 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
     for group in by_book.values():
         if any(_eligible_with_ledger_only(s, anchor_at) for s in group):
             ledger_only += 1
+    diag.update(_raw_diagnostics(list(snapshots.values()), primary))
     diag.update({
-        "freshestLegAgeMinutes": _minutes(anchor_at - max(l.observed_at for l in all_legs)) if all_legs else None,
-        "freshestAvailableLegAgeMinutes": _minutes(anchor_at - max(l.observed_at for l in available_legs))
+        "freshestLegAgeMinutes": _minutes(anchor_at - max(l.quote_clock for l in all_legs)) if all_legs else None,
+        "freshestAvailableLegAgeMinutes": _minutes(anchor_at - max(l.quote_clock for l in available_legs))
         if available_legs else None,
         "freshestReceiptedPairOlderLegAgeMinutes": _minutes(anchor_at - max(s.older_observed for s in receipted))
         if receipted else None,
@@ -1962,9 +2356,73 @@ def _eligible_with_ledger_only(snapshot: Snapshot, anchor_at: datetime) -> bool:
     for leg in (snapshot.home, snapshot.away):
         if leg.receipt_completed_at is None or leg.receipt_completed_at > anchor_at:
             return False
-        if quote_age_failure(leg.observed_at, anchor_at):
+        if quote_age_failure(leg.quote_clock, anchor_at):
             return False
     return True
+
+
+def _link_snapshot(snap: Snapshot, ledger: Any | None, raw_root: str | Path | None, anchor_at: datetime,
+                   cache: dict[Any, list[RetainedResponse]]) -> None:
+    """Attach the retained raw response (and per-leg clocks) of this SGO pair's own fetch."""
+
+    if snap.home is None or snap.away is None or snap.duplicates:
+        snap.raw_link = SgoRawLink("NOT_ATTEMPTED_PAIR_INCOMPLETE", ["RAW_LINK_NOT_ATTEMPTED_PAIR_INCOMPLETE"])
+        return
+    if ledger is None or ledger.completed_at is None:
+        snap.raw_link = SgoRawLink(RAW_NO_RECEIPT_WINDOW,
+                                   ["RAW_RESPONSE_NOT_BINDABLE_WITHOUT_ONE_COMPLETED_LEDGER_RECEIPT"])
+        return
+    bounds = [aware(ledger.completed_at)] + [leg.job_completed_at for leg in (snap.home, snap.away)
+                                             if leg.job_completed_at is not None]
+    key = str(ledger.id)
+    if key not in cache:
+        cache[key] = sgo_retained_responses(raw_root, aware(ledger.requested_at), max(bounds),
+                                            not_after=anchor_at, request_fingerprint=ledger.request_fingerprint)
+    stored = [leg.observed_at for leg in (snap.home, snap.away) if leg.observed_at is not None]
+    link = link_sgo_pair(cache[key], event_id=snap.source_event_id, book_key=snap.book_key,
+                         home_american=snap.home.american, away_american=snap.away.american,
+                         stored_observed=min(stored) if len(stored) == 2 else None)
+    snap.raw_link = link
+    if link.linked:
+        snap.home.provider_updated_at, snap.home.provider_updated_field = link.home_updated_at, link.home_field
+        snap.away.provider_updated_at, snap.away.provider_updated_field = link.away_updated_at, link.away_field
+
+
+def _snapshot_limitations(snap: Snapshot) -> list[str]:
+    codes: list[str] = []
+    if snap.provider_key == SGO:
+        link = snap.raw_link
+        status = link.status if link is not None else RAW_NOT_RETAINED
+        if link is None or not link.linked:
+            codes.append("LIMITATION_RAW_PROVIDER_RESPONSE_NOT_ARCHIVED" if status == RAW_NOT_RETAINED
+                         else f"LIMITATION_RAW_PROVIDER_RESPONSE_{status}")
+            codes.append("LIMITATION_SGO_PER_LEG_PROVIDER_STAMPS_NOT_RETAINED_OLDER_SIDE_APPLIED_TO_BOTH")
+    codes.extend(_conventions(snap.provider_key, snap.raw_link)["reasonCodes"])
+    return list(dict.fromkeys(codes))
+
+
+def _raw_diagnostics(snaps: list[Snapshot], primary: Snapshot | None) -> dict[str, Any]:
+    """Feasibility counters for retained-response linkage (never an eligibility rule)."""
+
+    sgo = [s for s in snaps if s.provider_key == SGO and s.home is not None and s.away is not None]
+    statuses = Counter(s.raw_link.status for s in sgo if s.raw_link is not None)
+    return {
+        "sgoCompletePairSnapshots": len(sgo),
+        "sgoRawLinkStatusCounts": dict(sorted(statuses.items())),
+        "sgoSnapshotsRawLinked": statuses.get(RAW_LINKED, 0),
+        "sgoLegsPerLegClockRecovered": sum(1 for s in sgo for leg in (s.home, s.away) if leg.per_leg_clock),
+        "sgoSnapshotsWithSkewReceipt": sum(1 for s in sgo if s.skew_receipt),
+        "sgoSnapshotsWithZeroSkewReceipt": sum(1 for s in sgo if s.skew_receipt
+                                               and s.skew_receipt.get("zeroSkewForEveryPair")),
+        "primaryRawLinkStatus": primary.raw_link.status if primary is not None and primary.raw_link else None,
+        "primaryPerLegClocksRecovered": bool(primary is not None and primary.home is not None
+                                             and primary.away is not None and primary.home.per_leg_clock
+                                             and primary.away.per_leg_clock),
+        "primaryZeroSkewReceipt": bool(primary is not None and primary.skew_receipt
+                                       and primary.skew_receipt.get("zeroSkewForEveryPair")),
+        "primaryConventionsProved": bool(primary is not None
+                                         and _conventions(primary.provider_key, primary.raw_link)["proved"]),
+    }
 
 
 def _enum_value(value: Any) -> str:
@@ -1982,15 +2440,30 @@ def _book_pair(snapshot: Snapshot, anchor_at: datetime, evidence: EvidenceDocume
             "job_run_id": ledger.job_run_id, "reservation_id": ledger.reservation_id})
         job = jobs.get(ledger.job_run_id)
         if job is not None:
-            evidence.add("job_runs", job.id, {"id": job.id, "job_name": job.job_name, "status": job.status,
-                                              "started_at": job.started_at, "completed_at": job.completed_at})
+            row = {"id": job.id, "job_name": job.job_name, "status": job.status,
+                   "started_at": job.started_at, "completed_at": job.completed_at}
+            if snapshot.skew_receipt and snapshot.skew_receipt.get("jobRunId") == str(job.id):
+                row["ingest_parse_skew_receipt"] = snapshot.skew_receipt
+            evidence.add("job_runs", job.id, row)
+    link = snapshot.raw_link
+    response = link.response if link is not None and link.linked else None
+    identity = _response_identity(snapshot, link, ledger_rows)
     response_ptr = evidence.note(f"response:{snapshot.snapshot_id}", {
         "snapshotId": snapshot.snapshot_id, "provider": snapshot.provider_key,
         "sourceEventId": snapshot.source_event_id, "fetchClockUtc_notAReceipt": iso(snapshot.fetch_clock),
         "ledgerRowIds": [str(l.id) for l in ledger_rows],
         "requestFingerprints": [l.request_fingerprint for l in ledger_rows],
         "legRowIds": [leg.row_id for leg in (snapshot.home, snapshot.away) if leg],
+        "retainedResponse": identity,
+        "providerStatedLegFields": link.stated if response is not None else None,
     })
+    if response is not None:
+        # The pair's common response identity is the retained file itself.
+        source_ref: Any = {"path": response.path, "sha256": response.sha256, "bytes": response.bytes,
+                           "locator": (f"data[eventID={snapshot.source_event_id}].odds[{SGO_HOME_ODD_ID}|"
+                                       f"{SGO_AWAY_ODD_ID}].byBookmaker[{link.provider_book_key}]")}
+    else:
+        source_ref = response_ptr
 
     def leg_block(leg: Leg | None) -> dict[str, Any] | None:
         if leg is None or leg.observed_at is None:
@@ -2002,43 +2475,88 @@ def _book_pair(snapshot: Snapshot, anchor_at: datetime, evidence: EvidenceDocume
             "source": snapshot.provider_key, "source_event_id": leg.source_event_id,
             "payload_checksum": leg.payload_checksum, "sportsbook_key": snapshot.sportsbook_key,
             "created_at_transaction_start": leg.created_at,
-            "receipt_ledger_id": leg.receipt_ledger_id, "receipt_job_run_id": leg.job_run_id})
+            "receipt_ledger_id": leg.receipt_ledger_id, "receipt_job_run_id": leg.job_run_id,
+            "provider_last_updated_at_from_retained_response": leg.provider_updated_at,
+            "provider_last_updated_at_field": leg.provider_updated_field})
         exact = american_to_decimal_exact(leg.american)
         if exact is None:
             return None
         available = leg.available_by
+        if leg.per_leg_clock:
+            clock_text = (f"quoteUpdatedAtUtc = this leg's own provider lastUpdatedAt, read from the retained raw "
+                          f"response ({leg.provider_updated_field}); odds_snapshots.observed_at holds the pair's "
+                          f"older side stamp. ")
+        elif snapshot.provider_key == SGO:
+            clock_text = ("quoteUpdatedAtUtc = odds_snapshots.observed_at: the pair's OLDER provider side update "
+                          "applied to both legs; this leg's own stamp was not recovered (no matching retained raw "
+                          "response). ")
+        else:
+            clock_text = "quoteUpdatedAtUtc = odds_snapshots.observed_at as stored for this provider. "
         return {
             "teamId": leg.team_id or "",
             "american": int(leg.american),
             "decimal": float(exact),
-            "quoteUpdatedAtUtc": iso(leg.observed_at),
+            "quoteUpdatedAtUtc": iso(leg.quote_clock),
+            "quoteUpdatedAtIsPerLeg": leg.per_leg_clock,
+            "perLegClock": {
+                "status": ("RECOVERED_FROM_RETAINED_RESPONSE" if leg.per_leg_clock
+                           else "NOT_RECOVERED" if snapshot.provider_key == SGO
+                           else "NOT_ASSESSED_NON_SGO_PROVIDER"),
+                "providerLastUpdatedAtUtc": iso(leg.provider_updated_at),
+                "providerField": leg.provider_updated_field,
+                "retainedResponseSha256": response.sha256 if response is not None and leg.per_leg_clock else None,
+                "reasonCode": (None if leg.per_leg_clock else
+                               f"PER_LEG_CLOCK_NOT_RECOVERED_{link.status}" if link is not None
+                               else "PER_LEG_CLOCK_NOT_ASSESSED"),
+                "storedObservedAtUtc": iso(leg.observed_at),
+                "storedObservedAtMeaning": (
+                    "odds_snapshots.observed_at: the OLDER of the pair's two provider lastUpdatedAt stamps, "
+                    "written on both legs by the SGO ingest parser" if snapshot.provider_key == SGO
+                    else "odds_snapshots.observed_at as stored"),
+            },
             "availableByUtc": iso(available) if available else iso(leg.fetch_clock),
             "availableByIsReceipt": available is not None,
             "availabilityReceiptRef": EvidencePointer(
                 f"/rows/provider_request_ledger/{leg.receipt_ledger_id}" if leg.receipt_ledger_id
                 else f"/rows/odds_snapshots/{leg.row_id}"),
-            "clockMeaning": (
-                "quoteUpdatedAtUtc = odds_snapshots.observed_at; for SPORTSGAMEODDS this is the pair's OLDER "
-                "provider side update applied to both legs (per-side stamps not retained). availableByUtc = "
-                "max(provider_request_ledger.completed_at, requesting job_runs.completed_at), a completed-"
-                "receipt upper bound on commit" if available is not None else
+            "clockMeaning": clock_text + (
+                "availableByUtc = max(provider_request_ledger.completed_at, requesting job_runs.completed_at), a "
+                "completed-receipt upper bound on commit" if available is not None else
                 "NO COMPLETED RECEIPT: availableByUtc shows only the fetch clock (available_as_of = "
                 "requested_at), which is NOT proof of receipt or commit"),
             "status": leg.status,
-            "ageMinutesAtAnchor": _minutes(anchor_at - leg.observed_at),
+            "ageMinutesAtAnchor": _minutes(anchor_at - leg.quote_clock),
             "receiptLedgerCompletedAtUtc": iso(leg.receipt_completed_at),
             "receiptJobCompletedAtUtc": iso(leg.job_completed_at),
             "rowRef": EvidencePointer(f"/rows/odds_snapshots/{leg.row_id}"),
         }
 
     home, away = leg_block(snapshot.home), leg_block(snapshot.away)
+    both_per_leg = bool(snapshot.home and snapshot.away and snapshot.home.per_leg_clock
+                        and snapshot.away.per_leg_clock)
+    if both_per_leg:
+        skew: float | None = abs((snapshot.home.provider_updated_at
+                                  - snapshot.away.provider_updated_at).total_seconds())
+        skew_meaning = "difference of the two legs' own provider lastUpdatedAt stamps in the retained response"
+    elif snapshot.provider_key == SGO:
+        # SGO rows carry the pair's older side stamp on BOTH legs, so their
+        # stored difference is zero by construction, not a measured skew.
+        skew = None
+        skew_meaning = ("NOT_MEASURABLE_FROM_RETAINED_BYTES: per-side provider stamps not recovered (older side "
+                        "stored on both legs); see ingestParseSkewReceipt for the collector's own record")
+    else:
+        skew = (abs((snapshot.home.observed_at - snapshot.away.observed_at).total_seconds())
+                if snapshot.home and snapshot.away and snapshot.home.observed_at and snapshot.away.observed_at
+                else None)
+        skew_meaning = "difference of the two stored leg clocks"
     pair = {
         "bookKey": snapshot.book_key,
         "providerKey": snapshot.provider_key,
         "marketId": snapshot.market_id,
         "period": "full_game",
-        "conventions": _conventions(snapshot.provider_key),
-        "sourceResponseRef": response_ptr,
+        "conventions": _conventions(snapshot.provider_key, link),
+        "sourceResponseRef": source_ref,
+        "sourceResponse": identity,
         "home": home,
         "away": away,
         "eligible": snapshot.eligible,
@@ -2047,31 +2565,136 @@ def _book_pair(snapshot: Snapshot, anchor_at: datetime, evidence: EvidenceDocume
         "sportsbookKey": snapshot.sportsbook_key,
         "sourceEventId": snapshot.source_event_id,
         "olderLegObservedAtUtc": iso(snapshot.older_observed),
-        # SGO rows carry the pair's older side stamp on BOTH legs, so their
-        # stored difference is zero by construction, not a measured skew.
-        "legSkewSeconds": (abs((snapshot.home.observed_at - snapshot.away.observed_at).total_seconds())
-                           if snapshot.provider_key != SGO and snapshot.home and snapshot.away
-                           and snapshot.home.observed_at and snapshot.away.observed_at else None),
-        "legSkewMeaning": ("NOT_MEASURABLE: per-side provider stamps not retained (older side stored on both)"
-                           if snapshot.provider_key == SGO else "difference of the two stored leg clocks"),
+        "perLegClocksRecovered": both_per_leg,
+        "legSkewSeconds": skew,
+        "legSkewMeaning": skew_meaning,
+        "ingestParseSkewReceipt": snapshot.skew_receipt,
         "qHome": float(snapshot.q_home) if snapshot.q_home is not None else None,
         "overround": float(snapshot.overround) if snapshot.overround is not None else None,
     }
     return pair
 
 
-def _conventions(provider: str) -> dict[str, Any]:
-    if provider == SGO:
-        return {
-            "market": "two-way full-game moneyline (AISP market_type h2h, period full_game)",
-            "providerOddIds": ["points-home-game-ml-home", "points-away-game-ml-away"],
-            "providerPeriodId": "game",
-            "extraInnings": "INCLUDED_PER_PROVIDER_FULL_GAME_PERIOD_AS_ENFORCED_BY_THE_SGO_PARSER",
-            "settlementRule": "TWO_WAY_NO_TIE",
-            "pitcherActionRule": "NOT_RETAINED_UNKNOWN",
+def _response_identity(snapshot: Snapshot, link: SgoRawLink | None, ledger_rows: list[Any]) -> dict[str, Any]:
+    """The pair's common response identity: the retained file when there is one, else explicit nulls."""
+
+    response = link.response if link is not None and link.linked else None
+    ledger = ledger_rows[0] if len(ledger_rows) == 1 else None
+    return {
+        "status": link.status if link is not None else ("NOT_ASSESSED_NON_SGO_PROVIDER"
+                                                        if snapshot.provider_key != SGO else RAW_NOT_RETAINED),
+        "retained": response is not None,
+        "path": response.path if response else None,
+        "sha256": response.sha256 if response else None,
+        "bytes": response.bytes if response else None,
+        "archivedAtUtc": iso(response.archived_at) if response else None,
+        "archiveClockSource": response.archive_clock_source if response else None,
+        "fileModifiedAtUtc": iso(response.file_modified_at) if response else None,
+        "rawArchivePayloadChecksum": response.payload_checksum if response else None,
+        "fetchClockUtc": iso(snapshot.fetch_clock),
+        "fetchClockMeaning": ("provider_request_ledger.requested_at = odds_snapshots.available_as_of: when AISP "
+                              "sent the request. Not a receipt and never a quote update clock."),
+        "ledgerRowId": str(ledger.id) if ledger is not None else None,
+        "requestFingerprint": ledger.request_fingerprint if ledger is not None else None,
+        "providerEventId": snapshot.source_event_id,
+        "providerBookmakerKey": link.provider_book_key if response else None,
+        "candidatesExamined": link.candidates_examined if link is not None else 0,
+        "reasonCodes": list(link.reason_codes) if link is not None else [],
+        "meaning": ("sha256/bytes are of the retained raw response file both legs were read from; "
+                    "odds_snapshots.payload_checksum is a per-row checksum and is not a response identity"),
+    }
+
+
+#: What the protocol needs proved before a pair's conventions match the V18 target.
+#: The keys are the ones earlier packets used, so readers keep working; each now
+#: holds a status string, never an asserted value.
+_CONVENTION_FIELDS = ("extraInnings", "settlementRule", "pitcherActionRule")
+
+
+def _conventions(provider: str, link: SgoRawLink | None = None) -> dict[str, Any]:
+    """Conventions exactly as the provider states them, each unstated one null with a reason.
+
+    Nothing here is asserted by AISP on the provider's behalf. The retained SGO
+    responses state the oddIDs, ``periodID``, ``betTypeID``, ``sideID`` and
+    ``marketName`` of each side (cited by JSON locator); no field in them
+    states whether period ``game`` includes extra innings, how a tie or
+    postponement is handled, or any listed-pitcher/action rule. Those carry a
+    status string at their usual keys and a null value in ``conventionDetails``.
+    """
+
+    base = {"market": "two-way full-game moneyline (AISP market_type h2h, period full_game)"}
+    if provider != SGO:
+        reasons = [f"LIMITATION_{name.upper()}_NOT_ESTABLISHED_FOR_PROVIDER" for name in _CONVENTION_FIELDS]
+        return {**base, "providerStated": None, "providerStatedSource": None,
+                **{name: "NOT_ESTABLISHED" for name in _CONVENTION_FIELDS},
+                "conventionDetails": {name: {"status": "NOT_ESTABLISHED", "value": None}
+                                      for name in _CONVENTION_FIELDS},
+                "proved": False, "unprovedFields": list(_CONVENTION_FIELDS), "reasonCodes": reasons}
+    retained = link is not None and link.linked and link.response is not None
+    stated = None
+    if retained:
+        stated = {
+            side: {
+                "fields": {k: v for k, v in link.stated[side].items() if k in _SGO_ODD_IDENTITY_FIELDS},
+                "source": _odd_locator(str(link.event_id),
+                                       SGO_HOME_ODD_ID if side == "home" else SGO_AWAY_ODD_ID),
+            } for side in ("home", "away")
         }
-    return {"market": "two-way full-game moneyline (AISP market_type h2h, period full_game)",
-            "extraInnings": "UNKNOWN", "settlementRule": "TWO_WAY", "pitcherActionRule": "NOT_RETAINED_UNKNOWN"}
+    # Linked: read the response and it does not say. Unlinked: no matching
+    # retained response of this fetch was available to read.
+    status = "NOT_STATED_BY_PROVIDER" if retained else "UNKNOWN_NO_MATCHING_RETAINED_RESPONSE"
+    suffix = "NOT_STATED_BY_PROVIDER" if retained else "NOT_RETAINED"
+    missing = "No matching retained raw response of this fetch was available to read"
+    details = {
+        "extraInnings": {
+            "status": status, "value": None,
+            "note": ("The response states periodID='game' and marketName='Moneyline' for these oddIDs and lists "
+                     "other periods separately (see otherMoneylineMarketsListed); no field states whether 'game' "
+                     "includes extra innings." if retained else
+                     f"{missing}; only AISP's ingest rule (periodID='game') is known."),
+        },
+        "settlementRule": {
+            "status": status, "value": None,
+            "note": ("Two sides (sideID home/away, reciprocal opposingOddID) are stated; no field states how a "
+                     "tie, postponement or shortened game is handled." if retained else f"{missing}."),
+        },
+        "pitcherActionRule": {
+            "status": status, "value": None,
+            "note": ("No field of the response names a listed-pitcher, action or pitcher-change rule." if retained
+                     else f"{missing}; no retained SGO response of any fetch carries such a field."),
+        },
+    }
+    reasons = [f"LIMITATION_EXTRA_INNINGS_INCLUSION_{suffix}", f"LIMITATION_SETTLEMENT_TIE_HANDLING_{suffix}",
+               f"LIMITATION_PITCHER_ACTION_CONVENTION_{suffix}",
+               "LIMITATION_CONVENTIONS_UNPROVED_NOT_ENFORCED_BY_CONSUMER_PRICE_EVALUABILITY"]
+    return {
+        **base,
+        "providerOddIds": [SGO_HOME_ODD_ID, SGO_AWAY_ODD_ID],
+        # Verified from the provider's own periodID field by the ingest parser
+        # (it refuses any other period); a period identity, not a settlement rule.
+        "providerPeriodId": SGO_PERIOD_ID,
+        "extraInnings": status,
+        "settlementRule": status,
+        "pitcherActionRule": status,
+        "conventionDetails": details,
+        "providerStated": stated,
+        "providerStatedSource": ({"path": link.response.path, "sha256": link.response.sha256,
+                                  "bytes": link.response.bytes} if retained else None),
+        "otherMoneylineMarketsListed": link.other_moneyline_markets if retained else None,
+        "ingestEnforced": {
+            "oddIDs": [SGO_HOME_ODD_ID, SGO_AWAY_ODD_ID],
+            "opposingOddIDReciprocal": True,
+            "periodID": SGO_PERIOD_ID,
+            "betTypeID": SGO_BET_TYPE_ID,
+            "enforcedBy": ("app.data_sources.sgo_parser.parse_events at ingestion: an AISP admission rule, not a "
+                           "provider statement of settlement"),
+        },
+        "proved": False,
+        "unprovedFields": list(_CONVENTION_FIELDS),
+        "eligibilityEffect": ("NOT_ENFORCED_BY_THIS_EXPORTER: unproved conventions are recorded here and as "
+                              "LIMITATION codes; priceEvaluable is unchanged by them"),
+        "reasonCodes": reasons,
+    }
 
 
 __all__ = [
@@ -2080,7 +2703,8 @@ __all__ = [
     "PositionLink", "Snapshot", "Leg", "V18_EXPERIMENT_ID", "WINDOW_CLOSE_UTC", "WINDOW_OPEN_UTC",
     "american_to_decimal_exact", "assert_no_outcome_fields", "build_packet", "choose_anchor",
     "choose_book_snapshot", "choose_primary_book", "episode_key", "evaluate_snapshot", "file_ref",
-    "find_phase_evidence", "first_failure", "in_enrollment_window", "iso", "load_frozen_protocol",
-    "mlb_games_with_locks_between", "no_vig_home", "phase_from_game_type", "quarantine_gate",
-    "quote_age_failure", "read_game", "research_lock", "seal_deadline", "selection_status", "validate_packet",
+    "find_phase_evidence", "first_failure", "in_enrollment_window", "iso", "link_sgo_pair",
+    "load_frozen_protocol", "mlb_games_with_locks_between", "no_vig_home", "phase_from_game_type",
+    "quarantine_gate", "quote_age_failure", "read_game", "research_lock", "RetainedResponse", "seal_deadline",
+    "selection_status", "SgoRawLink", "sgo_retained_responses", "sgo_skew_receipt", "validate_packet",
 ]

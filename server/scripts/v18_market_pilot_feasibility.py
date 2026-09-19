@@ -17,7 +17,13 @@ Usage (from the repository's server directory):
 
     python scripts/v18_market_pilot_feasibility.py \
         --env-file C:\\Users\\james\\ai-sports-predictor\\.env \
-        --raw-data-root C:\\Users\\james\\ai-sports-predictor\\data\\raw
+        --raw-data-root C:\\Users\\james\\ai-sports-predictor\\data\\raw \
+        --out <a NEW folder, so earlier runs are preserved> \
+        [--compare-per-game <an earlier run's per_game.csv>]
+
+It also inventories what the retained raw SportsGameOdds responses hold for the
+era's fetches (per-leg ``lastUpdatedAt``, response identity, stated
+conventions) and the collector's ingest-time skew receipts -- metadata only.
 """
 from __future__ import annotations
 
@@ -68,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--raw-data-root", default=None)
     parser.add_argument("--quarantine-ledger", default=None)
     parser.add_argument("--protocol-dir", default=None)
+    parser.add_argument("--compare-per-game", default=None,
+                        help="a prior run's per_game.csv; fresh-pair results are compared episode by episode")
     args = parser.parse_args(argv)
 
     from dotenv import load_dotenv
@@ -124,10 +132,14 @@ def main(argv: list[str] | None = None) -> int:
                 rows.append(_row(build, game))
             context = _acquisition_context(session, start, end, pilot, OddsSnapshot, ProviderRequestLedger,
                                            func, select)
+            context["retainedResponseInventory"] = _retained_response_inventory(
+                session, start, end, pilot, raw_root, run_at, ProviderRequestLedger, select)
         finally:
             connection.rollback()
 
     summary = _summarise(rows, context, protocol, start, end, run_at, raw_root, ledger_path, pilot)
+    if args.compare_per_game:
+        summary["comparisonWithPriorRun"] = _compare(rows, Path(args.compare_per_game))
     _write_csv(out / "per_game.csv", rows)
     _write_exclusions(out / "exclusion_reasons.csv", summary["exclusionReasonTable"])
     (out / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True, default=str),
@@ -177,6 +189,16 @@ def _row(build: Any, game: Any) -> dict[str, Any]:
         "freshestAvailableLegAgeMinutes": diag.get("freshestAvailableLegAgeMinutes"),
         "freshestReceiptedPairOlderLegAgeMinutes": diag.get("freshestReceiptedPairOlderLegAgeMinutes"),
         "marketFailureCategory": diag.get("marketFailureCategory"),
+        "sgoCompletePairSnapshots": diag.get("sgoCompletePairSnapshots", 0),
+        "sgoSnapshotsRawLinked": diag.get("sgoSnapshotsRawLinked", 0),
+        "sgoLegsPerLegClockRecovered": diag.get("sgoLegsPerLegClockRecovered", 0),
+        "sgoSnapshotsWithSkewReceipt": diag.get("sgoSnapshotsWithSkewReceipt", 0),
+        "sgoSnapshotsWithZeroSkewReceipt": diag.get("sgoSnapshotsWithZeroSkewReceipt", 0),
+        "sgoRawLinkStatusCounts": json.dumps(diag.get("sgoRawLinkStatusCounts", {}), sort_keys=True),
+        "primaryRawLinkStatus": diag.get("primaryRawLinkStatus"),
+        "primaryPerLegClocksRecovered": diag.get("primaryPerLegClocksRecovered", False),
+        "primaryZeroSkewReceipt": diag.get("primaryZeroSkewReceipt", False),
+        "primaryConventionsProved": diag.get("primaryConventionsProved", False),
         "firstFailure": packet["eligibility"]["firstFailure"],
         "selectionAscertained": packet["eligibility"]["selectionAscertained"],
         "schemaValid": not build.schema_errors,
@@ -282,6 +304,168 @@ def _acquisition_context(session, start, end, pilot, OddsSnapshot, ProviderReque
     }
 
 
+def _retained_response_inventory(session, start, end, pilot, raw_root, run_at, ProviderRequestLedger, select):
+    """What the retained raw SGO responses hold for the era's MLB fetches (metadata only).
+
+    For every successful ``sgo_mlb_events`` request in the era: is a raw
+    response retained inside that fetch's completed-receipt window, and did the
+    collector record a skew receipt for it. Also every file present under
+    ``<raw_data_root>/sportsgameodds`` with the leagues its events belong to and
+    which of the fields the protocol needs it carries. No price or outcome is read.
+    """
+
+    import hashlib
+    import re
+
+    from sqlalchemy import func
+
+    from app.models import JobRun, Market, MarketOutcome, MarketType, OddsSnapshot, Sportsbook
+
+    convention_key = re.compile(r"extra|pitcher|action|tie|push|void|settl|rule", re.IGNORECASE)
+
+    def key_names(value: Any) -> set[str]:
+        """Every dictionary KEY in a JSON value (values are never inspected)."""
+
+        names: set[str] = set()
+        stack = [value]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    names.add(str(key))
+                    stack.append(child)
+            elif isinstance(item, list):
+                stack.extend(item)
+        return names
+
+    ledger = session.execute(
+        select(ProviderRequestLedger.id, ProviderRequestLedger.requested_at, ProviderRequestLedger.completed_at,
+               ProviderRequestLedger.request_fingerprint, ProviderRequestLedger.job_run_id,
+               ProviderRequestLedger.response_metadata)
+        .where(ProviderRequestLedger.provider == pilot.SGO, ProviderRequestLedger.endpoint_key == "sgo_mlb_events",
+               ProviderRequestLedger.status == "SUCCEEDED",
+               ProviderRequestLedger.requested_at >= start - timedelta(hours=12),
+               ProviderRequestLedger.requested_at < end)
+        .order_by(ProviderRequestLedger.requested_at)
+    ).all()
+    job_ids = [row.job_run_id for row in ledger if row.job_run_id]
+    jobs = {job.id: job for job in session.execute(
+        select(JobRun.id, JobRun.job_name, JobRun.completed_at, JobRun.result).where(JobRun.id.in_(job_ids))
+    ).all()} if job_ids else {}
+    per_job = Counter(row.job_run_id for row in ledger if row.job_run_id)
+    retained_fetches = 0
+    retained_files: set[str] = set()
+    skew = Counter()
+    for row in ledger:
+        job = jobs.get(row.job_run_id)
+        bounds = [pilot.aware(row.completed_at)] + ([pilot.aware(job.completed_at)] if job and job.completed_at
+                                                     else [])
+        found = pilot.sgo_retained_responses(raw_root, pilot.aware(row.requested_at), max(b for b in bounds if b),
+                                             not_after=run_at, request_fingerprint=row.request_fingerprint) \
+            if row.completed_at else []
+        if found:
+            retained_fetches += 1
+            retained_files.update(r.path for r in found)
+        receipt = pilot.sgo_skew_receipt(job, row, per_job.get(row.job_run_id, 0)) if job else None
+        skew["NO_RECEIPT" if receipt is None else
+             "ZERO_SKEW_EVERY_PAIR" if receipt["zeroSkewForEveryPair"] else
+             "NO_PAIRS" if not receipt["pairs"] else "NONZERO_SKEW"] += 1
+
+    # The stored rows themselves: does any pair carry two different leg clocks?
+    legs = session.execute(
+        select(OddsSnapshot.available_as_of, OddsSnapshot.source_event_id, Sportsbook.key,
+               func.count(func.distinct(OddsSnapshot.observed_at)), func.count(OddsSnapshot.id))
+        .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
+        .join(Market, Market.id == MarketOutcome.market_id)
+        .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
+        .where(OddsSnapshot.source == pilot.SGO, Market.market_type == MarketType.MONEYLINE,
+               OddsSnapshot.source_mode == "LIVE", OddsSnapshot.available_as_of >= start - timedelta(hours=12),
+               OddsSnapshot.available_as_of < end)
+        .group_by(OddsSnapshot.available_as_of, OddsSnapshot.source_event_id, Sportsbook.key)
+    ).all()
+    two_leg = [row for row in legs if row[4] == 2]
+
+    files = []
+    base = raw_root / pilot.SGO_RAW_DIRECTORY
+    for path in sorted(p for p in base.rglob("*") if p.is_file()) if base.exists() else []:
+        data = path.read_bytes()
+        entry: dict[str, Any] = {"path": str(path), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                                 "nameMatchesRawArchiveLayout": bool(pilot._RAW_NAME.match(path.name))}
+        try:
+            document = json.loads(data)
+        except ValueError:
+            entry["parse"] = "NOT_JSON"
+            files.append(entry)
+            continue
+        body = document.get("payload") if isinstance(document, dict) and "payload" in document else document
+        events = body.get("data") if isinstance(body, dict) else None
+        events = events if isinstance(events, list) else []
+        ml_sides = [side for e in events if isinstance(e.get("odds"), dict)
+                    for odd in (pilot.SGO_HOME_ODD_ID, pilot.SGO_AWAY_ODD_ID)
+                    for side in ((e["odds"].get(odd) or {}).get("byBookmaker") or {}).values()]
+        entry.update({
+            "rawArchiveWrapper": isinstance(document, dict) and "metadata" in document,
+            "leagueIDs": sorted({str(e.get("leagueID")) for e in events}),
+            "events": len(events),
+            "fullGameMoneylineBookSides": len(ml_sides),
+            "bookSidesWithLastUpdatedAt": sum(1 for s in ml_sides if s.get("lastUpdatedAt")),
+            "periodIdsOfMoneylineOddIds": sorted({str((e["odds"].get(odd) or {}).get("periodID"))
+                                                  for e in events if isinstance(e.get("odds"), dict)
+                                                  for odd in (pilot.SGO_HOME_ODD_ID, pilot.SGO_AWAY_ODD_ID)
+                                                  if e["odds"].get(odd)}),
+            # Key names only (never values), outcome sections excluded.
+            "keyNamesSuggestingExtraInningsTieOrPitcherActionRule": sorted(
+                name for name in key_names([{k: v for k, v in e.items() if k not in ("results", "players",
+                                                                                    "links")}
+                                            for e in events])
+                if convention_key.search(name)),
+        })
+        files.append(entry)
+    return {
+        "sgoMlbSucceededFetches": len(ledger),
+        "fetchesWithARetainedRawResponseInReceiptWindow": retained_fetches,
+        "retainedRawResponseFilesMatched": len(retained_files),
+        "skewReceiptsByKind": dict(skew),
+        "storedTwoLegPairs": len(two_leg),
+        "storedTwoLegPairsWithDifferentLegClocks": sum(1 for row in two_leg if row[3] != 1),
+        "filesUnderRawSportsgameodds": files,
+        "note": ("Retained raw responses are looked for under <raw_data_root>/sportsgameodds inside each fetch's "
+                 "[requested_at, completed receipt] window. The skew receipt is the collector's own "
+                 "job_runs.result.fallback.skew for that single fetch; storedTwoLegPairsWithDifferentLegClocks "
+                 "counts stored pairs whose two rows disagree on observed_at (the ingest writes the older side "
+                 "on both, so 0 is expected)."),
+    }
+
+
+def _compare(rows: list[dict[str, Any]], prior_csv: Path) -> dict[str, Any]:
+    """Episode-by-episode comparison of fresh-pair results with a prior run's per_game.csv."""
+
+    with prior_csv.open(newline="", encoding="utf-8") as stream:
+        prior = {r["episodeKey"]: r for r in csv.DictReader(stream)}
+    current = {r["episodeKey"]: r for r in rows}
+    shared = sorted(set(prior) & set(current))
+    def fresh(value: Any) -> bool:
+        return str(value).strip().lower() == "true"
+    changed = [{"episodeKey": key, "prior": fresh(prior[key]["priceEvaluable"]),
+                "current": bool(current[key]["priceEvaluable"]),
+                "priorFirstFailure": prior[key].get("firstFailure"),
+                "currentFirstFailure": current[key]["firstFailure"]}
+               for key in shared if fresh(prior[key]["priceEvaluable"]) != bool(current[key]["priceEvaluable"])]
+    first_changed = [key for key in shared if prior[key].get("firstFailure") != current[key]["firstFailure"]]
+    return {
+        "priorPerGameCsv": str(prior_csv),
+        "priorEpisodes": len(prior),
+        "currentEpisodes": len(current),
+        "sharedEpisodes": len(shared),
+        "onlyInCurrent": sorted(set(current) - set(prior)),
+        "onlyInPrior": sorted(set(prior) - set(current)),
+        "freshInPriorShared": sum(1 for key in shared if fresh(prior[key]["priceEvaluable"])),
+        "freshInCurrentShared": sum(1 for key in shared if current[key]["priceEvaluable"]),
+        "freshChanged": changed,
+        "firstFailureChanged": first_changed,
+    }
+
+
 def _summarise(rows, context, protocol, start, end, run_at, raw_root, ledger_path, pilot) -> dict[str, Any]:
     def funnel(subset: list[dict[str, Any]]) -> dict[str, Any]:
         return {
@@ -359,7 +543,33 @@ def _summarise(rows, context, protocol, start, end, run_at, raw_root, ledger_pat
             "gamesWithEligibleBookLedgerOnlyBound": sum(1 for r in rows if r["eligibleBooksLedgerOnlyBound"]),
         },
         "forecastScorePopulationRetained": sum(1 for r in rows if r["forecastHasScorePopulation"]),
+        "perLegClocksResponseIdentityConventions": _recovery_summary(rows),
         "acquisitionContext": context,
+    }
+
+
+def _recovery_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    statuses: Counter = Counter()
+    for r in rows:
+        for status, count in json.loads(r["sgoRawLinkStatusCounts"] or "{}").items():
+            statuses[status] += count
+    fresh = [r for r in rows if r["priceEvaluable"]]
+    return {
+        "sgoCompletePairSnapshotsExamined": sum(r["sgoCompletePairSnapshots"] for r in rows),
+        "rawLinkStatusAcrossSnapshots": dict(sorted(statuses.items())),
+        "snapshotsLinkedToARetainedResponse": sum(r["sgoSnapshotsRawLinked"] for r in rows),
+        "legsWithARecoveredPerLegClock": sum(r["sgoLegsPerLegClockRecovered"] for r in rows),
+        "snapshotsWithACollectorSkewReceipt": sum(r["sgoSnapshotsWithSkewReceipt"] for r in rows),
+        "snapshotsWithAZeroSkewReceipt": sum(r["sgoSnapshotsWithZeroSkewReceipt"] for r in rows),
+        "gamesWhosePrimaryPairHasPerLegClocks": sum(1 for r in rows if r["primaryPerLegClocksRecovered"]),
+        "freshGames": len(fresh),
+        "freshGamesWithPerLegClocks": sum(1 for r in fresh if r["primaryPerLegClocksRecovered"]),
+        "freshGamesWithAZeroSkewReceipt": sum(1 for r in fresh if r["primaryZeroSkewReceipt"]),
+        "freshGamesWithProviderStatedConventionsProved": sum(1 for r in fresh if r["primaryConventionsProved"]),
+        "note": ("A recovered per-leg clock must satisfy min(home, away) == the stored observed_at, so the older leg's "
+                 "age is unchanged and the newer leg is younger: recovery can expose a negative newer leg but can "
+                 "never turn a stale pair fresh. The collector's zero-skew receipt says both legs' stamps equalled "
+                 "the stored one at ingest; it is evidence only and is not used as a clock."),
     }
 
 
@@ -477,10 +687,10 @@ def _markdown(summary: dict[str, Any]) -> str:
         "",
         _why(ctx, trailing, lag),
         "",
+        *_recovery_markdown(summary),
         "## Limitations",
         "",
-        "- SGO rows store the pair's older provider update stamp on both legs; per-side stamps are not retained.",
-        "- The pitcher/action convention of the SGO moneyline is not retained.",
+        *_limitation_lines(summary),
         "- The receipt bound is max(ledger completed_at, requesting job completed_at); the ledger-only bound "
         f"would give {summary['receiptBoundSensitivity']['gamesWithEligibleBookLedgerOnlyBound']} games with an "
         "eligible book.",
@@ -494,6 +704,80 @@ def _markdown(summary: dict[str, Any]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _recovery_markdown(summary: dict[str, Any]) -> list[str]:
+    rec = summary["perLegClocksResponseIdentityConventions"]
+    inv = summary["acquisitionContext"].get("retainedResponseInventory", {})
+    lines = [
+        "## Per-leg clocks, response identity and conventions",
+        "",
+        f"SGO MLB fetches (successful) in the era: {inv.get('sgoMlbSucceededFetches')}; with a retained raw "
+        f"response inside the fetch's receipt window: {inv.get('fetchesWithARetainedRawResponseInReceiptWindow')}. "
+        f"Collector skew receipts by kind: {inv.get('skewReceiptsByKind')}. Stored two-leg pairs: "
+        f"{inv.get('storedTwoLegPairs')}, of which with differing leg clocks: "
+        f"{inv.get('storedTwoLegPairsWithDifferentLegClocks')}.",
+        "",
+        "| Measure | Count |",
+        "| --- | ---: |",
+        f"| Complete SGO pair snapshots examined (all games, all fetches by anchor) | "
+        f"{rec['sgoCompletePairSnapshotsExamined']} |",
+        f"| Snapshots linked to a retained raw response | {rec['snapshotsLinkedToARetainedResponse']} |",
+        f"| Legs carrying a recovered per-leg provider clock | {rec['legsWithARecoveredPerLegClock']} |",
+        f"| Snapshots with a collector skew receipt | {rec['snapshotsWithACollectorSkewReceipt']} |",
+        f"| Snapshots whose receipt records zero skew for every pair | {rec['snapshotsWithAZeroSkewReceipt']} |",
+        f"| Fresh games | {rec['freshGames']} |",
+        f"| Fresh games whose primary pair has per-leg clocks | {rec['freshGamesWithPerLegClocks']} |",
+        f"| Fresh games whose primary pair has a zero-skew receipt | {rec['freshGamesWithAZeroSkewReceipt']} |",
+        f"| Fresh games with provider-stated conventions proved | "
+        f"{rec['freshGamesWithProviderStatedConventionsProved']} |",
+        "",
+        f"Link status across snapshots: {rec['rawLinkStatusAcrossSnapshots']}.",
+        "",
+        rec["note"],
+        "",
+    ]
+    files = inv.get("filesUnderRawSportsgameodds") or []
+    if files:
+        lines += ["Files present under `<raw_data_root>/sportsgameodds`:", ""]
+        for f in files:
+            lines.append(f"- `{f['path']}` ({f['bytes']} bytes, sha256 `{f['sha256'][:16]}...`): leagues "
+                         f"{f.get('leagueIDs')}, RawArchive layout name {f['nameMatchesRawArchiveLayout']}, "
+                         f"moneyline book-sides {f.get('fullGameMoneylineBookSides')} with lastUpdatedAt "
+                         f"{f.get('bookSidesWithLastUpdatedAt')}; key names matching "
+                         f"extra/pitcher/action/tie/push/void/settle/rule (names only, to be read by a person) "
+                         f"{f.get('keyNamesSuggestingExtraInningsTieOrPitcherActionRule')}")
+        lines.append("")
+    comparison = summary.get("comparisonWithPriorRun")
+    if comparison:
+        lines += [
+            "## Comparison with the prior run",
+            "",
+            f"Prior `{comparison['priorPerGameCsv']}`: {comparison['priorEpisodes']} episodes; this run "
+            f"{comparison['currentEpisodes']}; shared {comparison['sharedEpisodes']}. Fresh among shared: prior "
+            f"{comparison['freshInPriorShared']}, now {comparison['freshInCurrentShared']}. Episodes whose fresh "
+            f"result changed: {len(comparison['freshChanged'])}. Episodes whose first failure changed: "
+            f"{len(comparison['firstFailureChanged'])}. Only in this run: {len(comparison['onlyInCurrent'])}.",
+            "",
+        ]
+    return lines
+
+
+def _limitation_lines(summary: dict[str, Any]) -> list[str]:
+    rec = summary["perLegClocksResponseIdentityConventions"]
+    lines = []
+    if rec["legsWithARecoveredPerLegClock"] == 0:
+        lines.append("- No retained raw SGO response matched any stored pair, so no leg carries its own provider "
+                     "clock: every leg keeps the stored older-side stamp (quoteUpdatedAtIsPerLeg=false), and "
+                     "every pair's response identity (path/sha256/bytes) is null with a reason code.")
+    else:
+        lines.append(f"- Per-leg provider clocks were recovered for {rec['legsWithARecoveredPerLegClock']} legs; "
+                     "the rest keep the stored older-side stamp, flagged.")
+    lines.append(f"- Provider-stated conventions proved for {rec['freshGamesWithProviderStatedConventionsProved']} "
+                 f"of {rec['freshGames']} fresh games. Extra-innings inclusion, tie handling and any pitcher/action "
+                 "rule are not stated by any retained SGO response; they are null with reason codes and are NOT "
+                 "enforced by priceEvaluable.")
+    return lines
 
 
 def _why(ctx: dict[str, Any], trailing: list[str], lag: dict[str, Any]) -> str:
