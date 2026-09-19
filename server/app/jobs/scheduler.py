@@ -763,6 +763,36 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
                 kwargs={"job_name": "collect-cfb-pregame-odds", "settings": settings},
                 **common,
             )
+    # NBA Gen1: nothing is registered unless the owner turns the NBA consumer on.
+    # Then the paper checkpoint records a reason per game (positions additionally
+    # wait on a pinned owner grant and NBA_PAPER_DECISIONS_ENABLED), and finals
+    # are read from pinned retained objects only. The historical import is
+    # manual (import-nba-historical-evidence) and never scheduled.
+    if settings.nba_production_consumer_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=5, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+            id="asp-nba-paper-checkpoint",
+            kwargs={"job_name": "evaluate-nba-paper-checkpoint", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=30, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=8),
+            id="asp-nba-final-ingest",
+            kwargs={"job_name": "ingest-nba-finals", "settings": settings},
+            **common,
+        )
+        # NBA SportsGameOdds prices: registered only when the owner turns the lane
+        # on; it still spends nothing without an authority window and an object cap.
+        if settings.nba_sgo_lane_enabled:
+            scheduler.add_job(
+                execute_scheduled_job, "interval", minutes=10, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=9),
+                id="asp-nba-pregame-odds",
+                kwargs={"job_name": "collect-nba-pregame-odds", "settings": settings},
+                **common,
+            )
     # NFL quarter breakdowns, one SportsGameOdds object per completed game.
     # Hourly is far more often than it needs to be and costs nothing on the runs
     # where every recent game already has its breakdown -- which is most of

@@ -91,7 +91,8 @@ NFL_POLICY = "AISP_NFL_PAPER_POLICY_V1"
 CFB_POLICY = "AISP_CFB_PAPER_POLICY_V1"
 
 NOT_ELIGIBLE_REASON = {
-    "NBA": "No official NBA model decision pipeline is active; NBA stays staged.",
+    "NBA": ("The NBA paper decision owner is not active (its consumer or activation control is off), "
+            "so there are no official NBA model decisions to copy."),
     "CFB": ("The College Football paper decision owner is not active (its consumer or activation "
             "control is off), so there are no official model decisions to copy."),
 }
@@ -157,6 +158,21 @@ def official_experiment(session: Session, sport: str, *, now: datetime | None = 
         return session.scalar(select(ShadowExperiment).where(
             ShadowExperiment.sport == "CFB",
             ShadowExperiment.decision_policy == CFB_POLICY,
+            ShadowExperiment.is_active.is_(True),
+        ).order_by(ShadowExperiment.started_at.desc()).limit(1))
+    if sport == "NBA":
+        # Same rule as CFB: official only once the NBA consumer AND its decision
+        # owner are on (both default off). Positions additionally need the owner's
+        # production-policy grant inside the checkpoint itself.
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if not (getattr(settings, "nba_production_consumer_enabled", False)
+                and getattr(settings, "nba_paper_decisions_enabled", False)):
+            return None
+        return session.scalar(select(ShadowExperiment).where(
+            ShadowExperiment.sport == "NBA",
+            ShadowExperiment.decision_policy == "AISP_NBA_PAPER_POLICY_V1",
             ShadowExperiment.is_active.is_(True),
         ).order_by(ShadowExperiment.started_at.desc()).limit(1))
     if sport != "MLB":

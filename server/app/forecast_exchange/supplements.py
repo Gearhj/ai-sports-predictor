@@ -725,6 +725,39 @@ def _bind_research_forecast(session: Session, verified: VerifiedSupplement, spor
             "from nba_joint_comparison_arms a where a.forecast_id = :f"),
             {"f": str(binding["forecastId"])}).mappings().first()
         if row is None:
+            # A production package (nba_gen1_forecasts). Same comparisons, against
+            # the production row's JOINT channel -- the channel the NBA paper policy
+            # names -- and its bound Ridge point-model artifact.
+            from app.models import NbaGen1Forecast
+
+            production = session.scalar(select(NbaGen1Forecast).where(
+                NbaGen1Forecast.forecast_id == str(binding["forecastId"])))
+            if production is not None:
+                mapped = session.execute(text(
+                    "select entity_id from external_id_mappings where entity_type = 'game' "
+                    "and source = 'NBA_ESPN' and external_id = :x"),
+                    {"x": str(binding.get("providerGameId"))}).scalar()
+                artifact = (((production.detail or {}).get("bindings") or {}).get("pointModel") or {}).get("sha256")
+                checks = {
+                    "forecast digest": production.forecast_sha256 == frozen_forecast.get("forecastSha256"),
+                    "source package": production.package_index_sha256 == binding.get("sourcePackageAddress"),
+                    "configuration": production.distribution_configuration_identity
+                    == binding.get("configurationIdentity"),
+                    "home probability": close(production.joint_home_win_probability, frozen["homeWinProbability"]),
+                    "away probability": close(production.joint_away_win_probability, frozen["awayWinProbability"]),
+                    "tie probability": close(0.0, frozen["tieProbability"]),
+                    "source cutoff": (production.source_cutoff_utc is not None
+                                      and production.source_cutoff_utc.astimezone(UTC) == cutoff),
+                    "provider game": (str(binding.get("eventId")) == production.codex_game_id
+                                      and mapped is not None and str(mapped) == str(production.canonical_game_id)),
+                    "model artifact": artifact == binding.get("modelArtifactSha256"),
+                }
+                failed = [name for name, ok in checks.items() if not ok]
+                if failed:
+                    raise SupplementImportError(
+                        f"NBA eligibility does not match AISP's imported production forecast: {', '.join(failed)}")
+                return
+        if row is None:
             raise SupplementImportError(
                 f"NBA eligibility binds forecast {binding['forecastId']}, which AISP has not imported")
         mapped = session.execute(text(

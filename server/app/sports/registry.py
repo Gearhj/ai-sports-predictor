@@ -72,10 +72,11 @@ NBA = SportDefinition(
     short_label="NBA",
     official_positions_supported=False,
     official_positions_note=(
-        "Planned. AISP holds imported research forecasts for NBA and nothing else: "
-        "no day surface, no read adapter, no odds, no policy and no position. The "
-        "research forecasts are readable at the research href; they are research "
-        "output and can never be funded."
+        "Virtual paper only, and not yet active. AISP verifies Codex's NBA Gen1 production "
+        "packages (Ridge points, Elo winner and joint-distribution channels, kept separate) "
+        "once the owner pins and enables the consumer, and holds the 2025-26 assessment as "
+        "HISTORICAL evidence. AISP_NBA_PAPER_POLICY_V1 ($1,000 virtual account) has a built "
+        "checkpoint that is off; no NBA price is collected. The 2026-27 season opens 2026-10-20."
     ),
     navigable=False,
     # Read-only evidence, deliberately not a day surface. See SportDefinition.

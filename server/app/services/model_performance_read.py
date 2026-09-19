@@ -116,6 +116,15 @@ class ModelPerformanceReadService:
                   for (engine_id, version), entries in by_model.items()]
         models.sort(key=lambda m: m["cohorts"]["ALL"]["n"], reverse=True)
         as_of = max((row.created_at for row in rows if row.created_at is not None), default=None)
+        if code == "NBA":
+            # NBA scores live per channel in nba_channel_evaluations (a Ridge row has
+            # no log loss to put in research_forecast_evaluations). One entry per
+            # (evidence class, channel): HISTORICAL rows are never pooled with
+            # prospective ones, and the three channels are never averaged.
+            from app.nba.gen1_read import performance_models
+
+            models.extend(performance_models(self.session))
+        scored = bool(models)
         return {
             "schema_version": SCHEMA_VERSION,
             "generated_at_utc": _iso(now),
@@ -123,7 +132,7 @@ class ModelPerformanceReadService:
             "evidence_as_of_utc": _iso(as_of),
             "conventions": CONVENTIONS,
             "models": models,
-            "requirement": None if rows else (
+            "requirement": None if scored else (
                 f"No {code} forecast has been scored. A forecast is scored only once its game has an "
                 "authoritative final; nothing is scored against an assumed result."
             ),

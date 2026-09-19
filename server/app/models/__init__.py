@@ -167,4 +167,16 @@ from app.models.house_divided import (  # noqa: E402,F401
     CompetitionWager,
 )
 
+# NBA Gen1 consumer evidence: production packages, the 2025-26 HISTORICAL
+# assessment rows, discovery observations, retained finals and per-channel
+# scores. Separate from the NBA research tables (see the module docstring).
+from app.models.nba_gen1 import (  # noqa: E402,F401
+    NbaChannelEvaluation,
+    NbaDiscoveryManifest,
+    NbaDiscoveryObservation,
+    NbaFinalObservation,
+    NbaGen1Forecast,
+    NbaHistoricalForecast,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

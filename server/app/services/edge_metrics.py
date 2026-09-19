@@ -130,6 +130,29 @@ def edge_metrics(sport: str, american: Any, model_probability: Any, no_vig: Any,
             "tests": [_test(edge, MIN_ADJUSTED_EDGE, ">="), _test(ret, 0.0, ">")] if policy == MLB_POLICY else [],
         }
 
+    if sport == "NBA":
+        # AISP_NBA_PAPER_POLICY_V1: the same unadjusted structure as CFB. The model
+        # probability is the JOINT channel's (the channel the policy names); the
+        # recorded Elo and Ridge channels are never used as the edge input.
+        from app.services.research_paper_policy import NBA
+
+        chosen = ev.get("selection") or ev.get("best") or {}
+        terms = chosen.get("terms") or {}
+        edge = _field("recorded_policy_edge", "Recorded policy edge, joint channel (no adjustments)",
+                      terms.get("edge"), POINTS, "evidence.selection.terms.edge", policy_test=True,
+                      note="joint-distribution win probability minus the same-book no-vig probability, as recorded")
+        ret = _field("recorded_policy_return", "Recorded policy expected return at the offered odds",
+                     terms.get("expected_return_per_dollar"), RETURN,
+                     "evidence.selection.terms.expected_return_per_dollar", policy_test=True)
+        return {
+            "policy": NBA.policy_version, "offered": offered,
+            "inputs": {"model_probability": _num(chosen.get("win_probability", model_probability)),
+                       "adjusted_probability": None, "channel": chosen.get("channel") or "JOINT_DISTRIBUTION",
+                       "no_vig_probability": _num(terms.get("no_vig_probability")), "penalties": None},
+            "fields": [edge, ret],
+            "tests": [_test(edge, NBA.min_adjusted_edge, ">="), _test(ret, 0.0, ">")] if terms else [],
+        }
+
     if sport == "CFB":
         from app.services.research_paper_policy import CFB
 

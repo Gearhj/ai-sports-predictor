@@ -335,7 +335,8 @@ def _eligibility_state(lease: str | None) -> str:
 
 
 def cfb_model_status(model: dict[str, Any] | None, *, eligibility_now: dict[str, Any] | None,
-                     checkpoint: dict[str, Any] | None, starts_at: datetime) -> dict[str, Any]:
+                     checkpoint: dict[str, Any] | None, starts_at: datetime,
+                     engine_id: str = "CFB_GEN1_JOINT_BASELINE") -> dict[str, Any]:
     """A CFB forecast's decision eligibility: the producer's discovery lease.
 
     ``eligibility_now`` is the newest verified manifest's reading of the
@@ -351,7 +352,7 @@ def cfb_model_status(model: dict[str, Any] | None, *, eligibility_now: dict[str,
     schedule = {"input_checks_from": None, "publication_target": None,
                 "window_opens_at": _iso(start - WINDOW_OPENS), "window_closes_at": _iso(start - WINDOW_CLOSES),
                 "target_is_guaranteed": False}
-    base = {"engine_id": "CFB_GEN1_JOINT_BASELINE", "schedule": schedule, "producer": None,
+    base = {"engine_id": engine_id, "schedule": schedule, "producer": None,
             "eligibility_now": eligibility_now, "checkpoint": checkpoint}
     if model is None:
         return {**base, "state": "NOT_PUBLISHED", "basis": None, "eligibility": None}

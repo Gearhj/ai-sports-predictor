@@ -3280,6 +3280,11 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     cfb_research_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("cfb_research_forecasts.id"), index=True
     )
+    #: The NBA Gen1 production package an NBA paper decision read. Same rule:
+    #: a decision names the exact imported row it used.
+    nba_gen1_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("nba_gen1_forecasts.id"), index=True
+    )
     forecast_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_version: Mapped[str | None] = mapped_column(String(40))

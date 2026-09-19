@@ -313,12 +313,26 @@ def _nfl(session: Session, now: datetime) -> dict[str, Any]:
 # ------------------------------------------------------------ NBA / CFB ----
 
 def _nba(session: Session, now: datetime) -> dict[str, Any]:
+    from app.core.config import get_settings
+    from app.nba.gen1_read import readiness as gen1_readiness
     from app.services.research_paper_policy import NBA, eligibility_status
 
+    settings = get_settings()
     base = {"sport": "NBA", "label": "NBA", "policy_version": NBA.policy_version,
             "controlling_engine": NBA.controlling_engine,
             "controlling_configuration": NBA.controlling_configuration,
+            "controlling_channel": "JOINT_DISTRIBUTION",
             "account": _account(session, "NBA")}
+    # Per-component truth for the Gen1 consumer: handoff, forecast, eligibility,
+    # price, decision and outcomes, each with what is present and what is due.
+    try:
+        base["components"] = gen1_readiness(session, settings, now=now)
+    except Exception as error:  # noqa: BLE001 -- NBA's new tables may not be migrated yet
+        session.rollback()
+        base["components"] = {"read_state": "READ_FAILED", "error_type": type(error).__name__}
+    production = _nba_production(session, now, base, settings)
+    if production is not None:
+        return production
     arm = session.execute(text("""
         select a.forecast_id, a.home_win_probability, a.away_win_probability, g.id, g.starts_at
         from nba_joint_comparison_arms a join games g on g.id = a.canonical_game_id
@@ -359,6 +373,63 @@ def _nba(session: Session, now: datetime) -> dict[str, Any]:
                                             else "Yes, once there is ")
                                            + "a verified SportsGameOdds NBA league identity, a fresh same-book "
                                            "two-sided price inside the window, and an edge of at least 2 points.")}}
+
+
+def _nba_production(session: Session, now: datetime, base: dict[str, Any], settings: Any) -> dict[str, Any] | None:
+    """The next NBA game carrying a verified PRODUCTION package, or None to fall back to research."""
+
+    from app.models import NbaGen1Forecast
+    from app.nba.gen1_production import present_eligibility
+    from app.nba.gen1_read import channels, price_note
+    from app.services.research_paper_policy import NBA, eligibility_status
+
+    try:
+        row = session.scalar(select(NbaGen1Forecast).where(
+            NbaGen1Forecast.captured_tipoff_utc > now + timedelta(minutes=15))
+            .order_by(NbaGen1Forecast.captured_tipoff_utc, NbaGen1Forecast.exchange_published_utc.desc()).limit(1))
+    except Exception:  # noqa: BLE001 -- table absent before the migration: fall back
+        session.rollback()
+        return None
+    if row is None or row.canonical_game_id is None:
+        return None
+    window = _window(row.captured_tipoff_utc)
+    lease = present_eligibility(session, row, now=now)
+    elig = eligibility_status(session, NBA, forecast_id=row.forecast_id, event_id=row.codex_game_id)
+    note = price_note(session, settings)
+    positions_on = bool(getattr(settings, "nba_paper_decisions_enabled", False))
+    blockers = []
+    if not positions_on:
+        blockers.append("the NBA paper decision owner is not active")
+    if not lease.get("eligible"):
+        blockers.append(f"discovery lease {lease.get('state')}")
+    if not elig["eligible"]:
+        blockers.append(f"no producer paper-eligibility record yet ({NBA.eligibility_contract})")
+    blockers.append(f"no NBA price ({note.get('reason')})")
+    ch = channels(row)
+    joint, elo = ch["JOINT_DISTRIBUTION"], ch["ELO_WINNER"]
+    favourite = row.home_team_code if (joint["home"] or 0) >= 0.5 else row.away_team_code
+    return {**base,
+            "next_game": {"game_id": str(row.canonical_game_id),
+                          "matchup": f"{row.away_team_code} @ {row.home_team_code}",
+                          "starts_at": _iso(row.captured_tipoff_utc), "starts_label": _et_label(row.captured_tipoff_utc),
+                          "research_href": f"/nba/games/{row.canonical_game_id}"},
+            "forecast": _state("PRODUCTION_PACKAGE_AVAILABLE",
+                               f"Production package: {favourite} joint {max(joint['home'], joint['away']):.2%} · "
+                               f"Elo {max(elo['home'], elo['away']):.2%} (separate channels) · "
+                               f"discovery {str(lease.get('state', '')).replace('_', ' ').lower()}",
+                               identity=row.forecast_id),
+            "price": _state("COLLECTION_BLOCKED", f"No price. {note.get('detail', '')}",
+                            blocker=("SGO_LEAGUE_IDENTITY_UNVERIFIED" if not (note.get("binding") or {}).get("resolved")
+                                     else note.get("reason"))),
+            "decision": _state("WINDOW_NOT_OPEN" if positions_on else "OWNER_INACTIVE",
+                               f"Decision window {window['label']}" if positions_on
+                               else "The NBA paper checkpoint is not active", window=_strip(window)),
+            "eligibility": {"eligible": elig["eligible"], "reason": elig["state"], "contract": elig["contract"],
+                            "discovery_lease": lease.get("state")},
+            "position": _state("NONE_YET", "No NBA position", **_positions(session, "NBA")),
+            "pipeline": {"ready": positions_on, "blocker": "; ".join(blockers).capitalize() + ".",
+                         "could_qualify": ("No: V1 discovery carries no eligibility lease and no NBA price is "
+                                           "collected, so the checkpoint would record a no-position reason.")}}
 
 
 def _cfb(session: Session, now: datetime) -> dict[str, Any]:

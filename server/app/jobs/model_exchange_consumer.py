@@ -280,6 +280,7 @@ def consume_forecast_bundles(
             stage_seconds[name] = round(perf_counter() - t0, 3)
 
     cfb_discovery = timed("cfb_discovery", lambda: _consume_cfb_discovery(session, settings, dry_run=dry_run))
+    nba_production = timed("nba_production", lambda: _consume_nba_production(session, settings, dry_run=dry_run))
     timed("supplements", lambda: _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run))
     timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run))
     timed("lab_study", lambda: _consume_lab_study(session, settings, outcome, dry_run=dry_run))
@@ -290,8 +291,32 @@ def consume_forecast_bundles(
     # rather than being forced through the bundle index.
     payload["v18"] = timed("v18", lambda: _consume_v18(session, settings, dry_run=dry_run))
     payload["cfb_discovery"] = cfb_discovery
+    payload["nba_production"] = nba_production
     payload["stage_seconds"] = stage_seconds
     return payload
+
+
+def _consume_nba_production(session: Session, settings: Settings, *, dry_run: bool) -> dict[str, Any]:
+    """The NBA Gen1 production consumer, isolated so its failure is its own.
+
+    Off unless the handoff is pinned AND ``NBA_PRODUCTION_CONSUMER_ENABLED`` is on.
+    Everything this pass imported for other sports is committed first, so an NBA
+    failure rolls back only NBA work.
+    """
+
+    enabled = bool(getattr(settings, "nba_production_consumer_enabled", False))
+    if dry_run or not enabled:
+        return {"enabled": enabled, "dry_run": dry_run, "status": "NOT_RUN"}
+    from app.nba.gen1_production import consume
+
+    session.commit()
+    try:
+        result = consume(session, settings)
+        session.commit()
+    except Exception as error:  # noqa: BLE001 -- isolated; never blocks MLB/NFL/CFB consumption
+        session.rollback()
+        return {"enabled": True, "status": f"FAILED:{type(error).__name__}:{error}"[:300]}
+    return {"enabled": True, **{k: v for k, v in result.items() if k not in ("source_objects",)}}
 
 
 def _consume_cfb_discovery(session: Session, settings: Settings, *, dry_run: bool) -> dict[str, Any]:

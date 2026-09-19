@@ -318,6 +318,51 @@ class Settings(BaseSettings):
         Path.home() / 'asp-model-studio' / 'outputs' / 'mlb-v18-current-state-pipeline-v1' / 'slates'
     )
     cfb_sgo_lane_authorized_until: str = "2026-10-01T00:00:00+00:00"
+    # -- NBA Gen1 (app/nba/gen1_*). EVERY switch here defaults OFF and every pin
+    # defaults EMPTY. Nothing NBA is imported, decided, requested or spent until
+    # the owner sets these deliberately; see docs/NBA_LAUNCH_PLAN_20260919.md.
+    #: The selected model handoff: a DIRECTORY, so the path is its index.json and
+    #: the SHA-256 pins that index (which in turn pins every member). Empty means
+    #: NOT_RECEIVED and no production label is shown.
+    nba_production_handoff_path: str = ""
+    nba_production_handoff_sha256: str = ""
+    #: The consumer switch. Off: the exchange consumer skips NBA production
+    #: packages entirely, even with a pin.
+    nba_production_consumer_enabled: bool = False
+    #: The producer's exchange tree. V2 slate discovery (slate-discovery/current.json)
+    #: is preferred; the V1 single-game discovery/current.json is read when no V2
+    #: pointer exists. Both are verified from bytes.
+    nba_exchange_root: str = Field(default=str(
+        Path.home() / 'asp-model-exchange' / 'nba-gen1-production-v1'))
+    #: HISTORICAL evidence (read-only, pinned). Model Studio's 2025-26 fixed
+    #: assessment receipt and its joint-residual season receipt; each binds its
+    #: artifacts by SHA-256. Empty means the historical import refuses to run.
+    nba_historical_assessment_receipt_path: str = ""
+    nba_historical_assessment_receipt_sha256: str = ""
+    nba_historical_joint_receipt_path: str = ""
+    nba_historical_joint_receipt_sha256: str = ""
+    #: The retained ESPN-derived schedule objects (content-addressed parquet files
+    #: Model Studio captured). Finals are re-read from these bytes only; no
+    #: request is ever made. ';'-separated "<path>|<sha256>" pairs.
+    nba_final_source_objects: str = ""
+    #: Activation control for AISP_NBA_PAPER_POLICY_V1 positions. Off: the NBA
+    #: checkpoint still evaluates and records its reason, but never positions.
+    nba_paper_decisions_enabled: bool = False
+    #: The owner's extension of AISP_NBA_PAPER_POLICY_V1 to PRODUCTION packages
+    #: (schema NBA_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1, mirroring the CFB
+    #: grant). Empty = no extension; the checkpoint blocks NO_OWNER_POLICY_EXTENSION.
+    nba_paper_policy_grant_path: str = ""
+    nba_paper_policy_grant_sha256: str = ""
+    #: SportsGameOdds NBA price lane. Off, and the league id and reviewed team map
+    #: are unresolved: SGO's NBA identities have never been observed by AISP, so
+    #: nothing is guessed and nothing is requested. See app/nba/sgo_price.py.
+    nba_sgo_lane_enabled: bool = False
+    nba_sgo_league_id: str = ""
+    nba_sgo_team_map_path: str = ""
+    #: Objects the lane may ever spend under its current authority. 0 = none.
+    #: An October allowance is an owner decision (docs/NBA_LAUNCH_PLAN_20260919.md).
+    nba_sgo_lane_object_cap: int = 0
+    nba_sgo_lane_authorized_until: str = ""
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports

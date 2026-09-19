@@ -41,6 +41,7 @@ THE_ODDS_API = "THE_ODDS_API"
 NFLVERSE = "NFLVERSE"
 MLB_STATS_API = "MLB_STATS_API"
 CFBD = "CFBD"
+ESPN_SPORTSDATAVERSE = "ESPN_SPORTSDATAVERSE"
 OPERATOR_ENTERED = "OPERATOR_ENTERED"
 
 #: Lower is stronger.
@@ -49,6 +50,7 @@ RESULT_TIERS: dict[str, int] = {
     NFLVERSE: 2,
     MLB_STATS_API: 2,
     CFBD: 2,
+    ESPN_SPORTSDATAVERSE: 2,
     OPERATOR_ENTERED: 3,
 }
 
@@ -67,6 +69,11 @@ SOURCE_NOTES: dict[str, str] = {
           "exact CFBD game and team ids). CFBD supplies no completion or revision "
           "time; the capture time is shown as the observation time only. Not the "
           "governed odds provider, so it is not described as provider-verified.",
+    ESPN_SPORTSDATAVERSE: "Recorded automatically from a SportsDataverse/hoopR ESPN-derived NBA schedule "
+                          "export (CC BY 4.0) that Model Studio retained at a content address under its "
+                          "reviewed acquisition receipt (STATUS_FINAL, completed=true, exact ESPN game and "
+                          "team ids). The export carries no completion time; the capture time is shown as "
+                          "the observation time only. Not the governed odds provider.",
 }
 
 #: An unclassified source outranks nothing.

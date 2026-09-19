@@ -102,6 +102,10 @@ AVAILABLE_JOBS = {
     "evaluate-cfb-paper-checkpoint": "Evaluate the CFB Paper Policy at its Final-Pregame Checkpoint",
     "ingest-cfb-finals": "Admit CFB Finals From Retained Evidence and Score CFB Forecasts (no network)",
     "collect-cfb-pregame-odds": "Collect CFB Pregame Odds (capacity-gated, at most ten objects)",
+    "evaluate-nba-paper-checkpoint": "Evaluate the NBA Paper Policy at its Final-Pregame Checkpoint (off by default)",
+    "ingest-nba-finals": "Admit NBA Finals From Retained ESPN Objects and Score NBA Channels (no network)",
+    "collect-nba-pregame-odds": "Collect NBA Pregame Odds (lane off; no allowance until the owner grants one)",
+    "import-nba-historical-evidence": "Import Model Studio's 2025-26 NBA Assessment as HISTORICAL Evidence (manual)",
     "recover-governed-finals": "Recover Governed Finals For Completed Games",
     "refresh-provider-usage": "Refresh SportsGameOdds Account Usage",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
@@ -249,6 +253,10 @@ class JobOrchestrator:
             "evaluate-cfb-paper-checkpoint": self.evaluate_cfb_paper_checkpoint,
             "ingest-cfb-finals": self.ingest_cfb_finals,
             "collect-cfb-pregame-odds": self.collect_cfb_pregame_odds,
+            "evaluate-nba-paper-checkpoint": self.evaluate_nba_paper_checkpoint,
+            "ingest-nba-finals": self.ingest_nba_finals,
+            "collect-nba-pregame-odds": self.collect_nba_pregame_odds,
+            "import-nba-historical-evidence": self.import_nba_historical_evidence,
             "recover-governed-finals": self.recover_governed_finals,
             "refresh-provider-usage": self.refresh_provider_usage,
             "backfill-scoreboard": self.backfill_scoreboard,
@@ -1668,6 +1676,68 @@ class JobOrchestrator:
         result = collect(self.session, self.settings)
         self.session.commit()
         return {"records": int(result.get("objects_spent", 0)), **result}
+
+    async def evaluate_nba_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """AISP_NBA_PAPER_POLICY_V1 at T-30..T-15. Records a reason per game; positions stay off.
+
+        Refreshes NBA discovery first (local files only) when the consumer is on.
+        Calls no provider. See app/nba/gen1_paper.py for the gates.
+        """
+
+        from app.nba.gen1_paper import evaluate
+
+        return evaluate(self.session, self.settings)
+
+    async def ingest_nba_finals(self, event_date: date) -> dict[str, Any]:
+        """Admit NBA finals from pinned retained ESPN objects, then score each channel. No network."""
+
+        from app.nba.gen1_evaluation import evaluate as evaluate_nba
+        from app.nba.gen1_finals import ingest
+
+        finals = ingest(self.session, self.settings)
+        self.session.commit()
+        scoring = evaluate_nba(self.session)
+        self.session.commit()
+        return {"records": int(finals.get("observations_written", 0)) + int(scoring.get("written", 0)),
+                "finals": {k: v for k, v in finals.items() if k not in ("skipped", "source_objects")},
+                "finals_skipped": finals.get("skipped", [])[:20],
+                "scoring": {k: v for k, v in scoring.items() if k != "skipped"}}
+
+    async def collect_nba_pregame_odds(self, event_date: date) -> dict[str, Any]:
+        """NBA SportsGameOdds prices. Spends nothing while the lane is off, unauthorised or unresolved."""
+
+        from app.nba.sgo_price import collect
+
+        result = collect(self.session, self.settings)
+        self.session.commit()
+        return {"records": int(result.get("objects_spent", 0)), **result}
+
+    async def import_nba_historical_evidence(self, event_date: date) -> dict[str, Any]:
+        """HISTORICAL 2025-26 rows from pinned Model Studio receipts, their finals and channel scores.
+
+        Manual only (never scheduled). Refuses unless both receipts are pinned.
+        Reads local files; no request is made.
+        """
+
+        from app.nba.gen1_evaluation import evaluate as evaluate_nba
+        from app.nba.gen1_finals import ingest
+        from app.nba.gen1_historical import HistoricalRefused, import_historical
+
+        try:
+            imported = import_historical(self.session, self.settings)
+        except HistoricalRefused as exc:
+            self.session.rollback()
+            return {"records": 0, "status": f"REFUSED:{exc}"}
+        self.session.commit()
+        finals = ingest(self.session, self.settings)
+        self.session.commit()
+        scoring = evaluate_nba(self.session)
+        self.session.commit()
+        return {"records": int(imported.get("imported", 0)),
+                "historical": {k: v for k, v in imported.items() if k not in ("skipped", "source_objects")},
+                "historical_skipped": imported.get("skipped", [])[:20],
+                "finals": {k: v for k, v in finals.items() if k not in ("skipped", "source_objects")},
+                "scoring": {k: v for k, v in scoring.items() if k != "skipped"}}
 
     async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:
         """Governed finals for completed games that have none, automatically.

@@ -1757,6 +1757,44 @@ def nba_joint_comparison_route(session: DatabaseSession, game_id: str | None = N
     return joint_comparison(session, game_id=game_id)
 
 
+@router.get("/nba/gen1/board", tags=["forecasts"])
+def nba_gen1_board(session: DatabaseSession, settings: AppSettings, date: str | None = Query(None)) -> dict:
+    """NBA Gen1 production packages (prospective) and the HISTORICAL summary. Read-only.
+
+    Three channels per forecast, each under its own name and units: Ridge
+    expected POINTS, Elo WIN probability, joint-distribution probabilities.
+    No channel is derived from another and Ridge is never compared with a price.
+    """
+
+    from app.nba.gen1_read import board
+
+    return board(session, settings, date_iso=date)
+
+
+@router.get("/nba/gen1/games/{game_ref}", tags=["forecasts"])
+def nba_gen1_game(session: DatabaseSession, settings: AppSettings, game_ref: str) -> dict:
+    """One NBA game: production and HISTORICAL forecasts, retained finals, per-channel scores.
+
+    Addressed by AISP game id, ESPN game id, or Codex ``nba-espn:game:<id>``.
+    """
+
+    from app.nba.gen1_read import game_detail
+
+    found = game_detail(session, settings, game_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No NBA game for that id")
+    return found
+
+
+@router.get("/nba/gen1/identity", tags=["forecasts"])
+def nba_gen1_identity(session: DatabaseSession) -> dict:
+    """Codex <-> AISP NBA identity coverage: unique both ways, unmapped listed, never guessed."""
+
+    from app.nba.gen1_identity import report
+
+    return report(session)
+
+
 @router.get("/sports/readiness", tags=["operations"])
 def sports_readiness(session: DatabaseSession) -> dict:
     """Where MLB, NFL, NBA and College Football each stand, with the exact blocker.

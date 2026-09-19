@@ -42,7 +42,11 @@ PRICED_LEAGUES = ("MLB", "NFL")
 #: now has a paper decision checkpoint (AISP_CFB_PAPER_POLICY_V1); it has no
 #: collection checkpoint, so its collection time is null and its price state
 #: names why (``cfb_price_unavailable``).
-LISTED_LEAGUES = ("MLB", "NFL", "CFB")
+LISTED_LEAGUES = ("MLB", "NFL", "CFB", "NBA")
+#: NBA is listed since the Gen1 consumer (2026-09-19): its games carry verified
+#: production packages (three separately labelled channels) or, for 2025-26,
+#: HISTORICAL reconstruction rows. Like CFB it has no collection checkpoint, so
+#: its collection time is null and its price state names why.
 SPORT_LABELS = {"MLB": "MLB", "NFL": "NFL", "NBA": "NBA", "CFB": "College Football"}
 QUOTE_FRESHNESS_MINUTES = 240
 WINDOW_OPENS = timedelta(minutes=30)
@@ -717,6 +721,40 @@ def _cfb_eligibility(session: Session, models: dict[str, dict[str, Any]], *, now
     return out
 
 
+def _nba_coverage(session: Session, ids: list[str], *, now: datetime,
+                  as_of: datetime | None = None) -> dict[str, Any]:
+    """NBA slate fields: model per game (three labelled channels), price note, collection, eligibility.
+
+    ORM reads only (SQLite-testable), never a write. A game with no production
+    package but a 2025-26 HISTORICAL row carries that row, labelled HISTORICAL.
+    Any failure (for example, before the NBA migration is applied) degrades to
+    empty NBA fields rather than breaking the MLB/NFL/CFB slate.
+    """
+
+    try:
+        from app.core.config import get_settings
+        from app.models.nba_gen1 import EVIDENCE_HISTORICAL
+        from app.nba.gen1_read import eligibility_for, model_for_game, price_note
+        from app.services import pregame_status
+        from app.services.research_paper_policy import NBA as NBA_POLICY
+
+        nested = session.begin_nested()
+        try:
+            models = {gid: model_for_game(session, gid) for gid in ids}
+            eligibility = {gid: eligibility_for(session, (m or {}).get("forecast_id"), gid, now=now, as_of=as_of)
+                           for gid, m in models.items() if m and m.get("evidence_class") != EVIDENCE_HISTORICAL}
+            price = price_note(session, get_settings())
+        finally:
+            nested.rollback()
+        return {"models": models, "eligibility": eligibility, "price": price,
+                "collection": pregame_status.cfb_collection(price),
+                "permitted": {_provider_label(source) for source in NBA_POLICY.permitted_quote_sources}}
+    except Exception as error:  # noqa: BLE001 -- NBA must never blank the other sports' slate
+        return {"models": {}, "eligibility": {}, "price": {"reason": "PRICE_STATE_UNAVAILABLE",
+                                                           "detail": type(error).__name__},
+                "collection": {}, "permitted": set(), "error": type(error).__name__}
+
+
 def market_coverage(session: Session, day: date, now: datetime | None = None,
                     *, as_of: datetime | None = None) -> dict[str, Any]:
     """Stored coverage for one slate. With ``as_of``, only observations made at or
@@ -726,10 +764,9 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
     observed_cut = "and os.observed_at <= :as_of" if as_of is not None else ""
     lo = datetime.combine(day, datetime.min.time(), ET)
     hi = lo + timedelta(days=1)
-    # Only leagues with governed sportsbook collection. NBA and College Football
-    # games are admitted for research identity only; listing them here would
-    # advertise a collection checkpoint and decision window they do not have.
-    # Their next game reaches the command surfaces through /sports/readiness.
+    # MLB/NFL carry governed collection. College Football and NBA are listed with
+    # their paper checkpoints but NO collection checkpoint: collection_opens_at is
+    # null for them and their price state says why (see LISTED_LEAGUES).
     games = session.execute(text("""
         select g.id, l.code, g.starts_at, g.status, g.source_mode
         from games g join leagues l on l.id = g.league_id
@@ -783,6 +820,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
     from app.services.research_paper_policy import CFB as CFB_POLICY
 
     cfb_permitted = {_provider_label(source) for source in CFB_POLICY.permitted_quote_sources}
+    nba_ids = [str(g[0]) for g in games if g[1] == "NBA"]
+    nba = _nba_coverage(session, nba_ids, now=now, as_of=as_of) if nba_ids else {}
 
     by_game: dict[str, list[Any]] = defaultdict(list)
     for row in quote_rows:
@@ -864,6 +903,8 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                      "created_at_basis": "AISP_IMPORT_TRANSACTION_START"}
         if league == "CFB":
             model = cfb_models.get(gid)
+        if league == "NBA":
+            model = (nba.get("models") or {}).get(gid)
         start = _aware(starts_at)
         closes = start - WINDOW_CLOSES
         if fresh_ml:
@@ -902,8 +943,19 @@ def market_coverage(session: Session, day: date, now: datetime | None = None,
                     model, eligibility_now=(cfb_eligibility.get(gid) or {}).get("now"),
                     checkpoint=(cfb_eligibility.get(gid) or {}).get("checkpoint"), starts_at=start)}
                if league == "CFB" else {}),
+            # NBA: the same two facts, from the NBA lane's own gate and the NBA
+            # discovery lease. A HISTORICAL row is labelled and never "eligible".
+            **({"price_unavailable": nba.get("price")} if league == "NBA" and not quotes else {}),
+            **({"market_status": pregame_status.cfb_market_status(
+                    moneylines, len(quotes), nba.get("collection") or {}, nba.get("permitted") or set(), now=now,
+                    opens=start - WINDOW_OPENS, closes=closes),
+                "model_status": pregame_status.cfb_model_status(
+                    model, eligibility_now=((nba.get("eligibility") or {}).get(gid) or {}).get("now"),
+                    checkpoint=((nba.get("eligibility") or {}).get(gid) or {}).get("checkpoint"), starts_at=start,
+                    engine_id=(model or {}).get("engine_id") or "NBA_GEN1_PRODUCTION")}
+               if league == "NBA" else {}),
             "checkpoints": {
-                "collection_opens_at": (None if league == "CFB"
+                "collection_opens_at": (None if league in ("CFB", "NBA")
                                         else _iso(closes - timedelta(minutes=QUOTE_FRESHNESS_MINUTES))),
                 "decision_window_opens_at": _iso(start - WINDOW_OPENS),
                 "decision_window_closes_at": _iso(closes),
