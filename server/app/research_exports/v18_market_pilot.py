@@ -75,6 +75,23 @@ market: per-leg clocks, response identity and conventions (SGO)
   by JSON locator); what it does not state -- extra innings, tie handling,
   pitcher/action -- stays null. The collector's own ingest-time skew record
   (``job_runs.result.fallback.skew``) is carried as evidence, never as a clock.
+market: the evidence stage (Model Studio disposition 3)
+  After pairing, validity, both completion receipts and the 0..15-minute age,
+  a pair is evaluable only if (a) both legs carry per-leg clocks recovered from
+  the retained response, (b) that clock's semantics are established
+  (``QUOTE_CLOCK_SEMANTICS``; not for SportsGameOdds), (c) a retained source
+  response identity exists and (d) its conventions are proved. Otherwise it is
+  UNPRICED with ``MARKET_EVIDENCE_UNPROVED`` and exact ``LEG_*``/``PAIR_*``
+  reasons; ``market.timingOnlyDiagnostics`` still names the timing-fresh books.
+  A copied older-side clock is never relabelled per-leg or fresh.
+receipts, phase, producer object (dispositions 2, 1, 4 and 6)
+  A receipt needs BOTH the unique SUCCEEDED ledger row and the inserting job run
+  it names, completed successfully and enclosing the request; each carries its
+  id and the sha256 of its evidence row. Phase R needs the capture bound to the
+  gamePk, AISP's mapped team orientation and the schedule revision. The forecast
+  is bound physically to its exact producer object (manifest content address,
+  ``execution-inputs.json`` population, ``pregame-evidence.json``) and AISP's
+  numbers must equal the object's; anything unverifiable excludes the forecast.
 
 Every database row a packet relies on is copied (identity columns only) into a
 write-once evidence document beside the packet, and the packet's refs point
@@ -82,6 +99,7 @@ into it by JSON pointer, so each ref carries a real file digest and byte count.
 """
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import math
@@ -148,6 +166,11 @@ MAX_QUOTE_AGE = timedelta(minutes=15)
 SIMULATION_COUNT = 5000
 
 EXPORT_IDENTITY = "AISP_V18_MARKET_PILOT_CONSUMER_EXPORT_V1"
+#: Revision of the export's evidence rules. Later packets carry it (evidence
+#: ``consumerIdentity`` and ``selection.consumerExportRevision``) so Model Studio
+#: can tell them from packets sealed under earlier rules; earlier packets are
+#: never rewritten.
+EXPORT_REVISION = "R2-2026-09-19-MODEL-STUDIO-DISPOSITIONS-1-6-MARKET-EVIDENCE-GATE"
 EVIDENCE_SCHEMA = "AISP_V18_MARKET_PILOT_CONSUMER_EVIDENCE_V1"
 V18_IMPORT_JOB = "consume-model-exchange-research-artifacts"
 FREEZE_JOB = "freeze-shadow-experiment"
@@ -180,6 +203,10 @@ FIRST_FAILURE_ORDER: tuple[str, ...] = (
     "MARKET_NO_RECEIPT_BY_ANCHOR",
     "MARKET_QUOTE_AGE_NEGATIVE",
     "MARKET_QUOTE_OLDER_THAN_15_MINUTES",
+    # Timing passed, but the pair's evidence does not: per-leg clocks recovered
+    # from the retained response, established clock semantics, a retained
+    # response identity and proved conventions (Model Studio disposition 3).
+    "MARKET_EVIDENCE_UNPROVED",
 )
 
 #: Keys that would carry an outcome. None may appear in a packet or its evidence.
@@ -198,6 +225,77 @@ class FrozenProtocolError(RuntimeError):
 
 class OutcomeFieldError(RuntimeError):
     """A packet or evidence document contains an outcome-shaped key."""
+
+
+# ---------------------------------------------------------------------------
+# Consumer code identity (read once, when this module is loaded)
+# ---------------------------------------------------------------------------
+def _git_head(root: Path) -> dict[str, Any]:
+    """The checkout's HEAD commit, read from ``.git`` files (no subprocess)."""
+
+    try:
+        dotgit = root / ".git"
+        if dotgit.is_file():                       # a linked worktree: "gitdir: <path>"
+            text = dotgit.read_text(encoding="utf-8").strip()
+            gitdir = Path(text.split(":", 1)[1].strip())
+            gitdir = gitdir if gitdir.is_absolute() else (root / gitdir)
+        else:
+            gitdir = dotgit
+        common = gitdir
+        if (gitdir / "commondir").is_file():
+            relative = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+            common = Path(relative) if Path(relative).is_absolute() else (gitdir / relative)
+        head = (gitdir / "HEAD").read_text(encoding="utf-8").strip()
+        ref, commit = None, None
+        if head.startswith("ref:"):
+            ref = head[4:].strip()
+            for base in (gitdir, common):
+                if (base / ref).is_file():
+                    commit = (base / ref).read_text(encoding="utf-8").strip()
+                    break
+            if commit is None and (common / "packed-refs").is_file():
+                for line in (common / "packed-refs").read_text(encoding="utf-8").splitlines():
+                    parts = line.strip().split(" ")
+                    if len(parts) == 2 and parts[1] == ref:
+                        commit = parts[0]
+                        break
+        else:
+            commit = head
+        if not commit or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            return {"gitCommit": None, "gitRef": ref, "reason": "HEAD_COMMIT_NOT_RESOLVED"}
+        return {"gitCommit": commit, "gitRef": ref, "reason": None}
+    except (OSError, IndexError, ValueError) as error:
+        return {"gitCommit": None, "gitRef": None, "reason": f"GIT_METADATA_UNREADABLE_{type(error).__name__}"}
+
+
+def _load_consumer_identity() -> dict[str, Any]:
+    module = Path(__file__).resolve()
+    root = module.parents[3]
+    try:
+        module_sha = _sha(module.read_bytes())
+    except OSError:
+        module_sha = None
+    return {
+        "exportIdentity": EXPORT_IDENTITY,
+        "exportRevision": EXPORT_REVISION,
+        "checkoutRoot": str(root),
+        **_git_head(root),
+        "builderModuleSha256": module_sha,
+        "readAtUtc": iso(datetime.now(UTC)),
+        "meaning": ("Code identity of the RUNNING consumer, read when this module was loaded: the checkout's HEAD "
+                    "commit and the sha256 of the loaded builder source. The working tree's cleanliness is not "
+                    "asserted."),
+    }
+
+
+_CONSUMER_IDENTITY: dict[str, Any] | None = None
+
+
+def consumer_identity() -> dict[str, Any]:
+    global _CONSUMER_IDENTITY
+    if _CONSUMER_IDENTITY is None:
+        _CONSUMER_IDENTITY = _load_consumer_identity()
+    return dict(_CONSUMER_IDENTITY)
 
 
 # ---------------------------------------------------------------------------
@@ -404,15 +502,23 @@ def choose_anchor(
     positions: Iterable[PositionLink],
     lock: datetime,
 ) -> AnchorChoice:
-    """The protocol's anchor rule, deterministically.
+    """The protocol's anchor rule, deterministically (Model Studio disposition 5).
 
-    Candidates are FINAL_PREGAME decisions with ``recommended_at`` in
-    [T-30, T-15]. A decision behind a position wins; otherwise the latest, ties
-    by decision id ascending. More than one position-backed decision with
-    conflicting decision/forecast identity is an ambiguity exclusion. A chosen
-    checkpoint that bound no V18 forecast is not a usable consumer decision:
-    the anchor becomes the labelled T-15 research cutoff, and the checkpoint is
-    kept only as the selection statement.
+    1. A decision behind a position already selected at the lock (recommended at
+       or before it) has priority, whatever its lead time (kept as a stratum).
+       Two selected decisions, or a position whose forecast binding differs
+       from its decision's, is an ambiguity exclusion. A selected decision that
+       names no V18 forecast stays the anchor and the forecast rule excludes the
+       game: it never falls back to the research cutoff.
+    2. Otherwise the frozen ranking: the latest FINAL_PREGAME checkpoint with
+       ``recommended_at`` in [T-30, T-15], ties by decision id ascending. A
+       decision naming a forecast must use exactly that forecast (the forecast
+       block excludes the game if its evidence is missing; no fallback).
+    3. Only when that ranking yields no usable consumer decision -- no
+       checkpoint in the window, or the ranked checkpoint names no V18 forecast
+       -- is the anchor the labelled RESEARCH_T_MINUS_15 cutoff, with
+       decisionId null; the ranked checkpoint (if any) still states the
+       selection as of the lock, and an earlier checkpoint is never substituted.
     """
 
     lock = aware(lock)
@@ -424,28 +530,48 @@ def choose_anchor(
     )
     reasons: list[str] = []
     position_list = list(positions)
-    position_decision_ids = {p.decision_id for p in position_list if p.decision_id}
-    backed = [d for d in in_window if d.id in position_decision_ids]
-    outside = [p for p in position_list if p.decision_id and p.decision_id not in {d.id for d in in_window}]
-    if outside:
-        reasons.append("POSITION_DECISION_OUTSIDE_T30_T15_WINDOW")
-    if len(backed) > 1:
-        identities = {(d.id, d.shadow_forecast_id) for d in backed}
-        if len(identities) > 1:
-            return AnchorChoice("NONE_EXCLUDED", None, None, tuple(in_window),
-                                tuple(reasons + ["ANCHOR_AMBIGUOUS_MULTIPLE_POSITION_DECISIONS"]), None)
+    by_id = {d.id: d for d in all_decisions}
+    # "Use the original actual V18 decision behind a position if a position was
+    # already selected": any FINAL_PREGAME decision at or before the lock that a
+    # position names. Its lead time is kept as a stratum, never a reason to skip it.
+    live = [p for p in position_list if p.decision_id and p.decision_id in by_id
+            and aware(by_id[p.decision_id].recommended_at) <= lock]
+    if any(p.decision_id and p.decision_id in by_id and aware(by_id[p.decision_id].recommended_at) > lock
+           for p in position_list):
+        reasons.append("POSITION_DECISION_AFTER_LOCK_NOT_ALREADY_SELECTED_IGNORED")
+    if any(p.decision_id and p.decision_id not in by_id for p in position_list):
+        reasons.append("POSITION_NAMES_A_DECISION_OUTSIDE_THE_V18_FINAL_PREGAME_SET")
+    backed = sorted({p.decision_id: by_id[p.decision_id] for p in live}.values(), key=lambda d: d.id)
+    # Conflicting bindings: two selected decisions, or a position whose own
+    # forecast differs from its decision's, is an ambiguity exclusion.
+    bindings = {(p.decision_id, by_id[p.decision_id].shadow_forecast_id,
+                 p.shadow_forecast_id or by_id[p.decision_id].shadow_forecast_id) for p in live}
+    conflicting = any(decision_forecast != position_forecast for _, decision_forecast, position_forecast in bindings)
+    if len(backed) > 1 or len(bindings) > 1 or conflicting:
+        code = ("ANCHOR_AMBIGUOUS_MULTIPLE_POSITION_DECISIONS" if len(backed) > 1
+                else "ANCHOR_AMBIGUOUS_POSITION_FORECAST_BINDING_CONFLICTS_WITH_DECISION")
+        return AnchorChoice("NONE_EXCLUDED", None, None, tuple(in_window), tuple(reasons + [code]), None)
     if backed:
         chosen = backed[0]
         reasons.append("ANCHOR_IS_DECISION_BEHIND_POSITION")
+        if not window_start <= aware(chosen.recommended_at) <= lock:
+            reasons.append("ANCHOR_POSITION_DECISION_OUTSIDE_T30_T15_LEAD_TIME_STRATUM")
         latest = _latest_decision(in_window)
         if latest is not None and latest.id != chosen.id:
             reasons.append("POSITION_DECISION_IS_NOT_THE_LATEST_CHECKPOINT")
-    else:
-        chosen = _latest_decision(in_window)
-        if chosen is not None:
-            ties = [d for d in in_window if aware(d.recommended_at) == aware(chosen.recommended_at)]
-            if len(ties) > 1:
-                reasons.append("ANCHOR_TIE_BROKEN_BY_DECISION_ID_ASCENDING")
+        if not chosen.shadow_forecast_id:
+            # A selected position's decision has priority. If it bound no V18
+            # forecast the game is excluded by the forecast rule; a research
+            # cutoff never stands in for a real selected decision.
+            reasons.append("ANCHOR_POSITION_DECISION_NAMES_NO_V18_FORECAST_NO_RESEARCH_FALLBACK")
+        return AnchorChoice("ACTUAL_DECISION", aware(chosen.recommended_at), chosen, tuple(in_window),
+                            tuple(reasons), chosen)
+    # Otherwise the frozen ranking: the latest FINAL_PREGAME checkpoint in [T-30, T-15].
+    chosen = _latest_decision(in_window)
+    if chosen is not None:
+        ties = [d for d in in_window if aware(d.recommended_at) == aware(chosen.recommended_at)]
+        if len(ties) > 1:
+            reasons.append("ANCHOR_TIE_BROKEN_BY_DECISION_ID_ASCENDING")
     if chosen is None:
         reasons.append("NO_FINAL_PREGAME_DECISION_IN_T30_T15")
         return AnchorChoice("RESEARCH_T_MINUS_15", lock, None, tuple(in_window), tuple(reasons), None)
@@ -530,7 +656,10 @@ class Leg:
     source_event_id: str | None
     created_at: datetime | None
     receipt_ledger_id: str | None = None
+    #: Set only when BOTH completion receipts hold (see _attach_receipts).
     receipt_completed_at: datetime | None = None
+    #: The matched ledger row's own completion, kept for the ledger-only sensitivity.
+    ledger_completed_at: datetime | None = None
     job_run_id: str | None = None
     job_completed_at: datetime | None = None
     receipt_reason: str | None = None
@@ -607,7 +736,18 @@ class Snapshot:
 
     @property
     def eligible(self) -> bool:
+        # evaluate_snapshot leaves failures empty only after the evidence stage.
         return not self.failures
+
+    @property
+    def timing_fresh(self) -> bool:
+        """Passed pairing, validity, receipt and the 0..15-minute age on its RECORDED clocks.
+
+        A timing-only diagnostic: it says nothing about whether those clocks are
+        per-leg or what they mean, so it is never price-evaluability.
+        """
+
+        return self.stage >= EVIDENCE_STAGE
 
 
 #: Market stage codes, in the order a snapshot must pass them.
@@ -616,7 +756,50 @@ _STAGE_FAILURE = {
     1: "MARKET_PAIR_INVALID",
     2: "MARKET_NO_RECEIPT_BY_ANCHOR",
     3: "MARKET_QUOTE_OLDER_THAN_15_MINUTES",
+    4: "MARKET_EVIDENCE_UNPROVED",
 }
+EVIDENCE_STAGE = 4
+ELIGIBLE_STAGE = 5
+
+#: Whether each provider's per-leg quote clock is ESTABLISHED to be the
+#: bookmaker's own quote-update time (not a provider observation or a record
+#: refresh). Nothing retained establishes it for SportsGameOdds: its API field is
+#: ``byBookmaker[book].lastUpdatedAt``, the local sources call it a "provider
+#: timestamp", and no retained provider document defines it. Only retained,
+#: authoritative provider documentation may change this, never a code default.
+QUOTE_CLOCK_SEMANTICS: dict[str, dict[str, Any]] = {
+    "SPORTSGAMEODDS": {
+        "field": "events[].odds[oddID].byBookmaker[bookmakerID].lastUpdatedAt",
+        "established": False,
+        "meaning": None,
+        "reason": ("Not established whether lastUpdatedAt is the bookmaker's own quote update, the "
+                   "provider's observation of it, or a provider record refresh; no retained authoritative "
+                   "provider documentation defines it"),
+    },
+}
+
+
+def market_evidence_failures(snapshot: "Snapshot") -> list[str]:
+    """Why a timing-fresh pair is still not evaluable. Empty only when ALL hold.
+
+    (a) both legs carry their own quote clock recovered from the retained raw
+    response; (b) that clock's semantics are established for the provider;
+    (c) a retained source-response identity exists; (d) the settlement,
+    extra-inning and pitcher/action conventions are proved. A copied
+    older-side clock is never relabelled per-leg or fresh.
+    """
+
+    failures: list[str] = []
+    for leg in (snapshot.home, snapshot.away):
+        if leg is not None and not leg.per_leg_clock:
+            failures.append(f"LEG_{leg.side}_QUOTE_CLOCK_NOT_PER_LEG")
+    if not (QUOTE_CLOCK_SEMANTICS.get(snapshot.provider_key) or {}).get("established"):
+        failures.append("PAIR_QUOTE_CLOCK_SEMANTICS_UNPROVEN")
+    if snapshot.raw_link is None or not snapshot.raw_link.linked:
+        failures.append("PAIR_SOURCE_RESPONSE_NOT_RETAINED")
+    if not _conventions(snapshot.provider_key, snapshot.raw_link)["proved"]:
+        failures.append("PAIR_CONVENTIONS_UNPROVED")
+    return failures
 
 
 def evaluate_snapshot(snapshot: Snapshot, anchor: datetime, home_team_id: str | None,
@@ -674,7 +857,12 @@ def evaluate_snapshot(snapshot: Snapshot, anchor: datetime, home_team_id: str | 
         failure = quote_age_failure(leg.quote_clock, anchor)
         if failure:
             ages.append(f"{failure}_{leg.side}")
-    snapshot.failures, snapshot.stage = ages, (stage if ages else 4)
+    if ages:
+        snapshot.failures, snapshot.stage = ages, stage
+        return snapshot
+    # Timing-fresh on the recorded clocks. Evaluable only if the evidence holds.
+    evidence = market_evidence_failures(snapshot)
+    snapshot.failures, snapshot.stage = evidence, (EVIDENCE_STAGE if evidence else ELIGIBLE_STAGE)
     return snapshot
 
 
@@ -766,6 +954,14 @@ class RetainedResponse:
     payload_checksum: str | None
     request_fingerprint: str | None
     payload: dict[str, Any] = field(repr=False, compare=False)
+    #: The byte-exact response body kept beside a RawArchive.write_response
+    #: wrapper (``.body.gz``): its path, and the sha256/bytes of the EXACT
+    #: uncompressed body. ``body_verified`` is None when no body file is named,
+    #: True when it decompresses to the recorded digest, False otherwise.
+    body_path: str | None = None
+    body_sha256: str | None = None
+    body_bytes: int | None = None
+    body_verified: bool | None = None
 
 
 @dataclass
@@ -843,6 +1039,7 @@ def sgo_retained_responses(raw_root: str | Path | None, window_start: datetime |
             if not isinstance(document, dict):
                 continue
             metadata = document.get("metadata")
+            body: dict[str, Any] = {}
             if isinstance(metadata, dict) and isinstance(document.get("payload"), dict):
                 if str(metadata.get("source") or "").upper() != SGO:
                     continue
@@ -854,9 +1051,13 @@ def sgo_retained_responses(raw_root: str | Path | None, window_start: datetime |
                     continue
                 payload, clock_source = document["payload"], "RAW_ARCHIVE_METADATA_INGESTION_TIMESTAMP"
                 checksum = metadata.get("checksum")
+                body = _verify_exact_body(folder, metadata)
             elif isinstance(document.get("data"), list):
+                # A bare provider body: these bytes ARE the exact response.
                 payload, archived, clock_source = document, stamp, "RAW_ARCHIVE_FILE_NAME_STAMP"
                 checksum, fingerprint = None, None
+                body = {"body_path": str(path), "body_sha256": _sha(data), "body_bytes": len(data),
+                        "body_verified": True}
             else:
                 continue
             if not isinstance(payload.get("data"), list):
@@ -865,9 +1066,28 @@ def sgo_retained_responses(raw_root: str | Path | None, window_start: datetime |
                 path=str(path), sha256=_sha(data), bytes=len(data), archived_at=archived,
                 archive_clock_source=clock_source, file_modified_at=modified,
                 payload_checksum=str(checksum) if checksum else None,
-                request_fingerprint=str(fingerprint) if fingerprint else None, payload=payload))
+                request_fingerprint=str(fingerprint) if fingerprint else None, payload=payload, **body))
         day += timedelta(days=1)
     return found
+
+
+def _verify_exact_body(folder: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+    """Check the wrapper's byte-exact body file (``.body.gz``) against its recorded digest."""
+
+    name = str(metadata.get("response_body_file") or "")
+    if not name:
+        return {}
+    if "/" in name or "\\" in name or ".." in name:
+        return {"body_verified": False}
+    path = folder / name
+    try:
+        exact = gzip.decompress(path.read_bytes())
+    except (OSError, EOFError, gzip.BadGzipFile):
+        return {"body_path": str(path), "body_verified": False}
+    digest = _sha(exact)
+    verified = (digest == str(metadata.get("response_body_sha256") or "")
+                and len(exact) == metadata.get("response_body_bytes"))
+    return {"body_path": str(path), "body_sha256": digest, "body_bytes": len(exact), "body_verified": verified}
 
 
 def _sgo_american(value: Any) -> int | None:
@@ -960,6 +1180,12 @@ def link_sgo_pair(candidates: list[RetainedResponse], *, event_id: str | None, b
     problems: list[str] = []
     containing = 0
     for response in candidates:
+        if response.body_verified is False:
+            # The wrapper names a byte-exact body that is missing or does not
+            # match its digest: this retained evidence is not self-consistent.
+            containing += 1
+            problems.append("RETAINED_EXACT_BODY_DOES_NOT_VERIFY")
+            continue
         events = [e for e in response.payload.get("data") or []
                   if isinstance(e, dict) and str(e.get("eventID") or "") == str(event_id or "")]
         if not events:
@@ -1377,6 +1603,54 @@ def find_phase_evidence(raw_root: str | Path, game_pk: str | None, lock: datetim
     return None
 
 
+def phase_binding_checks(phase_evidence: dict[str, Any], *, game_pk: str | None, scheduled_start: datetime,
+                         home_source_id: str | None, away_source_id: str | None, lock: datetime,
+                         revision_game_number: Any = None) -> dict[str, Any]:
+    """Is this capture's ``gameType`` bound to THIS game, orientation and schedule revision?
+
+    Every check must hold: the capture's gamePk is the game's MLBAM id; its
+    home/away team ids equal AISP's own mapped MLB Stats API ids for the home
+    and away sides (an unmapped side is unproved, not assumed); its ``gameDate``
+    is the scheduled start that defines this episode's lock; its game number
+    agrees with the schedule observation at the lock when both exist; and it was
+    archived at or before the lock. The identity-only projection (whitelisted
+    fields, never a linescore/status/score) is hash-bound for re-verification.
+    """
+
+    fields = phase_evidence.get("fields") or {}
+    checks: dict[str, bool] = {}
+    reasons: list[str] = []
+    checks["gamePk"] = bool(game_pk) and str(fields.get("gamePk")) == str(game_pk)
+    home, away = str(fields.get("homeTeamId") or ""), str(fields.get("awayTeamId") or "")
+    checks["orientation"] = bool(home_source_id and away_source_id and home and away
+                                 and home == str(home_source_id) and away == str(away_source_id))
+    checks["scheduleRevision"] = aware(fields.get("gameDate")) == aware(scheduled_start)
+    if revision_game_number is not None and fields.get("gameNumber") is not None:
+        checks["gameNumber"] = str(fields.get("gameNumber")) == str(revision_game_number)
+    archived = aware(phase_evidence.get("archivedAtUtc"))
+    checks["archivedByLock"] = archived is not None and archived <= aware(lock)
+    names = {"gamePk": "GAME_PK", "orientation": "TEAM_ORIENTATION", "scheduleRevision": "SCHEDULE_REVISION",
+             "gameNumber": "GAME_NUMBER", "archivedByLock": "ARCHIVE_CLOCK"}
+    for key, ok in checks.items():
+        if not ok:
+            reasons.append(f"PHASE_EVIDENCE_NOT_BOUND_{names[key]}")
+    if not (home_source_id and away_source_id):
+        reasons.append("PHASE_EVIDENCE_ORIENTATION_UNPROVED_TEAM_SOURCE_IDS_UNMAPPED")
+    projection = {key: fields.get(key) for key in sorted(fields)}
+    return {
+        "bound": all(checks.values()),
+        "checks": checks,
+        "capturedGameType": fields.get("gameType"),
+        "aispHomeSourceId": home_source_id,
+        "aispAwaySourceId": away_source_id,
+        "scheduledStartUtc": iso(scheduled_start),
+        "identityProjection": projection,
+        "identityProjectionSha256": _sha(canonical_bytes(projection)),
+        "importerSeasonTypeConstantUsed": False,
+        "reasonCodes": reasons,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Quarantine gate
 # ---------------------------------------------------------------------------
@@ -1545,20 +1819,29 @@ def build_packet(
     ledger_file_ref = file_ref(inputs.quarantine_ledger_path) if gate.get("ledgerReadable") else None
 
     phase_evidence = find_phase_evidence(inputs.raw_data_root, game_pk, lock)
+    phase_binding: dict[str, Any] | None = None
     if phase_evidence is None:
         phase = "UNKNOWN"
         phase_ref = None
         identity_reasons.append("PHASE_NO_RETAINED_SCHEDULE_CAPTURE_WITH_GAME_TYPE_BY_LOCK")
     else:
-        phase = phase_from_game_type(phase_evidence["fields"].get("gameType"))
+        captured_type = phase_evidence["fields"].get("gameType")
+        home_src = team_sources.get(home_team or "", {}).get("MLB_STATS_API")
+        away_src = team_sources.get(away_team or "", {}).get("MLB_STATS_API")
+        phase_binding = phase_binding_checks(
+            phase_evidence, game_pk=game_pk, scheduled_start=start, home_source_id=home_src,
+            away_source_id=away_src, lock=lock,
+            revision_game_number=getattr(revision, "game_number", None) if revision is not None else None)
+        # gameType counts only when bound to this exact game, orientation and
+        # schedule revision; otherwise the phase is UNKNOWN (still visible).
+        phase = phase_from_game_type(captured_type) if phase_binding["bound"] else "UNKNOWN"
+        identity_reasons.extend(phase_binding["reasonCodes"])
         phase_ref = {"path": phase_evidence["path"], "sha256": phase_evidence["sha256"],
                      "bytes": phase_evidence["bytes"],
                      "locator": (f"payload.schedule.dates[].games[gamePk={game_pk}].gameType="
-                                 f"{phase_evidence['fields'].get('gameType')};archivedAtUtc="
-                                 f"{phase_evidence['archivedAtUtc']}")}
-        evidence.add_file("phaseEvidence", phase_evidence)
-        home_src = team_sources.get(home_team or "", {}).get("MLB_STATS_API")
-        away_src = team_sources.get(away_team or "", {}).get("MLB_STATS_API")
+                                 f"{captured_type};archivedAtUtc={phase_evidence['archivedAtUtc']};"
+                                 f"identityProjectionSha256={phase_binding['identityProjectionSha256']}")}
+        evidence.add_file("phaseEvidence", {**phase_evidence, "binding": phase_binding})
         if home_src and phase_evidence["fields"]["homeTeamId"] and home_src != phase_evidence["fields"]["homeTeamId"]:
             identity_reasons.append("IDENTITY_INCOMPLETE")
             identity_reasons.append("IDENTITY_SCHEDULE_CAPTURE_HOME_TEAM_DISAGREES")
@@ -1731,6 +2014,7 @@ def build_packet(
             "localDate": local_date.isoformat(),
             "phase": phase,
             "phaseEvidenceRef": phase_ref,
+            "phaseBinding": phase_binding,
             "firstSeenAtUtc": iso(first_seen) or iso(built_at),
             "quarantineIdentityGate": gate,
             "identityRef": game_ptr,
@@ -1761,6 +2045,8 @@ def build_packet(
             "experimentId": inputs.experiment_id,
             "policy": getattr(experiment, "decision_policy", None) if experiment is not None else None,
             "consumerExportIdentity": EXPORT_IDENTITY,
+            "consumerExportRevision": EXPORT_REVISION,
+            "consumerCodeCommit": consumer_identity().get("gitCommit"),
         },
         "market": market_block,
         "eligibility": eligibility,
@@ -1772,9 +2058,19 @@ def build_packet(
         "episodeKey": key,
         "protocolSha256": PROTOCOL_SHA256,
         "exportIdentity": EXPORT_IDENTITY,
+        "exportRevision": EXPORT_REVISION,
+        "consumerIdentity": consumer_identity(),
         "mode": inputs.mode,
         "builtAtUtc": iso(built_at),
         "clockConventions": {
+            "packet_sealedAtUtc": ("EXPORT BUILD START: the clock handed to the builder before it read anything; "
+                                   "it is not seal completion"),
+            "attemptLedger_SEALED_writtenAtUtc": ("SEAL COMPLETION: when the packet and this evidence were durably "
+                                                  "written, recorded on the attempt ledger's SEALED row; a sidecar "
+                                                  "without its SEALED row is not enrollment"),
+            "sgo_MoneylinePair_received_at": ("the SGO collector's clock captured BEFORE the request was sent "
+                                              "(equal to the ledger's requested_at); never a receipt, never used "
+                                              "here as one"),
             "created_at_transaction_start": "PostgreSQL now(): the start of the inserting transaction; "
                                             "not an insertion, commit or publication time",
             "odds_available_as_of": "SGO: fetch.requested_at; not a receipt and never an update clock",
@@ -1946,18 +2242,43 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
     exchange_refs: list[dict[str, Any]] = []
     handoff_ref = file_ref(bundle.logical_uri, "aisp-handoff.json (producer slate handoff)") \
         if bundle.logical_uri else None
-    evidence_ref = file_ref(Path(object_root) / "pregame-evidence.json", "pregame-evidence.json") \
-        if object_root else None
-    object_ref = None
-    if handoff_ref is not None and object_root:
-        manifest_name = _object_manifest_name(bundle.logical_uri, lineage.get("objectSha256"))
-        if manifest_name:
-            object_ref = file_ref(Path(object_root) / manifest_name, f"object manifest {manifest_name}")
-    for ref in (handoff_ref, evidence_ref, object_ref):
+    if handoff_ref is not None and _handoff_content_address_ok(bundle.logical_uri, bundle.bundle_sha256) is False:
+        # handoffSha256 is the content address of the canonical handoff body
+        # (without handoffId/handoffSha256), exactly as the importer checks it.
+        reasons.append("FORECAST_INTEGRITY_FAILED")
+        reasons.append("FORECAST_HANDOFF_CONTENT_ADDRESS_DIFFERS_FROM_REGISTERED_HANDOFF_SHA256")
+    # Disposition 4 and 6: bind the EXACT original producer object physically
+    # (manifest content address, execution-inputs.json population, pregame
+    # evidence) and check AISP's numbers against it. Unverifiable = excluded.
+    verification = verify_producer_object(object_root, lineage.get("objectSha256"), bundle.logical_uri, {
+        "paSha256": forecast.model_artifact_sha256 or None,
+        "parentBundleSha256": lineage.get("parentBundleSha256"),
+        "seed": forecast.simulator_seed,
+        "simulationCount": uncertainty.get("simulationCount"),
+        "pHome": forecast.full_home_win_probability,
+        "pAway": forecast.full_away_win_probability,
+        "samplingError": uncertainty.get("monteCarloStandardError"),
+        "gameId": str(forecast.canonical_game_id) if forecast.canonical_game_id else None,
+    })
+    if not verification["verified"]:
+        reasons.append("FORECAST_INTEGRITY_FAILED")
+        reasons.extend(verification["reasonCodes"])
+    object_ref = verification["objectRef"]
+    evidence_ref = verification["inputSnapshotRef"]
+    population_ref = verification["populationRef"]
+    for ref in (handoff_ref, object_ref, population_ref, evidence_ref, verification["forecastFileRef"]):
         if ref:
             exchange_refs.append(ref)
     if not exchange_refs:
         reasons.append("LIMITATION_EXCHANGE_FILES_UNREADABLE_BY_EXPORTER_DB_CONTENT_ADDRESSES_USED")
+    verification_ptr = evidence.note("producerObjectVerification", {
+        **{k: v for k, v in verification.items()}, "objectRoot": object_root,
+        "objectSha256": lineage.get("objectSha256"), "handoffPath": bundle.logical_uri,
+        "handoffRegisteredSha256": bundle.bundle_sha256,
+        "meaning": ("Physical verification of the exact original producer object at export time. The consumer "
+                    "keeps its own nulls for transition/treatment/calibration identities; producerObjectHashes "
+                    "lists hash-valued parentAuthority fields found in the object, as recovery provenance only."),
+    })
     evidence.note("exchangeFiles", {"readable": exchange_refs, "objectRoot": object_root,
                                     "handoffPath": bundle.logical_uri})
 
@@ -1967,10 +2288,9 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
     if se is None:
         reasons.append("LIMITATION_SAMPLING_ERROR_FIELD_ABSENT")
     if not population.get("populationDigest"):
-        # AISP retains a hash-bound population reference only for slates whose
-        # handoff carried the Simulation Population view. Otherwise the paired
-        # scores live solely inside the immutable producer object; the ref then
-        # names that object's content address. Nothing is rerun or rebuilt.
+        # AISP holds no population digest of its own for this forecast; the
+        # 5,000 paired scores are the producer object's execution-inputs.json,
+        # referenced physically below when verified. Nothing is rerun or rebuilt.
         reasons.append("LIMITATION_SCORE_POPULATION_NOT_RETAINED_BY_CONSUMER_RESOLVE_VIA_PRODUCER_OBJECT")
     source_clocks = []
     for side, detail in ((forecast.readiness_detail or {}).get("sides") or {}).items():
@@ -1990,10 +2310,11 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
 
     block = {
         "forecastIdentity": forecast.forecast_id,
-        "objectRef": object_ref or evidence.note("objectContentAddress", {
-            "objectSha256": lineage.get("objectSha256"), "objectRoot": object_root,
-            "meaning": "content address of the producer object manifest body (not file bytes); the "
-                       "object files were not readable by this exporter"}),
+        # A physical ref (path, sha256, bytes, locator) to the verified manifest.
+        # When the object could not be verified the ref names the evidence note
+        # that records why, and the forecast is excluded (FORECAST_INTEGRITY_FAILED).
+        "objectRef": object_ref or verification_ptr,
+        "objectRefIsPhysical": object_ref is not None,
         "modelIdentity": {
             "engine": forecast.engine_id,
             "paSha256": forecast.model_artifact_sha256 or None,
@@ -2008,7 +2329,8 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
         },
         "inputSnapshotRef": evidence_ref or evidence.note("inputSnapshotContentAddress", {
             "snapshotContentSha256": forecast.feature_vector_sha256,
-            "pregameSnapshotCapturedAt": inputs_receipts.get("pregameSnapshotCapturedAt")}),
+            "pregameSnapshotCapturedAt": inputs_receipts.get("pregameSnapshotCapturedAt"),
+            "physical": False, "reasonCodes": verification["reasonCodes"]}),
         "createdAtUtc": iso(created) or iso(forecast.created_at),
         "aispImportTransactionStartedAtUtc": iso(forecast.created_at),
         "publicationReceiptRef": handoff_ref or bundle_ptr,
@@ -2021,11 +2343,15 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
         "importReceiptCompletedAtUtc": iso(import_completed),
         "pHome": p_home,
         "pAway": float(forecast.full_away_win_probability),
-        "scorePopulationRef": EvidencePointer(f"/rows/shadow_forecasts/{forecast.id}/populationGeometry")
-        if population.get("populationDigest") else evidence.note("scorePopulationViaProducerObject", {
-            "objectSha256": lineage.get("objectSha256"), "objectRoot": object_root,
-            "meaning": "AISP holds no population digest for this forecast; the 5,000 paired scores are "
-                       "bound only inside the immutable producer object named here"}),
+        # The exact original population: the producer object's own
+        # execution-inputs.json, digest-checked against its manifest. Never a
+        # label, a "latest" pointer or a consumer-side copy.
+        "scorePopulationRef": population_ref or evidence.note("scorePopulationNotPhysicallyVerified", {
+            "objectSha256": lineage.get("objectSha256"), "objectRoot": object_root, "physical": False,
+            "reasonCodes": verification["reasonCodes"],
+            "meaning": "The producer object's execution-inputs.json could not be verified by this exporter; "
+                       "the forecast is excluded (FORECAST_INTEGRITY_FAILED)."}),
+        "scorePopulationRefIsPhysical": population_ref is not None,
         "scorePopulationBinding": {
             "supplementSha256": population.get("supplementSha256"),
             "populationDigest": population.get("populationDigest"),
@@ -2052,6 +2378,13 @@ def _forecast_block(session: Session, game: GameIdentity, anchor: AnchorChoice, 
             "deterministicReplayVerified": uncertainty.get("deterministicReplayVerified"),
             "monteCarloMethod": uncertainty.get("monteCarloMethod"),
             "integrityFailures": integrity,
+            # Disposition 6: AISP-held numbers checked against the exact object.
+            "producerObjectVerification": {
+                "verified": verification["verified"],
+                "identityChecks": verification["identityChecks"],
+                "reasonCodes": verification["reasonCodes"],
+                "ref": verification_ptr,
+            },
         },
         "deploymentAttestation": None,
         "reasonCodes": list(dict.fromkeys(
@@ -2133,16 +2466,173 @@ def _import_receipt(session: Session, bundle: ShadowForecastBundle) -> Any | Non
     return None
 
 
-def _object_manifest_name(handoff_path: str, object_sha: str | None) -> str | None:
+def _plain_name(value: Any) -> str | None:
+    name = str(value or "")
+    return name if name and "/" not in name and "\\" not in name and ".." not in name else None
+
+
+def _handoff_entry(handoff_path: str | None, object_sha: str | None) -> dict[str, Any] | None:
+    """The handoff's pointer to this object (manifestFile, forecastFile), or None if unreadable."""
+
+    if not handoff_path:
+        return None
     try:
         handoff = json.loads(Path(handoff_path).read_bytes())
     except (OSError, ValueError):
         return None
     for entry in handoff.get("forecasts") or []:
-        if str(entry.get("objectSha256")) == str(object_sha):
-            name = str(entry.get("manifestFile") or "")
-            return name if name and "/" not in name and "\\" not in name and ".." not in name else None
+        if isinstance(entry, dict) and str(entry.get("objectSha256")) == str(object_sha):
+            return entry
     return None
+
+
+def _handoff_content_address_ok(handoff_path: str | None, expected: str | None) -> bool | None:
+    """True/False when the handoff file's content address can be checked, None when it cannot be read."""
+
+    if not handoff_path or not expected:
+        return None
+    try:
+        handoff = json.loads(Path(handoff_path).read_bytes())
+    except (OSError, ValueError):
+        return None
+    from app.shadow_import.mlb_v18_daily import _sha_json
+
+    body = {k: v for k, v in handoff.items() if k not in {"handoffId", "handoffSha256"}}
+    return str(handoff.get("handoffSha256")) == str(expected) and _sha_json(body) == str(expected)
+
+
+def _object_manifest_name(handoff_path: str, object_sha: str | None) -> str | None:
+    entry = _handoff_entry(handoff_path, object_sha)
+    return _plain_name(entry.get("manifestFile")) if entry else None
+
+
+#: AISP-held numbers that must equal the exact producer object's (disposition 6).
+_OBJECT_IDENTITY_FIELDS = (
+    ("paSha256", "parentAuthority.paModelSha256"),
+    ("parentBundleSha256", "parentAuthority.bundleSha256"),
+    ("seed", "simulation.seed"),
+    ("simulationCount", "simulation.count"),
+    ("pHome", "probabilities.homeWin"),
+    ("pAway", "probabilities.awayWin"),
+    ("samplingError", "monteCarloUncertainty.homeWinProbabilityStandardError"),
+    ("gameId", "gameId"),
+)
+
+
+def _dig(value: Any, dotted: str) -> Any:
+    for part in dotted.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
+def verify_producer_object(object_root: str | Path | None, object_sha: str | None, handoff_path: str | None,
+                           aisp: dict[str, Any]) -> dict[str, Any]:
+    """Physically bind a forecast to its exact original producer object, or say why not.
+
+    Reads the object directory named by the forecast's lineage (its name must be
+    the object's SHA-256), the manifest the handoff names (``manifest.json``
+    by default), and checks the manifest's content address the way the importer
+    does (sha256 of the canonical manifest body without ``objectId`` /
+    ``objectSha256``). ``execution-inputs.json`` -- the 5,000 paired score
+    paths -- and ``pregame-evidence.json`` are hashed and checked against the
+    manifest's artifact entries, never parsed. The forecast file is parsed only
+    for the numerical identities AISP also holds, which must agree. Nothing is
+    rerun, rebuilt or substituted; a latest pointer is never followed.
+    """
+
+    result: dict[str, Any] = {"verified": False, "reasonCodes": [], "objectRef": None, "populationRef": None,
+                              "inputSnapshotRef": None, "forecastFileRef": None, "identityChecks": {},
+                              "producerObjectHashes": {}}
+    reasons = result["reasonCodes"]
+    sha = str(object_sha or "").lower()
+    if not object_root or not re.fullmatch(r"[0-9a-f]{64}", sha):
+        reasons.append("FORECAST_PRODUCER_OBJECT_NOT_NAMED_BY_LINEAGE")
+        return result
+    root = Path(object_root)
+    if root.name.lower() != sha:
+        reasons.append("FORECAST_PRODUCER_OBJECT_DIRECTORY_IS_NOT_ITS_CONTENT_ADDRESS")
+        return result
+    entry = _handoff_entry(handoff_path, sha) or {}
+    manifest_name = _plain_name(entry.get("manifestFile")) or "manifest.json"
+    manifest_path = root / manifest_name
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+    except OSError:
+        reasons.append("FORECAST_PRODUCER_OBJECT_NOT_PHYSICALLY_VERIFIED_UNREADABLE_BY_EXPORTER")
+        return result
+    try:
+        manifest = json.loads(manifest_bytes)
+    except ValueError:
+        reasons.append("FORECAST_PRODUCER_OBJECT_MANIFEST_NOT_JSON")
+        return result
+    from app.shadow_import.mlb_v18_daily import _sha_json
+
+    body = {k: v for k, v in manifest.items() if k not in {"objectId", "objectSha256"}}
+    if str(manifest.get("objectSha256") or "").lower() != sha or _sha_json(body) != sha:
+        reasons.append("FORECAST_PRODUCER_OBJECT_MANIFEST_CONTENT_ADDRESS_MISMATCH")
+        return result
+    result["objectRef"] = {
+        "path": str(manifest_path), "sha256": _sha(manifest_bytes), "bytes": len(manifest_bytes),
+        "locator": (f"{manifest_name}: producer object manifest; objectSha256={sha} = sha256 of the canonical "
+                    "manifest body without objectId/objectSha256 (verified)")}
+    artifacts = {str(a.get("relativePath")): a for a in manifest.get("artifacts") or [] if isinstance(a, dict)}
+
+    def verified_child(name: str, locator: str) -> tuple[dict[str, Any] | None, str | None, bytes | None]:
+        artifact = artifacts.get(name)
+        if artifact is None:
+            return None, "NOT_LISTED_IN_MANIFEST", None
+        try:
+            data = (root / name).read_bytes()
+        except OSError:
+            return None, "UNREADABLE", None
+        if _sha(data) != str(artifact.get("sha256")) or len(data) != artifact.get("bytes"):
+            return None, "DIGEST_DIFFERS_FROM_MANIFEST", None
+        return {"path": str(root / name), "sha256": _sha(data), "bytes": len(data), "locator": locator}, None, data
+
+    population, why, _ = verified_child(
+        "execution-inputs.json", f"execution-inputs.json#/population (awayRuns, homeRuns, simulationCount) of "
+                                 f"producer object {sha}; digest verified against its manifest entry")
+    if population is None:
+        reasons.append(f"FORECAST_SCORE_POPULATION_NOT_PHYSICALLY_VERIFIED_{why}")
+    result["populationRef"] = population
+    snapshot, why, _ = verified_child("pregame-evidence.json", f"pregame-evidence.json of producer object {sha}")
+    if snapshot is None:
+        reasons.append(f"FORECAST_INPUT_SNAPSHOT_NOT_PHYSICALLY_VERIFIED_{why}")
+    result["inputSnapshotRef"] = snapshot
+    forecast_name = _plain_name(entry.get("forecastFile"))
+    forecast_ref, why, forecast_bytes = (verified_child(forecast_name, f"{forecast_name}: producer forecast of "
+                                                                       f"object {sha}")
+                                         if forecast_name else (None, "FORECAST_FILE_NOT_NAMED_BY_HANDOFF", None))
+    result["forecastFileRef"] = forecast_ref
+    if forecast_ref is None:
+        reasons.append(f"FORECAST_NUMERICAL_IDENTITY_NOT_VERIFIED_{why}")
+    else:
+        try:
+            produced = json.loads(forecast_bytes)
+        except ValueError:
+            produced = {}
+            reasons.append("FORECAST_NUMERICAL_IDENTITY_NOT_VERIFIED_FORECAST_FILE_NOT_JSON")
+        for name, path in _OBJECT_IDENTITY_FIELDS:
+            held, found = aisp.get(name), _dig(produced, path)
+            if held is None:
+                agree = None                       # AISP holds nothing to compare
+            elif isinstance(held, float) or isinstance(found, float):
+                agree = (isinstance(found, (int, float)) and not isinstance(found, bool)
+                         and math.isclose(float(held), float(found), rel_tol=0, abs_tol=1e-12))
+            else:
+                agree = str(held).lower() == str(found).lower()
+            result["identityChecks"][name] = {"aisp": held, "producerObject": found, "field": path,
+                                              "agree": agree}
+            if agree is False:
+                reasons.append(f"FORECAST_AISP_{re.sub(r'(?<!^)(?=[A-Z])', '_', name).upper()}"
+                               f"_DISAGREES_WITH_PRODUCER_OBJECT")
+        parent = produced.get("parentAuthority") if isinstance(produced.get("parentAuthority"), dict) else {}
+        result["producerObjectHashes"] = {k: v for k, v in parent.items()
+                                          if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)}
+    result["verified"] = not reasons
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -2170,7 +2660,10 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
     if not rows:
         block = {"status": "UNPRICED", "candidates": [], "selectedBookKey": None, "selectedProviderKey": None,
                  "pair": None, "qHome": None, "reasonCodes": ["MARKET_NO_QUOTE_FETCHED_BY_ANCHOR"],
-                 "anchorUtc": iso(anchor_at), "maxQuoteAgeMinutes": 15}
+                 "anchorUtc": iso(anchor_at), "maxQuoteAgeMinutes": 15,
+                 "timingOnlyDiagnostics": _timing_diagnostics([])}
+        diag.update({"timingFreshBooks": 0, "timingFreshPrimaryBook": None,
+                     "timingFreshPrimaryEvidenceFailures": []})
         diag.update({"freshestLegAgeMinutes": None, "freshestAvailableLegAgeMinutes": None,
                      "freshestReceiptedPairOlderLegAgeMinutes": None, "latestFetchClockUtc": None,
                      "minutesLatestFetchBeforeAnchor": None, "books": 0, "booksWithCompletePair": 0,
@@ -2231,22 +2724,7 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
                   decimal_stored=r.decimal_odds, observed_at=aware(r.observed_at), fetch_clock=fetch,
                   status=_enum_value(r.status), payload_checksum=r.payload_checksum,
                   source_event_id=r.source_event_id, created_at=aware(r.created_at))
-        group = receipts.get((provider, fetch), [])
-        if len(group) == 1:
-            ledger = group[0]
-            leg.receipt_ledger_id = str(ledger.id)
-            leg.receipt_completed_at = aware(ledger.completed_at)
-            if ledger.job_run_id and ledger.job_run_id in jobs:
-                job = jobs[ledger.job_run_id]
-                leg.job_run_id = str(job.id)
-                leg.job_completed_at = aware(job.completed_at)
-                if job.completed_at is None:
-                    leg.receipt_completed_at = None
-                    leg.receipt_reason = "RECEIPT_JOB_RUN_NOT_COMPLETED"
-        elif len(group) > 1:
-            leg.receipt_reason = "RECEIPT_AMBIGUOUS_MULTIPLE_LEDGER_ROWS"
-        else:
-            leg.receipt_reason = "RECEIPT_NOT_ESTABLISHED_NO_COMPLETED_LEDGER_ROW"
+        _attach_receipts(leg, receipts.get((provider, fetch), []), jobs)
         if r.point is not None:
             snap.row_failures.append("LEG_MONEYLINE_ROW_CARRIES_A_POINT")
         if side is None:
@@ -2317,6 +2795,7 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
         "maxQuoteAgeMinutes": 15,
         "bookRule": "LEXICOGRAPHIC_CANONICAL_BOOK_THEN_PROVIDER_AMONG_FRESH_ELIGIBLE_PAIRS",
         "snapshotRule": "LATEST_ELIGIBLE_BY_OLDER_LEG_OBSERVATION_THEN_AVAILABILITY_THEN_SNAPSHOT_ID_ASC",
+        "timingOnlyDiagnostics": _timing_diagnostics(representatives),
     }
 
     # Feasibility diagnostics (never part of an eligibility rule).
@@ -2328,7 +2807,14 @@ def _market_block(session: Session, game: GameIdentity, anchor_at: datetime, hom
     for group in by_book.values():
         if any(_eligible_with_ledger_only(s, anchor_at) for s in group):
             ledger_only += 1
-    diag.update(_raw_diagnostics(list(snapshots.values()), primary))
+    timing_fresh = sorted((s for s in representatives if s.timing_fresh), key=lambda s: (s.book_key, s.provider_key))
+    diag.update(_raw_diagnostics(list(snapshots.values()), primary, timing_fresh[0] if timing_fresh else None))
+    timing = block["timingOnlyDiagnostics"]
+    diag.update({
+        "timingFreshBooks": len(timing["timingFreshBooks"]),
+        "timingFreshPrimaryBook": timing["timingFreshPrimaryBookKey"],
+        "timingFreshPrimaryEvidenceFailures": timing["timingFreshPrimaryEvidenceFailures"],
+    })
     diag.update({
         "freshestLegAgeMinutes": _minutes(anchor_at - max(l.quote_clock for l in all_legs)) if all_legs else None,
         "freshestAvailableLegAgeMinutes": _minutes(anchor_at - max(l.quote_clock for l in available_legs))
@@ -2354,11 +2840,74 @@ def _eligible_with_ledger_only(snapshot: Snapshot, anchor_at: datetime) -> bool:
     if snapshot.stage < 2 or snapshot.home is None or snapshot.away is None:
         return False
     for leg in (snapshot.home, snapshot.away):
-        if leg.receipt_completed_at is None or leg.receipt_completed_at > anchor_at:
+        if leg.ledger_completed_at is None or leg.ledger_completed_at > anchor_at:
             return False
         if quote_age_failure(leg.quote_clock, anchor_at):
             return False
-    return True
+    # The same evidence gate as the primary rule: a sensitivity bound is never looser.
+    return not market_evidence_failures(snapshot)
+
+
+def _timing_diagnostics(representatives: list[Snapshot]) -> dict[str, Any]:
+    """Books whose pair passed timing on its RECORDED clocks. Never price evaluability."""
+
+    fresh = sorted((s for s in representatives if s.timing_fresh), key=lambda s: (s.book_key, s.provider_key))
+    first = fresh[0] if fresh else None
+    return {
+        "meaning": ("TIMING ONLY, NOT EVALUABLE: pairs that passed pairing, validity, both completion receipts "
+                    "and the 0..15-minute age on their recorded clocks. For SportsGameOdds the recorded clock is "
+                    "the older side's stamp copied to both legs unless recovered per leg; these pairs still need "
+                    "the evidence stage (per-leg clocks, clock semantics, retained response, conventions)."),
+        "timingFreshBooks": [{"bookKey": s.book_key, "providerKey": s.provider_key, "eligible": s.eligible,
+                              "evidenceFailures": [] if s.eligible else list(s.failures)} for s in fresh],
+        "timingFreshPrimaryBookKey": first.book_key if first else None,
+        "timingFreshPrimaryProviderKey": first.provider_key if first else None,
+        "timingFreshPrimaryEvidenceFailures": ([] if first is None or first.eligible else list(first.failures)),
+    }
+
+
+def _attach_receipts(leg: Leg, group: list[Any], jobs: dict[Any, Any]) -> None:
+    """Both completion receipts, uniquely matched, or the named reason there are none.
+
+    A leg's availability bound needs BOTH: the one SUCCEEDED
+    ``provider_request_ledger`` row whose ``requested_at`` equals the row's
+    ``available_as_of``, and the job run that row names -- the run that made the
+    request and inserted the rows -- completed successfully and enclosing the
+    request. An unnamed, missing, in-flight or failed job is not a receipt; the
+    request start, row ``created_at``, ``available_as_of``, the build clock and
+    the parser's pre-request ``received_at`` are never substituted.
+    """
+
+    if len(group) > 1:
+        leg.receipt_reason = "RECEIPT_AMBIGUOUS_MULTIPLE_LEDGER_ROWS"
+        return
+    if not group:
+        leg.receipt_reason = "RECEIPT_NOT_ESTABLISHED_NO_COMPLETED_LEDGER_ROW"
+        return
+    ledger = group[0]
+    leg.receipt_ledger_id = str(ledger.id)
+    leg.ledger_completed_at = aware(ledger.completed_at)
+    if leg.ledger_completed_at is None:
+        leg.receipt_reason = "RECEIPT_LEDGER_ROW_HAS_NO_COMPLETION"
+        return
+    job = jobs.get(ledger.job_run_id) if ledger.job_run_id else None
+    if job is None:
+        leg.receipt_reason = ("RECEIPT_LEDGER_ROW_NAMES_NO_INSERTING_JOB_RUN" if not ledger.job_run_id
+                              else "RECEIPT_INSERTING_JOB_RUN_NOT_FOUND")
+        return
+    leg.job_run_id = str(job.id)
+    leg.job_completed_at = aware(job.completed_at)
+    if job.completed_at is None:
+        leg.receipt_reason = "RECEIPT_JOB_RUN_NOT_COMPLETED"
+        return
+    if _enum_value(job.status).upper() != "SUCCEEDED":
+        leg.receipt_reason = f"RECEIPT_JOB_RUN_{_enum_value(job.status).upper() or 'STATUS_MISSING'}"
+        return
+    requested, started = aware(ledger.requested_at), aware(job.started_at)
+    if started is None or requested is None or started > requested or leg.ledger_completed_at > leg.job_completed_at:
+        leg.receipt_reason = "RECEIPT_JOB_RUN_DOES_NOT_ENCLOSE_THE_REQUEST"
+        return
+    leg.receipt_completed_at = leg.ledger_completed_at
 
 
 def _link_snapshot(snap: Snapshot, ledger: Any | None, raw_root: str | Path | None, anchor_at: datetime,
@@ -2401,12 +2950,20 @@ def _snapshot_limitations(snap: Snapshot) -> list[str]:
     return list(dict.fromkeys(codes))
 
 
-def _raw_diagnostics(snaps: list[Snapshot], primary: Snapshot | None) -> dict[str, Any]:
+def _raw_diagnostics(snaps: list[Snapshot], primary: Snapshot | None,
+                     timing_primary: Snapshot | None = None) -> dict[str, Any]:
     """Feasibility counters for retained-response linkage (never an eligibility rule)."""
 
     sgo = [s for s in snaps if s.provider_key == SGO and s.home is not None and s.away is not None]
     statuses = Counter(s.raw_link.status for s in sgo if s.raw_link is not None)
+    t = timing_primary
     return {
+        "timingPrimaryRawLinkStatus": t.raw_link.status if t is not None and t.raw_link else None,
+        "timingPrimaryPerLegClocksRecovered": bool(t is not None and t.home is not None and t.away is not None
+                                                   and t.home.per_leg_clock and t.away.per_leg_clock),
+        "timingPrimaryZeroSkewReceipt": bool(t is not None and t.skew_receipt
+                                             and t.skew_receipt.get("zeroSkewForEveryPair")),
+        "timingPrimaryConventionsProved": bool(t is not None and _conventions(t.provider_key, t.raw_link)["proved"]),
         "sgoCompletePairSnapshots": len(sgo),
         "sgoRawLinkStatusCounts": dict(sorted(statuses.items())),
         "sgoSnapshotsRawLinked": statuses.get(RAW_LINKED, 0),
@@ -2432,12 +2989,17 @@ def _enum_value(value: Any) -> str:
 def _book_pair(snapshot: Snapshot, anchor_at: datetime, evidence: EvidenceDocument,
                receipts: dict[tuple[str, datetime], list[Any]], jobs: dict[Any, Any]) -> dict[str, Any]:
     ledger_rows = receipts.get((snapshot.provider_key, snapshot.fetch_clock), [])
+    receipt_hashes: dict[str, str] = {}
     for ledger in ledger_rows:
-        evidence.add("provider_request_ledger", ledger.id, {
+        row = {
             "id": ledger.id, "provider": ledger.provider, "endpoint_key": ledger.endpoint_key,
             "requested_at": ledger.requested_at, "completed_at": ledger.completed_at, "status": ledger.status,
             "request_fingerprint": ledger.request_fingerprint, "records_received": ledger.records_received,
-            "job_run_id": ledger.job_run_id, "reservation_id": ledger.reservation_id})
+            "job_run_id": ledger.job_run_id, "reservation_id": ledger.reservation_id,
+            "raw_archive": ((ledger.response_metadata or {}).get("raw_archive")
+                            if isinstance(ledger.response_metadata, dict) else None)}
+        evidence.add("provider_request_ledger", ledger.id, row)
+        receipt_hashes[f"ledger:{ledger.id}"] = _sha(canonical_bytes(_plain(row)))
         job = jobs.get(ledger.job_run_id)
         if job is not None:
             row = {"id": job.id, "job_name": job.job_name, "status": job.status,
@@ -2445,6 +3007,7 @@ def _book_pair(snapshot: Snapshot, anchor_at: datetime, evidence: EvidenceDocume
             if snapshot.skew_receipt and snapshot.skew_receipt.get("jobRunId") == str(job.id):
                 row["ingest_parse_skew_receipt"] = snapshot.skew_receipt
             evidence.add("job_runs", job.id, row)
+            receipt_hashes[f"job:{job.id}"] = _sha(canonical_bytes(_plain(row)))
     link = snapshot.raw_link
     response = link.response if link is not None and link.linked else None
     identity = _response_identity(snapshot, link, ledger_rows)
@@ -2528,6 +3091,34 @@ def _book_pair(snapshot: Snapshot, anchor_at: datetime, evidence: EvidenceDocume
             "ageMinutesAtAnchor": _minutes(anchor_at - leg.quote_clock),
             "receiptLedgerCompletedAtUtc": iso(leg.receipt_completed_at),
             "receiptJobCompletedAtUtc": iso(leg.job_completed_at),
+            "completionReceipts": {
+                "rule": ("availableByUtc = max(ledger.completed_at, inserting job_run.completed_at), both uniquely "
+                         "matched and successful, and it must be <= the anchor"),
+                "established": available is not None,
+                "reasonCode": None if available is not None else (leg.receipt_reason or "RECEIPT_NOT_ESTABLISHED"),
+                "ledger": {
+                    "id": leg.receipt_ledger_id,
+                    "completedAtUtc": iso(leg.ledger_completed_at),
+                    "evidenceRowSha256": receipt_hashes.get(f"ledger:{leg.receipt_ledger_id}"),
+                    "ref": EvidencePointer(f"/rows/provider_request_ledger/{leg.receipt_ledger_id}"),
+                } if leg.receipt_ledger_id else None,
+                "job": {
+                    "id": leg.job_run_id,
+                    "completedAtUtc": iso(leg.job_completed_at),
+                    "evidenceRowSha256": receipt_hashes.get(f"job:{leg.job_run_id}"),
+                    "ref": EvidencePointer(f"/rows/job_runs/{leg.job_run_id}"),
+                } if leg.job_run_id else None,
+                "linkage": {
+                    "oddsRowId": leg.row_id,
+                    "rowAvailableAsOfEqualsLedgerRequestedAt": leg.receipt_ledger_id is not None,
+                    "ledgerNamesThisJobRun": leg.job_run_id is not None,
+                },
+                "evidenceRowSha256Meaning": ("sha256 of the canonical JSON (sorted keys, compact) of that row as "
+                                             "copied into this evidence document"),
+                "neverUsed": ["provider_request_ledger.requested_at", "odds_snapshots.available_as_of",
+                              "odds_snapshots.created_at", "export build time",
+                              "MoneylinePair.received_at (a pre-request clock)"],
+            },
             "rowRef": EvidencePointer(f"/rows/odds_snapshots/{leg.row_id}"),
         }
 
@@ -2591,6 +3182,13 @@ def _response_identity(snapshot: Snapshot, link: SgoRawLink | None, ledger_rows:
         "archiveClockSource": response.archive_clock_source if response else None,
         "fileModifiedAtUtc": iso(response.file_modified_at) if response else None,
         "rawArchivePayloadChecksum": response.payload_checksum if response else None,
+        "exactResponseBody": ({
+            "path": response.body_path, "sha256": response.body_sha256, "bytes": response.body_bytes,
+            "verified": response.body_verified,
+            "meaning": ("sha256/bytes of the EXACT HTTP response body as the provider sent it (for a RawArchive "
+                        "wrapper, the gzip-compressed .body.gz beside it, decompressed); the response's own "
+                        "identity. The wrapper's sha256 above is of AISP's archive file."),
+        } if response and response.body_verified else None),
         "fetchClockUtc": iso(snapshot.fetch_clock),
         "fetchClockMeaning": ("provider_request_ledger.requested_at = odds_snapshots.available_as_of: when AISP "
                               "sent the request. Not a receipt and never a quote update clock."),
@@ -2665,8 +3263,7 @@ def _conventions(provider: str, link: SgoRawLink | None = None) -> dict[str, Any
         },
     }
     reasons = [f"LIMITATION_EXTRA_INNINGS_INCLUSION_{suffix}", f"LIMITATION_SETTLEMENT_TIE_HANDLING_{suffix}",
-               f"LIMITATION_PITCHER_ACTION_CONVENTION_{suffix}",
-               "LIMITATION_CONVENTIONS_UNPROVED_NOT_ENFORCED_BY_CONSUMER_PRICE_EVALUABILITY"]
+               f"LIMITATION_PITCHER_ACTION_CONVENTION_{suffix}"]
     return {
         **base,
         "providerOddIds": [SGO_HOME_ODD_ID, SGO_AWAY_ODD_ID],
@@ -2691,10 +3288,15 @@ def _conventions(provider: str, link: SgoRawLink | None = None) -> dict[str, Any
         },
         "proved": False,
         "unprovedFields": list(_CONVENTION_FIELDS),
-        "eligibilityEffect": ("NOT_ENFORCED_BY_THIS_EXPORTER: unproved conventions are recorded here and as "
-                              "LIMITATION codes; priceEvaluable is unchanged by them"),
+        "eligibilityEffect": ("ENFORCED: a pair whose conventions are not proved is not evaluable "
+                              "(PAIR_CONVENTIONS_UNPROVED, market stage MARKET_EVIDENCE_UNPROVED)"),
         "reasonCodes": reasons,
     }
+
+
+# Read the running code's identity now, as the module loads, so a later checkout
+# of different code without a restart cannot relabel what is actually running.
+_CONSUMER_IDENTITY = _load_consumer_identity()
 
 
 __all__ = [

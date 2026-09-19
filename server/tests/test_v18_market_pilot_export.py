@@ -34,14 +34,14 @@ START = datetime(2026, 9, 20, 20, 5, tzinfo=UTC)
 LOCK = START - timedelta(minutes=15)            # 19:50
 DEADLINE = START - timedelta(minutes=5)         # 20:00
 GAME_PK = "824999"
-HANDOFF_SHA = "a" * 64
 
 
 # ---------------------------------------------------------------------------
 # A small retained world: one game, one V18 forecast, decisions, quotes
 # ---------------------------------------------------------------------------
 class World:
-    def __init__(self, session: Session, root: Path) -> None:
+    def __init__(self, session: Session, root: Path, *, object_overrides: dict | None = None) -> None:
+        self.object_overrides = object_overrides
         self.session = session
         self.root = root
         self.raw = root / "raw"
@@ -107,26 +107,75 @@ class World:
         self._raw_schedule("R")
         self.books: dict[str, Sportsbook] = {}
 
+    # -- producer object (synthetic, content-addressed like the real exchange) --
+    P_HOME = 0.5431
+    SEED = 20260907
+
+    def producer_object(self, *, forecast_overrides: dict | None = None) -> tuple[str, Path, str, Path]:
+        """Write a synthetic producer object + handoff exactly as the importer verifies them."""
+
+        from app.shadow_import.mlb_v18_daily import _canonical_bytes, _sha_json
+
+        exchange = self.root / "exchange"
+        forecast_doc = {
+            "schemaVersion": "MLB_V18_DAILY_GAME_FORECAST_V1", "gameId": str(self.game.id),
+            "parentAuthority": {"bundleId": "mlb-v18-whole-game-a6e7e991",
+                                "bundleSha256": pilot.FROZEN_MODEL["parentBundleSha256"],
+                                "paModelSha256": pilot.FROZEN_MODEL["paSha256"],
+                                "transitionSha256": pilot.FROZEN_MODEL["transitionSha256"]},
+            "simulation": {"seed": self.SEED, "count": 5000},
+            "probabilities": {"homeWin": self.P_HOME, "awayWin": 1 - self.P_HOME},
+            "monteCarloUncertainty": {"homeWinProbabilityStandardError": (self.P_HOME * (1 - self.P_HOME) / 5000) ** 0.5},
+            **(forecast_overrides or {}),
+        }
+        files = {
+            "forecast.json": _canonical_bytes(forecast_doc),
+            "execution-inputs.json": _canonical_bytes({"population": {"simulationCount": 5000,
+                                                                      "homeRuns": [4, 2], "awayRuns": [3, 5]}}),
+            "pregame-evidence.json": _canonical_bytes({"contentSha256": "e" * 64, "providerCalls": 0}),
+        }
+        body = {"schemaVersion": "MLB_V18_DAILY_GAME_OBJECT_MANIFEST_V1", "gameId": str(self.game.id),
+                "artifacts": [{"relativePath": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+                              for name, data in sorted(files.items())]}
+        object_sha = _sha_json(body)
+        root = exchange / "objects" / "sha256" / object_sha
+        root.mkdir(parents=True, exist_ok=True)
+        for name, data in files.items():
+            (root / name).write_bytes(data)
+        (root / "manifest.json").write_bytes(_canonical_bytes({**body, "objectId": "obj",
+                                                               "objectSha256": object_sha}))
+        handoff_body = {"schemaVersion": "AISP_MLB_V18_DAILY_SLATE_HANDOFF_V1",
+                        "forecasts": [{"objectSha256": object_sha, "manifestFile": "manifest.json",
+                                       "forecastFile": "forecast.json", "gameId": str(self.game.id)}]}
+        handoff_sha = _sha_json(handoff_body)
+        handoff = exchange / "handoffs" / "sha256" / handoff_sha / "aisp-handoff.json"
+        handoff.parent.mkdir(parents=True, exist_ok=True)
+        handoff.write_bytes(_canonical_bytes({**handoff_body, "handoffId": "h", "handoffSha256": handoff_sha}))
+        return object_sha, root, handoff_sha, handoff
+
     # -- forecast -------------------------------------------------------------
     def _forecast(self) -> ShadowForecast:
         created = LOCK - timedelta(minutes=70)
+        object_sha, object_root, handoff_sha, handoff = self.producer_object(
+            forecast_overrides=self.object_overrides)
+        self.object_root, self.handoff_sha = object_root, handoff_sha
         bundle = ShadowForecastBundle(
-            bundle_sha256=HANDOFF_SHA, contract_version="AISP_MLB_V18_DAILY_SLATE_HANDOFF_V1",
-            bundle_id="mlb-v18-daily-handoff-test", logical_uri=str(self.root / "no-exchange" / "aisp-handoff.json"),
+            bundle_sha256=handoff_sha, contract_version="AISP_MLB_V18_DAILY_SLATE_HANDOFF_V1",
+            bundle_id="mlb-v18-daily-handoff-test", logical_uri=str(handoff),
             source_fixture_id="b" * 64, slate_date=START.date(), league="MLB", sport="MLB",
             status="RESEARCH_SHADOW", generated_at=created + timedelta(minutes=1), forecast_count=1,
-            quote_count=0, candidate_count=0, evidence={"handoffSha256": HANDOFF_SHA},
+            quote_count=0, candidate_count=0, evidence={"handoffSha256": handoff_sha},
             imported_at=created + timedelta(minutes=4), created_at=created + timedelta(minutes=2))
         self.session.add(bundle)
         self.session.flush()
-        p_home = 0.5431
+        p_home = self.P_HOME
         forecast = ShadowForecast(
-            bundle_id=bundle.id, canonical_game_id=self.game.id, forecast_id="mlb-v18-daily-" + "d" * 64,
+            bundle_id=bundle.id, canonical_game_id=self.game.id, forecast_id="mlb-v18-daily-" + object_sha,
             forecast_schema_version="MLB_V18_DAILY_GAME_FORECAST_V1", snapshot_type="PROSPECTIVE",
             engine_id=pilot.ENGINE_ID, engine_version="mlb-v18-whole-game-a6e7e991",
-            model_artifact_sha256=pilot.FROZEN_MODEL["paSha256"], model_manifest_sha256="d" * 64,
+            model_artifact_sha256=pilot.FROZEN_MODEL["paSha256"], model_manifest_sha256=object_sha,
             feature_vector_sha256="e" * 64, simulator_id="V18_WHOLE_GAME_MONTE_CARLO",
-            simulator_version="MLB_V18_DAILY_GAME_FORECAST_V1", simulator_seed=20260907,
+            simulator_version="MLB_V18_DAILY_GAME_FORECAST_V1", simulator_seed=self.SEED,
             event_id=str(self.game.id), source_event_id=GAME_PK, event_date=START.date(), season=2026,
             season_type="REGULAR", home_team_id=str(self.home.id), away_team_id=str(self.away.id),
             is_ready=True, readiness_score=1.0, readiness_threshold=1.0, status="PROSPECTIVE_RESEARCH_SHADOW",
@@ -140,8 +189,8 @@ class World:
             readiness_detail={"sides": {"HOME": {"lineupObservedAt": (created - timedelta(minutes=9)).isoformat(),
                                                  "lineupStatus": "CONFIRMED"}}},
             identity_evidence={"gameId": str(self.game.id)},
-            lineage_detail={"objectSha256": "d" * 64, "parentBundleSha256": pilot.FROZEN_MODEL["parentBundleSha256"],
-                            "sourceArtifact": str(self.root / "no-exchange" / "object"),
+            lineage_detail={"objectSha256": object_sha, "parentBundleSha256": pilot.FROZEN_MODEL["parentBundleSha256"],
+                            "sourceArtifact": str(object_root),
                             "inputReceipts": {"pregameSnapshotCapturedAt": (created - timedelta(minutes=5)).isoformat()},
                             "populationGeometry": {"supplementSha256": "f" * 64, "populationDigest": "9" * 64}},
             created_at=created + timedelta(minutes=2))
@@ -149,12 +198,13 @@ class World:
         self.session.add(JobRun(job_name=pilot.V18_IMPORT_JOB, status=RunStatus.SUCCEEDED,
                                 started_at=created + timedelta(minutes=1, seconds=30),
                                 completed_at=created + timedelta(minutes=5),
-                                result={"v18": {"imported": [{"handoff_sha256": HANDOFF_SHA}]}}))
+                                result={"v18": {"imported": [{"handoff_sha256": handoff_sha}]}}))
         self.session.flush()
         return forecast
 
-    def _raw_schedule(self, game_type: str) -> None:
-        archived = LOCK - timedelta(minutes=40)
+    def _raw_schedule(self, game_type: str, *, archived: datetime | None = None,
+                      game_date: str = "2026-09-20T20:05:00Z", home_id: int = 110, away_id: int = 158) -> None:
+        archived = archived or LOCK - timedelta(minutes=40)
         folder = self.raw / "mlb_stats_api" / f"{archived:%Y}" / f"{archived:%m}" / f"{archived:%d}"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{archived:%H%M%S}_{archived:%f}_abc123.json"
@@ -162,9 +212,9 @@ class World:
             "metadata": {"source": "MLB_STATS_API", "ingestion_timestamp": archived.isoformat(),
                          "checksum": "0" * 64},
             "payload": {"schedule": {"dates": [{"date": "2026-09-20", "games": [{
-                "gamePk": int(GAME_PK), "gameType": game_type, "gameDate": "2026-09-20T20:05:00Z",
+                "gamePk": int(GAME_PK), "gameType": game_type, "gameDate": game_date,
                 "officialDate": "2026-09-20", "doubleHeader": "N", "gameNumber": 1,
-                "teams": {"home": {"team": {"id": 110}}, "away": {"team": {"id": 158}}},
+                "teams": {"home": {"team": {"id": home_id}}, "away": {"team": {"id": away_id}}},
                 "linescore": {"teams": {"home": {"runs": 31337}}}}]}]}},
         }), encoding="utf-8")
         stamp = archived.timestamp()
@@ -172,13 +222,13 @@ class World:
 
     # -- decisions / positions ----------------------------------------------
     def decision(self, at: datetime, recommendation: str = "NO_BET", *, decision_id: str | None = None,
-                 forecast: ShadowForecast | None = None) -> ShadowExperimentDecision:
+                 forecast: ShadowForecast | None = None, names_forecast: bool = True) -> ShadowExperimentDecision:
         row = ShadowExperimentDecision(
             id=uuid.UUID(decision_id) if decision_id else uuid.uuid4(), experiment_id=self.experiment.id,
             game_id=self.game.id, slate_date=START.date(), phase=ExperimentDecisionPhase.FINAL_PREGAME,
             market="MONEYLINE", period="Full game", selection="BAL", recommended_at=at,
             recommendation=recommendation, recommendation_reason="test", qualification_reasons=[],
-            shadow_forecast_id=(forecast or self.forecast).id, created_at=at)
+            shadow_forecast_id=(forecast or self.forecast).id if names_forecast else None, created_at=at)
         self.session.add(row)
         self.session.flush()
         return row
@@ -196,7 +246,7 @@ class World:
     def quote(self, book: str, *, fetched: datetime, observed: datetime, home: int = -120, away: int = 110,
               receipt: bool = True, receipt_delay: timedelta = timedelta(seconds=3),
               job_delay: timedelta = timedelta(seconds=4), home_leg: bool = True,
-              skew: dict | None = None) -> None:
+              skew: dict | None = None, job: bool = True, job_status: RunStatus = RunStatus.SUCCEEDED) -> None:
         sportsbook = self.books.get(book)
         if sportsbook is None:
             sportsbook = self.books[book] = Sportsbook(key=f"sgo:{book}", name=book)
@@ -213,20 +263,21 @@ class World:
         if receipt and not self.session.query(ProviderRequestLedger).filter_by(
                 requested_at=fetched, status="SUCCEEDED").count():
             filters = {"leagueID": "MLB", "limit": "1", "startsAfter": f"{fetched:%Y-%m-%dT%H:%M:%SZ}"}
-            job = JobRun(job_name="collect-odds-checkpoint", status=RunStatus.SUCCEEDED, started_at=fetched,
+            run = JobRun(job_name="collect-odds-checkpoint", status=job_status, started_at=fetched,
                          completed_at=fetched + job_delay,
                          result={"fallback": {"skew": skew, "request_filters": filters}} if skew else None)
-            self.session.add(job)
+            self.session.add(run)
             self.session.flush()
+            job_id = run.id if job else None
             fingerprint = uuid.uuid4().hex
             reserved = ProviderRequestLedger(provider=pilot.SGO, endpoint_key="sgo_mlb_events", requested_at=fetched,
-                                             status="RESERVED", request_fingerprint=fingerprint, job_run_id=job.id)
+                                             status="RESERVED", request_fingerprint=fingerprint, job_run_id=job_id)
             self.session.add(reserved)
             self.session.flush()
             self.session.add(ProviderRequestLedger(
                 provider=pilot.SGO, endpoint_key="sgo_mlb_events", requested_at=fetched,
                 completed_at=fetched + receipt_delay, status="SUCCEEDED", request_fingerprint=fingerprint,
-                records_received=1, job_run_id=job.id, reservation_id=reserved.id,
+                records_received=1, job_run_id=job_id, reservation_id=reserved.id,
                 response_metadata={"request_shape": {"filters": filters}, "objects_returned": 1}))
         self.session.flush()
 
@@ -314,6 +365,19 @@ def world(session: Session, tmp_path: Path) -> World:
     return World(session, tmp_path)
 
 
+@pytest.fixture
+def evidence_gate_open(monkeypatch):
+    """ONLY for tests of downstream price construction (book choice, no-vig, edges).
+
+    Opens the market evidence stage (per-leg clocks, clock semantics, retained
+    response, conventions), which no real SGO pair passes today, so the timing,
+    receipt and book rules below it can still be exercised. Tests of the gate
+    itself never use this fixture.
+    """
+
+    monkeypatch.setattr(pilot, "market_evidence_failures", lambda snapshot: [])
+
+
 # ---------------------------------------------------------------------------
 # 15-minute edges
 # ---------------------------------------------------------------------------
@@ -335,7 +399,7 @@ def test_missing_update_clock_is_not_evaluable():
 
 
 @pytest.mark.parametrize("minutes, fresh", [(0, True), (15, True), (15.0 + 1 / 60, False), (-1, False)])
-def test_packet_edges_at_the_research_anchor(world, minutes, fresh):
+def test_packet_edges_at_the_research_anchor(world, evidence_gate_open, minutes, fresh):
     # No decision: the anchor is the labelled T-15 research cutoff.
     observed = LOCK - timedelta(minutes=minutes)
     fetched = min(observed, LOCK) - timedelta(minutes=1) if minutes >= 0 else LOCK - timedelta(minutes=2)
@@ -383,7 +447,7 @@ def test_a_one_sided_response_is_not_a_pair(world):
 # ---------------------------------------------------------------------------
 # Book choice
 # ---------------------------------------------------------------------------
-def test_primary_book_is_lexicographic_among_eligible_not_best_price(world):
+def test_primary_book_is_lexicographic_among_eligible_not_best_price(world, evidence_gate_open):
     world.quote("fanduel", fetched=LOCK - timedelta(minutes=4), observed=LOCK - timedelta(minutes=5),
                 home=150, away=-170)                         # best home price
     world.quote("draftkings", fetched=LOCK - timedelta(minutes=4), observed=LOCK - timedelta(minutes=5),
@@ -399,7 +463,7 @@ def test_primary_book_is_lexicographic_among_eligible_not_best_price(world):
     assert market["qHome"] == pytest.approx(r_home / (r_home + r_away), abs=1e-12)
 
 
-def test_a_books_latest_eligible_snapshot_is_used(world):
+def test_a_books_latest_eligible_snapshot_is_used(world, evidence_gate_open):
     world.quote("draftkings", fetched=LOCK - timedelta(minutes=12), observed=LOCK - timedelta(minutes=13),
                 home=-150, away=130)
     world.quote("draftkings", fetched=LOCK - timedelta(minutes=3), observed=LOCK - timedelta(minutes=4),
@@ -443,13 +507,28 @@ def _retained_pair(world, *, home_stamp=HOME_STAMP, away_stamp=AWAY_STAMP, home=
         "draftkings": (home, _sgo_clock(home_stamp), away, _sgo_clock(away_stamp))}, **response)
 
 
+def _book(build, key: str = "draftkings") -> dict:
+    """One book's candidate pair (the packet's `pair` is null whenever nothing is evaluable)."""
+
+    return next(c for c in build.packet["market"]["candidates"] if c["bookKey"] == key)
+
+
+EVIDENCE_REASONS_WITH_A_LINKED_RESPONSE = ["PAIR_QUOTE_CLOCK_SEMANTICS_UNPROVEN", "PAIR_CONVENTIONS_UNPROVED"]
+EVIDENCE_REASONS_WITHOUT_ONE = ["LEG_HOME_QUOTE_CLOCK_NOT_PER_LEG", "LEG_AWAY_QUOTE_CLOCK_NOT_PER_LEG",
+                                "PAIR_QUOTE_CLOCK_SEMANTICS_UNPROVEN", "PAIR_SOURCE_RESPONSE_NOT_RETAINED",
+                                "PAIR_CONVENTIONS_UNPROVED"]
+
+
+def _failures(candidate: dict) -> list[str]:
+    return [code for code in candidate["reasonCodes"] if not code.startswith("LIMITATION_")]
+
+
 def test_per_leg_clocks_are_recovered_from_the_retained_response(world):
     _retained_pair(world)
     build = world.build()
     assert build.schema_errors == []
     market = build.packet["market"]
-    assert market["status"] == "FRESH_PAIRED"
-    pair = market["pair"]
+    pair = _book(build)
     assert pair["perLegClocksRecovered"] is True
     home, away = pair["home"], pair["away"]
     # Each leg carries ITS OWN provider stamp, not the older one stored on both.
@@ -463,34 +542,79 @@ def test_per_leg_clocks_are_recovered_from_the_retained_response(world):
     assert pair["legSkewSeconds"] == 180.0
     assert "LIMITATION_SGO_PER_LEG_PROVIDER_STAMPS_NOT_RETAINED_OLDER_SIDE_APPLIED_TO_BOTH" not in pair["reasonCodes"]
     assert "LIMITATION_RAW_PROVIDER_RESPONSE_NOT_ARCHIVED" not in market["reasonCodes"]
+    # Per-leg clocks and a retained response are necessary, not sufficient: the
+    # clock's semantics and the conventions are still unproven, so it stays UNPRICED.
+    assert market["status"] == "UNPRICED" and pair["eligible"] is False
+    assert _failures(pair) == EVIDENCE_REASONS_WITH_A_LINKED_RESPONSE
+    assert build.packet["eligibility"]["firstFailure"] == "MARKET_EVIDENCE_UNPROVED"
     # The fetch clock is labelled as such and is never an update clock.
     assert pair["sourceResponse"]["fetchClockUtc"] == pilot.iso(FETCHED)
     assert pilot.iso(FETCHED) not in (home["quoteUpdatedAtUtc"], away["quoteUpdatedAtUtc"])
-    assert build.diagnostics["primaryPerLegClocksRecovered"] is True
     assert build.diagnostics["sgoLegsPerLegClockRecovered"] == 2
 
 
 def test_the_age_rule_reads_each_recovered_leg_clock(world):
-    # Stored rows alone (older side on both legs, 9 minutes) look fresh ...
+    # Stored rows alone (older side on both legs, 9 minutes) pass TIMING ...
     world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
-    assert world.build().packet["market"]["status"] == "FRESH_PAIRED"
+    first = world.build().packet
+    assert first["market"]["timingOnlyDiagnostics"]["timingFreshPrimaryBookKey"] == "draftkings"
+    assert first["eligibility"]["firstFailure"] == "MARKET_EVIDENCE_UNPROVED"
     # ... but the retained response shows the home side stamped AFTER the anchor.
     after = LOCK + timedelta(minutes=1)
     world.sgo_response(archived=ARCHIVED, books={
         "draftkings": ("-120", _sgo_clock(after), "+110", _sgo_clock(AWAY_STAMP))})
     build = world.build()
-    assert build.packet["market"]["pair"] is None
-    candidate = build.packet["market"]["candidates"][0]
+    candidate = _book(build)
     assert candidate["home"]["quoteUpdatedAtUtc"] == pilot.iso(after)
     assert "LEG_QUOTE_AGE_NEGATIVE_HOME" in candidate["reasonCodes"]
+    assert build.packet["market"]["timingOnlyDiagnostics"]["timingFreshBooks"] == []
     assert build.packet["eligibility"]["firstFailure"] == "MARKET_QUOTE_AGE_NEGATIVE"
+
+
+def test_timing_fresh_pairs_are_unpriced_with_the_exact_evidence_reasons(world):
+    # Fresh on its recorded clock (the older side copied to both legs), receipted,
+    # two-sided, same book: timing passes; evidence does not.
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
+    world.quote("fanduel", fetched=FETCHED, observed=AWAY_STAMP)
+    build = world.build()
+    market = build.packet["market"]
+    assert market["status"] == "UNPRICED" and market["pair"] is None and market["qHome"] is None
+    assert build.packet["eligibility"]["priceEvaluable"] is False
+    assert build.packet["eligibility"]["firstFailure"] == "MARKET_EVIDENCE_UNPROVED"
+    assert market["reasonCodes"][:2] == ["MARKET_EVIDENCE_UNPROVED", "MARKET_NO_ELIGIBLE_BOOK"]
+    for book in ("draftkings", "fanduel"):
+        candidate = _book(build, book)
+        assert candidate["eligible"] is False
+        assert _failures(candidate) == EVIDENCE_REASONS_WITHOUT_ONE
+        # The copied older clock is shown for what it is -- never relabelled per-leg or fresh.
+        assert candidate["home"]["quoteUpdatedAtUtc"] == pilot.iso(AWAY_STAMP)
+        assert candidate["home"]["quoteUpdatedAtIsPerLeg"] is False
+    timing = market["timingOnlyDiagnostics"]
+    assert [b["bookKey"] for b in timing["timingFreshBooks"]] == ["draftkings", "fanduel"]
+    assert timing["timingFreshPrimaryEvidenceFailures"] == EVIDENCE_REASONS_WITHOUT_ONE
+    assert "NOT EVALUABLE" in timing["meaning"]
+    assert build.diagnostics["timingFreshBooks"] == 2 and build.diagnostics["eligibleBooks"] == 0
+    assert "NOT_ENFORCED" not in json.dumps(build.packet) and "NOT_ENFORCED" not in json.dumps(build.evidence)
+
+
+def test_the_ledger_only_sensitivity_applies_the_same_evidence_gate(world, monkeypatch):
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
+    assert world.build().diagnostics["eligibleBooksLedgerOnlyBound"] == 0
+    monkeypatch.setattr(pilot, "market_evidence_failures", lambda snapshot: [])
+    assert world.build().diagnostics["eligibleBooksLedgerOnlyBound"] == 1
+
+
+def test_clock_semantics_are_not_established_for_sgo_by_any_default():
+    semantics = pilot.QUOTE_CLOCK_SEMANTICS[pilot.SGO]
+    assert semantics["established"] is False and semantics["meaning"] is None
+    assert pilot.FIRST_FAILURE_ORDER[-1] == "MARKET_EVIDENCE_UNPROVED"
 
 
 def test_the_pairs_response_identity_is_the_retained_file(world):
     path = _retained_pair(world)
     data = path.read_bytes()
     build = world.build()
-    pair = build.packet["market"]["pair"]
+    pair = _book(build)
     ref = pair["sourceResponseRef"]
     assert (ref["path"], ref["sha256"], ref["bytes"]) == (str(path), hashlib.sha256(data).hexdigest(), len(data))
     assert ref["locator"] == ("data[eventID=EVT1].odds[points-home-game-ml-home|points-away-game-ml-away]"
@@ -516,7 +640,7 @@ def test_the_pairs_response_identity_is_the_retained_file(world):
 
 def test_conventions_are_carried_only_as_the_provider_states_them(world):
     _retained_pair(world)
-    conventions = world.build().packet["market"]["pair"]["conventions"]
+    conventions = _book(world.build())["conventions"]
     # Stated by the provider, cited by field.
     home = conventions["providerStated"]["home"]
     assert home["source"] == "data[eventID=EVT1].odds[points-home-game-ml-home]"
@@ -535,6 +659,7 @@ def test_conventions_are_carried_only_as_the_provider_states_them(world):
     assert set(conventions["unprovedFields"]) == {"extraInnings", "settlementRule", "pitcherActionRule"}
     assert "LIMITATION_PITCHER_ACTION_CONVENTION_NOT_STATED_BY_PROVIDER" in conventions["reasonCodes"]
     assert "LIMITATION_EXTRA_INNINGS_INCLUSION_NOT_STATED_BY_PROVIDER" in conventions["reasonCodes"]
+    assert conventions["eligibilityEffect"].startswith("ENFORCED")
     assert "INCLUDED" not in json.dumps(conventions) and "TWO_WAY_NO_TIE" not in json.dumps(conventions)
 
 
@@ -542,13 +667,14 @@ def test_a_missing_raw_response_is_kept_explicit(world):
     world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
     build = world.build()
     market = build.packet["market"]
-    # Eligibility keeps the stored older-side clock, flagged as not per-leg.
-    assert market["status"] == "FRESH_PAIRED"
-    pair = market["pair"]
+    assert market["status"] == "UNPRICED"
+    pair = _book(build)
+    assert "PAIR_SOURCE_RESPONSE_NOT_RETAINED" in pair["reasonCodes"]
     identity = pair["sourceResponse"]
     assert identity["status"] == "NOT_RETAINED" and identity["retained"] is False
     assert (identity["path"], identity["sha256"], identity["bytes"], identity["archivedAtUtc"]) == (
         None, None, None, None)
+    assert identity["exactResponseBody"] is None
     assert identity["reasonCodes"] == ["RAW_RESPONSE_NOT_RETAINED_FOR_THIS_FETCH"]
     assert identity["fetchClockUtc"] == pilot.iso(FETCHED)
     assert pair["sourceResponseRef"]["locator"].startswith("/notes/response:")
@@ -566,7 +692,6 @@ def test_a_missing_raw_response_is_kept_explicit(world):
                  "LIMITATION_SGO_PER_LEG_PROVIDER_STAMPS_NOT_RETAINED_OLDER_SIDE_APPLIED_TO_BOTH",
                  "LIMITATION_PITCHER_ACTION_CONVENTION_NOT_RETAINED"):
         assert code in market["reasonCodes"]
-    assert build.packet["eligibility"]["firstFailure"] == "NONE"
 
 
 @pytest.mark.parametrize("where", ["after_the_receipt", "modified_after_the_anchor", "other_event"])
@@ -575,16 +700,17 @@ def test_a_response_not_bound_to_this_fetch_supplies_nothing(world, where):
                "modified_after_the_anchor": {"modified": LOCK + timedelta(seconds=1)},
                "other_event": {"event_id": "EVT2"}}[where]
     _retained_pair(world, **options)
-    pair = world.build().packet["market"]["pair"]
+    pair = _book(world.build())
     expected = "RETAINED_RESPONSE_DOES_NOT_CONTAIN_EVENT" if where == "other_event" else "NOT_RETAINED"
     assert pair["sourceResponse"]["status"] == expected
     assert pair["perLegClocksRecovered"] is False
     assert pair["home"]["quoteUpdatedAtUtc"] == pilot.iso(AWAY_STAMP)
+    assert "PAIR_SOURCE_RESPONSE_NOT_RETAINED" in pair["reasonCodes"]
 
 
 def test_a_retained_response_that_disagrees_with_the_stored_legs_supplies_no_clock(world):
     _retained_pair(world, home="-135")                       # stored home price is -120
-    pair = world.build().packet["market"]["pair"]
+    pair = _book(world.build())
     identity = pair["sourceResponse"]
     assert identity["status"] == "RETAINED_RESPONSE_DISAGREES_WITH_STORED_LEGS"
     assert identity["reasonCodes"] == ["RETAINED_PRICE_DIFFERS_FROM_STORED"]
@@ -593,25 +719,27 @@ def test_a_retained_response_that_disagrees_with_the_stored_legs_supplies_no_clo
 
 
 def test_a_bare_provider_body_is_dated_by_its_archive_name(world):
-    _retained_pair(world, wrapped=False)
-    identity = world.build().packet["market"]["pair"]["sourceResponse"]
+    path = _retained_pair(world, wrapped=False)
+    identity = _book(world.build())["sourceResponse"]
     assert identity["status"] == "LINKED"
     assert identity["archiveClockSource"] == "RAW_ARCHIVE_FILE_NAME_STAMP"
     assert identity["rawArchivePayloadChecksum"] is None
+    assert identity["exactResponseBody"]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_the_collectors_skew_receipt_is_evidence_never_a_clock(world):
     world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP,
                 skew={"pairs": 12, "max_skew_seconds": 0.0, "pairs_with_skew": 0, "simultaneity_claimed": False})
     build = world.build()
-    pair = build.packet["market"]["pair"]
+    pair = _book(build)
     receipt = pair["ingestParseSkewReceipt"]
     assert receipt["zeroSkewForEveryPair"] is True and receipt["pairs"] == 12
     assert receipt["field"] == "job_runs.result.fallback.skew"
+    # A recorded zero skew never stands in for per-leg clocks.
     assert pair["home"]["quoteUpdatedAtIsPerLeg"] is False and pair["legSkewSeconds"] is None
+    assert "LEG_HOME_QUOTE_CLOCK_NOT_PER_LEG" in pair["reasonCodes"]
     job_rows = build.evidence["rows"]["job_runs"]
     assert any(row.get("ingest_parse_skew_receipt") == receipt for row in job_rows.values())
-    assert build.diagnostics["primaryZeroSkewReceipt"] is True
 
 
 def test_link_requires_the_older_stamp_to_equal_the_stored_observation():
@@ -634,6 +762,241 @@ def test_link_requires_the_older_stamp_to_equal_the_stored_observation():
     assert pilot.link_sgo_pair([], stored_observed=AWAY_STAMP, **common).status == pilot.RAW_NOT_RETAINED
     twin = pilot.RetainedResponse(**{**response.__dict__, "path": "s.json", "sha256": "2" * 64})
     assert pilot.link_sgo_pair([response, twin], stored_observed=AWAY_STAMP, **common).status == pilot.RAW_AMBIGUOUS
+
+
+# ---------------------------------------------------------------------------
+# Disposition 2: both completion receipts, with IDs, row hashes and linkage
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("kwargs, reason", [
+    ({"job": False}, "RECEIPT_LEDGER_ROW_NAMES_NO_INSERTING_JOB_RUN"),
+    ({"job_status": RunStatus.FAILED}, "RECEIPT_JOB_RUN_FAILED"),
+])
+def test_both_completion_receipts_are_required(world, evidence_gate_open, kwargs, reason):
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP, **kwargs)
+    build = world.build()
+    assert build.packet["market"]["status"] == "UNPRICED"
+    assert build.packet["eligibility"]["firstFailure"] == "MARKET_NO_RECEIPT_BY_ANCHOR"
+    candidate = _book(build)
+    assert f"LEG_HOME_{reason}" in candidate["reasonCodes"]
+    receipts = candidate["home"]["completionReceipts"]
+    assert receipts["established"] is False and receipts["reasonCode"] == reason
+    assert candidate["home"]["availableByIsReceipt"] is False
+
+
+def test_completion_receipts_carry_ids_row_hashes_and_linkage(world, evidence_gate_open):
+    world.quote("draftkings", fetched=FETCHED, observed=AWAY_STAMP)
+    build = world.build()
+    home = build.packet["market"]["pair"]["home"]
+    receipts = home["completionReceipts"]
+    assert receipts["established"] is True and receipts["reasonCode"] is None
+    rows = build.evidence["rows"]
+    ledger_row = rows["provider_request_ledger"][receipts["ledger"]["id"]]
+    job_row = rows["job_runs"][receipts["job"]["id"]]
+    assert receipts["ledger"]["evidenceRowSha256"] == hashlib.sha256(pilot.canonical_bytes(ledger_row)).hexdigest()
+    assert receipts["job"]["evidenceRowSha256"] == hashlib.sha256(pilot.canonical_bytes(job_row)).hexdigest()
+    assert ledger_row["job_run_id"] == receipts["job"]["id"]
+    assert receipts["linkage"] == {"oddsRowId": receipts["linkage"]["oddsRowId"],
+                                   "rowAvailableAsOfEqualsLedgerRequestedAt": True, "ledgerNamesThisJobRun": True}
+    # max(ledger +3s, job +4s): the later completion, never the request start.
+    assert home["availableByUtc"] == pilot.iso(FETCHED + timedelta(seconds=4))
+    assert "MoneylinePair.received_at (a pre-request clock)" in receipts["neverUsed"]
+
+
+# ---------------------------------------------------------------------------
+# Disposition 1: gameType=R bound to game, orientation and schedule revision
+# ---------------------------------------------------------------------------
+def test_phase_r_is_bound_to_game_orientation_and_schedule_revision(world):
+    build = world.build()
+    game = build.packet["game"]
+    binding = game["phaseBinding"]
+    assert game["phase"] == "R" and binding["bound"] is True
+    assert {k for k, v in binding["checks"].items() if v} >= {"gamePk", "orientation", "scheduleRevision",
+                                                              "archivedByLock"}
+    assert binding["identityProjectionSha256"] == hashlib.sha256(
+        pilot.canonical_bytes(binding["identityProjection"])).hexdigest()
+    assert "linescore" not in json.dumps(binding) and binding["importerSeasonTypeConstantUsed"] is False
+    assert f"identityProjectionSha256={binding['identityProjectionSha256']}" in game["phaseEvidenceRef"]["locator"]
+    assert pilot.aware(build.evidence["files"]["phaseEvidence"]["archivedAtUtc"]) <= LOCK
+
+
+@pytest.mark.parametrize("change, code", [
+    ({"home_id": 158, "away_id": 110}, "PHASE_EVIDENCE_NOT_BOUND_TEAM_ORIENTATION"),
+    ({"game_date": "2026-09-20T23:05:00Z"}, "PHASE_EVIDENCE_NOT_BOUND_SCHEDULE_REVISION"),
+])
+def test_a_capture_bound_to_another_orientation_or_revision_never_certifies_r(world, change, code):
+    world._raw_schedule("R", archived=LOCK - timedelta(minutes=20), **change)   # the latest capture by the lock
+    build = world.build()
+    game = build.packet["game"]
+    assert game["phase"] == "UNKNOWN" and code in game["reasonCodes"]
+    assert game["phaseBinding"]["capturedGameType"] == "R"          # visible, never certified
+    assert "PHASE_NOT_CERTIFIED_R" in build.packet["eligibility"]["reasonCodes"]
+    assert build.packet["eligibility"]["primaryPopulationPhaseR"] is False
+
+
+def test_unmapped_team_ids_leave_the_orientation_unproved(world):
+    world.session.query(ExternalIdMapping).filter_by(entity_type="team").delete()
+    world.session.flush()
+    game = world.build().packet["game"]
+    assert game["phase"] == "UNKNOWN"
+    assert "PHASE_EVIDENCE_ORIENTATION_UNPROVED_TEAM_SOURCE_IDS_UNMAPPED" in game["reasonCodes"]
+
+
+# ---------------------------------------------------------------------------
+# Dispositions 4 and 6: the exact producer object, physically, and its numbers
+# ---------------------------------------------------------------------------
+def _digest(path: Path) -> tuple[str, str, int]:
+    data = path.read_bytes()
+    return str(path), hashlib.sha256(data).hexdigest(), len(data)
+
+
+def test_the_forecast_binds_the_exact_producer_object_physically(world):
+    build = world.build()
+    forecast = build.packet["forecast"]
+    object_ref, population_ref = forecast["objectRef"], forecast["scorePopulationRef"]
+    assert (object_ref["path"], object_ref["sha256"], object_ref["bytes"]) == _digest(
+        world.object_root / "manifest.json")
+    assert (population_ref["path"], population_ref["sha256"], population_ref["bytes"]) == _digest(
+        world.object_root / "execution-inputs.json")
+    assert "execution-inputs.json#/population" in population_ref["locator"]
+    assert forecast["objectRefIsPhysical"] is True and forecast["scorePopulationRefIsPhysical"] is True
+    assert forecast["inputSnapshotRef"]["path"] == str(world.object_root / "pregame-evidence.json")
+    verification = forecast["operationalEvidence"]["producerObjectVerification"]
+    assert verification["verified"] is True and verification["reasonCodes"] == []
+    assert {name for name, check in verification["identityChecks"].items() if check["agree"]} >= {
+        "paSha256", "parentBundleSha256", "seed", "simulationCount", "pHome", "pAway", "gameId"}
+    assert build.packet["eligibility"]["forecastEligible"] is True
+    # Consumer nulls stay nulls; what the object holds is recovery provenance only.
+    assert forecast["modelIdentity"]["transitionSha256"] is None
+    assert build.evidence["notes"]["producerObjectVerification"]["producerObjectHashes"]["transitionSha256"] == (
+        pilot.FROZEN_MODEL["transitionSha256"])
+    assert "LIMITATION_NO_PER_FORECAST_DEPLOYMENT_ATTESTATION_RETAINED" in forecast["reasonCodes"]
+
+
+@pytest.mark.parametrize("damage, code", [
+    ("unreadable", "FORECAST_PRODUCER_OBJECT_NOT_PHYSICALLY_VERIFIED_UNREADABLE_BY_EXPORTER"),
+    ("population", "FORECAST_SCORE_POPULATION_NOT_PHYSICALLY_VERIFIED_DIGEST_DIFFERS_FROM_MANIFEST"),
+    ("seed", "FORECAST_AISP_SEED_DISAGREES_WITH_PRODUCER_OBJECT"),
+    ("probability", "FORECAST_AISP_P_HOME_DISAGREES_WITH_PRODUCER_OBJECT"),
+])
+def test_an_unverifiable_or_disagreeing_producer_object_excludes_the_forecast(session, tmp_path, damage, code):
+    # AISP rows are append-only, so a disagreement is built into the producer object itself.
+    overrides = {"seed": {"simulation": {"seed": World.SEED + 1, "count": 5000}},
+                 "probability": {"probabilities": {"homeWin": World.P_HOME + 0.01,
+                                                   "awayWin": 1 - World.P_HOME - 0.01}}}.get(damage)
+    world = World(session, tmp_path, object_overrides=overrides)
+    if damage == "unreadable":
+        (world.object_root / "manifest.json").rename(world.object_root / "manifest.moved")
+    elif damage == "population":
+        (world.object_root / "execution-inputs.json").write_bytes(b'{"population":{}}')
+    build = world.build()
+    assert code in build.packet["eligibility"]["reasonCodes"]
+    assert build.packet["eligibility"]["forecastEligible"] is False
+    assert build.packet["eligibility"]["firstFailure"] == "FORECAST_INTEGRITY_FAILED"
+    assert build.schema_errors == []
+    if damage == "unreadable":
+        assert build.packet["forecast"]["objectRefIsPhysical"] is False
+        assert build.packet["forecast"]["scorePopulationRefIsPhysical"] is False
+
+
+# ---------------------------------------------------------------------------
+# Disposition 5: the anchor
+# ---------------------------------------------------------------------------
+def test_a_selected_decision_before_the_window_still_has_priority():
+    early = _candidate(20, "QUALIFIED_BET")                 # T-35: before [T-30, T-15]
+    latest = _candidate(2)
+    choice = pilot.choose_anchor([early, latest], [pilot.PositionLink("p", early.id, "f")], LOCK)
+    assert choice.kind == "ACTUAL_DECISION" and choice.decision.id == early.id
+    assert "ANCHOR_POSITION_DECISION_OUTSIDE_T30_T15_LEAD_TIME_STRATUM" in choice.reason_codes
+
+
+def test_a_position_decision_after_the_lock_was_not_already_selected():
+    after = _candidate(-2, "QUALIFIED_BET")
+    latest = _candidate(3)
+    choice = pilot.choose_anchor([after, latest], [pilot.PositionLink("p", after.id, "f")], LOCK)
+    assert choice.decision.id == latest.id
+    assert "POSITION_DECISION_AFTER_LOCK_NOT_ALREADY_SELECTED_IGNORED" in choice.reason_codes
+
+
+def test_a_position_whose_forecast_differs_from_its_decisions_is_an_ambiguity_exclusion():
+    backed = _candidate(5, "QUALIFIED_BET")                 # names forecast "f"
+    choice = pilot.choose_anchor([backed], [pilot.PositionLink("p", backed.id, "g")], LOCK)
+    assert choice.kind == "NONE_EXCLUDED" and choice.at is None
+    assert "ANCHOR_AMBIGUOUS_POSITION_FORECAST_BINDING_CONFLICTS_WITH_DECISION" in choice.reason_codes
+
+
+def test_a_selected_decision_without_a_forecast_is_not_replaced_by_the_research_cutoff():
+    backed = pilot.DecisionCandidate(id=str(uuid.uuid4()), recommended_at=LOCK - timedelta(minutes=5),
+                                     recommendation="QUALIFIED_BET", shadow_forecast_id=None)
+    choice = pilot.choose_anchor([backed], [pilot.PositionLink("p", backed.id)], LOCK)
+    assert choice.kind == "ACTUAL_DECISION" and choice.decision.id == backed.id
+    assert "ANCHOR_POSITION_DECISION_NAMES_NO_V18_FORECAST_NO_RESEARCH_FALLBACK" in choice.reason_codes
+
+
+def test_a_decision_naming_a_forecast_with_missing_evidence_is_excluded_without_fallback(world):
+    decision = world.decision(LOCK - timedelta(minutes=6), "NO_BET")
+    (world.object_root / "manifest.json").rename(world.object_root / "manifest.moved")
+    build = world.build()
+    anchor = build.packet["anchor"]
+    assert anchor["kind"] == "ACTUAL_DECISION" and anchor["decisionId"] == str(decision.id)
+    assert build.packet["eligibility"]["forecastEligible"] is False
+    assert build.packet["eligibility"]["firstFailure"] == "FORECAST_INTEGRITY_FAILED"
+    assert build.packet["forecast"]["forecastIdentity"] == world.forecast.forecast_id   # never substituted
+    assert "ANCHOR_RESEARCH_FORECAST_IS_LATEST_HANDOFF_BY_LOCK_TIE_FORECAST_ID_ASC" not in (
+        build.packet["eligibility"]["reasonCodes"])
+
+
+def test_the_research_cutoff_keeps_the_real_decision_rows_and_the_selection_state(world, evidence_gate_open):
+    # A checkpoint that bound no V18 forecast.
+    decision = world.decision(LOCK - timedelta(minutes=5), "NO_BET", names_forecast=False)
+    world.quote("draftkings", fetched=LOCK - timedelta(minutes=2), observed=LOCK - timedelta(minutes=3))
+    build = world.build()
+    anchor = build.packet["anchor"]
+    assert anchor["kind"] == "RESEARCH_T_MINUS_15" and anchor["decisionId"] is None
+    assert anchor["atUtc"] == pilot.iso(LOCK) and anchor["selectionCheckpointDecisionId"] == str(decision.id)
+    assert str(decision.id) in build.evidence["rows"]["shadow_experiment_decisions"]
+    assert build.packet["selection"]["statusAtResearchLock"] == "EVALUATED_NOT_SELECTED"
+    assert build.packet["forecast"]["forecastIdentity"] == world.forecast.forecast_id
+    # Prices are matched to T-15, the research cutoff.
+    assert build.packet["market"]["anchorUtc"] == pilot.iso(LOCK)
+    assert build.packet["market"]["pair"]["home"]["ageMinutesAtAnchor"] == pytest.approx(3.0)
+
+
+# ---------------------------------------------------------------------------
+# Seal clocks and the running consumer's identity
+# ---------------------------------------------------------------------------
+def test_the_evidence_names_the_running_consumer_and_both_seal_clocks(world):
+    build = world.build()
+    identity = build.evidence["consumerIdentity"]
+    assert identity["exportRevision"] == pilot.EXPORT_REVISION == build.evidence["exportRevision"]
+    assert build.packet["selection"]["consumerExportRevision"] == pilot.EXPORT_REVISION
+    assert identity["gitCommit"] is None or len(identity["gitCommit"]) == 40
+    assert identity["gitCommit"] or identity["reason"]
+    assert identity["builderModuleSha256"] == hashlib.sha256(Path(pilot.__file__).read_bytes()).hexdigest()
+    clocks = build.evidence["clockConventions"]
+    assert "BUILD START" in clocks["packet_sealedAtUtc"]
+    assert "COMPLETION" in clocks["attemptLedger_SEALED_writtenAtUtc"]
+    assert "BEFORE the request" in clocks["sgo_MoneylinePair_received_at"]
+
+
+def test_git_head_is_read_from_plain_and_linked_checkouts(tmp_path):
+    sha = "1" * 40
+    plain = tmp_path / "plain"
+    (plain / ".git").mkdir(parents=True)
+    (plain / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (plain / ".git" / "packed-refs").write_text(f"# pack-refs\n{sha} refs/heads/main\n", encoding="utf-8")
+    assert pilot._git_head(plain)["gitCommit"] == sha
+    common = tmp_path / "common"
+    (common / "refs" / "heads").mkdir(parents=True)
+    (common / "refs" / "heads" / "wt").write_text("2" * 40 + "\n", encoding="utf-8")
+    gitdir = common / "worktrees" / "wt"
+    gitdir.mkdir(parents=True)
+    (gitdir / "HEAD").write_text("ref: refs/heads/wt\n", encoding="utf-8")
+    (gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    (linked / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+    assert pilot._git_head(linked)["gitCommit"] == "2" * 40
+    assert pilot._git_head(tmp_path / "nothing")["gitCommit"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -711,7 +1074,7 @@ def test_selection_without_a_decision_or_with_an_incomplete_export():
     assert pilot.selection_status(decided, experiment_present=False, export_complete=True)[0] == "UNRESOLVED"
 
 
-def test_selected_packet_anchors_on_the_decision_and_matches_quotes_to_it(world):
+def test_selected_packet_anchors_on_the_decision_and_matches_quotes_to_it(world, evidence_gate_open):
     decision = world.decision(LOCK - timedelta(minutes=6), "QUALIFIED_BET")
     world.position(decision)
     world.quote("draftkings", fetched=LOCK - timedelta(minutes=9), observed=LOCK - timedelta(minutes=10))

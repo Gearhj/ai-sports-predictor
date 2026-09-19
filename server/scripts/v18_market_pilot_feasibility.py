@@ -149,6 +149,19 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+ACCESS_ONLY_CODES = {"FORECAST_INTEGRITY_FAILED",
+                     "FORECAST_PRODUCER_OBJECT_NOT_PHYSICALLY_VERIFIED_UNREADABLE_BY_EXPORTER"}
+
+
+def _blocked_only_by_object_access(packet: dict[str, Any]) -> bool:
+    """The forecast failed ONLY because this process could not read the producer object."""
+
+    failing = {code for code in packet["eligibility"]["reasonCodes"]
+               if code.startswith("FORECAST_") and not code.startswith("LIMITATION_")}
+    return ("FORECAST_PRODUCER_OBJECT_NOT_PHYSICALLY_VERIFIED_UNREADABLE_BY_EXPORTER" in failing
+            and failing <= ACCESS_ONLY_CODES)
+
+
 def _row(build: Any, game: Any) -> dict[str, Any]:
     packet, diag = build.packet, build.diagnostics
     market = packet["market"]
@@ -176,6 +189,13 @@ def _row(build: Any, game: Any) -> dict[str, Any]:
         "forecastEligible": packet["eligibility"]["forecastEligible"],
         "marketStatus": market["status"],
         "priceEvaluable": packet["eligibility"]["priceEvaluable"],
+        # TIMING ONLY: a book passed pairing, both receipts and the 0..15-minute age on its
+        # RECORDED clocks. Never price evaluability (that also needs the evidence stage).
+        "timingFresh15MinutePair": bool(diag.get("timingFreshBooks")),
+        "timingFreshBooks": diag.get("timingFreshBooks", 0),
+        "timingFreshPrimaryBook": diag.get("timingFreshPrimaryBook"),
+        "timingFreshPrimaryEvidenceFailures": "|".join(diag.get("timingFreshPrimaryEvidenceFailures") or []),
+        "forecastBlockedOnlyByExporterObjectAccess": _blocked_only_by_object_access(packet),
         "primaryBook": market["selectedBookKey"],
         "primaryProvider": market["selectedProviderKey"],
         "books": diag.get("books", 0),
@@ -199,6 +219,10 @@ def _row(build: Any, game: Any) -> dict[str, Any]:
         "primaryPerLegClocksRecovered": diag.get("primaryPerLegClocksRecovered", False),
         "primaryZeroSkewReceipt": diag.get("primaryZeroSkewReceipt", False),
         "primaryConventionsProved": diag.get("primaryConventionsProved", False),
+        "timingPrimaryRawLinkStatus": diag.get("timingPrimaryRawLinkStatus"),
+        "timingPrimaryPerLegClocksRecovered": diag.get("timingPrimaryPerLegClocksRecovered", False),
+        "timingPrimaryZeroSkewReceipt": diag.get("timingPrimaryZeroSkewReceipt", False),
+        "timingPrimaryConventionsProved": diag.get("timingPrimaryConventionsProved", False),
         "firstFailure": packet["eligibility"]["firstFailure"],
         "selectionAscertained": packet["eligibility"]["selectionAscertained"],
         "schemaValid": not build.schema_errors,
@@ -461,6 +485,12 @@ def _compare(rows: list[dict[str, Any]], prior_csv: Path) -> dict[str, Any]:
         "onlyInPrior": sorted(set(prior) - set(current)),
         "freshInPriorShared": sum(1 for key in shared if fresh(prior[key]["priceEvaluable"])),
         "freshInCurrentShared": sum(1 for key in shared if current[key]["priceEvaluable"]),
+        "priorFreshNowTimingFresh": sum(1 for key in shared if fresh(prior[key]["priceEvaluable"])
+                                        and current[key]["timingFresh15MinutePair"]),
+        "priorFreshNowProtocolEvaluable": sum(1 for key in shared if fresh(prior[key]["priceEvaluable"])
+                                              and current[key]["priceEvaluable"]),
+        "priorPriceEvaluableMeaning": ("the prior run's priceEvaluable had no evidence stage: it was timing-only "
+                                       "(pairing, receipt, 0..15-minute age on the recorded clocks)"),
         "freshChanged": changed,
         "firstFailureChanged": first_changed,
     }
@@ -472,9 +502,15 @@ def _summarise(rows, context, protocol, start, end, run_at, raw_root, ledger_pat
             "attempts": len(subset),
             "phaseR": sum(1 for r in subset if r["phase"] == "R"),
             "v18ForecastEligibleByAnchor": sum(1 for r in subset if r["forecastEligible"]),
-            "fresh15MinutePair": sum(1 for r in subset if r["priceEvaluable"]),
-            "forecastAndFreshPair": sum(1 for r in subset if r["forecastEligible"] and r["priceEvaluable"]),
+            "timingFresh15MinutePair": sum(1 for r in subset if r["timingFresh15MinutePair"]),
+            "protocolEvaluablePair": sum(1 for r in subset if r["priceEvaluable"]),
+            "forecastAndTimingFreshPair": sum(1 for r in subset
+                                              if r["forecastEligible"] and r["timingFresh15MinutePair"]),
+            "forecastAndProtocolEvaluablePair": sum(1 for r in subset
+                                                    if r["forecastEligible"] and r["priceEvaluable"]),
             "lackingAnyEligibleBook": sum(1 for r in subset if not r["priceEvaluable"]),
+            "forecastBlockedOnlyByExporterObjectAccess": sum(
+                1 for r in subset if r["forecastBlockedOnlyByExporterObjectAccess"]),
             "anyQuoteFetchedByAnchor": sum(1 for r in subset if r["quoteRowsFetchedByAnchor"]),
             "completeReceiptedPairByAnchorAnyAge": sum(
                 1 for r in subset if r["freshestReceiptedPairOlderLegAgeMinutes"] is not None),
@@ -554,7 +590,13 @@ def _recovery_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         for status, count in json.loads(r["sgoRawLinkStatusCounts"] or "{}").items():
             statuses[status] += count
     fresh = [r for r in rows if r["priceEvaluable"]]
+    timing = [r for r in rows if r["timingFresh15MinutePair"]]
     return {
+        "timingFreshGames": len(timing),
+        "timingFreshGamesWithPerLegClocks": sum(1 for r in timing if r["timingPrimaryPerLegClocksRecovered"]),
+        "timingFreshGamesWithAZeroSkewReceipt": sum(1 for r in timing if r["timingPrimaryZeroSkewReceipt"]),
+        "timingFreshGamesWithProviderStatedConventionsProved": sum(
+            1 for r in timing if r["timingPrimaryConventionsProved"]),
         "sgoCompletePairSnapshotsExamined": sum(r["sgoCompletePairSnapshots"] for r in rows),
         "rawLinkStatusAcrossSnapshots": dict(sorted(statuses.items())),
         "snapshotsLinkedToARetainedResponse": sum(r["sgoSnapshotsRawLinked"] for r in rows),
@@ -594,21 +636,22 @@ def _markdown(summary: dict[str, Any]) -> str:
     overall = summary["funnel"]["overall"]
     ages = summary["freshestAvailableLegAgeAtAnchorMinutes"]
     ctx = summary["acquisitionContext"]
-    fresh = overall["fresh15MinutePair"]
-    paired = overall["forecastAndFreshPair"]
+    fresh = overall["timingFresh15MinutePair"]
+    paired = overall["forecastAndTimingFreshPair"]
+    evaluable = overall["protocolEvaluablePair"]
     by_date = summary["funnel"]["byLocalDate"]
     dates = sorted(by_date)
     trailing: list[str] = []
     for day in reversed(dates):
-        if by_date[day]["fresh15MinutePair"]:
+        if by_date[day]["timingFresh15MinutePair"]:
             break
         trailing.append(day)
     trailing_games = sum(by_date[d]["attempts"] for d in trailing)
-    fresh_dates = [d for d in dates if by_date[d]["fresh15MinutePair"]]
+    fresh_dates = [d for d in dates if by_date[d]["timingFresh15MinutePair"]]
     if fresh == 0:
         answer = "NO. Existing authorised captures never met the 15-minute rule at the anchor in this era"
     elif len(trailing) >= 3:
-        answer = (f"NO, not under the acquisition schedule now in force. All {fresh} fresh pairs come from "
+        answer = (f"NO, not under the acquisition schedule now in force. All {fresh} timing-fresh pairs come from "
                   f"{', '.join(fresh_dates)}; the most recent {len(trailing)} dates ({trailing[-1]} to "
                   f"{trailing[0]}, {trailing_games} games) have none")
     else:
@@ -626,9 +669,13 @@ def _markdown(summary: dict[str, Any]) -> str:
         "",
         "## Plain answer",
         "",
-        f"**{answer}.** Games with a V18 forecast available by the anchor: "
-        f"{overall['v18ForecastEligibleByAnchor']}. Games with a fresh (0-15 minute, receipted, same-book, "
-        f"two-sided) pair at the anchor: {fresh}. Both: {paired}. Games lacking any eligible book: "
+        f"**{answer}.** Games with a timing-fresh pair (0-15 minute on the recorded clock, receipted, "
+        f"same-book, two-sided) at the anchor: {fresh}. **Protocol-evaluable pairs (timing AND per-leg "
+        f"clocks, clock semantics, retained response, proved conventions): {evaluable}.** Games with a V18 "
+        f"forecast eligible by the anchor: {overall['v18ForecastEligibleByAnchor']} "
+        f"({overall['forecastBlockedOnlyByExporterObjectAccess']} more are blocked only because this process "
+        f"could not read the producer object). Forecast AND timing-fresh: {paired}; forecast AND "
+        f"protocol-evaluable: {overall['forecastAndProtocolEvaluablePair']}. Games lacking any eligible book: "
         f"{overall['lackingAnyEligibleBook']}.",
         "",
         "## Funnel",
@@ -641,23 +688,29 @@ def _markdown(summary: dict[str, Any]) -> str:
         f"| Any moneyline quote fetched by the anchor | {overall['anyQuoteFetchedByAnchor']} |",
         f"| Complete receipted two-sided pair by the anchor (any age) | "
         f"{overall['completeReceiptedPairByAnchorAnyAge']} |",
-        f"| Fresh 15-minute pair (price evaluable) | {fresh} |",
-        f"| Forecast eligible AND fresh pair | {paired} |",
+        f"| Timing-fresh 15-minute pair (TIMING ONLY, not evaluable) | {fresh} |",
+        f"| Protocol-evaluable pair (price evaluable) | {evaluable} |",
+        f"| Forecast eligible AND timing-fresh pair | {paired} |",
+        f"| Forecast eligible AND protocol-evaluable pair | {overall['forecastAndProtocolEvaluablePair']} |",
+        f"| Forecast blocked only by this process's producer-object access | "
+        f"{overall['forecastBlockedOnlyByExporterObjectAccess']} |",
         "",
         "### By selection state at the lock",
         "",
-        "| Selection | Attempts | Forecast | Fresh pair | Both | No eligible book |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Selection | Attempts | Forecast | Timing-fresh | Evaluable | Forecast + evaluable | No eligible book |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for status, f in summary["funnel"]["bySelectionStatus"].items():
         lines.append(f"| {status} | {f['attempts']} | {f['v18ForecastEligibleByAnchor']} | "
-                     f"{f['fresh15MinutePair']} | {f['forecastAndFreshPair']} | {f['lackingAnyEligibleBook']} |")
+                     f"{f['timingFresh15MinutePair']} | {f['protocolEvaluablePair']} | "
+                     f"{f['forecastAndProtocolEvaluablePair']} | {f['lackingAnyEligibleBook']} |")
     lines += ["", "### By local (Eastern) date", "",
-              "| Date | Attempts | Forecast | Fresh pair | Both | No eligible book |",
-              "| --- | ---: | ---: | ---: | ---: | ---: |"]
+              "| Date | Attempts | Forecast | Timing-fresh | Evaluable | Forecast + evaluable | No eligible book |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for day, f in summary["funnel"]["byLocalDate"].items():
         lines.append(f"| {day} | {f['attempts']} | {f['v18ForecastEligibleByAnchor']} | "
-                     f"{f['fresh15MinutePair']} | {f['forecastAndFreshPair']} | {f['lackingAnyEligibleBook']} |")
+                     f"{f['timingFresh15MinutePair']} | {f['protocolEvaluablePair']} | "
+                     f"{f['forecastAndProtocolEvaluablePair']} | {f['lackingAnyEligibleBook']} |")
     lines += ["", "## Age of the freshest receipted leg at the anchor", "",
               "| Minutes | Games |", "| --- | ---: |"]
     for label, count in ages["buckets"].items():
@@ -691,13 +744,16 @@ def _markdown(summary: dict[str, Any]) -> str:
         "## Limitations",
         "",
         *_limitation_lines(summary),
-        "- The receipt bound is max(ledger completed_at, requesting job completed_at); the ledger-only bound "
-        f"would give {summary['receiptBoundSensitivity']['gamesWithEligibleBookLedgerOnlyBound']} games with an "
-        "eligible book.",
-        "- Phase comes only from AISP's retained raw MLB Stats API schedule capture (gameType), archived by the "
-        "lock.",
-        "- Exchange object files were read only where this process had access; otherwise refs name the "
-        "database-held content addresses.",
+        "- The receipt bound is max(ledger completed_at, inserting job completed_at), both uniquely matched and "
+        "successful; an unnamed, missing, failed or in-flight job is not a receipt. The ledger-only sensitivity "
+        f"(same evidence gate) gives {summary['receiptBoundSensitivity']['gamesWithEligibleBookLedgerOnlyBound']} "
+        "games with an eligible book.",
+        "- Phase R comes only from AISP's retained raw MLB Stats API schedule capture (gameType), archived by the "
+        "lock and bound to the gamePk, team orientation and schedule revision.",
+        "- Producer objects are verified physically (manifest content address, execution-inputs.json, "
+        "pregame-evidence.json, AISP's numbers against the forecast file). Where THIS process cannot read them "
+        "the forecast is excluded and counted as `forecastBlockedOnlyByExporterObjectAccess`; the deployed "
+        "backend has read access to those directories, this analysis shell does not.",
         "",
         "Files: `per_game.csv`, `summary.json`, `exclusion_reasons.csv`, "
         "`retrospective-packets-NOT-SEALED-NOT-ENROLLMENT/`.",
@@ -726,7 +782,13 @@ def _recovery_markdown(summary: dict[str, Any]) -> list[str]:
         f"| Legs carrying a recovered per-leg provider clock | {rec['legsWithARecoveredPerLegClock']} |",
         f"| Snapshots with a collector skew receipt | {rec['snapshotsWithACollectorSkewReceipt']} |",
         f"| Snapshots whose receipt records zero skew for every pair | {rec['snapshotsWithAZeroSkewReceipt']} |",
-        f"| Fresh games | {rec['freshGames']} |",
+        f"| Timing-fresh games | {rec['timingFreshGames']} |",
+        f"| Timing-fresh games whose primary pair has per-leg clocks | {rec['timingFreshGamesWithPerLegClocks']} |",
+        f"| Timing-fresh games whose primary pair has a zero-skew receipt | "
+        f"{rec['timingFreshGamesWithAZeroSkewReceipt']} |",
+        f"| Timing-fresh games with provider-stated conventions proved | "
+        f"{rec['timingFreshGamesWithProviderStatedConventionsProved']} |",
+        f"| Protocol-evaluable games | {rec['freshGames']} |",
         f"| Fresh games whose primary pair has per-leg clocks | {rec['freshGamesWithPerLegClocks']} |",
         f"| Fresh games whose primary pair has a zero-skew receipt | {rec['freshGamesWithAZeroSkewReceipt']} |",
         f"| Fresh games with provider-stated conventions proved | "
@@ -775,8 +837,8 @@ def _limitation_lines(summary: dict[str, Any]) -> list[str]:
                      "the rest keep the stored older-side stamp, flagged.")
     lines.append(f"- Provider-stated conventions proved for {rec['freshGamesWithProviderStatedConventionsProved']} "
                  f"of {rec['freshGames']} fresh games. Extra-innings inclusion, tie handling and any pitcher/action "
-                 "rule are not stated by any retained SGO response; they are null with reason codes and are NOT "
-                 "enforced by priceEvaluable.")
+                 "rule are not stated by any retained SGO response; they are null with reason codes, and an "
+                 "unproved convention makes a pair ineligible (PAIR_CONVENTIONS_UNPROVED).")
     return lines
 
 

@@ -175,7 +175,7 @@ def due_games(
 
 def fetch_nfl_pregame(
     settings: Settings, *, limit: int = 1, now: datetime | None = None,
-    starts_within_hours: int = 2,
+    starts_within_hours: int = 2, request_fingerprint: str | None = None,
 ) -> FallbackFetch:
     """Exactly one request for upcoming NFL events. No retry, no pagination."""
 
@@ -199,6 +199,12 @@ def fetch_nfl_pregame(
         response = client.get(url, params=params, headers=headers)
     if response.status_code != 200:
         raise _refuse(f"SportsGameOdds returned HTTP {response.status_code}; not retried")
+    # The exact bytes, kept before parsing (never fails, retries or waits).
+    from app.services.sgo_raw_archive import archive_response
+
+    raw_archive = archive_response(settings, response.content, requested_at=moment,
+                                   request_fingerprint=request_fingerprint, lane=LANE,
+                                   league="NFL", filters=params)
     payload = response.json()
     parse = parse_events(payload, received_at=moment, now=moment, league_id="NFL")
     # The same bytes read for spreads and totals. The provider bills the EVENT,
@@ -208,6 +214,7 @@ def fetch_nfl_pregame(
         requested_at=moment,
         objects=len(payload.get("data") or []),
         pairs=parse.pairs, parse=parse, main=main,
+        raw_archive=raw_archive,
     )
 
 
@@ -268,7 +275,8 @@ def collect_nfl_pregame(
         # provider filters out the very events the objects were reserved for.
         horizon = max(2, int(max(entry["minutes_to_kickoff"] for entry in due) // 60) + 2)
         fetch = fetch_nfl_pregame(settings, limit=granted, now=moment,
-                                  starts_within_hours=horizon)
+                                  starts_within_hours=horizon,
+                                  request_fingerprint=getattr(reservation, "request_fingerprint", None))
     except Exception as error:  # one attempt; the schedule owns the next one
         complete_request(session, reservation, objects=0, succeeded=False,
                          budget=budget, error=type(error).__name__,
@@ -300,12 +308,15 @@ def collect_nfl_pregame(
         if market_events:
             market_result = service.ingest(market_events,
                                            available_as_of=fetch.requested_at)
+    raw_archive = getattr(fetch, "raw_archive", None)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
-                     budget=budget, job_run_id=job_run_id)
+                     budget=budget, job_run_id=job_run_id,
+                     extra_metadata={"raw_archive": raw_archive} if raw_archive is not None else None)
     session.commit()
     return {
         "attempted": True, "reason": "COLLECTED", "lane": LANE,
         "objects": fetch.objects,
+        "raw_archive": raw_archive,
         "objects_reserved": granted,
         "games_due": due,
         "games_due_count": len(due),

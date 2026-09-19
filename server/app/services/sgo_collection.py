@@ -136,6 +136,9 @@ class FallbackFetch:
     provider_league: str = ""
     #: Events that were not bound, with the reason (app.ingestion.odds_league).
     unbound: list = field(default_factory=list)
+    #: What happened to the response's original bytes
+    #: (app.services.sgo_raw_archive.archive_response). Never a reason to fail.
+    raw_archive: dict[str, Any] | None = None
 
     def skew_summary(self) -> dict[str, Any]:
         skews = [pair.timestamp_skew_seconds for pair in self.pairs]
@@ -212,7 +215,8 @@ def to_event_dtos(pairs: list[MoneylinePair]) -> list[OddsEventDTO]:
 def fetch_pregame_moneylines(
     settings: Settings, *, limit: int = 10, now: datetime | None = None,
     starts_within_hours: int = 12, cache_path: "Path | None" = None,
-    starts_after: datetime | None = None,
+    starts_after: datetime | None = None, request_fingerprint: str | None = None,
+    lane: str = ENDPOINT_KEY,
 ) -> FallbackFetch:
     """Exactly one request for upcoming MLB events. No retry, no pagination.
 
@@ -257,12 +261,23 @@ def fetch_pregame_moneylines(
         response = client.get(url, params=params, headers=headers)
     if response.status_code != 200:
         raise _refuse(f"SportsGameOdds returned HTTP {response.status_code}; not retried")
+    # Keep the exact response bytes before parsing: the per-leg lastUpdatedAt
+    # stamps and the response's own identity exist nowhere else. An archive
+    # fault is recorded, never raised, retried or waited on.
+    from app.services.sgo_raw_archive import archive_response
+
+    raw_archive = archive_response(settings, response.content, requested_at=moment,
+                                   request_fingerprint=request_fingerprint, lane=lane,
+                                   league="MLB", filters=params)
     payload = response.json()
     # Persist the raw response before parsing. If anything downstream fails, the
     # fix must never cost another request -- and therefore another object.
     if cache_path is not None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(response.content)
+    # NOTE: `received_at=moment` is the clock captured BEFORE the request was
+    # sent (the ledger's requested_at). It is not a receipt; the completed
+    # ledger/job rows are the receipt.
     parse = parse_events(payload, received_at=moment, now=moment, league_id="MLB")
     # The same bytes, read for the other two main markets. No second request and
     # no second object: the provider's published unit is the event, and the
@@ -276,6 +291,7 @@ def fetch_pregame_moneylines(
         parse=parse,
         main=main,
         provider_league="MLB",
+        raw_archive=raw_archive,
     )
 
 
@@ -997,7 +1013,8 @@ def collect_for_open_cutoffs(
         # backdating retrieval. Only the start-time window carries the choice.
         fetch = fetch_pregame_moneylines(
             settings, limit=wanted, now=moment,
-            starts_within_hours=horizon_hours, starts_after=anchor)
+            starts_within_hours=horizon_hours, starts_after=anchor,
+            request_fingerprint=getattr(reservation, "request_fingerprint", None))
     except Exception as error:  # one attempt; the cooldown owns the next one
         complete_request(session, reservation, objects=0, succeeded=False, budget=budget,
                          error=type(error).__name__, job_run_id=job_run_id)
@@ -1008,7 +1025,8 @@ def collect_for_open_cutoffs(
     ingest(session, settings, fetch, league_code="MLB")
     ingested = _ingested_game_ids(session, fetch)
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
-                     budget=budget, job_run_id=job_run_id)
+                     budget=budget, job_run_id=job_run_id,
+                     extra_metadata={"raw_archive": fetch.raw_archive})
 
     # THE FIRST MISMATCH STOPS THE LANE.
     #
@@ -1076,6 +1094,9 @@ def collect_for_open_cutoffs(
         "bookmakers": sorted({pair.bookmaker_key for pair in fetch.pairs}),
         "skew": fetch.skew_summary(),
         "request_filters": params,
+        # Where the response's exact bytes were kept (or why not). Recording a
+        # failure here is the whole of the failure handling: the fetch stands.
+        "raw_archive": fetch.raw_archive,
         "budget": after.as_dict(),
     }
 
