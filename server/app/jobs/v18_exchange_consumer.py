@@ -46,6 +46,42 @@ from app.core.config import Settings
 
 PACKAGE_SCHEMA = "MLB_V18_PRECOMPUTED_EXCHANGE_PACKAGE_V1"
 PACKAGE_FILE = "exchange-package.json"
+
+#: Packages that verified from bytes AND were already fully registered earlier
+#: in THIS process, keyed by address -> (manifest size, manifest mtime_ns,
+#: monotonic time of that verification). Packages are content-addressed and
+#: immutable, yet every pass re-hashed ~256 of them (the V18 stage was 168-215 s
+#: of each 5-minute pass on 2026-09-18, holding the core lane in front of the
+#: decision checkpoints). A changed manifest, a restart, or MEMO_TTL_SECONDS
+#: elapsing forces full verification again.
+_VERIFIED_MEMO: dict[str, tuple[int, int, float]] = {}
+MEMO_TTL_SECONDS = 6 * 3600
+
+
+def _manifest_stamp(package_dir: Path) -> tuple[int, int] | None:
+    try:
+        stat = (package_dir / PACKAGE_FILE).stat()
+    except OSError:
+        return None
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _memo_hit(address: str, package_dir: Path) -> bool:
+    from time import monotonic
+
+    entry = _VERIFIED_MEMO.get(address)
+    stamp = _manifest_stamp(package_dir)
+    if entry is None or stamp is None or (entry[0], entry[1]) != stamp:
+        return False
+    return monotonic() - entry[2] < MEMO_TTL_SECONDS
+
+
+def _memo_store(address: str, package_dir: Path) -> None:
+    from time import monotonic
+
+    stamp = _manifest_stamp(package_dir)
+    if stamp is not None:
+        _VERIFIED_MEMO[address] = (stamp[0], stamp[1], monotonic())
 ACCOUNTING_ONLY = "RESEARCH_ACCOUNTING_ONLY_NO_FORECASTS"
 
 _ADDRESS = re.compile(r"^[0-9a-f]{64}$")
@@ -203,6 +239,12 @@ def consume_v18_packages(
         if kind is None:
             outcome.rejected.append({"package": address, "reason": reason})
             continue
+        if kind != "ACCOUNTING" and not dry_run and _memo_hit(address, package_dir):
+            outcome.reused.append({
+                "package": address, "registered": 0,
+                "fast_path": "VERIFIED_AND_FULLY_REGISTERED_EARLIER_IN_THIS_PROCESS",
+            })
+            continue
         if kind == "ACCOUNTING":
             # Counted, never imported. This is the producer telling us it could
             # not forecast a slate, which is evidence in itself.
@@ -252,6 +294,7 @@ def consume_v18_packages(
             record.update({"registered": 0, "already_present": len(verified.forecasts),
                            "fast_path": "ALREADY_FULLY_REGISTERED"})
             outcome.reused.append(record)
+            _memo_store(address, package_dir)
             continue
 
         try:

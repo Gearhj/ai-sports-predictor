@@ -364,3 +364,23 @@ async def test_consumer_fast_path_only_skips_a_package_that_is_already_fully_reg
     # though its forecast is already present.
     assert already_fully_registered(
         session, SimpleNamespace(forecasts=verified.forecasts, handoff_sha256="f" * 64)) is False
+
+
+def test_verification_memo_is_invalidated_by_a_changed_manifest_and_by_time(tmp_path, monkeypatch):
+    from app.jobs import v18_exchange_consumer as consumer
+
+    package = tmp_path / ("a" * 64)
+    package.mkdir()
+    manifest = package / consumer.PACKAGE_FILE
+    manifest.write_text("{}", encoding="utf-8")
+    consumer._VERIFIED_MEMO.clear()
+    assert consumer._memo_hit(package.name, package) is False
+    consumer._memo_store(package.name, package)
+    assert consumer._memo_hit(package.name, package) is True
+    manifest.write_text('{"changed": true}', encoding="utf-8")
+    assert consumer._memo_hit(package.name, package) is False  # any change re-verifies
+    consumer._memo_store(package.name, package)
+    monkeypatch.setattr(consumer, "MEMO_TTL_SECONDS", 0)
+    assert consumer._memo_hit(package.name, package) is False  # the TTL forces a full re-check
+    consumer._VERIFIED_MEMO.clear()
+
