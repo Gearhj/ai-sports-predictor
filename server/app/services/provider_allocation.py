@@ -269,6 +269,280 @@ ALLOCATION_CHANGES: tuple[dict[str, Any], ...] = (
 
 
 @dataclass(frozen=True)
+class ExceptionGame:
+    """One game an owner exception names, and how it was identified."""
+
+    game_id: str
+    matchup: str
+    starts_at_et: str
+
+
+@dataclass(frozen=True)
+class OwnerDayException:
+    """A dated, game-scoped grant of extra objects. NOT a policy change.
+
+    Everything about it is closed: one Eastern service day, one lane, a fixed
+    list of AISP game ids, one object per named game and a total that cannot be
+    exceeded however the games are combined. It grants nothing on any other day,
+    to any other lane, or for any other game, and it carries the authorisation
+    it came from so a receipt can cite it rather than describe it.
+    """
+
+    service_date: str
+    lane: str
+    authority: str
+    citation: str
+    scope: str
+    per_game_objects: int
+    total_objects: int
+    games: tuple[ExceptionGame, ...]
+
+    @property
+    def game_ids(self) -> frozenset[str]:
+        return frozenset(game.game_id for game in self.games)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "service_date": self.service_date,
+            "lane": self.lane,
+            "authority": self.authority,
+            "citation": self.citation,
+            "scope": self.scope,
+            "per_game_objects": self.per_game_objects,
+            "total_objects": self.total_objects,
+            "games": [
+                {"game_id": game.game_id, "matchup": game.matchup,
+                 "starts_at_et": game.starts_at_et}
+                for game in self.games
+            ],
+        }
+
+
+#: OWNER EXCEPTIONS, BY DATE. An exception, never a rule.
+#:
+#: The shaped daily allowance is computed from demand and the month's balance,
+#: and this file deliberately makes that hard to reach around -- a lane that
+#: wants more objects is supposed to be told no. So when the owner authorises
+#: more for a specific afternoon, the authorisation is written down HERE, as
+#: data, with the day and the games it covers, rather than by moving a share, a
+#: rate or a reserve. Nothing about the shaping, the split, the staking, the
+#: freshness rules or any other lane changes; the named lane may simply buy up
+#: to `total_objects` more objects on `service_date`, one for each of the named
+#: games, and only while those games have no purchased quote.
+#:
+#: It expires by DATE. On 2026-09-21 this tuple grants nothing at all and the
+#: allowance is exactly what the day's snapshot issued. There is no flag to
+#: clear and nothing to remember to put back.
+#:
+#: The game ids were resolved from the canonical schedule by team and first
+#: pitch on the Eastern service day (one MLB game matched each pairing), not
+#: guessed: a wrong id here would spend the owner's object on a game he did not
+#: authorise, so identity is the one thing this cannot be casual about.
+OWNER_DAY_EXCEPTIONS: tuple[OwnerDayException, ...] = (
+    OwnerDayException(
+        service_date="2026-09-20",
+        lane="sgo_mlb_events",
+        authority="project owner, explicit single-day authorisation 2026-09-20",
+        citation=(
+            "Owner, 2026-09-20: \"MLB's shaped daily allowance rises from 17 to "
+            "21 objects for 2026-09-20 only (Eastern service day). The 4 extra "
+            "objects may be spent ONLY on these four games, at most one object "
+            "each, no substitutions. Not for refreshes, not for retries charged "
+            "as another object, not for any other game, sport or date.\""
+        ),
+        scope=(
+            "MLB pregame quotes, Eastern service day 2026-09-20, the four named "
+            "games only, at most one object each. No other lane, day, sport or "
+            "game draws on it. Today's remaining NFL objects are untouched: the "
+            "NFL lane's own allowance is not read, altered or borrowed from "
+            "here. The monthly reserve is not read, altered or borrowed from "
+            "either -- it is subtracted before any daily total exists, and this "
+            "adds objects to one lane's DAILY allowance only, still under both "
+            "budget guards and the live provider balance."
+        ),
+        per_game_objects=1,
+        total_objects=4,
+        games=(
+            ExceptionGame(
+                game_id="09872a69-b5c8-4f79-92af-d5548d8ec4f6",
+                matchup="San Francisco Giants at Los Angeles Dodgers",
+                starts_at_et="2026-09-20T16:10:00-04:00",
+            ),
+            ExceptionGame(
+                game_id="95d1752b-8afb-4cb2-872a-16110d24bf0f",
+                matchup="Miami Marlins at San Diego Padres",
+                starts_at_et="2026-09-20T16:10:00-04:00",
+            ),
+            ExceptionGame(
+                game_id="acc132fd-b644-4823-981f-bd4c2ac5a8b6",
+                matchup="New York Yankees at Arizona Diamondbacks",
+                starts_at_et="2026-09-20T16:10:00-04:00",
+            ),
+            ExceptionGame(
+                game_id="693a05f2-2a80-4aa4-8d44-7f2bd37e6ed4",
+                matchup="Milwaukee Brewers at Baltimore Orioles",
+                starts_at_et="2026-09-20T19:20:00-04:00",
+            ),
+        ),
+    ),
+)
+
+
+def owner_exception_for(day: date, lane: str) -> OwnerDayException | None:
+    """The exception in force for one lane on one Eastern service day, if any.
+
+    Matched on the EXACT date string and the EXACT lane key. A day that does not
+    match returns None, which is the whole of the expiry mechanism.
+    """
+
+    iso = day.isoformat()
+    for entry in OWNER_DAY_EXCEPTIONS:
+        if entry.service_date == iso and entry.lane == lane:
+            return entry
+    return None
+
+
+def _exception_games_priced(session: Session, game_ids: frozenset[str]) -> set[str]:
+    """Named games that already hold a purchased provider quote.
+
+    A unit is spent when the object landed -- when a SportsGameOdds quote row is
+    bound to that game -- not when a request was planned. That is the same
+    evidence `verified_sgo_event_ids` reads, and it is why a refresh of an
+    already-priced named game cannot draw on the exception: the authorisation
+    covers buying these four games a price, once each, and a game that has one
+    has had its object.
+    """
+
+    if not game_ids:
+        return set()
+    import uuid as _uuid_mod
+
+    from app.data_sources.provider_registry import SPORTSGAMEODDS
+    from app.models import Market, MarketOutcome, OddsSnapshot
+
+    keys: list[Any] = []
+    for value in sorted(game_ids):
+        try:
+            keys.append(_uuid_mod.UUID(str(value)))
+        except (ValueError, AttributeError, TypeError):
+            keys.append(str(value))
+    rows = session.execute(
+        select(Market.game_id)
+        .join(MarketOutcome, MarketOutcome.market_id == Market.id)
+        .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
+        .where(Market.game_id.in_(keys), OddsSnapshot.source == SPORTSGAMEODDS)
+        .distinct()
+    ).all()
+    return {str(row[0]) for row in rows}
+
+
+def _exception_games_in_flight(session: Session, *, lane: str, now: datetime) -> set[str]:
+    """Named games an open reservation has already committed an exception unit to.
+
+    The reservation is written before its request goes out and records which
+    named games it draws the exception for, so two jobs cannot both claim the
+    same game's single unit in the gap before the quote exists.
+    """
+
+    from app.services.service_day import service_day_start
+
+    midnight = service_day_start(now)
+    terminal = select(ProviderRequestLedger.reservation_id).where(
+        ProviderRequestLedger.reservation_id.is_not(None))
+    rows = session.scalars(
+        select(ProviderRequestLedger).where(
+            ProviderRequestLedger.provider == PROVIDER,
+            ProviderRequestLedger.endpoint_key == lane,
+            ProviderRequestLedger.status == "RESERVED",
+            ProviderRequestLedger.requested_at >= midnight,
+            ProviderRequestLedger.id.not_in(terminal),
+        )
+    ).all()
+    out: set[str] = set()
+    for row in rows:
+        receipt = ((row.response_metadata or {}).get("owner_exception") or {})
+        for game_id in (receipt.get("game_ids") or []):
+            out.add(str(game_id))
+    return out
+
+
+def owner_exception_state(
+    session: Session, *, lane: str, now: datetime | None = None,
+) -> dict[str, Any]:
+    """Which of an exception's units are still unspent, and why the others are not.
+
+    Returns an inert, all-zero state on any day but the authorised one, for any
+    other lane, and whenever anything at all cannot be established. Nothing here
+    grants an object; it reports what `request_objects` would be willing to
+    grant to a selection made up only of the named games.
+    """
+
+    from app.services.service_day import service_date
+
+    moment = now or datetime.now(UTC)
+    day = service_date(moment)
+    entry = owner_exception_for(day, lane)
+    if entry is None:
+        return {"exception": None, "units_available": 0, "available_game_ids": [],
+                "already_priced": [], "in_flight": []}
+
+    try:
+        priced = _exception_games_priced(session, entry.game_ids)
+        in_flight = _exception_games_in_flight(session, lane=lane, now=moment)
+    except Exception:  # noqa: BLE001 - FAIL CLOSED: an unreadable ledger grants nothing
+        return {"exception": entry.as_dict(), "units_available": 0,
+                "available_game_ids": [], "already_priced": [], "in_flight": [],
+                "refused": "EXCEPTION_STATE_UNREADABLE"}
+
+    spent_or_held = priced | in_flight
+    available = sorted(entry.game_ids - spent_or_held)
+    consumed = len(entry.game_ids & spent_or_held)
+    # Two independent caps, both applied: one object per named game, and a total
+    # that holds however the games are combined.
+    units = max(0, min(len(available) * entry.per_game_objects,
+                       entry.total_objects - consumed * entry.per_game_objects))
+    return {
+        "exception": entry.as_dict(),
+        "units_available": units,
+        "available_game_ids": available,
+        "already_priced": sorted(entry.game_ids & priced),
+        "in_flight": sorted(entry.game_ids & in_flight),
+    }
+
+
+def owner_exception_units(
+    session: Session, *, lane: str, selection: list[str] | None,
+    now: datetime | None = None,
+) -> int:
+    """Extra objects this exact selection may draw from the owner's exception.
+
+    FAIL CLOSED, in this order:
+      * no selection, or an empty one -- nothing to check, nothing granted;
+      * a selection containing ANY game the exception does not name -- zero, for
+        the whole selection, not just for the stranger. The authorisation is for
+        four specific games and a request that also reaches for a fifth is not
+        the request it authorised;
+      * a named game that already holds a purchased quote, or that an open
+        reservation has already drawn its unit for -- its unit is gone;
+      * any other day, any other lane -- inert, zero.
+    """
+
+    state = owner_exception_state(session, lane=lane, now=now)
+    entry = state["exception"]
+    if entry is None or state["units_available"] <= 0:
+        return 0
+    wanted_games = {str(value) for value in (selection or []) if str(value).strip()}
+    if not wanted_games:
+        return 0
+    named = {str(game["game_id"]) for game in entry["games"]}
+    if not wanted_games <= named:
+        return 0
+    drawable = wanted_games & set(state["available_game_ids"])
+    return min(len(drawable) * int(entry["per_game_objects"]),
+               int(state["units_available"]))
+
+
+@dataclass(frozen=True)
 class Allocation:
     """One lane's position today."""
 
@@ -276,23 +550,46 @@ class Allocation:
     daily_allowance: int
     spent_today: int
     in_flight: int
+    #: Objects an owner exception adds to this lane TODAY, still unspent. They
+    #: are deliberately NOT part of `room`: general room is what any request may
+    #: draw, and these may only be drawn by a request whose selection is made up
+    #: of the exception's own named games.
+    owner_exception_units: int = 0
+    owner_exception: dict[str, Any] | None = None
 
     @property
     def room(self) -> int:
         return max(0, self.daily_allowance - self.spent_today - self.in_flight)
 
+    @property
+    def authorised_allowance(self) -> int:
+        """The day's allowance including any owner exception still unspent.
+
+        This is the number the owner authorised -- 21 for MLB pregame on
+        2026-09-20, 17 on every other day -- and it is reported separately from
+        `daily_allowance` on purpose. `daily_allowance` remains what any request
+        may draw; the difference is reachable only by the named games.
+        """
+
+        return self.daily_allowance + max(0, self.owner_exception_units)
+
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "lane": self.lane.key,
             "label": self.lane.label,
             "share": self.lane.share,
             "funded": self.lane.funded,
             "daily_allowance": self.daily_allowance,
+            "authorised_allowance": self.authorised_allowance,
             "spent_today": self.spent_today,
             "in_flight": self.in_flight,
             "room": self.room,
             "rationale": self.lane.rationale,
         }
+        if self.owner_exception is not None:
+            out["owner_exception"] = self.owner_exception
+            out["owner_exception_units"] = self.owner_exception_units
+        return out
 
 
 @dataclass(frozen=True)
@@ -877,9 +1174,22 @@ def build_plan(session: Session, *, now: datetime | None = None) -> Plan:
     allocations: dict[str, Allocation] = {}
     for lane in LANES:
         spent, flight = lane_usage.get(lane.key, (0, 0))
+        # The day's ISSUED allowance is untouched. An owner exception is carried
+        # alongside it, never folded into it, so every other lane's allowance --
+        # NFL's fifteen and whatever of it remains -- is arithmetically unable
+        # to move, and so is the reserve that was subtracted before any of this.
+        state = owner_exception_state(session, lane=lane.key, now=moment)
         allocations[lane.key] = Allocation(
             lane=lane, daily_allowance=int(issued.get(lane.key, 0)),
-            spent_today=spent, in_flight=flight)
+            spent_today=spent, in_flight=flight,
+            owner_exception_units=int(state["units_available"]),
+            owner_exception=(None if state["exception"] is None else {
+                **state["exception"],
+                "units_available": int(state["units_available"]),
+                "available_game_ids": state["available_game_ids"],
+                "already_priced": state["already_priced"],
+                "in_flight": state["in_flight"],
+            }))
 
     if int(snapshot.daily_total) == 0:
         warnings.append(
@@ -932,6 +1242,7 @@ class Grant:
 
 def request_objects(
     session: Session, *, lane: str, wanted: int, now: datetime | None = None,
+    selection: list[str] | None = None,
 ) -> Grant:
     """The single enforcement point. Every consumer asks here before reserving.
 
@@ -939,9 +1250,17 @@ def request_objects(
     subtracting both what it has already spent today and what it has in flight.
     Never grants into the reserve, because the reserve is subtracted before the
     daily total is computed at all.
+
+    ``selection`` names the AISP games the caller intends this request to buy.
+    It is optional and it can only ever grant LESS than the caller asked for,
+    never more, with one exception: a dated owner exception (see
+    `OWNER_DAY_EXCEPTIONS`) adds objects for a selection made up entirely of the
+    games that exception names. A caller that passes nothing gets exactly the
+    behaviour it always had.
     """
 
-    plan = build_plan(session, now=now)
+    moment = now or datetime.now(UTC)
+    plan = build_plan(session, now=moment)
     if lane not in plan.allocations:
         return Grant(lane=lane, wanted=wanted, granted=0, plan=plan,
                      reason=f"UNKNOWN_LANE:{lane}")
@@ -955,9 +1274,26 @@ def request_objects(
                      reason="BUDGET_PAUSED_UNTIL_REPLENISHMENT")
 
     granted = max(0, min(int(wanted), allocation.room))
+    # THE OWNER'S EXCEPTION, AND ONLY FOR THE GAMES IT NAMES.
+    #
+    # Reached only once the lane's ordinary allowance cannot cover the request,
+    # so the exception is never spent while the lane still has room of its own.
+    # `owner_exception_units` returns 0 on every other day, for every other
+    # lane, for a selection carrying any unnamed game, and for a named game that
+    # already holds a purchased quote.
+    exception_units = 0
+    if granted < int(wanted):
+        exception_units = owner_exception_units(
+            session, lane=lane, selection=selection, now=moment)
+        if exception_units > 0:
+            granted = max(0, min(int(wanted), allocation.room + exception_units))
     if granted == 0:
         return Grant(lane=lane, wanted=wanted, granted=0, plan=plan,
                      reason="LANE_DAILY_ALLOWANCE_SPENT")
+    if exception_units > 0 and granted > allocation.room:
+        return Grant(lane=lane, wanted=wanted, granted=granted, plan=plan,
+                     reason="GRANTED_OWNER_EXCEPTION"
+                     if granted == wanted else "GRANTED_OWNER_EXCEPTION_PARTIAL")
     reason = "GRANTED" if granted == wanted else "GRANTED_PARTIAL"
     return Grant(lane=lane, wanted=wanted, granted=granted, plan=plan, reason=reason)
 
@@ -980,6 +1316,15 @@ def quote_affordability(
         "GRANTED_PARTIAL": (
             "The lane has some room but less than requested, so only part of "
             "the capture fits."
+        ),
+        "GRANTED_OWNER_EXCEPTION": (
+            "The lane's own allowance for today is spent, and the capture fits "
+            "only because every game in it is named by a dated owner exception "
+            "that has an unspent object for it."
+        ),
+        "GRANTED_OWNER_EXCEPTION_PARTIAL": (
+            "Part of the capture fits, and only because the games in it are "
+            "named by a dated owner exception with some units still unspent."
         ),
         "LANE_NOT_FUNDED": (
             "The lane is switched off by policy, so it has no allowance to "
@@ -1154,17 +1499,23 @@ __all__ = [
     "LANE_LEAGUE",
     "LANE_LEAGUES",
     "OBJECT_RESERVE",
+    "OWNER_DAY_EXCEPTIONS",
     "PROVIDER",
     "USAGE_ENDPOINT_KEY",
     "Allocation",
+    "ExceptionGame",
     "Grant",
     "Lane",
+    "OwnerDayException",
     "Plan",
     "apportion",
     "build_plan",
     "coverage_forecast",
     "latest_usage_reading",
     "misattributed_rows",
+    "owner_exception_for",
+    "owner_exception_state",
+    "owner_exception_units",
     "replenishment_date",
     "request_objects",
 ]

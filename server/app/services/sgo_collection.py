@@ -738,12 +738,18 @@ def record_request(
     job_run_id: Any = None,
     endpoint_key: str | None = None,
     objects_requested: int | None = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> Any:
     """Reserve the request in the provider ledger BEFORE it is sent.
 
     The row carries the filters and the bounded window so the request can be
     audited without the payload, and never any credential material: the API key
     travels in a header, is not in ``params``, and is recorded nowhere.
+
+    ``extra_metadata`` is merged into the reservation's own metadata. It exists
+    so a request drawing on a dated owner exception records WHICH named games it
+    is drawing for, before it is sent -- that is what stops a second job
+    claiming the same game's single object in the gap before its quote exists.
     """
     from hashlib import sha256
 
@@ -778,6 +784,7 @@ def record_request(
         response_metadata={
             "request_shape": shape,
             "object_budget_before": budget.as_dict(),
+            **(extra_metadata or {}),
         },
     )
     session.add(ledger)
@@ -1357,9 +1364,40 @@ def collect_for_open_cutoffs(
     from app.services.collection_halt import (
         SELECTION_MISMATCH, halt_lane, mismatch as selection_mismatch,
     )
-    from app.services.provider_allocation import request_objects
+    from app.services.provider_allocation import (
+        owner_exception_state, request_objects,
+    )
 
     grant = request_objects(session, lane=ENDPOINT_KEY, wanted=wanted, now=moment)
+
+    # THE OWNER'S DATED EXCEPTION, TRIED ONLY AFTER THE ORDINARY ALLOWANCE SAID NO.
+    #
+    # `owner_exception_state` is inert on every day but the one the owner named,
+    # for every lane but this one, and for every game but the four it lists, so
+    # on any other date this block resolves to "no candidates" and returns the
+    # same refusal it always did. When it does apply, the selection is cut to
+    # exactly those named games that are still unpriced -- never the day's
+    # ranked prefix, which could reach a game the owner did not authorise -- and
+    # every protection below it is untouched: the unambiguous-prefix deferral
+    # still trims this selection, the mismatch halt still latches the lane, the
+    # raw response is still archived and the cooldown still owns the next run.
+    exception_state = owner_exception_state(session, lane=ENDPOINT_KEY, now=moment)
+    exception_selection: list[dict[str, Any]] = []
+    if not grant.allowed and exception_state["units_available"] > 0:
+        allowed_ids = set(exception_state["available_game_ids"])
+        exception_selection = [event for event in open_games
+                               if str(event.get("game_id")) in allowed_ids]
+        if exception_selection:
+            exception_grant = request_objects(
+                session, lane=ENDPOINT_KEY, wanted=len(exception_selection),
+                now=moment,
+                selection=[str(event.get("game_id")) for event in exception_selection])
+            if exception_grant.allowed:
+                grant = exception_grant
+                exception_selection = exception_selection[:grant.granted]
+            else:
+                exception_selection = []
+
     if not grant.allowed:
         return {"attempted": False, "reason": f"ALLOCATION_{grant.reason}",
                 "objects": 0, "allocation": grant.as_dict(),
@@ -1369,7 +1407,12 @@ def collect_for_open_cutoffs(
     # Ask for no more than the day funds. A partial grant is a smaller slate of
     # games covered, not a smaller number of prices per game.
     wanted = grant.granted
-    covered, unsupported = open_games[:wanted], open_games[wanted:]
+    if exception_selection:
+        chosen_ids = {id(event) for event in exception_selection}
+        covered = list(exception_selection)
+        unsupported = [event for event in open_games if id(event) not in chosen_ids]
+    else:
+        covered, unsupported = open_games[:wanted], open_games[wanted:]
 
     # THE CHOICE, EXPRESSED AS A FILTER.
     #
@@ -1472,9 +1515,25 @@ def collect_for_open_cutoffs(
     }
     if exact_ids is not None:
         params[EVENT_ID_FILTER_PARAM] = ",".join(exact_ids)
-    reservation = record_request(session, requested_at=moment, params=params,
-                                 budget=budget, job_run_id=job_run_id,
-                                 objects_requested=wanted)
+    # Written into the RESERVATION, before the request is sent, and naming the
+    # FINAL selection -- after the unambiguous-prefix cut above, so a game this
+    # request deferred keeps its unit. It is what a concurrent run reads to see
+    # that these named games' single objects are already committed.
+    exception_receipt: dict[str, Any] | None = None
+    if exception_selection:
+        exception_receipt = {
+            "authority": (exception_state["exception"] or {}).get("authority"),
+            "citation": (exception_state["exception"] or {}).get("citation"),
+            "service_date": (exception_state["exception"] or {}).get("service_date"),
+            "game_ids": [str(event.get("game_id")) for event in covered],
+            "objects": wanted,
+            "grant_reason": grant.reason,
+        }
+    reservation = record_request(
+        session, requested_at=moment, params=params, budget=budget,
+        job_run_id=job_run_id, objects_requested=wanted,
+        **({} if exception_receipt is None
+           else {"extra_metadata": {"owner_exception": exception_receipt}}))
     session.commit()
 
     try:
@@ -1622,6 +1681,8 @@ def collect_for_open_cutoffs(
     # Named only when they happened, so an unambiguous request's receipt is
     # unchanged.
     selection_receipt: dict[str, Any] = {}
+    if exception_receipt is not None:
+        selection_receipt["owner_exception"] = exception_receipt
     if deferred:
         selection_receipt["games_deferred"] = deferred
     if exact_ids is not None:
