@@ -445,8 +445,19 @@ def collect_nfl_pregame(
                            "request was sent; no object was spent.")}
     wanted = len(selected_ids)
 
+    # The window the request actually carries, recorded with the reservation so
+    # the request can be audited from the ledger alone -- as the MLB lane does.
+    # The filters used to say only the league and the limit, which is the one
+    # part of this request that was never in question. No credential material is
+    # here or anywhere near it: the key travels in a header.
+    request_filters = {
+        "leagueID": "NFL", "limit": str(wanted),
+        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsBefore": window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finalized": "false", "oddsPresent": "true",
+    }
     reservation = record_request(
-        session, requested_at=moment, params={"leagueID": "NFL", "limit": str(wanted)},
+        session, requested_at=moment, params=request_filters,
         budget=budget, job_run_id=job_run_id, objects_requested=wanted,
         endpoint_key=LANE,
     )
@@ -519,9 +530,7 @@ def collect_nfl_pregame(
     if divergence is not None:
         halted = halt_lane(
             session, lane=LANE, reason=SELECTION_MISMATCH,
-            evidence={"request_filters": {"leagueID": "NFL", "limit": str(wanted),
-                                          "startsAfter": anchor.isoformat(),
-                                          "startsBefore": window_end.isoformat()},
+            evidence={"request_filters": request_filters,
                       "mismatch": divergence,
                       "objects_charged": fetch.objects,
                       "games_selected": sorted(selected_ids),

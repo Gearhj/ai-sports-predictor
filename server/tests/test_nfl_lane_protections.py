@@ -410,6 +410,11 @@ def test_an_unselected_game_in_the_answer_halts_the_nfl_lane(collector, settings
     halt = collector["session"].query(CollectionLaneHalt).filter(
         CollectionLaneHalt.lane == lane.LANE, CollectionLaneHalt.active.is_(True)).one()
     assert halt.reason == "PROVIDER_RETURNED_UNSELECTED_GAME"
+    # The evidence names the window that was actually asked for, and carries no
+    # credential material: the key travels in a header and is recorded nowhere.
+    filters = halt.evidence["request_filters"]
+    assert filters["startsAfter"] == "2026-09-20T20:04:59Z"
+    assert not any("key" in name.lower() for name in filters)
 
 
 def test_a_latched_nfl_lane_spends_nothing_and_is_never_lifted_here(collector, settings):
