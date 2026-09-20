@@ -243,18 +243,48 @@ def _exposure(session: Session, experiment: ShadowExperiment,
     return same_game, same_day
 
 
-def _superseded_permission_block(
+#: Reasons that name a MISSING PREREQUISITE rather than a judgement.
+#:
+#: A checkpoint that could not evaluate -- no forecast yet, no stored pair, no
+#: permitted provider, only a stale pair, or the producer's permission not yet
+#: imported -- has recorded a true statement about that instant, not a verdict
+#: on the game. The evidence can legitimately arrive later in the same window:
+#: a lineup-dependent forecast or a first price can land at T-20, well after the
+#: T-30 tick that found nothing. Pinning the first tick's answer would throw the
+#: window away.
+#:
+#: What is NOT here matters as much. ``NO_QUALIFYING_VALUE`` is a real
+#: evaluation against a usable price, ``ALL_GATES_PASSED`` is a taken decision,
+#: ``STAKING_OR_EXPOSURE_CAP`` is the caps doing their job and
+#: ``ELIGIBILITY_RECORD_GRANTS_EXECUTION`` is a defective permission, not an
+#: absent one. None of those may ever be re-opened by a later tick.
+#:
+#: This mirrors ``cfb/paper_decision.py:61`` and ``nba/gen1_paper.py:67``, which
+#: have always worked this way; NFL was the outlier.
+PREREQUISITE_REASONS = frozenset(eligibility.MISSING_PERMISSION_REASONS) | {
+    "NO_FORECAST", "NO_TWO_SIDED_QUOTE", "NO_PERMITTED_PROVIDER", "QUOTE_TOO_STALE",
+}
+
+
+def _supersedes_transient_state(
     session: Session, prior: ShadowExperimentDecision, decision: dict[str, Any],
 ) -> bool:
+    """May this evaluation replace the stored one, or must it reuse it?
+
+    Three conditions, all required. The stored decision named a missing
+    prerequisite; nothing was ever staked on it; and this evaluation reached a
+    different answer. A repeat of the same missing prerequisite reuses the
+    stored row, so three ticks that all find nothing leave one record, not
+    three -- and a priced or positioned decision is never re-opened at all.
+    """
+
     prior_reason = (prior.qualification_reasons or {}).get("reason")
-    if prior.recommendation != "BLOCKED" or prior_reason not in eligibility.MISSING_PERMISSION_REASONS:
+    if prior_reason not in PREREQUISITE_REASONS:
         return False
     if session.scalar(select(OfficialAspPosition.id).where(
             OfficialAspPosition.shadow_decision_id == prior.id)) is not None:
         return False
-    # Only a now-eligible evaluation replaces the block; a repeat of the same
-    # missing permission reuses the stored decision as before.
-    return decision.get("reason") not in eligibility.MISSING_PERMISSION_REASONS
+    return decision.get("reason") != prior_reason
 
 
 def record_outcome(
@@ -269,14 +299,14 @@ def record_outcome(
     """
 
     prior = existing_decision(session, experiment_id=experiment.id, game_id=game_id)
-    if prior is not None and _superseded_permission_block(session, prior, decision):
-        # The earlier tick was blocked ONLY because the producer's exact
-        # permission was absent: no price was read and no position exists. The
-        # exact supplement has since been imported inside the same window, so
-        # this evaluation is recorded as its own decision rather than being
-        # discarded in favour of a block whose premise no longer holds. Every
-        # other gate is unchanged, and a priced or positioned decision is never
-        # re-evaluated.
+    if prior is not None and _supersedes_transient_state(session, prior, decision):
+        # The earlier tick recorded a MISSING PREREQUISITE -- no forecast, no
+        # stored pair, no permitted provider, a stale pair, or the producer's
+        # exact permission not yet imported. Nothing was priced and nothing was
+        # staked. The evidence has since arrived inside the same window, so this
+        # evaluation is recorded as its own decision rather than being discarded
+        # in favour of a state whose premise no longer holds. Every other gate is
+        # unchanged, and a priced or positioned decision is never re-evaluated.
         prior = None
     if prior is not None:
         position = session.scalar(select(OfficialAspPosition).where(
@@ -556,6 +586,7 @@ def _decide(
             "selection": best, "eligibility": binding}
 
 
-__all__ = ["MAX_QUOTE_AGE_MINUTES", "PHASE", "WINDOW_CLOSES", "WINDOW_OPENS",
+__all__ = ["MAX_QUOTE_AGE_MINUTES", "PHASE", "PREREQUISITE_REASONS",
+           "WINDOW_CLOSES", "WINDOW_OPENS",
            "evaluate", "existing_decision", "games_at_checkpoint",
            "paired_quotes", "record_outcome"]
