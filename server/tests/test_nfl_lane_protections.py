@@ -299,6 +299,9 @@ def test_a_grant_smaller_than_a_tied_group_defers_instead_of_gambling(collector,
     assert len(result["games_deferred"]) == 7
     assert {entry["reason"] for entry in result["games_deferred"]} == {
         lane.DEFERRED_TIED_START}
+    # Nothing bound, so every due game is still named as unpriced.
+    assert len(result["games_not_funded"]) == 8
+    assert len(result["games_beyond_grant"]) == 1
     # Not one request was sent, so not one object was spent.
     assert collector["calls"]["fetch"] == []
 
@@ -482,3 +485,121 @@ def test_games_not_funded_names_the_games_that_really_have_no_price(collector, s
     assert result["games_beyond_grant"] == [str(late.id)]
     assert result["selection_mismatch"] is None, "a short answer is not a mismatch"
     assert result["lane_halted"] is False
+
+
+# --------------------------------------------------------------------------
+# R4: the lane defers; it does not name provider event IDs.
+# --------------------------------------------------------------------------
+
+def test_the_nfl_lane_never_names_event_ids_and_never_spends_the_owners_one_test(
+        collector, settings, monkeypatch):
+    """AISP holds a verified SportsGameOdds id for every one of these games.
+
+    Using it is governed by `sgo_exact_event_selection_mode`, whose documented
+    scope is the MLB fallback and whose VALIDATE state carries a SINGLE
+    owner-authorised discriminating test, recorded in and read from the MLB
+    lane's own ledger. A second lane reading that switch could spend that one
+    test on an NFL Sunday. So this lane defers by name instead, and the mode is
+    not consulted here at all.
+    """
+
+    eight_tied_kickoffs(collector["slate"])
+    monkeypatch.setattr(settings, "sgo_exact_event_selection_mode", "ON", raising=False)
+    collector["grant_of"](7)
+    collector["returns"]([], [])
+
+    result = lane.collect_nfl_pregame(collector["session"], settings, now=FIRST_TICK)
+
+    assert result["reason"] == "DEFERRED_AMBIGUOUS_SELECTION"
+    assert "exact_event_ids" not in result
+    assert "exact_event_selection" not in result
+    assert "exact_event_selection_mode" not in result
+    assert collector["calls"]["fetch"] == []
+
+
+# --------------------------------------------------------------------------
+# The whole of Sunday, walked tick by tick.
+# --------------------------------------------------------------------------
+
+def test_the_week_three_sunday_prices_every_game_inside_the_same_fifteen_objects(
+        collector, settings):
+    """Before this branch: 8 of 14 games, the lane empty by about 12:02 ET."""
+
+    ctx = collector["slate"]
+    session = ctx["session"]
+    sunday = (
+        [add_game(ctx, kickoff=SUNDAY_1300_ET, away=f"A{i:02d}", home=f"H{i:02d}")
+         for i in range(8)]
+        + [add_game(ctx, kickoff=SUNDAY_1605_ET, away=f"B{i}", home=f"J{i}")
+           for i in range(2)]
+        + [add_game(ctx, kickoff=SUNDAY_1625_ET, away=f"C{i}", home=f"K{i}")
+           for i in range(3)]
+        + [add_game(ctx, kickoff=SUNDAY_2020_ET, away="IND", home="KC")])
+    # The Monday nighter, whose Show Prep preview slot falls on the Sunday.
+    monday = add_game(ctx, kickoff=datetime(2026, 9, 22, 0, 15, tzinfo=UTC),
+                      away="NYG", home="LAR")
+
+    lane_objects = {"left": 15}  # Sunday's projected sgo_nfl_events allocation
+
+    class _Walk:
+        def __init__(self, granted: int) -> None:
+            self.allowed = granted > 0
+            self.granted = granted
+            self.reason = "GRANTED" if granted else "LANE_DAILY_ALLOWANCE_SPENT"
+
+        def as_dict(self):
+            return {"granted": self.granted}
+
+    def _request_objects(session, *, lane, wanted, now=None):
+        return _Walk(min(wanted, lane_objects["left"]))
+
+    def _fetch(settings_, **kwargs):
+        collector["calls"]["fetch"].append(kwargs)
+        return _Fetch(requested_at=kwargs["now"],
+                      event_ids=[f"evt-{kwargs['now'].isoformat()}-{i}"
+                                 for i in range(kwargs["limit"])])
+
+    import pytest as _pytest
+
+    monkey = _pytest.MonkeyPatch()
+    monkey.setattr("app.services.provider_allocation.request_objects", _request_objects)
+    monkey.setattr(lane, "fetch_nfl_pregame", _fetch)
+
+    # The request is anchored to the selection, so the provider can only answer
+    # with what was selected. Watch the cut the collector actually made and
+    # answer with exactly that.
+    real_prefix = lane.unambiguous_prefix
+    last_cut: dict = {"ids": []}
+
+    def _watch(selected, events, **kwargs):
+        kept, deferred = real_prefix(selected, events, **kwargs)
+        last_cut["ids"] = [str(entry["game_id"]) for entry in kept]
+        return kept, deferred
+
+    monkey.setattr(lane, "unambiguous_prefix", _watch)
+    monkey.setattr(lane, "ingested_game_ids",
+                   lambda session_, fetch: list(last_cut["ids"]))
+
+    spend: dict[str, int] = {}
+    by_id = {str(game.id): game for game in sunday + [monday]}
+    moment = FIRST_TICK
+    try:
+        while moment < datetime(2026, 9, 21, 10, 0, tzinfo=UTC):
+            result = lane.collect_nfl_pregame(session, settings, now=moment)
+            if result.get("reason") == "COLLECTED":
+                for game_id in result["games_ingested"]:
+                    price(ctx, by_id[game_id], observed_at=moment)
+                    spend[game_id] = spend.get(game_id, 0) + 1
+                lane_objects["left"] -= result["objects"]
+            moment += timedelta(minutes=15)
+    finally:
+        monkey.undo()
+
+    assert sum(spend.values()) == 15, "the same fifteen objects, none added"
+    assert lane_objects["left"] == 0
+    # Every Sunday game priced exactly once...
+    assert {str(game.id) for game in sunday} <= set(spend)
+    assert max(spend.values()) == 1, "no game was ever bought twice"
+    # ...and the Monday preview still got its object.
+    assert spend.get(str(monday.id)) == 1
+    assert len(spend) == 15

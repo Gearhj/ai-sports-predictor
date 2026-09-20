@@ -313,7 +313,13 @@ def collect_nfl_pregame(
     session: Session, settings: Settings, *,
     now: datetime | None = None, job_run_id: Any = None,
 ) -> dict[str, Any]:
-    """Reserve one object, fetch it, ingest it. One request or none."""
+    """Reserve, fetch and ingest one object per selected game. One request or none.
+
+    The order of refusals is the order of costs: a latched lane, then nothing
+    due, then the provider, then the allocation, then the reserve guard, then an
+    ambiguous selection -- each one cheaper to discover than the object it
+    saves. Only after all six does anything reach the network, exactly once.
+    """
 
     from app.services.collection_halt import active_halt
     from app.services.nfl_shadow_odds_service import NFLShadowOddsService
@@ -339,7 +345,10 @@ def collect_nfl_pregame(
                 "detail": ("This lane is stopped pending an owner decision. No "
                            "object is spent and no retry is attempted.")}
 
-    due = due_games(session, now=moment)
+    # The collector's own settings, not a global read: the preview slot is
+    # computed from them, and a job that was handed a Settings should not go
+    # looking for a different one.
+    due = due_games(session, now=moment, settings=settings)
     if not due:
         return {"attempted": False, "reason": "NO_NFL_GAME_IN_THE_COLLECTION_WINDOW",
                 "objects": 0, "window_opens_minutes_before_kickoff":
@@ -426,7 +435,10 @@ def collect_nfl_pregame(
                 "objects": 0, "lane": LANE,
                 "games_due": due, "games_due_count": len(due),
                 "games_deferred": deferred,
-                "games_not_funded": [entry["game_id"] for entry in beyond_grant],
+                # Nothing bound, so every due game is still without a price --
+                # measured the same way the collected receipt measures it.
+                "games_not_funded": [entry["game_id"] for entry in due],
+                "games_beyond_grant": [entry["game_id"] for entry in beyond_grant],
                 "allocation": grant.as_dict(),
                 "detail": ("Every selected game shares its request window with an "
                            "unselected game the provider could return instead. No "
