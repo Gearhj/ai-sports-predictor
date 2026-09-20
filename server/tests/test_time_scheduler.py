@@ -22,7 +22,7 @@ def test_eastern_today_does_not_flip_at_midnight_utc() -> None:
 PROVIDER_SPENDING_JOBS = {"asp-odds-poll"}
 
 #: Jobs that appear only when their feature flag is on.
-LIVE_SHADOW_JOBS = {"asp-shadow-experiment-freeze", "asp-availability-poll"}
+LIVE_SHADOW_JOBS = {"asp-dc-shadow-experiment-freeze", "asp-availability-poll"}
 
 
 def test_scheduler_registration_is_quota_safe(settings) -> None:

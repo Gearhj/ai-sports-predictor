@@ -149,6 +149,31 @@ AVAILABLE_JOBS = {
     "export-v18-market-pilot-outcomes-v2": "Export V18 Market-Pilot Capture-Bound V2 Outcomes (read-only research export)",
 }
 
+def _checkpoint_already_running(job_name: str) -> dict[str, Any]:
+    """Receipt for a checkpoint execution that found the slot already held.
+
+    The decision owners write by reading first and then inserting when nothing
+    is there, which is idempotent only while executions are serialised. The
+    scheduled runs are -- they share one single-worker lane -- but the admin
+    path (``POST /admin/jobs/{job_name}``) awaits the orchestrator on the web
+    event loop, outside every lane, so it can overlap a scheduled run.
+
+    Declining is the right answer rather than a loss: the execution holding the
+    slot is evaluating the same window from the same rows and will record the
+    same outcome per game. What must not happen is a silent no-op, so this is a
+    named reason in ``job_runs.result``, distinguishable from "no game was due".
+    """
+
+    return {
+        "records": 0,
+        "reason": "CHECKPOINT_ALREADY_RUNNING",
+        "detail": (f"Another execution of {job_name} is in flight in this "
+                   "process; this one declined rather than interleave with it. "
+                   "No decision and no position were written by this run."),
+        "decisions": [],
+    }
+
+
 ALIASES = {
     "schedule": "refresh-schedule", "refresh-todays-schedule": "refresh-schedule",
     "mlb-data": "refresh-mlb-data", "statcast": "refresh-statcast", "odds": "refresh-odds",
@@ -1485,6 +1510,15 @@ class JobOrchestrator:
         available. Only a FINAL_PREGAME QUALIFIED_BET may create a virtual
         position. Reads persisted forecasts + odds only; never a provider call.
         """
+        from app.jobs.lanes import decision_checkpoint_guard
+
+        with decision_checkpoint_guard("freeze-shadow-experiment") as mine:
+            if not mine:
+                return _checkpoint_already_running("freeze-shadow-experiment")
+            return await self._freeze_shadow_experiment(event_date)
+
+    async def _freeze_shadow_experiment(self, event_date: date) -> dict[str, Any]:
+        """The freeze itself. Called only while this process holds the slot."""
         from app.models import ExperimentDecisionPhase
         from app.services.shadow_experiment_service import ShadowExperimentService
 
@@ -1645,9 +1679,13 @@ class JobOrchestrator:
         Reads the frozen forecast and the stored quote; calls no provider.
         """
 
+        from app.jobs.lanes import decision_checkpoint_guard
         from app.services.nfl_paper_decision import evaluate
 
-        return evaluate(self.session, self.settings)
+        with decision_checkpoint_guard("evaluate-nfl-paper-checkpoint") as mine:
+            if not mine:
+                return _checkpoint_already_running("evaluate-nfl-paper-checkpoint")
+            return evaluate(self.session, self.settings)
 
     async def evaluate_cfb_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
         """AISP_CFB_PAPER_POLICY_V1 at T-30..T-15: one recorded outcome per game, always with its reason.
@@ -1657,8 +1695,12 @@ class JobOrchestrator:
         """
 
         from app.cfb.paper_decision import evaluate
+        from app.jobs.lanes import decision_checkpoint_guard
 
-        return evaluate(self.session, self.settings)
+        with decision_checkpoint_guard("evaluate-cfb-paper-checkpoint") as mine:
+            if not mine:
+                return _checkpoint_already_running("evaluate-cfb-paper-checkpoint")
+            return evaluate(self.session, self.settings)
 
     async def ingest_cfb_finals(self, event_date: date) -> dict[str, Any]:
         """Admit CFB finals from the producer's retained evidence, then score. No network.

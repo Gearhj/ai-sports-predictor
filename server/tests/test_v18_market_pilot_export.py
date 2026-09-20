@@ -1283,7 +1283,9 @@ def test_a_game_missed_past_its_deadline_is_recorded_never_sealed(world, setting
 def test_research_export_jobs_run_on_their_own_lane(settings):
     assert lanes.lane_for("asp-rx-v18-market-pilot-seal") == lanes.RESEARCH_EXPORT_LANE
     assert lanes.lane_for("asp-pm-discover") == lanes.PREDICTION_MARKET_LANE
-    assert lanes.lane_for("asp-shadow-experiment-freeze") == lanes.CORE_LANE
+    # The MLB freeze is a decision checkpoint (2026-09-20), so it is no longer
+    # on `core` -- but it must still be off the research-export lane.
+    assert lanes.lane_for("asp-dc-shadow-experiment-freeze") == lanes.DECISION_CHECKPOINT_LANE
     off = build_scheduler(settings.model_copy(update={"scheduler_core_jobs_enabled": True,
                                                       "v18_market_pilot_export_enabled": False}))
     assert off.get_job(seal.SCHEDULER_ID) is None

@@ -480,7 +480,10 @@ def select_event_relative_refresh_states(settings: Settings) -> None:
 
 #: Scheduled coroutines run on single-worker LANES, in submission order per lane
 #: (see app/jobs/lanes.py: prediction-market observation has its own lane so it
-#: cannot hold up forecast imports and decision checkpoints).
+#: cannot hold up forecast imports and decision checkpoints, and the decision
+#: checkpoints themselves -- `asp-dc-*` -- have a lane no other job shares, so a
+#: long core job can never again spend a fifteen-minute window queued ahead of
+#: them the way `generate-nfl-final-pregame-forecasts` did on 2026-09-20).
 #:
 #: WHY: job bodies are `async def` but do synchronous database, file-hashing and
 #: CPU work. Awaited on the web server's event loop they froze HTTP for their
@@ -743,24 +746,32 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     # final-pregame cadence, and the 30-15 minute window means a game is
     # evaluated two or three times rather than once -- which is what makes a
     # single slow tick harmless. Every run outside a window is a no-op.
+    #
+    # The `asp-dc-` prefix puts it on the `decision-checkpoints` lane. On
+    # 2026-09-20 this job was due at 12:29:52 and could not run before its 12:45
+    # window closed, because `generate-nfl-final-pregame-forecasts` started at
+    # 12:30:13 and held the shared `core` thread for 799 seconds. A slow tick is
+    # harmless; a slow NEIGHBOUR was not. The cadence, the window and every gate
+    # below are unchanged -- only the thread it runs on.
     scheduler.add_job(
         execute_scheduled_job,
         "interval",
         minutes=5,
         jitter=None,
         next_run_time=datetime.now(UTC) + timedelta(minutes=3),
-        id="asp-nfl-paper-checkpoint",
+        id="asp-dc-nfl-paper-checkpoint",
         kwargs={"job_name": "evaluate-nfl-paper-checkpoint", "settings": settings},
         **common,
     )
     # The CFB paper checkpoint (AISP_CFB_PAPER_POLICY_V1), same cadence and
-    # window as NFL. Registered only when the CFB consumer is on; positions
-    # additionally wait on CFB_PAPER_DECISIONS_ENABLED inside the owner.
+    # window as NFL, and on the same `decision-checkpoints` lane. Registered
+    # only when the CFB consumer is on; positions additionally wait on
+    # CFB_PAPER_DECISIONS_ENABLED inside the owner.
     if settings.cfb_production_consumer_enabled:
         scheduler.add_job(
             execute_scheduled_job, "interval", minutes=5, jitter=None,
             next_run_time=datetime.now(UTC) + timedelta(minutes=2),
-            id="asp-cfb-paper-checkpoint",
+            id="asp-dc-cfb-paper-checkpoint",
             kwargs={"job_name": "evaluate-cfb-paper-checkpoint", "settings": settings},
             **common,
         )
@@ -863,11 +874,16 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         # Provider-free, idempotent evidence capture and cutoff finalization.
         # Five-minute cadence ensures the 15-minute decision cutoff is not
         # missed by the coarser 30-minute finalization interval.
+        #
+        # This is MLB's FINAL_PREGAME checkpoint -- the phase that may create a
+        # virtual position -- so it belongs on the `decision-checkpoints` lane
+        # with NFL's and CFB's, not behind whatever long import happens to hold
+        # `core` when its cutoff arrives.
         scheduler.add_job(
             execute_scheduled_job,
             "interval",
             minutes=5,
-            id="asp-shadow-experiment-freeze",
+            id="asp-dc-shadow-experiment-freeze",
             kwargs={"job_name": "freeze-shadow-experiment", "settings": settings},
             **common,
         )
