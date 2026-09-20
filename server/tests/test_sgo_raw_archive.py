@@ -202,7 +202,8 @@ def test_the_checkpoint_collector_files_the_archive_in_its_result_and_its_ledger
 
     monkeypatch.setattr("app.services.quote_coverage.QuoteCoverageService", _Coverage)
     monkeypatch.setattr("app.services.provider_allocation.request_objects", lambda *a, **k: _Grant())
-    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch", lambda session, now=None: None)
+    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch",
+                        lambda session, now=None, lane=None: None)
     monkeypatch.setattr(sgo_collection, "ingest", lambda session, settings, fetch, **kwargs: fetch)
     monkeypatch.setattr(sgo_collection, "_ingested_game_ids", lambda session, fetch: [game_id])
 

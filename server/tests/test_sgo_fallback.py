@@ -669,7 +669,8 @@ def test_a_game_whose_freshness_window_has_not_opened_is_not_requested(monkeypat
     monkeypatch.setattr("app.services.quote_coverage.QuoteCoverageService", _Coverage)
     monkeypatch.setattr(sgo_collection, "record_request", _record)
     monkeypatch.setattr(sgo_collection, "eligible", lambda settings, now=None: (True, "OK"))
-    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch", lambda session, now=None: None)
+    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch",
+                        lambda session, now=None, lane=None: None)
 
     class _Budget:
         def may_spend(self, objects):
@@ -708,7 +709,8 @@ def test_when_nothing_is_inside_its_window_the_tick_says_so_and_spends_nothing(m
 
     monkeypatch.setattr("app.services.quote_coverage.QuoteCoverageService", _Coverage)
     monkeypatch.setattr(sgo_collection, "eligible", lambda settings, now=None: (True, "OK"))
-    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch", lambda session, now=None: None)
+    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch",
+                        lambda session, now=None, lane=None: None)
 
     result = sgo_collection.collect_for_open_cutoffs(object(), object(), now=now)
     assert result["attempted"] is False

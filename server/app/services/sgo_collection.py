@@ -666,7 +666,9 @@ def object_budget(session: Session, *, now: datetime | None = None) -> ObjectBud
     )
 
 
-def seconds_since_last_fetch(session: Session, *, now: datetime | None = None) -> float | None:
+def seconds_since_last_fetch(
+    session: Session, *, now: datetime | None = None, lane: str | None = None,
+) -> float | None:
     """How long since the last request that could have SPENT something.
 
     Counted from reservations, so a failing provider cannot be hammered: a
@@ -685,6 +687,22 @@ def seconds_since_last_fetch(session: Session, *, now: datetime | None = None) -
     for two and a half hours with six objects of room in its lane. A free read
     of the account balance is not an attempt to buy a price, exactly as the
     opening adjustment is not.
+
+    WHY IT IS COUNTED PER LANE
+    --------------------------
+    ``lane`` scopes the count to one allocation lane's own ledger rows. Counting
+    every lane made ONE lane's cadence the cadence of all of them: an NFL
+    pregame fetch held the MLB lane off for ten minutes even though the two
+    spend different allowances on different games. On a fourteen-game NFL Sunday
+    the NFL lane fetches inside every checkpoint cluster, and each one shut four
+    consecutive five-minute MLB ticks -- MLB games going dark because a
+    different lane bought a price for a different sport.
+
+    The two reasons the cooldown exists are both lane-local: re-buying prices
+    that cannot have changed is re-buying THIS lane's prices, and a provider
+    being hammered is measured by this lane's own retry cadence, which is what
+    every lane scoping itself preserves. Passing no lane keeps the old
+    every-row reading, so nothing that does not ask for scoping changes.
     """
     from sqlalchemy import func, select
 
@@ -692,14 +710,17 @@ def seconds_since_last_fetch(session: Session, *, now: datetime | None = None) -
     from app.services.provider_allocation import USAGE_ENDPOINT_KEY
 
     moment = now or datetime.now(UTC)
+    filters = [
+        ProviderRequestLedger.provider == SPORTSGAMEODDS,
+        # Neither of these can consume an entity, so neither may hold off
+        # the next real fetch.
+        ProviderRequestLedger.endpoint_key.notin_(
+            (OPENING_ADJUSTMENT_KEY, USAGE_ENDPOINT_KEY)),
+    ]
+    if lane is not None:
+        filters.append(ProviderRequestLedger.endpoint_key == lane)
     latest = session.scalar(
-        select(func.max(ProviderRequestLedger.requested_at)).where(
-            ProviderRequestLedger.provider == SPORTSGAMEODDS,
-            # Neither of these can consume an entity, so neither may hold off
-            # the next real fetch.
-            ProviderRequestLedger.endpoint_key.notin_(
-                (OPENING_ADJUSTMENT_KEY, USAGE_ENDPOINT_KEY)),
-        )
+        select(func.max(ProviderRequestLedger.requested_at)).where(*filters)
     )
     if latest is None:
         return None
@@ -1222,9 +1243,13 @@ def collect_for_open_cutoffs(
     # cadence re-requests prices that cannot have changed -- and a failing
     # provider must not be hammered by a five-minute scheduler tick, so the
     # cooldown counts from the last ATTEMPT, not the last success.
-    since = seconds_since_last_fetch(session, now=moment)
+    #
+    # Scoped to THIS lane: another lane's purchase spends another allowance on
+    # another sport's games, and it never made this lane's prices any fresher.
+    since = seconds_since_last_fetch(session, now=moment, lane=ENDPOINT_KEY)
     if since is not None and since < MIN_SECONDS_BETWEEN_FETCHES:
         return {"attempted": False, "reason": "FALLBACK_COOLDOWN", "objects": 0,
+                "cooldown_lane": ENDPOINT_KEY,
                 "seconds_since_last_fetch": round(since, 1),
                 "cooldown_seconds": MIN_SECONDS_BETWEEN_FETCHES}
 

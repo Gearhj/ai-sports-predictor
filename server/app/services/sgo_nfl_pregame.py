@@ -33,9 +33,18 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.models import Game, GameStatus, GameTeam, League, Team
+from app.services.collection_halt import (
+    SELECTION_MISMATCH, halt_lane, mismatch as selection_mismatch,
+)
+# The MLB lane's own selection and read-back helpers, REUSED rather than
+# re-derived: the ambiguity rule, the mismatch test and "what actually bound"
+# are the same questions about the same provider, and a second copy of them
+# would be a second thing to keep correct.
 from app.services.sgo_collection import (
-    FallbackFetch, _refuse, complete_request, eligible, parse_events,
-    parse_main_markets, record_request, to_event_dtos, to_market_event_dtos,
+    DEFERRED_EARLIER_GAME, DEFERRED_TIED_START, FallbackFetch,
+    _ingested_game_ids as ingested_game_ids, _refuse, complete_request, eligible,
+    parse_events, parse_main_markets, record_request, to_event_dtos,
+    to_market_event_dtos, unambiguous_prefix,
 )
 
 #: The allocation lane. Never `sgo_nfl_live`, which buys in-game scores.
@@ -102,6 +111,19 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def checkpoint_window(kickoff: datetime) -> tuple[datetime, datetime]:
+    """The checkpoint purchase window for a game: [kickoff-75m, kickoff-15m].
+
+    Named so the checkpoint pass can answer "has this game been priced since
+    its own window opened" with the same shape of question the preview pass
+    asks about its slot.
+    """
+
+    starts = _aware(kickoff)
+    return (starts - WINDOW_OPENS_BEFORE_KICKOFF,
+            starts - WINDOW_CLOSES_BEFORE_KICKOFF)
+
+
 def _newest_moneyline(session: Session, game_id: Any) -> datetime | None:
     """When this game's freshest persisted moneyline was observed."""
 
@@ -117,13 +139,66 @@ def _newest_moneyline(session: Session, game_id: Any) -> datetime | None:
     return _aware(observed) if observed is not None else None
 
 
+def _slate_events(
+    session: Session, *, window_start: datetime, window_end: datetime,
+) -> list[dict[str, Any]]:
+    """Every canonical NFL game the request's window could return.
+
+    This is what makes the ambiguity test real rather than nominal: it is not
+    "the games we chose", it is "the games the provider may answer with". A
+    selected game is safe only when every game that shares or precedes its
+    kickoff inside this window was selected too.
+    """
+
+    rows = session.execute(
+        select(Game.id, Game.starts_at)
+        .join(League, League.id == Game.league_id)
+        .where(League.code == "NFL",
+               Game.status == GameStatus.SCHEDULED,
+               Game.starts_at >= window_start,
+               Game.starts_at <= window_end)
+    ).all()
+    return [{"game_id": str(game_id),
+             "starts_at_utc": _aware(starts_at).isoformat()}
+            for game_id, starts_at in rows]
+
+
 def due_games(
     session: Session, *, now: datetime | None = None, settings: Any = None,
 ) -> list[dict[str, Any]]:
     """NFL games worth an object right now: checkpoint first, then preview.
 
-    CHECKPOINT: inside the final 75-15 minutes, for the price a decision uses.
+    CHECKPOINT: inside the final 75-15 minutes, for the price a decision uses,
+    and not yet priced since that window opened.
     PREVIEW: inside its Show Prep slot and not yet priced since the slot opened.
+
+    ONE BUY PER WINDOW, ON BOTH PASSES
+    ----------------------------------
+    The "already priced" test used to guard the preview pass only. The
+    checkpoint window is sixty minutes wide and the collector ticks every
+    fifteen, so a checkpoint game was re-offered on every tick inside its own
+    window and bought again each time -- the same price, from the same lane,
+    for the same decision.
+
+    On a tied NFL Sunday that is not a rounding error. Week 3's eight 13:00 ET
+    kickoffs share one window: the first tick bought all eight, and the second
+    tick spent every remaining object in the day re-buying seven of them. The
+    16:05, 16:25 and 20:20 games, and the next day's Show Prep preview, then had
+    no objects left and went unpriced -- the lane's whole allowance consumed
+    about an hour into a fourteen-game slate, on prices it already held.
+
+    So both passes ask the same question against their own window: has a
+    moneyline been observed for this game since this window opened? The
+    checkpoint window sits far inside the 240-minute freshness limit the
+    decision applies (a quote bought when the window opens is 60-75 minutes old
+    at the checkpoint), so one buy per window is a quote that is genuinely fresh
+    where it is used -- and a game that really has no price yet, because its
+    purchase failed or never happened, is still due on the next tick.
+
+    The test reads the newest moneyline from ANY source, exactly as the preview
+    pass has always read it: the producer's freshness rule is source-agnostic,
+    so a game the governed provider has already priced inside this window does
+    not need a research object spent on it too.
     """
 
     if settings is None:
@@ -148,13 +223,16 @@ def due_games(
         if to_kickoff < WINDOW_CLOSES_BEFORE_KICKOFF:
             continue  # inside the final 15 minutes: too late to be useful
         in_checkpoint = to_kickoff <= WINDOW_OPENS_BEFORE_KICKOFF
-        if not in_checkpoint:
+        if in_checkpoint:
+            opens, _closes = checkpoint_window(starts)
+        else:
             opens, closes = preview_slot(settings, starts)
             if not (opens <= moment <= closes):
                 continue  # outside its Show Prep slot
-            newest = _newest_moneyline(session, game_id)
-            if newest is not None and newest >= opens:
-                continue  # already priced inside this slot; one buy is the budget
+        # ONE BUY PER WINDOW, whichever window this is.
+        newest = _newest_moneyline(session, game_id)
+        if newest is not None and newest >= opens:
+            continue  # already priced inside this window; one buy is the budget
         sides = dict(session.execute(
             select(GameTeam.is_home, Team.abbreviation)
             .join(Team, Team.id == GameTeam.team_id)
@@ -176,17 +254,30 @@ def due_games(
 def fetch_nfl_pregame(
     settings: Settings, *, limit: int = 1, now: datetime | None = None,
     starts_within_hours: int = 2, request_fingerprint: str | None = None,
+    starts_after: datetime | None = None,
 ) -> FallbackFetch:
-    """Exactly one request for upcoming NFL events. No retry, no pagination."""
+    """Exactly one request for upcoming NFL events. No retry, no pagination.
+
+    ``starts_after`` carries the SELECTION into the request, as the MLB lane
+    does. A bare "from now" window hands back the earliest events in it, which
+    is not the same set as the games the objects were reserved for: on a slate
+    with an earlier kickoff still in the window, the object lands on the earlier
+    game and the selected one stays unpriced. Anchoring just below the earliest
+    SELECTED kickoff excludes every game the rule did not choose. The default
+    keeps the old "from now" behaviour for any caller that does not choose.
+    """
 
     ok, reason = eligible(settings, now=now)
     if not ok:
         raise _refuse(f"SportsGameOdds is not eligible: {reason}")
     moment = now or datetime.now(UTC)
+    # Never moved backwards past the retrieval moment: a game already under way
+    # is not pregame, whatever the selection asked for.
+    anchor = max(_aware(starts_after), moment) if starts_after else moment
     params = {
         "leagueID": "NFL",
         "limit": str(max(1, int(limit))),
-        "startsAfter": moment.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "startsBefore": (moment + timedelta(hours=starts_within_hours)
                          ).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "finalized": "false",
@@ -224,11 +315,30 @@ def collect_nfl_pregame(
 ) -> dict[str, Any]:
     """Reserve one object, fetch it, ingest it. One request or none."""
 
+    from app.services.collection_halt import active_halt
     from app.services.nfl_shadow_odds_service import NFLShadowOddsService
     from app.services.provider_allocation import request_objects
     from app.services.sgo_collection import object_budget
 
     moment = now or datetime.now(UTC)
+
+    # A LATCHED LANE SPENDS NOTHING, AND IS NOT RETRIED.
+    #
+    # Checked before anything else, because a halt is not a rate limit: it means
+    # the last object bought an answer to a question this lane did not ask, and
+    # the owner has not yet decided whether the provider can be trusted to
+    # answer it. Nothing here lifts it. A halt on this lane never touches MLB's,
+    # exactly as MLB's never touched this one.
+    halt = active_halt(session, lane=LANE)
+    if halt is not None:
+        return {"attempted": False, "reason": "LANE_HALTED", "objects": 0,
+                "lane": LANE,
+                "halt": {"lane": halt.lane, "halt_reason": halt.reason,
+                         "halted_at": _aware(halt.halted_at).isoformat(),
+                         "detail": halt.detail, "evidence": halt.evidence},
+                "detail": ("This lane is stopped pending an owner decision. No "
+                           "object is spent and no retry is attempted.")}
+
     due = due_games(session, now=moment)
     if not due:
         return {"attempted": False, "reason": "NO_NFL_GAME_IN_THE_COLLECTION_WINDOW",
@@ -263,19 +373,76 @@ def collect_nfl_pregame(
         return {"attempted": False, "reason": "OBJECT_RESERVE_GUARD",
                 "objects": 0, "detail": refusal, "budget": budget.as_dict()}
 
+    # WHAT THE GRANT PAYS FOR, IN THE ORDER `due_games` DECLARED.
+    # Checkpoint games first, so a short day funds the decisions before the show.
+    selected, beyond_grant = due[:granted], due[granted:]
+
+    # The horizon has to reach the furthest game we are paying for, or the
+    # provider filters out the very events the objects were reserved for. It is
+    # measured over every DUE game, not just the funded prefix, so the window a
+    # selection is judged against is the window the request will actually carry.
+    horizon = max(2, int(max(entry["minutes_to_kickoff"] for entry in due) // 60) + 2)
+    window_end = moment + timedelta(hours=horizon)
+
+    # THE CHOICE, EXPRESSED AS A FILTER -- the MLB lane's rule, reused.
+    #
+    # `startsAfter` anchored one second below the earliest SELECTED kickoff
+    # excludes every game the ordering ranked lower, so an object reserved for
+    # a 16:05 game cannot land on a 16:25 one the provider happened to return
+    # first. Never moved back past `moment`: a game under way is not pregame.
+    anchor = max(
+        min(_aware(datetime.fromisoformat(entry["starts_at"])) for entry in selected)
+        - timedelta(seconds=1),
+        moment,
+    )
+
+    # NEVER A REQUEST THE PROVIDER MAY ANSWER WITH A DIFFERENT GAME.
+    #
+    # The window filter plus a limit is answered with the EARLIEST events in the
+    # window, and ties at one kickoff come back in the provider's own order. NFL
+    # is the league where that matters most: Week 3 Sunday has eight games at
+    # 13:00 ET, so a grant that cannot fund the whole tied group names games the
+    # provider is free to substitute for each other.
+    #
+    # `unambiguous_prefix` (the MLB lane's own helper) keeps only the leading
+    # start-time groups that are WHOLLY selected and defers the rest BY NAME. No
+    # request is sent for a deferred game, so no object is spent on one, and the
+    # next tick -- by when the grant, the slate or the tie has moved -- asks
+    # again. AISP holds a SportsGameOdds event id for these games, but naming
+    # events by id is governed by `sgo_exact_event_selection_mode`, whose
+    # documented scope is the MLB fallback and whose VALIDATE state carries a
+    # single owner-authorised discriminating test recorded in the MLB lane's own
+    # ledger. Widening either is an owner decision, not a repair, so this lane
+    # defers instead.
+    slate = _slate_events(session, window_start=anchor, window_end=window_end)
+    selected, deferred = unambiguous_prefix(
+        [{"game_id": entry["game_id"],
+          "starts_at_utc": _aware(datetime.fromisoformat(entry["starts_at"])).isoformat()}
+         for entry in selected],
+        slate, window_start=anchor, window_end=window_end, moment=moment)
+    selected_ids = [str(entry["game_id"]) for entry in selected]
+    if not selected_ids:
+        return {"attempted": False, "reason": "DEFERRED_AMBIGUOUS_SELECTION",
+                "objects": 0, "lane": LANE,
+                "games_due": due, "games_due_count": len(due),
+                "games_deferred": deferred,
+                "games_not_funded": [entry["game_id"] for entry in beyond_grant],
+                "allocation": grant.as_dict(),
+                "detail": ("Every selected game shares its request window with an "
+                           "unselected game the provider could return instead. No "
+                           "request was sent; no object was spent.")}
+    wanted = len(selected_ids)
+
     reservation = record_request(
-        session, requested_at=moment, params={"leagueID": "NFL", "limit": str(granted)},
-        budget=budget, job_run_id=job_run_id, objects_requested=granted,
+        session, requested_at=moment, params={"leagueID": "NFL", "limit": str(wanted)},
+        budget=budget, job_run_id=job_run_id, objects_requested=wanted,
         endpoint_key=LANE,
     )
     session.commit()
 
     try:
-        # The horizon has to reach the furthest game we are paying for, or the
-        # provider filters out the very events the objects were reserved for.
-        horizon = max(2, int(max(entry["minutes_to_kickoff"] for entry in due) // 60) + 2)
-        fetch = fetch_nfl_pregame(settings, limit=granted, now=moment,
-                                  starts_within_hours=horizon,
+        fetch = fetch_nfl_pregame(settings, limit=wanted, now=moment,
+                                  starts_within_hours=horizon, starts_after=anchor,
                                   request_fingerprint=getattr(reservation, "request_fingerprint", None))
     except Exception as error:  # one attempt; the schedule owns the next one
         complete_request(session, reservation, objects=0, succeeded=False,
@@ -283,7 +450,9 @@ def collect_nfl_pregame(
                          job_run_id=job_run_id)
         session.commit()
         return {"attempted": True, "reason": "REQUEST_FAILED", "objects": 0,
-                "error_type": type(error).__name__, "games_due": due}
+                "error_type": type(error).__name__, "games_due": due,
+                "games_selected": selected_ids,
+                **({"games_deferred": deferred} if deferred else {})}
 
     # Explicit franchise mapping, never a name-and-date join -- and stamped with
     # the provider that actually supplied it. SportsGameOdds is a RESEARCH
@@ -309,20 +478,71 @@ def collect_nfl_pregame(
             market_result = service.ingest(market_events,
                                            available_as_of=fetch.requested_at)
     raw_archive = getattr(fetch, "raw_archive", None)
+
+    # WHAT THE OBJECTS ACTUALLY BOUGHT, read back from the binding the franchise
+    # map made -- never from the events we hoped for. An event the provider
+    # substituted, or one that failed to bind, cannot appear here.
+    ingested = ingested_game_ids(session, fetch)
+    # The mismatch is decided BEFORE the terminal row, so the receipt can say
+    # whether this purchase halted the lane.
+    divergence = selection_mismatch(selected_ids, ingested)
+
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id,
                      extra_metadata={"raw_archive": raw_archive} if raw_archive is not None else None)
+
+    # THE FIRST MISMATCH STOPS THE LANE.
+    #
+    # The request names the games it wants, so a response carrying a game that
+    # was never selected means an object was charged for a question nobody
+    # asked. Retrying spends a second object to re-ask a question the provider
+    # has just declined to answer, so nothing is retried and the lane latches
+    # shut on the single occurrence.
+    #
+    # The rows already written stay: they are real prices from a real response,
+    # and deleting them would destroy the evidence of what happened. The
+    # completed reservation stays too -- the object WAS charged. Nothing in this
+    # lane lifts a halt; that judgement belongs to the owner.
+    halted = None
+    if divergence is not None:
+        halted = halt_lane(
+            session, lane=LANE, reason=SELECTION_MISMATCH,
+            evidence={"request_filters": {"leagueID": "NFL", "limit": str(wanted),
+                                          "startsAfter": anchor.isoformat(),
+                                          "startsBefore": window_end.isoformat()},
+                      "mismatch": divergence,
+                      "objects_charged": fetch.objects,
+                      "games_selected": sorted(selected_ids),
+                      "requested_at": moment.isoformat()},
+            detail=("The provider returned an NFL game this request did not "
+                    "select. The lane is stopped after this single occurrence; "
+                    "no object was spent on a retry."),
+            now=moment,
+        )
     session.commit()
     return {
         "attempted": True, "reason": "COLLECTED", "lane": LANE,
         "objects": fetch.objects,
         "raw_archive": raw_archive,
-        "objects_reserved": granted,
+        "objects_reserved": wanted,
         "games_due": due,
         "games_due_count": len(due),
-        # Named, never silently dropped: which due games this grant could not
-        # reach, so a reader can see the coverage gap rather than infer it.
-        "games_not_funded": [entry["game_id"] for entry in due[granted:]],
+        # WHAT WAS CHOSEN, AND WHAT THE OBJECTS ACTUALLY BOUGHT.
+        "games_selected": selected_ids,
+        "games_ingested": ingested,
+        "selection_reached_provider": divergence is None,
+        "lane_halted": halted is not None,
+        "selection_mismatch": divergence,
+        # Named, never silently dropped: which due games still have no price
+        # from this purchase. Measured from what BOUND, not from a slice of the
+        # due list -- with tied kickoffs the provider's own ordering decides
+        # which of the funded games came back, so a positional slice named the
+        # wrong games and reported re-bought prices as new coverage.
+        "games_not_funded": [entry["game_id"] for entry in due
+                             if entry["game_id"] not in set(ingested)],
+        # The two reasons a due game can be missing, kept apart.
+        "games_beyond_grant": [entry["game_id"] for entry in beyond_grant],
+        **({"games_deferred": deferred} if deferred else {}),
         "events": result["events"], "mapped_events": result["mapped_events"],
         "quotes": result["quotes"], "duplicates": result["duplicates"],
         "rejected_events": result["rejected_events"],
@@ -339,7 +559,8 @@ def collect_nfl_pregame(
     }
 
 
-__all__ = ["LANE", "PREVIEW_LEAD", "PREVIEW_LOOKAHEAD", "SOURCE", "preview_slot",
-           "WINDOW_CLOSES_BEFORE_KICKOFF",
+__all__ = ["DEFERRED_EARLIER_GAME", "DEFERRED_TIED_START", "LANE", "PREVIEW_LEAD",
+           "PREVIEW_LOOKAHEAD", "SOURCE", "checkpoint_window",
+           "preview_slot", "WINDOW_CLOSES_BEFORE_KICKOFF",
            "WINDOW_OPENS_BEFORE_KICKOFF", "collect_nfl_pregame", "due_games",
            "fetch_nfl_pregame"]
