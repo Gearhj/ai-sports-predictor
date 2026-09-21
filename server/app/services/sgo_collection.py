@@ -1397,7 +1397,8 @@ def collect_for_open_cutoffs(
     # kept as a second, cruder guard -- it protects against a bug in this
     # planner, which is exactly the sort of thing a reserve is for.
     from app.services.collection_halt import (
-        SELECTION_MISMATCH, halt_lane, mismatch as selection_mismatch,
+        PAID_STORED_NOTHING, SELECTION_MISMATCH, halt_lane,
+        mismatch as selection_mismatch, paid_and_stored_nothing,
     )
     from app.services.provider_allocation import (
         owner_exception_state, request_objects,
@@ -1715,6 +1716,39 @@ def collect_for_open_cutoffs(
                     "object was spent on a retry."),
             now=moment,
         )
+    # THE OTHER HALF OF THE SAME QUESTION, ON THIS LANE TOO.
+    #
+    # `divergence` can only see games that BOUND, so a charged response that
+    # bound nothing at all leaves it None -- which is exactly how the NFL lane
+    # paid three times for the same useless answer on 2026-09-20. This lane has
+    # never shown that fault (its request window was verified correct to the
+    # second across all 13 archives that day), and this guard is inert while it
+    # stays correct: it can only fire when objects were CHARGED and not one
+    # selected game was stored, which on a working lane never happens.
+    #
+    # It is checked second so a response carrying someone else's game keeps the
+    # more specific PROVIDER_RETURNED_UNSELECTED_GAME reason.
+    paid_empty = None
+    if halted is None:
+        paid_empty = paid_and_stored_nothing(
+            selected_ids, ingested, objects_charged=fetch.objects)
+        if paid_empty is not None:
+            halted = halt_lane(
+                session, lane=ENDPOINT_KEY, reason=PAID_STORED_NOTHING,
+                evidence={"request_filters": params, "mismatch": paid_empty,
+                          "mismatch_reason": PAID_STORED_NOTHING,
+                          "objects_charged": fetch.objects,
+                          "games_selected": sorted(selected_ids),
+                          "games_ingested": sorted(ingested),
+                          "events_returned": fetch.events_ingested,
+                          "raw_archive": getattr(fetch, "raw_archive", None),
+                          "selection_rule": SELECTION_RULE,
+                          "requested_at": moment.isoformat()},
+                detail=("Objects were charged and not one selected game was "
+                        "stored. The lane is stopped after this single "
+                        "occurrence; no object is spent on a retry."),
+                now=moment,
+            )
     session.commit()
     after = object_budget(session, now=moment)
     # Named only when they happened, so an unambiguous request's receipt is
@@ -1750,7 +1784,10 @@ def collect_for_open_cutoffs(
         # measured from the canonical games the normalizer actually bound.
         "games_selected": [str(e.get("game_id")) for e in covered],
         "games_ingested": ingested,
-        "selection_reached_provider": divergence is None,
+        # A charged response that stored none of the selection did not have its
+        # selection come back either, so it is not "reached" on that receipt.
+        "selection_reached_provider": divergence is None and paid_empty is None,
+        "paid_stored_nothing": paid_empty is not None,
         "lane_halted": halted is not None,
         "selection_mismatch": divergence,
         # Named, not silently dropped: a reader can see exactly which games this

@@ -361,3 +361,46 @@ def test_duplicate_ticks_create_no_duplicate_decision_or_position(slate):
     same_game = [r for r in rows(slate) if r.game_id == entry["game"].id]
     assert len(same_game) == 1
     assert positions(slate) == 1
+
+
+# ==========================================================================
+# the window is a hard edge: nothing is evaluated or superseded after T-15
+# ==========================================================================
+
+def test_no_game_is_evaluated_after_the_cutoff(slate):
+    """T-15 closes the window. A late tick sees no game at all, so it cannot
+    supersede a transient block, and cannot backdate one either."""
+    after_cutoff = KICKOFF - timedelta(minutes=14)
+    due = nfl.games_at_checkpoint(slate["session"], now=after_cutoff)
+    assert due == []
+
+    # and a tick INSIDE the window does see them, so the emptiness above is the
+    # cutoff doing its job rather than the fixture being wrong
+    inside = nfl.games_at_checkpoint(slate["session"], now=TICK)
+    assert len(inside) == len(SLATE)
+
+
+def test_a_transient_block_is_superseded_only_while_the_window_is_open(slate):
+    """A missing FINAL may be revisited in-window; a real answer never is."""
+    # missing input -> replaceable
+    assert nfl._supersedes_transient_state(
+        slate["session"],
+        _prior_row("BLOCKED", "NO_FINAL_PREGAME_FORECAST"),
+        {"outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED"}) is True
+    # a genuine no-value verdict -> never replaced
+    assert nfl._supersedes_transient_state(
+        slate["session"],
+        _prior_row("DECLINED", "NO_QUALIFYING_VALUE"),
+        {"outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED"}) is False
+
+
+class _prior_row:
+    """The shape `_supersedes_transient_state` reads off a stored decision."""
+
+    def __init__(self, outcome, reason, position_id=None):
+        self.recommendation = {"BLOCKED": "BLOCKED", "DECLINED": "DECLINED",
+                               "QUALIFIED": "QUALIFIED_BET"}[outcome]
+        self.recommendation_reason = reason
+        self.qualification_reasons = {"outcome": outcome, "reason": reason}
+        self.id = uuid.uuid4()
+        self.position_id = position_id
