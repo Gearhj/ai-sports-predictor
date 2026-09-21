@@ -1,0 +1,11 @@
+# These are CONTENT-ADDRESSED bytes, not source files.
+#
+# Every document in this tree is identified by the sha256 of its exact bytes,
+# and the test suite asserts three of those hashes against the values Model
+# Studio published. Any line-ending normalisation -- on checkout, on a machine
+# with a different core.autocrlf, or on the sanitized mirror -- would change
+# those hashes and break the binding for reasons that would look like a
+# producer error rather than a git setting.
+#
+# So nothing here is text as far as git is concerned.
+* -text -diff
