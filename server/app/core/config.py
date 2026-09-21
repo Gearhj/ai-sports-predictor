@@ -491,6 +491,20 @@ class Settings(BaseSettings):
     v18_market_pilot_outcomes_v2_dir: str = Field(default=str(
         Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-v2"))
 
+    # ------------------------------------------------------------------
+    # Prospective research capture (app.research_exports.prospective_capture).
+    # Model Studio's comparison contract is NOT frozen yet, so the exporter is
+    # BUILT AND OFF. Off means inert: no row is read and no file is opened.
+    # There is deliberately NO scheduler entry for it -- it has a callable and
+    # `python -m app.research_exports.prospective_capture`, and nothing else.
+    # It never writes a decision, a position or any production record.
+    # ------------------------------------------------------------------
+    prospective_capture_enabled: bool = False
+    #: Its own lane. Must not overlap any V18 market-pilot directory; the
+    #: exporter refuses to run if it does.
+    prospective_capture_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "prospective-research-capture-v1"))
+
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
     raw_data_root: Path = ASP_ROOT / "data" / "raw"
