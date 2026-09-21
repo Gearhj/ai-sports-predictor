@@ -23,7 +23,6 @@ quote, both of which some other owner already paid for.
 from __future__ import annotations
 
 import uuid
-
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -92,12 +91,40 @@ def games_at_checkpoint(
     return out
 
 
-def _forecast(session: Session, game_id: Any) -> ShadowForecast | None:
-    """The frozen final-pregame forecast, falling back to the current one."""
+#: What controlled a decision, named rather than inferred. FINAL_PREGAME is the
+#: only phase that may control an official research position.
+PHASE_FINAL, PHASE_CURRENT = "FINAL_PREGAME", "CURRENT"
 
-    for snapshot in ("FINAL_PREGAME", None):
+
+def _as_uuid(value: Any) -> Any:
+    """Game ids travel through the checkpoint as strings; columns are uuid.
+
+    Postgres accepts the string form, so this was invisible in production, but
+    it is a real coercion and stating it here keeps the query backend-neutral.
+    """
+
+    if isinstance(value, str):
+        try:
+            return uuid.UUID(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _forecast(session: Session, game_id: Any,
+              *, phase: str | None = None) -> ShadowForecast | None:
+    """The controlling forecast for one game, at one snapshot phase.
+
+    ``phase`` None keeps the old "best available" behaviour, which remains
+    correct for preview and research surfaces. The official checkpoint asks for
+    a phase EXPLICITLY, because which snapshot controlled a position is exactly
+    the thing that must not be decided by a silent fallback.
+    """
+
+    order = (phase,) if phase else (PHASE_FINAL, None)
+    for snapshot in order:
         query = select(ShadowForecast).where(
-            ShadowForecast.canonical_game_id == game_id,
+            ShadowForecast.canonical_game_id == _as_uuid(game_id),
             ShadowForecast.engine_id == "NFL_M1_XGBOOST",
         )
         if snapshot:
@@ -107,6 +134,30 @@ def _forecast(session: Session, game_id: Any) -> ShadowForecast | None:
         if row is not None:
             return row
     return None
+
+
+def _final_forecast_available_by(session: Session, game_id: Any,
+                                 cutoff: datetime) -> ShadowForecast | None:
+    """The FINAL_PREGAME forecast that was genuinely AVAILABLE before ``cutoff``.
+
+    Availability is read from ``available_as_of_utc``, the producer's own
+    visibility clock -- never from ``created_at``. In Postgres ``created_at``
+    defaults to the TRANSACTION START, so a row can carry a timestamp minutes
+    before the transaction that wrote it committed and became visible. That is
+    not a hypothetical: on 2026-09-20 the eight early FINAL_PREGAME rows all
+    carry created_at 12:41:07 while ``generate-nfl-final-pregame-forecasts``
+    did not finish until 12:43:32. A checkpoint at 12:41:32 could not have seen
+    them, and a rule keyed on created_at would wrongly conclude it had.
+    """
+
+    return session.scalar(
+        select(ShadowForecast)
+        .where(ShadowForecast.canonical_game_id == _as_uuid(game_id),
+               ShadowForecast.engine_id == "NFL_M1_XGBOOST",
+               ShadowForecast.snapshot_type == PHASE_FINAL,
+               ShadowForecast.available_as_of_utc.is_not(None),
+               ShadowForecast.available_as_of_utc <= cutoff)
+        .order_by(ShadowForecast.available_as_of_utc.desc()).limit(1))
 
 
 def paired_quotes(session: Session, game_id: Any) -> list[dict[str, Any]]:
@@ -243,6 +294,81 @@ def _exposure(session: Session, experiment: ShadowExperiment,
     return same_game, same_day
 
 
+def _ts(value: Any) -> datetime | None:
+    """A datetime column's value from whatever the decision dict carries."""
+
+    if value is None or isinstance(value, datetime):
+        return value
+    try:
+        return _aware(datetime.fromisoformat(str(value)))
+    except ValueError:
+        return None
+
+
+def _resolve_staking(session: Session, experiment: ShadowExperiment, game_id: Any,
+                     slate_date: Any, best: dict[str, Any]) -> dict[str, Any]:
+    """Size a qualifying pick, and record what else was considered.
+
+    Returns the stake, the bankroll it was sized against, the binding limits,
+    and the receipt that becomes ``staking_detail`` on the durable row. It
+    writes nothing, so it can safely run BEFORE the decision row exists -- which
+    is the whole point: the row can then be written once, already knowing
+    whether a position followed.
+    """
+
+    bankroll = float(experiment.starting_bankroll)
+    same_game, same_day = _exposure(session, experiment, game_id, slate_date)
+    raw = float(best["quarter_kelly"]) * bankroll
+    daily_room = max(0.0, experiment.max_daily_percentage * bankroll - same_day)
+
+    # THE LIMITS THAT ACTUALLY BIND A RESEARCH POSITION.
+    #
+    # The aggregate daily ceiling is deliberately NOT among them: it truncated
+    # the research sample in evaluation order rather than on merit (see
+    # `AGGREGATE_DAILY_CAP_BINDS` in nfl_paper_policy). The per-position cap and
+    # the same-game ceiling still bind, so a single pick's size and a single
+    # game's total exposure are unchanged.
+    limits = {
+        "quarter_kelly": raw,
+        "position_cap": experiment.max_position_percentage * bankroll,
+        "same_game_cap": max(
+            0.0, experiment.max_same_game_percentage * bankroll - same_game),
+    }
+    if policy.AGGREGATE_DAILY_CAP_BINDS:
+        limits["daily_cap"] = daily_room
+    stake = round(min(limits.values()), 2)
+
+    # ANALYTICAL FIELDS -- recorded, never binding.
+    #
+    # `recommended_kelly_stake` is the unconstrained quarter-Kelly size, so the
+    # sizing the model actually recommended survives even though the position is
+    # taken at the flat research size.
+    #
+    # `constrained_bankroll_portfolio` is what this pick WOULD have received
+    # under the aggregate daily ceiling, so the capped-portfolio view stays
+    # reconstructable and comparable with the record built before the ceiling
+    # was lifted. `would_be_declined` marks the picks the old rule would have
+    # dropped entirely -- the ones whose absence used to bias the sample.
+    constrained = round(min(list(limits.values()) + [daily_room]), 2)
+    receipt = {
+        **limits,
+        "stake": stake,
+        "bound_by": min(limits, key=limits.get),
+        "aggregate_daily_cap_binds": policy.AGGREGATE_DAILY_CAP_BINDS,
+        "recommended_kelly_stake": round(raw, 2),
+        "recommended_kelly_fraction": float(best["quarter_kelly"]),
+        "constrained_bankroll_portfolio": {
+            "daily_cap_fraction": float(experiment.max_daily_percentage),
+            "daily_room_before_this_pick": round(daily_room, 2),
+            "stake_under_daily_cap": constrained,
+            "would_be_declined": constrained <= 0,
+            "basis": "ANALYTICAL_ONLY_NOT_ENFORCED",
+        },
+    }
+    return {"stake": stake, "bankroll": round(bankroll, 2),
+            "limits": limits, "receipt": receipt}
+
+
 #: Reasons that name a MISSING PREREQUISITE rather than a judgement.
 #:
 #: A checkpoint that could not evaluate -- no forecast yet, no stored pair, no
@@ -261,8 +387,15 @@ def _exposure(session: Session, experiment: ShadowExperiment,
 #:
 #: This mirrors ``cfb/paper_decision.py:61`` and ``nba/gen1_paper.py:67``, which
 #: have always worked this way; NFL was the outlier.
+#: ``NO_FINAL_PREGAME_FORECAST`` belongs here for the same reason as the rest: a
+#: FINAL forecast that has not committed yet is a MISSING input, not a verdict.
+#: On 2026-09-20 the FINAL generation transaction committed at 12:43:32 while
+#: the checkpoint ran at 12:41:32, so a later tick inside the same window would
+#: have found it. Pinning the first answer would turn a two-minute wait into a
+#: lost evaluation.
 PREREQUISITE_REASONS = frozenset(eligibility.MISSING_PERMISSION_REASONS) | {
-    "NO_FORECAST", "NO_TWO_SIDED_QUOTE", "NO_PERMITTED_PROVIDER", "QUOTE_TOO_STALE",
+    "NO_FORECAST", "NO_FINAL_PREGAME_FORECAST", "NO_TWO_SIDED_QUOTE",
+    "NO_PERMITTED_PROVIDER", "QUOTE_TOO_STALE",
 }
 
 
@@ -344,6 +477,29 @@ def record_outcome(
     qualified = decision["outcome"] == "QUALIFIED"
     slate_date = moment.astimezone(UTC).date()
 
+    # STAKING IS RESOLVED BEFORE THE ROW IS WRITTEN.
+    #
+    # It used to run after, against an already-flushed row that was never
+    # updated, which is how three exposure-capped games came to be persisted as
+    # QUALIFIED_BET while the job receipt said DECLINED. Computing first costs
+    # nothing -- staking reads positions, not this row -- and it lets the row be
+    # written once, with the answer that is actually true.
+    staking = _resolve_staking(session, experiment, game_id, slate_date, best) \
+        if qualified else None
+    executed = bool(staking and staking["stake"] > 0)
+
+    # The PRE-staking answer, kept verbatim before anything below can amend it.
+    qualification_outcome = decision["outcome"]
+    qualification_reason = decision["reason"]
+
+    if qualified and not executed:
+        # Value was there; room was not. The record says so in both fields.
+        decision = {**decision, "outcome": "DECLINED",
+                    "reason": "STAKING_OR_EXPOSURE_CAP",
+                    "detail": f"Every cap resolved to zero ({staking['limits']})."}
+    if staking is not None:
+        decision = {**decision, "staking": staking["receipt"]}
+
     row = ShadowExperimentDecision(
         experiment_id=experiment.id, game_id=game_id, slate_date=slate_date,
         phase=PHASE, sport="NFL", market="MONEYLINE", period="full_game",
@@ -360,96 +516,63 @@ def record_outcome(
         recommended_at=moment,
         model_probability=best.get("win_probability"),
         expected_value=best.get("expected_value"),
-        recommendation="QUALIFIED_BET" if qualified else decision["outcome"],
+        # The POST-staking disposition. A value-qualified game that received no
+        # position reads DECLINED here, not QUALIFIED_BET, because this is the
+        # field every downstream reader already treats as "what AISP did".
+        recommendation="QUALIFIED_BET" if executed else decision["outcome"],
         recommendation_reason=str(decision.get("detail") or decision["reason"]),
         qualification_reasons={"reason": decision["reason"],
                                "outcome": decision["outcome"]},
+        # D2: the two questions, unambiguously apart and durable.
+        qualification_outcome=qualification_outcome,
+        qualification_reason=qualification_reason,
+        execution_outcome="EXECUTED" if executed else "NOT_EXECUTED",
+        execution_reason=(
+            "POSITION_TAKEN" if executed
+            else ("STAKING_OR_EXPOSURE_CAP" if qualified else qualification_reason)),
+        staking_detail=_jsonable(staking["receipt"]) if staking else None,
+        # D3/D6: which snapshot controlled, its durable identity, and the
+        # clocks that prove it was available. The uuid `forecast_id` column is
+        # deliberately left alone -- it is a foreign key to `forecasts`, and an
+        # NFL forecast lives in `shadow_forecasts` (carried by
+        # `shadow_forecast_id` above).
+        controlling_forecast_identity=(
+            str(decision["forecast_id"]) if decision.get("forecast_id") else None),
+        forecast_snapshot_phase=decision.get("forecast_snapshot_phase"),
+        forecast_published_at=_ts(decision.get("forecast_published_at")),
+        forecast_imported_at=_ts(decision.get("forecast_available_as_of")),
+        # D6: the authority behind the decision, no longer stripped.
+        eligibility_binding=_jsonable(decision.get("eligibility")),
+        eligibility_supplement_id=decision.get("eligibility_supplement_id"),
         source_mode="LIVE",
         # JSON-safe: the decision carries UUIDs for the forecast row, the
         # market outcome and the odds snapshot, and a UUID is not serialisable.
-        # They are stringified rather than dropped, because the evidence blob
-        # is where a reader looks to find exactly what was priced.
-        evidence=_jsonable({k: v for k, v in decision.items()
-                            if k not in ("eligibility",)}),
+        # The eligibility binding is no longer stripped here -- it has its own
+        # column now, and dropping it from the evidence too is what made the
+        # authority unrecoverable in the first place.
+        evidence=_jsonable(dict(decision)),
     )
     session.add(row)
     session.flush()
 
     position_id = None
-    capped_by = None
-    if qualified:
-        bankroll = float(experiment.starting_bankroll)
-        same_game, same_day = _exposure(session, experiment, game_id, slate_date)
-        raw = float(best["quarter_kelly"]) * bankroll
-        daily_room = max(0.0, experiment.max_daily_percentage * bankroll - same_day)
-        # THE LIMITS THAT ACTUALLY BIND A RESEARCH POSITION.
-        #
-        # The aggregate daily ceiling is deliberately NOT among them: it
-        # truncated the research sample in evaluation order rather than on
-        # merit (see `AGGREGATE_DAILY_CAP_BINDS` in nfl_paper_policy). The
-        # per-position cap and the same-game ceiling still bind, so a single
-        # pick's size and a single game's total exposure are unchanged.
-        limits = {
-            "quarter_kelly": raw,
-            "position_cap": experiment.max_position_percentage * bankroll,
-            "same_game_cap": max(
-                0.0, experiment.max_same_game_percentage * bankroll - same_game),
-        }
-        if policy.AGGREGATE_DAILY_CAP_BINDS:
-            limits["daily_cap"] = daily_room
-        stake = round(min(limits.values()), 2)
-        capped_by = min(limits, key=limits.get)
-
-        # ANALYTICAL FIELDS -- recorded, never binding.
-        #
-        # `recommended_kelly_stake` is the unconstrained quarter-Kelly size, so
-        # the sizing the model actually recommended survives even though the
-        # position is taken at the flat research size.
-        #
-        # `constrained_bankroll_portfolio` is what this pick WOULD have received
-        # under the aggregate daily ceiling, so the capped-portfolio view stays
-        # reconstructable and comparable with the record built before the
-        # ceiling was lifted. `would_be_declined` marks the picks the old rule
-        # would have dropped entirely -- the ones whose absence used to bias the
-        # sample.
-        constrained = round(min(list(limits.values()) + [daily_room]), 2)
-        analytics = {
-            "recommended_kelly_stake": round(raw, 2),
-            "recommended_kelly_fraction": float(best["quarter_kelly"]),
-            "constrained_bankroll_portfolio": {
-                "daily_cap_fraction": float(experiment.max_daily_percentage),
-                "daily_room_before_this_pick": round(daily_room, 2),
-                "stake_under_daily_cap": constrained,
-                "would_be_declined": constrained <= 0,
-                "basis": "ANALYTICAL_ONLY_NOT_ENFORCED",
-            },
-        }
-        if stake > 0:
-            position = OfficialAspPosition(
-                shadow_forecast_id=decision.get("shadow_forecast_row_id"),
-                market_outcome_id=best["market_outcome_id"],
-                odds_snapshot_id=best["odds_snapshot_id"],
-                placed_at=moment, stake=stake,
-                decimal_odds=policy.american_to_decimal(int(best["american_odds"])),
-                result=PositionResult.PENDING, status=PositionStatus.OPEN,
-                strategy=experiment.staking_policy_version,
-                shadow_experiment_id=experiment.id, shadow_decision_id=row.id,
-                bankroll_before_position=round(bankroll, 2),
-                recommendation_policy_version=experiment.recommendation_policy_version,
-                staking_policy_version=experiment.staking_policy_version,
-            )
-            session.add(position)
-            session.flush()
-            position_id = str(position.id)
-        else:
-            decision = {**decision, "outcome": "DECLINED",
-                        "reason": "STAKING_OR_EXPOSURE_CAP",
-                        "detail": f"Every cap resolved to zero ({limits})."}
-        decision = {**decision, "staking": {**limits, "stake": stake,
-                                            "bound_by": capped_by,
-                                            "aggregate_daily_cap_binds":
-                                                policy.AGGREGATE_DAILY_CAP_BINDS,
-                                            **analytics}}
+    if executed:
+        position = OfficialAspPosition(
+            shadow_forecast_id=decision.get("shadow_forecast_row_id"),
+            market_outcome_id=best["market_outcome_id"],
+            odds_snapshot_id=best["odds_snapshot_id"],
+            placed_at=moment, stake=staking["stake"],
+            decimal_odds=policy.american_to_decimal(int(best["american_odds"])),
+            result=PositionResult.PENDING, status=PositionStatus.OPEN,
+            strategy=experiment.staking_policy_version,
+            shadow_experiment_id=experiment.id, shadow_decision_id=row.id,
+            bankroll_before_position=staking["bankroll"],
+            recommendation_policy_version=experiment.recommendation_policy_version,
+            staking_policy_version=experiment.staking_policy_version,
+        )
+        session.add(position)
+        session.flush()
+        position_id = str(position.id)
 
     return _jsonable({**decision, "decision_id": str(row.id),
                       "position_id": position_id, "persisted": "RECORDED"})
@@ -505,13 +628,49 @@ def _decide(
     base = {"game_id": game["game_id"], "matchup": f"{game['away']} at {game['home']}",
             "starts_at": game["starts_at"], "evaluated_at": moment.isoformat()}
 
-    forecast = _forecast(session, game["game_id"])
+    # THE CONTROLLING FORECAST IS THE FINAL ONE, OR THERE IS NO POSITION.
+    #
+    # The official research position may only be controlled by a FINAL_PREGAME
+    # forecast that was genuinely available before this game's decision cutoff.
+    # The previous code asked for FINAL and silently fell back to CURRENT, and
+    # on 2026-09-20 that fallback placed all four NFL positions on forecasts
+    # published five and six days earlier -- not because a newer forecast was
+    # overlooked, but because the FINAL generation transaction had not committed
+    # yet and the fallback quietly took a stale one instead of stopping.
+    #
+    # Failing closed is the whole point: a position controlled by a multi-day-old
+    # CURRENT snapshot is worse than no position, because it looks governed.
+    cutoff = _aware(datetime.fromisoformat(game["starts_at"])) - WINDOW_CLOSES
+    forecast = _final_forecast_available_by(session, game["game_id"], cutoff)
     if forecast is None:
-        return {**base, "outcome": "BLOCKED", "reason": "NO_FORECAST",
-                "detail": "No NFL_M1_XGBOOST forecast exists for this game."}
+        current = _forecast(session, game["game_id"], phase=None)
+        if current is None:
+            return {**base, "outcome": "BLOCKED", "reason": "NO_FORECAST",
+                    "detail": "No NFL_M1_XGBOOST forecast exists for this game."}
+        # CURRENT stays VISIBLE -- it is named, with its own phase and clocks,
+        # so preview and research surfaces lose nothing. It simply may not
+        # control an official position.
+        return {**base, "outcome": "BLOCKED", "reason": "NO_FINAL_PREGAME_FORECAST",
+                "detail": (
+                    "No FINAL_PREGAME forecast was available before this game's "
+                    f"cutoff ({cutoff.isoformat()}). The most recent CURRENT "
+                    f"snapshot is {current.snapshot_type} v{current.snapshot_version}, "
+                    f"available {current.available_as_of_utc}. A CURRENT snapshot "
+                    "does not control an official research position."),
+                "forecast_id": current.forecast_id,
+                "shadow_forecast_row_id": current.id,
+                "forecast_snapshot": f"{current.snapshot_type} v{current.snapshot_version}",
+                "forecast_snapshot_phase": current.snapshot_type,
+                "forecast_available_as_of": current.available_as_of_utc,
+                "controlling": False}
     base = {**base, "forecast_id": forecast.forecast_id,
             "shadow_forecast_row_id": forecast.id,
-            "forecast_snapshot": f"{forecast.snapshot_type} v{forecast.snapshot_version}"}
+            "forecast_snapshot": f"{forecast.snapshot_type} v{forecast.snapshot_version}",
+            "forecast_snapshot_phase": forecast.snapshot_type,
+            "forecast_available_as_of": forecast.available_as_of_utc,
+            "forecast_published_at": forecast.available_as_of_utc,
+            "forecast_cutoff_utc": forecast.forecast_cutoff_utc,
+            "controlling": True}
 
     # Eligibility first, deliberately. See the module docstring.
     binding = eligibility.check(
@@ -524,6 +683,13 @@ def _decide(
                 "detail": binding.get("detail"),
                 "forecast_id": forecast.forecast_id,
                 "eligibility": binding}
+
+    # D6: the authority that permitted this decision travels WITH it from here
+    # on, including on the success path. It used to be computed, used, and then
+    # dropped -- so a decision could be read back without any way to recover
+    # what had authorised it.
+    base = {**base, "eligibility": binding,
+            "eligibility_supplement_id": binding.get("supplement_id")}
 
     pairs = paired_quotes(session, game["game_id"])
     if not pairs:

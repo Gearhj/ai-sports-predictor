@@ -3304,6 +3304,40 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # penalties, adjusted probability/edge, raw Kelly, evidence multiplier,
     # final stake, policy version). NULL for V1 strict-control decisions.
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # -- what was decided, and what was then executed (D2) -------------------
+    #
+    # `recommendation` above is the POST-staking disposition: what AISP actually
+    # did. These two pairs keep the two questions apart, because conflating them
+    # is what let three exposure-capped games persist as QUALIFIED_BET on
+    # 2026-09-20 while the job receipt recorded DECLINED / daily_cap.
+    qualification_outcome: Mapped[str | None] = mapped_column(String(40))
+    qualification_reason: Mapped[str | None] = mapped_column(String(80))
+    execution_outcome: Mapped[str | None] = mapped_column(String(40))
+    execution_reason: Mapped[str | None] = mapped_column(String(80))
+    #: Binding limits, bound_by, stake, and the analytical recommended-Kelly and
+    #: constrained-bankroll fields. Durable, not telemetry-only.
+    staking_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # -- which forecast actually controlled this decision (D3) ---------------
+    #
+    # `forecast_imported_at` is the IMPORT COMPLETION, deliberately not the
+    # forecast row's created_at: in Postgres that is the transaction-start
+    # stamp, and on 2026-09-20 eight FINAL rows carried created_at 12:41:07
+    # while their transaction did not commit until 12:43:32.
+    forecast_snapshot_phase: Mapped[str | None] = mapped_column(String(40))
+    forecast_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    eligibility_supplement_id: Mapped[str | None] = mapped_column(String(200))
+    #: The content-addressed identity of the CONTROLLING forecast. The uuid
+    #: `forecast_id` above is a foreign key to `forecasts`; an NFL forecast
+    #: lives in `shadow_forecasts` (see `shadow_forecast_id`), so the identity
+    #: gets its own column rather than being forced into the wrong key.
+    controlling_forecast_identity: Mapped[str | None] = mapped_column(String(200))
+
+    # -- the authority behind the decision (D6) ------------------------------
+    eligibility_binding: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
     __table_args__ = (
         Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
     )
