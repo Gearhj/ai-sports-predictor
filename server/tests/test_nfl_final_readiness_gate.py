@@ -10,6 +10,7 @@ records, blocks only when armed. Both behaviours are pinned here.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,11 @@ def armed(session: Session, settings, tmp_path: Path):
 
     family = fx.build(tmp_path)
     settings.nfl_final_readiness_root = str(tmp_path)
+    # The armed state we will actually deploy is armed AND PINNED. Arming alone
+    # is refused by the gate, so every test below that flips the flag inherits
+    # the pins here rather than exercising a configuration we will never run.
+    settings.nfl_final_required_producer_revision = fx.PRODUCER_REVISION
+    settings.nfl_final_readiness_schema_sha256 = fx.RECEIPT_SCHEMA_SHA256
 
     sport = Sport(code="FOOTBALL", name="Football")
     session.add(sport)
@@ -269,3 +275,125 @@ def test_a_late_checkpoint_cannot_relabel_its_missed_cutoff(armed) -> None:
 
     assert out["outcome"] == "BLOCKED"
     assert out["readiness"]["sub_reasons"] == [gate.CONSUMER_OBSERVATION_LATE]
+
+
+# --------------------------------------------------------------------------
+# pinning the reviewed operational-V2 producer revision
+# --------------------------------------------------------------------------
+
+def test_an_unpinned_revision_accepts_any_nonempty_revision(tmp_path):
+    """The state we ship in: honest, and exactly why enforcement stays off."""
+    from tests.fixtures.nfl_final_readiness import build
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    out = rg.verify_final_readiness(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1))
+    assert out.verified is True
+
+
+def test_a_pinned_revision_refuses_a_receipt_from_another_revision(tmp_path):
+    """An authentic receipt from the WRONG producer is not positive evidence."""
+    from tests.fixtures.nfl_final_readiness import build
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    out = rg.verify_final_readiness(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
+        required_producer_revision="078e5dafd1f61fd42b7a36e4d6a4e8073be0c50b")
+    assert out.verified is False
+    assert rg.PRODUCER_REVISION_NOT_PINNED in out.sub_reasons
+
+
+def test_a_pinned_revision_accepts_the_matching_receipt(tmp_path):
+    from tests.fixtures.nfl_final_readiness import build
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    receipt = json.loads(fam.receipt_path().read_text(encoding="utf-8"))
+    out = rg.verify_final_readiness(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
+        required_producer_revision=str(receipt["producerRevision"]))
+    assert out.verified is True
+
+
+def test_a_pinned_schema_hash_refuses_a_reshaped_receipt(tmp_path):
+    from tests.fixtures.nfl_final_readiness import build
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    out = rg.verify_final_readiness(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
+        required_schema_sha256="0" * 64)
+    assert out.verified is False
+    assert rg.RECEIPT_SCHEMA_MISMATCH in out.sub_reasons
+
+
+def test_arming_enforcement_without_a_pin_is_refused(tmp_path, settings, monkeypatch):
+    """Armed-but-unpinned is a false assurance, so the gate refuses outright."""
+    from app.services import nfl_paper_decision as nfl
+    from app.services import nfl_final_readiness as rg
+
+    monkeypatch.setattr(settings, "nfl_final_readiness_required", True, raising=False)
+    monkeypatch.setattr(settings, "nfl_final_required_producer_revision", "", raising=False)
+    monkeypatch.setattr(settings, "nfl_final_readiness_schema_sha256", "", raising=False)
+
+    class _FC:
+        forecast_id = "asp-sports-game-forecast:sha256:" + "a" * 64
+        event_id = "2026_03_NYG_LA"
+        snapshot_type = "FINAL_PREGAME"
+        snapshot_version = 1
+        engine_id = "NFL_M1_XGBOOST"
+        bundle_id = None
+
+    out = nfl._check_readiness(
+        None, settings, _FC(),
+        kickoff=datetime(2026, 9, 22, 0, 15, tzinfo=UTC),
+        moment=datetime(2026, 9, 21, 23, 55, tzinfo=UTC))
+    assert out.verified is False
+    assert "READINESS_ENFORCEMENT_ARMED_WITHOUT_PIN" in out.sub_reasons
+
+
+def test_a_pinned_schema_hash_accepts_the_declared_one(tmp_path):
+    from tests.fixtures.nfl_final_readiness import build, RECEIPT_SCHEMA_SHA256
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    out = rg.verify_final_readiness(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
+        required_schema_sha256=RECEIPT_SCHEMA_SHA256.upper())
+    assert out.verified is True, out.sub_reasons
+
+
+def test_a_pinned_schema_hash_refuses_a_receipt_that_declares_none(tmp_path):
+    """Absence under a live pin is a refusal, not a pass.
+
+    This is the case that matters most before Codex's first authentic byte
+    arrives: if our field spelling is wrong, the pin must fail CLOSED and say
+    so, not silently skip because it found nothing to compare.
+    """
+    from tests.fixtures.nfl_final_readiness import build
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    receipt_file = fam.receipt_path()
+    receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
+    for name in rg.SCHEMA_SHA256_FIELDS:
+        receipt.pop(name, None)
+    # Rewritten in place: the content address no longer matches, which is its
+    # own refusal, so this asserts only that an unpinned read still fails and
+    # that the DIRECT identity check names the absent schema.
+    with pytest.raises(Exception) as caught:
+        rg._require_identity(
+            receipt, {"forecastId": fam.forecast_id},
+            forecast_id=fam.forecast_id, event_id=receipt["eventId"],
+            snapshot_type=receipt["snapshotType"],
+            snapshot_version=receipt["snapshotVersion"],
+            engine_id=receipt["engineId"],
+            required_schema_sha256="a" * 64)
+    assert caught.value.sub_reason == rg.RECEIPT_SCHEMA_ABSENT

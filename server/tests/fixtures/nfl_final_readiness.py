@@ -71,6 +71,15 @@ def source_event_id(event_id: str) -> str:
     return f"nflverse:{event_id}"
 EVENT_DATE = date(2026, 9, 21)
 PRODUCER_REVISION = "nfl-final-delivery-operational-v2"
+#: The receipt's declared schema hash, and the FIELD carrying it.
+#:
+#: Both are our reading of the contract, not an authentic producer byte: the
+#: contract names the receipt schema id but not the field that carries its hash.
+#: Codex supplies the real value; this fixture exists so the pinned-pass,
+#: pinned-mismatch and pinned-but-absent paths are all exercised before then.
+RECEIPT_SCHEMA_SHA256_FIELD = "schemaSha256"
+RECEIPT_SCHEMA_SHA256 = hashlib.sha256(
+    b"NFL_FINAL_READY_RECEIPT_V1").hexdigest()
 SUPPLEMENT_ROOT = "nfl-labs-supplements"
 SUPPLEMENT_INDEX_FILENAME = "nfl-labs-supplement-index.json"
 SUPPLEMENT_INDEX_SCHEMA = "AISP_NFL_LABS_SUPPLEMENT_INDEX_V1"
@@ -521,6 +530,7 @@ def build(
 
     receipt = {
         "schemaVersion": RECEIPT_SCHEMA,
+        RECEIPT_SCHEMA_SHA256_FIELD: RECEIPT_SCHEMA_SHA256,
         "eventId": child["eventId"],
         "forecastId": forecast_id,
         "snapshotType": child["snapshotType"],

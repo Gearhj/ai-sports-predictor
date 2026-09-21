@@ -657,6 +657,32 @@ def _check_readiness(
     not exchange visibility.
     """
 
+    # ARMING WITHOUT A PIN IS REFUSED.
+    #
+    # An unpinned revision check can only require a NON-EMPTY string, which a
+    # receipt from the OLD producer satisfies. Enforcing readiness in that state
+    # would look like a safety gate while actually admitting any authentic-
+    # looking receipt, which is worse than leaving it off: it converts an
+    # explicit gap into a false assurance. So the two must be armed together,
+    # and the refusal names the missing pin rather than failing quietly.
+    if getattr(settings, "nfl_final_readiness_required", False):
+        missing = [name for name, value in (
+            ("NFL_FINAL_REQUIRED_PRODUCER_REVISION",
+             getattr(settings, "nfl_final_required_producer_revision", "")),
+            ("NFL_FINAL_READINESS_SCHEMA_SHA256",
+             getattr(settings, "nfl_final_readiness_schema_sha256", "")),
+        ) if not str(value or "").strip()]
+        if missing:
+            return readiness_gate.ReadinessVerification(
+                verified=False, forecast_id=forecast.forecast_id,
+                reason=readiness_gate.REASON,
+                sub_reasons=("READINESS_ENFORCEMENT_ARMED_WITHOUT_PIN",),
+                detail=("Readiness enforcement is armed but "
+                        + ", ".join(missing) + " is unset; an unpinned check "
+                        "would admit a receipt from the superseded producer."),
+                evidence={"checkpoint_selected_forecast_id": forecast.forecast_id,
+                          "missing_pins": missing})
+
     root = _readiness_root(settings)
     if root is None:
         return readiness_gate.ReadinessVerification(
@@ -687,6 +713,16 @@ def _check_readiness(
         engine_id=forecast.engine_id,
         package_imported_at=_aware(package_imported_at) if package_imported_at else None,
         grant_imported_at=_aware(grant_imported_at) if grant_imported_at else None,
+        # Pinned from configuration, never inferred. While these are empty the
+        # join can only require a NON-EMPTY producer revision, which an
+        # old-revision receipt would satisfy -- tolerable only while
+        # enforcement is off. They must be set before it is armed.
+        required_producer_revision=(
+            str(getattr(settings, "nfl_final_required_producer_revision", "") or "").strip()
+            or None),
+        required_schema_sha256=(
+            str(getattr(settings, "nfl_final_readiness_schema_sha256", "") or "").strip()
+            or None),
     )
 
 

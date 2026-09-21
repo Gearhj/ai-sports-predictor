@@ -93,6 +93,30 @@ RECEIPT_ABSENT = "RECEIPT_ABSENT"
 RECEIPT_ADDRESS_MISMATCH = "RECEIPT_ADDRESS_MISMATCH"
 RECEIPT_MALFORMED = "RECEIPT_MALFORMED"
 RECEIPT_IDENTITY_MISMATCH = "RECEIPT_IDENTITY_MISMATCH"
+#: The receipt exists and is well formed, but was not written by the reviewed
+#: operational-V2 producer revision. Distinct from a malformed receipt on
+#: purpose: this one is authentic evidence from the WRONG producer.
+PRODUCER_REVISION_NOT_PINNED = "PRODUCER_REVISION_NOT_PINNED"
+#: The receipt declares a schema this consumer was not written against.
+RECEIPT_SCHEMA_MISMATCH = "RECEIPT_SCHEMA_MISMATCH"
+#: A schema hash is pinned but the receipt declares none under any field name we
+#: read. That is a REFUSAL, not a pass: an unreadable schema declaration under a
+#: live pin means we cannot tell whether the receipt has the reviewed shape, and
+#: the contract's rule for absent evidence is fail closed.
+RECEIPT_SCHEMA_ABSENT = "RECEIPT_SCHEMA_ABSENT"
+
+#: Where a receipt may declare its own schema hash, most specific first.
+#:
+#: The producer contract names the receipt schema id (``NFL_FINAL_READY_RECEIPT_V1``)
+#: but does not state the FIELD that carries its hash, so these three spellings
+#: are our reading and must be reconciled against the first authentic receipt.
+#: Reading a set rather than one name keeps a rename-only correction cheap; it
+#: does NOT weaken the pin, because a receipt declaring nothing under any of them
+#: is refused outright while a pin is configured.
+SCHEMA_SHA256_FIELDS: tuple[str, ...] = (
+    "schemaSha256", "receiptSchemaSha256", "schemaHashSha256",
+)
+
 EXPOSURE_REFERENCE_ABSENT = "EXPOSURE_REFERENCE_ABSENT"
 EXPOSURE_REFERENCE_MALFORMED = "EXPOSURE_REFERENCE_MALFORMED"
 EXPOSURE_REFERENCE_NOT_BOUND = "EXPOSURE_REFERENCE_NOT_BOUND"
@@ -295,10 +319,34 @@ def _exposure(root: Path, entry: dict[str, Any], receipt_sha: str) -> dict[str, 
     return exposure
 
 
+def _declared_schema_sha256(receipt: dict[str, Any]) -> str | None:
+    """The receipt's own schema hash, lowercased, or None if it declares none."""
+
+    for name in SCHEMA_SHA256_FIELDS:
+        value = str(receipt.get(name) or "").strip().lower()
+        if value:
+            return value
+    return None
+
+
 def _require_identity(receipt: dict[str, Any], exposure: dict[str, Any], *,
                       forecast_id: str, event_id: str, snapshot_type: str,
-                      snapshot_version: int | None, engine_id: str) -> None:
-    """One exact game/forecast/snapshot/model/producer identity, or nothing."""
+                      snapshot_version: int | None, engine_id: str,
+                      required_producer_revision: str | None = None,
+                      required_schema_sha256: str | None = None) -> None:
+    """One exact game/forecast/snapshot/model/producer identity, or nothing.
+
+    ``required_producer_revision`` PINS the revision. The contract distinguishes
+    "the activated operational-V2 producer revision" from the current one but
+    does not state the literal value, so until it is supplied the check can only
+    require a non-empty string -- which an OLD-revision receipt would satisfy.
+    Once pinned, a receipt from any other revision is refused outright, which is
+    the difference between "a receipt exists" and "the reviewed producer wrote
+    it".
+
+    ``required_schema_sha256`` pins the receipt schema the producer emits, so a
+    reshaped receipt cannot pass a join written against the older shape.
+    """
 
     declared = {
         "forecastId": (receipt.get("forecastId"), forecast_id),
@@ -314,8 +362,24 @@ def _require_identity(receipt: dict[str, Any], exposure: dict[str, Any], *,
         raise _Fail(RECEIPT_IDENTITY_MISMATCH,
                     f"receipt snapshotVersion is {receipt.get('snapshotVersion')!r}, "
                     f"the checkpoint selected {snapshot_version!r}")
-    if not str(receipt.get("producerRevision") or "").strip():
+    revision = str(receipt.get("producerRevision") or "").strip()
+    if not revision:
         raise _Fail(RECEIPT_IDENTITY_MISMATCH, "receipt names no producer revision")
+    if required_producer_revision:
+        if revision != required_producer_revision:
+            raise _Fail(PRODUCER_REVISION_NOT_PINNED,
+                        f"receipt producerRevision is {revision!r}; the reviewed "
+                        f"operational-V2 revision is {required_producer_revision!r}")
+    if required_schema_sha256:
+        declared_schema = _declared_schema_sha256(receipt)
+        if declared_schema is None:
+            raise _Fail(RECEIPT_SCHEMA_ABSENT,
+                        "a schema hash is pinned but the receipt declares none under "
+                        f"any of {list(SCHEMA_SHA256_FIELDS)}")
+        if declared_schema != required_schema_sha256.strip().lower():
+            raise _Fail(RECEIPT_SCHEMA_MISMATCH,
+                        f"receipt schema hash is {declared_schema!r}; the reviewed "
+                        f"schema is {required_schema_sha256.strip().lower()!r}")
     if exposure.get("forecastId") != forecast_id:
         raise _Fail(RECEIPT_IDENTITY_MISMATCH,
                     "the exposure object names a different forecast")
@@ -623,6 +687,8 @@ def verify_final_readiness(
     package_imported_at: datetime | None = None,
     grant_imported_at: datetime | None = None,
     require_package_import: bool = False,
+    required_producer_revision: str | None = None,
+    required_schema_sha256: str | None = None,
 ) -> ReadinessVerification:
     """Does this exact FINAL forecast carry complete, positive, current readiness?
 
@@ -654,7 +720,9 @@ def verify_final_readiness(
         exposure = _exposure(root, entry, receipt_sha)
         _require_identity(receipt, exposure, forecast_id=forecast_id, event_id=event_id,
                           snapshot_type=snapshot_type, snapshot_version=snapshot_version,
-                          engine_id=engine_id)
+                          engine_id=engine_id,
+                          required_producer_revision=required_producer_revision,
+                          required_schema_sha256=required_schema_sha256)
         _require_positive_status(exposure)
         bundle = receipt.get("bundle") if isinstance(receipt.get("bundle"), dict) else {}
         grant = receipt.get("grant") if isinstance(receipt.get("grant"), dict) else {}
@@ -714,5 +782,7 @@ __all__ = [
     "AVAILABILITY_DIR", "CONSUMER_CUTOFF", "EXPOSURE_SCHEMA", "INDEX_SCHEMA",
     "OBJECTS_DIR", "PRODUCER_BOUNDARY", "READINESS_INDEX_FILENAME",
     "READINESS_ROOT", "REASON", "RECEIPT_SCHEMA", "STATUS_TIMELY",
+    "PRODUCER_REVISION_NOT_PINNED", "RECEIPT_SCHEMA_MISMATCH",
+    "RECEIPT_SCHEMA_ABSENT", "SCHEMA_SHA256_FIELDS",
     "ReadinessVerification", "verify_final_readiness",
 ]

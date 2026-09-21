@@ -266,6 +266,14 @@ class Settings(BaseSettings):
     # operational-V2 revision is live and the first authentic receipts have
     # been read back.
     # ------------------------------------------------------------------
+    #: The EXACT producer revision the reviewed operational-V2 producer emits.
+    #: Empty means unpinned, and unpinned means an old-revision receipt would
+    #: satisfy the identity check -- acceptable only while enforcement is off.
+    #: Set this before arming `nfl_final_readiness_required`.
+    nfl_final_required_producer_revision: str = ""
+    #: The receipt schema hash the reviewed producer declares. Empty means
+    #: unpinned; set it with the revision.
+    nfl_final_readiness_schema_sha256: str = ""
     nfl_final_readiness_required: bool = False
     #: Where the readiness family is read from. Empty means "the configured
     #: model-exchange root", which is what production uses; tests point it at a
