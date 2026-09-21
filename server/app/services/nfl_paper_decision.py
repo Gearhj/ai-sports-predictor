@@ -381,16 +381,49 @@ def record_outcome(
         bankroll = float(experiment.starting_bankroll)
         same_game, same_day = _exposure(session, experiment, game_id, slate_date)
         raw = float(best["quarter_kelly"]) * bankroll
+        daily_room = max(0.0, experiment.max_daily_percentage * bankroll - same_day)
+        # THE LIMITS THAT ACTUALLY BIND A RESEARCH POSITION.
+        #
+        # The aggregate daily ceiling is deliberately NOT among them: it
+        # truncated the research sample in evaluation order rather than on
+        # merit (see `AGGREGATE_DAILY_CAP_BINDS` in nfl_paper_policy). The
+        # per-position cap and the same-game ceiling still bind, so a single
+        # pick's size and a single game's total exposure are unchanged.
         limits = {
             "quarter_kelly": raw,
             "position_cap": experiment.max_position_percentage * bankroll,
             "same_game_cap": max(
                 0.0, experiment.max_same_game_percentage * bankroll - same_game),
-            "daily_cap": max(
-                0.0, experiment.max_daily_percentage * bankroll - same_day),
         }
+        if policy.AGGREGATE_DAILY_CAP_BINDS:
+            limits["daily_cap"] = daily_room
         stake = round(min(limits.values()), 2)
         capped_by = min(limits, key=limits.get)
+
+        # ANALYTICAL FIELDS -- recorded, never binding.
+        #
+        # `recommended_kelly_stake` is the unconstrained quarter-Kelly size, so
+        # the sizing the model actually recommended survives even though the
+        # position is taken at the flat research size.
+        #
+        # `constrained_bankroll_portfolio` is what this pick WOULD have received
+        # under the aggregate daily ceiling, so the capped-portfolio view stays
+        # reconstructable and comparable with the record built before the
+        # ceiling was lifted. `would_be_declined` marks the picks the old rule
+        # would have dropped entirely -- the ones whose absence used to bias the
+        # sample.
+        constrained = round(min(list(limits.values()) + [daily_room]), 2)
+        analytics = {
+            "recommended_kelly_stake": round(raw, 2),
+            "recommended_kelly_fraction": float(best["quarter_kelly"]),
+            "constrained_bankroll_portfolio": {
+                "daily_cap_fraction": float(experiment.max_daily_percentage),
+                "daily_room_before_this_pick": round(daily_room, 2),
+                "stake_under_daily_cap": constrained,
+                "would_be_declined": constrained <= 0,
+                "basis": "ANALYTICAL_ONLY_NOT_ENFORCED",
+            },
+        }
         if stake > 0:
             position = OfficialAspPosition(
                 shadow_forecast_id=decision.get("shadow_forecast_row_id"),
@@ -413,7 +446,10 @@ def record_outcome(
                         "reason": "STAKING_OR_EXPOSURE_CAP",
                         "detail": f"Every cap resolved to zero ({limits})."}
         decision = {**decision, "staking": {**limits, "stake": stake,
-                                            "bound_by": capped_by}}
+                                            "bound_by": capped_by,
+                                            "aggregate_daily_cap_binds":
+                                                policy.AGGREGATE_DAILY_CAP_BINDS,
+                                            **analytics}}
 
     return _jsonable({**decision, "decision_id": str(row.id),
                       "position_id": position_id, "persisted": "RECORDED"})

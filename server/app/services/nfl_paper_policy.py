@@ -65,10 +65,40 @@ KELLY_FRACTION = 0.25
 POSITION_CAP_UNCALIBRATED = 0.005   # 0.5% -> $5.00 on $1,000
 POSITION_CAP_IF_CALIBRATED = 0.01   # 1.0% -> $10.00, unavailable until calibrated
 
-#: Same-game and daily exposure ceilings, as fractions of bankroll. Carried
-#: from the prepared proposal unchanged. They bind on TOTAL exposure, so two
-#: positions on one game cannot each take the per-position cap.
+#: Same-game exposure ceiling, as a fraction of bankroll. It binds on TOTAL
+#: exposure, so two positions on one game cannot each take the per-position cap.
 MAX_SAME_GAME_PERCENTAGE = 0.01     # 1.0% -> $10.00 across every leg of a game
+
+#: THE AGGREGATE DAILY CAP NO LONGER BINDS A RESEARCH POSITION.
+#:
+#: It used to. On 2026-09-20 the 2% daily ceiling was $20 against a $5 position
+#: cap, so the first four qualifying games of an eight-game slate took the whole
+#: day's room and NO@BAL, PHI@TEN and PIT@NE were declined with
+#: ``STAKING_OR_EXPOSURE_CAP`` / ``bound_by: daily_cap``. Which four were funded
+#: was decided by the order the evaluator happened to loop in -- alphabetical by
+#: matchup -- and not by edge, expected value or Kelly fraction. The three that
+#: lost their room carried the LARGEST Kelly fractions of the eight. That is a
+#: sampling rule nobody chose, and it silently biases the research record: the
+#: sample of picks that reach settlement is selected on spelling.
+#:
+#: This is a RESEARCH ledger of virtual money whose purpose is an unbiased
+#: estimate of how the model's qualifying picks perform. A cap that truncates
+#: the sample by alphabet serves risk management, which a virtual bankroll does
+#: not need, at the cost of the estimate, which is the entire point. So every
+#: qualifying pick now receives the standard research position and the aggregate
+#: daily ceiling is recorded instead of enforced.
+#:
+#: What did NOT change: the per-position cap (still the penalised 0.5%, $5), the
+#: same-game ceiling, quarter-Kelly, the minimum adjusted edge, and every gate
+#: that decides whether a pick QUALIFIES at all. Only the aggregate daily
+#: truncation is gone.
+AGGREGATE_DAILY_CAP_BINDS = False
+
+#: Retained at its previous value. With ``AGGREGATE_DAILY_CAP_BINDS`` False this
+#: no longer limits any stake; it is the input to the CONSTRAINED-BANKROLL
+#: PORTFOLIO, an analytical field recorded beside each decision so the
+#: capped-portfolio view remains reconstructable and comparable to the record
+#: built before this change.
 MAX_DAILY_PERCENTAGE = 0.02         # 2.0% -> $20.00 across the whole day
 
 #: Minimum adjusted edge, unchanged in shape from MLB (2.0 points) because it is
@@ -330,6 +360,7 @@ AUTHORITY = {
 
 __all__ = [
     "ACTIVATED",
+    "AGGREGATE_DAILY_CAP_BINDS",
     "AUTHORITY",
     "PERMITTED_QUOTE_PROVIDERS",
     "QUOTE_REQUIREMENTS",
