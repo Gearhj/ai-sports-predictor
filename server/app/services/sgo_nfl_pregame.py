@@ -34,7 +34,8 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models import Game, GameStatus, GameTeam, League, Team
 from app.services.collection_halt import (
-    SELECTION_MISMATCH, halt_lane, mismatch as selection_mismatch,
+    PAID_STORED_NOTHING, SELECTION_MISMATCH, halt_lane,
+    mismatch as selection_mismatch, paid_and_stored_nothing,
 )
 # The MLB lane's own selection and read-back helpers, REUSED rather than
 # re-derived: the ambiguity rule, the mismatch test and "what actually bound"
@@ -44,7 +45,7 @@ from app.services.sgo_collection import (
     DEFERRED_EARLIER_GAME, DEFERRED_TIED_START, FallbackFetch,
     _ingested_game_ids as ingested_game_ids, _refuse, complete_request, eligible,
     parse_events, parse_main_markets, record_request, to_event_dtos,
-    to_market_event_dtos, unambiguous_prefix,
+    to_market_event_dtos, unambiguous_prefix, utc_stamp,
 )
 
 #: The allocation lane. Never `sgo_nfl_live`, which buys in-game scores.
@@ -108,7 +109,18 @@ def preview_slot(settings: Any, kickoff: datetime) -> tuple[datetime, datetime]:
 
 
 def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+    """The same instant, IN UTC. Attaching a timezone is not converting to one.
+
+    The database session's TimeZone is America/New_York, so every
+    ``games.starts_at`` arrives Eastern-offset: the right instant carrying the
+    wrong wall clock. This used to hand that value straight back, which is
+    harmless for arithmetic and comparison -- both of which work on instants --
+    and a four-hour lie the moment anything prints the wall clock and calls it
+    UTC. ``_slate_events`` publishes one under a ``starts_at_utc`` key, and the
+    request filters stamped one with a literal ``Z``.
+    """
+
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
 
 
 def checkpoint_window(kickoff: datetime) -> tuple[datetime, datetime]:
@@ -277,9 +289,13 @@ def fetch_nfl_pregame(
     params = {
         "leagueID": "NFL",
         "limit": str(max(1, int(limit))),
-        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": (moment + timedelta(hours=starts_within_hours)
-                         ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # CONVERTED, then labelled. `strftime` prints whatever wall clock the
+        # datetime carries, so formatting an Eastern-offset anchor with a
+        # literal "Z" opened this window four hours early and bought the games
+        # already in progress. `utc_stamp` is the module's only way to write a
+        # provider timestamp, so a new filter cannot skip the conversion.
+        "startsAfter": utc_stamp(anchor),
+        "startsBefore": utc_stamp(moment + timedelta(hours=starts_within_hours)),
         "finalized": "false",
         "oddsPresent": "true",
     }
@@ -450,10 +466,12 @@ def collect_nfl_pregame(
     # The filters used to say only the league and the limit, which is the one
     # part of this request that was never in question. No credential material is
     # here or anywhere near it: the key travels in a header.
+    # Stamped by the same helper the request itself uses, so this copy and the
+    # bytes that go on the wire cannot say different things.
     request_filters = {
         "leagueID": "NFL", "limit": str(wanted),
-        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsAfter": utc_stamp(anchor),
+        "startsBefore": utc_stamp(window_end),
         "finalized": "false", "oddsPresent": "true",
     }
     reservation = record_request(
@@ -509,6 +527,13 @@ def collect_nfl_pregame(
     # The mismatch is decided BEFORE the terminal row, so the receipt can say
     # whether this purchase halted the lane.
     divergence = selection_mismatch(selected_ids, ingested)
+    # THE OTHER HALF OF THE SAME QUESTION -- see `paid_and_stored_nothing`.
+    # `divergence` can only see games that BOUND, so a purchase that bound
+    # NOTHING read as clean. Asked only when the first test found nothing, so a
+    # response carrying someone else's game keeps the more specific reason.
+    paid_empty = (paid_and_stored_nothing(selected_ids, ingested,
+                                          objects_charged=fetch.objects)
+                  if divergence is None else None)
 
     complete_request(session, reservation, objects=fetch.objects, succeeded=True,
                      budget=budget, job_run_id=job_run_id,
@@ -526,18 +551,44 @@ def collect_nfl_pregame(
     # and deleting them would destroy the evidence of what happened. The
     # completed reservation stays too -- the object WAS charged. Nothing in this
     # lane lifts a halt; that judgement belongs to the owner.
+    #
+    # AND SO DOES THE FIRST PURCHASE THAT BOUGHT NOTHING IT ASKED FOR.
+    #
+    # The test above can only see games that BOUND, so on 2026-09-20 -- when a
+    # mislabelled window was answered with games already in progress and not one
+    # of them bound -- there was no unselected game to find, the divergence was
+    # `None`, and the lane ran on and paid for the same wrong request twice
+    # more. Paying for objects and storing none of the selection is its own
+    # fault, with its own reason code, and one occurrence is enough.
     halted = None
-    if divergence is not None:
+    finding = divergence if divergence is not None else paid_empty
+    halt_reason = (SELECTION_MISMATCH if divergence is not None
+                   else PAID_STORED_NOTHING if paid_empty is not None else None)
+    if halt_reason is not None:
         halted = halt_lane(
-            session, lane=LANE, reason=SELECTION_MISMATCH,
+            session, lane=LANE, reason=halt_reason,
+            # EXTENDED, never replaced. The reader of a halt has to be able to
+            # go from the row to the exact bytes that caused it, so the raw
+            # response reference and the request fingerprint sit beside the
+            # filters, the selection and the charge.
             evidence={"request_filters": request_filters,
-                      "mismatch": divergence,
+                      "request_fingerprint": getattr(
+                          reservation, "request_fingerprint", None),
+                      "raw_archive": raw_archive,
+                      "mismatch": finding,
+                      "mismatch_reason": halt_reason,
                       "objects_charged": fetch.objects,
                       "games_selected": sorted(selected_ids),
+                      "games_ingested": sorted(ingested),
                       "requested_at": moment.isoformat()},
-            detail=("The provider returned an NFL game this request did not "
-                    "select. The lane is stopped after this single occurrence; "
-                    "no object was spent on a retry."),
+            detail=(("The provider returned an NFL game this request did not "
+                     "select. The lane is stopped after this single occurrence; "
+                     "no object was spent on a retry.")
+                    if divergence is not None else
+                    (f"{fetch.objects} object(s) were charged and not one of the "
+                     "selected NFL games was stored. The lane is stopped after "
+                     "this single occurrence rather than paying again for a "
+                     "request that has just bought nothing.")),
             now=moment,
         )
     session.commit()
@@ -551,9 +602,16 @@ def collect_nfl_pregame(
         # WHAT WAS CHOSEN, AND WHAT THE OBJECTS ACTUALLY BOUGHT.
         "games_selected": selected_ids,
         "games_ingested": ingested,
-        "selection_reached_provider": divergence is None,
+        # False for EITHER fault: a response carrying someone else's game, and
+        # a charged response that stored none of ours, both mean the selection
+        # did not come back.
+        "selection_reached_provider": divergence is None and paid_empty is None,
         "lane_halted": halted is not None,
+        "halt_reason": halt_reason,
+        # Kept apart so a receipt says WHICH fault it was, not merely that one
+        # happened. `selection_mismatch` still means exactly what it meant.
         "selection_mismatch": divergence,
+        "paid_stored_nothing": paid_empty,
         # Named, never silently dropped: which due games still have no price
         # from this purchase. Measured from what BOUND, not from a slice of the
         # due list -- with tied kickoffs the provider's own ordering decides

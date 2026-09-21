@@ -157,6 +157,39 @@ def _refuse(detail: str) -> SourceError:
     return SourceError(SPORTSGAMEODDS, detail, retryable=False)
 
 
+def _aware_utc(value: datetime) -> datetime:
+    """The same instant, in UTC. A naive value is read as UTC, never as local."""
+
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
+
+
+def utc_stamp(value: datetime) -> str:
+    """One provider request timestamp: the instant, CONVERTED, then labelled ``Z``.
+
+    THE FAULT THIS EXISTS FOR
+    -------------------------
+    ``startsAfter``/``startsBefore`` are documented as UTC and the ``Z`` suffix
+    asserts it, but ``strftime`` only prints whatever wall clock the datetime is
+    carrying. The database session's TimeZone is America/New_York, so every
+    ``games.starts_at`` comes back Eastern-offset -- the right instant with the
+    wrong wall clock -- and stamping it with a literal ``Z`` moved the request
+    window FOUR HOURS EARLY.
+
+    On 2026-09-20 three NFL requests sent ``startsAfter=2026-09-20T16:04:59Z``
+    for games that kick off at 20:04:59Z. Each was answered with the 13:00 ET
+    games already in progress, each was charged, and nothing bound. The anchor
+    is clamped to the retrieval moment one line before it is formatted, so a
+    genuinely-UTC anchor could not have produced that value: the mislabel was
+    the whole fault.
+
+    Every SportsGameOdds request timestamp goes through here so a new call site
+    cannot reintroduce it. Converting an already-UTC value is a no-op, which is
+    why the verified-correct MLB lane is unchanged by it.
+    """
+
+    return _aware_utc(value).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def eligible(settings: Settings, *, now: datetime | None = None) -> tuple[bool, str]:
     """Fail-closed: every condition must hold, and each refusal names itself."""
     moment = now or datetime.now(UTC)
@@ -256,8 +289,13 @@ def fetch_pregame_moneylines(
         # Documented filters only. "startsAfter" is what makes this a PREGAME
         # fetch; without it the provider returns games already in progress,
         # whose prices are unusable and whose events are past their cutoff.
-        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": (moment + timedelta(hours=starts_within_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # Both stamps are CONVERTED to UTC before the "Z" is attached: the only
+        # in-app caller already hands over a UTC anchor (this lane is verified
+        # correct at wire level), and `utc_stamp` keeps that true for a caller
+        # that passes a `starts_after` or a `now` straight off the DB session,
+        # whose TimeZone is America/New_York.
+        "startsAfter": utc_stamp(anchor),
+        "startsBefore": utc_stamp(moment + timedelta(hours=starts_within_hours)),
         "finalized": "false",
         "oddsPresent": "true",
     }
@@ -483,6 +521,7 @@ __all__ = [
     "fetch_pregame_moneylines",
     "ingest",
     "to_event_dtos",
+    "utc_stamp",
 ]
 
 
@@ -1095,10 +1134,6 @@ def _restrict_to_events(fetch: "FallbackFetch", allowed: list[str]) -> None:
         fetch.main.quotes = [quote for quote in fetch.main.quotes if str(quote.event_id) in keep]
 
 
-def _aware_utc(value: datetime) -> datetime:
-    return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
-
-
 def verified_sgo_event_ids(session: Session, game_ids: list[str]) -> dict[str, str]:
     """The SportsGameOdds event ID AISP itself bound to each game, when unambiguous.
 
@@ -1509,8 +1544,12 @@ def collect_for_open_cutoffs(
 
     params = {
         "leagueID": "MLB", "limit": str(wanted),
-        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # `anchor` is already UTC (see its `.astimezone(UTC)` above) and
+        # `window_end` is built from `moment`, so this stamping is unchanged in
+        # value. It goes through `utc_stamp` so the module has ONE way to write
+        # a provider timestamp and no call site can be added without it.
+        "startsAfter": utc_stamp(anchor),
+        "startsBefore": utc_stamp(window_end),
         "finalized": "false", "oddsPresent": "true",
     }
     if exact_ids is not None:

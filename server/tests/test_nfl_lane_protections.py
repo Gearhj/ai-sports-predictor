@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy.orm import Session
@@ -608,3 +609,270 @@ def test_the_week_three_sunday_prices_every_game_inside_the_same_fifteen_objects
     # ...and the Monday preview still got its object.
     assert spend.get(str(monday.id)) == 1
     assert len(spend) == 15
+
+
+# --------------------------------------------------------------------------
+# D1: the request clock. Asserted on the OUTBOUND BYTES, not on the selection.
+#
+# `games.starts_at` comes back America/New_York-aware, because that is the
+# database session's TimeZone. `_aware()` used to attach a timezone without
+# converting to one, and the filters were then written with `strftime(...Z)` --
+# which prints whatever wall clock the datetime happens to be carrying. So an
+# Eastern wall clock went out labelled UTC and the window opened FOUR HOURS
+# EARLY.
+#
+# On 2026-09-20 three requests sent `startsAfter=2026-09-20T16:04:59Z` for the
+# 16:05 ET games while `requested_at` was 18:55:24Z, 19:09:59Z and 19:24:59Z.
+# The anchor is clamped to the retrieval moment one line before it is formatted,
+# so a genuinely-UTC anchor could not have produced that value. Each request was
+# answered with the 13:00 ET games already in progress, six objects were
+# charged, and nothing was stored.
+#
+# THE SELECTION WAS RIGHT THE WHOLE TIME. A test that asserts which game was
+# chosen is blind to this -- which is exactly why the fault survived. These
+# assert the timestamp bytes.
+# --------------------------------------------------------------------------
+
+#: The instants the incident carried, written the way the database hands them
+#: over: Eastern-offset, right instant, wrong wall clock.
+EASTERN = ZoneInfo("America/New_York")
+#: 16:04:59 ET == 20:04:59Z -- one second below the 16:05 ET kickoff.
+ANCHOR_ET = datetime(2026, 9, 20, 16, 4, 59, tzinfo=EASTERN)
+#: 14:55 ET == 18:55Z -- the first of the three charged retrieval moments.
+MOMENT_ET = datetime(2026, 9, 20, 14, 55, tzinfo=EASTERN)
+
+
+def _capture_request(monkeypatch) -> dict:
+    """Stand in for the HTTP layer and keep the params. Nothing leaves the box."""
+
+    captured: dict = {}
+
+    class _Response:
+        status_code = 200
+        content = b'{"data": []}'
+
+        def json(self):
+            return {"data": []}
+
+    class _Client:
+        def __init__(self, **kwargs) -> None: ...
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, params=None, headers=None):
+            captured["url"] = url
+            captured["params"] = params
+            return _Response()
+
+    monkeypatch.setattr(lane, "eligible", lambda settings, now=None: (True, "OK"))
+    monkeypatch.setattr(lane.httpx, "Client", _Client)
+    monkeypatch.setattr("app.services.sgo_raw_archive.archive_response",
+                        lambda *a, **k: None)
+    return captured
+
+
+def test_an_eastern_anchor_leaves_as_utc_bytes_not_a_relabelled_wall_clock(
+        settings, monkeypatch):
+    """The 2026-09-20 fault, in the only place it was ever visible: the wire."""
+
+    captured = _capture_request(monkeypatch)
+
+    lane.fetch_nfl_pregame(settings, limit=2, now=MOMENT_ET,
+                           starts_within_hours=2, starts_after=ANCHOR_ET)
+
+    params = captured["params"]
+    # THE ASSERTION THAT WOULD HAVE CAUGHT IT. 16:04:59 ET is 20:04:59Z.
+    assert params["startsAfter"] == "2026-09-20T20:04:59Z"
+    assert params["startsAfter"] != "2026-09-20T16:04:59Z", (
+        "this is the exact value the three charged requests sent")
+    # `startsBefore` is built from the retrieval moment, which arrives on the
+    # same Eastern clock and was mislabelled the same way: 14:55 ET + 2h.
+    assert params["startsBefore"] == "2026-09-20T20:55:00Z"
+    assert params["limit"] == "2"
+
+    # A CLAMPED anchor is stamped the same way. 12:00 ET is nearly three hours
+    # before the retrieval moment, so the moment wins -- and the moment is
+    # 18:55Z, never 14:55Z.
+    captured.clear()
+    lane.fetch_nfl_pregame(settings, limit=1, now=MOMENT_ET,
+                           starts_after=datetime(2026, 9, 20, 12, 0, tzinfo=EASTERN))
+    assert captured["params"]["startsAfter"] == "2026-09-20T18:55:00Z"
+
+
+def test_a_naive_anchor_is_still_read_as_utc(settings, monkeypatch):
+    """The contract for a tz-naive caller must not have moved."""
+
+    captured = _capture_request(monkeypatch)
+    lane.fetch_nfl_pregame(settings, limit=1,
+                           now=datetime(2026, 9, 20, 18, 55, tzinfo=UTC),
+                           starts_after=datetime(2026, 9, 20, 20, 4, 59))
+    assert captured["params"]["startsAfter"] == "2026-09-20T20:04:59Z"
+
+
+def test_the_ledgers_window_and_the_wires_window_are_the_same_bytes(
+        collector, settings, monkeypatch):
+    """A request is audited from its reservation, so the two copies must agree.
+
+    The collector writes `request_filters` into the reservation BEFORE it sends
+    anything. Both that copy and the request itself are stamped by the same
+    helper, so an Eastern-offset kickoff cannot reach either one as a literal Z.
+    """
+
+    ctx = collector["slate"]
+    games = [add_game(ctx, kickoff=SUNDAY_1605_ET, away=f"E{i}", home=f"F{i}")
+             for i in range(2)]
+    ids = [str(game.id) for game in games]
+
+    # What `due_games` hands over when the session's TimeZone is Eastern: the
+    # right instant, carrying the wrong wall clock. That is the shape the
+    # deployed database produces and the one SQLite cannot reproduce on its own.
+    monkeypatch.setattr(lane, "due_games", lambda *a, **k: [
+        {"game_id": game_id,
+         "starts_at": SUNDAY_1605_ET.astimezone(EASTERN).isoformat(),
+         "minutes_to_kickoff": 70.0, "away": "E", "home": "F",
+         "pass": "CHECKPOINT"}
+        for game_id in ids])
+
+    recorded: dict = {}
+
+    def _record(session, **kwargs):
+        recorded.update(kwargs)
+        return type("R", (), {"id": uuid.uuid4(), "request_fingerprint": "fp"})()
+
+    monkeypatch.setattr(lane, "record_request", _record)
+    collector["grant_of"](2)
+    collector["returns"](["evt-a", "evt-b"], ids)
+
+    result = lane.collect_nfl_pregame(collector["session"], settings,
+                                      now=MOMENT_ET.astimezone(UTC))
+
+    assert result["reason"] == "COLLECTED"
+    # The ledger's copy, in UTC.
+    assert recorded["params"]["startsAfter"] == "2026-09-20T20:04:59Z"
+    # And the anchor the request was actually built from is the same instant,
+    # so the two copies cannot drift apart.
+    from app.services.sgo_collection import utc_stamp
+
+    sent = collector["calls"]["fetch"][0]
+    assert utc_stamp(sent["starts_after"]) == recorded["params"]["startsAfter"]
+
+
+# --------------------------------------------------------------------------
+# D4: a CHARGED response that stored none of the selection stops the lane.
+#
+# `selection_mismatch` asks "did the provider return a game I did not select?"
+# and can only see games that BOUND. On 2026-09-20 nothing bound at all, so
+# there was no unselected game to find, the divergence was None, the lane did
+# not halt, and the same wrong request was paid for twice more.
+# --------------------------------------------------------------------------
+
+def test_a_charged_response_that_bound_nothing_halts_the_lane_on_the_first_one(
+        collector, settings):
+    """The guard that was missing on 2026-09-20. Two objects, nothing stored."""
+
+    ctx = collector["slate"]
+    games = [add_game(ctx, kickoff=SUNDAY_1605_ET, away=f"E{i}", home=f"F{i}")
+             for i in range(2)]
+    ids = sorted(str(game.id) for game in games)
+    now = SUNDAY_1605_ET - timedelta(minutes=70)
+    collector["grant_of"](2)
+    # Two event objects came back and were charged; not one of them bound.
+    collector["returns"](["evt-a", "evt-b"], [])
+
+    result = lane.collect_nfl_pregame(collector["session"], settings, now=now)
+
+    assert result["reason"] == "COLLECTED", "the reservation and rows are kept"
+    assert result["objects"] == 2, "the objects WERE charged; that is the point"
+    assert result["lane_halted"] is True
+    assert result["halt_reason"] == "PAID_RESPONSE_STORED_NONE_OF_SELECTION"
+    assert result["selection_reached_provider"] is False
+    # The two faults stay apart in the receipt.
+    assert result["selection_mismatch"] is None
+    assert result["paid_stored_nothing"]["selected_games_missing"] == ids
+
+    halt = collector["session"].query(CollectionLaneHalt).filter(
+        CollectionLaneHalt.lane == lane.LANE,
+        CollectionLaneHalt.active.is_(True)).one()
+    assert halt.reason == "PAID_RESPONSE_STORED_NONE_OF_SELECTION"
+    # Everything a reader needs to get from the halt row back to the bytes.
+    assert halt.evidence["raw_archive"] == {"responseBodySha256": "0" * 64}
+    assert halt.evidence["request_fingerprint"] == "fp"
+    assert halt.evidence["games_selected"] == ids
+    assert halt.evidence["objects_charged"] == 2
+    assert halt.evidence["mismatch_reason"] == "PAID_RESPONSE_STORED_NONE_OF_SELECTION"
+    assert halt.evidence["request_filters"]["startsAfter"] == "2026-09-20T20:04:59Z"
+    assert not any("key" in name.lower() for name in halt.evidence["request_filters"])
+
+
+def test_the_paid_empty_lane_is_latched_before_a_second_object_is_spent(
+        collector, settings):
+    """Three requests were paid for. After this repair the second never runs."""
+
+    ctx = collector["slate"]
+    for i in range(2):
+        add_game(ctx, kickoff=SUNDAY_1605_ET, away=f"E{i}", home=f"F{i}")
+    now = SUNDAY_1605_ET - timedelta(minutes=70)
+    collector["grant_of"](2)
+    collector["returns"](["evt-a", "evt-b"], [])
+
+    first = lane.collect_nfl_pregame(collector["session"], settings, now=now)
+    assert first["lane_halted"] is True
+    assert len(collector["calls"]["fetch"]) == 1
+
+    # The next tick, fifteen minutes later, inside the same window.
+    second = lane.collect_nfl_pregame(collector["session"], settings,
+                                      now=now + timedelta(minutes=15))
+    assert second["attempted"] is False
+    assert second["reason"] == "LANE_HALTED"
+    assert second["objects"] == 0
+    assert second["halt"]["halt_reason"] == "PAID_RESPONSE_STORED_NONE_OF_SELECTION"
+    assert len(collector["calls"]["fetch"]) == 1, "no second object was spent"
+
+
+def test_a_response_that_charged_nothing_is_a_no_op_and_never_halts(
+        collector, settings):
+    """A zero-object answer costs nothing, so it must not latch the lane."""
+
+    ctx = collector["slate"]
+    for i in range(2):
+        add_game(ctx, kickoff=SUNDAY_1605_ET, away=f"E{i}", home=f"F{i}")
+    now = SUNDAY_1605_ET - timedelta(minutes=70)
+    collector["grant_of"](2)
+    collector["returns"]([], [])  # nothing returned, so nothing billed
+
+    result = lane.collect_nfl_pregame(collector["session"], settings, now=now)
+
+    assert result["reason"] == "COLLECTED"
+    assert result["objects"] == 0
+    assert result["lane_halted"] is False
+    assert result["halt_reason"] is None
+    assert result["paid_stored_nothing"] is None
+    from app.services.collection_halt import active_halt
+
+    assert active_halt(collector["session"], lane=lane.LANE) is None
+
+
+def test_a_substituted_game_keeps_the_more_specific_reason(collector, settings):
+    """Both faults can hold at once. "Returned a game I did not ask for" wins."""
+
+    ctx = collector["slate"]
+    for i in range(2):
+        add_game(ctx, kickoff=SUNDAY_1605_ET, away=f"E{i}", home=f"F{i}")
+    intruder = add_game(ctx, kickoff=SUNDAY_1625_ET, away="X", home="Y")
+    now = SUNDAY_1605_ET - timedelta(minutes=70)
+    collector["grant_of"](2)
+    # Charged for two, bound one game -- and it is not one of ours.
+    collector["returns"](["evt-a", "evt-z"], [str(intruder.id)])
+
+    result = lane.collect_nfl_pregame(collector["session"], settings, now=now)
+
+    assert result["lane_halted"] is True
+    assert result["halt_reason"] == "PROVIDER_RETURNED_UNSELECTED_GAME"
+    assert result["paid_stored_nothing"] is None, (
+        "the substituted-game reason is the specific one and is not replaced")
+    assert result["selection_mismatch"]["unselected_games_returned"] == [
+        str(intruder.id)]

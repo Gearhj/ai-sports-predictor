@@ -117,9 +117,17 @@ CLOCK_SEMANTICS = {
 
 
 def _aware(value: datetime | None) -> datetime | None:
+    """The same instant, IN UTC -- the conversion, not just the label.
+
+    `Game.starts_at` arrives Eastern-offset, because the database session's
+    TimeZone is America/New_York. Attaching a timezone to an already-aware value
+    left that Eastern wall clock in place, and `request_params` then stamped it
+    with a literal "Z", which moves the request window four hours.
+    """
+
     if value is None:
         return None
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
+    return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC)
 
 
 @dataclass
@@ -217,11 +225,17 @@ def targeting(kickoff: datetime, sides: dict[bool, tuple[Any, str | None]], bind
 def request_params(kickoff: datetime, target: dict[str, Any], league_id: str) -> dict[str, str]:
     """One request, one event object at most."""
 
+    from app.services.sgo_collection import utc_stamp
+
     params = {
         "leagueID": league_id,
         "limit": "1",
-        "startsAfter": (kickoff - TARGET_TOLERANCE).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": (kickoff + TARGET_TOLERANCE).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # The tolerance band is +/- five minutes around the kickoff, so a
+        # four-hour mislabel does not widen this window -- it MOVES it, onto
+        # whatever the provider happens to have four hours earlier. Stamped
+        # through the shared helper, which converts before it labels.
+        "startsAfter": utc_stamp(kickoff - TARGET_TOLERANCE),
+        "startsBefore": utc_stamp(kickoff + TARGET_TOLERANCE),
         "finalized": "false",
         "oddsPresent": "true",
     }

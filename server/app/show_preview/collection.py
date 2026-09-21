@@ -519,10 +519,16 @@ def _execute(session: Any, settings: Settings, plan: PreviewPlan, *, slate_date:
             continue
 
         anchor = min(_aware(t.kickoff_utc) for t in wanted_games) - timedelta(seconds=1)
+        # `_aware` above already converts, so these stamps were correct and stay
+        # byte-identical. They go through the shared `utc_stamp` so the whole
+        # SportsGameOdds request path has ONE way to write a provider timestamp
+        # and no site is left where a future edit could label a local wall clock.
+        from app.services.sgo_collection import utc_stamp
+
         params = {
             "leagueID": league, "limit": str(wanted),
-            "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "startsBefore": max(_aware(t.kickoff_utc) for t in wanted_games).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "startsAfter": utc_stamp(anchor),
+            "startsBefore": utc_stamp(max(_aware(t.kickoff_utc) for t in wanted_games)),
             "finalized": "false", "oddsPresent": "true",
         }
         reservation = record_request(
@@ -581,15 +587,18 @@ def _fetch(settings: Settings, *, league: str, limit: int, now: datetime, anchor
 
     from app.services.sgo_collection import (
         FallbackFetch, _refuse, eligible, parse_events, parse_main_markets,
+        utc_stamp,
     )
 
     ok, reason = eligible(settings, now=now)
     if not ok:
         raise _refuse(f"SportsGameOdds is not eligible: {reason}")
+    # `anchor` is the caller's already-UTC value, so these stamps are unchanged;
+    # the shared helper converts anyway, and leaves nothing here to forget.
     params = {
         "leagueID": league, "limit": str(max(1, int(limit))),
-        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": (anchor + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsAfter": utc_stamp(anchor),
+        "startsBefore": utc_stamp(anchor + timedelta(days=2)),
         "finalized": "false", "oddsPresent": "true",
     }
     url = f"{settings.sportsgameodds_base_url.rstrip('/')}/events"

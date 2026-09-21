@@ -166,9 +166,19 @@ def targeting(tipoff: datetime, sides: dict[bool, tuple[Any, str | None]], bindi
 
 
 def request_params(tipoff: datetime, target: dict[str, Any], league_id: str) -> dict[str, str]:
+    # CONVERTED, then labelled "Z". `tipoff` reaches here from
+    # `common.aware(Game.starts_at)`, which attaches a timezone without
+    # converting -- and the database session's TimeZone is America/New_York, so
+    # that value carries an Eastern wall clock. Stamping it with a literal "Z"
+    # moves this +/- five-minute band four hours off the tipoff it is meant to
+    # name. `common.aware` is shared by the whole NBA gen1 stack (where it is
+    # only ever used for instant arithmetic, which is unaffected), so the
+    # conversion is applied here, at the one place the value becomes a label.
+    from app.services.sgo_collection import utc_stamp
+
     params = {"leagueID": league_id, "limit": "1",
-              "startsAfter": (tipoff - TARGET_TOLERANCE).strftime("%Y-%m-%dT%H:%M:%SZ"),
-              "startsBefore": (tipoff + TARGET_TOLERANCE).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "startsAfter": utc_stamp(tipoff - TARGET_TOLERANCE),
+              "startsBefore": utc_stamp(tipoff + TARGET_TOLERANCE),
               "finalized": "false", "oddsPresent": "true"}
     if target.get("strategy") == "TEAM_ID":
         params["teamID"] = str(target["team_id"])
