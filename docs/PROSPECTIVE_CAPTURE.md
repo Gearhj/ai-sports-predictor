@@ -1,226 +1,311 @@
-# Prospective research capture
+# Prospective model–market capture — mapped to the FROZEN contract
 
-**Status: `DESIGN_BUILT_NOT_ENABLED`**
-
-Built, tested, committed, and **off**. `PROSPECTIVE_CAPTURE_ENABLED` defaults to
-`false`; while it is off the exporter reads no row, opens no file and calls no
-provider. There is **no scheduled job** for it, by design.
+**Status: `MAPPED_TO_FROZEN_CONTRACT_BUILT_NOT_ENABLED`.**
+`PROSPECTIVE_CAPTURE_ENABLED` defaults to `false` and is `false` in the deployed
+checkout. Nothing is registered with the scheduler. No provider is called, no
+object is spent, no production record, policy, threshold, staking rule or
+selection gate is touched by anything described here.
 
 | | |
-|---|---|
+| --- | --- |
 | Module | `server/app/research_exports/prospective_capture.py` |
 | Tests | `server/tests/test_prospective_capture.py` |
-| Flag | `Settings.prospective_capture_enabled` (default `False`) |
-| Lane | `Settings.prospective_capture_dir` (default `~/asp-model-exchange/prospective-research-capture-v1`) |
-| Callable | `run_prospective_capture(session, settings, *, now, window_start, window_end, leagues, directory)` |
-| Manual entry point | `python -m app.research_exports.prospective_capture` |
-| Scheduler entry | **none** — `app/jobs/scheduler.py` does not reference this module, and a test asserts it |
+| Record type | `MODEL_MARKET_OBSERVATION_V1` |
+| Contract bound | `CONSUMER_EXPORT_CONTRACT.md` sha256 `e0ee599e6c6efeea3ab7699f4c6682003b9ac23e6acc458641f719bfb2ac9fc5` |
+| Protocol bound | `FROZEN_PROTOCOL.json` sha256 `fcb530fc1d12d20f688ff1859fba1b4c5bb63115719cd3e629d8fbf05f10a9e3` |
+| Freeze instant | `2026-09-21T18:32:03.7468106Z` |
+| Invocation | `PREPARED_NOT_ACTIVATED`, on the existing `asp-rx-v18-market-pilot-outcomes-v2` owner |
 
-## What it is for
+Both hashes are **re-computed from the files on disk** by
+`verify_contract_files()` before anything relies on them. A record binds a hash it
+has checked, never one it has merely been told.
 
-Model Studio (Codex) owns a forthcoming frozen contract for a **prospective**
-comparison of three things across **every eligible priced game**:
+## The first genuine record uses only post-freeze evidence
 
-1. the **unchanged** model,
-2. the **market**, and
-3. a fixed **50/50 blend**.
+This is enforced, not asserted. `evaluate_game` compares the game's fixed T-15
+checkpoint against `FREEZE_INSTANT` and refuses anything earlier with the
+immutable code `PRE_FREEZE_EVIDENCE_NEVER_ENROLLED`. The pre-freeze
+`mlb_market_comparison_167.csv` work, and everything else built before
+`2026-09-21T18:32:03.7468106Z`, is development evidence and cannot enrol through
+this lane even if someone widens the window by hand.
 
-AISP owns exactly two jobs in that comparison: supplying the **inputs that were
-genuinely knowable at the checkpoint**, and supplying **authentic outcomes**.
-AISP does not own the comparison. Nothing in this module computes a blend,
-chooses a threshold, scores a forecast or optimises anything — and a guard
-refuses a record that contains a field shaped like any of those.
+Enrollment also closes at `2026-10-01T00:00:00Z`
+(`CHECKPOINT_AFTER_ENROLLMENT_END`).
 
-The contract is **not frozen yet**. The record shape below is therefore
-provisional; `RECORD_FIELDS` / `EXCLUSION_FIELDS` are single ordered tuples so
-the shape can be adapted in one place, and every record carries
-`contractStatus: "DESIGN_BUILT_NOT_ENABLED_AWAITING_MODEL_STUDIO_FREEZE"`.
+## Codex's nine dispositions, and where each is enforced
 
-## Coverage
+1. **Record type and hash binding** — `CONTRACT`, `CONTRACT_SHA256` and
+   `PROTOCOL_SHA256` are in every record; `verify_contract_files()` re-hashes the
+   two files and refuses a mismatch.
+2. **An exclusion is not a second file** — there is ONE builder,
+   `build_observation`, and one record shape. A game that cannot be priced or
+   admitted carries `admission.state = UNPRICED` or `EXCLUDED` in that same
+   record, with the same identity and clock envelope. The old
+   `AISP_PROSPECTIVE_CAPTURE_EXCLUSION_V1` type is gone.
+3. **`positionId` is JSON `null`** — `decision.positionId` is `str` or `None`.
+   The `NOT_APPLICABLE` sentinel is refused anywhere in the record by
+   `assert_no_not_applicable_sentinel`.
+4. **Null genuine completion time** — only under
+   `SOURCE_CONFIRMED_TERMINAL_COMPLETION_TIME_UNAVAILABLE`, and only beside the
+   exact source, revision identity and source-confirmed status. NFL's source of
+   record has no completion column, so no retrieval, admission, availability or
+   feed clock is ever promoted into `genuineCompletionAtUtc`.
+5. **Home, away AND tie, as published** — `forecast.homeWinProbabilityRaw`,
+   `awayWinProbabilityRaw` and `tieProbabilityRaw`, in HOME orientation, from the
+   controlling forecast row. MLB's tie is a stated `0.0`. Selected-side values
+   live only under `forecast.selectedSideAdditional`.
+6. **NFL decisive-conditioned channel** — `decisiveConditionedHomeProbability` =
+   `pHome / (pHome + pAway)`, separately named, alongside the published three-way
+   vector. Official ties refund; `outcome.tieDisposition` and `outcome.isTie` say
+   so, and `market.conventions.tieTreatment` records the market rule.
+7. **Fixed T-15** — `checkpoint_for(starts_at) = starts_at - 15 minutes`, and it
+   takes no decision clock. `decision.recommendedAtUtc` is a separate field.
+8. **Ambiguity is an exclusion** — two probability-bearing decision CHANNELS
+   (distinct `experiment_id`) at the same tier produce
+   `AMBIGUOUS_PROBABILITY_BEARING_DECISION_CHANNELS`. Recency never breaks the
+   tie.
+9. **Layout** — `records/<gameId>/<sha256>.json` plus the hash-chained append-only
+   `observation-ledger.jsonl`. Each file's name IS the sha256 of its bytes, the
+   ledger enumerates every write deterministically, and exactly one canonical
+   record per `observationId` is admitted.
 
-The universe is the **slate**, not the games AISP bet and not even the games it
-priced: one record per eligible game per checkpoint evaluation, including games
-that were **DECLINED** and games that were **UNFUNDED**. A comparison that only
-sees funded games is a comparison of AISP's selection, not of the model.
+## One canonical record per eligible game AND checkpoint
 
-A game the exporter cannot capture is **never silently omitted**. It produces an
-`AISP_PROSPECTIVE_CAPTURE_EXCLUSION_V1` record naming the reason, so the
-coverage denominator is always recoverable. Current exclusion reason codes:
+`observationId = "obs-" + sha256("MODEL_MARKET_OBSERVATION_V1|<sport>|<gameId>|<checkpointAtUtc>")`.
 
-```
-NO_FINAL_PREGAME_DECISION_AT_CHECKPOINT
-ALL_FINAL_PREGAME_DECISIONS_AFTER_CHECKPOINT
-NO_PROBABILITY_BEARING_DECISION_CHANNEL
-AMBIGUOUS_PROBABILITY_BEARING_DECISION_CHANNELS
-CONTROLLING_FORECAST_NOT_AVAILABLE_AT_CHECKPOINT
-DECISION_NAMES_NO_ODDS_SNAPSHOT
-NAMED_ODDS_SNAPSHOT_MISSING
-NAMED_ODDS_SNAPSHOT_NOT_VISIBLE_AT_CHECKPOINT
-NAMED_MARKET_IS_NOT_A_MONEYLINE
-NAMED_MARKET_BELONGS_TO_ANOTHER_GAME
-SELECTED_SIDE_NOT_RESOLVABLE
-OPPOSING_MARKET_OUTCOME_MISSING
-NO_SAME_BOOK_OPPOSING_LEG_VISIBLE_AT_CHECKPOINT
-OPPOSING_LEG_DISAGREES_WITH_RETAINED_OPPOSITE_PRICE
-LEG_PRICE_IS_NOT_VALID_AMERICAN_ODDS
-DECISION_LACKS_DISTINCT_QUALIFICATION_AND_EXECUTION_OUTCOMES
-```
+It carries no export clock, so repeated ticks compute the same id and the same
+bytes and adopt the existing file. `_admitted_observation_ids()` reads the ledger,
+so a crashed run recovers idempotently. If a later tick recomputes DIFFERENT bytes
+for an already-admitted id — almost always because an outcome landed after the
+pregame observation was sealed — the pregame observation is **not** rewritten and
+no competing record is created: the ledger records
+`OBSERVATION_ALREADY_ADMITTED_LATER_EVIDENCE_NOT_WRITTEN` and the new evidence
+goes to the append-only revision lane instead.
 
-An **unresolved outcome is not an exclusion**. The checkpoint inputs are still
-valid; the record is written with `outcome.resolved: false` and a stated basis,
-and when the final arrives a *new* record is written beside it.
+## Deterministic, model-independent book selection
 
-## Record schema
+`eligible_book_candidates()` enumerates **every** sportsbook with a complete
+same-book home/away moneyline pair where each leg is:
 
-`recordType: AISP_PROSPECTIVE_CAPTURE_V1`, `schemaVersion: "1"`. Top-level keys:
+* visible at the checkpoint (`available_as_of <= checkpoint`);
+* observed at or before the checkpoint (`observed_at <= checkpoint`);
+* at most 900 seconds old at the checkpoint, measured from the BOOK's own
+  `observed_at`;
+* valid American odds;
+* from the same provider AND the same exact fetch as its partner.
 
-| Key | Contents |
-|---|---|
-| `identity` | `gameId`, `decisionId`, `decisionChannelExperimentId`, `positionId`, `forecastRowId`, `forecastRowTable`, `forecastIdentity` (content-addressed), `forecastIdentityBasis`, `forecastIdentityAgreesWithRow` |
-| `context` | `sport`, `league`, `engineId`, `engineVersion`, `modelArtifactSha256`, `snapshotType`, `snapshotVersion`, `policyVersion` (+ basis), `stakingVersion` (+ basis), `scheduledStartUtc` |
-| `checkpoint` | `checkpointAtUtc` (+ basis), `forecastSnapshotPhase`, `forecastAvailableAsOfUtc`, `forecastCutoffUtc`, `forecastPublishedAtUtc`, `forecastImportedAtUtc`, `createdAtNotUsed` |
-| `orientation` | `orientationBasis`, `homeTeamId`/`homeAbbreviation`, `awayTeamId`/`awayAbbreviation`, `selectedSide`, `selectedSideBasis`, `selectedTeamId`, `probabilityOrientation` |
-| `probabilities` | `forSide`, and four `{value, basis, definition}` blocks: `rawModelProbability`, `policyAdjustedProbability`, `marketNoVigProbability`, `retainedMarketProbability` |
-| `market` | `marketType`, `period`, `sportsbookKey`/`sportsbookName`, `sameBook` (+ basis), `opposingLegBasis`, `selectedLeg`, `opposingLeg`, `deVig` |
-| `status` | `qualificationStatus`/`qualificationReason`, `fundingStatus`/`fundingReason`, `positionStatus`/`positionResult`, `postStakingRecommendation`(+reason), and the definition of each |
-| `ledgerSettlement` | the **only** place money may appear |
-| `outcome` | `resolved`, `source`, `sourceMode`, `sourceConfirmedTerminalStatus`, `terminalStatusBasis`, `homeScore`, `awayScore`, `outcomeRevisionIdentity` (+ basis), `completionTimeUtc`, `completionTimeBasis`, `sourceLastUpdatedRaw`, `retrievedAtUtc`, `observationId` |
-| `clockMeanings` | one sentence per clock, in the record itself |
+Eligible candidates are then ordered by **`(older_leg_age_seconds, sportsbook_key)`
+ascending** and the first is selected.
 
-Each leg (`selectedLeg` / `opposingLeg`) carries: `side`, `oddsSnapshotId`,
-`marketOutcomeId`, `americanOdds`, `decimalOdds`, `observedAtUtc` (+ basis),
-`captureClockUtc` (+ basis), `source`, `sourceMode`.
+Nothing in that function reads `shadow_experiment_decisions.sportsbook`,
+`odds_snapshot_id`, `selection` or any probability. `market.eligibleBookCandidates`
+publishes the COMPLETE ordered list with each book's legs, ages and
+`orderingKey`, and `market.ineligibleBookCandidates` publishes every rejected book
+with its reason code, so the ordering can be re-derived from the record alone
+without the database. The record also carries
+`decision.namedSportsbookNotUsedForSelection`, so a reader can see the decision's
+own book and confirm it was ignored. The synthetic example demonstrates exactly
+that: the decision named `synthetic:book-b` and the exporter selected
+`synthetic:book-a`.
 
-`deVig` shows the arithmetic in full: `selectedDecimalOdds`,
-`opposingDecimalOdds`, `selectedImpliedProbability`, `opposingImpliedProbability`,
-`overround`, `selectedNoVigProbability`, `opposingNoVigProbability`, plus
-`formula` and `basis`.
+## Provenance: what is retained, and what is not
 
-Exclusion records carry `identity`, `context`, `checkpoint`, `exclusion`
-(`excluded`, `reasonCode`, `reasonDetail`, `meaning`) and `clockMeanings`.
+`market.exactFetchIdentity` carries provider, provider event id, provider mode and
+the consumer receipt clock, and BOTH legs must match on all four or the book is
+rejected with `BOOK_LEGS_FROM_DIFFERENT_FETCH_IDENTITY`.
 
-### Three distinct status fields
+`market.commonResponseSha256` is **null with a stated basis**. `odds_snapshots`
+retains no digest of the provider RESPONSE a pair was read from;
+`payload_checksum` is a per-row checksum, not a response identity. That is a
+contract field this lane cannot populate from retained data, and it says so rather
+than inventing one.
 
-`qualificationStatus`, `fundingStatus` and `positionStatus` answer three
-different questions and are never collapsed. A **value-qualified game with no
-position** reads:
+## Conventions: missing semantics yield `UNPRICED`
 
-```
-qualificationStatus = "QUALIFIED"       fundingStatus = "NOT_EXECUTED"
-qualificationReason = "ALL_GATES_PASSED"  fundingReason = "STAKING_OR_EXPOSURE_CAP"
-positionStatus      = "NO_POSITION"       positionId    = "NOT_APPLICABLE"
-```
+`BOUND_CONVENTIONS` is the only source of settlement semantics and it is **empty**.
+No retained provider response states extra-innings inclusion, tie or postponement
+settlement, overtime inclusion, or any listed-pitcher/action rule. So today every
+otherwise-complete pair is `UNPRICED` with the immutable codes
+`MARKET_CONVENTION_SETTLEMENT_NOT_ESTABLISHED`,
+`MARKET_CONVENTION_EXTRA_INNINGS_NOT_ESTABLISHED` /
+`MARKET_CONVENTION_OVERTIME_NOT_ESTABLISHED` and
+`MARKET_CONVENTION_PITCHER_ACTION_NOT_ESTABLISHED`. A `(sport, provider)` pair may
+be added to the registry only with the retained document that states it.
 
-That combination is a real, capturable row, not an error. Conflating the first
-two is what let three exposure-capped games persist as `QUALIFIED_BET` on
-2026-09-20 while the job receipt said `DECLINED`.
+## Raw, adjusted and controlling — without substitution
 
-### Clocks
+| Channel | Source | When it is null |
+| --- | --- | --- |
+| `homeWinProbabilityRaw` | `shadow_forecasts.full_home_win_probability` | never, for an admitted record |
+| `awayWinProbabilityRaw` | `shadow_forecasts.full_away_win_probability` | never, for an admitted record |
+| `tieProbabilityRaw` | MLB: stated `0.0`. NFL: published residual `1 - pHome - pAway` | never, for an admitted record |
+| `homeWinProbabilityAdjusted` | `decision.evidence.adjusted_probability` | when not retained, or when the decision selected AWAY |
+| `homeWinProbabilityControlling` | `shadow_experiment_decisions.model_probability` | same rule |
 
-Every clock is converted with `.astimezone(UTC)` *before* formatting. The
-session timezone is `America/New_York` and psycopg returns ET-aware
-timestamptz; formatting one with a literal `Z` without converting is the bug
-that cost six provider objects on 2026-09-20.
+The adjusted and controlling channels are retained **for the selected side**.
+`1 - adjusted(away)` is a quantity the decision never recorded — a policy
+adjustment is not a complement — so it is never derived. The field is null with a
+basis and the selected-side value is carried additionally. An MLB pair whose
+published home and away do not sum to one is `EXCLUDED`
+(`PUBLISHED_PROBABILITIES_DO_NOT_SUM_TO_ONE`), never normalised.
 
-`created_at` is **never** used as a clock — in PostgreSQL it is the
-transaction-**start** stamp. The record states this in `checkpoint.createdAtNotUsed`.
+## Conditional two-way vs unconditional three-way
 
-### Outcomes
+`market.noVig.homeNoVigProbability` is `qHome = rHome/(rHome+rAway)` on the
+selected same-book pair. A refund-on-tie market has no tie outcome to price, so
+those two prices span "home wins given somebody wins": it is a **conditional**
+two-way probability. It is comparable with `decisiveConditionedHomeProbability`
+and NOT with the unconditional three-way vector. Both the record and the module
+state this in `CHANNEL_MEANINGS`.
 
-- **NFL** reads `nfl_final_observations`, which is the NFL source of record.
-  `game_final_outcomes` is MLB-only (2609 rows, 0 NFL) and is never touched here.
-- Everything else reads the sport-neutral `game_state_observations`.
+## Clocks
 
-**Source-confirmed FINAL STATUS and genuine COMPLETION TIME are separate
-fields.** The NFL source has no completion-time column, so NFL records carry
-`completionTimeUtc: null` with
-`completionTimeBasis: "SOURCE_CONFIRMED_TERMINAL_COMPLETION_TIME_UNAVAILABLE"` —
-the same accepted basis string the V18 V2 outcome lane uses (pinned equal by
-test). `retrieved_at` and the feed's `source_last_updated` string are carried as
-evidence and are never promoted into a completion time.
+Every clock goes through `v18_market_pilot.iso()`, which converts to UTC BEFORE
+formatting — the session timezone is `America/New_York`. `created_at` is never
+used as a clock: in PostgreSQL it is the TRANSACTION-START stamp. Each record
+carries `clockMeanings` naming the column behind every field, including
+`createdAtNotUsed`.
 
-## Fields that could NOT be populated from retained data
+| Field | Column |
+| --- | --- |
+| `checkpointAtUtc` | `games.starts_at - 15m` |
+| `decision.recommendedAtUtc` | `shadow_experiment_decisions.recommended_at` |
+| `forecast.generatedAtUtc` | `shadow_forecasts.forecast_cutoff_utc` |
+| `forecast.exposedAtUtc` | `shadow_forecasts.available_as_of_utc` |
+| `forecast.publishedAtUtc` | `shadow_experiment_decisions.forecast_published_at` |
+| `forecast.importedAtOrBeforeUtc` | `shadow_experiment_decisions.forecast_imported_at` |
+| `forecast.consumerObservedAtUtc` | `shadow_experiment_decisions.recommended_at` |
+| leg `quoteObservedAtUtc` | `odds_snapshots.observed_at` (the book's own clock) |
+| leg `consumerReceiptAtUtc` | `odds_snapshots.available_as_of` |
+| `outcome.sourceCaptureAtUtc` | `nfl_final_observations.retrieved_at` / `game_state_observations.available_as_of` |
+| `outcome.sourceAdmissionAtUtc` | that row's `created_at`, as an admission bound only |
+| `outcome.genuineCompletionAtUtc` | `game_state_observations.final_at`, or null with the accepted basis |
 
-Stated explicitly rather than invented:
+Forecast exposure AND import must both be at or before the checkpoint
+(`FORECAST_EXPOSED_AFTER_CHECKPOINT`, `FORECAST_IMPORTED_AFTER_CHECKPOINT`); a
+missing clock is `FORECAST_EXPOSURE_CLOCK_MISSING` /
+`FORECAST_IMPORT_CLOCK_MISSING`, never assumed.
 
-- **`policyAdjustedProbability` is null for the NFL research channel.** That
-  channel retains no adjusted probability, and the code deliberately does **not**
-  fall back to the raw probability — doing so would assert an adjustment that
-  was never recorded. Basis: `NOT_RETAINED_BY_THIS_DECISION_CHANNEL`. The MLB V2
-  channel does retain `adjusted_probability` and populates it.
-- **`retainedMarketProbability` is null for NFL** (basis `NOT_RETAINED`). The
-  derived `marketNoVigProbability` is always present, computed from both
-  captured legs.
-- **`outcome.completionTimeUtc` is always null for NFL** — see above.
-- **`policyVersion` / `stakingVersion` are null for an unfunded game whose
-  channel retains no `policy_version` in evidence** (basis `NOT_RETAINED`). They
-  come from the position row when one exists, from decision evidence otherwise.
-- **The opposing leg's row ids are not retained by any decision channel.** The
-  NFL channel retains the opposing leg's *price* (`evidence.selection
-  .opposite_american`) but not its `market_outcome_id` / `odds_snapshot_id`; MLB
-  retains neither. The exporter therefore **re-derives** the opposing leg as the
-  latest same-book, same-source quote visible at the checkpoint, and where the
-  price was retained it cross-checks — a mismatch is the exclusion
-  `OPPOSING_LEG_DISAGREES_WITH_RETAINED_OPPOSITE_PRICE`, never a silent
-  substitution.
-- **`overtime`, `week` and `game_type`** are present in
-  `nfl_final_observations` but are not currently emitted; say the word and they
-  are a one-line addition.
+## Dispositions kept apart
 
-## What Codex must confirm for compatibility
+`decision.qualificationOutcome`, `decision.executionOutcome`,
+`decision.funded` and `decision.positionId` answer four different questions and
+are never collapsed. Declines and unfunded decisions REMAIN in the population, as
+the protocol requires: position status is metadata, never an inclusion rule.
 
-1. **Record type and version.** Is `AISP_PROSPECTIVE_CAPTURE_V1` /
-   `schemaVersion "1"` acceptable, or does the frozen contract name its own?
-2. **The exclusion record.** Does the reader accept a second record type in the
-   same lane, or must exclusions go to a sibling directory? AISP will not drop
-   them either way.
-3. **`positionId: "NOT_APPLICABLE"`.** A literal, not a null, so "no position"
-   cannot be read as "field missing". Confirm the reader does not parse it as a
-   uuid.
-4. **Null `completionTimeUtc` with basis
-   `SOURCE_CONFIRMED_TERMINAL_COMPLETION_TIME_UNAVAILABLE`.** This is the
-   already-accepted amendment shape. Confirm the frozen prospective reader
-   permits it too — the V1 outcome lane's reader did **not**, which is why the
-   V2 lane exists.
-5. **Probability orientation.** Every probability is stated **for the selected
-   side**, not for home. Confirm, or ask for home-oriented and AISP will emit
-   both.
-6. **Two-way no-vig is conditional on no tie.** The moneyline pair spans "this
-   side wins given somebody wins". Comparing it against an **unconditional**
-   three-way model probability compares two different quantities. Confirm which
-   basis the comparison uses; AISP will emit the conditional model probability
-   alongside if needed.
-7. **Which checkpoint.** `checkpointAtUtc` is the deciding row's
-   `recommended_at`. If the contract wants a fixed T-minus target instead, say
-   which — AISP will emit both rather than relabel one.
-8. **Decision channel.** The probability-bearing FINAL_PREGAME channel is
-   selected explicitly by `experiment_id`, never by recency; two probability-
-   bearing channels is an exclusion, not a tie-break. Confirm that refusing is
-   preferred to guessing.
-9. **Filenames.** `records/<gameId>/<sha256-of-canonical-bytes>.json`, plus the
-   hash-chained `capture-ledger.jsonl`. Confirm the reader can enumerate a
-   directory rather than expecting one file per game.
+## Outcomes and corrections
 
-## The six hard rules, and where each is enforced
+`outcome` is the latest supported terminal revision at the moment the canonical
+record was written, with its revision identity, status, scores, three source
+clocks and nullable genuine completion clock. NFL additionally carries `overtime`,
+`week`, `gameType` and `season`, plus `sourceLastUpdatedRaw` carried verbatim as
+an unparsed feed string.
 
-| Rule | Enforcement |
-|---|---|
-| 1. Append-only | `write_once` (exclusive create, then read-only); filename **is** the content hash; `_write_once_same` adopts identical bytes and raises `RECORD_EXISTS_WITH_DIFFERENT_BYTES` otherwise; a later evaluation hashes differently and lands *beside* the earlier record |
-| 2. Frozen pregame view | `_visible()` bounds every pregame read by the checkpoint; the forecast and selected leg are the exact rows the decision **named**, then bound-checked; the opposing leg is the latest same-book quote **visible at the checkpoint**; `build_record` takes the checkpoint as an argument and reads no clock |
-| 3. No betting effect | `v18_market_pilot_outcomes.read_only` (confirmed `SET TRANSACTION READ ONLY`, always rolled back, refuses a dirty session) **plus** `_no_write_guard`, which counts `shadow_experiment_decisions` and `official_asp_positions` rows either side and refuses on any change — dialect-independent, so it bites on SQLite too, where the read-only statement is a no-op |
-| 4. Scoring separate from money | money may appear only under `ledgerSettlement` (`assert_money_is_quarantined`); blend/score/threshold/optimisation-shaped keys are refused **anywhere** (`assert_no_derived_comparison`); nothing computes a blend or a score |
-| 5. No new scheduler | no scheduler id, no `add_job`, not imported by `app/jobs/scheduler.py`; a test asserts the flag-on scheduler registers nothing and that the module contains neither `SCHEDULER_ID` nor `add_job` |
-| 6. Canonical JSON | `v18_market_pilot.canonical_bytes` (sorted keys, no whitespace); **no export clock** in the record — clocks live in the ledger, which is not the record |
+Every supported revision — the first and every correction — is ALSO written to
+`outcome-revisions/<gameId>/<sha256>.json`, naming the `observationId` and its
+ordinal. A correction appends the next ordinal. The pregame observation is never
+rewritten.
 
-## Running it manually (once the contract is frozen and the flag is turned on)
+MLB reads `game_state_observations`; `game_final_outcomes` is the MLB 2025
+training-label store and is not touched. NFL reads `nfl_final_observations`,
+which is the NFL source of record.
+
+## The read-only guarantee — five properties, none of them a row count
+
+A row-count diff cannot see an UPDATE that preserves counts, and a legitimate
+concurrent production write would make it accuse this exporter of a write it did
+not perform. It is **not** the barrier.
+
+| | Property | Enforced by | Test |
+| --- | --- | --- | --- |
+| A | Explicit, CONFIRMED PostgreSQL read-only transaction, always rolled back | `read_only_session` → `v18_market_pilot_outcomes.read_only` issues `SET TRANSACTION READ ONLY` and checks `SHOW transaction_read_only` | `test_property_a_postgres_gets_an_explicit_and_confirmed_read_only_transaction`, and `..._a_server_that_does_not_confirm_read_only_is_refused` |
+| B | No INSERT/UPDATE/DELETE/merge/flush/ORM-mutation path in the module | `assert_module_has_no_mutation_path()` AST-walks the module's own source **at import time** | `test_property_b_the_module_contains_no_mutation_path` and five parametrised cases proving the guard actually catches `.add`, `.flush`, `.commit`, `from sqlalchemy import update` and a `delete from` literal |
+| C | File output is content-addressed, append-only, and OUTSIDE the transaction | `write_once` (exclusive create, then read-only) plus `_refuse_write_inside_read_transaction`, which reads a marker set in `session.info` for the life of the transaction | `test_property_c_a_file_write_inside_the_read_transaction_is_refused` |
+| D | A mutation attempted through the exporter's session FAILS | `read_only_session` attaches `before_flush` and `do_orm_execute` listeners, so it raises on SQLite too | `test_property_d_a_mutation_through_the_exporters_session_fails`, `..._an_orm_delete_through_the_session_fails` |
+| E | A concurrent legitimate production write is never blamed on the exporter | nothing in the production path compares counts | `test_property_e_the_guarantee_is_not_a_row_count_diff` greps `run_prospective_capture`'s body for a count and then lands a real concurrent write between ticks |
+
+`sqlite_row_count_probe()` survives **only as a test aid** and its docstring says
+so in those words. It is not called anywhere in `run_prospective_capture`.
+`test_the_exporter_writes_nothing_to_decisions_or_positions` additionally compares
+odds-snapshot **values**, not counts, so an UPDATE would be visible.
+
+## The prepared — and inactive — invocation path
+
+`research_export_tick_hook()` is called as a trailing step of the EXISTING
+`export-v18-market-pilot-outcomes-v2` orchestrator handler
+(`asp-rx-v18-market-pilot-outcomes-v2`). It returns inert while the flag is off,
+which is the default and the deployed value.
+
+**No new scheduler id, no new job, no new owner is registered.** The chosen owner
+satisfies every requirement:
+
+| Requirement | Why this owner |
+| --- | --- |
+| runs only AFTER the canonical decision-time evidence is fixed | it is the outcome lane; it runs strictly after the checkpoints it reads |
+| never delays the decision | `research-export` is a separate single-worker lane from `decision-checkpoints` |
+| zero provider requests | the module imports no client and no data source (pinned by test) |
+| zero DB mutations | properties A–E above |
+| does not compete with checkpoint execution | `asp-rx-*`, never `asp-dc-*` |
+| at most one canonical record per eligible game | `observationId` + `_admitted_observation_ids` |
+| recovers idempotently after interruption | content-addressed records; the ledger enumerates what was admitted |
+| preserves exclusions | an unpriced or excluded game keeps its record and reason codes |
+
+**Why not `producer-import` (`asp-im-*`)**: the import must complete BEFORE the
+decision; this export must run AFTER the decision-time evidence is fixed. Adding
+work to the one lane whose lateness silently costs a decision — 703.56 measured
+seconds of queue wait on 2026-09-20 — would be the wrong trade.
+
+**Why not `decision-checkpoints` (`asp-dc-*`)**: a checkpoint window is fifteen
+minutes wide and cannot be moved; this export has no deadline at all.
+
+A hook failure can never fail the owner: the call is wrapped, and the V2 result is
+returned unchanged.
+
+**Deployment prerequisite:** the owner is registered only when
+`V18_MARKET_PILOT_OUTCOMES_V2_ENABLED` is true. Activating the capture means
+turning `PROSPECTIVE_CAPTURE_ENABLED` on while that owner is registered.
+
+## The synthetic example and its validator
+
+| | |
+| --- | --- |
+| Example | `C:\Users\james\aisp-analysis\wagering-review-20260921\contract\synthetic-model-market-observation-v1.json` |
+| sha256 | `6aea958212fa167615e0e3678c69ac92f94b9a438c9babd828de649da9387b5b` |
+| Generator | `contract\build_synthetic_example.py` |
+| Validator | `contract\validate_model_market_observation.py` |
+
+The example is built by the REAL exporter (`build_observation`) against a
+fabricated in-memory slate, so it cannot drift from the code that will write
+genuine records, and it is marked
+`status: "SYNTHETIC_CONTRACT_EXAMPLE_NOT_EVIDENCE"` exactly as the contract's own
+example is. It cannot enrol: the slate is fabricated, nothing in it came from
+AISP's database, and the status string is the contract's non-enrolling marker.
+
+The validator is **self-contained** — it imports nothing from AISP — so Model
+Studio can run it against any record file. `capture.validate_record()` implements
+the same checks inside the codebase, and the test suite runs both.
+
+## Running it by hand
 
 ```
 python -m app.research_exports.prospective_capture \
-    --window-start 2026-09-21T00:00:00Z \
-    --window-end   2026-09-22T00:00:00Z \
-    --leagues NFL,MLB
+    --verify-contract "C:\Users\james\asp-model-studio\outputs\model-market-prospective-comparison-20260921-v1"
 ```
 
-It prints a JSON summary: universe size, captures, exclusions, how many files
-this run created, and each record's sha256. With the flag off it prints the
-inert summary and touches nothing.
+It still does nothing unless `PROSPECTIVE_CAPTURE_ENABLED` is true.
+
+## Fields this lane cannot populate from retained data
+
+Stated rather than invented:
+
+* `market.commonResponseSha256` — no provider-response digest is retained;
+  `payload_checksum` is per row. The exact-fetch identity is carried instead.
+* every `market.conventions` rule — no retained provider response states
+  settlement, extra innings, overtime or pitcher/action semantics, so every
+  record is `UNPRICED` until a convention is bound with the document that states
+  it.
+* `outcome.genuineCompletionAtUtc` for NFL — the NFL source of record has no
+  completion column, so it is null under the accepted basis.
+* MLB `outcome` week / game type / overtime — `game_state_observations` is
+  sport-neutral and holds none of them; they are null, and only NFL is required to
+  carry them.

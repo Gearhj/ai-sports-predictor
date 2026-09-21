@@ -357,11 +357,37 @@ class JobOrchestrator:
         Inert unless V18_MARKET_PILOT_OUTCOMES_V2_ENABLED. Same isolation as V1:
         its own READ ONLY session, always rolled back; writes only its own
         write-once lane. V1 and its withheld lane are untouched.
+
+        THE PROSPECTIVE CAPTURE RIDES HERE, AND IS OFF
+        ----------------------------------------------
+        The model-market prospective export needs an owner once Model Studio
+        passes its contract, and it must not get a new one. This job is the
+        right existing owner: it is already on the ``research-export`` lane
+        (``asp-rx-*``), already opens its own reader session, already makes zero
+        provider requests, and already runs strictly AFTER the decision-time
+        evidence it reads is fixed. So the capture is a TRAILING step of this
+        tick, in its own reader session, after the V2 outcome tick has returned.
+
+        It is ``PREPARED_NOT_ACTIVATED``: ``prospective_capture_enabled``
+        defaults to false, and the hook returns inert while it is. Nothing is
+        registered: no scheduler id, no job, no owner is created here. The V2
+        result is returned unchanged whatever the hook does, and a hook failure
+        can never fail this job -- the capture must never be able to disturb an
+        owner that already has work of its own.
         """
+        from app.research_exports.prospective_capture import research_export_tick_hook
         from app.research_exports.v18_market_pilot_outcomes_v2 import run_outcomes_v2_tick
 
         with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
-            return run_outcomes_v2_tick(reader, self.settings)
+            result = run_outcomes_v2_tick(reader, self.settings)
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            try:
+                result = {**result, "prospectiveCapture": research_export_tick_hook(
+                    reader, self.settings)}
+            except Exception as error:  # pragma: no cover - defensive, never fails the owner
+                result = {**result, "prospectiveCapture": {
+                    "enabled": True, "failed": type(error).__name__, "detail": str(error)}}
+        return result
 
     # -- Prediction Market Observer jobs (provider I/O confined here) -----
     def _pm_jobs(self):

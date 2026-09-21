@@ -492,11 +492,17 @@ class Settings(BaseSettings):
         Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-v2"))
 
     # ------------------------------------------------------------------
-    # Prospective research capture (app.research_exports.prospective_capture).
-    # Model Studio's comparison contract is NOT frozen yet, so the exporter is
-    # BUILT AND OFF. Off means inert: no row is read and no file is opened.
-    # There is deliberately NO scheduler entry for it -- it has a callable and
-    # `python -m app.research_exports.prospective_capture`, and nothing else.
+    # Prospective model-market capture (app.research_exports.prospective_capture).
+    # Model Studio's contract IS frozen now (MODEL_MARKET_OBSERVATION_V1, contract
+    # sha256 e0ee599e..., protocol sha256 fcb530fc...), and the exporter is mapped
+    # onto it -- but it stays OFF until Codex passes the mapping. Off means inert:
+    # no row is read and no file is opened.
+    #
+    # There is deliberately NO scheduler entry for it. Its invocation path is
+    # PREPARED_NOT_ACTIVATED: a trailing step of the EXISTING research-export
+    # owner `export-v18-market-pilot-outcomes-v2` (`asp-rx-*`), which creates no
+    # new scheduler, job or owner and never touches the decision-checkpoint lane.
+    # Turning this on while that owner is registered is what activates it.
     # It never writes a decision, a position or any production record.
     # ------------------------------------------------------------------
     prospective_capture_enabled: bool = False
