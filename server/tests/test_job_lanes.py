@@ -62,17 +62,37 @@ def test_only_prediction_market_jobs_leave_the_core_lane(settings):
         "scheduler_core_jobs_enabled": True, "prediction_market_observer_enabled": True,
         "v18_market_pilot_export_enabled": False, "v18_market_pilot_outcomes_export_enabled": False,
         "v18_market_pilot_outcomes_v2_enabled": False}))
-    seen = {lanes.CORE_LANE: set(), lanes.PREDICTION_MARKET_LANE: set(),
-            lanes.RESEARCH_EXPORT_LANE: set(), lanes.DECISION_CHECKPOINT_LANE: set()}
+    # Every lane, including the two added for the NFL FINAL delivery contract.
+    # Omitting them made this a KeyError rather than an assertion the moment a
+    # job actually landed on one -- which it does under the production .env,
+    # where the exchange consumer is registered as `asp-im-*`. A missing key
+    # here fails as a crash rather than as the disallowed-lane finding it is
+    # meant to be, so the map is built from the lane constants themselves.
+    seen = {lane: set() for lane in (
+        lanes.CORE_LANE, lanes.PREDICTION_MARKET_LANE, lanes.RESEARCH_EXPORT_LANE,
+        lanes.DECISION_CHECKPOINT_LANE, lanes.IMPORT_LANE, lanes.NFL_FINAL_IMPORT_LANE)}
     for job in scheduler.get_jobs():
         if inspect.iscoroutinefunction(job.func):
             seen[getattr(job.func, "__aisp_job_lane__")].add(job.id)
     assert seen[lanes.PREDICTION_MARKET_LANE] == {
         "asp-pm-discover", "asp-pm-refresh", "asp-pm-consensus", "asp-pm-alerts", "asp-pm-finalize-pregame"}
     assert seen[lanes.RESEARCH_EXPORT_LANE] == set()
-    for critical in ("asp-model-exchange-consumer", "asp-odds-checkpoint"):
-        if any(job.id == critical for job in scheduler.get_jobs()):
-            assert critical in seen[lanes.CORE_LANE]
+    # These two guarded assertions had gone SILENT. `asp-model-exchange-consumer`
+    # was renamed `asp-im-model-exchange-consumer` when the import moved to its
+    # own lane, so the `if any(...)` guard stopped matching and the assertion
+    # inside it stopped running -- a test that passes by never checking anything
+    # is worse than one that fails. Each job is now asserted on the lane it is
+    # actually supposed to occupy, by its current id.
+    registered = {job.id for job in scheduler.get_jobs()}
+    if "asp-im-model-exchange-consumer" in registered:
+        assert "asp-im-model-exchange-consumer" in seen[lanes.IMPORT_LANE]
+    if "asp-nf-nfl-final-pair" in registered:
+        assert "asp-nf-nfl-final-pair" in seen[lanes.NFL_FINAL_IMPORT_LANE]
+    if "asp-odds-checkpoint" in registered:
+        assert "asp-odds-checkpoint" in seen[lanes.CORE_LANE]
+    # The old id must not come back: a job re-registered under it would silently
+    # rejoin the core lane and reintroduce the 703.56 s queue wait.
+    assert "asp-model-exchange-consumer" not in registered
 
 
 def test_a_run_records_when_it_fired_and_how_long_it_waited(session, settings, monkeypatch):

@@ -8,6 +8,7 @@ exchange root is never read and never written.
 from __future__ import annotations
 
 import hashlib
+
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -67,8 +68,21 @@ def test_a_sidecar_first_seen_after_T21_is_telemetry_delay_not_a_missed_boundary
 
     PAIR_AND_READY_INDEX_TIMELY certifies the pair and the ready index were
     observed by T-21. It does NOT certify the sidecar was readable by T-21. So
-    a sidecar first observed two minutes AFTER the producer boundary -- but
-    still read by this consumer before T-15 -- verifies.
+    a proof clock two minutes AFTER the producer boundary -- with this consumer
+    still reading it before T-15 -- verifies.
+
+    THE ASSERTIONS MOVED, THE INTENT DID NOT.
+    -----------------------------------------
+    The authentic exposure has no ``sidecarFirstObservedAtUtc``,
+    ``proofObservedAfterProducerBoundary`` or
+    ``consumerCutoffPassedAtProofObservation``; those were this consumer's guess
+    at the field names and the module records nothing of the sort. The producer
+    states the same thing in two fields that do exist: ``clockMeaning`` says the
+    clock is an observation of the ready-index replace and NOT of sidecar file
+    exposure, and ``certifiesSidecarExposureBeforeProducerDeadline`` is false.
+    So the late clock is driven through ``readyAvailableAtUtc`` (which
+    ``sidecar_first_observed`` now controls) and the assertions read the two
+    fields that carry the meaning.
     """
 
     family = fx.build(
@@ -76,8 +90,16 @@ def test_a_sidecar_first_seen_after_T21_is_telemetry_delay_not_a_missed_boundary
     result = _verify(family, observed_delta_minutes=16)
 
     assert result.verified, (result.sub_reasons, result.detail)
-    assert result.evidence["proof_observed_after_producer_boundary"] is True
-    assert result.evidence["consumer_cutoff_passed_at_proof_observation"] is False
+    # The producer clock IS after T-21 ...
+    # Recorded in PARSED form, like every other clock in the evidence, rather
+    # than as the producer's literal string -- the module parses it so a
+    # malformed stamp cannot reach the decision record pretending to be a time.
+    assert result.evidence["ready_available_at_utc"] == (
+        fx.KICKOFF - timedelta(minutes=19)).isoformat()
+    # ... and it is recorded, never gated on, because the document says what it
+    # does and does not certify.
+    assert result.evidence["certifies_sidecar_exposure_before_producer_deadline"] is False
+    assert result.evidence["producer_clock_meaning"].startswith("ACTUAL_OBSERVATION")
 
 
 def test_a_recontainer_keeps_the_grant_on_its_own_child(tmp_path: Path) -> None:
@@ -133,8 +155,10 @@ def test_receipt_bytes_that_do_not_hash_to_their_address_fail_closed(
     tmp_path: Path,
 ) -> None:
     family = fx.build(tmp_path)
+    # The revision lives inside `engine` in the authentic receipt, so that is
+    # where the tamper goes; either way the bytes no longer hash to the address.
     _rewrite(family.receipt_path(),
-             lambda doc: doc.update({"producerRevision": "tampered-revision"}))
+             lambda doc: doc["engine"].update({"producerRevision": "tampered-revision"}))
     result = _verify(family)
 
     assert not result.verified
@@ -154,12 +178,26 @@ def test_exposure_bytes_that_do_not_hash_to_their_address_fail_closed(
 
 
 def test_an_ambiguous_ready_index_identity_fails_closed(tmp_path: Path) -> None:
+    """An index key that is nearly, but not exactly, the selected forecast.
+
+    THE AMBIGUITY THIS TEST CAN EXPRESS CHANGED WITH THE SHAPE.
+    ----------------------------------------------------------
+    The old fixture's index was a LIST, so "the index names this forecast
+    twice" was expressible by doubling ``entries``. The authentic index is a MAP
+    keyed by forecast id, and a duplicate key cannot survive JSON parsing, so
+    that state is now impossible by construction rather than merely refused.
+    The ambiguity that remains -- and that this test still proves is refused --
+    is a key differing only by case or whitespace, which would otherwise be
+    reported as an honest "no entry" rather than as the malformed index it is.
+    """
+
     family = fx.build(tmp_path)
 
-    def duplicate(document):
-        document["entries"] = document["entries"] * 2
+    def blur_the_key(document):
+        entry = document["receipts"].pop(family.forecast_id)
+        document["receipts"][f" {family.forecast_id.upper()} "] = entry
 
-    _rewrite(family.index_path(), duplicate)
+    _rewrite(family.index_path(), blur_the_key)
     result = _verify(family)
 
     assert not result.verified
@@ -193,45 +231,23 @@ def test_a_forecast_absent_from_the_original_snapshot_fails_closed(
 ) -> None:
     """A membership the producer never recorded cannot be supplied later.
 
-    The receipt's forecast-index snapshot is rewritten to omit the bundle. The
-    receipt is re-addressed so the tampering passes join 1 cleanly and the
-    failure is attributable to the snapshot join alone.
+    The family is built with a frozen forecast-index snapshot that omits the
+    bundle; the LIVE locator still names it, so the refusal is attributable to
+    the snapshot join alone.
+
+    WHY THIS IS NOW A FIXTURE STATE RATHER THAN AN IN-PLACE EDIT.
+    ------------------------------------------------------------
+    The snapshot used to be an inline copy inside the receipt, so it could be
+    rewritten and the receipt re-addressed by hand. The authentic snapshot is a
+    SEPARATE content-addressed object that the receipt REFERENCES, so editing it
+    changes its address, which changes the receipt, which changes the ready
+    index, the exposure and the sidecar -- five re-addressings to express one
+    condition, each of which could mask the join under test. Building the family
+    consistently degraded says the same thing and cannot fail for another
+    reason.
     """
 
-    family = fx.build(tmp_path)
-    receipt = json.loads(family.receipt_path().read_bytes())
-    receipt["forecastIndexSnapshot"]["currentBundleSha256s"] = []
-    receipt["forecastIndexSnapshot"]["currentBundleCount"] = 0
-    new_bytes = canonical_json_bytes(receipt)
-    new_sha = hashlib.sha256(new_bytes).hexdigest()
-    (tmp_path / gate.READINESS_ROOT / gate.OBJECTS_DIR / new_sha).mkdir(parents=True)
-    (tmp_path / gate.READINESS_ROOT / gate.OBJECTS_DIR / new_sha
-     / "receipt.json").write_bytes(new_bytes)
-
-    def repoint(document):
-        entry = document["entries"][0]
-        entry["receiptSha256"] = new_sha
-        entry["receiptRef"] = f"{gate.OBJECTS_DIR}/{new_sha}/receipt.json"
-        entry["exposureReferencePath"] = f"{gate.AVAILABILITY_DIR}/{new_sha}.json"
-
-    _rewrite(family.index_path(), repoint)
-    availability = json.loads(family.availability_path().read_bytes())
-    availability["baseReceiptSha256"] = new_sha
-    (tmp_path / gate.READINESS_ROOT / gate.AVAILABILITY_DIR
-     / f"{new_sha}.json").write_bytes(canonical_json_bytes(availability))
-    _rewrite(family.exposure_path(),
-             lambda doc: doc.update({"baseReceiptSha256": new_sha}))
-    # The exposure has been re-addressed by that edit, so re-point the sidecar.
-    exposure_bytes = family.exposure_path().read_bytes()
-    exposure_sha = hashlib.sha256(exposure_bytes).hexdigest()
-    (tmp_path / gate.READINESS_ROOT / gate.OBJECTS_DIR / exposure_sha).mkdir(parents=True)
-    (tmp_path / gate.READINESS_ROOT / gate.OBJECTS_DIR / exposure_sha
-     / "exposure.json").write_bytes(exposure_bytes)
-    availability["exposureSha256"] = exposure_sha
-    availability["exposureObjectPath"] = f"{gate.OBJECTS_DIR}/{exposure_sha}/exposure.json"
-    (tmp_path / gate.READINESS_ROOT / gate.AVAILABILITY_DIR
-     / f"{new_sha}.json").write_bytes(canonical_json_bytes(availability))
-
+    family = fx.build(tmp_path, snapshot_forecast_current=False)
     result = _verify(family)
 
     assert not result.verified
@@ -241,24 +257,37 @@ def test_a_forecast_absent_from_the_original_snapshot_fails_closed(
 def test_an_exposure_whose_ready_index_snapshot_differs_fails_closed(
     tmp_path: Path,
 ) -> None:
-    family = fx.build(tmp_path)
-    exposure = json.loads(family.exposure_path().read_bytes())
-    exposure["readyIndexSnapshot"] = {"schemaVersion": gate.INDEX_SCHEMA, "entries": []}
-    new_bytes = canonical_json_bytes(exposure)
-    new_sha = hashlib.sha256(new_bytes).hexdigest()
-    (tmp_path / gate.READINESS_ROOT / gate.OBJECTS_DIR / new_sha).mkdir(parents=True)
-    (tmp_path / gate.READINESS_ROOT / gate.OBJECTS_DIR / new_sha
-     / "exposure.json").write_bytes(new_bytes)
+    """A positive exposure may not be carried across from an earlier pass.
 
-    def repoint(document):
-        document["exposureSha256"] = new_sha
-        document["exposureObjectPath"] = f"{gate.OBJECTS_DIR}/{new_sha}/exposure.json"
+    The frozen ready-index snapshot names SOME OTHER receipt for this forecast,
+    which is exactly the state a reused exposure would be in. As above, the
+    snapshot is a referenced object now rather than an inline copy, so the
+    condition is built into the family instead of rewritten into it.
+    """
 
-    _rewrite(family.availability_path(), repoint)
+    family = fx.build(tmp_path, ready_snapshot_receipt="e" * 64)
     result = _verify(family)
 
     assert not result.verified
     assert result.sub_reasons == (gate.READY_INDEX_SNAPSHOT_MISMATCH,)
+
+
+def test_a_ready_index_snapshot_with_no_entry_for_this_forecast_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """The neighbouring refusal, which the authentic shape makes distinct.
+
+    A snapshot that names a DIFFERENT receipt is a mismatch; a snapshot with no
+    entry for this forecast at all is a missing entry. The old inline-copy
+    fixture could only express the second, and asserted the first sub-reason
+    for it; both are pinned here so neither collapses into the other.
+    """
+
+    family = fx.build(tmp_path, ready_snapshot_receipt=None)
+    result = _verify(family)
+
+    assert not result.verified
+    assert result.sub_reasons == (gate.READY_INDEX_SNAPSHOT_ENTRY_MISSING,)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +436,63 @@ def test_a_producer_observation_after_T21_fails_closed(tmp_path: Path) -> None:
 
     assert not result.verified
     assert result.sub_reasons == (gate.PRODUCER_BOUNDARY_MISSED,)
+
+
+def test_a_grant_published_after_T21_fails_closed(tmp_path: Path) -> None:
+    """The PAIR is both halves, and the grant half is bound by the same T-21.
+
+    PAIR_AND_READY_INDEX_TIMELY certifies the forecast AND its grant. An
+    earlier version of the producer-boundary join read only the forecast
+    locator, so an eligibility package published after the boundary passed
+    untouched -- exactly the "four separate filesystem operations" failure the
+    contract describes, in the half nobody was reading.
+    """
+
+    family = fx.build(
+        tmp_path, grant_observed=fx.KICKOFF - timedelta(minutes=20))
+    result = _verify(family)
+
+    assert not result.verified
+    assert result.sub_reasons == (gate.PRODUCER_BOUNDARY_MISSED,)
+    assert "grant" in result.detail
+
+
+def test_a_timely_grant_is_recorded_on_all_three_of_its_clocks(tmp_path: Path) -> None:
+    """The evidence names each grant clock separately, not one summary field."""
+
+    result = _verify(fx.build(tmp_path))
+
+    assert result.verified, (result.sub_reasons, result.detail)
+    for key in ("grant_package_visible_at_utc", "grant_index_visible_at_utc",
+                "grant_declared_published_at_utc"):
+        assert key in result.evidence, key
+
+
+def test_an_exposure_that_disagrees_about_the_deadline_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """Two documents certifying different boundaries is not ours to resolve."""
+
+    family = fx.build(tmp_path)
+    path = family.exposure_path()
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["producerDeadlineUtc"] = (fx.KICKOFF - timedelta(minutes=5)).isoformat()
+    # Re-address honestly, so the disagreement is what fails rather than the
+    # content address.
+    raw = canonical_json_bytes(document)
+    new_sha = hashlib.sha256(raw).hexdigest()
+    target = path.parent.parent / new_sha
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "exposure.json").write_bytes(raw)
+    sidecar = family.availability_path()
+    reference = json.loads(sidecar.read_text(encoding="utf-8"))
+    reference.update({"sha256": new_sha, "bytes": len(raw)})
+    sidecar.write_bytes(canonical_json_bytes(reference))
+
+    result = _verify(family)
+
+    assert not result.verified
+    assert result.sub_reasons == (gate.EXPOSURE_MALFORMED,), result.detail
 
 
 def test_the_checkpoints_selected_forecast_is_recorded_and_must_match(

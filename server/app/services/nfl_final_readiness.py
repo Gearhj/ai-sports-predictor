@@ -42,12 +42,13 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from app.forecast_exchange.importer import (
     ForecastBundleImportError, verify_and_load_sports_bundle,
 )
+from app.forecast_exchange.supplements import SupplementImportError, verify_supplement
 from app.gen2.exchange.canonical_json import canonical_json_bytes
 
 READINESS_ROOT = "nfl-final-readiness"
@@ -97,24 +98,25 @@ RECEIPT_IDENTITY_MISMATCH = "RECEIPT_IDENTITY_MISMATCH"
 #: operational-V2 producer revision. Distinct from a malformed receipt on
 #: purpose: this one is authentic evidence from the WRONG producer.
 PRODUCER_REVISION_NOT_PINNED = "PRODUCER_REVISION_NOT_PINNED"
-#: The receipt declares a schema this consumer was not written against.
+#: A readiness document does not have the field shape the bound schema requires.
 RECEIPT_SCHEMA_MISMATCH = "RECEIPT_SCHEMA_MISMATCH"
-#: A schema hash is pinned but the receipt declares none under any field name we
-#: read. That is a REFUSAL, not a pass: an unreadable schema declaration under a
-#: live pin means we cannot tell whether the receipt has the reviewed shape, and
-#: the contract's rule for absent evidence is fail closed.
-RECEIPT_SCHEMA_ABSENT = "RECEIPT_SCHEMA_ABSENT"
+#: The bound schema file is missing, unreadable, or hashes to something other
+#: than the reviewed value. The pin is the whole point, so this is a refusal.
+READINESS_SCHEMA_UNBOUND = "READINESS_SCHEMA_UNBOUND"
 
-#: Where a receipt may declare its own schema hash, most specific first.
+#: Where the reviewed producer revision actually lives in the receipt.
 #:
-#: The producer contract names the receipt schema id (``NFL_FINAL_READY_RECEIPT_V1``)
-#: but does not state the FIELD that carries its hash, so these three spellings
-#: are our reading and must be reconciled against the first authentic receipt.
-#: Reading a set rather than one name keeps a rename-only correction cheap; it
-#: does NOT weaken the pin, because a receipt declaring nothing under any of them
-#: is refused outright while a pin is configured.
-SCHEMA_SHA256_FIELDS: tuple[str, ...] = (
-    "schemaSha256", "receiptSchemaSha256", "schemaHashSha256",
+#: NOT top level. Model Studio's authentic fixture nests it inside ``engine``,
+#: beside the model manifest and binary hashes -- which is the right place for
+#: it, because the revision is part of the ENGINE identity that produced the
+#: forecast, not a property of the receipt document.
+RECEIPT_REVISION_PATH: tuple[str, ...] = ("engine", "producerRevision")
+
+#: The readiness documents the bound schema describes, by the key it files each
+#: one under. ``readyIndexSnapshot`` shares ``readyIndex``'s shape.
+SCHEMA_DOCUMENTS = (
+    "readyIndex", "readyIndexSnapshot", "readyReceipt", "readyExposure",
+    "forecastCurrentMembership", "supplementCurrentMembership",
 )
 
 EXPOSURE_REFERENCE_ABSENT = "EXPOSURE_REFERENCE_ABSENT"
@@ -240,7 +242,57 @@ def _require_address(raw: bytes, expected: str, *, label: str, sub_reason: str) 
 # join 1 -- physical reads, content addresses, unique identity, positive status
 # ---------------------------------------------------------------------------
 
+def _resolve_ref(root: Path, ref: Any, *, label: str, malformed: str,
+                 absent: str, mismatch: str) -> tuple[bytes, dict[str, Any], str]:
+    """Read the object a ``{bytes, path, sha256}`` reference names.
+
+    THE DECLARED PATH IS NEVER FOLLOWED.
+    ------------------------------------
+    Every reference the producer emits carries an ABSOLUTE path on the machine
+    that wrote it. Opening that path would let a receipt point this consumer at
+    any file on disk -- outside the exchange, outside the root we were
+    configured with -- and the bytes read would still hash correctly because the
+    receipt names the hash too. So the path is treated as EVIDENCE, not as an
+    instruction: the object is located by its content address beneath our own
+    configured root, and only the declared file NAME is taken from the path.
+
+    ``bytes`` is checked as well, because a reference whose declared length
+    disagrees with the object at its own address is not a reference we
+    understand, whichever of the two is wrong.
+    """
+
+    if not isinstance(ref, dict):
+        raise _Fail(malformed, f"{label} reference is not an object")
+    sha = str(ref.get("sha256") or "").strip().lower()
+    if not _SHA256.fullmatch(sha):
+        raise _Fail(malformed, f"{label} reference names no sha256 address")
+    declared_path = str(ref.get("path") or "")
+    name = PureWindowsPath(declared_path).name or PurePosixPath(declared_path).name
+    if not name or name != PurePosixPath(name).name or name.startswith("."):
+        raise _Fail(malformed, f"{label} reference names no readable file: {declared_path!r}")
+    raw, document = _read_json(
+        root / READINESS_ROOT / OBJECTS_DIR / sha / name,
+        label=label, absent=absent, malformed=malformed)
+    _require_address(raw, sha, label=label, sub_reason=mismatch)
+    declared_bytes = ref.get("bytes")
+    if isinstance(declared_bytes, int) and declared_bytes != len(raw):
+        raise _Fail(mismatch,
+                    f"{label} reference declares {declared_bytes} bytes, the object at "
+                    f"its address is {len(raw)}")
+    return raw, document, sha
+
+
 def _readiness_entry(root: Path, forecast_id: str) -> dict[str, Any]:
+    """This forecast's entry in the live ready index.
+
+    The index is a MAP keyed by forecast id, not a list, so "maps it twice" is
+    impossible by construction -- a duplicate key cannot survive JSON parsing.
+    The ambiguity this join still has to refuse is a key that differs from the
+    forecast the checkpoint selected only by whitespace or case, which would
+    otherwise look like a miss and be reported as "no entry" rather than as the
+    malformed index it is.
+    """
+
     path = root / READINESS_ROOT / READINESS_INDEX_FILENAME
     _, index = _read_json(
         path, label="readiness index",
@@ -248,36 +300,33 @@ def _readiness_entry(root: Path, forecast_id: str) -> dict[str, Any]:
     if index.get("schemaVersion") != INDEX_SCHEMA:
         raise _Fail(READINESS_INDEX_MALFORMED,
                     f"readiness index declares {index.get('schemaVersion')!r}")
-    entries = index.get("entries")
-    if not isinstance(entries, list):
-        raise _Fail(READINESS_INDEX_MALFORMED, "readiness index has no entry list")
-    matches = [item for item in entries
-               if isinstance(item, dict) and item.get("forecastId") == forecast_id]
-    if not matches:
+    receipts = index.get("receipts")
+    if not isinstance(receipts, dict):
+        raise _Fail(READINESS_INDEX_MALFORMED, "readiness index has no receipts map")
+    entry = receipts.get(forecast_id)
+    if entry is None:
+        near = [key for key in receipts
+                if isinstance(key, str) and key.strip().lower() == forecast_id.strip().lower()]
+        if near:
+            raise _Fail(READINESS_INDEX_AMBIGUOUS_ENTRY,
+                        f"the ready index keys {near[0]!r}, the checkpoint selected "
+                        f"{forecast_id!r}; they differ only in case or whitespace")
         raise _Fail(READINESS_INDEX_NO_ENTRY,
                     f"the ready index does not map {forecast_id}")
-    if len(matches) > 1:
-        # Ambiguous identity is fail-closed, not "take the first".
-        raise _Fail(READINESS_INDEX_AMBIGUOUS_ENTRY,
-                    f"the ready index maps {forecast_id} {len(matches)} times")
-    return matches[0]
+    if not isinstance(entry, dict):
+        raise _Fail(READINESS_INDEX_MALFORMED, "the ready index entry is not an object")
+    return entry
 
 
 def _receipt(root: Path, entry: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    receipt_sha = str(entry.get("receiptSha256") or "")
-    ref = str(entry.get("receiptRef") or "")
-    expected_ref = f"{OBJECTS_DIR}/{receipt_sha}/receipt.json"
-    if ref != expected_ref:
-        raise _Fail(RECEIPT_ADDRESS_MISMATCH,
-                    f"receiptRef {ref!r} does not name the declared address")
-    raw, receipt = _read_json(
-        root / READINESS_ROOT / OBJECTS_DIR / receipt_sha / "receipt.json",
-        label="base receipt", absent=RECEIPT_ABSENT, malformed=RECEIPT_MALFORMED)
-    _require_address(raw, receipt_sha, label="base receipt",
-                     sub_reason=RECEIPT_ADDRESS_MISMATCH)
+    raw, receipt, receipt_sha = _resolve_ref(
+        root, entry.get("receiptRef"), label="base receipt",
+        malformed=RECEIPT_MALFORMED, absent=RECEIPT_ABSENT,
+        mismatch=RECEIPT_ADDRESS_MISMATCH)
     if receipt.get("schemaVersion") != RECEIPT_SCHEMA:
         raise _Fail(RECEIPT_MALFORMED,
                     f"base receipt declares {receipt.get('schemaVersion')!r}")
+    del raw
     return receipt_sha, receipt
 
 
@@ -287,72 +336,189 @@ def _exposure(root: Path, entry: dict[str, Any], receipt_sha: str) -> dict[str, 
     Absence of the sidecar is fail closed and there is no fallback. That is the
     contract's own wording, and it is the reason this function never reaches
     for an exposure object by guessing a path.
+
+    The sidecar is a BARE reference object -- ``{bytes, path, sha256}`` and
+    nothing else. It carries no base-receipt field, so it cannot state which
+    receipt it belongs to; what binds it is its own location, ``availability/
+    <receipt-sha>.json``, and the exposure object's ``readyReceiptRef``. Both
+    are checked, because the filename alone is a claim the producer makes and
+    the exposure's own reference is the one that has to agree with it.
     """
 
-    reference_path = str(entry.get("exposureReferencePath") or "")
-    if reference_path != f"{AVAILABILITY_DIR}/{receipt_sha}.json":
-        raise _Fail(EXPOSURE_REFERENCE_MALFORMED,
-                    f"exposureReferencePath {reference_path!r} is not the receipt's sidecar")
-    raw_ref, reference = _read_json(
-        root / READINESS_ROOT / AVAILABILITY_DIR / f"{receipt_sha}.json",
-        label="exposure reference", absent=EXPOSURE_REFERENCE_ABSENT,
+    sidecar = root / READINESS_ROOT / AVAILABILITY_DIR / f"{receipt_sha}.json"
+    _, reference = _read_json(
+        sidecar, label="exposure reference", absent=EXPOSURE_REFERENCE_ABSENT,
         malformed=EXPOSURE_REFERENCE_MALFORMED)
-    if reference.get("baseReceiptSha256") != receipt_sha:
-        raise _Fail(EXPOSURE_REFERENCE_NOT_BOUND,
-                    "the exposure reference does not bind its base receipt")
-    exposure_sha = str(reference.get("exposureSha256") or "")
-    if reference.get("exposureObjectPath") != f"{OBJECTS_DIR}/{exposure_sha}/exposure.json":
-        raise _Fail(EXPOSURE_REFERENCE_MALFORMED,
-                    "the exposure reference path does not match its declared address")
-    raw, exposure = _read_json(
-        root / READINESS_ROOT / OBJECTS_DIR / exposure_sha / "exposure.json",
-        label="exposure object", absent=EXPOSURE_ABSENT, malformed=EXPOSURE_MALFORMED)
-    _require_address(raw, exposure_sha, label="exposure object",
-                     sub_reason=EXPOSURE_ADDRESS_MISMATCH)
+    _, exposure, exposure_sha = _resolve_ref(
+        root, reference, label="exposure object",
+        malformed=EXPOSURE_REFERENCE_MALFORMED, absent=EXPOSURE_ABSENT,
+        mismatch=EXPOSURE_ADDRESS_MISMATCH)
     if exposure.get("schemaVersion") != EXPOSURE_SCHEMA:
         raise _Fail(EXPOSURE_MALFORMED,
                     f"exposure object declares {exposure.get('schemaVersion')!r}")
-    if exposure.get("baseReceiptSha256") != receipt_sha:
+    declared_receipt = exposure.get("readyReceiptRef")
+    if not isinstance(declared_receipt, dict) or \
+            str(declared_receipt.get("sha256") or "").strip().lower() != receipt_sha:
         raise _Fail(EXPOSURE_NOT_BOUND_TO_RECEIPT,
-                    "the exposure object names a different base receipt")
-    del raw_ref
+                    "the exposure object's readyReceiptRef names a different receipt "
+                    f"than the sidecar it was reached through ({receipt_sha})")
+    del exposure_sha
     return exposure
 
 
-def _declared_schema_sha256(receipt: dict[str, Any]) -> str | None:
-    """The receipt's own schema hash, lowercased, or None if it declares none."""
+def bind_schema(schema_path: Path | str | None, required_sha256: str | None) -> dict[str, Any]:
+    """Read the reviewed field-shape schema and re-hash it before trusting it.
 
-    for name in SCHEMA_SHA256_FIELDS:
-        value = str(receipt.get(name) or "").strip().lower()
-        if value:
-            return value
-    return None
+    ``required_sha256`` is the hash Model Studio published for
+    ``READINESS_CONSUMER_SCHEMA.json``. It is NOT a field inside any receipt --
+    an earlier draft of this consumer looked for one and would have refused
+    every authentic document, which is the fail-closed behaviour working but
+    for the wrong reason. It is the hash of the CONTRACT, so the contract is
+    what gets hashed, here, from bytes on disk, every time.
+
+    Returns the parsed ``documents`` map. Refusing is the only other outcome.
+    """
+
+    if not required_sha256:
+        return {}
+    if not schema_path:
+        raise _Fail(READINESS_SCHEMA_UNBOUND,
+                    "a schema hash is pinned but no schema file is configured")
+    path = Path(schema_path)
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise _Fail(READINESS_SCHEMA_UNBOUND,
+                    f"the bound schema is unreadable at {path}: {exc}") from exc
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != required_sha256.strip().lower():
+        raise _Fail(READINESS_SCHEMA_UNBOUND,
+                    f"the schema at {path} hashes to {actual}, the reviewed schema is "
+                    f"{required_sha256.strip().lower()}")
+    try:
+        schema = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _Fail(READINESS_SCHEMA_UNBOUND, f"the bound schema is not JSON: {exc}") from exc
+    documents = schema.get("documents")
+    if not isinstance(documents, dict):
+        raise _Fail(READINESS_SCHEMA_UNBOUND, "the bound schema describes no documents")
+    missing = [name for name in SCHEMA_DOCUMENTS if name not in documents]
+    if missing:
+        raise _Fail(READINESS_SCHEMA_UNBOUND,
+                    f"the bound schema is missing {missing}")
+    return documents
+
+
+_JSON_TYPES: dict[str, Any] = {
+    "object": dict, "array": list, "string": str, "integer": int, "boolean": bool,
+}
+
+
+def _check_shape(document: Any, shape: Any, *, label: str, pinned_keys: bool) -> None:
+    """One document against one shape: required fields, types, no extras.
+
+    ``pinned_keys`` is False for a map whose KEYS are data rather than schema.
+    The published schema was generated from the synthetic fixture, so it lists
+    that fixture's forecast id as a required property of ``receipts`` and
+    forbids any other. Enforcing that literally would refuse every production
+    document, because a production ready index is keyed by a real forecast id.
+    So for those maps the VALUE shape is enforced and the key list is not --
+    and that relaxation is named here rather than left implicit, because it is
+    the one place this consumer knowingly does not do what the schema says.
+    """
+
+    if not isinstance(shape, dict):
+        return
+    expected = shape.get("type")
+    if expected in _JSON_TYPES and not isinstance(document, _JSON_TYPES[expected]):
+        # bool is a subclass of int in Python; the schema means them separately.
+        raise _Fail(RECEIPT_SCHEMA_MISMATCH,
+                    f"{label} should be a JSON {expected}, got {type(document).__name__}")
+    if expected == "integer" and isinstance(document, bool):
+        raise _Fail(RECEIPT_SCHEMA_MISMATCH, f"{label} should be an integer, got a boolean")
+    if expected != "object" or not isinstance(document, dict):
+        if expected == "array" and isinstance(document, list):
+            item_shape = shape.get("items")
+            for position, item in enumerate(document):
+                _check_shape(item, item_shape, label=f"{label}[{position}]",
+                             pinned_keys=pinned_keys)
+        return
+    properties = shape.get("properties") if isinstance(shape.get("properties"), dict) else {}
+    required = shape.get("required") if isinstance(shape.get("required"), list) else []
+    if pinned_keys:
+        for name in required:
+            if name not in document:
+                raise _Fail(RECEIPT_SCHEMA_MISMATCH, f"{label} is missing {name!r}")
+        if shape.get("additionalProperties") is False:
+            extra = sorted(set(document) - set(properties))
+            if extra:
+                raise _Fail(RECEIPT_SCHEMA_MISMATCH,
+                            f"{label} carries fields the reviewed schema forbids: {extra}")
+        for name, child in properties.items():
+            if name in document:
+                _check_shape(document[name], child, label=f"{label}.{name}",
+                             pinned_keys=True)
+        return
+    # Keys are data. Every value must match the single value shape the schema
+    # gives, whichever key it arrived under.
+    value_shapes = [child for child in properties.values() if isinstance(child, dict)]
+    if not value_shapes:
+        return
+    for key, value in document.items():
+        _check_shape(value, value_shapes[0], label=f"{label}[{key!r}]", pinned_keys=True)
+
+
+def _validate_documents(documents: dict[str, Any], **named: Any) -> None:
+    """Every readiness document this verification read, against the bound schema."""
+
+    if not documents:
+        return
+    for key, value in named.items():
+        if value is None:
+            continue
+        shape = documents.get(key)
+        if shape is None:
+            continue
+        if key in ("readyIndex", "readyIndexSnapshot"):
+            # `receipts` is keyed by forecast id, which is data, not schema.
+            _check_shape({k: v for k, v in value.items() if k != "receipts"},
+                         {"type": "object",
+                          "properties": {k: v for k, v in
+                                         (shape.get("properties") or {}).items()
+                                         if k != "receipts"},
+                          "required": [name for name in (shape.get("required") or [])
+                                       if name != "receipts"]},
+                         label=key, pinned_keys=True)
+            _check_shape(value.get("receipts"),
+                         (shape.get("properties") or {}).get("receipts"),
+                         label=f"{key}.receipts", pinned_keys=False)
+            continue
+        _check_shape(value, shape, label=key, pinned_keys=True)
 
 
 def _require_identity(receipt: dict[str, Any], exposure: dict[str, Any], *,
                       forecast_id: str, event_id: str, snapshot_type: str,
                       snapshot_version: int | None, engine_id: str,
-                      required_producer_revision: str | None = None,
-                      required_schema_sha256: str | None = None) -> None:
+                      required_producer_revision: str | None = None) -> None:
     """One exact game/forecast/snapshot/model/producer identity, or nothing.
 
-    ``required_producer_revision`` PINS the revision. The contract distinguishes
-    "the activated operational-V2 producer revision" from the current one but
-    does not state the literal value, so until it is supplied the check can only
-    require a non-empty string -- which an OLD-revision receipt would satisfy.
-    Once pinned, a receipt from any other revision is refused outright, which is
-    the difference between "a receipt exists" and "the reviewed producer wrote
-    it".
+    ``required_producer_revision`` PINS the revision. Unpinned, the check can
+    only require a NON-EMPTY string -- which a receipt from the superseded
+    producer satisfies. Pinned, a receipt from any other revision is refused
+    outright, which is the difference between "a receipt exists" and "the
+    reviewed producer wrote it".
 
-    ``required_schema_sha256`` pins the receipt schema the producer emits, so a
-    reshaped receipt cannot pass a join written against the older shape.
+    ``engineId`` is NOT read from the top level. The authentic receipt carries
+    the whole engine identity -- id, version, candidate, model manifest and
+    binary hashes, feature contract, training dataset, and the producer revision
+    -- in one ``engine`` object, and the revision is a property of that engine,
+    not of the receipt document.
     """
 
     declared = {
         "forecastId": (receipt.get("forecastId"), forecast_id),
         "eventId": (receipt.get("eventId"), event_id),
         "snapshotType": (receipt.get("snapshotType"), snapshot_type),
-        "engineId": (receipt.get("engineId"), engine_id),
     }
     for label, (actual, expected) in declared.items():
         if actual != expected:
@@ -362,81 +528,146 @@ def _require_identity(receipt: dict[str, Any], exposure: dict[str, Any], *,
         raise _Fail(RECEIPT_IDENTITY_MISMATCH,
                     f"receipt snapshotVersion is {receipt.get('snapshotVersion')!r}, "
                     f"the checkpoint selected {snapshot_version!r}")
-    revision = str(receipt.get("producerRevision") or "").strip()
+    engine = receipt.get("engine")
+    if not isinstance(engine, dict):
+        raise _Fail(RECEIPT_MALFORMED, "the receipt carries no engine identity")
+    if engine.get("engineId") != engine_id:
+        raise _Fail(RECEIPT_IDENTITY_MISMATCH,
+                    f"receipt engine.engineId is {engine.get('engineId')!r}, "
+                    f"the checkpoint selected {engine_id!r}")
+    revision = str(engine.get("producerRevision") or "").strip()
     if not revision:
         raise _Fail(RECEIPT_IDENTITY_MISMATCH, "receipt names no producer revision")
-    if required_producer_revision:
-        if revision != required_producer_revision:
-            raise _Fail(PRODUCER_REVISION_NOT_PINNED,
-                        f"receipt producerRevision is {revision!r}; the reviewed "
-                        f"operational-V2 revision is {required_producer_revision!r}")
-    if required_schema_sha256:
-        declared_schema = _declared_schema_sha256(receipt)
-        if declared_schema is None:
-            raise _Fail(RECEIPT_SCHEMA_ABSENT,
-                        "a schema hash is pinned but the receipt declares none under "
-                        f"any of {list(SCHEMA_SHA256_FIELDS)}")
-        if declared_schema != required_schema_sha256.strip().lower():
-            raise _Fail(RECEIPT_SCHEMA_MISMATCH,
-                        f"receipt schema hash is {declared_schema!r}; the reviewed "
-                        f"schema is {required_schema_sha256.strip().lower()!r}")
+    if required_producer_revision and revision != required_producer_revision.strip():
+        raise _Fail(PRODUCER_REVISION_NOT_PINNED,
+                    f"receipt engine.producerRevision is {revision!r}; the reviewed "
+                    f"operational-V2 revision is {required_producer_revision.strip()!r}")
     if exposure.get("forecastId") != forecast_id:
         raise _Fail(RECEIPT_IDENTITY_MISMATCH,
                     "the exposure object names a different forecast")
+    if exposure.get("eventId") != event_id:
+        raise _Fail(RECEIPT_IDENTITY_MISMATCH,
+                    "the exposure object names a different event")
 
 
 def _require_positive_status(exposure: dict[str, Any]) -> None:
-    status = exposure.get("exposureStatus")
+    """``status``, and only the one positive value.
+
+    The authentic exposure also SAYS what its clock means:
+    ``certifiesSidecarExposureBeforeProducerDeadline`` is false and
+    ``clockMeaning`` is ACTUAL_OBSERVATION_AFTER_READY_INDEX_REPLACE_NOT_SIDECAR_
+    FILE_EXPOSURE. Both confirm, from the producer's own bytes, that the sidecar
+    becoming readable is NOT the boundary being certified -- so this consumer
+    must never read sidecar readability as a timing failure, and must establish
+    its own T-15 observation instead. ``consumerObservedAvailabilityRequired``
+    states that obligation explicitly, and is required to be true: a document
+    that waived it would be asking us to trust a clock we do not own.
+    """
+
+    status = exposure.get("status")
     if status != STATUS_TIMELY:
         raise _Fail(EXPOSURE_STATUS_NOT_POSITIVE,
                     f"exposure status {status!r} is not positive evidence")
+    if exposure.get("consumerObservedAvailabilityRequired") is not True:
+        raise _Fail(EXPOSURE_STATUS_NOT_POSITIVE,
+                    "the exposure does not require consumer-observed availability; "
+                    "this consumer will not accept a clock it does not own")
+    if exposure.get("certifiesSidecarExposureBeforeProducerDeadline") is not False:
+        raise _Fail(EXPOSURE_STATUS_NOT_POSITIVE,
+                    "the exposure claims to certify sidecar exposure before the "
+                    "producer deadline, which the contract says it does not")
 
 
 # ---------------------------------------------------------------------------
 # join 2 -- the immutable snapshots
 # ---------------------------------------------------------------------------
 
-def _verify_snapshots(receipt: dict[str, Any], exposure: dict[str, Any], *,
-                      forecast_id: str, bundle_sha: str, supplement_sha: str) -> None:
+def _verify_snapshots(root: Path, receipt: dict[str, Any], exposure: dict[str, Any], *,
+                      forecast_id: str, receipt_sha: str, bundle_sha: str,
+                      supplement_sha: str) -> dict[str, Any]:
     """Match the exposure to its ORIGINAL ready-index snapshot and receipt.
 
-    Every check here reads the snapshots the receipt and exposure CARRY. The
-    mutable discovery files on disk are not consulted -- they are the present
-    tense and are checked separately in join 3. A snapshot is a historical hash
-    reference; a discovery path is not.
+    THE SNAPSHOTS ARE REFERENCES, NOT INLINE COPIES.
+    -----------------------------------------------
+    The authentic receipt and exposure do not embed the index they saw. They
+    name it -- ``currentLocatorSnapshotRef``, ``supplement.indexRef``,
+    ``readyIndexSnapshotRef`` -- as content-addressed objects, which is
+    strictly stronger than an inline copy: the bytes are frozen at an address
+    that cannot be edited without changing the address, and both parties can
+    cite the same one.
+
+    So each is READ and RE-HASHED, and every membership question is asked of
+    the snapshot's own bytes. The mutable discovery files on disk are still not
+    consulted here; they are the present tense and are checked in join 3. A
+    snapshot is a historical hash reference, a discovery path is not.
     """
 
-    receipt_snapshot = receipt.get("readyIndexSnapshot")
-    exposure_snapshot = exposure.get("readyIndexSnapshot")
-    if not isinstance(receipt_snapshot, dict) or not isinstance(exposure_snapshot, dict):
-        raise _Fail(READY_INDEX_SNAPSHOT_MISMATCH, "a ready-index snapshot is missing")
-    if canonical_json_bytes(receipt_snapshot) != canonical_json_bytes(exposure_snapshot):
+    _, ready_snapshot, ready_snapshot_sha = _resolve_ref(
+        root, exposure.get("readyIndexSnapshotRef"), label="ready-index snapshot",
+        malformed=READY_INDEX_SNAPSHOT_MISMATCH, absent=READY_INDEX_SNAPSHOT_MISMATCH,
+        mismatch=READY_INDEX_SNAPSHOT_MISMATCH)
+    if ready_snapshot.get("schemaVersion") != INDEX_SCHEMA:
         raise _Fail(READY_INDEX_SNAPSHOT_MISMATCH,
-                    "the exposure's ready-index snapshot differs from the receipt's")
-    entries = receipt_snapshot.get("entries")
-    if not isinstance(entries, list) or not any(
-            isinstance(item, dict) and item.get("forecastId") == forecast_id
-            for item in entries):
+                    f"the ready-index snapshot declares {ready_snapshot.get('schemaVersion')!r}")
+    snapshot_entry = (ready_snapshot.get("receipts") or {}).get(forecast_id) \
+        if isinstance(ready_snapshot.get("receipts"), dict) else None
+    if not isinstance(snapshot_entry, dict):
         raise _Fail(READY_INDEX_SNAPSHOT_ENTRY_MISSING,
                     "the original ready-index snapshot has no entry for this forecast")
+    # The snapshot must name THIS receipt. Otherwise a positive exposure could
+    # be carried across from an earlier, superseded readiness pass.
+    snapshot_receipt = snapshot_entry.get("receiptRef")
+    if not isinstance(snapshot_receipt, dict) or \
+            str(snapshot_receipt.get("sha256") or "").strip().lower() != receipt_sha:
+        raise _Fail(READY_INDEX_SNAPSHOT_MISMATCH,
+                    "the original ready-index snapshot names a different receipt for "
+                    "this forecast")
 
-    forecast_snapshot = receipt.get("forecastIndexSnapshot")
-    if not isinstance(forecast_snapshot, dict):
-        raise _Fail(FORECAST_SNAPSHOT_MEMBERSHIP_MISSING,
-                    "the receipt carries no forecast-index snapshot")
+    _, forecast_snapshot, forecast_snapshot_sha = _resolve_ref(
+        root, receipt.get("currentLocatorSnapshotRef"), label="forecast-index snapshot",
+        malformed=FORECAST_SNAPSHOT_MEMBERSHIP_MISSING,
+        absent=FORECAST_SNAPSHOT_MEMBERSHIP_MISSING,
+        mismatch=FORECAST_SNAPSHOT_MEMBERSHIP_MISSING)
     current = forecast_snapshot.get("currentBundleSha256s")
     if not isinstance(current, list) or bundle_sha not in current:
         raise _Fail(FORECAST_SNAPSHOT_MEMBERSHIP_MISSING,
                     f"bundle {bundle_sha} was not current in the original forecast snapshot")
+    # The receipt names the same snapshot twice -- once as the immutable
+    # reference above, once inside forecastLocatorExposure as the locator it
+    # actually observed. They must be the same object, or the receipt is
+    # certifying a boundary against a locator other than the one it froze.
+    locator = receipt.get("forecastLocatorExposure")
+    if not isinstance(locator, dict):
+        raise _Fail(RECEIPT_MALFORMED, "the receipt carries no forecast locator exposure")
+    if str(locator.get("locatorSha256") or "").strip().lower() != forecast_snapshot_sha:
+        raise _Fail(FORECAST_SNAPSHOT_MEMBERSHIP_MISSING,
+                    "the receipt's observed locator is not the snapshot it froze")
 
-    supplement_snapshot = receipt.get("supplementIndexSnapshot")
-    if not isinstance(supplement_snapshot, dict):
+    supplement = receipt.get("supplement")
+    if not isinstance(supplement, dict):
         raise _Fail(SUPPLEMENT_SNAPSHOT_MEMBERSHIP_MISSING,
-                    "the receipt carries no supplement-index snapshot")
+                    "the receipt carries no supplement block")
+    _, supplement_snapshot, supplement_snapshot_sha = _resolve_ref(
+        root, supplement.get("indexRef"), label="supplement-index snapshot",
+        malformed=SUPPLEMENT_SNAPSHOT_MEMBERSHIP_MISSING,
+        absent=SUPPLEMENT_SNAPSHOT_MEMBERSHIP_MISSING,
+        mismatch=SUPPLEMENT_SNAPSHOT_MEMBERSHIP_MISSING)
+    if supplement_snapshot.get("schemaVersion") != SUPPLEMENT_INDEX_SCHEMA:
+        raise _Fail(SUPPLEMENT_SNAPSHOT_MEMBERSHIP_MISSING,
+                    f"the supplement snapshot declares "
+                    f"{supplement_snapshot.get('schemaVersion')!r}")
     named = supplement_snapshot.get("currentSupplementSha256s")
     if not isinstance(named, list) or supplement_sha not in named:
         raise _Fail(SUPPLEMENT_SNAPSHOT_MEMBERSHIP_MISSING,
                     f"supplement {supplement_sha} was not named in the original snapshot")
+    return {
+        "readyIndexSnapshot": ready_snapshot,
+        "forecastCurrentMembership": forecast_snapshot,
+        "supplementCurrentMembership": supplement_snapshot,
+        "ready_index_snapshot_sha256": ready_snapshot_sha,
+        "forecast_index_snapshot_sha256": forecast_snapshot_sha,
+        "supplement_index_snapshot_sha256": supplement_snapshot_sha,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -528,11 +759,21 @@ def _verify_current_membership(root: Path, *, forecast_id: str,
         hosts.append(address)
         child_bytes = candidate
 
+    if unverified:
+        # ANY current wrapper that carries this forecast and does not verify is
+        # a refusal, even when another one does verify.
+        #
+        # The looser reading -- "one verified host is enough, ignore the broken
+        # ones" -- is wrong for the same reason ambiguity is wrong. Two current
+        # containers both claiming this child, one of them unreadable, is an
+        # exchange in a state we cannot account for: we cannot tell whether the
+        # broken wrapper is a superseded leftover, a partial write in progress,
+        # or the one that was actually meant to be current. Choosing the
+        # readable one would be choosing the answer we prefer.
+        raise _Fail(FORECAST_WRAPPER_NOT_VERIFIED,
+                    f"{len(unverified)} current wrapper(s) carrying this forecast do "
+                    f"not verify ({unverified[0]}); {len(hosts)} do")
     if not hosts:
-        if unverified:
-            raise _Fail(FORECAST_WRAPPER_NOT_VERIFIED,
-                        "the only current wrapper carrying this forecast does not "
-                        f"verify ({unverified[0]})")
         # Absent or superseded. An old readiness receipt does not rescue it.
         raise _Fail(FORECAST_NOT_CURRENT,
                     f"{forecast_id} is not a child of any current wrapper; an "
@@ -558,7 +799,7 @@ def _verify_current_membership(root: Path, *, forecast_id: str,
 
 
 def _verify_grant_currently_named(root: Path, *, supplement_sha: str,
-                                  forecast_id: str) -> None:
+                                  forecast_id: str) -> dict[str, Any]:
     """The exact supplement must be named NOW, and must bind THIS child."""
 
     _, index = _read_json(
@@ -572,25 +813,46 @@ def _verify_grant_currently_named(root: Path, *, supplement_sha: str,
     if not isinstance(named, list) or supplement_sha not in named:
         raise _Fail(SUPPLEMENT_NOT_CURRENTLY_NAMED,
                     f"supplement {supplement_sha} is not currently named")
+    # THE FULL DEPLOYED VALIDATOR, not a content-address spot check.
+    #
+    # An earlier draft hashed supplement.json and required it to equal the
+    # directory name. That was simply wrong about the addressing scheme -- a
+    # supplement's address is the canonical hash of its MANIFEST IDENTITY, not
+    # of its payload file -- and it would have refused every authentic package.
+    # Reimplementing an addressing rule we already own was the mistake; this
+    # calls the owner instead, which also re-verifies the manifest, every listed
+    # artifact's hash, the contract version, governance and the payload shape.
     directory = root / SUPPLEMENT_FAMILY / "sha256" / supplement_sha
-    raw, supplement = _read_json(
-        directory / "supplement.json", label="supplement",
-        absent=SUPPLEMENT_ABSENT, malformed=SUPPLEMENT_ABSENT)
-    _require_address(raw, supplement_sha, label="supplement",
-                     sub_reason=SUPPLEMENT_ABSENT)
-    if supplement.get("forecastId") != forecast_id:
+    try:
+        verified = verify_supplement(directory)
+    except SupplementImportError as exc:
+        raise _Fail(SUPPLEMENT_ABSENT,
+                    f"supplement {supplement_sha} does not verify: {exc}") from exc
+    granted = verified.binding.get("forecastId") or verified.supplement.get("forecastId")
+    if granted != forecast_id:
         # A grant is never transferred to a different child.
         raise _Fail(GRANT_TRANSFER_REFUSED,
-                    f"supplement {supplement_sha} grants "
-                    f"{supplement.get('forecastId')!r}, not {forecast_id}")
+                    f"supplement {supplement_sha} grants {granted!r}, not {forecast_id}")
+    return verified.supplement
 
 
 # ---------------------------------------------------------------------------
 # join 4 -- the two clocks, kept apart
 # ---------------------------------------------------------------------------
 
-def _producer_boundary(receipt: dict[str, Any], *, kickoff: datetime) -> dict[str, Any]:
-    """The PRODUCER's obligation: the pair and index observed by T-21.
+def _producer_boundary(receipt: dict[str, Any], exposure: dict[str, Any], *,
+                       kickoff: datetime) -> dict[str, Any]:
+    """The PRODUCER's obligation: the PAIR and the index observed by T-21.
+
+    THE PAIR IS BOTH HALVES.
+    ------------------------
+    ``PAIR_AND_READY_INDEX_TIMELY`` certifies the forecast AND its grant. An
+    earlier version of this function checked only the forecast locator, which
+    meant a grant published AFTER the producer boundary passed join 4
+    untouched -- precisely the failure the contract's "four separate filesystem
+    operations" framing warns about, and precisely the half we were not
+    reading. The grant's three publication clocks are now checked against the
+    same deadline as the forecast's.
 
     This function reads producer observations only. The sidecar's own first
     observation is deliberately NOT consulted here: the contract states that
@@ -608,18 +870,90 @@ def _producer_boundary(receipt: dict[str, Any], *, kickoff: datetime) -> dict[st
         raise _Fail(RECEIPT_MALFORMED,
                     f"the receipt's T-21 deadline {deadline.isoformat()} is not this "
                     f"game's boundary {expected.isoformat()}")
-    grant_seen = _parse_time(receipt.get("grantObservedAtUtc"),
-                             label="grantObservedAtUtc", sub_reason=RECEIPT_MALFORMED)
-    index_seen = _parse_time(receipt.get("currentIndexObservedAtUtc"),
-                             label="currentIndexObservedAtUtc", sub_reason=RECEIPT_MALFORMED)
-    late = [name for name, moment in
-            (("grant", grant_seen), ("ready index", index_seen)) if moment > deadline]
+    # The exposure states the same deadline. Two documents disagreeing about
+    # the boundary they certify is not something to resolve in our favour.
+    exposure_deadline = _parse_time(
+        exposure.get("producerDeadlineUtc"), label="exposure producerDeadlineUtc",
+        sub_reason=EXPOSURE_MALFORMED)
+    if exposure_deadline != deadline:
+        raise _Fail(EXPOSURE_MALFORMED,
+                    f"the exposure's T-21 deadline {exposure_deadline.isoformat()} "
+                    f"differs from the receipt's {deadline.isoformat()}")
+    # PARSED, BUT DELIBERATELY NOT GATED.
+    #
+    # It is tempting to refuse a readyAvailableAtUtc after T-21, and that is
+    # wrong. The exposure says what this clock means in its own bytes:
+    # ACTUAL_OBSERVATION_AFTER_READY_INDEX_REPLACE_NOT_SIDECAR_FILE_EXPOSURE,
+    # with certifiesSidecarExposureBeforeProducerDeadline false. It is the
+    # moment the producer OBSERVED availability, not the moment availability
+    # happened -- so a late value is the telemetry delay the contract warns
+    # about, and refusing on it would reject a genuinely timely publication
+    # whose proof was slow to appear. What IS gated are the publication and
+    # validation clocks below, which are actions rather than observations.
+    #
+    # Parsing it anyway matters: a malformed or absent stamp must not reach the
+    # decision record as though it were a time.
+    ready_available = _parse_time(
+        exposure.get("readyAvailableAtUtc"), label="readyAvailableAtUtc",
+        sub_reason=EXPOSURE_MALFORMED)
+    locator = receipt.get("forecastLocatorExposure")
+    if not isinstance(locator, dict):
+        raise _Fail(RECEIPT_MALFORMED, "the receipt carries no forecast locator exposure")
+    not_after = _parse_time(locator.get("notAfterUtc"), label="locator notAfterUtc",
+                            sub_reason=RECEIPT_MALFORMED)
+    if not_after != deadline:
+        raise _Fail(RECEIPT_MALFORMED,
+                    f"the locator's notAfterUtc {not_after.isoformat()} is not the "
+                    f"receipt's own T-21 deadline {deadline.isoformat()}")
+    visible = _parse_time(locator.get("visibleAtUtc"), label="locator visibleAtUtc",
+                          sub_reason=RECEIPT_MALFORMED)
+    checked = _parse_time(locator.get("publicationCheckedAtUtc"),
+                          label="locator publicationCheckedAtUtc",
+                          sub_reason=RECEIPT_MALFORMED)
+    validated = _parse_time(receipt.get("readyValidatedAtUtc"),
+                            label="readyValidatedAtUtc", sub_reason=RECEIPT_MALFORMED)
+    # The grant half of the pair. Its three publication clocks are the
+    # producer's own statement of when the eligibility package and its index
+    # became visible, and they are bound by the same T-21 boundary.
+    grant = receipt.get("supplement")
+    if not isinstance(grant, dict):
+        raise _Fail(RECEIPT_MALFORMED, "the receipt carries no supplement block")
+    grant_clocks = {
+        "grant package visible": _parse_time(
+            grant.get("packageVisibleAtUtc"), label="supplement packageVisibleAtUtc",
+            sub_reason=RECEIPT_MALFORMED),
+        "grant index visible": _parse_time(
+            grant.get("indexVisibleAtUtc"), label="supplement indexVisibleAtUtc",
+            sub_reason=RECEIPT_MALFORMED),
+        "grant declared publication": _parse_time(
+            grant.get("declaredPublishedUtc"), label="supplement declaredPublishedUtc",
+            sub_reason=RECEIPT_MALFORMED),
+    }
+    late = [name for name, moment in (
+        ("current locator", visible),
+        ("publication check", checked),
+        ("ready validation", validated),
+        *grant_clocks.items(),
+    ) if moment > deadline]
     if late:
         raise _Fail(PRODUCER_BOUNDARY_MISSED,
                     f"the producer observed the {' and '.join(late)} after T-21")
+    # The producer states its own verdict on the same question. If it says it
+    # was late, we do not overrule it in our own favour -- a disagreement
+    # between the timestamps and the flag is itself a refusal, because one of
+    # the two is wrong and we cannot tell which.
+    if locator.get("observedAfterDeadline") is not False:
+        raise _Fail(PRODUCER_BOUNDARY_MISSED,
+                    "the receipt's own locator flags observation after the deadline")
     return {"producer_deadline_utc": deadline.isoformat(),
-            "grant_observed_at_utc": grant_seen.isoformat(),
-            "ready_index_observed_at_utc": index_seen.isoformat()}
+            "locator_visible_at_utc": visible.isoformat(),
+            "publication_checked_at_utc": checked.isoformat(),
+            "ready_validated_at_utc": validated.isoformat(),
+            "ready_available_at_utc": ready_available.isoformat(),
+            "grant_package_visible_at_utc": grant_clocks["grant package visible"].isoformat(),
+            "grant_index_visible_at_utc": grant_clocks["grant index visible"].isoformat(),
+            "grant_declared_published_at_utc":
+                grant_clocks["grant declared publication"].isoformat()}
 
 
 def _consumer_cutoff(exposure: dict[str, Any], *, kickoff: datetime,
@@ -660,12 +994,12 @@ def _consumer_cutoff(exposure: dict[str, Any], *, kickoff: datetime,
         "grant_imported_at_utc": (
             _aware(grant_imported_at).isoformat() if grant_imported_at else None),
         # Recorded, never used as a pass/fail input. See _producer_boundary.
-        "sidecar_first_observed_at_utc": exposure.get("sidecarFirstObservedAtUtc"),
-        "proof_observed_after_producer_boundary": bool(
-            exposure.get("proofObservedAfterProducerBoundary")),
-        "consumer_cutoff_passed_at_proof_observation": bool(
-            exposure.get("consumerCutoffPassedAtProofObservation")),
-        "ready_available_at_utc": exposure.get("readyAvailableAtUtc"),
+        # The exposure states in its own bytes what this clock means, and it is
+        # not sidecar file exposure; we keep the producer's wording verbatim
+        # rather than paraphrasing it into a claim it does not make.
+        "producer_clock_meaning": exposure.get("clockMeaning"),
+        "certifies_sidecar_exposure_before_producer_deadline": exposure.get(
+            "certifiesSidecarExposureBeforeProducerDeadline"),
     }
 
 
@@ -689,6 +1023,7 @@ def verify_final_readiness(
     require_package_import: bool = False,
     required_producer_revision: str | None = None,
     required_schema_sha256: str | None = None,
+    schema_path: Path | str | None = None,
 ) -> ReadinessVerification:
     """Does this exact FINAL forecast carry complete, positive, current readiness?
 
@@ -712,39 +1047,63 @@ def verify_final_readiness(
                         f"the checkpoint selected {checkpoint_forecast_id!r} but "
                         f"readiness was verified for {forecast_id!r}")
 
+        # The bound schema is re-hashed from disk before any document is read
+        # against it, so the shape this consumer enforces is the reviewed one
+        # and not whatever happens to be on the filesystem.
+        documents = bind_schema(schema_path, required_schema_sha256)
+        evidence["bound_schema_sha256"] = required_schema_sha256 or None
+
         before = _discovery_fingerprint(root)
 
         # Join 1.
+        index_document = _read_json(
+            root / READINESS_ROOT / READINESS_INDEX_FILENAME, label="readiness index",
+            absent=READINESS_INDEX_ABSENT, malformed=READINESS_INDEX_MALFORMED)[1]
         entry = _readiness_entry(root, forecast_id)
         receipt_sha, receipt = _receipt(root, entry)
         exposure = _exposure(root, entry, receipt_sha)
+        _validate_documents(documents, readyIndex=index_document,
+                            readyReceipt=receipt, readyExposure=exposure)
         _require_identity(receipt, exposure, forecast_id=forecast_id, event_id=event_id,
                           snapshot_type=snapshot_type, snapshot_version=snapshot_version,
                           engine_id=engine_id,
-                          required_producer_revision=required_producer_revision,
-                          required_schema_sha256=required_schema_sha256)
+                          required_producer_revision=required_producer_revision)
         _require_positive_status(exposure)
-        bundle = receipt.get("bundle") if isinstance(receipt.get("bundle"), dict) else {}
-        grant = receipt.get("grant") if isinstance(receipt.get("grant"), dict) else {}
-        bundle_sha = str(bundle.get("bundleSha256") or "")
-        supplement_sha = str(grant.get("supplementSha256") or "")
+        bundle = receipt.get("bundleRef") if isinstance(receipt.get("bundleRef"), dict) else {}
+        supplement = receipt.get("supplement") \
+            if isinstance(receipt.get("supplement"), dict) else {}
+        bundle_sha = str(bundle.get("sha256") or "").strip().lower()
+        supplement_sha = str(supplement.get("supplementAddress") or "").strip().lower()
         if not _SHA256.fullmatch(bundle_sha) or not _SHA256.fullmatch(supplement_sha):
             raise _Fail(RECEIPT_MALFORMED,
                         "the receipt does not name a sha256 bundle and grant")
-        if grant.get("forecastId") not in (None, forecast_id):
+        if supplement.get("forecastId") not in (None, forecast_id):
             raise _Fail(GRANT_TRANSFER_REFUSED,
-                        f"the receipt's grant names {grant.get('forecastId')!r}")
+                        f"the receipt's grant names {supplement.get('forecastId')!r}")
+        if supplement.get("eventId") not in (None, event_id):
+            raise _Fail(GRANT_TRANSFER_REFUSED,
+                        f"the receipt's grant names event {supplement.get('eventId')!r}")
         evidence.update({
             "receipt_sha256": receipt_sha,
-            "exposure_status": exposure.get("exposureStatus"),
-            "producer_revision": receipt.get("producerRevision"),
+            "exposure_status": exposure.get("status"),
+            "producer_revision": (receipt.get("engine") or {}).get("producerRevision"),
             "receipt_bundle_sha256": bundle_sha,
             "supplement_sha256": supplement_sha,
+            "supplement_publication_disposition": supplement.get("publicationDisposition"),
+            "timing_policy_version": receipt.get("timingPolicyVersion"),
         })
 
         # Join 2.
-        _verify_snapshots(receipt, exposure, forecast_id=forecast_id,
-                          bundle_sha=bundle_sha, supplement_sha=supplement_sha)
+        snapshots = _verify_snapshots(
+            root, receipt, exposure, forecast_id=forecast_id, receipt_sha=receipt_sha,
+            bundle_sha=bundle_sha, supplement_sha=supplement_sha)
+        _validate_documents(
+            documents,
+            readyIndexSnapshot=snapshots["readyIndexSnapshot"],
+            forecastCurrentMembership=snapshots["forecastCurrentMembership"],
+            supplementCurrentMembership=snapshots["supplementCurrentMembership"])
+        evidence.update({key: value for key, value in snapshots.items()
+                         if key.endswith("_sha256")})
 
         # Join 3.
         membership = _verify_current_membership(
@@ -754,7 +1113,7 @@ def verify_final_readiness(
                                       forecast_id=forecast_id)
 
         # Join 4. The producer's boundary and the consumer's cutoff, separately.
-        evidence.update(_producer_boundary(receipt, kickoff=kickoff))
+        evidence.update(_producer_boundary(receipt, exposure, kickoff=kickoff))
         evidence.update(_consumer_cutoff(
             exposure, kickoff=kickoff, observed_at=observed_at,
             package_imported_at=package_imported_at,
@@ -783,6 +1142,7 @@ __all__ = [
     "OBJECTS_DIR", "PRODUCER_BOUNDARY", "READINESS_INDEX_FILENAME",
     "READINESS_ROOT", "REASON", "RECEIPT_SCHEMA", "STATUS_TIMELY",
     "PRODUCER_REVISION_NOT_PINNED", "RECEIPT_SCHEMA_MISMATCH",
-    "RECEIPT_SCHEMA_ABSENT", "SCHEMA_SHA256_FIELDS",
+    "READINESS_SCHEMA_UNBOUND", "RECEIPT_REVISION_PATH", "bind_schema",
+    "SCHEMA_DOCUMENTS",
     "ReadinessVerification", "verify_final_readiness",
 ]

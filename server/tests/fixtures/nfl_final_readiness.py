@@ -1,32 +1,54 @@
-"""A synthetic, physically complete NFL FINAL readiness family.
+"""A synthetic NFL FINAL readiness family in the AUTHENTIC operational-V2 shapes.
 
 WHY THIS EXISTS
 ---------------
-The readiness family described by ``nfl-final-delivery-operational-v2.md`` does
-not exist on disk yet: the producer's operational-V2 revision has not been
-activated. The consumer joins still have to be written, reviewed and tested
-BEFORE that activation, because the contract requires "a separately compatible
-consumer deployment before activation".
+The readiness joins have to be exercised against many states the producer will
+never deliberately publish -- an absent sidecar, a superseded forecast, a grant
+that moved, a boundary missed by ninety seconds. Model Studio's vendored
+fixture (``tests/fixtures/model_studio_readiness_v2``) is ONE positive family
+and cannot be re-parameterised, so this module builds the same family
+synthetically: discovery index, forecast bundle, paper-eligibility supplement,
+readiness index, receipt, availability sidecar and exposure object, with real
+content addresses over real canonical bytes.
 
-So this module builds the whole family -- discovery index, forecast bundle,
-supplement, readiness index, receipt, availability sidecar and exposure object
--- into a temporary directory, with real content addresses over real canonical
-bytes. Nothing here is authentic production evidence and none of it is ever
-written into the configured exchange root; ``build`` refuses any destination it
-was not handed explicitly.
+Nothing here is authentic production evidence and none of it is ever written
+into the configured exchange root; ``build`` writes only under the destination
+it was handed.
+
+WHAT CHANGED, AND WHY THE OLD SHAPES WERE WRONG
+-----------------------------------------------
+An earlier revision of this module guessed the field spelling from the contract
+prose, because no producer had emitted one of these documents yet. Almost every
+guess was wrong, and the vendored bytes settled it:
+
+* the ready index is a MAP keyed by forecast id (``receipts``), not a list of
+  ``entries``, and it carries no exposure status at all -- status lives only on
+  the exposure object;
+* the availability sidecar is a BARE ``{bytes, path, sha256}`` reference with no
+  schema wrapper, no ``baseReceiptSha256`` and no exposure path field: what
+  binds it to a receipt is its own FILENAME plus the exposure's
+  ``readyReceiptRef``;
+* the producer revision is nested at ``receipt["engine"]["producerRevision"]``,
+  because the revision is part of the engine identity, not of the document;
+* the snapshots are content-addressed REFERENCES to separate frozen objects,
+  not inline copies -- which is strictly stronger, since both parties can cite
+  the same address;
+* there is no schema-hash field on the receipt. The pin is over the CONTRACT
+  FILE (``READINESS_CONSUMER_SCHEMA.json``), which is why ``SCHEMA_SHA256``
+  below is computed from the vendored schema rather than invented here.
+
+The shapes emitted below are therefore validated twice over: the joins accept
+them, and (in the gate tests, which pin ``SCHEMA_SHA256``) Model Studio's own
+field-shape schema accepts them field for field.
 
 WHAT IS REAL AND WHAT IS SYNTHETIC
 ----------------------------------
-REAL: the forecast wrapper. It is a genuine ``ASP_SPORTS_FORECAST_EXCHANGE_V1``
-bundle that passes the deployed ``verify_and_load_sports_bundle`` unmodified,
-including the frozen NFL model authority hashes, the pinned VALIDATION.md and
-every distribution reconciliation. The readiness joins therefore run against
-the same wrapper verification production uses.
+REAL: the forecast wrapper and the supplement. The wrapper is a genuine
+``ASP_SPORTS_FORECAST_EXCHANGE_V1`` bundle that passes the deployed
+``verify_and_load_sports_bundle`` unmodified, and the supplement passes the
+deployed ``verify_supplement`` in full, including its manifest-identity address.
 
-SYNTHETIC: the readiness family's own shapes. The contract names the documents,
-their schema ids and their required fields, but no producer has emitted one, so
-the exact field spelling below is this consumer's reading of the contract and
-may need to be reconciled against the first authentic object.
+SYNTHETIC: the identifiers, the clocks and the declared absolute paths.
 """
 
 from __future__ import annotations
@@ -71,21 +93,58 @@ def source_event_id(event_id: str) -> str:
     return f"nflverse:{event_id}"
 EVENT_DATE = date(2026, 9, 21)
 PRODUCER_REVISION = "nfl-final-delivery-operational-v2"
-#: The receipt's declared schema hash, and the FIELD carrying it.
+
+#: Model Studio's reviewed field-shape contract, vendored beside this module.
 #:
-#: Both are our reading of the contract, not an authentic producer byte: the
-#: contract names the receipt schema id but not the field that carries its hash.
-#: Codex supplies the real value; this fixture exists so the pinned-pass,
-#: pinned-mismatch and pinned-but-absent paths are all exercised before then.
-RECEIPT_SCHEMA_SHA256_FIELD = "schemaSha256"
-RECEIPT_SCHEMA_SHA256 = hashlib.sha256(
-    b"NFL_FINAL_READY_RECEIPT_V1").hexdigest()
+#: THE PIN IS OVER THIS FILE, not over a field inside any receipt. An earlier
+#: revision of this fixture invented a ``schemaSha256`` receipt field and a hash
+#: to go in it; no authentic receipt carries one, and the consumer hashes the
+#: contract from disk instead. So the fixture publishes the contract's real hash
+#: and lets a test pin it honestly.
+SCHEMA_PATH = (Path(__file__).parent / "model_studio_readiness_v2"
+               / "READINESS_CONSUMER_SCHEMA.json")
+SCHEMA_SHA256 = hashlib.sha256(SCHEMA_PATH.read_bytes()).hexdigest()
+#: Retained under its old name so callers that pinned "the schema hash" keep
+#: working. It no longer means "a hash the receipt declares" -- there is no such
+#: field -- it means "the hash of the reviewed contract file".
+RECEIPT_SCHEMA_SHA256 = SCHEMA_SHA256
+
 SUPPLEMENT_ROOT = "nfl-labs-supplements"
 SUPPLEMENT_INDEX_FILENAME = "nfl-labs-supplement-index.json"
 SUPPLEMENT_INDEX_SCHEMA = "AISP_NFL_LABS_SUPPLEMENT_INDEX_V1"
 FORECAST_FAMILY = "aisp-daily-forecast-bundles"
 FORECAST_INDEX_FILENAME = "nfl-2026-research-shadow-index.json"
 FORECAST_INDEX_SCHEMA = "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2"
+
+#: The receipt's own status, taken verbatim from the authentic document. It is
+#: recorded, never read as a gate: the positive value the consumer requires is
+#: the EXPOSURE's status, below.
+RECEIPT_STATUS = "EXACT_PAIR_VALIDATED_AWAIT_EXPOSURE_SIDECAR"
+TIMING_POLICY_VERSION = "NFL_FINAL_DELIVERY_T60_T21_T15_V1"
+SUPPLEMENT_DISPOSITION = "PUBLISHED_NEW_EXACT_SUCCESSOR"
+
+#: What the exposure's ``readyAvailableAtUtc`` actually means, in the producer's
+#: own words. It is an observation of the READY-INDEX REPLACE, not of the
+#: sidecar file becoming readable -- which is why sidecar readability can never
+#: be a timing failure for this consumer.
+CLOCK_MEANING = (
+    "ACTUAL_OBSERVATION_AFTER_READY_INDEX_REPLACE_NOT_SIDECAR_FILE_EXPOSURE")
+
+#: The obligations the producer restates to the consumer, verbatim in spirit.
+CONSUMER_REQUIREMENTS = [
+    "Matching positive exposure sidecar is mandatory",
+    "Reverify exact forecast and grant plus current membership",
+    "Actual consumer observation/import and checkpoint must meet T-15",
+    "No inferred grant, no CURRENT fallback, no cross-file atomicity claim",
+]
+
+#: Where the producer says it wrote these files. NOTHING resolves through it.
+#:
+#: Every authentic reference carries an absolute path on the machine that emitted
+#: it, and the consumer deliberately never follows one -- it resolves each object
+#: by content address beneath the root it was configured with. Keeping a foreign,
+#: non-existent prefix here means the synthetic family proves that too.
+PRODUCER_WORKSPACE = r"D:\model-studio\synthetic-readiness-v1\workspace\exchange"
 
 #: A three-cell joint distribution. Everything the forecast contract
 #: cross-checks -- win/tie probabilities, expected scores, margins, totals,
@@ -100,6 +159,40 @@ def _hex(seed: str) -> str:
 
 def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _producer_path(*parts: str) -> str:
+    """An absolute-looking path on the producer's machine, for a reference."""
+
+    return "\\".join((PRODUCER_WORKSPACE, *parts))
+
+
+def _ref(raw: bytes, declared_path: str) -> dict[str, Any]:
+    """One ``{bytes, path, sha256}`` reference over real bytes.
+
+    ``bytes`` and ``sha256`` are computed, never asserted: the consumer checks
+    both against the object it finds at the address, so a hand-written length
+    would simply be a refusal.
+    """
+
+    return {"bytes": len(raw), "path": declared_path,
+            "sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def _write_object(root: Path, name: str, document: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Store one readiness document at its own content address.
+
+    ``objects/sha256/<sha-of-canonical-bytes>/<name>.json``. The consumer
+    re-hashes what it reads, so the bytes written here are the canonical ones or
+    nothing verifies at all.
+    """
+
+    raw = canonical_json_bytes(document)
+    sha = hashlib.sha256(raw).hexdigest()
+    directory = Path(root) / READINESS_ROOT / OBJECTS_DIR / sha
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_bytes(raw)
+    return sha, _ref(raw, _producer_path(READINESS_ROOT, "objects", "sha256", sha, name))
 
 
 def _bind(document: dict[str, Any], id_field: str, prefix: str) -> dict[str, Any]:
@@ -229,6 +322,9 @@ def build_forecast_child(
         "snapshotVersion": snapshot_version,
         "homeTeam": _team(*home),
         "awayTeam": _team(*away),
+        # These eleven fields are EXACTLY the engine identity the readiness
+        # receipt carries, which is why the receipt can reuse this object
+        # verbatim: the reviewed schema forbids any other field in `engine`.
         "engine": {
             "engineId": "NFL_M1_XGBOOST",
             "engineVersion": "1.0.0",
@@ -348,15 +444,20 @@ def write_forecast_wrapper(
     return address, directory
 
 
-def write_forecast_index(
-    root: Path, current: list[str], *, historical: list[str] | None = None,
+def forecast_membership(
+    current: list[str], *, historical: list[str] | None = None,
     updated_at: datetime | None = None,
 ) -> dict[str, Any]:
-    """The MUTABLE discovery locator. It carries no immutable authority."""
+    """The ``forecastCurrentMembership`` document, exactly as the schema shapes it.
+
+    Built separately from writing it, because the SAME document is both the
+    mutable discovery locator on disk and (frozen, at its own content address)
+    the receipt's ``currentLocatorSnapshotRef``.
+    """
 
     current_sorted = sorted(set(current))
     historical_sorted = sorted(set(historical or []))
-    index = {
+    return {
         "schemaVersion": FORECAST_INDEX_SCHEMA,
         "sport": "NFL",
         "league": "NFL",
@@ -376,55 +477,160 @@ def write_forecast_index(
         "historicalBundleSha256s": historical_sorted,
         "historicalBundleListSha256": canonical_sha256(historical_sorted),
     }
+
+
+def write_forecast_index(
+    root: Path, current: list[str], *, historical: list[str] | None = None,
+    updated_at: datetime | None = None,
+) -> dict[str, Any]:
+    """The MUTABLE discovery locator. It carries no immutable authority."""
+
+    index = forecast_membership(current, historical=historical, updated_at=updated_at)
     path = Path(root) / FORECAST_FAMILY / FORECAST_INDEX_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(canonical_json_bytes(index))
     return index
 
 
-def write_supplement(root: Path, *, forecast_id: str, event_id: str = EVENT_ID) -> str:
-    """A content-addressed paper-eligibility grant.
+def write_supplement(
+    root: Path, *, forecast_id: str, event_id: str = EVENT_ID,
+    published: datetime | None = None, source_cutoff: datetime | None = None,
+) -> str:
+    """A content-addressed paper-eligibility grant that the DEPLOYED validator accepts.
 
-    Only the shape the readiness joins actually traverse is built here: the
-    address, the two-file inventory and the forecast/event binding. The full
-    ``verify_supplement`` contract is the eligibility owner's job and is not
-    re-litigated by the readiness gate.
+    THE ADDRESS IS NOT THE HASH OF ``supplement.json``.
+    ---------------------------------------------------
+    A supplement's package address is the canonical hash of its MANIFEST
+    IDENTITY -- the manifest minus ``supplementSha256`` -- which is what the
+    receipt's ``supplementAddress`` names. An earlier revision of this fixture
+    hashed the payload file instead, which no authentic package would satisfy.
+
+    The whole document is built, not just the parts the readiness joins read,
+    because ``_verify_grant_currently_named`` calls ``verify_supplement`` in
+    full: governance, artifact hashes, contract version and the paper-eligibility
+    summaries are all re-checked there.
     """
 
+    published_at = published or (KICKOFF - timedelta(minutes=23))
+    cutoff = source_cutoff or (KICKOFF - timedelta(minutes=35))
+    distributions = _derived_distributions()
+    supplement_id = (
+        f"nfl-synthetic-paper-eligibility:AISP_NFL_PAPER_POLICY_V1:NFL:2026:"
+        f"{event_id}:v1")
+    governance = {
+        "status": "RESEARCH_SHADOW",
+        "researchShadowOnly": True,
+        "executionAllowedInAisp": False,
+        "modelPromotionAllowed": False,
+        "wageringAuthority": False,
+    }
     supplement = {
         "schemaVersion": "AISP_RESEARCH_SUPPLEMENT_V1",
+        "supplementId": supplement_id,
         "kind": "PAPER_RESEARCH_ELIGIBILITY",
         "sport": "NFL",
-        "eventId": event_id,
-        "forecastId": forecast_id,
-        "engineId": "NFL_M1_XGBOOST",
         "artifactVersion": "ASP_NFL_PAPER_RESEARCH_ELIGIBILITY_V1",
-        "researchShadowOnly": True,
-        "executionAllowed": False,
+        "governance": governance,
+        "binding": {
+            "eventId": event_id,
+            "engineId": "NFL_M1_XGBOOST",
+            "forecastId": forecast_id,
+            "modelArtifactSha256": NFL_MODEL_BINARY_SHA256,
+        },
+        "sourceCutoffUtc": _iso(cutoff),
+        "publishedUtc": _iso(published_at),
+        "simulation": {"kind": "NONE", "count": 0},
+        "summaries": {
+            "authorization": {
+                "experimentId": "AISP_NFL_PAPER_POLICY_V1:NFL:2026",
+                "policyVersion": "AISP_NFL_PAPER_POLICY_V1",
+                "mode": "VIRTUAL_RESEARCH_ONLY",
+                "consumerVirtualExperimentAuthorized": True,
+                "realMoneyAuthorized": False,
+                "realMoneyExecutionAllowed": False,
+            },
+            "frozenConfiguration": {
+                "forecastId": forecast_id,
+                "eventId": event_id,
+                "executionAllowed": False,
+                "modelPromotionAllowed": False,
+                # The three masses must be a distribution, so they come from
+                # the same joint table the forecast child was derived from.
+                "homeWinProbability": distributions["homeWinProbability"],
+                "awayWinProbability": distributions["awayWinProbability"],
+                "tieProbability": distributions["tieProbability"],
+            },
+            "probabilitySemantics": {
+                "units": "FRACTION_0_TO_1",
+                "settlementMustBeExplicit": True,
+                "tieSettlementForThisExperiment": "STAKE_REFUNDED_PUSH",
+            },
+        },
     }
-    body = canonical_json_bytes(supplement)
-    address = hashlib.sha256(body).hexdigest()
+    payload = canonical_json_bytes(supplement)
+    identity = {
+        "schemaVersion": "AISP_RESEARCH_SUPPLEMENT_MANIFEST_V1",
+        "contractVersion": "AISP_RESEARCH_SUPPLEMENT_V1",
+        "supplementId": supplement_id,
+        "kind": "PAPER_RESEARCH_ELIGIBILITY",
+        "sport": "NFL",
+        "governance": governance,
+        "artifacts": [
+            {"file": "supplement.json",
+             "sha256": hashlib.sha256(payload).hexdigest(),
+             "bytes": len(payload)},
+        ],
+    }
+    address = canonical_sha256(identity)
     directory = Path(root) / SUPPLEMENT_ROOT / "sha256" / address
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "supplement.json").write_bytes(body)
-    manifest = {
-        "schemaVersion": "AISP_RESEARCH_SUPPLEMENT_MANIFEST_V1",
-        "supplementSha256": address,
-        "kind": "PAPER_RESEARCH_ELIGIBILITY",
-        "sport": "NFL",
-    }
-    (directory / "manifest.json").write_bytes(canonical_json_bytes(manifest))
+    (directory / "supplement.json").write_bytes(payload)
+    (directory / "manifest.json").write_bytes(
+        canonical_json_bytes({**identity, "supplementSha256": address}))
     return address
 
 
-def write_supplement_index(root: Path, addresses: list[str]) -> None:
-    index = {
+def supplement_membership(
+    addresses: list[str], *, updated_at: datetime | None = None,
+) -> dict[str, Any]:
+    """The ``supplementCurrentMembership`` document.
+
+    The reviewed schema allows these three fields and no others, so the older
+    two-field form this fixture used to emit would now be refused outright.
+    """
+
+    return {
         "schemaVersion": SUPPLEMENT_INDEX_SCHEMA,
         "currentSupplementSha256s": sorted(set(addresses)),
+        "updatedAtUtc": _iso(updated_at or (KICKOFF - timedelta(minutes=23))),
     }
+
+
+def write_supplement_index(
+    root: Path, addresses: list[str], *, updated_at: datetime | None = None,
+) -> dict[str, Any]:
+    index = supplement_membership(addresses, updated_at=updated_at)
     path = Path(root) / SUPPLEMENT_ROOT / SUPPLEMENT_INDEX_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(canonical_json_bytes(index))
+    return index
+
+
+def ready_index(forecast_id: str, entry: dict[str, Any], *,
+                updated_at: datetime) -> dict[str, Any]:
+    """The ready index, live or frozen -- they are the same shape.
+
+    A MAP keyed by forecast id, not a list of entries: "the index maps this
+    forecast twice" cannot be expressed, because a duplicate key does not
+    survive JSON parsing. The only ambiguity left to refuse is a key that
+    differs from the selected forecast by case or whitespace.
+    """
+
+    return {
+        "schemaVersion": INDEX_SCHEMA,
+        "receipts": {forecast_id: entry} if entry is not None else {},
+        "updatedAtUtc": _iso(updated_at),
+    }
 
 
 @dataclass(frozen=True)
@@ -440,6 +646,11 @@ class ReadinessFamily:
     receipt_sha256: str
     exposure_sha256: str
     forecast_child: dict[str, Any] = field(default_factory=dict)
+    #: The frozen snapshot objects, so a test can reason about join 2 without
+    #: re-deriving their addresses.
+    ready_snapshot_sha256: str = ""
+    forecast_snapshot_sha256: str = ""
+    supplement_snapshot_sha256: str = ""
 
     @property
     def producer_deadline(self) -> datetime:
@@ -474,19 +685,66 @@ def build(
     sidecar_first_observed: datetime | None = None,
     grant_observed: datetime | None = None,
     ready_index_observed: datetime | None = None,
+    snapshot_forecast_current: bool = True,
+    ready_snapshot_receipt: str | None = "self",
 ) -> ReadinessFamily:
     """Write one complete, correctly shaped readiness family under ``root``.
 
     ``root`` is the caller's temporary directory. Nothing is written anywhere
     else, and in particular nothing is written into the configured exchange
     root: the tests pass ``tmp_path`` and the production tree is never touched.
+
+    KEYWORDS, AND WHAT EACH ONE STILL MEANS
+    ---------------------------------------
+    ``exposure_status``      the exposure object's ``status``. Unchanged.
+    ``with_availability``    whether the bare sidecar reference is written.
+    ``supplement_current``   whether the LIVE grant index still names the grant.
+    ``forecast_current``     whether the LIVE forecast locator still names the
+                             wrapper (it moves to ``historical`` if not).
+    ``ready_index_observed`` the producer's ``readyValidatedAtUtc``. This is the
+                             clock that used to be called
+                             ``currentIndexObservedAtUtc``; the authentic
+                             receipt has no such field and states its ready-index
+                             validation as ``readyValidatedAtUtc`` instead.
+    ``grant_observed``       the supplement block's publication clocks
+                             (``declaredPublishedUtc`` / ``indexVisibleAtUtc`` /
+                             ``packageVisibleAtUtc``), which replaced the old
+                             ``grantObservedAtUtc``.
+    ``sidecar_first_observed``
+                             the exposure's ``readyAvailableAtUtc``. The fields
+                             this used to drive -- ``sidecarFirstObservedAtUtc``,
+                             ``proofObservedAfterProducerBoundary``,
+                             ``consumerCutoffPassedAtProofObservation`` -- DO NOT
+                             EXIST in the authentic exposure. ``readyAvailableAtUtc``
+                             is its nearest equivalent and carries the same
+                             point: it is a producer observation clock that the
+                             consumer records and never gates on, which the
+                             document says itself via ``clockMeaning``.
+    ``snapshot_forecast_current``
+                             whether the FROZEN forecast-index snapshot lists the
+                             bundle. Join 2's negative case; the live locator is
+                             untouched.
+    ``ready_snapshot_receipt``
+                             what the frozen ready-index snapshot names for this
+                             forecast: ``"self"`` (this receipt), ``None`` (no
+                             entry at all), or an explicit sha256 to name some
+                             other receipt.
     """
 
     root = Path(root)
     child = build_forecast_child(kickoff=kickoff)
     forecast_id = child["forecastId"]
     children = [child, *(extra_children or [])]
-    bundle_sha, _ = write_forecast_wrapper(root, children)
+    bundle_sha, bundle_dir = write_forecast_wrapper(root, children)
+    bundle_ref = _ref(
+        (bundle_dir / "bundle.json").read_bytes(),
+        _producer_path(FORECAST_FAMILY, "sha256", bundle_sha, "bundle.json"))
+
+    deadline = kickoff - timedelta(minutes=21)
+    grant_seen = grant_observed or (kickoff - timedelta(minutes=23))
+    index_seen = ready_index_observed or (kickoff - timedelta(minutes=22))
+    locator_visible = kickoff - timedelta(minutes=24)
+    locator_checked = kickoff - timedelta(minutes=23)
 
     # ORDER MATTERS HERE.
     #
@@ -497,18 +755,15 @@ def build(
     # the opposite of what these fixtures are for: the whole point of a
     # superseded forecast is that the ORIGINAL snapshot was valid and the
     # PRESENT locator no longer names it.
-    write_forecast_index(root, [bundle_sha], historical=[])
-    supplement_sha = write_supplement(root, forecast_id=forecast_id)
-    write_supplement_index(root, [supplement_sha])
+    write_forecast_index(root, [bundle_sha], historical=[], updated_at=locator_visible)
+    supplement_sha = write_supplement(
+        root, forecast_id=forecast_id, event_id=child["eventId"], published=grant_seen)
+    write_supplement_index(root, [supplement_sha], updated_at=grant_seen)
 
-    grant_seen = grant_observed or (kickoff - timedelta(minutes=23))
-    index_seen = ready_index_observed or (kickoff - timedelta(minutes=22))
     forecast_index_snapshot = json.loads(
-        (root / FORECAST_FAMILY / FORECAST_INDEX_FILENAME).read_bytes()
-    )
+        (root / FORECAST_FAMILY / FORECAST_INDEX_FILENAME).read_bytes())
     supplement_index_snapshot = json.loads(
-        (root / SUPPLEMENT_ROOT / SUPPLEMENT_INDEX_FILENAME).read_bytes()
-    )
+        (root / SUPPLEMENT_ROOT / SUPPLEMENT_INDEX_FILENAME).read_bytes())
 
     if not forecast_current:
         # An index with no current bundle at all is not a legal V2 index, so a
@@ -520,104 +775,143 @@ def build(
             away=("nfl-away-102", "32", "OTA", "Other Away"),
         )
         other_sha, _ = write_forecast_wrapper(root, [other])
-        write_forecast_index(root, [other_sha], historical=[bundle_sha])
+        write_forecast_index(root, [other_sha], historical=[bundle_sha],
+                             updated_at=locator_visible)
     if not supplement_current:
-        write_supplement_index(root, [])
-    ready_index_snapshot = {
-        "schemaVersion": INDEX_SCHEMA,
-        "entries": [{"forecastId": forecast_id, "exposureStatus": exposure_status}],
-    }
+        write_supplement_index(root, [], updated_at=grant_seen)
+    if not snapshot_forecast_current:
+        # A membership the producer never froze. The LIVE locator still names
+        # the bundle, so the refusal is attributable to join 2 alone.
+        forecast_index_snapshot = forecast_membership([], updated_at=locator_visible)
+
+    forecast_snapshot_sha, forecast_snapshot_ref = _write_object(
+        root, "forecast-index.json", forecast_index_snapshot)
+    supplement_snapshot_sha, supplement_snapshot_ref = _write_object(
+        root, "supplement-index.json", supplement_index_snapshot)
+
+    supplement_dir = root / SUPPLEMENT_ROOT / "sha256" / supplement_sha
+    supplement_ref = _ref(
+        (supplement_dir / "supplement.json").read_bytes(),
+        _producer_path(SUPPLEMENT_ROOT, "sha256", supplement_sha, "supplement.json"))
+    manifest_ref = _ref(
+        (supplement_dir / "manifest.json").read_bytes(),
+        _producer_path(SUPPLEMENT_ROOT, "sha256", supplement_sha, "manifest.json"))
 
     receipt = {
         "schemaVersion": RECEIPT_SCHEMA,
-        RECEIPT_SCHEMA_SHA256_FIELD: RECEIPT_SCHEMA_SHA256,
+        "status": RECEIPT_STATUS,
         "eventId": child["eventId"],
         "forecastId": forecast_id,
         "snapshotType": child["snapshotType"],
         "snapshotVersion": child["snapshotVersion"],
-        "engineId": "NFL_M1_XGBOOST",
-        "modelManifestSha256": NFL_MODEL_MANIFEST_SHA256,
-        "modelBinarySha256": NFL_MODEL_BINARY_SHA256,
-        "producerRevision": PRODUCER_REVISION,
         "scheduledStartUtc": _iso(kickoff),
         "availableAsOfUtc": child["availableAsOfUtc"],
         "forecastCutoffUtc": child["forecastCutoffUtc"],
-        "producerDeadlineUtc": _iso(kickoff - timedelta(minutes=21)),
-        "bundle": {
-            "bundleSha256": bundle_sha,
-            "logicalUri": (
-                f"asp-model-exchange://{FORECAST_FAMILY}/sha256/{bundle_sha}/bundle.json"
-            ),
-            "forecastChildIds": [item["forecastId"] for item in children],
+        "sourceCutoffUtc": child["sourceCutoffUtc"],
+        "producerDeadlineUtc": _iso(deadline),
+        "readyValidatedAtUtc": _iso(index_seen),
+        "timingPolicyVersion": TIMING_POLICY_VERSION,
+        "consumerRequirements": list(CONSUMER_REQUIREMENTS),
+        # The whole engine identity in one object, revision included. The
+        # revision is NOT a top-level receipt field; the consumer reads it at
+        # engine.producerRevision and a top-level copy rescues nothing.
+        "engine": dict(child["engine"]),
+        "bundleRef": bundle_ref,
+        "currentLocatorDiscoveryPath": _producer_path(
+            FORECAST_FAMILY, FORECAST_INDEX_FILENAME),
+        "currentLocatorSnapshotRef": forecast_snapshot_ref,
+        # The receipt names the frozen locator TWICE: once as the immutable
+        # reference above, once as the locator it actually observed. The
+        # consumer requires them to be the same object, so locatorSha256 is the
+        # snapshot's address and nothing else.
+        "forecastLocatorExposure": {
+            "locatorPath": _producer_path(FORECAST_FAMILY, FORECAST_INDEX_FILENAME),
+            "locatorSha256": forecast_snapshot_sha,
+            "notAfterUtc": _iso(deadline),
+            "observedAfterDeadline": locator_visible > deadline,
+            "publicationCheckedAtUtc": _iso(locator_checked),
+            "visibleAtUtc": _iso(locator_visible),
         },
-        "grant": {"supplementSha256": supplement_sha, "forecastId": forecast_id},
-        "grantObservedAtUtc": _iso(grant_seen),
-        "currentIndexObservedAtUtc": _iso(index_seen),
-        "forecastIndexSnapshot": forecast_index_snapshot,
-        "supplementIndexSnapshot": supplement_index_snapshot,
-        "readyIndexSnapshot": ready_index_snapshot,
+        "supplement": {
+            "bundleRef": bundle_ref,
+            "declaredPublishedUtc": _iso(grant_seen),
+            "eventId": child["eventId"],
+            "forecastId": forecast_id,
+            "indexDiscoveryPath": _producer_path(
+                SUPPLEMENT_ROOT, SUPPLEMENT_INDEX_FILENAME),
+            "indexRef": supplement_snapshot_ref,
+            "indexVisibleAtUtc": _iso(grant_seen),
+            "manifestRef": manifest_ref,
+            "packageVisibleAtUtc": _iso(grant_seen),
+            "publicationDisposition": SUPPLEMENT_DISPOSITION,
+            # The PACKAGE address -- the canonical hash of the manifest
+            # identity -- not the hash of supplement.json.
+            "supplementAddress": supplement_sha,
+            "supplementRef": supplement_ref,
+        },
     }
     receipt_bytes = canonical_json_bytes(receipt)
     receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
     receipt_dir = root / READINESS_ROOT / OBJECTS_DIR / receipt_sha
     receipt_dir.mkdir(parents=True, exist_ok=True)
     (receipt_dir / "receipt.json").write_bytes(receipt_bytes)
+    receipt_ref = _ref(receipt_bytes, _producer_path(
+        READINESS_ROOT, "objects", "sha256", receipt_sha, "receipt.json"))
 
-    # The sidecar is FIRST OBSERVED AFTER the T-21 producer boundary on the
-    # positive path, deliberately. That is the contract's central distinction:
-    # the pair and the ready index were observed by T-21, the proof of it
-    # showed up later, and that delay is telemetry, not a missed boundary.
-    sidecar_seen = sidecar_first_observed or (kickoff - timedelta(minutes=19))
+    sidecar_path = _producer_path(
+        READINESS_ROOT, AVAILABILITY_DIR, f"{receipt_sha}.json")
+    entry = {"exposureReferencePath": sidecar_path, "receiptRef": receipt_ref}
+
+    # The frozen ready-index snapshot. It must name THIS receipt, or a positive
+    # exposure could be carried across from an earlier readiness pass.
+    if ready_snapshot_receipt is None:
+        snapshot_entry = None
+    elif ready_snapshot_receipt == "self":
+        snapshot_entry = entry
+    else:
+        snapshot_entry = {
+            "exposureReferencePath": _producer_path(
+                READINESS_ROOT, AVAILABILITY_DIR, f"{ready_snapshot_receipt}.json"),
+            "receiptRef": {**receipt_ref, "sha256": ready_snapshot_receipt},
+        }
+    ready_snapshot_sha, ready_snapshot_ref = _write_object(
+        root, "index.json",
+        ready_index(forecast_id, snapshot_entry, updated_at=index_seen))
+
+    # ``readyAvailableAtUtc`` is a PRODUCER observation of the ready-index
+    # replace. The consumer records it and never gates on it, which is what
+    # clockMeaning says in the producer's own words.
+    ready_available = sidecar_first_observed or (index_seen + timedelta(seconds=30))
     exposure = {
         "schemaVersion": EXPOSURE_SCHEMA,
+        "status": exposure_status,
+        "eventId": child["eventId"],
         "forecastId": forecast_id,
-        "baseReceiptSha256": receipt_sha,
-        "exposureStatus": exposure_status,
-        "readyAvailableAtUtc": _iso(index_seen + timedelta(seconds=30)),
-        "readyIndexSnapshot": ready_index_snapshot,
-        "sidecarFirstObservedAtUtc": _iso(sidecar_seen),
-        "proofObservedAfterProducerBoundary": sidecar_seen > kickoff - timedelta(minutes=21),
-        "consumerCutoffPassedAtProofObservation": (
-            sidecar_seen > kickoff - timedelta(minutes=15)
-        ),
+        "producerDeadlineUtc": _iso(deadline),
+        "readyAvailableAtUtc": _iso(ready_available),
+        "clockMeaning": CLOCK_MEANING,
+        # Both of these are assertions the consumer requires: the document must
+        # NOT claim to certify sidecar exposure, and must require the consumer
+        # to establish its own availability observation.
+        "certifiesSidecarExposureBeforeProducerDeadline": False,
+        "consumerObservedAvailabilityRequired": True,
+        "readyIndexSnapshotRef": ready_snapshot_ref,
+        "readyReceiptRef": receipt_ref,
     }
-    exposure_bytes = canonical_json_bytes(exposure)
-    exposure_sha = hashlib.sha256(exposure_bytes).hexdigest()
-    exposure_dir = root / READINESS_ROOT / OBJECTS_DIR / exposure_sha
-    exposure_dir.mkdir(parents=True, exist_ok=True)
-    (exposure_dir / "exposure.json").write_bytes(exposure_bytes)
+    exposure_sha, exposure_ref = _write_object(root, "exposure.json", exposure)
 
     availability_dir = root / READINESS_ROOT / AVAILABILITY_DIR
     availability_dir.mkdir(parents=True, exist_ok=True)
     if with_availability:
-        availability = {
-            "schemaVersion": "NFL_FINAL_READY_AVAILABILITY_V1",
-            "baseReceiptSha256": receipt_sha,
-            "forecastId": forecast_id,
-            "exposureObjectPath": f"{OBJECTS_DIR}/{exposure_sha}/exposure.json",
-            "exposureSha256": exposure_sha,
-        }
+        # A BARE reference and nothing else. The sidecar carries no schema
+        # version and no base-receipt field; what binds it to the receipt is its
+        # own filename plus the exposure's readyReceiptRef.
         (availability_dir / f"{receipt_sha}.json").write_bytes(
-            canonical_json_bytes(availability))
+            canonical_json_bytes(exposure_ref))
 
-    ready_index = {
-        "schemaVersion": INDEX_SCHEMA,
-        "sport": "NFL",
-        "league": "NFL",
-        "season": 2026,
-        "updatedAtUtc": _iso(index_seen),
-        "entries": [
-            {
-                "forecastId": forecast_id,
-                "receiptRef": f"{OBJECTS_DIR}/{receipt_sha}/receipt.json",
-                "receiptSha256": receipt_sha,
-                "exposureReferencePath": f"{AVAILABILITY_DIR}/{receipt_sha}.json",
-            }
-        ],
-    }
     (root / READINESS_ROOT).mkdir(parents=True, exist_ok=True)
     (root / READINESS_ROOT / READINESS_INDEX_FILENAME).write_bytes(
-        canonical_json_bytes(ready_index))
+        canonical_json_bytes(ready_index(forecast_id, entry, updated_at=index_seen)))
 
     return ReadinessFamily(
         root=root,
@@ -629,11 +923,17 @@ def build(
         receipt_sha256=receipt_sha,
         exposure_sha256=exposure_sha,
         forecast_child=child,
+        ready_snapshot_sha256=ready_snapshot_sha,
+        forecast_snapshot_sha256=forecast_snapshot_sha,
+        supplement_snapshot_sha256=supplement_snapshot_sha,
     )
 
 
 __all__ = [
-    "CONSUMER_CUTOFF", "EVENT_ID", "KICKOFF", "PRODUCER_DEADLINE", "source_event_id",
-    "ReadinessFamily", "build", "build_forecast_child", "write_forecast_index",
-    "write_forecast_wrapper", "write_supplement", "write_supplement_index",
+    "CLOCK_MEANING", "CONSUMER_CUTOFF", "EVENT_ID", "KICKOFF", "PRODUCER_DEADLINE",
+    "PRODUCER_REVISION", "RECEIPT_SCHEMA_SHA256", "SCHEMA_PATH", "SCHEMA_SHA256",
+    "source_event_id", "ReadinessFamily", "build", "build_forecast_child",
+    "forecast_membership", "ready_index", "supplement_membership",
+    "write_forecast_index", "write_forecast_wrapper", "write_supplement",
+    "write_supplement_index",
 ]

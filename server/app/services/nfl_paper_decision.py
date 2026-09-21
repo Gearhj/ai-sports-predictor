@@ -723,6 +723,9 @@ def _check_readiness(
         required_schema_sha256=(
             str(getattr(settings, "nfl_final_readiness_schema_sha256", "") or "").strip()
             or None),
+        schema_path=(
+            str(getattr(settings, "nfl_final_readiness_schema_path", "") or "").strip()
+            or None),
     )
 
 

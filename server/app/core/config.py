@@ -274,6 +274,10 @@ class Settings(BaseSettings):
     #: The receipt schema hash the reviewed producer declares. Empty means
     #: unpinned; set it with the revision.
     nfl_final_readiness_schema_sha256: str = ""
+    #: Absolute path to READINESS_CONSUMER_SCHEMA.json. Re-hashed at every
+    #: verification and refused on mismatch, so the shape enforced is the
+    #: reviewed one rather than whatever is on the filesystem.
+    nfl_final_readiness_schema_path: str = ""
     nfl_final_readiness_required: bool = False
     #: Where the readiness family is read from. Empty means "the configured
     #: model-exchange root", which is what production uses; tests point it at a

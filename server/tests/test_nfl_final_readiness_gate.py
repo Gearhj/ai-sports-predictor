@@ -10,6 +10,7 @@ records, blocks only when armed. Both behaviours are pinned here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -48,7 +49,13 @@ def armed(session: Session, settings, tmp_path: Path):
     # is refused by the gate, so every test below that flips the flag inherits
     # the pins here rather than exercising a configuration we will never run.
     settings.nfl_final_required_producer_revision = fx.PRODUCER_REVISION
-    settings.nfl_final_readiness_schema_sha256 = fx.RECEIPT_SCHEMA_SHA256
+    # THE SCHEMA PIN IS OVER A FILE, NOT OVER A RECEIPT FIELD. The consumer
+    # re-hashes Model Studio's reviewed contract from disk every run, so the
+    # armed configuration has to name both the hash and where that file lives.
+    # Pinning it here also means every document this synthetic family emits is
+    # checked, field for field, against the producer's own published shape.
+    settings.nfl_final_readiness_schema_sha256 = fx.SCHEMA_SHA256
+    settings.nfl_final_readiness_schema_path = str(fx.SCHEMA_PATH)
 
     sport = Sport(code="FOOTBALL", name="Football")
     session.add(sport)
@@ -313,24 +320,84 @@ def test_a_pinned_revision_accepts_the_matching_receipt(tmp_path):
 
     fam = build(tmp_path)
     receipt = json.loads(fam.receipt_path().read_text(encoding="utf-8"))
+    # Read from `engine`, which is where the authentic receipt carries it: the
+    # revision is part of the ENGINE identity, not a property of the document.
     out = rg.verify_final_readiness(
         exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
         kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
-        required_producer_revision=str(receipt["producerRevision"]))
+        required_producer_revision=str(receipt["engine"]["producerRevision"]))
     assert out.verified is True
 
 
-def test_a_pinned_schema_hash_refuses_a_reshaped_receipt(tmp_path):
-    from tests.fixtures.nfl_final_readiness import build
+def _reshape_exposure(fam, mutate):
+    """Reshape the exposure HONESTLY and re-point the sidecar at it.
+
+    New bytes get a new address and the bare sidecar reference is updated to
+    name it, so the content-address check passes cleanly and the SHAPE check is
+    what refuses. Without this the reshape would be caught as an address
+    mismatch and the test would pass for the wrong reason.
+    """
+
+    from app.gen2.exchange.canonical_json import canonical_json_bytes
+    from app.services import nfl_final_readiness as rg
+
+    document = json.loads(fam.exposure_path().read_text(encoding="utf-8"))
+    mutate(document)
+    raw = canonical_json_bytes(document)
+    sha = hashlib.sha256(raw).hexdigest()
+    target = fam.root / rg.READINESS_ROOT / rg.OBJECTS_DIR / sha
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "exposure.json").write_bytes(raw)
+    sidecar = fam.availability_path()
+    reference = json.loads(sidecar.read_text(encoding="utf-8"))
+    reference.update({"sha256": sha, "bytes": len(raw)})
+    sidecar.write_bytes(canonical_json_bytes(reference))
+
+
+def test_a_pinned_schema_hash_refuses_a_reshaped_document(tmp_path):
+    """A field the reviewed schema forbids is refused under a live pin.
+
+    THIS TEST CHANGED SHAPE, NOT INTENT.
+    ------------------------------------
+    It used to pass a wrong hash and expect RECEIPT_SCHEMA_MISMATCH, because
+    the old reading had the receipt DECLARE its schema hash, so a mismatched
+    pin meant "this receipt is the wrong shape". The pin is over the reviewed
+    CONTRACT FILE, so a wrong hash now means the contract itself could not be
+    bound -- which is a different, and separately tested, refusal below. The
+    reshape this test names is expressed directly instead: pin the real
+    contract, then add a field it forbids.
+    """
+    from tests.fixtures.nfl_final_readiness import SCHEMA_PATH, SCHEMA_SHA256, build
     from app.services import nfl_final_readiness as rg
 
     fam = build(tmp_path)
+    _reshape_exposure(fam, lambda doc: doc.__setitem__("unexpectedField", "x"))
     out = rg.verify_final_readiness(
         exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
         kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
-        required_schema_sha256="0" * 64)
+        required_schema_sha256=SCHEMA_SHA256, schema_path=SCHEMA_PATH)
     assert out.verified is False
-    assert rg.RECEIPT_SCHEMA_MISMATCH in out.sub_reasons
+    assert out.sub_reasons == (rg.RECEIPT_SCHEMA_MISMATCH,), out.detail
+
+
+def test_a_schema_hash_that_binds_to_nothing_is_refused(tmp_path):
+    """A pin that cannot be satisfied fails closed rather than being skipped."""
+    from tests.fixtures.nfl_final_readiness import SCHEMA_PATH, build
+    from app.services import nfl_final_readiness as rg
+
+    fam = build(tmp_path)
+    common = dict(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1))
+
+    wrong_hash = rg.verify_final_readiness(
+        **common, required_schema_sha256="0" * 64, schema_path=SCHEMA_PATH)
+    no_file = rg.verify_final_readiness(
+        **common, required_schema_sha256="0" * 64, schema_path=None)
+
+    for out in (wrong_hash, no_file):
+        assert out.verified is False
+        assert out.sub_reasons == (rg.READINESS_SCHEMA_UNBOUND,), out.detail
 
 
 def test_arming_enforcement_without_a_pin_is_refused(tmp_path, settings, monkeypatch):
@@ -358,42 +425,40 @@ def test_arming_enforcement_without_a_pin_is_refused(tmp_path, settings, monkeyp
     assert "READINESS_ENFORCEMENT_ARMED_WITHOUT_PIN" in out.sub_reasons
 
 
-def test_a_pinned_schema_hash_accepts_the_declared_one(tmp_path):
-    from tests.fixtures.nfl_final_readiness import build, RECEIPT_SCHEMA_SHA256
+def test_a_pinned_schema_hash_accepts_the_reviewed_contract(tmp_path):
+    """The pin is case-insensitive over the contract file's own bytes."""
+    from tests.fixtures.nfl_final_readiness import SCHEMA_PATH, SCHEMA_SHA256, build
     from app.services import nfl_final_readiness as rg
 
     fam = build(tmp_path)
     out = rg.verify_final_readiness(
         exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
         kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
-        required_schema_sha256=RECEIPT_SCHEMA_SHA256.upper())
+        required_schema_sha256=SCHEMA_SHA256.upper(), schema_path=SCHEMA_PATH)
     assert out.verified is True, out.sub_reasons
 
 
-def test_a_pinned_schema_hash_refuses_a_receipt_that_declares_none(tmp_path):
+def test_a_required_field_missing_under_a_live_pin_is_refused_not_skipped(tmp_path):
     """Absence under a live pin is a refusal, not a pass.
 
-    This is the case that matters most before Codex's first authentic byte
-    arrives: if our field spelling is wrong, the pin must fail CLOSED and say
-    so, not silently skip because it found nothing to compare.
+    THE OLD VERSION OF THIS TEST ASKED AN IMPOSSIBLE QUESTION.
+    ---------------------------------------------------------
+    It removed a ``schemaSha256`` field from the receipt and expected
+    RECEIPT_SCHEMA_ABSENT. There is no such field on an authentic receipt and no
+    such sub-reason in the module: the hash is the CONTRACT's, not the
+    document's. What the test was actually protecting -- "if a required field is
+    not there, fail closed rather than skip the comparison" -- is preserved by
+    removing a field the reviewed schema requires and pinning the real contract.
     """
-    from tests.fixtures.nfl_final_readiness import build
+    from tests.fixtures.nfl_final_readiness import SCHEMA_PATH, SCHEMA_SHA256, build
     from app.services import nfl_final_readiness as rg
 
     fam = build(tmp_path)
-    receipt_file = fam.receipt_path()
-    receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
-    for name in rg.SCHEMA_SHA256_FIELDS:
-        receipt.pop(name, None)
-    # Rewritten in place: the content address no longer matches, which is its
-    # own refusal, so this asserts only that an unpinned read still fails and
-    # that the DIRECT identity check names the absent schema.
-    with pytest.raises(Exception) as caught:
-        rg._require_identity(
-            receipt, {"forecastId": fam.forecast_id},
-            forecast_id=fam.forecast_id, event_id=receipt["eventId"],
-            snapshot_type=receipt["snapshotType"],
-            snapshot_version=receipt["snapshotVersion"],
-            engine_id=receipt["engineId"],
-            required_schema_sha256="a" * 64)
-    assert caught.value.sub_reason == rg.RECEIPT_SCHEMA_ABSENT
+    _reshape_exposure(fam, lambda doc: doc.pop("clockMeaning"))
+    out = rg.verify_final_readiness(
+        exchange_root=fam.root, forecast_id=fam.forecast_id, event_id=fam.event_id,
+        kickoff_utc=fam.kickoff, observed_at=fam.consumer_cutoff - timedelta(minutes=1),
+        required_schema_sha256=SCHEMA_SHA256, schema_path=SCHEMA_PATH)
+    assert out.verified is False
+    assert out.sub_reasons == (rg.RECEIPT_SCHEMA_MISMATCH,), out.detail
+    assert "clockMeaning" in out.detail
