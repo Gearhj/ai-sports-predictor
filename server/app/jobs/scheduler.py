@@ -570,6 +570,27 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             next_run_time=datetime.now(UTC),
             **common,
         )
+        # THE NFL FINAL PAIR, ON ITS OWN OWNER AND ITS OWN LANE.
+        #
+        # The broad pass above commits every sport in one transaction, so an
+        # NFL forecast verified in its first stage is invisible to a checkpoint
+        # until CFB, NBA, the labs family, the lab study and MLB V18 have all
+        # finished. And `max_instances=1` means a long broad pass SKIPS the next
+        # fire rather than delaying it -- a 353-second run on 2026-09-21 skipped
+        # the following one outright.
+        #
+        # Against a T-15 edge either is fatal to the last usable import, so this
+        # runs every minute on `nfl-final-import`, commits on its own, and
+        # imports nothing but the NFL forecast/supplement pair. Idempotent by
+        # content address, so it cannot duplicate what the broad pass imports.
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=settings.nfl_final_import_interval_minutes,
+            id="asp-nf-nfl-final-pair",
+            kwargs={"job_name": "import-nfl-final-pair", "settings": settings},
+            next_run_time=datetime.now(UTC) + timedelta(seconds=90),
+            **common,
+        )
     # AISP DAY-BEFORE SHOW PREVIEW V1: registers the 4:30 PM ET freeze only when
     # both Show Preview switches are on. Never a provider request, and no
     # preview collection job exists to register.

@@ -599,6 +599,72 @@ def _verify_eligible(bundle_dir: Path) -> dict[str, Any]:
     }
 
 
+def _consume_bundles_only(session: Session, settings: Settings, exchange_root: Path,
+                          outcome: ConsumeOutcome, *, sport: str | None = None) -> None:
+    """The bundle stage alone, optionally narrowed to one sport.
+
+    Extracted so a deadline-bound consumer can import the forecast bundles it
+    needs and commit, without also waiting for CFB discovery, NBA production,
+    the lab study and MLB V18 in the same transaction. Same index, same content
+    addressing, same refusal to open an object the current index does not list.
+    """
+
+    from app.forecast_exchange.importer import ForecastBundleImportError
+    from app.services.shadow_board_service import ShadowBoardService
+
+    current = current_bundle_addresses(exchange_root)
+    if current is None:
+        outcome.rejected.append({
+            "bundle_sha256": None,
+            "reason": ("No supported research-shadow index declares a current bundle set; "
+                       "refusing to import the historical archive"),
+        })
+        return
+
+    already = _registered_addresses(session)
+    service = ShadowBoardService(session, settings)
+    for bundle_dir in discover_bundles(exchange_root):
+        address = bundle_dir.name.lower()
+        if address not in current:
+            continue
+        outcome.scanned += 1
+        if address in already:
+            outcome.skipped.append({"bundle_sha256": address, "reason": "already registered"})
+            continue
+        try:
+            verified = _verify_eligible(bundle_dir)
+        except ForecastBundleImportError as error:
+            outcome.rejected.append({"bundle_sha256": address, "reason": str(error)})
+            continue
+        except (OSError, ValueError) as error:
+            outcome.rejected.append({
+                "bundle_sha256": address, "reason": f"{type(error).__name__}: {error}"})
+            continue
+        if sport is not None and str(verified.get("sport", "")).upper() != sport.upper():
+            # Another sport's bundle. The broad pass owns it; this narrow pass
+            # deliberately leaves it alone rather than widening its own scope.
+            outcome.skipped.append({"bundle_sha256": address, "reason": f"not {sport}"})
+            continue
+        record = {
+            "bundle_sha256": address, "bundle_id": verified["bundle_id"],
+            "sport": verified["sport"], "slate_date": verified["slate_date"],
+            "forecasts": verified["forecasts"],
+            "source_evidence_utc": verified["source_evidence_utc"],
+            "published_utc": verified["published_utc"],
+        }
+        try:
+            result = service.import_bundle(bundle_dir)
+        except ForecastBundleImportError as error:
+            session.rollback()
+            outcome.rejected.append({"bundle_sha256": address, "reason": str(error)})
+            continue
+        record["imported_at_utc"] = datetime.now(UTC).isoformat()
+        if result.get("idempotent_reuse"):
+            outcome.reused.append(record)
+        else:
+            outcome.accepted.append(record)
+
+
 def run_scheduled_import(session: Session, settings: Settings) -> dict[str, Any]:
     """Scheduler entry point. Does nothing unless explicitly enabled.
 
@@ -631,8 +697,96 @@ def run_scheduled_import(session: Session, settings: Settings) -> dict[str, Any]
 
 __all__ = [
     "ConsumeOutcome",
+    "run_nfl_final_import",
     "consume_forecast_bundles",
     "current_bundle_addresses",
     "discover_bundles",
     "run_scheduled_import",
 ]
+
+
+def run_nfl_final_import(session: Session, settings: Settings) -> dict[str, Any]:
+    """Import ONLY the NFL forecast bundles and their eligibility supplements, and commit.
+
+    WHY THIS EXISTS SEPARATELY FROM ``run_scheduled_import``
+    --------------------------------------------------------
+    The broad pass runs bundles, CFB discovery, NBA production, supplements,
+    the NFL labs family, the lab study and MLB V18 as ONE transaction committed
+    at the end. An NFL forecast verified in the first stage is therefore not
+    visible to a decision checkpoint until every unrelated stage has finished --
+    the same shape of defect as waiting for a producer subprocess to return,
+    only on our side of the exchange.
+
+    That matters against a deadline. A FINAL forecast is usable only once
+    IMPORTED, and the last checkpoint tick inside a T-30..T-15 window is a hard
+    edge. On 2026-09-20 the broad pass also showed the other failure mode: a
+    353-second run caused APScheduler to SKIP the next fire outright
+    (``max_instances=1``), not merely delay it.
+
+    So the NFL pair gets its own owner, its own lane and its own transaction:
+    two stages, committed immediately, independent of every other sport and of
+    the broad pass's duration.
+
+    IDEMPOTENT BY CONTENT ADDRESS. Both passes may see the same bundle. Every
+    object is registered by content address and an already-registered address is
+    reused rather than re-imported, so a concurrent broad pass cannot produce a
+    second copy. A unique-constraint collision means the other pass won that
+    race and the object is already held; it is reported as ``reused_by_race``
+    rather than failing the run, because the consumer's job is that the bytes
+    are present, not that this particular pass is the one that wrote them.
+
+    Imports nothing unless ``MODEL_EXCHANGE_AUTO_IMPORT_ENABLED`` is true.
+    Makes no provider request and executes no model.
+    """
+
+    from sqlalchemy.exc import IntegrityError
+
+    if not settings.model_exchange_auto_import_enabled:
+        return {
+            "enabled": False,
+            "reason": "MODEL_EXCHANGE_AUTO_IMPORT_ENABLED is false",
+            "accepted_count": 0, "supplements_accepted": 0,
+        }
+
+    exchange_root = Path(settings.model_exchange_forecast_bundle_dir)
+    started = perf_counter()
+    outcome = ConsumeOutcome(root=str(exchange_root), dry_run=False)
+    stage_seconds: dict[str, float] = {}
+    reused_by_race = False
+
+    def timed(name, call):
+        t0 = perf_counter()
+        try:
+            return call()
+        finally:
+            stage_seconds[name] = round(perf_counter() - t0, 3)
+
+    try:
+        # Stage 1: the NFL forecast bundles, through the same verified path the
+        # broad pass uses -- same index, same content addressing, same refusal
+        # to open an unlisted object.
+        timed("bundles", lambda: _consume_bundles_only(
+            session, settings, exchange_root, outcome, sport="NFL"))
+        # Stage 2: the eligibility supplements that bind those forecasts. A
+        # FINAL forecast without its supplement cannot authorise a position, so
+        # the pair is imported together or not at all.
+        timed("supplements", lambda: _consume_supplements(
+            session, settings, exchange_root, outcome, dry_run=False))
+        timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(
+            session, exchange_root, outcome, dry_run=False))
+        session.commit()
+    except IntegrityError:
+        # The broad pass committed the same content-addressed object first.
+        session.rollback()
+        reused_by_race = True
+
+    payload = outcome.as_dict()
+    payload.update({
+        "enabled": True,
+        "scope": "NFL_FINAL_PAIR_ONLY",
+        "stage_seconds": stage_seconds,
+        "total_seconds": round(perf_counter() - started, 3),
+        "reused_by_race": reused_by_race,
+        "records": len(outcome.accepted) + len(outcome.supplements_accepted),
+    })
+    return payload

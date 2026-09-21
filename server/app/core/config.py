@@ -505,6 +505,11 @@ class Settings(BaseSettings):
     # Turning this on while that owner is registered is what activates it.
     # It never writes a decision, a position or any production record.
     # ------------------------------------------------------------------
+    #: How often the dedicated NFL FINAL pair import runs, in minutes. One
+    #: minute: a FINAL published at the producer's operational target must be
+    #: imported before the last checkpoint tick inside its T-30..T-15 window,
+    #: and the broad pass's five-minute cadence cannot guarantee that.
+    nfl_final_import_interval_minutes: int = 1
     prospective_capture_enabled: bool = False
     #: Its own lane. Must not overlap any V18 market-pilot directory; the
     #: exporter refuses to run if it does.

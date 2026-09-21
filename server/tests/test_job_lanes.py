@@ -137,3 +137,58 @@ def test_the_import_job_is_registered_on_the_import_lane(settings):
     source = inspect.getsource(sched)
     assert '"asp-im-model-exchange-consumer"' in source
     assert '"asp-model-exchange-consumer"' not in source
+
+
+def test_the_nfl_final_pair_import_has_its_own_lane():
+    """Neither the broad pass's duration nor its instance limit may reach it.
+
+    The broad pass commits every sport in one transaction and, at
+    max_instances=1, a long run SKIPS the next fire rather than delaying it (a
+    353-second pass on 2026-09-21 skipped the following one outright). Against
+    a hard T-15 edge either can consume the last usable import.
+    """
+    from app.jobs import lanes
+
+    assert lanes.lane_for("asp-nf-nfl-final-pair") == lanes.NFL_FINAL_IMPORT_LANE
+    assert lanes.NFL_FINAL_IMPORT_LANE == "nfl-final-import"
+    # distinct from the broad import, the checkpoints and core
+    for other in (lanes.IMPORT_LANE, lanes.DECISION_CHECKPOINT_LANE, lanes.CORE_LANE):
+        assert lanes.NFL_FINAL_IMPORT_LANE != other
+    assert lanes.executor(lanes.NFL_FINAL_IMPORT_LANE) is not lanes.executor(lanes.IMPORT_LANE)
+    assert lanes.executor(lanes.NFL_FINAL_IMPORT_LANE)._max_workers == 1
+
+
+def test_the_nfl_pair_import_is_registered_and_runs_every_minute(settings):
+    import inspect
+
+    from app.jobs import scheduler as sched
+
+    source = inspect.getsource(sched)
+    assert '"asp-nf-nfl-final-pair"' in source
+    assert '"import-nfl-final-pair"' in source
+    assert settings.nfl_final_import_interval_minutes == 1
+
+
+def test_the_nfl_pair_import_is_a_distinct_job_from_the_broad_pass():
+    """Separate job name means a separate max_instances budget."""
+    from app.jobs.orchestrator import JobOrchestrator
+
+    handlers = JobOrchestrator.__dict__
+    assert "import_nfl_final_pair" in handlers
+    assert "consume_model_exchange_artifacts" in handlers
+    assert handlers["import_nfl_final_pair"] is not handlers["consume_model_exchange_artifacts"]
+
+
+def test_the_narrow_import_commits_without_the_other_sports():
+    """Its stages are the NFL pair only -- not CFB, NBA, the lab study or V18."""
+    import inspect
+
+    from app.jobs import model_exchange_consumer as mec
+
+    body = inspect.getsource(mec.run_nfl_final_import)
+    assert 'sport="NFL"' in body
+    assert "_consume_supplements" in body
+    assert "session.commit()" in body
+    for foreign in ("_consume_cfb_discovery", "_consume_nba_production",
+                    "_consume_lab_study", "_consume_v18"):
+        assert foreign not in body, f"{foreign} must not be in the deadline-bound NFL path"

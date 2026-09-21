@@ -27,7 +27,7 @@ deadline at all. They must not queue against each other.
 
 WHAT
 ----
-Five single-worker lanes:
+Six single-worker lanes:
 
 * ``core`` -- every job that imports forecasts, collects decision inputs,
   settles or scores. Unchanged: one at a time.
@@ -103,12 +103,29 @@ DECISION_CHECKPOINT_JOB_PREFIX = "asp-dc-"
 IMPORT_LANE = "producer-import"
 IMPORT_JOB_PREFIX = "asp-im-"
 
+#: The NFL FINAL pair import (``asp-nf-*``), separate from the broad pass.
+#:
+#: Two failure modes make a shared owner unsafe against a decision deadline.
+#: First, the broad pass commits bundles, CFB discovery, NBA production,
+#: supplements, the labs family, the lab study and MLB V18 in ONE transaction,
+#: so an NFL forecast verified in its first stage is invisible until every
+#: unrelated stage finishes. Second, `max_instances=1` means a long run SKIPS
+#: the next fire outright rather than delaying it -- on 2026-09-21 a 353-second
+#: pass skipped the following one entirely.
+#:
+#: Either can cost the last usable import before a checkpoint's hard T-15 edge.
+#: So the NFL pair gets its own lane, its own job and its own transaction, and
+#: neither the duration nor the instance limit of the broad pass can reach it.
+NFL_FINAL_IMPORT_LANE = "nfl-final-import"
+NFL_FINAL_IMPORT_JOB_PREFIX = "asp-nf-"
+
 #: Scheduler-id prefix -> lane. Anything unlisted stays on the core lane.
 _LANE_PREFIXES: tuple[tuple[str, str], ...] = (
     (PREDICTION_MARKET_JOB_PREFIX, PREDICTION_MARKET_LANE),
     (RESEARCH_EXPORT_JOB_PREFIX, RESEARCH_EXPORT_LANE),
     (DECISION_CHECKPOINT_JOB_PREFIX, DECISION_CHECKPOINT_LANE),
     (IMPORT_JOB_PREFIX, IMPORT_LANE),
+    (NFL_FINAL_IMPORT_JOB_PREFIX, NFL_FINAL_IMPORT_LANE),
 )
 
 _EXECUTORS: dict[str, ThreadPoolExecutor] = {}
@@ -215,5 +232,6 @@ __all__ = [
     "CORE_LANE", "DECISION_CHECKPOINT_JOB_PREFIX", "DECISION_CHECKPOINT_LANE",
     "PREDICTION_MARKET_LANE", "RESEARCH_EXPORT_LANE", "current_meta",
     "IMPORT_LANE", "IMPORT_JOB_PREFIX",
+    "NFL_FINAL_IMPORT_LANE", "NFL_FINAL_IMPORT_JOB_PREFIX",
     "decision_checkpoint_guard", "executor", "lane_for", "run_with_meta",
 ]

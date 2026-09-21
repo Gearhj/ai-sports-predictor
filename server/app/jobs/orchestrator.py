@@ -121,6 +121,7 @@ AVAILABLE_JOBS = {
     "generate-nfl-final-pregame-forecasts": "Generate NFL M1 Final-Pregame Research-Shadow Forecasts",
     "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
     "consume-model-exchange-research-artifacts": "Consume Verified Model Exchange Research Artifacts",
+    "import-nfl-final-pair": "Import NFL FINAL Forecast and Eligibility Pair",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
@@ -297,6 +298,7 @@ class JobOrchestrator:
             "generate-nfl-final-pregame-forecasts": self.generate_nfl_final_pregame_forecasts,
             "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
             "consume-model-exchange-research-artifacts": self.consume_model_exchange_artifacts,
+            "import-nfl-final-pair": self.import_nfl_final_pair,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
@@ -671,6 +673,21 @@ class JobOrchestrator:
             "records": int(payload.get("accepted_count", 0)) + int(payload.get("supplements_accepted", 0)),
             **payload,
         }
+
+    async def import_nfl_final_pair(self, event_date: date) -> dict[str, Any]:
+        """Import the NFL FINAL forecast/supplement pair alone, and commit.
+
+        Deadline-bound: a FINAL forecast is usable only once IMPORTED, and the
+        last checkpoint tick inside a T-30..T-15 window is a hard edge. This
+        owner exists so neither the broad pass's duration nor its
+        `max_instances=1` skip can consume that edge. No provider request, no
+        model execution, and no other sport's artifacts.
+        """
+
+        from app.jobs.model_exchange_consumer import run_nfl_final_import
+
+        payload = run_nfl_final_import(self.session, self.settings)
+        return {"records": int(payload.get("records", 0)), **payload}
 
     async def open_model_era_at_boundary(self, event_date: date) -> dict[str, Any]:
         """Open an armed model era once -- and only once -- its boundary arrives.
