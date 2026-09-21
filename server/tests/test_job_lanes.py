@@ -98,3 +98,42 @@ async def test_a_manual_run_carries_no_scheduling_record(session, settings, monk
     monkeypatch.setattr(JobOrchestrator, "_execute", instant)
     run = await JobOrchestrator(session, settings).run("refresh-scoreboard")
     assert "scheduling" not in run.parameters
+
+
+def test_the_producer_import_has_its_own_lane():
+    """A FINAL forecast is only usable once imported, so the import must not
+    queue behind the model run that produces it.
+
+    On 2026-09-20 the import due at about 12:31:52 waited a measured 703.56
+    seconds behind `generate-nfl-final-pregame-forecasts` (799.3 s on `core`)
+    and started at 12:43:35. The producer contract requires a measured
+    shared-queue bound of at most 600 seconds; 703.56 exceeded it.
+    """
+    from app.jobs import lanes
+
+    assert lanes.lane_for("asp-im-model-exchange-consumer") == lanes.IMPORT_LANE
+    assert lanes.IMPORT_LANE == "producer-import"
+    # and it is NOT the lane the long model run uses
+    assert lanes.lane_for("generate-nfl-final-pregame-forecasts") == lanes.CORE_LANE
+    assert lanes.IMPORT_LANE != lanes.CORE_LANE
+    # nor does it share the decision-checkpoint worker
+    assert lanes.IMPORT_LANE != lanes.DECISION_CHECKPOINT_LANE
+
+
+def test_the_import_lane_has_its_own_worker():
+    """Separate lane means a separate single-worker executor, not a label."""
+    from app.jobs import lanes
+
+    assert lanes.executor(lanes.IMPORT_LANE) is not lanes.executor(lanes.CORE_LANE)
+    assert lanes.executor(lanes.IMPORT_LANE)._max_workers == 1
+
+
+def test_the_import_job_is_registered_on_the_import_lane(settings):
+    """The scheduler id carries the prefix, so registration and lane agree."""
+    import inspect
+
+    from app.jobs import scheduler as sched
+
+    source = inspect.getsource(sched)
+    assert '"asp-im-model-exchange-consumer"' in source
+    assert '"asp-model-exchange-consumer"' not in source

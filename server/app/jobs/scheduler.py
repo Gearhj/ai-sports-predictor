@@ -557,7 +557,15 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         scheduler.add_job(
             execute_scheduled_job, "interval",
             minutes=settings.model_exchange_import_interval_minutes,
-            id="asp-model-exchange-consumer",
+            # The `asp-im-` prefix puts this on the `producer-import` lane. It
+            # used to share `core` with model execution, and on 2026-09-20 the
+            # import due at about 12:31:52 waited a measured 703.56 seconds
+            # behind `generate-nfl-final-pregame-forecasts` (799.3 s on core).
+            # A FINAL forecast is only usable once IMPORTED, so an import queued
+            # behind the job that produces the forecast is the one delay that
+            # silently costs a decision. Cadence and behaviour are unchanged --
+            # only the thread it runs on.
+            id="asp-im-model-exchange-consumer",
             kwargs={"job_name": "consume-model-exchange-research-artifacts", "settings": settings},
             next_run_time=datetime.now(UTC),
             **common,

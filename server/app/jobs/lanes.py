@@ -27,7 +27,7 @@ deadline at all. They must not queue against each other.
 
 WHAT
 ----
-Four single-worker lanes:
+Five single-worker lanes:
 
 * ``core`` -- every job that imports forecasts, collects decision inputs,
   settles or scores. Unchanged: one at a time.
@@ -38,6 +38,11 @@ Four single-worker lanes:
 * ``prediction-markets`` -- the read-only Prediction Market Observer jobs
   (``asp-pm-*``). They touch only their own tables and their own providers,
   open their own session per run, and never gate an AISP decision.
+
+* ``producer-import`` -- the producer-evidence import (``asp-im-*``). A FINAL
+  forecast is only usable once IMPORTED, so an import queued behind the very
+  job that produces the forecast is the one delay that silently costs a
+  decision. On 2026-09-20 that wait was a measured 703.56 seconds.
 
 * ``research-export`` -- read-only private research exports (``asp-rx-*``),
   such as the V18 market-pilot packet sealer. They read retained rows, write
@@ -78,11 +83,32 @@ RESEARCH_EXPORT_JOB_PREFIX = "asp-rx-"
 DECISION_CHECKPOINT_LANE = "decision-checkpoints"
 DECISION_CHECKPOINT_JOB_PREFIX = "asp-dc-"
 
+#: The producer-evidence import (``asp-im-*``).
+#:
+#: It used to share ``core`` with model execution, and on 2026-09-20 that cost a
+#: measured 703.56 seconds of queue wait: the import due at about 12:31:52 sat
+#: behind `generate-nfl-final-pregame-forecasts`, which held ``core`` for 799.3
+#: seconds, and did not start until 12:43:35. The job ledger recorded the wait
+#: itself -- `parameters.scheduling.queue_wait_seconds = 703.56`.
+#:
+#: That matters beyond one slow evening. A FINAL forecast is only usable if it
+#: is IMPORTED before the last checkpoint tick inside the decision window, so an
+#: import queued behind the very job that produces the forecast is the one delay
+#: that can silently cost a decision. The producer contract
+#: (`nfl-final-delivery-operational-v2`) requires a measured shared-queue bound
+#: of at most 600 seconds and independent per-game import; 703.56 exceeds it.
+#:
+#: Same remedy as the decision checkpoints: its own single worker, so a long
+#: model run cannot hold it. Nothing about what the import DOES changes.
+IMPORT_LANE = "producer-import"
+IMPORT_JOB_PREFIX = "asp-im-"
+
 #: Scheduler-id prefix -> lane. Anything unlisted stays on the core lane.
 _LANE_PREFIXES: tuple[tuple[str, str], ...] = (
     (PREDICTION_MARKET_JOB_PREFIX, PREDICTION_MARKET_LANE),
     (RESEARCH_EXPORT_JOB_PREFIX, RESEARCH_EXPORT_LANE),
     (DECISION_CHECKPOINT_JOB_PREFIX, DECISION_CHECKPOINT_LANE),
+    (IMPORT_JOB_PREFIX, IMPORT_LANE),
 )
 
 _EXECUTORS: dict[str, ThreadPoolExecutor] = {}
@@ -188,5 +214,6 @@ def decision_checkpoint_guard(key: str) -> Iterator[bool]:
 __all__ = [
     "CORE_LANE", "DECISION_CHECKPOINT_JOB_PREFIX", "DECISION_CHECKPOINT_LANE",
     "PREDICTION_MARKET_LANE", "RESEARCH_EXPORT_LANE", "current_meta",
+    "IMPORT_LANE", "IMPORT_JOB_PREFIX",
     "decision_checkpoint_guard", "executor", "lane_for", "run_with_meta",
 ]
