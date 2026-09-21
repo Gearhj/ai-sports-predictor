@@ -32,9 +32,11 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models import (
     Game, GameStatus, GameTeam, League, Market, MarketOutcome, OddsSnapshot,
-    OfficialAspPosition, PositionResult, PositionStatus, ShadowExperiment,
-    ShadowExperimentDecision, ShadowForecast, Sportsbook, Team,
+    OfficialAspPosition, PositionResult, PositionStatus, ResearchSupplement,
+    ShadowExperiment, ShadowExperimentDecision, ShadowForecast,
+    ShadowForecastBundle, Sportsbook, Team,
 )
+from app.services import nfl_final_readiness as readiness_gate
 from app.services import nfl_paper_policy as policy
 from app.services import nfl_paper_eligibility as eligibility
 
@@ -393,9 +395,16 @@ def _resolve_staking(session: Session, experiment: ShadowExperiment, game_id: An
 #: the checkpoint ran at 12:41:32, so a later tick inside the same window would
 #: have found it. Pinning the first answer would turn a two-minute wait into a
 #: lost evaluation.
+#: ``NO_POSITIVE_READINESS_EVIDENCE`` is here for exactly the same reason. The
+#: producer publishes the forecast, the grant, the locator and the readiness
+#: proof as four SEPARATE filesystem operations -- the contract is explicit that
+#: this is "not an all-files atomic transaction" -- so a checkpoint can read a
+#: complete forecast microseconds before its readiness sidecar appears. That is
+#: an input that has not landed yet, not a verdict about the game, and a later
+#: tick inside the same window must be able to find it.
 PREREQUISITE_REASONS = frozenset(eligibility.MISSING_PERMISSION_REASONS) | {
     "NO_FORECAST", "NO_FINAL_PREGAME_FORECAST", "NO_TWO_SIDED_QUOTE",
-    "NO_PERMITTED_PROVIDER", "QUOTE_TOO_STALE",
+    "NO_PERMITTED_PROVIDER", "QUOTE_TOO_STALE", readiness_gate.REASON,
 }
 
 
@@ -596,7 +605,7 @@ def evaluate(
 
     decisions: list[dict[str, Any]] = []
     for game in due:
-        outcome = _decide(session, era, game, moment)
+        outcome = _decide(session, era, game, moment, settings)
         # Persisted whatever the outcome, then committed: a checkpoint that
         # evaluated and wrote nothing is indistinguishable from one that never
         # ran, and only one of those needs someone to look at it.
@@ -622,8 +631,68 @@ def evaluate(
     })
 
 
+def _readiness_root(settings: Settings | None) -> str | None:
+    """Where the readiness family is read from, or None when unconfigured."""
+
+    if settings is None:
+        return None
+    explicit = str(getattr(settings, "nfl_final_readiness_root", "") or "").strip()
+    if explicit:
+        return explicit
+    configured = str(getattr(settings, "probability_exchange_root", "") or "").strip()
+    return configured or None
+
+
+def _check_readiness(
+    session: Session, settings: Settings | None, forecast: ShadowForecast,
+    *, kickoff: datetime, moment: datetime,
+) -> readiness_gate.ReadinessVerification:
+    """Run the readiness joins for one FINAL forecast and return the verdict.
+
+    The CONSUMER'S OWN CLOCKS come from here, not from the producer's document.
+    ``moment`` is when this checkpoint physically ran and read the sidecar; the
+    package and grant import times are the rows' own ``imported_at``, which is
+    when this consumer actually took delivery. None of the three is read from
+    ``availableAsOfUtc``, which the contract says is numerical completion and
+    not exchange visibility.
+    """
+
+    root = _readiness_root(settings)
+    if root is None:
+        return readiness_gate.ReadinessVerification(
+            verified=False, forecast_id=forecast.forecast_id,
+            reason=readiness_gate.REASON,
+            sub_reasons=("READINESS_ROOT_NOT_CONFIGURED",),
+            detail="No model-exchange root is configured for the readiness family.",
+            evidence={"checkpoint_selected_forecast_id": forecast.forecast_id})
+
+    package_imported_at = session.scalar(
+        select(ShadowForecastBundle.imported_at)
+        .where(ShadowForecastBundle.id == forecast.bundle_id))
+    grant_imported_at = session.scalar(
+        select(ResearchSupplement.imported_at)
+        .where(ResearchSupplement.forecast_id == forecast.forecast_id,
+               ResearchSupplement.kind == "PAPER_RESEARCH_ELIGIBILITY")
+        .order_by(ResearchSupplement.imported_at.asc()).limit(1))
+
+    return readiness_gate.verify_final_readiness(
+        exchange_root=root,
+        forecast_id=forecast.forecast_id,
+        event_id=forecast.event_id,
+        kickoff_utc=kickoff,
+        observed_at=moment,
+        checkpoint_forecast_id=forecast.forecast_id,
+        snapshot_type=forecast.snapshot_type,
+        snapshot_version=forecast.snapshot_version,
+        engine_id=forecast.engine_id,
+        package_imported_at=_aware(package_imported_at) if package_imported_at else None,
+        grant_imported_at=_aware(grant_imported_at) if grant_imported_at else None,
+    )
+
+
 def _decide(
     session: Session, era: ShadowExperiment, game: dict[str, Any], moment: datetime,
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     base = {"game_id": game["game_id"], "matchup": f"{game['away']} at {game['home']}",
             "starts_at": game["starts_at"], "evaluated_at": moment.isoformat()}
@@ -671,6 +740,38 @@ def _decide(
             "forecast_published_at": forecast.available_as_of_utc,
             "forecast_cutoff_utc": forecast.forecast_cutoff_utc,
             "controlling": True}
+
+    # THE SECOND FINAL GATE: READINESS EVIDENCE.
+    #
+    # "Physical forecast bytes without all required positive evidence are not
+    # consumer readiness." Having a FINAL row is not the same as the producer
+    # having published, granted, indexed and PROVEN it, and those are four
+    # separate filesystem operations that can land in any order or not at all.
+    #
+    # The verification ALWAYS RUNS and its verdict is ALWAYS RECORDED, so the
+    # decision carries evidence about the readiness family from the day this
+    # ships. Whether it BLOCKS is the activation switch: the contract requires
+    # the family only "for FINALs from the activated operational-V2 producer
+    # revision", and that revision is not activated, so turning the requirement
+    # on by default would fail-close FINALs from the unchanged CURRENT producer.
+    #
+    # Note what is NOT reachable here: a CURRENT forecast. The branch above has
+    # already returned, so readiness evidence can never rescue a CURRENT
+    # snapshot into controlling a position -- it is only ever consulted about a
+    # FINAL that was already selected on its own merits.
+    readiness = _check_readiness(session, settings, forecast,
+                                 kickoff=_aware(datetime.fromisoformat(game["starts_at"])),
+                                 moment=moment)
+    base = {**base, "readiness": readiness.as_record(),
+            "readiness_required": bool(
+                getattr(settings, "nfl_final_readiness_required", False))}
+    if not readiness.verified and getattr(settings, "nfl_final_readiness_required", False):
+        return {**base, "outcome": "BLOCKED", "reason": readiness.reason,
+                "detail": (
+                    "The FINAL_PREGAME forecast does not carry complete positive "
+                    f"readiness evidence ({', '.join(readiness.sub_reasons)}): "
+                    f"{readiness.detail}"),
+                "forecast_id": forecast.forecast_id}
 
     # Eligibility first, deliberately. See the module docstring.
     binding = eligibility.check(

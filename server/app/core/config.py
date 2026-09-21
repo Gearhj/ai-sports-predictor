@@ -247,6 +247,30 @@ class Settings(BaseSettings):
     nfl_shadow_enabled: bool = False
     nfl_shadow_bundle_import_dir: str = ""
     nfl_shadow_odds_enabled: bool = False
+    # ------------------------------------------------------------------
+    # THE NFL FINAL READINESS GATE, AND WHY IT SHIPS OFF.
+    #
+    # `nfl-final-delivery-operational-v2.md` requires the readiness family
+    # "for FINALs from the activated operational-V2 producer revision". That
+    # revision is NOT activated and the family does not exist on disk, so
+    # requiring it today would fail-close every FINAL that arrives from the
+    # CURRENT producer -- a consumer change breaking a producer that has not
+    # changed.
+    #
+    # Off (the default): the verification still RUNS on every FINAL and its
+    # verdict is recorded on the decision, so we accumulate real evidence
+    # about the family from the moment it starts appearing. It does not block.
+    # On: it blocks, and an unverified FINAL controls nothing.
+    #
+    # This is the activation switch. It is flipped only after the producer's
+    # operational-V2 revision is live and the first authentic receipts have
+    # been read back.
+    # ------------------------------------------------------------------
+    nfl_final_readiness_required: bool = False
+    #: Where the readiness family is read from. Empty means "the configured
+    #: model-exchange root", which is what production uses; tests point it at a
+    #: temporary directory so the real exchange tree is never touched.
+    nfl_final_readiness_root: str = ""
     # Automatic NFL final ingestion from the free nflverse schedules release.
     # This is the kill switch: off means completed games stop entering AISP by
     # themselves and prospective scoring waits for an operator again. It spends
