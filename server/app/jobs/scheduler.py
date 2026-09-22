@@ -440,8 +440,28 @@ async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
     await execute_scheduled_job("refresh-nfl-shadow-odds", settings)
 
 
+#: The due window for FINAL_PREGAME generation, as offsets before kickoff.
+#:
+#: WHY IT OPENS AT T-60
+#: --------------------
+#: The producer's delivery policy is T-60 / T-21 / T-15: it may begin an hour
+#: before kickoff, must publish by T-21, and the consumer decides by T-15. This
+#: gate opened at T-30, so the producer was never invited before T-30 no matter
+#: what it supported. On 2026-09-21 the producer's own one-minute owner logged
+#: `no_unfrozen_game_in_window` from its intended 23:15Z trigger right through
+#: 23:44Z and only began computing when this gate opened; NYG @ LAR published at
+#: 23:47:12 against a 23:54 hard boundary -- about seven minutes of margin
+#: instead of the designed thirty-nine. Model Studio traced the cause here.
+#:
+#: The LOWER boundary is unchanged at T-15: past it the consumer's cutoff has
+#: passed and a forecast can no longer control a decision, so inviting the
+#: producer then would spend work on a game that cannot use it.
+NFL_FINAL_GENERATION_OPENS = timedelta(minutes=60)
+NFL_FINAL_GENERATION_CLOSES = timedelta(minutes=15)
+
+
 async def execute_nfl_final_pregame_generation(settings: Settings) -> None:
-    """Invoke the producer only for an unfrozen game in its 15–30m window."""
+    """Invoke the producer only for an unfrozen game inside its T-60..T-15 window."""
 
     now = datetime.now(UTC)
     with SessionLocal() as session:
@@ -450,8 +470,8 @@ async def execute_nfl_final_pregame_generation(settings: Settings) -> None:
             .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
             .where(
                 ShadowForecastBundle.sport == "NFL",
-                ShadowForecast.scheduled_start_utc >= now + timedelta(minutes=15),
-                ShadowForecast.scheduled_start_utc <= now + timedelta(minutes=30),
+                ShadowForecast.scheduled_start_utc >= now + NFL_FINAL_GENERATION_CLOSES,
+                ShadowForecast.scheduled_start_utc <= now + NFL_FINAL_GENERATION_OPENS,
             )
             .distinct()
         ))
