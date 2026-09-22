@@ -413,7 +413,16 @@ async def execute_v18_market_pilot_outcomes_v2(settings: Settings) -> None:
     except Exception as exc:
         logger.error("v18_market_pilot_outcomes_v2_due_check_failed", error=str(exc))
         return
-    if not due:
+    # THE PROSPECTIVE CAPTURE RIDES THIS OWNER, SO IT MUST NOT BE HOSTAGE TO IT.
+    #
+    # This gate used to fire the owner only when MLB V2 outcome work was due. The
+    # prospective capture is a trailing step of the same owner, so it ran only as
+    # a side effect of MLB work -- an NFL-only day captured nothing, and once the
+    # MLB season ended the NFL capture would have stopped without a word. While
+    # capture is enabled the owner therefore runs every tick. That is harmless to
+    # the V2 lane: with no action planned, `run_outcomes_v2_tick` iterates zero
+    # actions and writes nothing.
+    if not due and not getattr(settings, "prospective_capture_enabled", False):
         return
     await execute_scheduled_job(JOB_NAME, settings)
 

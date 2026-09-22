@@ -42,23 +42,24 @@ from app.research_exports import prospective_capture as capture
 #: and enrollment closes 2026-10-01, so this slate is inside the window.
 KICKOFF = datetime(2026, 9, 23, 23, 0, tzinfo=UTC)
 CHECKPOINT = KICKOFF - timedelta(minutes=15)
+#: When the exporter observes. Always AFTER the checkpoint plus its settling
+#: margin: a record may only be written once the checkpoint's evidence is fixed.
+CAPTURE_AT = CHECKPOINT + capture.CAPTURE_SETTLING
 QUOTE_AT = CHECKPOINT - timedelta(minutes=5)
 WINDOW = (KICKOFF - timedelta(hours=6), KICKOFF + timedelta(hours=6))
 FROZEN_DIR = Path(
     r"C:\Users\james\asp-model-studio\outputs\model-market-prospective-comparison-20260921-v1")
 
-#: A convention set a provider HAS stated, used only to exercise the priced path.
-#: Production ``BOUND_CONVENTIONS`` is empty, and a separate test pins that.
+#: A convention set a BOOK has stated, used only to exercise the priced path.
+#: Keyed by sportsbook, as production is: the feed relays several books and each
+#: settles by its own rules. A separate test pins what production binds.
+_TEST_NFL = {"settlementRule": "TWO_WAY_MONEYLINE_OFFICIAL_TIE_REFUNDS",
+             "overtimeRule": "INCLUDED"}
+_TEST_MLB = {"settlementRule": "WHOLE_GAME_WINNER", "extraInningsRule": "INCLUDED",
+             "pitcherActionRule": "ACTION"}
 TEST_CONVENTIONS = {
-    ("NFL", "SPORTSGAMEODDS"): {
-        "settlementRule": "TWO_WAY_MONEYLINE_OFFICIAL_TIE_REFUNDS",
-        "overtimeRule": "INCLUDED",
-    },
-    ("MLB", "SPORTSGAMEODDS"): {
-        "settlementRule": "WHOLE_GAME_WINNER",
-        "extraInningsRule": "INCLUDED",
-        "pitcherActionRule": "ACTION",
-    },
+    **{("NFL", book): dict(_TEST_NFL) for book in ("sgo:alpha", "sgo:bravo", "sgo:charlie")},
+    **{("MLB", book): dict(_TEST_MLB) for book in ("sgo:alpha", "sgo:bravo", "sgo:charlie")},
 }
 
 
@@ -308,8 +309,8 @@ def run(world: World, **kwargs) -> dict:
     # empties the fixture, and a second tick would see an empty slate.
     world.session.commit()
     return capture.run_prospective_capture(
-        world.session, world.settings, now=CHECKPOINT,
-        window_start=WINDOW[0], window_end=WINDOW[1], **kwargs)
+        world.session, world.settings,
+        **{"now": CAPTURE_AT, "window_start": WINDOW[0], "window_end": WINDOW[1], **kwargs})
 
 
 def records_on_disk(world: World, game_id: str) -> list[Path]:
@@ -373,9 +374,31 @@ def test_it_registers_no_scheduled_job_and_never_takes_the_decision_lane():
 
     from app.jobs import lanes, scheduler
 
+    import ast
+
     source = Path(scheduler.__file__).read_text(encoding="utf-8")
-    assert "prospective_capture" not in source
+    tree = ast.parse(source)
+    # No job of its own: nothing the scheduler registers names the capture.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "add_job":
+            text = ast.get_source_segment(source, node) or ""
+            assert "prospective" not in text.lower(), text
+    # The scheduler never imports the capture module; the owner's orchestrator does.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [getattr(node, "module", "") or ""] + [a.name for a in node.names]
+            assert not any("prospective_capture" in name for name in names), names
+    # The ONE permitted mention: the existing owner reads the enable flag so it
+    # still fires when no MLB V2 outcome work is due. Anywhere else would mean
+    # the capture had grown a scheduling surface of its own.
+    owner = next(node for node in ast.walk(tree)
+                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and node.name == "execute_v18_market_pilot_outcomes_v2")
+    owner_text = ast.get_source_segment(source, owner) or ""
+    outside = source.replace(owner_text, "")
+    assert "prospective_capture" not in outside
     assert "prospective-capture" not in source
+    assert "prospective_capture_enabled" in owner_text
     assert capture.INVOCATION_STATE == "PREPARED_NOT_ACTIVATED"
     assert capture.INVOCATION_LANE == lanes.RESEARCH_EXPORT_LANE
     assert capture.INVOCATION_JOB_PREFIX == lanes.RESEARCH_EXPORT_JOB_PREFIX
@@ -861,10 +884,107 @@ def test_the_no_vig_arithmetic_is_shown_and_uses_both_selected_legs(world: World
 # Conventions: missing semantics yield UNPRICED
 # ==========================================================================
 
-def test_the_production_convention_registry_is_empty():
-    """Nothing is asserted on a provider's behalf. It is bound or it is UNPRICED."""
+def test_the_production_registry_binds_only_what_a_retained_document_states():
+    """Exactly one binding, and it carries its own citation.
 
-    assert capture.BOUND_CONVENTIONS == {}
+    Nothing is asserted on a book's behalf. FanDuel's published American
+    Football rules state overtime, ties, postponement and suspension; every
+    other book the feed relays is either a legacy brand whose operator the feed
+    does not document, offshore, or had no retrievable rule text -- so it stays
+    UNPRICED. MLB has no retained extra-innings or listed-pitcher rule at all.
+    """
+
+    assert set(capture.BOUND_CONVENTIONS) == {("NFL", "sgo:fanduel")}
+    entry = capture.BOUND_CONVENTIONS[("NFL", "sgo:fanduel")]
+    for name in capture.REQUIRED_CONVENTIONS["NFL"]:
+        assert entry[name], name
+        assert entry["verbatim"][name], f"{name} has no verbatim source sentence"
+    document = entry["document"]
+    assert document["url"].startswith("https://www.fanduel.com/")
+    assert len(document["sha256"]) == 64
+    assert document["retrievedAtUtc"].endswith("Z")
+    # A single state's page, and the feed never says which state a quote is from.
+    assert document["quoteJurisdiction"] == "NOT_STATED_BY_PROVIDER"
+    for unbound in ("sgo:espnbet", "sgo:williamhill", "sgo:pointsbet", "sgo:unibet",
+                    "sgo:bovada", "sgo:draftkings", "sgo:betmgm", "sgo:caesars"):
+        assert ("NFL", unbound) not in capture.BOUND_CONVENTIONS, unbound
+    assert not any(sport == "MLB" for sport, _ in capture.BOUND_CONVENTIONS)
+    # Never keyed by the aggregator: that would stamp one book's rules on nine.
+    assert not any(book == "SPORTSGAMEODDS" for _, book in capture.BOUND_CONVENTIONS)
+
+
+def test_conventions_follow_the_selected_book_not_the_feed(monkeypatch):
+    """A bound book on the same feed does not lend its rules to an unbound one."""
+
+    monkeypatch.setattr(capture, "BOUND_CONVENTIONS",
+                        {("NFL", "sgo:bravo"): dict(_TEST_NFL)})
+    unbound = capture.conventions_for("NFL", "sgo:alpha", "SPORTSGAMEODDS")
+    bound = capture.conventions_for("NFL", "sgo:bravo", "SPORTSGAMEODDS")
+
+    assert unbound["source"] == "NOT_ESTABLISHED"
+    assert sorted(unbound["unestablished"]) == [
+        "MARKET_CONVENTION_OVERTIME_NOT_ESTABLISHED",
+        "MARKET_CONVENTION_SETTLEMENT_NOT_ESTABLISHED"]
+    assert bound["source"] == "BOUND_CONVENTION_REGISTRY"
+    assert bound["unestablished"] == []
+    assert bound["sportsbookKey"] == "sgo:bravo"
+
+
+def test_a_bound_convention_carries_its_citation_into_the_record():
+    block = capture.conventions_for("NFL", "sgo:fanduel", "SPORTSGAMEODDS")
+
+    assert block["unestablished"] == []
+    assert block["overtimeRule"] == "INCLUDED"
+    assert block["document"]["sha256"] == capture.BOUND_CONVENTIONS[
+        ("NFL", "sgo:fanduel")]["document"]["sha256"]
+    assert "voided" in block["verbatim"]["settlementRule"]
+
+
+def test_a_tick_before_the_checkpoint_writes_nothing(world: World):
+    """The universe reaches 36 hours ahead; a future game is not yet observable."""
+
+    entry = ready_game(world, "A")
+    summary = run(world, now=CHECKPOINT - timedelta(hours=8))
+
+    assert records_on_disk(world, str(entry["game"].id)) == []
+    assert summary["records"] == 0
+
+
+def test_the_settling_margin_is_honoured_exactly(world: World):
+    entry = ready_game(world, "A")
+
+    run(world, now=CHECKPOINT)  # the checkpoint itself: evidence may still be committing
+    assert records_on_disk(world, str(entry["game"].id)) == []
+    run(world, now=CHECKPOINT + capture.CAPTURE_SETTLING - timedelta(seconds=1))
+    assert records_on_disk(world, str(entry["game"].id)) == []
+    run(world, now=CHECKPOINT + capture.CAPTURE_SETTLING)
+    assert len(records_on_disk(world, str(entry["game"].id))) == 1
+
+
+def test_an_early_tick_cannot_seal_a_game_before_its_decision_exists(world: World):
+    """The failure this guard exists for, reproduced end to end.
+
+    Without it, a morning tick evaluates the evening's game, finds no decision,
+    and seals it EXCLUDED; write-once then refuses the real decision as "later
+    evidence". The canonical record must be the one built AFTER the checkpoint,
+    carrying the decision that was actually made.
+    """
+
+    # The morning: the game, its forecast and its prices exist -- but no
+    # decision yet, because its checkpoint is hours away.
+    entry = world.add_game("A")
+    entry["forecast"] = world.forecast(entry)
+    run(world, now=CHECKPOINT - timedelta(hours=8))
+
+    # The evening: the checkpoint makes its decision, then the next tick runs.
+    entry["decision"] = world.decide(entry, forecast=entry["forecast"])
+    run(world)  # after the checkpoint and its margin
+
+    record = only_record(world, entry)
+    assert record["decision"] is not None
+    assert "NO_PROBABILITY_BEARING_DECISION_CHANNEL" not in record["admission"]["reasonCodes"]
+    ledger_text = (world.dir / capture.LEDGER_NAME).read_text(encoding="utf-8")         if (world.dir / capture.LEDGER_NAME).exists() else ""
+    assert "OBSERVATION_ALREADY_ADMITTED_LATER_EVIDENCE_NOT_WRITTEN" not in ledger_text
 
 
 def test_an_unestablished_convention_makes_the_record_unpriced_not_a_guess(world: World):
@@ -878,6 +998,29 @@ def test_an_unestablished_convention_makes_the_record_unpriced_not_a_guess(world
     conventions = record["market"]["conventions"]
     assert conventions["settlementRule"] == "NOT_ESTABLISHED"
     assert conventions["source"] == "NOT_ESTABLISHED"
+
+
+def test_the_real_fanduel_citation_survives_the_contract_validator(world: World, monkeypatch):
+    """The production binding, not a test stub, inside a priced record.
+
+    Its verbatim rule sentences and document block ride in the record, so they
+    must pass the same validator and guards as everything else -- no forbidden
+    sentinel, no money field, the frozen key sets.
+    """
+
+    real = capture.BOUND_CONVENTIONS[("NFL", "sgo:fanduel")]
+    monkeypatch.setattr(capture, "BOUND_CONVENTIONS", {("NFL", "sgo:alpha"): real})
+    entry = ready_game(world, "A")
+    run(world)
+    record = only_record(world, entry)
+
+    assert record["admission"]["state"] == capture.ADMISSION_PRICED
+    assert capture.validate_record(record) == []
+    capture.assert_no_not_applicable_sentinel(record)
+    capture.assert_no_money(record)
+    conventions = record["market"]["conventions"]
+    assert conventions["document"]["sha256"] == real["document"]["sha256"]
+    assert conventions["postponementRule"].startswith("VOID_UNLESS_RESUMED")
 
 
 def test_a_bound_convention_lets_the_record_be_priced_eligible(world: World, bound_conventions):

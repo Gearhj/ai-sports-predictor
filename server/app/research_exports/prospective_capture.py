@@ -258,12 +258,72 @@ OUTCOME_REVISION_CONTRACT = "MODEL_MARKET_OUTCOME_REVISION_V1"
 FORBIDDEN_SENTINEL = "NOT_APPLICABLE"
 
 #: Settlement semantics may come from HERE and nowhere else, keyed by
-#: ``(sport, provider source)``. It is EMPTY on purpose: no retained provider
-#: response states extra-innings inclusion, tie/postponement settlement or any
-#: listed-pitcher rule (``v18_market_pilot._conventions`` documents the reads that
-#: establish this). An unbound convention is UNPRICED, never a guess. A pair may
-#: be added only with the retained document that states it.
-BOUND_CONVENTIONS: dict[tuple[str, str], dict[str, Any]] = {}
+#: ``(sport, sportsbook key)`` -- the key exactly as the selected pair carries it.
+#:
+#: KEYED BY THE BOOK, NOT THE FEED.
+#: ---------------------------------
+#: This registry used to be keyed by the provider SOURCE, ``SPORTSGAMEODDS``.
+#: SportsGameOdds is an aggregator: one response relays nine books, and each
+#: settles by its OWN house rules. Binding a convention at the feed level would
+#: have stamped one operator's rules onto every book the feed carries. The
+#: contract places the conventions beside ``sportsbookKey`` for this reason.
+#:
+#: WHAT MAY BE BOUND, AND WHAT MAY NOT.
+#: ------------------------------------
+#: An entry needs (a) a book key that unambiguously names a live operator and
+#: (b) that operator's own published rule text, retained with its hash. Anything
+#: less stays UNPRICED. Deliberately NOT bound, with the reason:
+#:
+#: * ``sgo:espnbet`` -- ESPN BET became theScore Bet on 2025-12-01. SGO still
+#:   returns ``espnbet`` and never ``thescorebet``, and documents no alias, so
+#:   which operator's rules govern that key is an inference, not a document.
+#: * ``sgo:williamhill``, ``sgo:pointsbet``, ``sgo:unibet`` -- legacy brands
+#:   (Caesars since 2021; Fanatics since 2024; exited the US market), with the
+#:   same undocumented mapping problem. ``sgo:bovada`` -- offshore, not a US
+#:   regulated operator.
+#: * ``sgo:draftkings``, ``sgo:betmgm`` -- their rules pages returned only a
+#:   script shell with no rule text when retained; ``sgo:caesars`` refused
+#:   retrieval (HTTP 403) and was not circumvented. Bindable once retained.
+#: * MLB -- nothing retained states extra-innings or listed-pitcher rules for
+#:   any book (``v18_market_pilot._conventions`` documents the reads).
+BOUND_CONVENTIONS: dict[tuple[str, str], dict[str, Any]] = {
+    ("NFL", "sgo:fanduel"): {
+        "settlementRule": "TWO_WAY_MONEYLINE_TIE_VOIDED_STAKE_REFUNDED",
+        "overtimeRule": "INCLUDED",
+        "postponementRule": "VOID_UNLESS_RESUMED_OR_RESCHEDULED_WITHIN_60H_OF_INITIAL_KICKOFF",
+        "suspensionRule": "VOID_IF_NOT_COMPLETED_WITHIN_24H_UNLESS_UNEQUIVOCALLY_DETERMINED",
+        "resultSource": "LEAGUE_GOVERNING_BODY",
+        "document": {
+            "operator": "FanDuel Sportsbook",
+            "title": "FanDuel Sportsbook House Rules (Ohio) -- American Football General Rules",
+            "url": "https://www.fanduel.com/fanduel-sportsbook-house-rules-oh",
+            "retrievedAtUtc": "2026-09-22T12:51:50Z",
+            "sha256": "95a620d559415676de3a208a94ddaccda3f6d3423fa632d745f99c4deaae79b1",
+            "bytes": 1004568,
+            "retainedAt": (r"C:\Users\james\aisp-analysis\conventions-evidence-20260922"
+                           r"\fanduel.html"),
+            # The document is ONE state's house rules. SportsGameOdds never says
+            # which jurisdiction a quote comes from, so this is recorded rather
+            # than assumed away.
+            "documentJurisdiction": "US-OH",
+            "quoteJurisdiction": "NOT_STATED_BY_PROVIDER",
+        },
+        "verbatim": {
+            "overtimeRule": "Overtime counts for all markets unless stated otherwise.",
+            "settlementRule": "In the event of a tie, all money line wagers will be voided.",
+            "postponementRule": (
+                "Abandoned or postponed games must be resumed or rescheduled within 60 hours "
+                "of the initial kickoff time for bets to have action, otherwise bets will be "
+                "voided."),
+            "suspensionRule": (
+                "If a game starts and then is suspended prior to the above time and is not "
+                "completed within 24 hours, all bets that are not unequivocally determined "
+                "will be voided."),
+            "resultSource": ("All settlements are based on results and statistics provided "
+                             "by the relevant league's governing body."),
+        },
+    },
+}
 
 #: Which conventions each sport requires before a pair may be PRICED_ELIGIBLE.
 REQUIRED_CONVENTIONS: dict[str, tuple[str, ...]] = {
@@ -1018,20 +1078,20 @@ def _score_candidate(candidate: BookCandidate, checkpoint: datetime) -> None:
 # ---------------------------------------------------------------------------
 # Conventions: missing semantics yield UNPRICED, never a guess.
 # ---------------------------------------------------------------------------
-def conventions_for(sport: str, provider: str | None) -> dict[str, Any]:
-    """The bound conventions for this sport and provider, or NOT_ESTABLISHED.
+def conventions_for(sport: str, sportsbook_key: str | None,
+                    provider: str | None = None) -> dict[str, Any]:
+    """The bound conventions for this sport and SPORTSBOOK, or NOT_ESTABLISHED.
 
-    :data:`BOUND_CONVENTIONS` is empty, so today every answer is NOT_ESTABLISHED
-    and every priced-looking pair is UNPRICED. That is the honest state of the
-    retained evidence, not a defect: no retained provider response states extra
-    innings inclusion, tie or postponement settlement, overtime inclusion, or any
-    listed-pitcher/action rule.
+    Looked up by the selected pair's own sportsbook key, never by the feed that
+    relayed it -- see :data:`BOUND_CONVENTIONS`. An unbound book is UNPRICED even
+    when another book on the same feed is bound.
     """
 
     required = REQUIRED_CONVENTIONS.get(sport.upper(), ())
-    bound = BOUND_CONVENTIONS.get((sport.upper(), str(provider or "").upper()), {})
+    bound = BOUND_CONVENTIONS.get((sport.upper(), str(sportsbook_key or "")), {})
     block: dict[str, Any] = {
         "source": ("BOUND_CONVENTION_REGISTRY" if bound else "NOT_ESTABLISHED"),
+        "sportsbookKey": sportsbook_key,
         "provider": provider,
         "required": list(required),
         "tieTreatment": ("STAKE_REFUNDED_PUSH_OUTSIDE_BINARY_DENOMINATOR" if sport.upper() == "NFL"
@@ -1047,6 +1107,15 @@ def conventions_for(sport: str, provider: str | None) -> dict[str, Any]:
         if value is None:
             missing.append(_CONVENTION_REASON[name])
     block["unestablished"] = sorted(missing)
+    if bound:
+        # Everything the document states beyond the required minimum, and the
+        # citation itself, travel with the record so a reader can check the
+        # binding against the retained bytes without asking us.
+        for name in ("postponementRule", "suspensionRule", "resultSource"):
+            if bound.get(name) is not None:
+                block[name] = bound[name]
+        block["document"] = dict(bound.get("document") or {})
+        block["verbatim"] = dict(bound.get("verbatim") or {})
     return block
 
 
@@ -1335,8 +1404,9 @@ def evaluate_game(session: Session, game: GameRow) -> Observation | None:
         else:
             observed.selected = eligible[0]
             provider = observed.selected.home.source if observed.selected.home else None
-            for code in conventions_for(game.sport, provider)["unestablished"]:
-                observed.refuse(code, f"provider={provider}")
+            book = observed.selected.sportsbook_key
+            for code in conventions_for(game.sport, book, provider)["unestablished"]:
+                observed.refuse(code, f"sportsbook={book} provider={provider}")
 
     decision, why = deciding_row(session, game.game_id, checkpoint)
     if decision is None:
@@ -1468,7 +1538,8 @@ def _market_block(observed: Observation) -> dict[str, Any]:
             "homeRowPayloadChecksum": home.payload_checksum,
             "awayRowPayloadChecksum": away.payload_checksum if away else None,
         } if home is not None else None),
-        "conventions": conventions_for(observed.game.sport, provider),
+        "conventions": conventions_for(
+            observed.game.sport, selected.sportsbook_key if selected else None, provider),
         "noVig": no_vig(selected) if selected else None,
     }
     return block
@@ -1926,13 +1997,50 @@ def write_outcome_revisions(directory: Path, record: dict[str, Any],
 # ---------------------------------------------------------------------------
 # The tick
 # ---------------------------------------------------------------------------
+#: How long after a game's T-15 checkpoint before it may be observed at all.
+#:
+#: A CANONICAL RECORD IS WRITE-ONCE, SO IT MUST NOT BE WRITTEN EARLY.
+#: ------------------------------------------------------------------
+#: The universe is every game starting in the window, and the window reaches 36
+#: hours ahead. Without this guard the first tick of the day evaluates tonight's
+#: games hours before their checkpoints, finds no decision yet, and seals each
+#: one EXCLUDED -- permanently, because the next tick's real decision would then
+#: be "later evidence" and never written. That is not a hypothetical edge: it is
+#: what the very first tick after activation would have done to nearly every
+#: game on the slate. It was found before activation, not after.
+#:
+#: The margin past the checkpoint also absorbs a decision row whose transaction
+#: commits a moment after its stamp -- `created_at` is the transaction START --
+#: so the one canonical read happens once the checkpoint's evidence is settled.
+#: With a ten-minute owner and a twelve-hour look-back, it costs no coverage.
+CAPTURE_SETTLING = timedelta(minutes=10)
+
+
+def observable(game: GameRow, now: datetime | None) -> bool:
+    """Has this game's checkpoint passed, with its settling margin, as of ``now``?"""
+
+    if now is None:
+        return True
+    checkpoint = checkpoint_for(game.starts_at)
+    if checkpoint is None:
+        return True  # recorded as SCHEDULED_START_MISSING, never silently dropped
+    return checkpoint + CAPTURE_SETTLING <= pilot.aware(now)
+
+
 def build_all(session: Session, *, window_start: datetime, window_end: datetime,
-              sports: Iterable[str] = SPORTS
+              sports: Iterable[str] = SPORTS, now: datetime | None = None,
               ) -> list[tuple[Observation, dict[str, Any], list[dict[str, Any]]]]:
-    """Every record for the window. Reads only; writes nothing anywhere."""
+    """Every OBSERVABLE record for the window. Reads only; writes nothing anywhere.
+
+    A game whose checkpoint has not yet passed (plus :data:`CAPTURE_SETTLING`) is
+    not built at all -- not refused, not excluded, simply not yet observable. It
+    is built by the first tick after that moment.
+    """
 
     built: list[tuple[Observation, dict[str, Any], list[dict[str, Any]]]] = []
     for game in universe(session, window_start=window_start, window_end=window_end, sports=sports):
+        if not observable(game, now):
+            continue
         observed = evaluate_game(session, game)
         if observed is None:  # pragma: no cover - evaluate_game always returns
             continue
@@ -1979,7 +2087,7 @@ def run_prospective_capture(
     # Property A + D: one explicitly read-only transaction, listeners attached.
     with read_only_session(session):
         built = build_all(session, window_start=start, window_end=end,
-                          sports=sports or SPORTS)
+                          sports=sports or SPORTS, now=moment)
 
     # Property C: every file write happens OUT HERE, after the transaction closed.
     written: list[dict[str, Any]] = []
@@ -2134,7 +2242,7 @@ if __name__ == "__main__":  # pragma: no cover - manual entry point
 
 __all__ = [
     "ADMISSION_EXCLUDED", "ADMISSION_PRICED", "ADMISSION_STATES", "ADMISSION_UNPRICED",
-    "BOOK_REASON_CODES", "BOUND_CONVENTIONS", "CHANNEL_MEANINGS", "CLOCK_MEANINGS",
+    "BOOK_REASON_CODES", "BOUND_CONVENTIONS", "CAPTURE_SETTLING", "CHANNEL_MEANINGS", "CLOCK_MEANINGS",
     "COMPLETION_TIME_UNAVAILABLE", "CONTRACT", "CONTRACT_FILE", "CONTRACT_SHA256",
     "ENROLLMENT_END", "EXCLUSION_REASON_CODES", "EXPORT_IDENTITY", "FORBIDDEN_SENTINEL",
     "FREEZE_INSTANT", "FREEZE_INSTANT_UTC", "INVOCATION_JOB_PREFIX", "INVOCATION_LANE",

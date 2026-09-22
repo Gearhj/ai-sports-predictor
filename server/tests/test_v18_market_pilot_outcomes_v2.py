@@ -592,3 +592,38 @@ def test_no_last_play_schedule_or_proxy_clock_can_become_final_at(world, setting
                                         record["scheduledStartUtc"])
     source = inspect.getsource(v2)
     assert "allPlays" not in source and "gameEndTime\"" not in source
+
+
+@pytest.mark.parametrize("capture_enabled, due, expected_runs", [
+    (False, False, 0),   # the original behaviour, unchanged
+    (False, True, 1),
+    (True, False, 1),    # the fix: capture is not hostage to MLB outcome work
+    (True, True, 1),
+])
+def test_the_owner_runs_for_the_prospective_capture_even_when_no_v2_work_is_due(
+        settings, monkeypatch, capture_enabled, due, expected_runs):
+    """The capture rides this owner, so the owner must fire for it.
+
+    It used to fire only when MLB V2 outcome work was due, so an NFL-only day
+    captured nothing and the end of the MLB season would have silently stopped
+    NFL capture. The V2 lane itself is unaffected: an idle V2 tick writes
+    nothing (see test_v2_is_write_once_and_an_unchanged_state_writes_nothing).
+    """
+
+    import asyncio
+
+    from app.jobs import scheduler as sched
+
+    configured = settings.model_copy(update={
+        "v18_market_pilot_outcomes_v2_enabled": True,
+        "prospective_capture_enabled": capture_enabled})
+    monkeypatch.setattr(v2, "work_due", lambda session, settings, **_: due)
+    calls: list[str] = []
+
+    async def fake_execute(job_name, settings):
+        calls.append(job_name)
+
+    monkeypatch.setattr(sched, "execute_scheduled_job", fake_execute)
+    asyncio.run(sched.execute_v18_market_pilot_outcomes_v2(configured))
+
+    assert len(calls) == expected_runs
