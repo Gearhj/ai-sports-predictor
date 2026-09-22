@@ -383,11 +383,16 @@ CLOCK_MEANINGS = {
         "shadow_experiment_decisions.recommended_at: the instant the consumer demonstrably had the "
         "forecast in hand, because it decided from it."),
     "quoteObservedAtUtc": (
-        "odds_snapshots.observed_at: the BOOKMAKER's own last_update for that leg. The price was "
-        "the book's as of this instant, and leg age at the checkpoint is measured from it."),
+        "odds_snapshots.observed_at: the provider-stated lastUpdatedAt for this book leg -- when the "
+        "provider last recorded a change to (or confirmation of) this price. Leg age at the "
+        "checkpoint is measured from it. An old value means the price had not been recorded as "
+        "changing; it is NOT evidence that the price was unavailable, and must not be read as such."),
     "quoteConsumerReceiptAtUtc": (
-        "odds_snapshots.available_as_of: when AISP could first use the row (the collector's fetch "
-        "clock). An availability bound, never the book's clock."),
+        "odds_snapshots.available_as_of: the collector's REQUEST-SEND clock (the raw archive's "
+        "requested_at). It precedes receipt: the response was received and archived later (the "
+        "archive's ingestion_timestamp, not carried in this field), and the row became readable only "
+        "when its transaction committed after that. A lower bound on when AISP held the price; never "
+        "the book's clock and never a receipt instant."),
     "outcomeSourceCaptureAtUtc": (
         "The source-of-record row's own retrieval clock (nfl_final_observations.retrieved_at, or "
         "game_state_observations.available_as_of). A capture clock, never a completion time."),
