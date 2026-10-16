@@ -15,18 +15,27 @@ simulated with a string.
 
 The defect cannot be reproduced on SQLite, which serialises writers, so these
 skip loudly without a real PostgreSQL server rather than passing on a substitute.
+
+THE SERVER IS OPT-IN AND MUST BE A DEDICATED TEST DATABASE. Set
+``AISP_TEST_POSTGRES_URL`` to a PostgreSQL database whose name carries a
+``test`` token (``aisp_test``, ``test_aisp``); without it every test here skips.
+The module never reads the repo's .env and never falls back to DATABASE_URL: on
+2026-10-16 an earlier version took DATABASE_URL from the deployment .env, and
+full-suite runs created, truncated and dropped its scratch schema in the
+PRODUCTION database.
 """
 from __future__ import annotations
 
 import os
+import re
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from dotenv import dotenv_values
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, make_url, select, text
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
@@ -41,12 +50,51 @@ SCRATCH = "t26_collector_scratch"
 KICK = datetime(2026, 9, 27, 17, 0, tzinfo=UTC)
 CLUSTER = 3      # a tied cluster; Week 3's largest is 9, proved separately
 
+TEST_URL_ENV = "AISP_TEST_POSTGRES_URL"
+# A token, not a substring: "latest" or "contest" is not a test database.
+_TEST_DATABASE_NAME = re.compile(r"(^|[_-])test([_-]|$)", re.IGNORECASE)
 
-def _pg_url() -> str | None:
-    env = dotenv_values(r"C:\Users\james\ai-sports-predictor\.env")
-    url = env.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
-    if not url or not url.startswith(("postgresql", "postgres://")):
-        return None
+
+def _is_test_database(name: str | None) -> bool:
+    return bool(name) and _TEST_DATABASE_NAME.search(name) is not None
+
+
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _same_database(a: URL, b: URL) -> bool:
+    def where(u: URL) -> tuple:
+        host = u.host or "localhost"
+        return ("loopback" if host in _LOOPBACK else host, u.port or 5432, u.database)
+
+    return where(a) == where(b)
+
+
+def _pg_url() -> URL:
+    """The dedicated test database, named explicitly, or the module skips.
+
+    Only TEST_URL_ENV is consulted. Never the repo's .env and never
+    DATABASE_URL, which is the application's database, not a test's.
+    """
+
+    configured = os.environ.get(TEST_URL_ENV, "").strip()
+    if not configured:
+        pytest.skip(f"set {TEST_URL_ENV} to a dedicated PostgreSQL test database; "
+                    "this defect needs real concurrency")
+    url = make_url(configured)
+    if url.get_backend_name() != "postgresql":
+        pytest.skip(f"{TEST_URL_ENV} must use PostgreSQL")
+    if not _is_test_database(url.database):
+        pytest.skip(f"REFUSED: {TEST_URL_ENV} must name a dedicated test database "
+                    "(a database name carrying a 'test' token, e.g. aisp_test)")
+    app_url = os.environ.get("DATABASE_URL", "").strip()
+    if app_url.startswith("postgres"):
+        try:
+            if _same_database(url, make_url(app_url)):
+                pytest.skip(f"REFUSED: {TEST_URL_ENV} names the same database as "
+                            "DATABASE_URL")
+        except Exception:  # noqa: BLE001 -- an unparseable DATABASE_URL is not ours
+            pass
     return url
 
 
@@ -81,20 +129,29 @@ def no_network():
 
 @pytest.fixture(scope="module")
 def pg():
-    """The whole schema, in a scratch PostgreSQL schema we create and drop."""
+    """The whole schema, in a scratch schema of the dedicated test database."""
 
     url = _pg_url()
-    if not url:
-        pytest.skip("no PostgreSQL DATABASE_URL; this defect needs real concurrency")
     admin = create_engine(url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
     try:
         with admin.connect() as c:
+            # The server's own answer, before any DDL: a service file or a
+            # dbname query parameter can make the URL's name say one thing and
+            # the connection land on another.
+            actual = c.execute(text("SELECT current_database()")).scalar_one()
+            if not _is_test_database(actual):
+                raise LookupError("the connection did not land on a test database")
             c.execute(text(f"DROP SCHEMA IF EXISTS {SCRATCH} CASCADE"))
             c.execute(text(f"CREATE SCHEMA {SCRATCH}"))
+    except LookupError as exc:
+        admin.dispose()
+        pytest.skip(f"REFUSED: {exc}")
     except Exception as exc:  # noqa: BLE001
         admin.dispose()
-        pytest.skip(f"cannot create the scratch schema: {exc}")
-    scoped = f"{url}?options=-csearch_path%3D{SCRATCH}"
+        pytest.skip(f"cannot create the scratch schema: {type(exc).__name__}")
+    query = dict(url.query)
+    query["options"] = f"-csearch_path={SCRATCH}"
+    scoped = url.set(query=query).render_as_string(hide_password=False)
     build = create_engine(scoped, pool_pre_ping=True)
     Base.metadata.create_all(build)
     build.dispose()
@@ -553,3 +610,37 @@ def test_an_unknown_primary_charge_refuses_the_retry_through_the_collector(world
     assert after["reservations"] == 1          # only the seeded unknown one
     assert after["terminal"] == 0
     assert calls == []                         # the provider was never called
+
+
+# ==========================================================================
+# The database guard itself: these run everywhere, with no server at all
+# ==========================================================================
+
+def test_without_the_opt_in_the_module_skips_even_beside_a_postgres_database_url(monkeypatch):
+    """DATABASE_URL is the application's database; it is never a fallback."""
+
+    monkeypatch.delenv(TEST_URL_ENV, raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://app@localhost:5432/aisp_test")
+    with pytest.raises(pytest.skip.Exception, match=TEST_URL_ENV):
+        _pg_url()
+
+
+@pytest.mark.parametrize("configured, refusal", [
+    ("sqlite://", "must use PostgreSQL"),
+    ("postgresql://app@localhost:5432/aisp", "dedicated test database"),
+    ("postgresql://app@localhost:5432/latest", "dedicated test database"),
+    ("postgresql://app@localhost:5432/aisp_test", "same database as DATABASE_URL"),
+    ("postgresql://other@127.0.0.1/aisp_test", "same database as DATABASE_URL"),
+])
+def test_the_opt_in_refuses_anything_but_a_dedicated_test_database(
+        monkeypatch, configured, refusal):
+    monkeypatch.setenv(TEST_URL_ENV, configured)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://app@localhost/aisp_test")
+    with pytest.raises(pytest.skip.Exception, match=refusal):
+        _pg_url()
+
+
+def test_a_dedicated_test_database_is_accepted(monkeypatch):
+    monkeypatch.setenv(TEST_URL_ENV, "postgresql+psycopg://t@127.0.0.1:5433/aisp_test")
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    assert _pg_url().database == "aisp_test"
