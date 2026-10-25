@@ -556,7 +556,9 @@
 @media (max-width: 1500px) { .cv__more { grid-template-columns: 1fr; } }
 
 /* the Live View rail carries the whole menu too */
-.ls-body { grid-template-columns: 150px minmax(0, 1fr); }
+@media (min-width: 861px) { .ls-body { grid-template-columns: 150px minmax(0, 1fr); } }
+/* phones: the shell never grows past the screen (the top bar scrolls sideways instead) */
+.ls { grid-template-columns: minmax(0, 1fr); } .ls-top { min-width: 0; overflow-x: auto; scrollbar-width: none; }
 /* baseball inside the Live View shell (10-25): the same menu, rail and game strip as football, NBA and NHL */
 .lf--mlb .lf-main { padding: 12px 14px 20px; }
 .lf--mlb .lf-score__team { display: flex; flex-direction: row; align-items: center; gap: 12px; }

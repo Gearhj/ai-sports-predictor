@@ -13,6 +13,7 @@
 .ar-small { margin: 6px 0 0; font-size: 12px; color: #a9b4c4; }
 
 /* score bug */
+.ar-sb__abbr { display: none; }
 .ar-sb { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: center; padding: 12px 20px; border-radius: 16px; border: 1px solid #4a5466;
   background: linear-gradient(100deg, rgba(7, 13, 26, .9), #0b1526 50%, rgba(7, 13, 26, .9)); }
 .ar-sb__team { display: flex; align-items: center; gap: 14px; min-width: 0; }
@@ -118,4 +119,5 @@
 .ar-foot { font-size: 11px; color: #7f8b9d; }
 @media (max-width: 1250px) { .ar-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .ar-box__grid, .ar-leaders__grid { grid-template-columns: 1fr; } .ar-sb__team b { font-size: 20px; } .ar-sb__team strong { font-size: 40px; } .ar-sb__team img { width: 44px; height: 44px; } .ar-call b { font-size: 34px; } .ar-goalcall b { font-size: 44px; } .ar-onice__row > span { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .ar { padding: 10px 8px 18px; } .ar-sb { padding: 10px; gap: 6px; } .ar-sb__team { gap: 6px; } .ar-sb__team small { display: none; } .ar-sb__team b { font-size: 17px; } .ar-sb__long { display: none; } .ar-sb__abbr { display: inline !important; } .ar-sb__team strong { font-size: 34px; margin: 0; } .ar-sb__team img { width: 36px; height: 36px; } .ar-sb__mid table { font-size: 11px; } .ar-sb__mid th, .ar-sb__mid td { padding: 1px 4px; } .ar-sb__mid > b { font-size: 14px; } }
 @media (prefers-reduced-motion: reduce) { .ar *, .ar *::before { animation: none !important; } }
