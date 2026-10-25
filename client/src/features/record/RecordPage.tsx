@@ -8,6 +8,7 @@
  * is the $5,000 paper experiment: nothing here places, suggests or sizes a real-money wager.
  */
 import { BeatTheClose } from '../edge/BeatTheClose'
+import { MoneyRiver } from './MoneyRiver'
 import { AispSide } from '../flow/AispSide'
 import { Crest, cfbColor } from '../flow/Crest'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
@@ -178,6 +179,7 @@ export function RecordPage() {
 
             <Coach all={all} bySport={bySport} settled={settledAll} onSport={showSport} />
 
+            <MoneyRiver positions={all} />
             <BeatTheClose />
             <section className="sl-card rc-ledger" aria-label="The immutable ledger" ref={ledgerRef}>
               <header className="sl-card__head"><h2>🔒 The Immutable Ledger</h2><small className="rc-sub">Every bet. Every result. Immutable and transparent.</small>

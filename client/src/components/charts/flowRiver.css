@@ -1,0 +1,21 @@
+/* FlowRiver: a navy well with glowing nodes and translucent bands; the traced share burns bright. */
+.fr { display: grid; gap: 6px; min-width: 0; }
+.fr__wrap { position: relative; min-width: 0; overflow-x: auto; overflow-y: hidden; border-radius: 12px; background: radial-gradient(120% 90% at 50% 0%, #0f1c33, #070d1a 70%); border: 1px solid rgba(120, 160, 220, .16); }
+.fr__wrap svg { display: block; max-width: none; }
+.fr__col { font-size: 10.5px; font-weight: 900; letter-spacing: .14em; fill: #7f8b9d; }
+.fr__band { fill-opacity: .3; cursor: pointer; transition: fill-opacity .15s; }
+.fr__band:hover { fill-opacity: .6; }
+.fr__links.is-tracing .fr__band { fill-opacity: .1; }
+.fr__trace { fill-opacity: .85; }
+.fr__links.is-anim > g { opacity: 0; animation: fr-in .8s ease-out forwards; }
+@keyframes fr-in { from { opacity: 0; } to { opacity: 1; } }
+.fr__nodes g { cursor: pointer; outline: none; }
+.fr__nodes g:hover rect, .fr__nodes g:focus-visible rect, .fr__nodes g.is-pinned rect { stroke: #fff; stroke-width: 1.5; }
+.fr__label { font-size: 12.5px; font-weight: 700; fill: #dfe7f2; paint-order: stroke; stroke: #070d1a; stroke-width: 3px; }
+.fr__v { font-weight: 900; fill: #fff; }
+.fr__tv { fill: #fbbf24; font-weight: 800; }
+.fr__tip { position: absolute; z-index: 3; width: 240px; display: grid; gap: 3px; padding: 9px 11px; border-radius: 10px; pointer-events: none; background: linear-gradient(180deg, #3d4553, #2e3541); border: 1px solid #6b7a90; box-shadow: 0 12px 28px rgba(0, 0, 0, .5); font-size: 12.5px; color: #dfe7f2; }
+.fr__tip b { font-size: 13px; color: #fff; } .fr__tip small { color: #5eead4; font-weight: 800; font-size: 10.5px; }
+.fr__hint { margin: 0; font-size: 12px; color: var(--sl-muted, #a9b4c4); }
+.fr__hint button { font: inherit; font-size: 12px; font-weight: 800; color: #5eead4; background: none; border: 0; cursor: pointer; text-decoration: underline; padding: 0 4px; }
+@media (prefers-reduced-motion: reduce) { .fr__links.is-anim > g { animation: none; opacity: 1; } }

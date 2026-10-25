@@ -88,3 +88,12 @@
 .rc-kpi .sl-kpi__icon { width: 32px; height: 32px; font-size: 12px; }
 .rc-kpi .sl-kpi__text, .rc-kpi .sl-kpi__text b, .rc-kpi .sl-kpi__text em { width: 100%; }
 .rc-kpi .sl-kpi__text b { font-size: 22px; }
+
+/* Where the money went */
+.rc-river { display: grid; gap: 10px; }
+.rc-river__toggle { margin-left: auto; display: inline-flex; border: 1px solid var(--tt-steel-line, #4a5466); border-radius: 10px; overflow: hidden; }
+.rc-river__toggle button { font: inherit; font-size: 12px; font-weight: 800; color: var(--sl-muted); background: var(--tt-well, #08101f); border: 0; padding: 6px 12px; cursor: pointer; }
+.rc-river__toggle button.is-on { color: #062a26; background: #2dd4bf; }
+.rc-river__verdict { margin: 0; font-size: 13.5px; color: var(--sl-muted); }
+.rc-river__verdict b { color: #fff; } .rc-river__verdict .is-dog { color: #fb923c; } .rc-river__verdict .is-fav { color: #60a5fa; }
+.rc-river__verdict .is-up { color: #34d399; } .rc-river__verdict .is-down { color: #f87171; }
