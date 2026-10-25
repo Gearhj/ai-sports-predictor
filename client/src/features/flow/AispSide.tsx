@@ -22,7 +22,6 @@ export const AISP_NAV: Array<{ title: string; items: Array<{ to: string; label: 
   ] },
   { title: 'RESEARCH & TOOLS', items: [
     { to: '/markets', label: 'Markets & Crowd', icon: '◇' },
-    { to: '/model-lab', label: 'Model Lab', icon: '⚖' },
     { to: '/performance', label: 'Model Performance', icon: '▥' },
     { to: '/decisions', label: 'Daily Decisions', icon: '☑' },
     { to: '/labs', label: 'Game Simulator', icon: '⚗' },
