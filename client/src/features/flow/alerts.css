@@ -6,7 +6,7 @@
 .al-bell.has-new i { animation: al-ring .9s ease-in-out 2; }
 @keyframes al-ring { 25% { transform: rotate(18deg); } 75% { transform: rotate(-18deg); } }
 .al-bell.is-compact { width: auto; padding: 6px 8px; }
-.al-panel { position: fixed; left: 210px; bottom: 16px; z-index: 90; width: 360px; max-height: 70vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; padding: 12px; border-radius: 14px; color: #eef2f7; border: 1px solid #4a5466;
+.al-panel { position: fixed; left: 236px; bottom: 16px; z-index: 90; width: 360px; max-height: 70vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; padding: 12px; border-radius: 14px; color: #eef2f7; border: 1px solid #4a5466;
   background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3b4452, #2c333f 55%, #20262f); box-shadow: 0 20px 50px rgba(0, 0, 0, .55); }
 .al-panel header { display: flex; align-items: center; } .al-panel header b { font-size: 15px; } .al-panel header button { margin-left: auto; font: inherit; color: #cbd5e1; background: none; border: 0; cursor: pointer; }
 .al-set { display: grid; gap: 5px; font-size: 12.5px; padding: 8px 10px; border-radius: 10px; background: rgba(7, 13, 26, .5); }

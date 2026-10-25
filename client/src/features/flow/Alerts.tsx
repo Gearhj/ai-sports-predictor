@@ -9,6 +9,7 @@
  * Feeds: ESPN scoreboards and AISP's closing-line consensus via the test-mode preview, AISP Mission Control for open
  * bets. Read-only; nothing is sent anywhere.
  */
+import { createPortal } from 'react-dom'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { listPicks, type PreviewPick } from '../../services/previewPicks'
 import './alerts.css'
@@ -135,7 +136,7 @@ export function AlertsBell({ compact = false }: { compact?: boolean }) {
       <button type="button" className={`al-bell${compact ? ' is-compact' : ''}${unread ? ' has-new' : ''}`} onClick={() => { setOpen((v) => !v); unread = 0; emit() }} aria-expanded={open} aria-label={`Alerts${unread ? `, ${unread} new` : ''}`}>
         <i aria-hidden="true">🔔</i>{compact ? null : <span>Alerts</span>}{unread ? <em>{unread}</em> : null}
       </button>
-      {open ? (
+      {open ? createPortal(
         <div className="al-panel" role="dialog" aria-label="Alerts">
           <header><b>Alerts</b><button type="button" onClick={() => setOpen(false)} aria-label="Close">✕</button></header>
           <div className="al-set">
@@ -145,9 +146,9 @@ export function AlertsBell({ compact = false }: { compact?: boolean }) {
               : <button type="button" className="al-enable" onClick={() => { void enableDesktop() }}>Turn on desktop notifications</button>}
           </div>
           <ol className="al-list">{log.length ? log.map((a) => <li key={a.id} className={`k-${a.kind}${a.good === true ? ' is-good' : a.good === false ? ' is-bad' : ''}`}><b>{a.title}</b><span>{a.body}</span><small>{new Date(a.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</small></li>) : <li className="al-empty">Nothing yet. Alerts start when a followed game gets underway, someone scores, it goes final, or a slip price moves 2+ points.</li>}</ol>
-        </div>
+        </div>, document.body,
       ) : null}
-      <div className="al-toasts" aria-live="polite">{toasts.map((t) => <div key={t.id} className={`al-toast k-${t.kind}${t.good === true ? ' is-good' : t.good === false ? ' is-bad' : ''}`}><b>{t.title}</b><span>{t.body}</span></div>)}</div>
+      {createPortal(<div className="al-toasts" aria-live="polite">{toasts.map((t) => <div key={t.id} className={`al-toast k-${t.kind}${t.good === true ? ' is-good' : t.good === false ? ' is-bad' : ''}`}><b>{t.title}</b><span>{t.body}</span></div>)}</div>, document.body)}
     </>
   )
 }
