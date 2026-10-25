@@ -70,7 +70,7 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
       <div className="section-heading">
         <div>
           <span className="eyebrow">RESEARCH SHADOW</span>
-          <h2 id="shadow-compare-heading">Official forecast vs. research challenger</h2>
+          <h2 id="shadow-compare-heading">Gen 1 baseline vs. V18 research forecast</h2>
         </div>
         <p className="shadow-compare__note">{data.notes}</p>
         {data.authority_note && (
@@ -84,14 +84,14 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
         {data.official && (
           <article className="shadow-card shadow-card--official">
             <header>
-              <span className="shadow-card__track">Official · Gen 1</span>
+              <span className="shadow-card__track">Gen 1 baseline</span>
               {/* This badge used to read "Wagering authority", asserted as a
                   constant. Which engine a funded experiment uses is recorded in
                   the champion authority, not decided by this panel, and the
                   simulator beside it reports V18 controlling funded decisions.
                   The badge now names the track; the authority note above says
                   what does and does not grant authority. */}
-              <span className="shadow-card__authority">Official forecast track</span>
+              <span className="shadow-card__authority">Earlier baseline · comparison only</span>
             </header>
             <p className="shadow-card__value">{pct(data.official.home_win_probability)}</p>
             <p className="shadow-card__caption">
@@ -124,6 +124,7 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
             shadow={shadow}
             homeTeam={data.home_team}
             gameId={data.game_id}
+            eventStatus={data.event_status}
           />
         ))}
       </div>
@@ -139,10 +140,23 @@ export function ShadowForecastPanel({ gameId }: { gameId: string }) {
   )
 }
 
-function ShadowCard({ shadow, homeTeam, gameId }: {
+/** The research card's settlement line. Daily V18 packages carry no linked
+ *  result, so a final game must not read as "no final outcome recorded". */
+export function settlementText(shadow: ShadowForecastView, eventStatus?: string | null): string {
+  if (shadow.settlement_state === 'SETTLED' && shadow.settlement) {
+    return `Settled: ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}${shadow.settlement.extraInnings ? ' (extra innings)' : ''}`
+  }
+  if ((eventStatus ?? '').toUpperCase().includes('FINAL')) {
+    return 'Game final — this research card does not link the result; prospective scoring is on Model Performance'
+  }
+  return 'Pending — no final outcome recorded yet'
+}
+
+function ShadowCard({ shadow, homeTeam, gameId, eventStatus }: {
   shadow: ShadowForecastView
   homeTeam: string | null
   gameId: string
+  eventStatus?: string | null
 }) {
   const difference = shadow.difference_vs_official
   return (
@@ -161,7 +175,7 @@ function ShadowCard({ shadow, homeTeam, gameId }: {
           <strong>
             {difference > 0 ? '+' : ''}{difference.toFixed(1)} pts
           </strong>{' '}
-          vs. the official forecast
+          vs. the Gen 1 baseline
           {shadow.simulation_indistinguishable && (
             <em> — inside this run’s own Monte Carlo interval, so the two are
               simulation-indistinguishable</em>
@@ -221,10 +235,9 @@ function ShadowCard({ shadow, homeTeam, gameId }: {
       {/* Settlement is stated on the card so a reader never has to infer
           whether the result is in yet. */}
       <p className={`shadow-card__settlement shadow-card__settlement--${shadow.settlement_state.toLowerCase()}`}>
-        {shadow.settlement_state === 'SETTLED' && shadow.settlement
-          ? `Settled: ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}${shadow.settlement.extraInnings ? ' (extra innings)' : ''}`
-          : 'Pending — no final outcome recorded yet'}
-        <em>{shadow.settlement_note}</em>
+        {settlementText(shadow, eventStatus)}
+        {shadow.settlement_state === 'SETTLED' || !(eventStatus ?? '').toUpperCase().includes('FINAL')
+          ? <em>{shadow.settlement_note}</em> : null}
       </p>
 
       {shadow.sequential_path_events > 0 && (

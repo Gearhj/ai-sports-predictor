@@ -65,6 +65,14 @@ def publish_official_positions(session: Session, settings: Settings, games: list
                 model_probability=probability,
                 decimal_odds=candidate["snapshot"].decimal_odds,
             )
+            # Legacy writer (off unless official_positions_enabled): once the owner's
+            # shared cross-sport allowance is effective it is limited by it too, under
+            # the same lock, so no official writer sits outside the one daily pool.
+            from app.services.shared_daily_allowance import eastern_date, room as shared_room
+
+            shared = shared_room(session, settings, day=eastern_date(game.starts_at), moment=datetime.now(UTC))
+            if shared is not None:
+                stake = round(min(stake, shared["room_usd"]), 2)
             if stake <= 0:
                 continue
             position = OfficialAspPosition(

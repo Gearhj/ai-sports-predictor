@@ -1,4 +1,5 @@
-import { ArrowDown, Binary, BookOpen, BrainCircuit, Database, GitBranch, Info, Scale, ShieldCheck } from 'lucide-react'
+import { ArrowDown, Binary, BookOpen, BrainCircuit, Database, GitBranch, Guitar, Info, Scale, ShieldCheck } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { PageHeader, Panel } from '../components/ui'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 
@@ -162,6 +163,11 @@ export function MethodologyPage() {
           </section>
         </div>
       </div>
+      <footer className="methodology-encore">
+        <Link to="/encore" className="methodology-encore__link" aria-label="Encore">
+          <Guitar size={22} strokeWidth={1.6} aria-hidden />
+        </Link>
+      </footer>
     </div>
   )
 }

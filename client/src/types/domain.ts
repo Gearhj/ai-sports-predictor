@@ -71,6 +71,9 @@ export interface ForecastGame {
   away_pitcher: PitcherSummary
   home_pitcher: PitcherSummary
   forecast_available?: boolean
+  /** Which engine the page leads with, and why none is shown when absent. */
+  forecast_selection?: import('../services/forecastSelection').ForecastSelection | null
+  forecast_model_label?: string | null
   market_available?: boolean
   projected_away_runs: number | null
   projected_home_runs: number | null
@@ -726,6 +729,8 @@ export interface Position {
   bankroll_after?: number | null
   settlement_sequence?: number | null
   settled_at?: string | null
+  /** The position's own league, when one page shows several sport accounts. */
+  league?: string | null
   beat_close?: boolean | null
   model_probability?: number | null
   market_probability?: number | null
@@ -980,6 +985,10 @@ export interface ShadowGameView {
   scheduled_start_utc?: string | null
   home_team_id: string
   away_team_id: string
+  home_team_name?: string | null
+  away_team_name?: string | null
+  home_team_abbreviation?: string | null
+  away_team_abbreviation?: string | null
   engines: ShadowEngineView[]
   model_disagreement: number | null
 }

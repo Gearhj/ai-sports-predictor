@@ -76,6 +76,8 @@ def test_public_surfaces_agree_on_default_operating_date(client, settings):
     funnel = client.get("/api/v1/experiment/qualification-funnel").json()
     market = client.get("/api/v1/markets/board").json()
     config = client.get("/api/v1/public/config").json()
+    mission = client.get("/api/v1/mission-control").json()
+    assert mission["date"] == expected and mission["is_today"] is True
     assert pulse["date"] == expected
     assert funnel["date"] == expected
     assert market["date"] == expected

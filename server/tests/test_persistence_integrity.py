@@ -55,11 +55,14 @@ async def test_odds_snapshots_append_and_use_fetch_availability(session, setting
             ])],
         )],
     )
-    added = CanonicalNormalizer(session).ingest_odds([event], "TEST_SOURCE", fetched)
+    added = CanonicalNormalizer(session).ingest_odds(
+        [event], "SPORTSGAMEODDS", fetched, league_code="MLB", provider_league="MLB")
     session.commit()
     assert added == 2
     assert session.scalar(select(func.count()).select_from(OddsSnapshot)) == before + 2
-    appended = list(session.scalars(select(OddsSnapshot).where(OddsSnapshot.source == "TEST_SOURCE")))
+    appended = list(session.scalars(select(OddsSnapshot).where(
+        OddsSnapshot.source == "SPORTSGAMEODDS", OddsSnapshot.source_event_id == "append-test")))
+    assert len(appended) == 2
     assert all(item.available_as_of.replace(tzinfo=UTC) == fetched for item in appended)
     assert all(item.observed_at.replace(tzinfo=UTC) == observed for item in appended)
 
@@ -147,5 +150,5 @@ async def test_live_games_suppress_demo_games_and_features(session, settings) ->
     )
     session.add(live)
     session.commit()
-    games = ReadService(session, settings)._games_for_date(date(2026, 8, 12))
+    games = ReadService(session, settings)._games_for_date(date(2026, 8, 12), "MLB")
     assert games == [live]

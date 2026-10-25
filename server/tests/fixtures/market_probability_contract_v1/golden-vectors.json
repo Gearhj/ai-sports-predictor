@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "ASP_MARKET_PROBABILITY_GOLDEN_VECTORS_V1",
+  "population": {
+    "sport": "NFL",
+    "game_id": "synthetic-nfl-1",
+    "forecast_id": "synthetic-forecast-1",
+    "model_id": "FROZEN_TEST_MODEL",
+    "configuration_id": "SYNTHETIC_GOLDEN_V1",
+    "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "draw_count": 8,
+    "cells": [
+      {"awayScore": 0, "homeScore": 0, "count": 1},
+      {"awayScore": 1, "homeScore": 0, "count": 1},
+      {"awayScore": 0, "homeScore": 1, "count": 1},
+      {"awayScore": 2, "homeScore": 1, "count": 1},
+      {"awayScore": 1, "homeScore": 2, "count": 1},
+      {"awayScore": 3, "homeScore": 0, "count": 1},
+      {"awayScore": 0, "homeScore": 3, "count": 1},
+      {"awayScore": 2, "homeScore": 2, "count": 1}
+    ]
+  },
+  "expectedPopulationSha256": "7cae0d7c28ebfbf94f30ad813c5a31bf126ee0f45f28567698d71c7a62b8b213",
+  "vectors": [
+    {
+      "name": "integer-total-push",
+      "kind": "single",
+      "leg": {"market": "TOTAL", "selection": "OVER", "line": 3},
+      "expectedCounts": {"win": 1, "loss": 3, "push": 4, "void": 0}
+    },
+    {
+      "name": "half-point-no-push",
+      "kind": "single",
+      "leg": {"market": "TOTAL", "selection": "UNDER", "line": 2.5},
+      "expectedCounts": {"win": 3, "loss": 5, "push": 0, "void": 0}
+    },
+    {
+      "name": "same-game-correlated",
+      "kind": "joint",
+      "legs": [
+        {"market": "MONEYLINE", "selection": "HOME", "tieSettlement": "PUSH"},
+        {"market": "TOTAL", "selection": "OVER", "line": 2.5}
+      ],
+      "expectedCounts": {"win": 2, "loss": 5, "push": 1, "void": 0}
+    }
+  ]
+}

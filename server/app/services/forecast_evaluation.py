@@ -55,6 +55,7 @@ from app.models import (
     ShadowForecast, Sportsbook, Team,
 )
 from app.services import forecast_scoring as scoring
+from app.services import nfl_outcome_scoring
 from app.services import result_provenance as provenance
 from app.services.forecast_scoring import (
     HOME, AWAY, TIE, JointMass, MassFunction, OutcomeProbabilities, PointErrors,
@@ -121,6 +122,18 @@ NO_KICKOFF = "NO_SCHEDULED_KICKOFF"
 NO_PROBABILITIES = "NO_OUTCOME_PROBABILITIES"
 SUPERSEDED = "SUPERSEDED_BY_A_LATER_PRE_KICKOFF_SNAPSHOT"
 HISTORICAL_REPLAY = "HISTORICAL_REPLAY_NOT_PROSPECTIVE_EVIDENCE"
+
+#: Game-level refusals. A final observation is not enough on its own: a game the
+#: schedule now records as postponed, cancelled or in progress is not scored, and
+#: a game outside the registered leagues is never scored under another league's
+#: profile.
+GAME_NOT_FINAL = "GAME_STATUS_NOT_FINAL"
+LEAGUE_NOT_SCORABLE = "LEAGUE_NOT_SCORABLE"
+SCORING_FAILED = "SCORING_FAILED_ISOLATED"
+_NONFINAL_STATUSES = frozenset({GameStatus.LIVE, GameStatus.POSTPONED, GameStatus.CANCELED})
+
+#: Why the scored snapshot is the controlling one.
+CONTROLLING_REASON = "LATEST_PRE_KICKOFF_PUBLICATION_PER_MODEL_IDENTITY"
 
 #: A forecast whose status begins with this is a labelled rerun over games that
 #: have already happened. It is legitimate research and it is kept, but it can
@@ -310,8 +323,10 @@ class ForecastEvaluationService:
             if not eligible:
                 self._orphan_exclusions.extend(excluded)
                 continue
+            # Publication time decides. Only when two snapshots share it do the
+            # version and then the row id break the tie, so the choice is stable.
             chosen = max(eligible, key=lambda row: (
-                _aware(row.available_as_of_utc), row.snapshot_version or 0,
+                _aware(row.available_as_of_utc), row.snapshot_version or 0, str(row.id),
             ))
             for snapshot in eligible:
                 if snapshot.id != chosen.id:
@@ -394,6 +409,17 @@ class ForecastEvaluationService:
         game = self.session.get(Game, canonical_game_id)
         if game is None:
             return {"game_id": str(canonical_game_id), "scored": 0, "skipped": "GAME_NOT_REGISTERED"}
+        league_code = self.session.scalar(
+            select(League.code).join(Season, Season.league_id == League.id).where(Season.id == game.season_id)
+        )
+        if str(league_code or "").upper() not in LEAGUE_PROFILES:
+            return {"game_id": str(canonical_game_id), "scored": 0, "skipped": LEAGUE_NOT_SCORABLE,
+                    "detail": f"League {league_code!r} has no registered scoring profile."}
+        status = game.status if isinstance(game.status, GameStatus) else GameStatus(str(game.status).lower())
+        if status in _NONFINAL_STATUSES:
+            return {"game_id": str(canonical_game_id), "scored": 0, "skipped": GAME_NOT_FINAL,
+                    "detail": f"The schedule records this game as {status.value}; it is not scored "
+                              "until it is final again."}
         result = self.result_for(game)
         if result is None:
             return {
@@ -610,10 +636,55 @@ class ForecastEvaluationService:
                 "signed_error_convention": "predicted minus actual",
                 "publication_clock": self._publication_clock(row),
                 "result_provenance": provenance.describe(result.source),
+                "controlling_revision": self._controlling_revision(selection, profile),
+                "mass_reconciliation": nfl_outcome_scoring.mass_reconciliation(
+                    probabilities.home, probabilities.away, probabilities.tie),
+                "winner_convention": "Predicted class is the largest published probability over "
+                                     "HOME/AWAY/TIE; a TIE result is a miss for a HOME or AWAY call.",
             },
             "scoring_version": profile.scoring_version,
             "evaluated_at": now,
         }
+
+    def _controlling_revision(self, selection: FrozenForecast, profile: LeagueProfile) -> dict[str, Any]:
+        """The exact revision scored, and why it is the one that controls."""
+
+        from app.models import ShadowForecastBundle
+
+        row = selection.row
+        record: dict[str, Any] = {
+            "reason": CONTROLLING_REASON,
+            "forecast_id": row.forecast_id,
+            "snapshot_type": row.snapshot_type,
+            "snapshot_version": row.snapshot_version,
+            "engine_id": row.engine_id,
+            "engine_version": row.engine_version,
+            "model_artifact_sha256": row.model_artifact_sha256,
+            "model_manifest_sha256": row.model_manifest_sha256,
+            "package_sha256": self.session.scalar(
+                select(ShadowForecastBundle.bundle_sha256).where(ShadowForecastBundle.id == row.bundle_id)),
+            "created_utc": _iso(row.created_at),
+            "published_utc": _iso(row.available_as_of_utc),
+            "source_cutoff_utc": _iso(row.source_cutoff_utc),
+            "kickoff_utc": _iso(selection.kickoff),
+            "horizon": {"snapshot_type": row.snapshot_type,
+                        "hours_before_kickoff": round(selection.lead_seconds / 3600, 2)},
+            "snapshots_considered": selection.considered,
+            "population_sha256": None,
+            "population_draws": None,
+            "population_verification": None,
+        }
+        if profile.league_code == LEAGUE:
+            from app.probability.adapter import ProbabilityUnavailable, verified_nfl_population
+            try:
+                population = verified_nfl_population(self.session, row)
+            except ProbabilityUnavailable as exc:
+                record["population_verification"] = {"verified": False, "code": exc.code, "detail": exc.message}
+            else:
+                record["population_sha256"] = population.population_sha256
+                record["population_draws"] = population.draw_count
+                record["population_verification"] = {"verified": True}
+        return record
 
     @staticmethod
     def _tie_probability(row: ShadowForecast) -> float:
@@ -940,6 +1011,24 @@ class ForecastEvaluationService:
         return key.startswith("HOME") or key.startswith("OVER")
 
     # -- batch ------------------------------------------------------------
+    def _evaluate_isolated(self, game_id: UUID, *, dry_run: bool, now: datetime) -> dict[str, Any]:
+        """Score one game inside a savepoint so a failure stays with that game.
+
+        A malformed forecast or result must not stop the rest of the pass, and it
+        can never reach settlement: scoring runs as its own job and writes only
+        evaluation rows.
+        """
+
+        savepoint = self.session.begin_nested()
+        try:
+            outcome = self.evaluate_game(canonical_game_id=game_id, dry_run=dry_run, now=now)
+        except Exception as exc:  # noqa: BLE001 - recorded, never swallowed silently
+            savepoint.rollback()
+            return {"game_id": str(game_id), "scored": 0, "skipped": SCORING_FAILED,
+                    "detail": f"{type(exc).__name__}: {exc}"[:500]}
+        savepoint.commit()
+        return outcome
+
     def evaluate_league(
         self, *, league_code: str = LEAGUE, dry_run: bool = False, now: datetime | None = None,
         earliest_start: datetime | None = None,
@@ -1004,8 +1093,7 @@ class ForecastEvaluationService:
             )
             query = query.where(Game.id.not_in(protected))
         game_ids = list(self.session.scalars(query.order_by(Game.starts_at)))
-        results = [self.evaluate_game(canonical_game_id=game_id, dry_run=dry_run, now=now)
-                   for game_id in game_ids]
+        results = [self._evaluate_isolated(game_id, dry_run=dry_run, now=now) for game_id in game_ids]
         return {
             "league": league_code,
             "final_games": len(game_ids),
@@ -1022,9 +1110,59 @@ class ForecastEvaluationService:
         }
 
 
+@dataclass(frozen=True)
+class ControllingSelection:
+    """The one revision that controls a game for one model identity."""
+
+    row: ShadowForecast
+    kickoff: datetime
+    considered: int
+    excluded: list[dict[str, Any]]
+    reason: str = CONTROLLING_REASON
+
+    @property
+    def published_utc(self) -> datetime | None:
+        return _aware(self.row.available_as_of_utc)
+
+    @property
+    def lead_seconds(self) -> int:
+        published = self.published_utc
+        return int((self.kickoff - published).total_seconds()) if published else 0
+
+
+def controlling_forecast(
+    session: Session, *, canonical_game_id: UUID, engine_id: str, engine_version: str | None = None,
+) -> ControllingSelection | None:
+    """The governed controlling forecast for a game, for live reads as well as scoring.
+
+    ONE rule, stated once: the latest snapshot whose PUBLICATION time precedes
+    kickoff, per exact model identity. Import time never decides authority, a
+    snapshot published at or after kickoff is never selected, and replays and
+    snapshots without probabilities are excluded with their reason. This is the
+    scorer's own ``freeze_eligible``; live probability reads call it so the page
+    and the score cannot disagree about which forecast controls.
+
+    Returns None when no eligible pre-kickoff snapshot exists for that identity.
+    """
+
+    frozen = ForecastEvaluationService(session).freeze_eligible(canonical_game_id=canonical_game_id)
+    if engine_version is not None:
+        selection = frozen.get(f"{engine_id}::{engine_version}")
+    else:
+        candidates = [value for key, value in frozen.items() if key.split("::")[0] == engine_id]
+        selection = max(candidates, key=lambda value: (_aware(value.row.available_as_of_utc),
+                                                       value.row.snapshot_version or 0,
+                                                       str(value.row.id)), default=None)
+    if selection is None:
+        return None
+    return ControllingSelection(row=selection.row, kickoff=selection.kickoff,
+                                considered=selection.considered, excluded=selection.excluded)
+
+
 __all__ = [
     "CLOCK_NO_EVIDENCE_CUTOFF", "CLOCK_UNRESOLVED", "CLOCK_VERIFIED",
-    "ForecastEvaluationService", "FrozenForecast", "GameResult", "LEAGUE",
+    "CONTROLLING_REASON", "ControllingSelection", "ForecastEvaluationService", "FrozenForecast",
+    "GameResult", "LEAGUE", "controlling_forecast",
     "LEAGUE_PROFILES", "LeagueProfile", "MLB_LEAGUE", "MLB_SCORING_VERSION",
     "MLB_SPORT",
     "NON_NUMERICAL_KINDS", "NO_KICKOFF", "NO_PROBABILITIES", "PUBLISHED_AFTER_KICKOFF",

@@ -42,6 +42,7 @@ from app.models import (
 )
 from app.services.feature_snapshot_service import FeatureSnapshotService, game_features_from_snapshot
 from app.services.game_state_service import GameStateService
+from app.services.league_scope import MLB, require_league
 
 
 class ForecastNotReadyError(RuntimeError):
@@ -68,6 +69,9 @@ class ForecastService:
         data_as_of: datetime | None = None,
         force_draft: bool = False,
     ) -> Forecast:
+        # The Gen1 ensemble is a baseball model: a caller that hands it another
+        # league's game gets a LeagueMismatchError, not a forecast.
+        require_league(self.session, game, MLB, process="MLB forecast generation")
         return self._generate_point_in_time(
             game,
             requested_lifecycle=lifecycle,

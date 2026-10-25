@@ -765,3 +765,36 @@ def test_game_explorer_fails_closed_without_canonical_integrity(
 
     assert client.get("/api/v1/research/history/games?month=13").status_code == 422
     assert client.get("/api/v1/research/history/games?tier=C").status_code == 422
+
+
+def test_repeat_explorer_requests_do_not_decode_bundles_again(client, session) -> None:
+    """Append-only JSON facts are derived once per row; a repeat read returns the same page."""
+    from sqlalchemy import event
+
+    _seed_explorer_graph(session)
+    url = "/api/v1/research/history/games?team=Boston&month=4&tier=A&source=MLB_STATS_API&page=1&page_size=10"
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        first = client.get(url)
+        assert first.status_code == 200
+        cold = [" ".join(s.split()) for s in statements]
+        assert any(s.startswith("SELECT historical_feature_materializations.id, "
+                                "historical_feature_materializations.source_bundle ") for s in cold)
+        statements.clear()
+        second = client.get(url)
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+    assert second.json() == first.json()
+    # The page's own row still reads its bundle; the population scans do not.
+    squashed = [" ".join(s.split()) for s in statements]
+    wide_reads = [s for s in squashed if s.startswith(
+        "SELECT historical_feature_materializations.id, historical_feature_materializations.source_bundle ")]
+    evidence_reads = [s for s in squashed if s.startswith(
+        "SELECT game_feature_snapshots.id, game_feature_snapshots.source_evidence ")]
+    assert wide_reads == [] and evidence_reads == []

@@ -1125,3 +1125,48 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
 
 /* Two panels side by side only where there is room for both. */
 @media (min-width: 1100px) { .bx-home__grid--pair { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+
+/* Games & Forecasts: a held forecast with a current price is emphasised. */
+.bx-slate__row--ready { border-top-color: var(--bx-good, #12855c); border-right-color: var(--bx-good, #12855c); border-bottom-color: var(--bx-good, #12855c); box-shadow: 0 0 0 1px var(--bx-good-soft, #e2f5ec), var(--bx-glow); }
+.bx-ready-tag {
+  display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 6px; font-size: 10.5px; font-weight: 700;
+  color: var(--bx-good, #12855c); background: var(--bx-good-soft, #e2f5ec); line-height: 1.35; overflow-wrap: anywhere;
+}
+
+/* RFF evidence tiers: three sections, never one ranking. A sparse game must not
+   sit beside a fully evidenced one as though the numbers were comparable. */
+.bx-rff__section { margin-top: 20px; }
+.bx-rff__section-title { margin: 0; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; color: var(--bx-muted); }
+.bx-rff__section-title span { margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--bx-s3); color: var(--bx-text); font-size: 12px; }
+.bx-rff__section-note { margin: 4px 0 10px; max-width: 78ch; font-size: 12.5px; }
+.bx-rff__card.is-provisional { background: var(--bx-s1); border-style: dashed; }
+.bx-rff__card.is-insufficient { background: var(--bx-s3); border-style: dashed; opacity: .92; }
+.bx-rff__card.is-insufficient .bx-rff__card-head em,
+.bx-rff__card.is-provisional .bx-rff__card-head em { color: var(--bx-muted); }
+.bx-rff__known { font-size: 26px; display: inline-flex; align-items: baseline; gap: 6px; }
+.bx-rff__known small { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+.bx-rff__unranked { justify-self: start; padding: 1px 8px; border-radius: 999px; background: var(--bx-s3); color: var(--bx-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+/* A published game whose interval crosses a band leads with the range, so the
+   range gets the headline slot the point estimate would otherwise take. */
+.bx-rff__range { font-size: 24px; display: inline-flex; align-items: baseline; gap: 6px; }
+.bx-rff__range small { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+.bx-rff__extended, .bx-rff__diagnostic { margin-top: 16px; border: 1px solid var(--bx-line); border-radius: 10px; padding: 10px 12px; background: var(--bx-s2); }
+.bx-rff__extended > summary, .bx-rff__diagnostic > summary { cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.bx-rff__extended p, .bx-rff__diagnostic p { margin: 8px 0 0; max-width: 78ch; }
+.bx-rff__extended-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 12px; }
+.bx-rff__health { border: 1px solid var(--bx-line); border-radius: 12px; padding: 14px 16px; background: var(--bx-s2); }
+.bx-rff__health h4 { margin: 0 0 6px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+.bx-rff__health p { margin: 8px 0 0; max-width: 72ch; }
+.bx-rff__health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 10px 0 0; }
+.bx-rff__health-grid dt { font-size: 11px; color: var(--bx-muted); letter-spacing: .04em; }
+.bx-rff__health-grid dd { margin: 2px 0 0; font-weight: 700; }
+
+/* Live / final score on Games rows (ux-10x). */
+.bx-slate__side i.bx-actual { color: var(--bx-dim, #8195aa); }
+.bx-slate__side i.bx-actual.is-ahead { color: inherit; }
+.bx-score-state { display: inline-flex; align-items: center; font-size: 13px; letter-spacing: .06em; }
+.bx-score-state--live { color: #e5484d; }
+
+.bx-markets__alt { margin: 12px 0 0; font-size: 14px; font-weight: 700; }
+.bx-markets__alt a { color: var(--bx-accent, #0f766e); text-decoration: none; }
+.bx-markets__alt a:hover { text-decoration: underline; }

@@ -1,0 +1,101 @@
+/* NHL research surface. Scoped under .nhl-* so nothing reaches MLB, NFL, NBA or CFB.
+   Colours are translucent over the inherited text colour so both themes stay legible. */
+
+.nhlpage { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; padding: 16px; }
+@media (min-width: 900px) { .nhlpage { padding: 24px 32px; } }
+.nhlpage__list { display: flex; flex-direction: column; gap: 1.1rem; }
+.nhlpage__note { font-size: 0.85rem; line-height: 1.5; opacity: 0.85; margin: 0; }
+.nhlpage__fixture { border: 1px dashed rgba(217, 119, 6, 0.7); border-radius: 10px; padding: 0.6rem 0.8rem; font-size: 0.85rem; }
+.nhlpage__dates { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.nhlpage__dates a { font-size: 0.8rem; padding: 0.15rem 0.55rem; border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 999px; text-decoration: none; color: inherit; }
+.nhlpage__dates a[aria-current='true'] { border-color: #2f7bd6; background: rgba(47, 123, 214, 0.14); }
+
+.nhl-card { border: 1px solid rgba(47, 123, 214, 0.3); border-radius: 14px; padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.9rem; background: linear-gradient(180deg, rgba(47, 123, 214, 0.07) 0%, transparent 120px); min-width: 0; }
+.nhl-card--fixture { border-style: dashed; border-color: rgba(217, 119, 6, 0.55); background: linear-gradient(180deg, rgba(217, 119, 6, 0.07) 0%, transparent 120px); }
+.nhl-card__head { display: flex; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; align-items: flex-start; }
+.nhl-card__head > div { min-width: 0; }
+.nhl-card__eyebrow { display: block; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.75; }
+.nhl-card__matchup { margin: 0.15rem 0 0; font-size: 1.15rem; line-height: 1.25; overflow-wrap: anywhere; }
+.nhl-card__matchup a { color: inherit; }
+.nhl-card__ids { display: block; font-size: 0.72rem; opacity: 0.65; overflow-wrap: anywhere; word-break: break-all; }
+.nhl-forecast__meta span, .nhl-goalie span, .nhl-goalie small { overflow-wrap: anywhere; min-width: 0; }
+.nhlpage li, .nhlpage summary { overflow-wrap: anywhere; word-break: break-word; }
+.nhl-card__state { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+.nhl-card__score { font-weight: 700; font-variant-numeric: tabular-nums; }
+.nhl-card__score small { font-weight: 400; opacity: 0.7; }
+
+.nhl-status { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.55rem; border-radius: 999px; border: 1px solid currentColor; }
+.nhl-status--final { color: #4f8a5b; }
+.nhl-status--scheduled { color: #2f7bd6; }
+.nhl-status--live { color: #c2410c; }
+.nhl-status--awaiting { color: #a16207; border-style: dashed; }
+.nhl-forecast__late { font-size: 0.78rem; font-weight: 600; color: #a16207; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .nhl-status--awaiting, :root:not([data-theme='light']) .nhl-forecast__late { color: #fbbf24; } }
+:root[data-theme='dark'] .nhl-status--awaiting, :root[data-theme='dark'] .nhl-forecast__late { color: #fbbf24; }
+.nhl-forecast-label { font-size: 0.72rem; font-weight: 600; padding: 0.12rem 0.5rem; border-radius: 6px; border: 1px solid rgba(47, 123, 214, 0.5); color: #2f7bd6; }
+.nhl-forecast-label--pending { border-color: rgba(127, 127, 127, 0.6); color: inherit; opacity: 0.8; }
+.nhl-badge { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; padding: 0.12rem 0.5rem; border-radius: 6px; }
+.nhl-badge--fixture { background: rgba(217, 119, 6, 0.16); color: #b45309; border: 1px solid rgba(217, 119, 6, 0.6); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .nhl-badge--fixture { color: #fbbf24; } }
+:root[data-theme='dark'] .nhl-badge--fixture { color: #fbbf24; }
+
+.nhl-forecast { display: flex; flex-direction: column; gap: 0.8rem; }
+.nhl-forecast__cols { display: grid; gap: 0.9rem 1.6rem; grid-template-columns: minmax(0, 1fr); }
+.nhl-forecast__col { display: flex; flex-direction: column; gap: 0.8rem; min-width: 0; }
+@media (min-width: 1000px) { .nhl-forecast__cols { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+@media (min-width: 1400px) { .nhlpage__list--grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.nhl-tech { font-size: 0.78rem; border-top: 1px solid rgba(127, 127, 127, 0.25); padding-top: 0.5rem; }
+.nhl-tech summary { cursor: pointer; opacity: 0.8; font-weight: 600; }
+.nhl-tech dl { margin: 0.5rem 0 0; display: grid; gap: 0.25rem; }
+.nhl-tech dl div { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: 0.6rem; }
+.nhl-tech dt { opacity: 0.7; }
+.nhl-tech dd { margin: 0; overflow-wrap: anywhere; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; }
+@media (max-width: 640px) { .nhl-tech dl div { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+.nhl-toggle { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.85rem; padding: 0.3rem 0.7rem; border: 1px solid rgba(127, 127, 127, 0.4); border-radius: 999px; cursor: pointer; user-select: none; }
+.nhl-toggle input { margin: 0; }
+.nhl-toggle--on { border-color: rgba(217, 119, 6, 0.8); background: rgba(217, 119, 6, 0.12); }
+.nhl-toolbar { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; }
+.nhl-forecast h4, .nhl-result h4 { margin: 0 0 0.35rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
+.nhl-forecast__meta { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-size: 0.8rem; opacity: 0.85; }
+.nhl-bar { display: flex; height: 1.6rem; border-radius: 7px; overflow: hidden; gap: 2px; }
+.nhl-bar__seg { display: flex; align-items: center; justify-content: center; font-size: 0.74rem; font-weight: 700; color: #fff; min-width: 2px; }
+.nhl-bar__seg--home { background: #2f7bd6; }
+.nhl-bar__seg--away { background: #c2410c; }
+.nhl-bar__seg--tie { background: #6b7280; }
+.nhl-prob__legend { margin: 0.3rem 0 0; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.nhl-prob__legend small { opacity: 0.7; }
+.nhl-notmodelled { margin: 0; padding: 0.55rem 0.7rem; border: 1px dashed rgba(127, 127, 127, 0.55); border-radius: 8px; font-size: 0.85rem; }
+.nhl-goals dl, .nhl-result dl { margin: 0; display: grid; gap: 0.3rem; }
+.nhl-goals dl div, .nhl-result dl div { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); gap: 0.6rem; font-size: 0.85rem; }
+.nhl-goals dt, .nhl-result dt { opacity: 0.75; }
+.nhl-goals dd, .nhl-result dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.nhl-goalies { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.nhl-goalie { display: grid; grid-template-columns: 6.2rem minmax(0, 1fr); gap: 0.1rem 0.6rem; font-size: 0.85rem; }
+.nhl-goalie small { grid-column: 2; opacity: 0.7; font-size: 0.74rem; }
+.nhl-goalie__status { text-transform: uppercase; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; padding: 0.1rem 0.4rem; border-radius: 5px; text-align: center; align-self: start; border: 1px solid currentColor; }
+.nhl-goalie__status--confirmed { color: #4f8a5b; }
+.nhl-goalie__status--projected { color: #b45309; }
+.nhl-goalie__status--unknown { color: #6b7280; }
+.nhl-missing { margin: 0.35rem 0 0; font-size: 0.76rem; opacity: 0.75; }
+.nhl-result { border-top: 1px solid rgba(127, 127, 127, 0.25); padding-top: 0.7rem; }
+.nhl-nomarket, .nhl-noforecast { margin: 0; font-size: 0.82rem; padding: 0.5rem 0.7rem; border-radius: 8px; background: rgba(127, 127, 127, 0.1); }
+.nhl-noforecast { border: 1px dashed rgba(127, 127, 127, 0.5); background: none; }
+
+.nhlslate { display: grid; gap: 2px; }
+.nhlslate__row { display: grid; grid-template-columns: 5.5rem minmax(0, 1.3fr) minmax(0, 1.5fr) minmax(0, 1fr); gap: 0.6rem; align-items: baseline; padding: 0.45rem 0.2rem; border-bottom: 1px solid rgba(127, 127, 127, 0.18); font-size: 0.88rem; }
+.nhlslate__row > span { min-width: 0; overflow-wrap: anywhere; }
+.nhlslate__row small { opacity: 0.75; }
+@media (max-width: 640px) {
+  .nhlslate__row { grid-template-columns: 4.6rem minmax(0, 1fr); }
+  .nhlslate__row > span:nth-child(3), .nhlslate__row > span:nth-child(4) { grid-column: 2; }
+  .nhl-goals dl div, .nhl-result dl div { grid-template-columns: minmax(0, 1fr); gap: 0.05rem; }
+  .nhl-card__state { align-items: flex-start; }
+}
+
+.nhl-perf { display: grid; gap: 0.8rem; }
+.nhl-perf__pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.8rem; }
+.nhl-perf__box { border: 1px solid rgba(127, 127, 127, 0.3); border-radius: 10px; padding: 0.7rem 0.85rem; min-width: 0; }
+.nhl-perf__box h4 { margin: 0 0 0.3rem; font-size: 0.85rem; }
+.nhl-perf__box dl { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.2rem 0.8rem; font-size: 0.84rem; }
+.nhl-perf__box dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.nhl-perf__box p { margin: 0.4rem 0 0; font-size: 0.76rem; opacity: 0.8; }

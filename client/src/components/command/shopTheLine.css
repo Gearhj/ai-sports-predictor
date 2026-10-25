@@ -1,0 +1,41 @@
+/* Shop the Line: brushed steel card, navy ladders, gold for the best price and red for the worst. */
+.stl { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; margin: 0 0 16px; color: #eef2f7; }
+.stl__main, .stl__books { border-radius: 16px; padding: 14px 16px; border: 1px solid #4a5466;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3b4452, #2c333f 55%, #20262f); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 10px 26px rgba(0, 0, 0, .35); }
+.stl h2, .stl h3 { margin: 0; color: #fff; font-weight: 900; } .stl h2 { font-size: 20px; } .stl h3 { font-size: 15px; }
+.stl__main header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; } .stl__main header small, .stl__books > small { font-size: 12px; color: #a9b4c4; }
+.stl__hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.stl__big { display: grid; gap: 1px; padding: 10px 14px; border-radius: 12px; background: rgba(7, 13, 26, .6); border-left: 4px solid #2dd4bf; }
+.stl__big.is-gold { border-left-color: #fbbf24; }
+.stl__big small { font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #a9b4c4; }
+.stl__big b { font-size: 32px; font-weight: 900; color: #34d399; line-height: 1.05; } .stl__big.is-gold b { color: #fbbf24; }
+.stl__big em { font-style: normal; font-size: 12.5px; color: #dfe7f2; }
+.stl__ladders { position: relative; list-style: none; margin: 0; padding: 8px 10px; display: grid; gap: 4px; border-radius: 12px; background: #070d1a; border: 1px solid rgba(120, 160, 220, .14); }
+.stl__ladders li { display: grid; grid-template-columns: 230px minmax(0, 1fr) 120px; gap: 14px; align-items: center; padding: 6px 4px; border-bottom: 1px dashed rgba(255, 255, 255, .06); }
+.stl__ladders li:last-of-type { border-bottom: 0; }
+.stl__team { display: flex; align-items: center; gap: 9px; min-width: 0; } .stl__team img, .stl__team .sl-logo, .stl__team .team-logo { width: 26px; height: 26px; }
+.stl__team > span { display: grid; min-width: 0; line-height: 1.15; } .stl__team b { font-size: 13.5px; } .stl__team small { font-size: 11px; color: #a9b4c4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stl__rail { position: relative; height: 28px; margin: 0 18px; }
+.stl__rail::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #f87171, #64748b 40%, #fbbf24); opacity: .55; }
+.stl__rail i { position: absolute; top: 8px; width: 13px; height: 13px; margin-left: -6.5px; border-radius: 50%; background: #94a3b8; border: 2px solid #070d1a; cursor: pointer; animation: stl-in .7s ease-out both; }
+@keyframes stl-in { from { left: 50%; opacity: 0; } }
+.stl__rail i.is-best { background: #fbbf24; width: 17px; height: 17px; margin-left: -8.5px; top: 6px; box-shadow: 0 0 12px #fbbf24; z-index: 1; }
+.stl__rail i.is-worst { background: #f87171; }
+.stl__rail i:hover { outline: 2px solid #fff; }
+.stl__rail em { position: absolute; top: -6px; font-style: normal; font-size: 10.5px; font-weight: 800; }
+.stl__lo { left: -6px; color: #fca5a5; } .stl__hi { right: -6px; color: #fcd34d; }
+.stl__gain { display: grid; text-align: right; line-height: 1.15; } .stl__gain b { font-size: 16px; color: #34d399; } .stl__gain small { font-size: 11px; color: #a9b4c4; }
+.stl__tip { position: absolute; z-index: 5; pointer-events: none; display: grid; padding: 6px 9px; border-radius: 8px; background: rgba(7, 13, 26, .96); border: 1px solid #4a5466; font-size: 12px; } .stl__tip b { color: #fff; }
+.stl__books { display: grid; gap: 8px; align-content: start; }
+.stl__books ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 7px; }
+.stl__books li { display: grid; grid-template-columns: 22px 110px minmax(0, 1fr) 28px; gap: 8px; align-items: center; font-size: 12.5px; }
+.stl__rank { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 900; font-size: 11px; color: #070d1a; background: #fbbf24; }
+.stl__books li:nth-child(n+2) .stl__rank { background: #94a3b8; }
+.stl__books li b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stl__bar { height: 10px; border-radius: 5px; background: rgba(7, 13, 26, .6); overflow: hidden; } .stl__bar i { display: block; height: 100%; background: linear-gradient(90deg, #b45309, #fbbf24); animation: stl-grow 1s ease-out both; }
+@keyframes stl-grow { from { width: 0; } }
+.stl__books li em { font-style: normal; font-weight: 900; text-align: right; }
+.stl__books p { margin: 4px 0 0; font-size: 12px; color: #dfe7f2; line-height: 1.45; padding: 8px 10px; border-radius: 8px; background: rgba(7, 13, 26, .5); border-left: 3px solid #2dd4bf; }
+@media (max-width: 1300px) { .stl { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .stl__ladders li { grid-template-columns: minmax(0, 1fr) 90px; } .stl__rail { grid-column: 1 / -1; grid-row: 2; } .stl__hero { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .stl__rail i, .stl__bar i { animation: none; } }

@@ -12,17 +12,22 @@
  *     model-vs-market edge plot when comparable prices exist, and a results
  *     tape of settled positions.
  *
+ * Above the queue, the consumer assessment cards (qualified, closest,
+ * passed, research) and the same-game Parlay Lab read the verified-population
+ * assessments; the queue itself is the collapsible audit view below them.
+ *
  * Only funded-era governed evaluations appear (the read model scopes them to
  * their own sport's games); legacy/research experiment rows stay in the audit
  * view below the page. Internal codes are translated into short language, with
  * the raw evaluation available on demand.
  */
+import { VerdictWall } from './VerdictWall'
 import * as d3 from 'd3'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useSportReadiness, type SportReadinessEntry } from '../readiness/SportReadiness'
 import {
-  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, etTime, gameHref, money, relative, signedMoney,
+  SPORT_CODES, SPORT_COLORS, SPORT_NAMES, asSport, etTime, gameHref, modelNote, money, relative, signedMoney,
   useDecisionBoard, useLedger, useMarketCoverage,
   type CoverageGame, type DecisionItem, type Ledger, type SportCode,
 } from '../../services/commandCenter'
@@ -31,9 +36,26 @@ import { EdgeMap } from './EdgeMap'
 import { AsOf } from './RegionState'
 import { todayEt } from './CommandHome'
 import { buildAgenda, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
+import { useAssessments } from '../../services/probability'
+import { AssessmentBoard, classifyAssessments } from './AssessmentBoard'
+import { TOP_ORIENTATION } from './TopOpportunity'
+import { american } from '../../services/probability'
+import { signedCents, topPlay } from '../../services/topPlay'
+import { marketLine, modelLine } from '../../services/pregameStatus'
+import { ALLOWANCE_DECLINE, CHECKPOINT_LABEL, checkpointLabel } from '../../services/cfbMarket'
+import { ParlayLab } from './ParlayLab'
+import { AllMarkets, MyCard } from './MarketsAndCard'
+import { useMyCard } from '../../services/myCard'
+import { controllingMargin, recordedPolicyEdge, testLine, testThresholdText, valueText } from '../../services/decisionEdges'
 import './command.css'
 
 type Tab = 'ALL' | 'ACTIONABLE' | 'POSITIONS' | 'WATCHING' | 'PASSED' | 'COMPLETED'
+type View = 'decisions' | 'markets' | 'card'
+const VIEWS: { key: View; label: string }[] = [
+  { key: 'decisions', label: 'AISP Decisions' },
+  { key: 'markets', label: 'All Markets' },
+  { key: 'card', label: 'My Card' },
+]
 type Tone = 'green' | 'gold' | 'red' | 'gray'
 
 interface FeedCard {
@@ -49,11 +71,40 @@ interface FeedCard {
   item: DecisionItem | null
   game: CoverageGame | null
   nextLabel: string | null
+  /** For a sport's next game off this slate: its readiness entry, which is the
+   *  only record of whether its forecast and price exist. */
+  readiness?: SportReadinessEntry | null
+}
+
+/** A readiness forecast state that means a forecast is actually held. */
+const forecastHeld = (state: string | undefined) => Boolean(state && /AVAILABLE$/.test(state) && !/AWAITING|UNAVAILABLE/.test(state))
+
+/** Plain label for a readiness price state; never implies a sportsbook did not post a line. */
+function readinessPriceLabel(state: string | undefined): string {
+  switch (state) {
+    case 'FRESH_PRICE': return 'Market collected'
+    case 'STORED_REFERENCE_ONLY': return 'Stale reference only'
+    case 'COLLECTION_BLOCKED': return 'Price intake blocked'
+    case 'COLLECTION_NOT_OPEN': return 'Collection not open'
+    default: return 'Collection scheduled'
+  }
 }
 
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
+
+/** A CFB checkpoint's recorded reason when the producer's discovery lease blocked it ("EXPIRED_LEASE: ..."). */
+const LEASE_BLOCK = /^(EXPIRED_LEASE|HISTORICAL|NOT_IN_CURRENT_DISCOVERY|REJECTED|NO_VERIFIED_DISCOVERY|GAME_STARTED):/
+
+/** Why a final evaluation passed, from its recorded reason; "edge below policy" only when that is the reason. */
+export function passedLabel(reason: string | null): string {
+  const text = reason ?? ''
+  if (/stale|not current|freshness/i.test(text)) return 'Passed · price not current'
+  if (/eligib|TIER_[A-Z]_INELIGIBLE/i.test(text)) return 'Passed · not eligible'
+  if (/missing|unavailable|no (?:quote|price)/i.test(text)) return 'Passed · market incomplete'
+  return 'Passed · edge below policy'
+}
 
 /** Internal decision codes, in plain language. The raw row stays available. */
 export function describeDecision(item: DecisionItem | null, game: CoverageGame | null, started: boolean): FeedCard['status'] {
@@ -64,26 +115,65 @@ export function describeDecision(item: DecisionItem | null, game: CoverageGame |
       const verb = item.position.result === 'WIN' ? 'Won' : item.position.result === 'LOSS' ? 'Lost' : 'Settled'
       return { label: `${verb} ${signedMoney(pnl)}`, tone: pnl > 0 ? 'green' : pnl < 0 ? 'red' : 'gray', detail: reason }
     }
+    // A finished game whose position has not been settled yet must not read
+    // the same as one still being played.
+    if (item.position.awaiting_settlement) {
+      return { label: 'Final — settlement pending', tone: 'gold', detail: reason }
+    }
     return { label: 'Position open', tone: 'green', detail: reason }
   }
   const rec = item?.recommendation ?? 'NOT_YET_EVALUATED'
+  // College Football: a priced no-bet, a declined no-price and a block are three
+  // different recorded results (server-derived from the row, never re-judged here).
+  const semantics = item?.checkpoint_semantics
+  if (semantics && item?.phase === 'FINAL_PREGAME') {
+    if (semantics.class === 'NO_BET') return { label: CHECKPOINT_LABEL.NO_BET, tone: 'red', detail: reason ?? semantics.text }
+    if (semantics.class === 'NO_PRICE') return { label: checkpointLabel(semantics) ?? CHECKPOINT_LABEL.NO_PRICE, tone: 'gray', detail: reason ?? semantics.text }
+    if (semantics.class === 'NO_ROOM') return { label: checkpointLabel(semantics) ?? CHECKPOINT_LABEL.NO_ROOM, tone: 'gray', detail: reason ?? semantics.text }
+    if (semantics.class === 'QUALIFIED_NOT_ACTIVATED') return { label: CHECKPOINT_LABEL.QUALIFIED_NOT_ACTIVATED, tone: 'gold', detail: reason ?? semantics.text }
+  }
+  // Any sport: value qualified but the shared $100 had no room -- a budget decline, never a no-bet.
+  if (rec === 'DECLINED' && item?.phase === 'FINAL_PREGAME' && ALLOWANCE_DECLINE.test(reason ?? '')) {
+    return { label: CHECKPOINT_LABEL.NO_ROOM, tone: 'gray', detail: reason }
+  }
   if (rec === 'QUALIFIED_BET' && item?.phase === 'FINAL_PREGAME') {
     return started ? { label: 'Qualified · not positioned', tone: 'red', detail: reason } : { label: 'Qualifies now', tone: 'green', detail: reason }
   }
-  if (rec === 'NO_BET' && item?.phase === 'FINAL_PREGAME') return { label: 'Passed · edge below policy', tone: 'red', detail: reason }
-  if (rec === 'BLOCKED') return { label: /eligib/i.test(reason ?? '') ? 'Awaiting producer eligibility' : 'Blocked by policy', tone: 'red', detail: reason }
+  if (rec === 'NO_BET' && item?.phase === 'FINAL_PREGAME') return { label: passedLabel(reason), tone: 'red', detail: reason }
+  if (rec === 'BLOCKED') {
+    // A College Football checkpoint blocked on the producer's discovery lease is a
+    // recorded result, not a wait: its own recorded reason names the lease state.
+    const lease = LEASE_BLOCK.exec(reason ?? '')?.[1]
+    if (lease) {
+      return { label: lease === 'EXPIRED_LEASE' ? 'Blocked · forecast eligibility expired' : 'Blocked · forecast not currently eligible',
+        tone: 'red', detail: modelLine(game?.model_status)?.detail ?? reason }
+    }
+    return { label: /eligib/i.test(reason ?? '') ? 'Awaiting producer eligibility' : 'Blocked by policy', tone: 'red', detail: reason }
+  }
   if (started) return { label: 'Window closed · no final evaluation', tone: 'red', detail: reason }
   if (rec === 'PROVISIONAL_EDGE') return { label: 'Early edge · awaiting final check', tone: 'gold', detail: reason }
   if (rec === 'WATCH') return { label: 'Near the threshold', tone: 'gold', detail: reason }
   if (rec === 'QUALIFIED_BET') return { label: 'Morning read qualifies · awaiting final check', tone: 'gold', detail: reason }
   if (game && !game.model) return { label: 'Waiting for the forecast', tone: 'gold', detail: reason }
+  // College Football before its checkpoint: an expired producer lease and a price
+  // lane with no collector are stated as facts. Neither is "waiting for" anything.
+  const eligibility = game?.model_status?.state
+  if (eligibility === 'ELIGIBILITY_EXPIRED' || eligibility === 'ELIGIBILITY_NOT_CURRENT') {
+    const line = modelLine(game?.model_status)
+    if (line) return { label: line.label, tone: 'gold', detail: line.detail }
+  }
+  const coverage = game?.market_status?.state
+  if (coverage === 'COLLECTION_INACTIVE_NO_ALLOCATION' || coverage === 'COLLECTION_STATE_UNKNOWN') {
+    const line = marketLine(game?.market_status)
+    if (line) return { label: line.label, tone: 'gray', detail: line.detail }
+  }
   if (game && game.price_state !== 'CURRENT_PRICE') return { label: 'Waiting for a sportsbook price', tone: 'gold', detail: reason }
   return { label: 'Waiting for the decision window', tone: 'gold', detail: reason }
 }
 
 function pickItem(items: DecisionItem[]): DecisionItem | null {
   const rank = (i: DecisionItem) => (i.position ? 100 : 0) + (i.recommendation === 'QUALIFIED_BET' ? 20 : 0)
-    + (i.phase === 'FINAL_PREGAME' ? 10 : i.phase === 'LINEUP_CONFIRMED' ? 5 : 0) + (i.edge ?? -1)
+    + (i.phase === 'FINAL_PREGAME' ? 10 : i.phase === 'LINEUP_CONFIRMED' ? 5 : 0) + (controllingMargin(i) ?? i.edge ?? -1)
   return [...items].sort((a, b) => rank(b) - rank(a))[0] ?? null
 }
 
@@ -118,15 +208,27 @@ export function buildFeed(items: DecisionItem[], games: CoverageGame[], readines
     if (!code || !entry.next_game || cards.some((c) => c.sport === code)) continue
     const window = entry.decision?.window as { opens_at?: string; closes_at?: string } | undefined
     const blocked = entry.pipeline && !entry.pipeline.ready
+    const priceBlocker = typeof entry.price?.blocker === 'string' ? entry.price.blocker : null
     cards.push({
       key: `next-${code}`, sport: code,
-      href: code === 'NBA' ? '/nba/research' : code === 'CFB' ? '/college-football/research' : gameHref(code, entry.next_game.game_id),
+      href: code === 'NBA' ? (entry.next_game.research_href ?? '/nba/research')
+        : code === 'CFB' ? '/college-football/research'
+          : code === 'NHL' ? (entry.next_game.research_href ?? '/nhl/research') : gameHref(code, entry.next_game.game_id),
       matchup: entry.next_game.matchup, startsAt: (entry.next_game as { starts_at?: string }).starts_at ?? null,
       windowOpens: window?.opens_at ?? null, windowCloses: window?.closes_at ?? null, tab: 'WATCHING',
-      status: blocked
-        ? { label: 'Price intake not available yet', tone: 'gray', detail: entry.pipeline.blocker }
-        : { label: 'Next scheduled decision', tone: 'gold', detail: entry.pipeline.blocker },
-      item: null, game: null, nextLabel: entry.next_game.starts_label,
+      // Each label names what is actually true: a blocked comparison says it is
+      // blocked and why; the NBA regular season has not started, so its game is
+      // a research example, not a live slate.
+      status: code === 'NBA'
+        ? { label: entry.forecast?.state === 'PRODUCTION_PACKAGE_AVAILABLE'
+              ? 'Season not started · production package held' : 'Season not started · research example',
+            tone: 'gray', detail: entry.price?.label ?? entry.pipeline.blocker }
+        : blocked
+          ? { label: 'Market comparison blocked', tone: 'gray', detail: entry.pipeline.blocker }
+          : priceBlocker
+            ? { label: 'Price intake blocked', tone: 'gray', detail: entry.price?.label ?? priceBlocker }
+            : { label: 'Next scheduled decision', tone: 'gold', detail: entry.pipeline.blocker ?? entry.price?.label ?? null },
+      item: null, game: null, nextLabel: entry.next_game.starts_label, readiness: entry,
     })
   }
   const order: Record<FeedCard['tab'], number> = { ACTIONABLE: 0, POSITIONS: 1, WATCHING: 2, PASSED: 3, COMPLETED: 4 }
@@ -157,15 +259,21 @@ const STAGES = ['Scheduled', 'Forecast', 'Market', 'Evaluation', 'Position', 'Se
 export function progress(card: FeedCard, now: number): { reached: number; states: ('done' | 'wait' | 'miss' | 'na')[]; labels: string[] } {
   const { item, game } = card
   const started = card.startsAt ? Date.parse(card.startsAt) <= now : false
-  const forecast = game ? Boolean(game.model) : Boolean(item?.model_probability != null)
-  const priced = game ? game.price_state === 'CURRENT_PRICE' || (game.quotes.length > 0 && started) : item?.american != null
+  const held = card.readiness ? forecastHeld(card.readiness.forecast?.state) : null
+  const forecast = held ?? (game ? Boolean(game.model) : Boolean(item?.model_probability != null))
+  const priced = card.readiness
+    ? card.readiness.price?.state === 'FRESH_PRICE'
+    : game ? game.price_state === 'CURRENT_PRICE' || (game.quotes.length > 0 && started) : item?.american != null
   const evaluated = item?.phase === 'FINAL_PREGAME' && item.recommendation !== 'NOT_YET_EVALUATED'
   const positioned = Boolean(item?.position)
   const settled = item?.position?.status === 'SETTLED'
+  // No active collector (College Football today): the price stage is not pending.
+  const noCollector = !card.readiness && !priced && !game?.quotes.length
+    && game?.market_status?.state === 'COLLECTION_INACTIVE_NO_ALLOCATION'
   const states: ('done' | 'wait' | 'miss' | 'na')[] = [
     'done',
     forecast ? 'done' : started ? 'miss' : 'wait',
-    priced ? 'done' : started ? 'miss' : 'wait',
+    priced ? 'done' : noCollector ? 'na' : started ? 'miss' : 'wait',
     evaluated ? 'done' : started ? 'miss' : 'wait',
     positioned ? 'done' : evaluated || started ? 'na' : 'wait',
     settled ? 'done' : positioned ? 'wait' : 'na',
@@ -173,7 +281,9 @@ export function progress(card: FeedCard, now: number): { reached: number; states
   const labels = [
     'Scheduled',
     forecast ? 'Forecast available' : started ? 'No forecast' : 'Forecast preparing',
-    priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only' : started ? 'No price collected' : 'Collection scheduled',
+    card.readiness ? readinessPriceLabel(card.readiness.price?.state)
+      : priced ? 'Market collected' : game?.quotes.length ? 'Stale reference only'
+        : noCollector ? 'No collection (no allocation)' : started ? 'No price collected' : 'Collection scheduled',
     evaluated ? (item?.recommendation === 'QUALIFIED_BET' ? 'Qualified' : item?.recommendation === 'NO_BET' ? 'Evaluated · no bet' : 'Evaluated') : started ? 'Not evaluated' : 'Evaluation pending',
     positioned ? 'Position recorded' : 'No position',
     settled ? `Settled ${item?.position?.result ?? ''}` : positioned ? 'Awaiting settlement' : '—',
@@ -183,13 +293,13 @@ export function progress(card: FeedCard, now: number): { reached: number; states
   return { reached, states, labels }
 }
 
-export function CommandDecisions({ day }: { day: string }) {
+export function CommandDecisions({ day, initialSport }: { day: string; initialSport?: SportCode }) {
   const board = useDecisionBoard(day)
   const coverage = useMarketCoverage(day)
   const ledger = useLedger()
   const readiness = useSportReadiness()
   const now = useNow()
-  const [sport, setSport] = useState<SportCode | 'ALL'>('ALL')
+  const [sport, setSport] = useState<SportCode | 'ALL'>(initialSport ?? 'ALL')
 
   const items = useMemo(() => board.data?.items ?? [], [board.data])
   const games = useMemo(() => coverage.data?.games ?? [], [coverage.data])
@@ -198,6 +308,53 @@ export function CommandDecisions({ day }: { day: string }) {
   const feed = useMemo(() => buildFeed(items, games, isToday ? readinessSports : [], now), [items, games, readinessSports, isToday, now])
   const agenda = useMemo(() => buildAgenda(games, items, ledger.data, now), [games, items, ledger.data, now])
   const visible = feed.filter((c) => sport === 'ALL' || c.sport === sport)
+  const assessments = useAssessments(day)
+  const groups = useMemo(() => classifyAssessments(visible, assessments.data, now), [visible, assessments.data, now])
+  // The page-wide highlight exists only when the governed policy qualified an outcome with an assessed current price.
+  const bestOfficial = useMemo(() => {
+    let best: { matchup: string; label: string; american: number; book: string; profit: number } | null = null
+    for (const card of [...groups.QUALIFIED, ...groups.CLOSEST, ...groups.PASSED]) {
+      const play = topPlay(card.assessment, card.game, card.item)
+      const o = play.official
+      if (play.state !== 'OFFICIAL' || !o?.best || o.expectedProfit == null) continue
+      if (!best || o.expectedProfit > best.profit) {
+        best = { matchup: card.matchup, label: o.label, american: o.best.american, book: o.best.sportsbook, profit: o.expectedProfit }
+      }
+    }
+    return best
+  }, [groups])
+  const research = (assessments.data?.research ?? []).filter((r) => sport === 'ALL' || r.sport === sport)
+  const [params, setParams] = useSearchParams()
+  const view: View = VIEWS.some((v) => v.key === params.get('view')) ? params.get('view') as View : 'decisions'
+  const setView = (next: View) => setParams((old) => {
+    const q = new URLSearchParams(old)
+    if (next === 'decisions') q.delete('view')
+    else q.set('view', next)
+    q.delete('replay')  // leaving My Card always leaves the historical replay
+    return q
+  }, { replace: true })
+  // Historical replay lives only inside My Card and is always visible in the URL.
+  const replay = view === 'card' && params.get('replay') === '1'
+  const setReplay = (on: boolean) => setParams((old) => {
+    const q = new URLSearchParams(old)
+    q.set('view', 'card')
+    if (on) q.set('replay', '1')
+    else q.delete('replay')
+    return q
+  })
+  // Fixture-backed player-prop interface preview; never live, never selectable.
+  const propsPreview = params.get('preview') === 'player-props'
+  const [labGame, setLabGame] = useState<string | null>(null)
+  const picks = useMyCard()
+  const marketGames = useMemo(() => {
+    const byId = new Map((assessments.data?.games ?? []).map((g) => [g.game_id, g]))
+    return games.filter((g) => sport === 'ALL' || g.league === sport)
+      .map((g) => ({ gameId: g.game_id, game: g, assessment: byId.get(g.game_id) ?? null }))
+  }, [games, assessments.data, sport])
+  const openLab = (gameId: string) => {
+    setLabGame(gameId)
+    window.setTimeout(() => document.getElementById('parlay-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
 
   // A game graduates from an agenda row to a decision card once there is a
   // decision to read: a final evaluation, a position, or a started game.
@@ -249,14 +406,26 @@ export function CommandDecisions({ day }: { day: string }) {
               : <><b>No milestone scheduled</b><span>Today’s slate is complete</span></>}
           </div>
           <div className="cc-dnow__block"><small>Qualified positions</small><b className={qualifiedPositions ? 'is-up' : ''}>{qualifiedPositions}</b><span>open</span></div>
-          <div className="cc-dnow__block"><small>Capital exposed</small><b>{money(ledger.data?.totals.open_exposure)}</b><span>{ledger.data?.totals.open_count ?? 0} open</span></div>
+          <div className="cc-dnow__block"><small>Virtual exposure</small><b>{money(ledger.data?.totals.open_exposure)}</b><span>{ledger.data?.totals.open_count ?? 0} open</span></div>
           <div className="cc-dnow__block"><small>{isToday ? 'Completed today' : 'Completed this slate day'}</small><b className={todayPnl > 0 ? 'is-up' : todayPnl < 0 ? 'is-down' : ''}>{signedMoney(todayPnl)}</b><span>{settledToday.length} settled · {completed.length} decided</span></div>
         </div>
       </section>
+      <VerdictWall items={items} />
 
-      {sportsInFeed.length > 1 && (
+      <div className="dv-orient" role="note">
+        <p>{TOP_ORIENTATION}</p>
+        {bestOfficial && (
+          <p className="dv-orient__best">
+            <small>Best official opportunity today</small>
+            <b>{bestOfficial.label} {american(bestOfficial.american)}</b> at {bestOfficial.book} · {bestOfficial.matchup} ·{' '}
+            <b className={bestOfficial.profit >= 0 ? 'is-up' : 'is-down'}>{signedCents(bestOfficial.profit)} expected profit per $1</b>
+          </p>
+        )}
+      </div>
+
+      {(sportsInFeed.length > 1 || sport !== 'ALL') && (
         <div className="cc-filters" role="group" aria-label="Sport">
-          {(['ALL', ...sportsInFeed] as const).map((code) => (
+          {(['ALL', ...new Set([...sportsInFeed, ...(sport === 'ALL' ? [] : [sport])])] as const).map((code) => (
             <button key={code} type="button" aria-pressed={sport === code} onClick={() => setSport(code)}>
               {code === 'ALL' ? 'All sports' : SPORT_NAMES[code]}
             </button>
@@ -268,6 +437,45 @@ export function CommandDecisions({ day }: { day: string }) {
         <p className="cc-empty" role="status">{board.error ? `Decisions are unavailable: ${board.error}` : 'Loading decisions…'}</p>
       )}
 
+      <div className="dv-tabs" role="tablist" aria-label="Daily Decisions views">
+        {VIEWS.map((v) => (
+          <button key={v.key} type="button" role="tab" id={`dv-tab-${v.key}`} aria-controls={`dv-panel-${v.key}`}
+            aria-selected={view === v.key} tabIndex={view === v.key ? 0 : -1} onClick={() => setView(v.key)}
+            onKeyDown={(e) => {
+              const i = VIEWS.findIndex((x) => x.key === view)
+              if (e.key === 'ArrowRight') setView(VIEWS[(i + 1) % VIEWS.length].key)
+              if (e.key === 'ArrowLeft') setView(VIEWS[(i + VIEWS.length - 1) % VIEWS.length].key)
+            }}>
+            {v.label}{v.key === 'card' && picks.length > 0 ? ` (${picks.length})` : ''}
+          </button>
+        ))}
+      </div>
+      {assessments.error && <p className="cc-empty" role="status">Model assessments are unavailable: {assessments.error}</p>}
+
+      {view === 'markets' && (
+        <div role="tabpanel" id="dv-panel-markets" aria-labelledby="dv-tab-markets">
+          <AllMarkets games={marketGames} data={assessments.data} now={now} onOpenLab={openLab} preview={propsPreview} />
+          <div id="parlay-lab"><ParlayLab data={assessments.data} coverage={games} focusGameId={labGame} /></div>
+        </div>
+      )}
+
+      {view === 'card' && (
+        <div role="tabpanel" id="dv-panel-card" aria-labelledby="dv-tab-card">
+          <MyCard now={now} replay={replay} onReplay={setReplay} />
+        </div>
+      )}
+
+      {view === 'decisions' && (
+      <div role="tabpanel" id="dv-panel-decisions" aria-labelledby="dv-tab-decisions">
+      <p className="dv-authority" role="note">
+        <b>Official AISP decisions.</b> Produced automatically by the governed decision policy. They cannot be edited, overridden
+        or deleted here, and your own picks (My Card) never change them or the $1,000 Experiment.
+      </p>
+      <AssessmentBoard groups={groups} research={research} day={day} loading={!assessments.data && !assessments.error}
+        ledger={ledger.data} now={now} />
+
+      <details className="as-audit" open>
+        <summary>Audit view · full timing and readiness queue</summary>
       {actionable.length > 0 && (
         <section aria-label="Actionable and open positions">
           <h2 className="cc-section-title">Actionable · open positions <span>{actionable.length}</span></h2>
@@ -297,6 +505,9 @@ export function CommandDecisions({ day }: { day: string }) {
       )}
 
       <SupportingVisuals items={items} ledger={ledger.data} />
+      </details>
+      </div>
+      )}
     </section>
   )
 }
@@ -316,16 +527,22 @@ const AgendaRow = memo(function AgendaRow({ card, now, next }: { card: FeedCard;
         <small>{pr.labels[Math.min(pr.reached + 1, 5)]}</small>
       </span>
       <span role="cell">{model && homeP != null
-        ? <><b>{homeP >= 0.5 ? game?.home?.abbreviation : game?.away?.abbreviation} {pct(homeP >= 0.5 ? homeP : 1 - homeP, 0)}</b><small>{model.expected_away != null && model.expected_home != null ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)}` : 'forecast'}</small></>
-        : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
+        ? <><b>{homeP >= 0.5 ? game?.home?.abbreviation : game?.away?.abbreviation} {pct(homeP >= 0.5 ? homeP : 1 - homeP, 0)}</b><small>{modelNote(model, '')}</small></>
+        : card.readiness
+          ? <span title={card.readiness.forecast?.label}>{forecastHeld(card.readiness.forecast?.state) ? <b>Forecast held</b> : <span className="is-gold">Awaiting forecast</span>}</span>
+          : <span className="is-gold">{card.game ? 'Preparing' : card.status.label}</span>}</span>
       <span role="cell">{game
         ? game.price_state === 'CURRENT_PRICE' ? <b className="is-up">Collected</b>
-          : <><b>{etTime(game.checkpoints.collection_opens_at).replace(' ET', '')}</b><small>{Date.parse(game.checkpoints.collection_opens_at) > now ? `in ${countdown(game.checkpoints.collection_opens_at, now)}` : 'open'}</small></>
-        : '—'}</span>
+          : game.checkpoints.collection_opens_at == null
+            ? <span className="is-gold" title={game.price_unavailable?.detail}>No collection</span>
+            : <><b>{etTime(game.checkpoints.collection_opens_at).replace(' ET', '')}</b><small>{Date.parse(game.checkpoints.collection_opens_at) > now ? `in ${countdown(game.checkpoints.collection_opens_at, now)}` : 'open'}</small></>
+        : card.readiness
+          ? <span title={card.readiness.price?.label}>{readinessPriceLabel(card.readiness.price?.state)}</span>
+          : '—'}</span>
       <span role="cell">{card.windowOpens ? <><b>{etTime(card.windowOpens).replace(' ET', '')}–{etTime(card.windowCloses).replace(' ET', '')}</b><small>{Date.parse(card.windowOpens) > now ? `in ${countdown(card.windowOpens, now)}` : 'open'}</small></> : '—'}</span>
       <span role="cell" className="cc-row2__next">{next
         ? <><b>{next.label}</b><small>{next.status === 'open' ? `closes in ${countdown(new Date(next.until ?? next.at).toISOString(), now)}` : `${etTime(new Date(next.at).toISOString()).replace(' ET', '')} · in ${countdown(new Date(next.at).toISOString(), now)}`}</small></>
-        : <b>{card.status.label}</b>}</span>
+        : <b title={card.status.detail ?? undefined}>{card.status.label}</b>}</span>
     </Link>
   )
 })
@@ -375,12 +592,25 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
       <dl className="cc-dcard__facts">
         <div><dt>Model</dt>
           <dd>{homeP != null && game ? `${pickHome ? game.home?.abbreviation : game.away?.abbreviation} ${pct(pickHome ? homeP : 1 - homeP, 0)}` : item?.model_probability != null ? pct(item.model_probability, 0) : '—'}</dd>
-          <small>{model?.expected_home != null && model.expected_away != null ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)} proj.` : model ? 'forecast' : 'no forecast yet'}</small></div>
+          <small>{modelNote(model)}</small></div>
         <div><dt>Price</dt><dd>{price ? price.text : '—'}</dd>
           <small>{price ? `${price.book}${price.when ? ` · ${relative(price.when)}` : ''}` : game?.price_state === 'STORED_REFERENCE_ONLY' ? 'stale reference only' : 'not collected'}</small></div>
         <div><dt>Market</dt><dd>{pct(marketP, 1)}</dd><small>no-vig</small></div>
-        <div><dt>Edge · EV</dt><dd className={item?.edge != null ? (item.edge >= 0 ? 'is-up' : 'is-down') : ''}>{item?.edge != null ? `${(item.edge * 100).toFixed(1)} pts` : '—'}</dd>
-          <small>{item?.expected_value != null ? `EV ${(item.expected_value * 100).toFixed(1)}%` : '—'}</small></div>
+        {(() => {
+          // What the decision recorded, never a figure recomputed now. The
+          // stored `edge` column (unadjusted model minus break-even) is not
+          // the policy edge and is not shown under that name.
+          const recorded = item ? recordedPolicyEdge(item) : null
+          const value = recorded ? recorded.value : item?.adjusted?.edge ?? null
+          const second = item?.edge_metrics?.tests.find((t) => t.metric !== 'recorded_policy_adjusted_edge') ?? null
+          return (
+            <div title={item?.edge_metrics ? item.edge_metrics.tests.map(testLine).join(' · ') : undefined}>
+              <dt>Recorded policy-adjusted edge</dt>
+              <dd className={value == null ? '' : value >= 0.02 ? 'is-up' : 'is-down'}>{value == null ? 'unavailable' : valueText({ value, unit: 'probability_points' })}</dd>
+              <small>{second ? `${second.label.replace(/^Recorded /, 'recorded ').replace(' at the offered odds', '')}: ${valueText(second)}` : item?.edge_metrics?.tests[0] ? testThresholdText(item.edge_metrics.tests[0]) : '—'}</small>
+            </div>
+          )
+        })()}
       </dl>
       {twoSided && (
         <p className="cc-dcard__market">
@@ -392,7 +622,7 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
           <b>Entry {item.selection} {am(item.american)}</b> · {shortBook(item.sportsbook)} · stake {money(item.position.stake)}
           {item.position.status === 'SETTLED'
             ? <> · <span className={(item.position.profit_loss ?? 0) >= 0 ? 'is-up' : 'is-down'}>{item.position.result} {signedMoney(item.position.profit_loss)}</span></>
-            : ' · open'}
+            : <> · {(item.position.display_status ?? 'Open').toLowerCase()}</>}
         </p>
       )}
       <ol className="cc-steps" aria-label="Readiness">
@@ -407,7 +637,7 @@ const DecisionCard = memo(function DecisionCard({ card, now }: { card: FeedCard;
           </details>
         ) : <span />}
         <Link to={item?.position ? `/experiment?position=${item.position.position_id}` : card.href} className="cc-dcard__action">
-          {item?.position ? 'View position' : card.sport === 'NBA' || card.sport === 'CFB' ? 'Research' : 'Analysis'} →
+          {item?.position ? 'View position' : card.sport === 'NBA' || card.sport === 'CFB' || card.sport === 'NHL' ? 'Research' : 'Analysis'} →
         </Link>
       </footer>
     </article>

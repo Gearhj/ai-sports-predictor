@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -112,6 +112,11 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
         .join(Forecast, Forecast.id == OfficialAspPosition.forecast_id)
         .where(Forecast.forecast_track == ForecastTrack.CURRENT_DEVELOPMENT)
     ) or 0)
+    # INSTALLATION-WIDE provenance across every sport: does this deployment hold
+    # any live-provider data, or only demo fixtures? It is deliberately global
+    # and is NOT MLB (or any sport's) readiness -- a LIVE NBA game makes it
+    # "live" without saying anything about the MLB pipeline. Sport readiness is
+    # /sports/readiness; slate data modes come from the league-scoped reads.
     if not sports_records:
         data_mode = "empty"
     else:
@@ -120,6 +125,7 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
         data_mode = "live" if has_live else "demo" if has_demo else "empty"
     return PublicConfigData(
         data_mode=data_mode,
+        data_mode_scope="ALL_SPORTS_PROVENANCE",
         model_status="DEVELOPMENT",
         component_weights=normalized,
         display_timezone=settings.display_timezone,
@@ -570,7 +576,12 @@ def rff_board(
     market: Literal["MONEYLINE", "SPREAD", "TOTAL"] = Query("MONEYLINE"),
     limit: int = Query(12, ge=1, le=40),
 ) -> dict:
-    """Provisional RFF across a day's games, most unsettled first."""
+    """RFF Core across a day's games, in three evidence tiers.
+
+    Only the published tier is ranked; provisional and unknown games are
+    returned separately so nothing invites a comparison the evidence does not
+    support.
+    """
 
     from app.services.rff_index import RffService
 
@@ -669,8 +680,41 @@ def nfl_prospective_results(session: DatabaseSession) -> dict:
     return ForecastEvaluationReadService(session).nfl_prospective()
 
 
+@router.get("/research/nfl-scorecard", tags=["transparency"])
+def nfl_scorecard(session: DatabaseSession, settings: AppSettings) -> dict:
+    """The NFL model-performance scorecard: coverage, per-cohort scores, game audit drawers.
+
+    Read-only. Model scoring only -- never decision-policy or bankroll results.
+    """
+
+    from app.services.nfl_scoring_readiness import NflScoringReadinessService
+
+    return NflScoringReadinessService(session, settings).scorecard()
+
+
+@router.get("/research/nfl-scoring-readiness", tags=["transparency"])
+def nfl_scoring_readiness(session: DatabaseSession, settings: AppSettings,
+                          season: int = Query(2026, ge=2020, le=2100),
+                          week: int = Query(..., ge=1, le=22)) -> dict:
+    """Per-game readiness to score one NFL schedule week automatically. Read-only."""
+
+    from app.services.nfl_scoring_readiness import NflScoringReadinessService
+
+    return NflScoringReadinessService(session, settings).week_readiness(season=season, week=week)
+
+
+@router.get("/research/nfl-production-status", tags=["transparency"])
+def nfl_production_status(settings: AppSettings) -> dict:
+    """Whether a verified Codex NFL M1 production handoff exists (fail-closed)."""
+
+    from app.forecast_exchange.nfl_production_handoff import production_status
+
+    return production_status(settings).as_dict()
+
+
 @router.get("/research/model-performance", tags=["transparency"])
-def model_performance(session: DatabaseSession, league: str = Query("MLB")) -> dict:
+def model_performance(session: DatabaseSession, settings: AppSettings, league: str = Query("MLB"),
+                      test_data: bool = Query(False)) -> dict:
     """Consolidated model-quality evidence for one league.
 
     Read-only: computed from current stored outcome evaluations, per model
@@ -682,7 +726,129 @@ def model_performance(session: DatabaseSession, league: str = Query("MLB")) -> d
     code = league.upper()
     if code not in LEAGUES:
         raise HTTPException(status_code=404, detail=f"Unknown league {league}")
-    return ModelPerformanceReadService(session).league(code)
+    return ModelPerformanceReadService(session).league(
+        code, include_test_data=test_data and settings.nhl_test_data_enabled)
+
+
+@router.get("/research/model-performance/overview", tags=["transparency"])
+def model_performance_overview(
+    session: DatabaseSession,
+    settings: AppSettings,
+    sport: str = Query("ALL", max_length=8),
+    model: str | None = Query(None, max_length=200),
+    forecast_type: str = Query("ALL", max_length=16),
+    lead: str = Query("ALL", max_length=16),
+    test_data: bool = Query(False),
+) -> dict:
+    """Model Performance Overview: one primary evaluation per game, FINAL vs CURRENT kept apart.
+
+    Read-only. The same calculation produces the offline Model Performance Brief.
+    Forecast evaluations, decision opportunities and funded positions are
+    reported as separate populations; nothing here creates a position.
+    """
+
+    from app.services.model_performance_overview import FORECAST_TYPES, LEAD_BUCKETS, overview
+
+    code = sport.upper()
+    if code not in ("ALL", "MLB", "NFL", "CFB", "NHL"):
+        raise HTTPException(status_code=404, detail=f"Unknown sport {sport}")
+    kind = forecast_type.upper()
+    if kind != "ALL" and kind not in FORECAST_TYPES:
+        raise HTTPException(status_code=422, detail=f"Unknown forecast type {forecast_type}")
+    bucket = lead.upper()
+    if bucket != "ALL" and bucket not in {key for key, *_ in LEAD_BUCKETS}:
+        raise HTTPException(status_code=422, detail=f"Unknown lead bucket {lead}")
+    return overview(session, sport=code, model=model or None, forecast_kind=kind, lead=bucket,
+                    include_test_data=test_data and settings.nhl_test_data_enabled)
+
+
+@router.get("/research/mmqb/index", tags=["transparency"])
+def mmqb_index(session: DatabaseSession, league: str = Query("NFL", max_length=8)) -> dict:
+    """Weeks with official positions, newest last, for the Monday Morning QB link. Read-only."""
+
+    from app.services.mmqb_report import SUPPORTED_LEAGUES, begin_read_only, weeks_with_positions
+
+    code = league.upper()
+    if code not in SUPPORTED_LEAGUES:
+        raise HTTPException(status_code=404, detail=f"Monday Morning QB supports {', '.join(SUPPORTED_LEAGUES)}")
+    begin_read_only(session)
+    weeks = weeks_with_positions(session, league=code)
+    return {"league": code, "weeks": weeks, "latest": weeks[-1] if weeks else None}
+
+
+@router.get("/research/mmqb", tags=["transparency"], response_model=None)
+def mmqb(
+    session: DatabaseSession,
+    league: str = Query("NFL", max_length=8),
+    season: int | None = Query(None, ge=2000, le=2100),
+    week: int | None = Query(None, ge=0, le=30),
+    date_from: str | None = Query(None, max_length=10),
+    date_to: str | None = Query(None, max_length=10),
+    format: Literal["json", "html"] = Query("json"),
+    theme: Literal["dark", "light"] | None = Query(None),
+):
+    """Monday Morning QB weekly report: official positions, entry expectation, model vs market, game checks.
+
+    Read-only, one REPEATABLE READ READ ONLY snapshot. Reuses the Wager Results and Model Performance
+    Overview calculations; the offline report (server/scripts/mmqb_report.py) renders the same payload.
+    ``format=html`` returns the self-contained report page.
+    """
+
+    from fastapi.responses import HTMLResponse
+
+    from app.services.mmqb_render import render_html
+    from app.services.mmqb_report import SUPPORTED_LEAGUES, begin_read_only, mmqb_report
+
+    code = league.upper()
+    if code not in SUPPORTED_LEAGUES:
+        raise HTTPException(status_code=404, detail=f"Monday Morning QB supports {', '.join(SUPPORTED_LEAGUES)}")
+    try:
+        for value in (date_from, date_to):
+            if value:
+                date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="date_from/date_to must be YYYY-MM-DD") from exc
+    begin_read_only(session)
+    try:
+        payload = mmqb_report(session, league=code, season=season, week=week, date_from=date_from, date_to=date_to)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        session.rollback()
+    if format == "html":
+        from app.core.middleware import REPORT_FRAME_HEADER
+
+        # Same-origin framing for the Model Performance page; the security middleware applies the narrow policy.
+        return HTMLResponse(render_html(payload, link_base="", link_target="_top", theme=theme),
+                            headers={REPORT_FRAME_HEADER: "same-origin-report"})
+    return payload
+
+
+@router.get("/research/wager-results", tags=["transparency"])
+def wager_results(
+    session: DatabaseSession,
+    sport: str = Query("ALL"),
+    engine: str | None = Query(None, max_length=40),
+    era: str | None = Query(None, max_length=40),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+) -> dict:
+    """Wager Results: official funded positions against their recorded entry estimates.
+
+    Read-only. One row per official funded position joined to its exact funding
+    decision; House Divided copies, repeated checkpoints and unfunded shadows
+    are never read. Nothing is re-priced, re-settled or recomputed from current
+    forecasts.
+    """
+
+    from app.services.wager_results_read import SPORTS, wager_results as read
+
+    code = sport.upper()
+    if code != "ALL" and code not in SPORTS:
+        raise HTTPException(status_code=404, detail=f"Unknown sport {sport}")
+    return read(session, sport=code, engine=engine, era=era,
+                date_from=date_from.isoformat() if date_from else None,
+                date_to=date_to.isoformat() if date_to else None)
 
 
 @router.get("/show-board", tags=["show-preview"])
@@ -1714,9 +1880,47 @@ def nba_joint_comparison_route(session: DatabaseSession, game_id: str | None = N
     return joint_comparison(session, game_id=game_id)
 
 
+@router.get("/nba/gen1/board", tags=["forecasts"])
+def nba_gen1_board(session: DatabaseSession, settings: AppSettings, date: str | None = Query(None)) -> dict:
+    """NBA Gen1 production packages (prospective) and the HISTORICAL summary. Read-only.
+
+    Three channels per forecast, each under its own name and units: Ridge
+    expected POINTS, Elo WIN probability, joint-distribution probabilities.
+    No channel is derived from another and Ridge is never compared with a price.
+    """
+
+    from app.nba.gen1_read import board
+
+    return board(session, settings, date_iso=date)
+
+
+@router.get("/nba/gen1/games/{game_ref}", tags=["forecasts"])
+def nba_gen1_game(session: DatabaseSession, settings: AppSettings, game_ref: str) -> dict:
+    """One NBA game: production and HISTORICAL forecasts, retained finals, per-channel scores.
+
+    Addressed by AISP game id, ESPN game id, or Codex ``nba-espn:game:<id>``.
+    """
+
+    from app.nba.gen1_read import game_detail
+
+    found = game_detail(session, settings, game_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No NBA game for that id")
+    return found
+
+
+@router.get("/nba/gen1/identity", tags=["forecasts"])
+def nba_gen1_identity(session: DatabaseSession) -> dict:
+    """Codex <-> AISP NBA identity coverage: unique both ways, unmapped listed, never guessed."""
+
+    from app.nba.gen1_identity import report
+
+    return report(session)
+
+
 @router.get("/sports/readiness", tags=["operations"])
 def sports_readiness(session: DatabaseSession) -> dict:
-    """Where MLB, NFL, NBA and College Football each stand, with the exact blocker.
+    """Where MLB, NFL, NBA, College Football and NHL each stand, with the exact blocker.
 
     Reads persisted state only: no policy is evaluated, no price requested and
     no record created. A sport with nothing to do yet says what it is waiting
@@ -1761,6 +1965,101 @@ def command_center_markets(
     from app.services.command_center import market_coverage
 
     return market_coverage(session, event_date or local_today("America/New_York"))
+
+
+@router.get("/command-center/replay", tags=["markets"])
+def command_center_replay(session: DatabaseSession) -> dict:
+    """Historical market replay: stored prices exactly as they stood at a past
+    instant, for the replay card only. Quotes only; no provider call, no write."""
+
+    from app.services.market_replay import historical_replay
+
+    return historical_replay(session)
+
+
+@router.get("/command-center/assessments", tags=["markets"])
+def command_center_assessments(
+    session: DatabaseSession,
+    settings: AppSettings,
+    event_date: date | None = Query(None, alias="date"),
+) -> dict:
+    """Verified-population model masses beside each stored quote, plus the
+    same-game Parlay Lab and research comparisons. No provider call, no write."""
+
+    from app.core.time import local_today
+    from app.probability.assessments import daily_assessments
+
+    return daily_assessments(session, settings, event_date or local_today("America/New_York"))
+
+
+@router.get("/mission-control", tags=["operations"])
+def mission_control_endpoint(session: DatabaseSession, settings: AppSettings,
+                             event_date: date | None = Query(None, alias="date")) -> dict:
+    """Every game of one Eastern date as a pipeline: forecast, approval, prices, decision, bet, live, result.
+
+    Read-only and caller-independent (served through the SWR read cache): no
+    provider call, no policy evaluation, no shared-allowance lock and no write.
+    A plain ``def``, so FastAPI runs it in the threadpool, off the event loop.
+    """
+
+    from app.services.mission_control import MAX_DAYS_AHEAD, MAX_DAYS_BACK, mission_control
+
+    day, today = _today(event_date, settings), local_today(settings.display_timezone)
+    if not -MAX_DAYS_BACK <= (day - today).days <= MAX_DAYS_AHEAD:
+        raise HTTPException(status_code=400, detail="Mission Control serves today-1 .. today+3 (ET).")
+    return mission_control(session, settings, day)
+
+
+def _probability_error(exc) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.as_dict())
+
+
+@router.get("/probability/games/{game_id}", tags=["forecasts"])
+def probability_binding(game_id: str, session: DatabaseSession, settings: AppSettings) -> dict:
+    """The verified paired-population binding and capabilities for one game."""
+
+    from app.probability import adapter
+
+    try:
+        return adapter.describe(session, settings, adapter.parse_game_id(game_id))
+    except adapter.ProbabilityUnavailable as exc:
+        raise _probability_error(exc) from exc
+
+
+@router.get("/probability/games/{game_id}/story", tags=["forecasts"])
+def probability_game_story(game_id: str, session: DatabaseSession, settings: AppSettings) -> dict:
+    """Game Center inputs: verified population, line masses, assessed quotes, facts. Read-only."""
+
+    from app.probability import adapter
+    from app.probability.story import game_story
+
+    try:
+        return game_story(session, settings, adapter.parse_game_id(game_id))
+    except adapter.ProbabilityUnavailable as exc:
+        raise _probability_error(exc) from exc
+
+
+@router.post("/probability/evaluate", tags=["forecasts"])
+def probability_evaluate(session: DatabaseSession, settings: AppSettings, body: dict = Body(...)) -> dict:
+    """One market or a same-game paired-draw intersection over one exact,
+    re-verified population. Research only; creates no decision or position."""
+
+    from app.probability.adapter import ProbabilityUnavailable
+    from app.probability.evaluate import evaluate_request
+
+    try:
+        return evaluate_request(session, settings, body)
+    except ProbabilityUnavailable as exc:
+        raise _probability_error(exc) from exc
+
+
+@router.post("/probability/cross-game", tags=["forecasts"])
+def probability_cross_game(body: dict | None = Body(None)) -> dict:
+    """Always refused: no cross-game category is calibration-validated."""
+
+    from app.probability.evaluate import cross_game_refusal
+
+    raise _probability_error(cross_game_refusal())
 
 
 @router.get("/cfb/research", tags=["forecasts"])
@@ -1904,3 +2203,59 @@ def explain_settled(
             if (row.get("what_happened") or {}).get("population_comparison_available")
         ),
     }
+
+
+# --------------------------------------------------------------------- NHL --
+@router.get("/nhl/research", tags=["forecasts"])
+def nhl_research_board(
+    session: DatabaseSession,
+    settings: AppSettings,
+    date: str | None = Query(None, max_length=10, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    test_data: bool = Query(False),
+) -> dict:
+    """NHL Gen1 forecasts and results, with the recorded paper decision and position per game.
+
+    Regulation (3-way at 60:00) and final (2-way including OT/SO) are reported
+    separately. ``markets`` and ``wagering`` state what AISP holds now (stored
+    NHL quotes, the paper era and its positions); with no era open they read
+    NO_NHL_MARKET_PRICES_COLLECTED and ``wagering.enabled`` = false.
+    """
+
+    from app.nhl.read_service import NhlReadService
+
+    payload = NhlReadService(session).board(date=date, include_test_data=test_data and settings.nhl_test_data_enabled)
+    if not settings.nhl_test_data_enabled:
+        # Production: fixtures do not exist as far as a reader is concerned.
+        payload["test_data_rows"] = 0
+        payload["fixture_notice"] = None
+    payload["test_data_available"] = settings.nhl_test_data_enabled
+    return payload
+
+
+@router.get("/nhl/games/{source_game_id}", tags=["forecasts"])
+def nhl_game_detail(session: DatabaseSession, settings: AppSettings, source_game_id: str) -> dict:
+    """One NHL game by its NHL gameId (``nhl:game:<id>``) or AISP's canonical game id (a UUID).
+
+    Decisions and the ledger link a game by its AISP id; it is translated through the
+    game's ``nhl:game:<id>`` mapping. Forecast, revision history, result, recorded paper
+    decision and position.
+    """
+
+    from app.nhl.read_service import NhlReadService, resolve_source_game_id
+
+    resolved = resolve_source_game_id(session, source_game_id)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="An NHL game id is ten digits, or an AISP game id")
+    found = NhlReadService(session).game(resolved)
+    if found is None or (found["is_fixture"] and not settings.nhl_test_data_enabled):
+        raise HTTPException(status_code=404, detail="AISP holds no NHL game or forecast for that id")
+    return found
+
+
+@router.get("/nhl/import-receipts", tags=["forecasts"])
+def nhl_import_receipts(session: DatabaseSession, limit: int = Query(200, ge=1, le=1000)) -> dict:
+    """Every NHL import receipt: IMPORTED / REVISED / DUPLICATE / REJECTED, with reasons."""
+
+    from app.nhl.read_service import NhlReadService
+
+    return NhlReadService(session).receipts(limit=limit)

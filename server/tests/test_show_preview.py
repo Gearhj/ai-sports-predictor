@@ -276,7 +276,7 @@ def test_evidence_after_the_cut_is_invisible(world, settings) -> None:
     quote(world, "MONEYLINE", "HOME", "sgo:betmgm", -125, BEFORE, retrieved=FREEZE + timedelta(minutes=5))
     game = build_board(world["session"], SLATE, settings, evidence_as_of=FREEZE)["games"][0]
     assert game["markets"]["MONEYLINE"] == []
-    assert "MARKET_NOT_POSTED" in {m["code"] for m in game["missing"]}
+    assert "PRICE_NOT_CAPTURED" in {m["code"] for m in game["missing"]}
     assert game["forecast_status"] == "AWAITING_PRODUCER"
     assert game["missing"][0]["message"] == "Preview forecast awaiting producer"
 

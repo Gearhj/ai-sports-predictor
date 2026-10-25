@@ -35,7 +35,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.entities import ShadowForecast
+from app.models.entities import Game, ShadowForecast
+from app.services.league_scope import MLB, LeagueMismatchError, require_league
 
 ENGINE_ID = "MLB_V18_WHOLE_GAME"
 
@@ -46,6 +47,7 @@ NOT_READY = "V18_FORECAST_IS_NOT_MARKED_READY"
 NO_PROBABILITY = "V18_FORECAST_CARRIES_NO_WHOLE_GAME_WIN_PROBABILITY"
 EVIDENCE_AFTER_CUTOFF = "V18_EVIDENCE_CUTOFF_IS_AFTER_THE_DECISION_CUTOFF"
 PUBLISHED_AFTER_CUTOFF = "V18_FORECAST_WAS_PUBLISHED_AFTER_THE_DECISION_CUTOFF"
+NOT_AN_MLB_GAME = "V18_DECIDES_MLB_GAMES_ONLY"
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -144,16 +146,33 @@ class V18ForecastView:
         value = self.row.readiness_score
         return float(value) if value is not None else None
 
+    #: The one scalar the V18 import stores for the policy's uncertainty input.
+    #: Producer ``monteCarloUncertainty.homeWinProbabilityStandardError``
+    #: (sqrt(p(1-p)/n), probability units) is imported by
+    #: ``shadow_import.mlb_v18_daily`` as ``uncertainty["monteCarloStandardError"]``.
+    #: Until 2026-09-18 this view read ``fullGameWinProbabilityStandardError``, a
+    #: name no producer or importer ever wrote, so every V18 decision received
+    #: None -> the policy's 0.0 default. Corrected prospectively; decisions
+    #: already recorded keep the evidence they were made on.
+    UNCERTAINTY_FIELD = "monteCarloStandardError"
+    #: What that number is: Monte Carlo SAMPLING error of the win probability,
+    #: explicitly not model (epistemic) uncertainty.
+    UNCERTAINTY_BASIS = "MONTE_CARLO_SAMPLING_STANDARD_ERROR"
+
     @property
     def uncertainty(self) -> float | None:
         value = self.row.uncertainty
         if isinstance(value, dict):
-            # The producer sends a structured uncertainty block. The gate wants
-            # one scalar; take the one the producer named, never an average of
-            # fields that mean different things.
-            scalar = value.get("fullGameWinProbabilityStandardError")
+            # One named scalar, never an average of fields that mean different things.
+            scalar = value.get(self.UNCERTAINTY_FIELD)
             return float(scalar) if scalar is not None else None
         return float(value) if value is not None else None
+
+    @property
+    def uncertainty_basis(self) -> str | None:
+        """What the uncertainty scalar measures, or None when the forecast carries none."""
+
+        return self.UNCERTAINTY_BASIS if self.uncertainty is not None else None
 
     @property
     def readiness_components(self) -> dict[str, Any]:
@@ -236,6 +255,12 @@ def resolve_for_decision(
     that arrived too late".
     """
 
+    game = session.get(Game, game_id if isinstance(game_id, UUID) else UUID(str(game_id)))
+    if game is not None:
+        try:
+            require_league(session, game, MLB, process="V18 decision input")
+        except LeagueMismatchError:
+            return None, NOT_AN_MLB_GAME
     row = latest_v18_forecast(session, game_id, engine_id=engine_id)
     if row is None:
         return None, NO_V18_FORECAST
@@ -271,6 +296,6 @@ def v18_coverage(session: Session, event_date: date, *, engine_id: str = ENGINE_
 
 __all__ = [
     "ENGINE_ID", "EVIDENCE_AFTER_CUTOFF", "NOT_READY", "NO_PROBABILITY",
-    "NO_V18_FORECAST", "PUBLISHED_AFTER_CUTOFF", "V18ForecastView",
+    "NOT_AN_MLB_GAME", "NO_V18_FORECAST", "PUBLISHED_AFTER_CUTOFF", "V18ForecastView",
     "latest_v18_forecast", "resolve_for_decision", "v18_coverage",
 ]

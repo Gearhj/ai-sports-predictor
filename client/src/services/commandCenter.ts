@@ -1,5 +1,5 @@
 /**
- * The four-sport command center's data contracts and loaders.
+ * The command center's data contracts and loaders (MLB, NFL, NBA, College Football, NHL).
  *
  * Every figure the redesigned pages chart comes from one of three read models
  * (`/command-center/ledger`, `/command-center/decisions`,
@@ -8,6 +8,9 @@
  * only ever a persisted observation, and model output is never placed in a
  * price field.
  */
+import type { MarketStatus, ModelStatus } from './pregameStatus'
+import type { EdgeMetrics } from './decisionEdges'
+import type { CheckpointSemantics, QuoteClocks } from './cfbMarket'
 import { useCallback } from 'react'
 import { useApiResource } from '../hooks/useApiResource'
 import { apiRequest } from './api'
@@ -25,15 +28,27 @@ export function expectSchema<T extends { schema_version?: string }>(value: T, sc
   return value
 }
 
-export type SportCode = 'MLB' | 'NFL' | 'NBA' | 'CFB'
-export const SPORT_CODES: SportCode[] = ['MLB', 'NFL', 'NBA', 'CFB']
+/**
+ * Every funded paper sport account. NHL joined on 2026-10-16, when its era
+ * (AISP_NHL_PAPER_POLICY_V1) was opened with its own $1,000 season funding, so
+ * it now drives the experiment, decision, bankroll and readiness surfaces like
+ * the other four. Its colour is the existing `--cc-nhl` token.
+ */
+export type SportCode = 'MLB' | 'NFL' | 'NBA' | 'CFB' | 'NHL'
+export const SPORT_CODES: SportCode[] = ['MLB', 'NFL', 'NBA', 'CFB', 'NHL']
 export const SPORT_NAMES: Record<SportCode, string> = {
-  MLB: 'MLB', NFL: 'NFL', NBA: 'NBA', CFB: 'College Football',
+  MLB: 'MLB', NFL: 'NFL', NBA: 'NBA', CFB: 'College Football', NHL: 'NHL',
 }
 /** Chart colours: CSS variables so both themes stay legible. */
 export const SPORT_COLORS: Record<SportCode, string> = {
-  MLB: 'var(--cc-mlb)', NFL: 'var(--cc-nfl)', NBA: 'var(--cc-nba)', CFB: 'var(--cc-cfb)',
+  MLB: 'var(--cc-mlb)', NFL: 'var(--cc-nfl)', NBA: 'var(--cc-nba)', CFB: 'var(--cc-cfb)', NHL: 'var(--cc-nhl)',
 }
+
+/** Sports shown in Model Performance: every sport account (NHL forecasts are scored there too). */
+export type PerformanceSport = SportCode
+export const PERFORMANCE_SPORTS: PerformanceSport[] = [...SPORT_CODES]
+export const PERFORMANCE_SPORT_NAMES: Record<PerformanceSport, string> = { ...SPORT_NAMES }
+export const PERFORMANCE_SPORT_COLORS: Record<PerformanceSport, string> = { ...SPORT_COLORS }
 
 export const asSport = (value: string | null | undefined): SportCode | null => {
   const upper = (value ?? '').toUpperCase()
@@ -142,15 +157,55 @@ export interface DecisionItem {
   recommended_at: string | null
   decision_window: { opens_at: string; closes_at: string } | null
   group: DecisionGroup
-  position: { position_id: string; stake: number | null; status: string; result: string | null; profit_loss: number | null } | null
+  position: {
+    position_id: string
+    stake: number | null
+    status: string
+    result: string | null
+    profit_loss: number | null
+    /** Plain wording for the board, e.g. "Final — settlement pending". */
+    display_status?: string
+    /** The game is over and the settlement owner has not reached it yet. */
+    awaiting_settlement?: boolean
+  } | null
   /** Re-derived from the stored snapshot: the same-book, same-provider pair the decision priced. */
   market_integrity?: MarketIntegrity | null
   /** The forecast the decision used, and whether it was the controlling one at the time. */
   forecast_check?: ForecastCheck | null
   /** The policy's own adjusted edge and expected value, when it recorded them. */
   adjusted?: { edge: number | null; expected_value: number | null; probability: number | null } | null
+  /**
+   * Every edge figure the decision recorded, each named for what it is, and the
+   * policy's own tests. `edge` above is the model minus the offered price's
+   * break-even probability; it is NOT what the MLB/CFB minimum is applied to.
+   */
+  edge_metrics?: EdgeMetrics | null
   /** Human-readable qualification reasons only (machine codes removed server-side). */
   plain_reasons?: string[]
+  /** College Football: NO_BET (priced, edge below policy) vs NO_PRICE (declined) vs BLOCKED (not evaluated). */
+  checkpoint_semantics?: CheckpointSemantics
+  /**
+   * MLB_V18_FUNDING_PAUSE_V1: present when this qualified V18 decision was
+   * blocked before funding evaluation. Shadow only: no paper position exists,
+   * and nothing here is a stake or money figure.
+   */
+  funding_pause?: FundingPause | null
+}
+
+export interface FundingPause {
+  record_id: string
+  content_sha256: string
+  /** The stored record re-hashes to its own content_sha256. */
+  verified: boolean
+  feature: string
+  /** FUNDING_EDGE_NOT_ESTABLISHED */
+  reason: string
+  /** PENDING_PROSPECTIVE_VALIDATION */
+  status: string
+  paused_at: string | null
+  qualified_edge_threshold: number | null
+  policy_adjusted_edge: number | null
+  position_created: false
 }
 
 export interface MarketIntegrity {
@@ -173,7 +228,9 @@ export interface ForecastCheck {
   controlling: boolean
   latest_at_decision: boolean
   superseded_since_decision: boolean
+  /** Historical name: shadow_forecasts.created_at, the START of AISP's import transaction (published_at_basis). */
   published_at: string | null
+  published_at_basis?: string
 }
 
 export interface DecisionBoard {
@@ -215,6 +272,8 @@ export interface CoverageQuote {
   fresh: boolean
   sides: Record<string, { american: number | null; decimal: number | null }>
   no_vig_home?: number
+  /** College Football only: per-side book clocks, AISP's fetch and receipt clocks. */
+  clocks?: QuoteClocks
 }
 
 export interface CoverageGame {
@@ -233,9 +292,23 @@ export interface CoverageGame {
   consensus_no_vig_home: number | null
   consensus_is_current: boolean
   best: Record<'HOME' | 'AWAY', { american: number | null; sportsbook: string | null; provider: string | null; observed_at: string } | null>
-  model: { engine_id: string; home: number | null; away: number | null; home_two_way: number | null; expected_home?: number | null; expected_away?: number | null; created_at: string | null } | null
+  /** created_at is the START of AISP's import transaction (created_at_basis), not publication, insert or commit. */
+  model: {
+    engine_id: string; home: number | null; away: number | null; home_two_way: number | null
+    expected_home?: number | null; expected_away?: number | null; created_at: string | null; created_at_basis?: string
+    /** NBA/CFB: which channel home/away came from, and which channel the expected points came from. */
+    controlling_channel?: string; expected_points_channel?: string
+    /** NBA: A_HISTORICAL_FINALIZED_RECORD_RECONSTRUCTION for 2025-26 rows; never prospective. */
+    evidence_class?: string; evidence_label?: string
+  } | null
   quotes: CoverageQuote[]
-  checkpoints: { collection_opens_at: string; decision_window_opens_at: string; decision_window_closes_at: string }
+  /** College Football has no collection checkpoint: its collection time is null. */
+  checkpoints: { collection_opens_at: string | null; decision_window_opens_at: string; decision_window_closes_at: string }
+  /** Why a College Football game has no price (server-stated). */
+  price_unavailable?: { reason: string; detail: string; reference_lines?: string }
+  /** MLB/NFL: the market and the model, each from its own evidence (services/pregameStatus). */
+  market_status?: MarketStatus
+  model_status?: ModelStatus
 }
 
 export interface MarketCoverage {
@@ -314,8 +387,27 @@ export function relative(iso: string | null | undefined, now = Date.now()): stri
   return minutes >= 0 ? `in ${text}` : `${text} ago`
 }
 
+/**
+ * The small line under a slate card's model probability. For NBA the probability
+ * is the JOINT channel and the points are RIDGE -- two different models -- so the
+ * line names both rather than implying the percentage came from the points.
+ */
+export function modelNote(model: CoverageGame['model'], suffix = ' proj.'): string {
+  if (!model) return 'no forecast yet'
+  const points = model.expected_home != null && model.expected_away != null
+    ? `${model.expected_away.toFixed(1)}–${model.expected_home.toFixed(1)}` : null
+  if (model.controlling_channel === 'JOINT_DISTRIBUTION') {
+    const historical = model.evidence_class === 'A_HISTORICAL_FINALIZED_RECORD_RECONSTRUCTION' ? ' · HISTORICAL' : ''
+    return `joint${points ? ` · Ridge ${points} pts` : ''}${historical}`
+  }
+  return points ? `${points}${suffix}` : 'forecast'
+}
+
 export function gameHref(sport: string, gameId: string | null | undefined): string {
-  if (!gameId) return sport === 'CFB' ? '/college-football/research' : sport === 'NBA' ? '/nba/research' : '/games'
+  if (!gameId) return sport === 'CFB' ? '/college-football/research' : sport === 'NBA' ? '/nba/research' : sport === 'NHL' ? '/nhl/research' : '/games'
+  // The NHL game page takes the ten-digit NHL game id or AISP's canonical game id (a ledger position
+  // or a decision): the server translates the latter through the game's nhl:game mapping.
+  if (sport === 'NHL') return `/nhl/games/${gameId}`
   if (sport === 'NBA') return `/nba/games/${gameId}`
   if (sport === 'CFB') return `/college-football/games/${gameId}`
   return `/games/${gameId}?sport=${sport}`

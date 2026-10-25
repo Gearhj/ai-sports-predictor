@@ -87,6 +87,21 @@ _FAMILY_LABELS = {
     "lifecycle": "Lifecycle",
 }
 
+# Content derived from append-only rows, cached by row id.
+#
+# HistoricalFeatureMaterialization and GameFeatureSnapshot are append-only
+# (app.audit.immutability), so a row's source bundle and evidence never change
+# once written. Each bundle is ~18 KB and each evidence list ~22 KB of JSON;
+# decoding all ~5,000 of them on every request was ~90% of the explorer's
+# time. Only two derived facts are needed from them, so those are cached per
+# row for the life of the process. Rows are still read on every request, so a
+# new or missing row is always noticed.
+_SOURCE_KEYS_BY_MATERIALIZATION: dict[Any, tuple[str, ...]] = {}
+_EVIDENCE_ATTESTED_BY_SNAPSHOT: dict[Any, bool] = {}
+_CACHE_LIMIT = 100_000
+_FETCH_CHUNK = 500
+
+
 class HistoricalResearchReadService:
     """Project immutable A2 manifest facts into public-safe summaries."""
 
@@ -305,7 +320,6 @@ class HistoricalResearchReadService:
             select(
                 HistoricalFeatureMaterialization.id,
                 HistoricalFeatureMaterialization.scheduled_at,
-                HistoricalFeatureMaterialization.source_bundle,
             )
             .join(Game, Game.id == HistoricalFeatureMaterialization.game_id)
             .join(
@@ -332,10 +346,10 @@ class HistoricalResearchReadService:
         )
         candidates = []
         invalid_source_lineage = False
-        for materialization_id, scheduled_at, source_bundle in self.session.execute(
-            candidate_statement
-        ):
-            source_keys = self._source_keys(source_bundle)
+        candidate_rows = list(self.session.execute(candidate_statement))
+        keys_by_id = self._source_keys_for(row[0] for row in candidate_rows)
+        for materialization_id, scheduled_at in candidate_rows:
+            source_keys = list(keys_by_id[materialization_id])
             if not source_keys:
                 invalid_source_lineage = True
                 continue
@@ -571,8 +585,8 @@ class HistoricalResearchReadService:
         ))
         source_keys: set[str] = set()
         missing_source_bundles = 0
-        for source_bundle in self.session.scalars(
-            select(HistoricalFeatureMaterialization.source_bundle).where(
+        population_ids = list(self.session.scalars(
+            select(HistoricalFeatureMaterialization.id).where(
                 HistoricalFeatureMaterialization.source_mode == "LIVE",
                 HistoricalFeatureMaterialization.temporal_semantics
                 == TEMPORAL_SEMANTICS,
@@ -580,8 +594,8 @@ class HistoricalResearchReadService:
                 HistoricalFeatureMaterialization.scheduled_at >= SEASON_START,
                 HistoricalFeatureMaterialization.scheduled_at < SEASON_END,
             )
-        ):
-            bundle_keys = self._source_keys(source_bundle)
+        ))
+        for bundle_keys in self._source_keys_for(population_ids).values():
             if not bundle_keys:
                 missing_source_bundles += 1
             source_keys.update(bundle_keys)
@@ -677,13 +691,11 @@ class HistoricalResearchReadService:
                 HistoricalFeatureMaterialization.game_final_outcome_id.label("outcome_id"),
                 HistoricalFeatureMaterialization.cutoff_at.label("cutoff_at"),
                 HistoricalFeatureMaterialization.scheduled_at.label("scheduled_at"),
-                HistoricalFeatureMaterialization.source_bundle.label("source_bundle"),
                 GameFeatureSnapshot.id.label("resolved_snapshot_id"),
                 GameFeatureSnapshot.game_id.label("snapshot_game_id"),
                 GameFeatureSnapshot.feature_version_id.label("snapshot_feature_id"),
                 GameFeatureSnapshot.data_as_of.label("data_as_of"),
                 GameFeatureSnapshot.source_mode.label("snapshot_source_mode"),
-                GameFeatureSnapshot.source_evidence.label("source_evidence"),
                 GameFeatureSnapshot.market_snapshot_ids.label("market_snapshot_ids"),
                 HistoricalSourceVersion.source_key.label("source_key"),
                 HistoricalSourceVersion.source_mode.label("source_mode"),
@@ -746,9 +758,10 @@ class HistoricalResearchReadService:
                 "not every materialization resolves to a snapshot, game, two sides, "
                 "and checkpoint source"
             )
+        keys_by_id = self._source_keys_for(row["materialization_id"] for row in rows)
+        attested_by_snapshot = self._evidence_attested_for(row["resolved_snapshot_id"] for row in rows)
         for row in rows:
-            source_keys = self._source_keys(row["source_bundle"])
-            evidence = row["source_evidence"]
+            source_keys = keys_by_id[row["materialization_id"]]
             if (
                 row["snapshot_id"] != row["resolved_snapshot_id"]
                 or row["materialization_game_id"] != row["snapshot_game_id"]
@@ -776,16 +789,7 @@ class HistoricalResearchReadService:
             if row["market_snapshot_ids"]:
                 issues.append("market evidence unexpectedly appears in an A2 snapshot")
                 break
-            if not (
-                isinstance(evidence, list)
-                and bool(evidence)
-                and all(
-                    isinstance(item, dict)
-                    and item.get("target_excluded") is True
-                    and item.get("temporal_valid") is True
-                    for item in evidence
-                )
-            ):
+            if not attested_by_snapshot.get(row["resolved_snapshot_id"], False):
                 issues.append("target-exclusion or temporal attestation is missing")
                 break
         return sorted(set(issues))
@@ -978,6 +982,49 @@ class HistoricalResearchReadService:
             )
             or 0
         )
+
+    def _source_keys_for(self, materialization_ids: Any) -> dict[Any, tuple[str, ...]]:
+        """Source keys per materialization, decoding only rows not yet seen."""
+        wanted = list(dict.fromkeys(materialization_ids))
+        missing = [item for item in wanted if item not in _SOURCE_KEYS_BY_MATERIALIZATION]
+        if len(_SOURCE_KEYS_BY_MATERIALIZATION) + len(missing) > _CACHE_LIMIT:
+            _SOURCE_KEYS_BY_MATERIALIZATION.clear()
+            missing = wanted
+        for start in range(0, len(missing), _FETCH_CHUNK):
+            chunk = missing[start:start + _FETCH_CHUNK]
+            for row_id, bundle in self.session.execute(
+                select(
+                    HistoricalFeatureMaterialization.id,
+                    HistoricalFeatureMaterialization.source_bundle,
+                ).where(HistoricalFeatureMaterialization.id.in_(chunk))
+            ):
+                _SOURCE_KEYS_BY_MATERIALIZATION[row_id] = tuple(self._source_keys(bundle))
+        return {item: _SOURCE_KEYS_BY_MATERIALIZATION.get(item, ()) for item in wanted}
+
+    def _evidence_attested_for(self, snapshot_ids: Any) -> dict[Any, bool]:
+        """Whether each snapshot's evidence attests target exclusion and temporal validity."""
+        wanted = [item for item in dict.fromkeys(snapshot_ids) if item is not None]
+        missing = [item for item in wanted if item not in _EVIDENCE_ATTESTED_BY_SNAPSHOT]
+        if len(_EVIDENCE_ATTESTED_BY_SNAPSHOT) + len(missing) > _CACHE_LIMIT:
+            _EVIDENCE_ATTESTED_BY_SNAPSHOT.clear()
+            missing = wanted
+        for start in range(0, len(missing), _FETCH_CHUNK):
+            chunk = missing[start:start + _FETCH_CHUNK]
+            for row_id, evidence in self.session.execute(
+                select(GameFeatureSnapshot.id, GameFeatureSnapshot.source_evidence)
+                .where(GameFeatureSnapshot.id.in_(chunk))
+            ):
+                _EVIDENCE_ATTESTED_BY_SNAPSHOT[row_id] = (
+                    isinstance(evidence, list)
+                    and bool(evidence)
+                    and all(
+                        isinstance(item, dict)
+                        and item.get("target_excluded") is True
+                        and item.get("temporal_valid") is True
+                        for item in evidence
+                    )
+                )
+        return {item: _EVIDENCE_ATTESTED_BY_SNAPSHOT.get(item, False) for item in wanted}
 
     @staticmethod
     def _source_keys(value: object) -> list[str]:

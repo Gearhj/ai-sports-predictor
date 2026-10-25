@@ -1,0 +1,179 @@
+{
+  "leagues": [
+    {"id": "90", "uid": "s:70~l:90", "name": "National Hockey League", "abbreviation": "NHL", "slug": "nhl"}
+  ],
+  "season": {"type": 2, "year": 2027},
+  "day": {"date": "2026-10-17"},
+  "events": [
+    {
+      "id": "401900121",
+      "uid": "s:70~l:90~e:401900121",
+      "date": "2026-10-17T17:00Z",
+      "name": "New Jersey Devils at Washington Capitals",
+      "shortName": "NJ @ WSH",
+      "season": {"year": 2027, "type": 2, "slug": "regular-season"},
+      "competitions": [
+        {
+          "id": "401900121",
+          "date": "2026-10-17T17:00Z",
+          "attendance": 18573,
+          "type": {"id": "1", "abbreviation": "STD"},
+          "timeValid": true,
+          "neutralSite": false,
+          "venue": {"id": "1897", "fullName": "Capital One Arena", "address": {"city": "Washington", "state": "DC"}, "indoor": true},
+          "competitors": [
+            {
+              "id": "23",
+              "uid": "s:70~l:90~t:23",
+              "type": "team",
+              "order": 0,
+              "homeAway": "home",
+              "winner": true,
+              "team": {"id": "23", "location": "Washington", "name": "Capitals", "abbreviation": "WSH", "displayName": "Washington Capitals", "shortDisplayName": "Capitals", "isActive": true},
+              "score": "3",
+              "linescores": [
+                {"value": 1.0, "displayValue": "1"},
+                {"value": 1.0, "displayValue": "1"},
+                {"value": 0.0, "displayValue": "0"},
+                {"value": 0.0, "displayValue": "0"},
+                {"value": 1.0, "displayValue": "1"}
+              ],
+              "statistics": [],
+              "records": [{"name": "overall", "abbreviation": "Game", "type": "total", "summary": "3-2-0"}]
+            },
+            {
+              "id": "11",
+              "uid": "s:70~l:90~t:11",
+              "type": "team",
+              "order": 1,
+              "homeAway": "away",
+              "winner": false,
+              "team": {"id": "11", "location": "New Jersey", "name": "Devils", "abbreviation": "NJ", "displayName": "New Jersey Devils", "shortDisplayName": "Devils", "isActive": true},
+              "score": "2",
+              "linescores": [
+                {"value": 0.0, "displayValue": "0"},
+                {"value": 1.0, "displayValue": "1"},
+                {"value": 1.0, "displayValue": "1"},
+                {"value": 0.0, "displayValue": "0"},
+                {"value": 0.0, "displayValue": "0"}
+              ],
+              "statistics": [],
+              "records": [{"name": "overall", "abbreviation": "Game", "type": "total", "summary": "2-2-1"}]
+            }
+          ],
+          "notes": [],
+          "status": {"clock": 0.0, "displayClock": "0:00", "period": 5, "type": {"id": "3", "name": "STATUS_FINAL", "state": "post", "completed": true, "description": "Final", "detail": "Final/SO", "shortDetail": "Final/SO"}},
+          "broadcasts": [],
+          "startDate": "2026-10-17T17:00Z",
+          "headlines": []
+        }
+      ],
+      "links": [],
+      "status": {"clock": 0.0, "displayClock": "0:00", "period": 5, "type": {"id": "3", "name": "STATUS_FINAL", "state": "post", "completed": true, "description": "Final", "detail": "Final/SO", "shortDetail": "Final/SO"}}
+    },
+    {
+      "id": "401900122",
+      "uid": "s:70~l:90~e:401900122",
+      "date": "2026-10-17T19:30Z",
+      "name": "Carolina Hurricanes at Winnipeg Jets",
+      "shortName": "CAR @ WPG",
+      "season": {"year": 2027, "type": 2, "slug": "regular-season"},
+      "competitions": [
+        {
+          "id": "401900122",
+          "date": "2026-10-17T19:30Z",
+          "type": {"id": "1", "abbreviation": "STD"},
+          "timeValid": true,
+          "neutralSite": false,
+          "venue": {"id": "3989", "fullName": "Canada Life Centre", "address": {"city": "Winnipeg", "state": "MB"}, "indoor": true},
+          "competitors": [
+            {
+              "id": "28",
+              "homeAway": "home",
+              "team": {"id": "28", "location": "Winnipeg", "name": "Jets", "abbreviation": "WPG", "displayName": "Winnipeg Jets"},
+              "score": "0",
+              "linescores": []
+            },
+            {
+              "id": "7",
+              "homeAway": "away",
+              "team": {"id": "7", "location": "Carolina", "name": "Hurricanes", "abbreviation": "CAR", "displayName": "Carolina Hurricanes"},
+              "score": "0",
+              "linescores": []
+            }
+          ],
+          "notes": [],
+          "status": {"clock": 0.0, "displayClock": "0:00", "period": 0, "type": {"id": "6", "name": "STATUS_POSTPONED", "state": "post", "completed": false, "description": "Postponed", "detail": "Postponed", "shortDetail": "Postponed"}}
+        }
+      ],
+      "links": [],
+      "status": {"clock": 0.0, "displayClock": "0:00", "period": 0, "type": {"id": "6", "name": "STATUS_POSTPONED", "state": "post", "completed": false, "description": "Postponed", "detail": "Postponed", "shortDetail": "Postponed"}}
+    },
+    {
+      "id": "401900123",
+      "uid": "s:70~l:90~e:401900123",
+      "date": "2026-10-17T20:00Z",
+      "name": "Vancouver Canucks at Tampa Bay Lightning",
+      "shortName": "VAN @ TB",
+      "season": {"year": 2027, "type": 2, "slug": "regular-season"},
+      "competitions": [
+        {
+          "id": "401900123",
+          "date": "2026-10-17T20:00Z",
+          "competitors": [
+            {
+              "id": "20",
+              "homeAway": "home",
+              "team": {"id": "20", "location": "Tampa Bay", "name": "Lightning", "abbreviation": "TB", "displayName": "Tampa Bay Lightning"},
+              "score": "1",
+              "linescores": [{"value": 1.0, "displayValue": "1", "period": 1}, {"value": 0.0, "displayValue": "0", "period": 2}, {"value": 0.0, "displayValue": "0", "period": 3}]
+            },
+            {
+              "id": "22",
+              "homeAway": "away",
+              "team": {"id": "22", "location": "Vancouver", "name": "Canucks", "abbreviation": "VAN", "displayName": "Vancouver Canucks"},
+              "score": "1",
+              "linescores": [{"value": 0.0, "displayValue": "0", "period": 1}, {"value": 1.0, "displayValue": "1", "period": 2}, {"value": 0.0, "displayValue": "0", "period": 3}]
+            }
+          ],
+          "status": {"clock": 112.0, "displayClock": "1:52", "period": 3, "type": {"id": "2", "name": "STATUS_IN_PROGRESS", "state": "in", "completed": false, "description": "In Progress", "detail": "1:52 - 3rd", "shortDetail": "1:52 - 3rd"}}
+        }
+      ],
+      "status": {"clock": 112.0, "displayClock": "1:52", "period": 3, "type": {"id": "2", "name": "STATUS_IN_PROGRESS", "state": "in", "completed": false, "description": "In Progress", "detail": "1:52 - 3rd", "shortDetail": "1:52 - 3rd"}}
+    },
+    {
+      "id": "401900124",
+      "uid": "s:70~l:90~e:401900124",
+      "date": "2026-10-17T22:00Z",
+      "name": "Seattle Kraken at Florida Panthers",
+      "shortName": "SEA @ FLA",
+      "season": {"year": 2027, "type": 2, "slug": "regular-season"},
+      "competitions": [
+        {
+          "id": "401900124",
+          "date": "2026-10-17T22:00Z",
+          "competitors": [
+            {
+              "id": "26",
+              "homeAway": "home",
+              "winner": true,
+              "team": {"id": "26", "location": "Florida", "name": "Panthers", "abbreviation": "FLA", "displayName": "Florida Panthers"},
+              "score": "5",
+              "linescores": [{"value": 2.0, "period": 1}, {"value": 2.0, "period": 2}, {"value": 1.0, "period": 3}]
+            },
+            {
+              "id": "124292",
+              "homeAway": "away",
+              "winner": false,
+              "team": {"id": "124292", "location": "Seattle", "name": "Kraken", "abbreviation": "SEA", "displayName": "Seattle Kraken"},
+              "score": "1",
+              "linescores": [{"value": 0.0, "period": 1}, {"value": 1.0, "period": 2}, {"value": 0.0, "period": 3}]
+            }
+          ],
+          "status": {"clock": 0.0, "displayClock": "0:00", "period": 3, "type": {"id": "3", "name": "STATUS_FINAL", "state": "post", "completed": true, "description": "Final", "detail": "Final", "shortDetail": "Final"}}
+        }
+      ],
+      "status": {"clock": 0.0, "displayClock": "0:00", "period": 3, "type": {"id": "3", "name": "STATUS_FINAL", "state": "post", "completed": true, "description": "Final", "detail": "Final", "shortDetail": "Final"}}
+    }
+  ]
+}

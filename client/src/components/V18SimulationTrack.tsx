@@ -10,6 +10,7 @@
  * Nothing on this page runs a simulation, mutates evidence or calls a
  * provider, and no Gen 1 value ever appears here.
  */
+import { settlementText } from './ShadowForecastPanel'
 import { useEffect, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -25,8 +26,9 @@ import type { PlayGeometryPayload, ShadowForecastView, ShadowPath } from '../typ
 /** Which visualisation of the same V18 evidence the reader asked for. */
 export type V18View = 'broadcast' | 'geometry' | 'population'
 
-export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 'broadcast' }: {
+export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 'broadcast', eventStatus }: {
   shadow: ShadowForecastView
+  eventStatus?: string | null
   awayTeam: string
   homeTeam: string
   gameId: string
@@ -201,9 +203,7 @@ export function V18SimulationTrack({ shadow, awayTeam, homeTeam, gameId, view = 
             <div>
               <dt>Settlement</dt>
               <dd>
-                {shadow.settlement_state === 'SETTLED' && shadow.settlement
-                  ? `Settled ${shadow.settlement.awayRuns ?? '—'}–${shadow.settlement.homeRuns ?? '—'}`
-                  : 'Pending — no final outcome recorded yet'}
+                {settlementText(shadow, eventStatus)}
               </dd>
             </div>
             <div><dt>Wagering authority</dt><dd>None — research shadow only</dd></div>

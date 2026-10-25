@@ -105,8 +105,11 @@ class GameScoreboardObservation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     #: neither current source does, and a computed clock would be a fiction.
     clock_seconds_remaining: Mapped[int | None] = mapped_column(Integer)
 
-    #: Baseball situation. NULL for every other sport and whenever the source
-    #: omits it; `bases` is {"first": name|null, ...} exactly as reported.
+    #: Baseball situation. NULL whenever the source omits it; `bases` is
+    #: {"first": name|null, ...} exactly as reported, plus an optional "detail"
+    #: entry carrying the source's own live detail for any sport (MLB batter /
+    #: on deck / in the hole / pitcher; NFL ESPN down, distance, possession, last
+    #: play, win probability). Display only; settlement never reads it.
     outs: Mapped[int | None] = mapped_column(Integer)
     balls: Mapped[int | None] = mapped_column(Integer)
     strikes: Mapped[int | None] = mapped_column(Integer)

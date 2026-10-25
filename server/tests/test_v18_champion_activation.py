@@ -233,12 +233,23 @@ def test_the_view_reports_lineage_and_that_nothing_was_executed():
     assert lineage["executed_in_aisp"] is False
 
 
-def test_a_structured_uncertainty_block_uses_the_named_scalar_not_an_average():
+def test_a_structured_uncertainty_block_uses_the_imported_scalar_not_an_average():
+    # The importer stores the producer's homeWinProbabilityStandardError as
+    # monteCarloStandardError (shadow_import.mlb_v18_daily); that is the scalar.
     view = V18ForecastView(_Row(uncertainty={
-        "fullGameWinProbabilityStandardError": 0.031,
+        "simulationCount": 5000,
+        "monteCarloStandardError": 0.006998,
+        "monteCarlo95HalfWidth": 0.0137,
         "somethingElseEntirely": 99.0,
     }))
-    assert view.uncertainty == pytest.approx(0.031)
+    assert view.uncertainty == pytest.approx(0.006998)
+    assert view.uncertainty_basis == "MONTE_CARLO_SAMPLING_STANDARD_ERROR"
+
+
+def test_the_never_written_field_name_is_not_read_and_missing_stays_missing():
+    view = V18ForecastView(_Row(uncertainty={"fullGameWinProbabilityStandardError": 0.031}))
+    assert view.uncertainty is None
+    assert view.uncertainty_basis is None
 
 
 # -- no forecast means no decision, never a fallback -------------------------
@@ -249,6 +260,10 @@ class _FakeSession:
 
     def scalar(self, _statement):
         return self._row
+
+    def get(self, _entity, _ident):
+        # No canonical game row: the resolver's league gate has nothing to refuse.
+        return None
 
 
 @pytest.mark.parametrize(("row", "expected"), [

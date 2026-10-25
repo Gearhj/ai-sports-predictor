@@ -75,13 +75,13 @@ def test_a_missing_permission_block_yields_to_a_now_eligible_evaluation():
     # position; once the supplement is imported inside the same window, the
     # eligible evaluation is recorded instead of being discarded.
     for reason in ("NO_PAPER_RESEARCH_ELIGIBILITY_RECORD", "AWAITING_SUCCESSOR_ELIGIBILITY"):
-        assert decision._superseded_permission_block(
+        assert decision._supersedes_transient_state(
             _Session(), _prior("BLOCKED", reason),
             {"outcome": "DECLINED", "reason": "QUOTE_TOO_STALE"}) is True
 
 
 def test_a_repeated_missing_permission_reuses_the_stored_block():
-    assert decision._superseded_permission_block(
+    assert decision._supersedes_transient_state(
         _Session(), _prior("BLOCKED", "AWAITING_SUCCESSOR_ELIGIBILITY"),
         {"outcome": "BLOCKED", "reason": "AWAITING_SUCCESSOR_ELIGIBILITY"}) is False
 
@@ -89,15 +89,15 @@ def test_a_repeated_missing_permission_reuses_the_stored_block():
 def test_a_priced_or_positioned_decision_is_never_re_evaluated():
     eligible = {"outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED"}
     # Any other stored outcome stays the one decision for the phase.
-    assert decision._superseded_permission_block(
+    assert decision._supersedes_transient_state(
         _Session(), _prior("DECLINED", "NO_QUALIFYING_VALUE"), eligible) is False
-    assert decision._superseded_permission_block(
+    assert decision._supersedes_transient_state(
         _Session(), _prior("QUALIFIED_BET", "ALL_GATES_PASSED"), eligible) is False
     # A defective permission is not a missing one.
-    assert decision._superseded_permission_block(
+    assert decision._supersedes_transient_state(
         _Session(), _prior("BLOCKED", "ELIGIBILITY_RECORD_GRANTS_EXECUTION"), eligible) is False
     # And a block that somehow carries a position is never replaced.
-    assert decision._superseded_permission_block(
+    assert decision._supersedes_transient_state(
         _Session(position_id="p-1"), _prior("BLOCKED", "NO_PAPER_RESEARCH_ELIGIBILITY_RECORD"),
         eligible) is False
 

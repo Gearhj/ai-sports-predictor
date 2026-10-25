@@ -25,7 +25,10 @@ class BankrollPolicyContract(BaseModel):
 
 
 class PublicConfigData(BaseModel):
+    #: Installation-wide provenance across ALL sports (live provider data vs
+    #: demo fixtures). Never a sport's readiness; see /sports/readiness.
     data_mode: DataMode
+    data_mode_scope: Literal["ALL_SPORTS_PROVENANCE"] = "ALL_SPORTS_PROVENANCE"
     model_status: Literal["DEVELOPMENT"]
     component_weights: ComponentWeights
     bankroll_policy: BankrollPolicyContract
@@ -678,6 +681,14 @@ class PositionSchema(BaseModel):
     forecast_identity: str | None = None
     decision_phase: str | None = None
     recommended_at: str | None = None
+    # Present only on a position whose settlement was corrected beside the
+    # original (position_settlement_adjustments): ``result``/``profit_loss``
+    # above are the corrected values, these name what was first recorded.
+    adjusted: bool | None = None
+    original_result: str | None = None
+    original_profit_loss: float | None = None
+    adjustment_delta: float | None = None
+    adjusted_at: str | None = None
 
 
 class BettingBreakdownRow(BaseModel):
@@ -1005,6 +1016,11 @@ class ShadowGameView(BaseModel):
     scheduled_start_utc: datetime | None = None
     home_team_id: str
     away_team_id: str
+    #: Readable names resolved from the canonical game; None when unknown.
+    home_team_name: str | None = None
+    away_team_name: str | None = None
+    home_team_abbreviation: str | None = None
+    away_team_abbreviation: str | None = None
     engines: list[ShadowEngineView]
     model_disagreement: float | None = None
 

@@ -1,0 +1,17 @@
+/* Phone tab bar: the five primary destinations, always under the thumb. */
+.tabbar { display: none; }
+@media (max-width: 760px) {
+  .tabbar {
+    position: fixed; z-index: 45; left: 0; right: 0; bottom: 0;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: rgba(7, 17, 31, .96); backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255, 255, 255, .08);
+  }
+  .tabbar__item { display: grid; justify-items: center; gap: 3px; padding: 4px 0; color: #8ea3b8; font-size: 10.5px; font-weight: 700; text-decoration: none; }
+  .tabbar__item.is-on { color: #5fe0d2; }
+  .main-content { padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
+  /* Keep the wagers pill above the tab bar. */
+  .aw-pill { bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important; }
+  .app-shell--wagers-mobile .main-content { padding-bottom: calc(var(--aw-pill-clearance) + 86px); }
+}

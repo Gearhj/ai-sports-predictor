@@ -35,6 +35,10 @@ function Arm({ arm }: { arm: NbaJointArm }) {
     <section className="nbajoint__arm" data-testid={`nba-joint-arm-${arm.arm}`}>
       <header>
         <h4>{arm.label}</h4>
+        {arm.selection_label && (
+          <span className={arm.selected ? 'nbajoint__select nbajoint__select--on' : 'nbajoint__select'}
+                data-testid={`nba-joint-selection-${arm.arm}`}>{arm.selection_label}</span>
+        )}
         <small className="bx-dim">{arm.configuration_identity}</small>
       </header>
 

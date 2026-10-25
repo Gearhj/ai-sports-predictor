@@ -358,3 +358,63 @@ describe('the evidence drawer', () => {
       .toContain('describes those forecasts rather than competing with them')
   })
 })
+
+/** ATL @ GB, 2026-09-24: GB picked, ATL won 35–14; predicted total 43.47, actual 49. */
+function atlGb(): ProspectiveGame {
+  return game({
+    evaluation_id: 'eval-atl-gb', event_id: '2026_03_ATL_GB', canonical_game_id: 'game-atl-gb',
+    home: { abbreviation: 'GB', name: 'Green Bay Packers' },
+    away: { abbreviation: 'ATL', name: 'Atlanta Falcons' },
+    final: { home: 14, away: 35 },
+    outcome: {
+      actual: 'AWAY', predicted: 'HOME', winner_correct: false,
+      probability_of_actual: 0.32, log_loss: 1.14, brier_score: 0.9,
+      published_probabilities: { home: 0.66, away: 0.32, tie: 0.02, mass_before_normalising: 1 },
+    },
+    scores: { predicted_home: 24.551, predicted_away: 18.9153, home_error: 10.551, away_error: -16.0847, team_score_mae: 13.3 },
+    margin: { predicted: 5.6357, actual: -21, error: 26.6357 },
+    total: { predicted: 43.4663, actual: 49, error: -5.5337 },
+  })
+}
+
+describe('the headline card describes the game it shows', () => {
+  it('says ATL @ GB was a wrong winner, a large margin miss and a total UNDERestimate', () => {
+    render(<NflProspectiveSection data={results({ models: [model({ games: [atlGb()] })] })} />)
+    const story = screen.getByTestId('np-story').textContent ?? ''
+    expect(story).toContain('The model picked Green Bay Packers, but Atlanta Falcons won')
+    expect(story).toContain('missed the margin by 26.6 points')
+    expect(story).toContain('underestimated the total by 5.5 points (predicted 43.5, actual 49)')
+    expect(story).not.toContain('right winner')
+    expect(story).not.toContain('overestimat')
+  })
+
+  it('colours a +26.6 margin miss as a large miss, not a success', () => {
+    render(<NflProspectiveSection data={results({ models: [model({ games: [atlGb()] })] })} />)
+    expect(screen.getByTestId('np-margin-error').className).toBe('is-bad')
+    expect(screen.getByTestId('np-total-error').className).toBe('is-warn')
+    const card = screen.getByLabelText('Most recent scored NFL forecast')
+    expect(card.textContent).toContain('underestimate by 5.5')
+  })
+
+  it('keeps the NE @ SEA wording for a right winner and a near-exact margin', () => {
+    render(<NflProspectiveSection data={results()} />)
+    const story = screen.getByTestId('np-story').textContent ?? ''
+    expect(story).toContain('The model picked the right winner')
+    expect(story).toContain('got the margin within 0.2 points')
+    expect(story).toContain('overestimated the total by 19.7 points')
+    expect(screen.getByTestId('np-margin-error').className).toBe('is-good')
+  })
+
+  it('shows the current franchise name, not the stale table name', () => {
+    const relocated = game({
+      home: { abbreviation: 'LV', name: 'Oakland Raiders' },
+      away: { abbreviation: 'LAC', name: 'San Diego Chargers' },
+    })
+    render(<NflProspectiveSection data={results({ models: [model({ games: [relocated] })] })} />)
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Las Vegas Raiders')
+    expect(text).toContain('Los Angeles Chargers')
+    expect(text).not.toContain('Oakland')
+    expect(text).not.toContain('San Diego')
+  })
+})

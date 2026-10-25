@@ -7,6 +7,7 @@ import { PublicPolicyProvider } from './hooks/usePublicPolicy'
 import { SportRegistryProvider } from './hooks/useSportRegistry'
 import { SportSelectionProvider, legacySportHref, sportHref } from './hooks/useSportSelection'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
+import { BuildRefresh } from './components/BuildRefresh'
 
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
 const LabsPage = lazy(() => import('./pages/LabsPage').then((module) => ({ default: module.LabsPage })))
@@ -33,9 +34,31 @@ const NflGamePage = lazy(() => import('./pages/NflGamePage').then((module) => ({
 const NflLabPage = lazy(() => import('./pages/NflLabPage').then((module) => ({ default: module.NflLabPage })))
 const AuthPage = lazy(() => import('./pages/AuthPage').then((module) => ({ default: module.AuthPage })))
 const NbaResearchPage = lazy(() => import('./pages/NbaResearchPage').then((module) => ({ default: module.NbaResearchPage })))
+const NhlResearchPage = lazy(() => import('./pages/NhlResearchPage').then((module) => ({ default: module.NhlResearchPage })))
+const NhlResearchGamePage = lazy(() => import('./pages/NhlResearchPage').then((module) => ({ default: module.NhlResearchGamePage })))
 const NbaResearchGamePage = lazy(() => import('./pages/NbaResearchGamePage').then((module) => ({ default: module.NbaResearchGamePage })))
 const CfbResearchPage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchPage })))
 const CfbResearchGamePage = lazy(() => import('./pages/CfbResearchPage').then((module) => ({ default: module.CfbResearchGamePage })))
+const HouseDividedPage = lazy(() => import('./pages/HouseDividedPage').then((module) => ({ default: module.HouseDividedPage })))
+const MarketsBoard = lazy(() => import('./features/markets/MarketBoardPage').then((module) => ({ default: module.MarketBoardPage })))
+const SimulatorHub = lazy(() => import('./features/simulator/SimulatorHub').then((module) => ({ default: module.SimulatorHub })))
+const SimulatorPage = lazy(() => import('./features/simulator/SimulatorPage').then((module) => ({ default: module.SimulatorPage })))
+const PulseHome = lazy(() => import('./features/pulse/PulseHome').then((module) => ({ default: module.PulseHome })))
+const MissionControl = lazy(() => import('./features/mission/MissionControl').then((module) => ({ default: module.MissionControl })))
+const ModelLab = lazy(() => import('./features/edge/ModelLab').then((module) => ({ default: module.ModelLab })))
+const MmaPage = lazy(() => import('./features/mma/MmaPage').then((module) => ({ default: module.MmaPage })))
+const ControlPage = lazy(() => import('./features/control/ControlPage').then((module) => ({ default: module.ControlPage })))
+const MyPicksPage = lazy(() => import('./pages/MyPicksPage').then((module) => ({ default: module.MyPicksPage })))
+// Encore: an unlisted page, loaded only when visited. Outside the app shell on purpose.
+const EncorePage = lazy(() => import('./features/guitarists/EncorePage').then((module) => ({ default: module.EncorePage })))
+// Game Night: a full-screen broadcast wall (TV mode at ?tv=1). Outside the app shell on purpose, like Encore.
+const LiveField = lazy(() => import('./features/livefield/LiveField').then((module) => ({ default: module.LiveField })))
+const HqHome = lazy(() => import('./features/hq/HqHome').then((module) => ({ default: module.HqHome })))
+const AispLayout = lazy(() => import('./features/flow/AispLayout').then((module) => ({ default: module.AispLayout })))
+const SlipPage = lazy(() => import('./features/slip/SlipPage').then((module) => ({ default: module.SlipPage })))
+const SlatePage = lazy(() => import('./features/slate/SlatePage').then((module) => ({ default: module.SlatePage })))
+const RecordPage = lazy(() => import('./features/record/RecordPage').then((module) => ({ default: module.RecordPage })))
+const GameNight = lazy(() => import('./features/gamenight/GameNight').then((module) => ({ default: module.GameNight })))
 
 function LegacySportRoute() {
   const { pathname, search, hash } = useLocation()
@@ -78,10 +101,30 @@ export default function App() {
           <SportRegistryProvider>
             <SportSelectionProvider>
             <ScrollToTop />
+            <BuildRefresh />
             <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
               <Routes>
-                <Route element={<AppShell />}>
-                  <Route index element={<HomePage />} />
+                <Route path="encore" element={<EncorePage />} />
+                <Route path="game-night" element={<GameNight />} />
+                <Route path="live" element={<LiveField />} />
+                {/* The home page is the owner's command center, full width and outside the shell (2026-10-24). */}
+                <Route index element={<HqHome />} />
+                {/* The Record: the owner's design, full width outside the shell (2026-10-24). The old page is /experiment/classic. */}
+                <Route path="experiment" element={<RecordPage />} />
+                {/* The Slate (owner's Games design, 2026-10-24); the old games page is /games/classic. */}
+                <Route path="games" element={<SlatePage />} />
+                {/* My Picks: the play-money bet slip with 10,000 Nights (2026-10-24); the old list is /my-picks/classic. */}
+                <Route path="my-picks" element={<SlipPage />} />
+                {/* Mission Control redesign (2026-10-24): Slate Flow, The Night, gates board; the old page is /mission-control/classic. */}
+                <Route path="mission-control" element={<ControlPage />} />
+                {/* UFC Fight Night (2026-10-25): historical archive, orientation-corrected, test mode. */}
+                <Route path="mma" element={<MmaPage />} />
+                {/* Model Lab (2026-10-25): build-your-own blend of AISP model and market, replayed on settled games. */}
+                <Route path="model-lab" element={<ModelLab />} />
+                {/* Every page not yet rebuilt runs inside the shared AISP shell (one menu, navy + steel). */}
+                <Route element={<AispLayout />}>
+                  <Route path="pulse" element={<PulseHome />} />
+                  <Route path="classic" element={<HomePage />} />
                   {/* The decision board keeps its own page. It is operator
                       content, not a front door, so it is no longer what a
                       first-time visitor lands on. */}
@@ -95,22 +138,34 @@ export default function App() {
                       not routed through the governed game analysis view. */}
                   <Route path="nba/research" element={<NbaResearchPage />} />
                   <Route path="nba/games/:gameId" element={<NbaResearchGamePage />} />
+                  {/* NHL is research-only: imported Model Studio forecasts, no prices,
+                      no wagering. Same read-only research route pattern as NBA/CFB. */}
+                  <Route path="nhl/research" element={<NhlResearchPage />} />
+                  <Route path="nhl/games/:gameId" element={<NhlResearchGamePage />} />
                   {/* College Football is research-only and has no admitted schedule
                       source, so it uses the same read-only research route NBA does
                       rather than a degraded section of the governed game surface. */}
                   <Route path="college-football/research" element={<CfbResearchPage />} />
                   <Route path="college-football/games/:gameId" element={<CfbResearchGamePage />} />
                   <Route path="research/history" element={<UnifiedResearchPage historical />} />
-                  <Route path="games" element={<UnifiedGamesPage />} />
+                  <Route path="games/classic" element={<UnifiedGamesPage />} />
                   <Route path="games/:gameId" element={<GameRoute />} />
-                  <Route path="games/:gameId/simulation" element={<GameRoute simulation />} />
+                  <Route path="games/:gameId/simulation" element={<SimulatorPage />} />
+                  <Route path="games/:gameId/simulation/classic" element={<GameRoute simulation />} />
                   <Route path="markets" element={<MarketsRoute />} />
+                  <Route path="markets/board" element={<MarketsBoard />} />
+                  <Route path="markets/classic" element={<Navigate to="/markets" replace />} />
                   <Route path="performance" element={<PerformanceRoute />} />
-                  <Route path="labs" element={<LabsPage />} />
+                  <Route path="labs" element={<SimulatorHub />} />
+                  <Route path="labs/classic" element={<LabsPage />} />
                   <Route path="shadow-board" element={<ShadowBoardPage />} />
                   <Route path="market-pulse" element={<LegacyMarketsRoute />} />
                   <Route path="market-pulse/:gameId" element={<MarketPulseGamePage />} />
-                  <Route path="experiment" element={<ExperimentRoute />} />
+                  <Route path="experiment/classic" element={<ExperimentRoute />} />
+                  <Route path="a-house-divided" element={<HouseDividedPage />} />
+                  <Route path="my-picks/classic" element={<MyPicksPage />} />
+                  {/* Every game of the day as a live pipeline: forecast to result. Read-only. */}
+                  <Route path="mission-control/classic" element={<MissionControl />} />
                   <Route path="methodology" element={<MethodologyPage />} />
                   <Route path="admin" element={<RequireAdmin><HealthPage /></RequireAdmin>} />
                   <Route path="account" element={<AuthPage />} />

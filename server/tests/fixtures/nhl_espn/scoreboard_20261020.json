@@ -1,0 +1,51 @@
+{
+  "leagues": [
+    {"id": "90", "uid": "s:70~l:90", "name": "National Hockey League", "abbreviation": "NHL", "slug": "nhl"}
+  ],
+  "season": {"type": 2, "year": 2027},
+  "day": {"date": "2026-10-20"},
+  "events": [
+    {
+      "id": "401900240",
+      "uid": "s:70~l:90~e:401900240",
+      "date": "2026-10-20T23:00Z",
+      "name": "Montreal Canadiens at Toronto Maple Leafs",
+      "shortName": "MTL @ TOR",
+      "season": {"year": 2027, "type": 2, "slug": "regular-season"},
+      "competitions": [
+        {
+          "id": "401900240",
+          "date": "2026-10-20T23:00Z",
+          "attendance": 18789,
+          "type": {"id": "1", "abbreviation": "STD"},
+          "timeValid": true,
+          "neutralSite": false,
+          "venue": {"id": "1907", "fullName": "Scotiabank Arena", "address": {"city": "Toronto", "state": "ON"}, "indoor": true},
+          "competitors": [
+            {
+              "id": "21",
+              "homeAway": "home",
+              "winner": true,
+              "team": {"id": "21", "location": "Toronto", "name": "Maple Leafs", "abbreviation": "TOR", "displayName": "Toronto Maple Leafs"},
+              "score": "3",
+              "linescores": [{"value": 1.0, "displayValue": "1", "period": 1}, {"value": 1.0, "displayValue": "1", "period": 2}, {"value": 1.0, "displayValue": "1", "period": 3}]
+            },
+            {
+              "id": "10",
+              "homeAway": "away",
+              "winner": false,
+              "team": {"id": "10", "location": "Montreal", "name": "Canadiens", "abbreviation": "MTL", "displayName": "Montreal Canadiens"},
+              "score": "1",
+              "linescores": [{"value": 0.0, "displayValue": "0", "period": 1}, {"value": 1.0, "displayValue": "1", "period": 2}, {"value": 0.0, "displayValue": "0", "period": 3}]
+            }
+          ],
+          "notes": [],
+          "status": {"clock": 0.0, "displayClock": "0:00", "period": 3, "type": {"id": "3", "name": "STATUS_FINAL", "state": "post", "completed": true, "description": "Final", "detail": "Final", "shortDetail": "Final"}},
+          "headlines": []
+        }
+      ],
+      "links": [],
+      "status": {"clock": 0.0, "displayClock": "0:00", "period": 3, "type": {"id": "3", "name": "STATUS_FINAL", "state": "post", "completed": true, "description": "Final", "detail": "Final", "shortDetail": "Final"}}
+    }
+  ]
+}

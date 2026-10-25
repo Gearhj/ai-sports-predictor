@@ -66,6 +66,7 @@ export function MarketPulseGamePage() {
           <div className="analysis-grid">
             <Panel title="Order books" eyebrow="BEST BID / ASK / MID / MICRO">
               {data.order_books.length === 0 ? <p className="empty-hint">No order book captured.</p> : (
+                <TableScroll ariaLabel="Market pulse detail">
                 <table className="data-table">
                   <thead><tr><th>Provider</th><th>Bid</th><th>Ask</th><th>Mid</th><th>Micro</th><th>Spread</th><th>Quality</th></tr></thead>
                   <tbody>
@@ -74,6 +75,7 @@ export function MarketPulseGamePage() {
                     ))}
                   </tbody>
                 </table>
+                </TableScroll>
               )}
             </Panel>
             <Panel title="Movement & signals" eyebrow="OBSERVED MARKET SIGNAL — REVIEW ONLY">

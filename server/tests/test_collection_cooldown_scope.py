@@ -97,3 +97,85 @@ def test_with_no_priced_request_at_all_there_is_no_cooldown(session):
     _row(session, USAGE_ENDPOINT_KEY, NOW - timedelta(seconds=30))
 
     assert seconds_since_last_fetch(session, now=NOW) is None
+
+
+# --------------------------------------------------------------------------
+# ...and neither may a DIFFERENT LANE's purchase.
+#
+# The cooldown counted every lane, so one lane's cadence became the cadence of
+# all of them. On the Week 3 NFL Sunday the NFL pregame lane fetches inside each
+# checkpoint cluster, and every one of those fetches shut the MLB lane for ten
+# minutes -- four consecutive five-minute MLB ticks around 11:47 and 12:02 ET,
+# MLB games going dark because a different lane bought a price for a different
+# sport out of a different allowance.
+#
+# Both reasons the cooldown exists are lane-local: re-buying prices that cannot
+# have changed is re-buying THIS lane's prices, and a provider being hammered is
+# this lane's own retry cadence. Scoping preserves both.
+# --------------------------------------------------------------------------
+
+NFL_LANE = "sgo_nfl_events"
+
+
+def test_an_nfl_fetch_does_not_hold_off_the_mlb_lane(session):
+    _row(session, ENDPOINT_KEY, NOW - timedelta(seconds=1297))
+    _row(session, NFL_LANE, NOW - timedelta(seconds=60))
+
+    scoped = seconds_since_last_fetch(session, now=NOW, lane=ENDPOINT_KEY)
+
+    assert scoped == pytest.approx(1297, abs=1)
+    assert scoped >= MIN_SECONDS_BETWEEN_FETCHES, (
+        "MLB was eligible; only the NFL lane's own purchase was holding it off")
+
+
+def test_each_lane_keeps_its_own_cooldown_semantics(session):
+    """Scoping does not weaken a lane against itself."""
+
+    _row(session, ENDPOINT_KEY, NOW - timedelta(seconds=120))
+    _row(session, NFL_LANE, NOW - timedelta(seconds=1297))
+
+    assert seconds_since_last_fetch(session, now=NOW, lane=ENDPOINT_KEY) < (
+        MIN_SECONDS_BETWEEN_FETCHES)
+    assert seconds_since_last_fetch(session, now=NOW, lane=NFL_LANE) == pytest.approx(
+        1297, abs=1)
+
+
+def test_a_lane_that_has_never_fetched_has_no_cooldown_of_its_own(session):
+    _row(session, NFL_LANE, NOW - timedelta(seconds=30))
+
+    assert seconds_since_last_fetch(session, now=NOW, lane=ENDPOINT_KEY) is None
+
+
+def test_the_free_endpoints_stay_excluded_under_scoping(session):
+    """Scoping is added to the existing rule, not in place of it."""
+
+    _row(session, ENDPOINT_KEY, NOW - timedelta(seconds=1297))
+    _row(session, USAGE_ENDPOINT_KEY, NOW - timedelta(seconds=10))
+    _row(session, OPENING_ADJUSTMENT_KEY, NOW - timedelta(seconds=5))
+
+    assert seconds_since_last_fetch(session, now=NOW, lane=ENDPOINT_KEY) == pytest.approx(
+        1297, abs=1)
+
+
+def test_the_mlb_collector_asks_only_about_its_own_lane(monkeypatch):
+    """The call site, not just the helper."""
+
+    from app.services import sgo_collection
+
+    seen: dict = {}
+
+    def _spy(session, *, now=None, lane=None):
+        seen["lane"] = lane
+        return 30.0  # inside the cooldown, so the collector stops right here
+
+    monkeypatch.setattr(sgo_collection, "seconds_since_last_fetch", _spy)
+    monkeypatch.setattr(sgo_collection, "eligible", lambda settings, now=None: (True, "OK"))
+    monkeypatch.setattr("app.services.collection_halt.active_halt",
+                        lambda session, *, lane: None)
+
+    result = sgo_collection.collect_for_open_cutoffs(object(), object(), now=NOW)
+
+    assert seen["lane"] == ENDPOINT_KEY
+    assert result["reason"] == "FALLBACK_COOLDOWN"
+    assert result["cooldown_lane"] == ENDPOINT_KEY
+    assert result["objects"] == 0

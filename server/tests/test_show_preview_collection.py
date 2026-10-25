@@ -447,8 +447,9 @@ def test_a_permitted_run_reserves_fetches_ingests_and_reconciles(slate, settings
     _usage(session, used=0, at=NOW - timedelta(hours=2))
     seen: list[dict] = []
 
-    def fake_fetch(_settings, *, league, limit, now, anchor):
-        seen.append({"league": league, "limit": limit, "anchor": anchor})
+    def fake_fetch(_settings, *, league, limit, now, anchor, request_fingerprint=None):
+        seen.append({"league": league, "limit": limit, "anchor": anchor,
+                     "request_fingerprint": request_fingerprint})
         return _Fetch(2)
 
     monkeypatch.setattr(collection, "_fetch", fake_fetch)
@@ -460,7 +461,10 @@ def test_a_permitted_run_reserves_fetches_ingests_and_reconciles(slate, settings
     assert result["objects"] == 2 and result["reservations"] == 1
     assert result["horizon"] == "SHOW_PREVIEW"
     assert result["grants_wagering_authority"] is False
-    assert seen == [{"league": "MLB", "limit": 2, "anchor": seen[0]["anchor"]}]
+    assert seen == [{"league": "MLB", "limit": 2, "anchor": seen[0]["anchor"],
+                     "request_fingerprint": seen[0]["request_fingerprint"]}]
+    # The reservation's fingerprint reaches the fetch, so its raw archive binds to it.
+    assert len(seen[0]["request_fingerprint"] or "") == 64
     # The anchor sits one second below the earliest game it selected, so a
     # lower-ranked game cannot be substituted by the provider's own ordering.
     assert seen[0]["anchor"] == datetime(2026, 9, 18, 23, 5, tzinfo=UTC) - timedelta(seconds=1)
@@ -553,7 +557,7 @@ def test_one_sport_failing_does_not_lose_another_sports_objects(slate, settings,
 
     calls: list[str] = []
 
-    def flaky(_settings, *, league, limit, now, anchor):
+    def flaky(_settings, *, league, limit, now, anchor, request_fingerprint=None):
         calls.append(league)
         if league == "NFL":
             raise TimeoutError("connection reset")

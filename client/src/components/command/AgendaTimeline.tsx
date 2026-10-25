@@ -12,7 +12,13 @@
  * Status is a treatment, not a colour: done and open are filled, scheduled is
  * outlined, expected is dashed, missed is outlined in red.
  *
- * Below 600px the chart becomes a chronological agenda built from the same
+ * The axis has a fixed scale (PX_PER_HOUR) and scrolls sideways inside its
+ * card, with the sport labels pinned on the left; it opens with "now" in view.
+ * It covers today's slate only: a milestone from an earlier day (a forecast
+ * published days ago) is drawn at the left edge and its tooltip gives the real
+ * date, so one old event can no longer stretch the axis across a week.
+ *
+ * Below 440px (phones) the chart becomes a chronological agenda built from the same
  * events rather than a squeezed axis.
  */
 import * as d3 from 'd3'
@@ -24,7 +30,37 @@ import { clusterEvents, layoutLane, rowY, type Cluster, type PlacedCluster } fro
 import { ChartTable, Tooltip, activate, useReducedMotion, useTooltip, useWidth } from './chartKit'
 
 const MIN = 60_000
+const HOUR = 60 * MIN
+/** Horizontal scale: wide enough that a busy evening's labels sit side by side. */
+export const PX_PER_HOUR = 120
 const et = (ms: number) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(ms)
+const ET_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' })
+const ET_DATE_TIME = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+/** A time, with its date when it is not on the reference day. */
+const when = (ms: number, ref: number) => (ET_DAY.format(ms) === ET_DAY.format(ref) ? et(ms) : ET_DATE_TIME.format(ms))
+
+/**
+ * The axis window: today's games with room for their windows and settlements,
+ * and "now". Milestones from other days never widen it.
+ */
+export function timelineDomain(events: AgendaEvent[], now: number): [number, number] {
+  const starts = events.filter((e) => e.kind === 'game').map((e) => e.at)
+  const anchorLo = starts.length ? Math.min(...starts) : now
+  const anchorHi = starts.length ? Math.max(...starts) : now
+  const floor = anchorLo - 6 * HOUR
+  const ceiling = anchorHi + 6 * HOUR
+  const inside = events.flatMap((e) => [e.at, e.until ?? e.at]).filter((t) => t >= floor && t <= ceiling)
+  const lo = Math.max(floor, Math.min(now, anchorLo, ...inside) - 30 * MIN)
+  const hi = Math.min(ceiling, Math.max(now + 30 * MIN, anchorHi + 30 * MIN, ...inside) + 20 * MIN)
+  return [Math.floor(lo / HOUR) * HOUR, Math.ceil(hi / HOUR) * HOUR]
+}
+
+type ShownEvent = AgendaEvent & { actualAt: number; actualUntil?: number }
+/** Events placed on the axis: times outside the window are held at its edge. */
+export function clampEvents(events: AgendaEvent[], [lo, hi]: [number, number]): ShownEvent[] {
+  const clamp = (t: number) => Math.min(hi, Math.max(lo, t))
+  return events.map((e) => ({ ...e, actualAt: e.at, actualUntil: e.until, at: clamp(e.at), until: e.until == null ? undefined : clamp(e.until) }))
+}
 const STATUS_TEXT: Record<AgendaStatus, string> = { done: 'Done', open: 'Open now', scheduled: 'Scheduled', expected: 'Expected', missed: 'Missed' }
 const GLYPH: Record<string, string> = { forecast: '◆', position: '★', settlement: '▲', game: '●', collection: '▮', decision: '▬' }
 
@@ -41,28 +77,55 @@ export const AgendaTimeline = memo(function AgendaTimeline({ events, now, idle =
   const axisRef = useRef<SVGGElement | null>(null)
   const [pinned, setPinned] = useState<Cluster | null>(null)
 
-  const clusters = useMemo(() => clusterEvents(events), [events])
-  const narrow = width < 600
+  const [lo, hi] = useMemo(() => timelineDomain(events, now), [events, now])
+  const shown = useMemo(() => clampEvents(events, [lo, hi]), [events, lo, hi])
+  const clusters = useMemo(() => clusterEvents(shown), [shown])
+  const narrow = width < 440
   const lanesPresent = SPORT_CODES.filter((s) => clusters.some((c) => c.sport === s) || idle[s])
   const labelW = 112
-  const m = { top: 22, right: 12, bottom: 20 }
-  const times = clusters.flatMap((c) => [c.at, c.until ?? c.at])
-  const lo = Math.min(now, d3.min(times) ?? now) - 30 * MIN
-  const hi = Math.max(now + 60 * MIN, d3.max(times) ?? now) + 25 * MIN
-  const x = useMemo(() => d3.scaleTime().domain([lo, hi]).range([labelW, Math.max(labelW + 60, width - m.right)]), [lo, hi, width]) // eslint-disable-line react-hooks/exhaustive-deps
-  const layouts = useMemo(() => lanesPresent.map((sport) => layoutLane(sport, clusters, (ms) => x(ms), { right: width - m.right })),
-    [clusters, x, width, lanesPresent.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+  const m = { top: 24, right: 16, bottom: 22 }
+  // A fixed scale; the chart scrolls when the day is wider than the card and
+  // stretches to fill the card when it is not.
+  const chartW = Math.max(width, labelW + ((hi - lo) / HOUR) * PX_PER_HOUR + m.right)
+  const x = useMemo(() => d3.scaleTime().domain([lo, hi]).range([labelW + 8, chartW - m.right]), [lo, hi, chartW]) // eslint-disable-line react-hooks/exhaustive-deps
+  const layouts = useMemo(() => lanesPresent.map((sport) => layoutLane(sport, clusters, (ms) => x(ms), { right: chartW - m.right })),
+    [clusters, x, chartW, lanesPresent.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
   const tops = layouts.reduce<number[]>((acc, l, i) => [...acc, i === 0 ? 0 : acc[i - 1] + layouts[i - 1].height + 4], [])
   const height = m.top + (layouts.length ? tops[tops.length - 1] + layouts[layouts.length - 1].height : 40) + m.bottom
+  const hours = useMemo(() => d3.timeHour.range(new Date(lo), new Date(hi + 1)), [lo, hi])
+  const scroller = useRef<HTMLDivElement | null>(null)
+  const scrolledFor = useRef<string | null>(null)
+  const nowLeft = (ms: number) => Math.max(0, x(Math.min(Math.max(ms, lo), hi)) - labelW - 2 * PX_PER_HOUR)
+  const scrollToNow = () => {
+    const node = scroller.current
+    if (!node) return
+    if (typeof node.scrollTo === 'function') node.scrollTo({ left: nowLeft(now), behavior: reduced ? 'auto' : 'smooth' })
+    else node.scrollLeft = nowLeft(now)
+  }
+  const scrollBy = (dx: number) => {
+    const node = scroller.current
+    if (!node) return
+    if (typeof node.scrollBy === 'function') node.scrollBy({ left: dx, behavior: reduced ? 'auto' : 'smooth' })
+    else node.scrollLeft += dx
+  }
+
+  // Open with "now" in view (or the first game, before the day starts), once per day window.
+  useEffect(() => {
+    const node = scroller.current
+    const key = `${lo}:${hi}:${chartW > width}`
+    if (!node || narrow || scrolledFor.current === key) return
+    scrolledFor.current = key
+    node.scrollLeft = nowLeft(now)
+  }, [lo, hi, chartW, width, narrow, now, x]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!axisRef.current || narrow) return
-    const axis = d3.axisTop(x).ticks(d3.timeHour.every(width < 900 ? 2 : 1) as never)
+    const axis = d3.axisTop(x).ticks(d3.timeHour.every(1) as never)
       .tickFormat((d) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric' }).format(d as Date))
       .tickSizeOuter(0)
     const sel = d3.select(axisRef.current)
     ;(reduced ? sel : sel.transition().duration(250)).call(axis as never)
-  }, [x, narrow, reduced, width])
+  }, [x, narrow, reduced])
 
   useEffect(() => {
     if (!pinned) return
@@ -71,13 +134,16 @@ export const AgendaTimeline = memo(function AgendaTimeline({ events, now, idle =
     return () => window.removeEventListener('keydown', onKey)
   }, [pinned])
 
+  const actual = (e: AgendaEvent) => (e as ShownEvent).actualAt ?? e.at
+  const actualEnd = (e: AgendaEvent) => (e as ShownEvent).actualUntil ?? e.until ?? e.at
+
   const tipFor = (c: Cluster) => (
     <>
       <b>{KIND_LABEL[c.kind]}</b> · {SPORT_NAMES[c.sport]}
       <dl>
         <dt>Status</dt><dd>{c.events[0].label} ({STATUS_TEXT[c.status].toLowerCase()})</dd>
         {c.events.slice(0, 8).map((e) => (
-          <FragmentRow key={e.key} time={`${et(e.at)}${e.until ? `–${et(e.until)}` : ''}`} text={e.matchup} />
+          <FragmentRow key={e.key} time={`${when(actual(e), now)}${e.until ? `–${when(actualEnd(e), now)}` : ''}`} text={e.matchup} />
         ))}
         {c.events.length > 8 && <><dt>+{c.events.length - 8}</dt><dd>more · press Enter to list all</dd></>}
         {c.events.length === 1 && <><dt>Detail</dt><dd>{c.events[0].detail}</dd></>}
@@ -93,47 +159,74 @@ export const AgendaTimeline = memo(function AgendaTimeline({ events, now, idle =
     )
   }
 
+  const earlier = shown.filter((e) => e.actualAt < lo).length
   return (
     <div className="cc-chart cc-agenda" ref={(node) => { ref.current = node; frame.current = node }}>
-      <svg width={width} height={height} role="img" aria-label={`Today's agenda: ${events.length} milestones across ${lanesPresent.length} sports`}>
-        <g ref={axisRef} className="cc-axis" transform={`translate(0, ${m.top - 4})`} />
-        {layouts.map((layout, li) => {
-          const top = m.top + tops[li]
-          const sport = layout.sport
-          const color = SPORT_COLORS[sport]
-          const windows = layout.clusters.filter((c) => c.kind === 'collection')
-          const band = windows.length ? [d3.min(windows, (k) => k.at)!, d3.max(windows, (k) => k.until ?? k.at)!] : null
-          return (
-            <g key={sport} transform={`translate(0, ${top})`}>
-              <rect x={0} y={0} width={width} height={layout.height} rx={8} className="cc-agenda__lane" />
-              <rect x={0} y={0} width={4} height={layout.height} rx={2} fill={color} />
-              <text x={10} y={Math.min(layout.height / 2 + 4, 18)} className="cc-agenda__sport">{SPORT_NAMES[sport]}</text>
-              {layout.clusters.length > 0 && <text x={10} y={Math.min(layout.height / 2 + 4, 18) + 14} className="cc-muted-text">
-                {new Set(layout.clusters.filter((c) => c.kind === 'game').flatMap((c) => c.events.map((e) => e.gameId))).size} games</text>}
-              {layout.clusters.length === 0 && idle[sport] && (
-                <text x={labelW + 6} y={layout.height / 2 + 4} className="cc-muted-text">{idle[sport]}</text>
-              )}
-              {band && <rect x={x(band[0])} y={rowY(layout, 'win', 0) - 2} width={Math.max(4, x(band[1]) - x(band[0]))} height={4} rx={2}
-                fill={color} className="cc-agenda__band" />}
-              {layout.clusters.map((c) => (
-                <ClusterMark key={c.key} c={c} y={rowY(layout, c.band, c.row)} x={x(c.at)} color={color}
-                  pinned={pinned?.key === c.key}
-                  onTip={(e) => show(e, tipFor(c))} onHide={hide}
-                  onPin={() => setPinned((p) => (p?.key === c.key ? null : c))} />
-              ))}
-            </g>
-          )
-        })}
-        {now >= lo && now <= hi && (
-          <g className="cc-now" transform={`translate(${x(now)}, 0)`}>
-            <line y1={m.top - 2} y2={height - m.bottom + 2} />
-            <rect x={-34} y={height - m.bottom + 3} width={68} height={15} rx={7} className="cc-now__pill" />
-            <text y={height - m.bottom + 14} textAnchor="middle" className="cc-now__text">now {et(now)}</text>
-          </g>
+      <div className="cc-agenda__controls">
+        <span className="cc-muted-text">Eastern Time{chartW > width ? ' · scroll sideways for the whole day' : ''}{earlier ? ` · ${earlier} earlier milestone${earlier === 1 ? '' : 's'} shown at the left edge` : ''}</span>
+        {chartW > width && (
+          <span className="cc-agenda__nav">
+            <button type="button" onClick={() => scrollBy(-3 * PX_PER_HOUR)}>← Earlier</button>
+            <button type="button" onClick={scrollToNow}>Now</button>
+            <button type="button" onClick={() => scrollBy(3 * PX_PER_HOUR)}>Later →</button>
+          </span>
         )}
-      </svg>
+      </div>
+      <div className="cc-agenda__viewport">
+        <div className="cc-agenda__scroll" ref={scroller} tabIndex={0} role="region" aria-label="Timeline, scrolls horizontally">
+          <svg width={chartW} height={height} role="img" aria-label={`Today's agenda: ${events.length} milestones across ${lanesPresent.length} sports`}>
+            {layouts.map((layout, li) => (
+              <rect key={layout.sport} x={0} y={m.top + tops[li]} width={chartW} height={layout.height} rx={8} className="cc-agenda__lane" />
+            ))}
+            {hours.map((h) => (
+              <line key={h.getTime()} x1={x(h)} x2={x(h)} y1={m.top - 4} y2={height - m.bottom} className="cc-agenda__hour" />
+            ))}
+            <g ref={axisRef} className="cc-axis" transform={`translate(0, ${m.top - 4})`} />
+            {layouts.map((layout, li) => {
+              const top = m.top + tops[li]
+              const color = SPORT_COLORS[layout.sport]
+              const windows = layout.clusters.filter((c) => c.kind === 'collection')
+              const band = windows.length ? [d3.min(windows, (k) => k.at)!, d3.max(windows, (k) => k.until ?? k.at)!] : null
+              return (
+                <g key={layout.sport} transform={`translate(0, ${top})`}>
+                  {band && <rect x={x(band[0])} y={rowY(layout, 'win', 0) - 2} width={Math.max(4, x(band[1]) - x(band[0]))} height={4} rx={2}
+                    fill={color} className="cc-agenda__band" />}
+                  {layout.clusters.map((c) => (
+                    <ClusterMark key={c.key} c={c} y={rowY(layout, c.band, c.row)} x={x(c.at)} color={color}
+                      pinned={pinned?.key === c.key}
+                      onTip={(e) => show(e, tipFor(c))} onHide={hide}
+                      onPin={() => setPinned((p) => (p?.key === c.key ? null : c))} />
+                  ))}
+                </g>
+              )
+            })}
+            {now >= lo && now <= hi && (
+              <g className="cc-now" transform={`translate(${x(now)}, 0)`}>
+                <line y1={m.top - 2} y2={height - m.bottom + 2} />
+                <rect x={-42} y={height - m.bottom + 3} width={84} height={16} rx={8} className="cc-now__pill" />
+                <text y={height - m.bottom + 14} textAnchor="middle" className="cc-now__text">now {et(now)}</text>
+              </g>
+            )}
+          </svg>
+        </div>
+        {/* Sport labels stay put while the axis scrolls beneath them. */}
+        <div className="cc-agenda__labels" aria-hidden="true">
+          {layouts.map((layout, li) => {
+            const games = new Set(layout.clusters.filter((c) => c.kind === 'game').flatMap((c) => c.events.map((e) => e.gameId))).size
+            const idleText = layout.clusters.length === 0 ? idle[layout.sport] : undefined
+            return (
+              <div key={layout.sport} className={`cc-agenda__label${idleText ? ' is-idle' : ''}`}
+                style={{ top: m.top + tops[li], height: layout.height, ['--sport' as string]: SPORT_COLORS[layout.sport] }}>
+                <b>{SPORT_NAMES[layout.sport]}</b>
+                {games > 0 && <small>{games} game{games === 1 ? '' : 's'}</small>}
+                {idleText && <span>{idleText}</span>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
       <Tooltip tip={tip} width={width} />
-      {pinned && <PinnedList cluster={pinned} decisionsHref={decisionsHref} onClose={() => setPinned(null)} />}
+      {pinned && <PinnedList cluster={pinned} decisionsHref={decisionsHref} onClose={() => setPinned(null)} now={now} />}
       <ul className="cc-legend cc-agenda__legend" aria-label="Agenda legend">
         <li><span className="cc-glyph">◆</span>Forecast</li>
         <li><i className="cc-key cc-key--collect-bar" />Collection</li>
@@ -148,7 +241,7 @@ export const AgendaTimeline = memo(function AgendaTimeline({ events, now, idle =
         <tbody>
           {[...events].sort((a, b) => a.at - b.at).map((e) => (
             <tr key={e.key}>
-              <td>{et(e.at)}{e.until ? `–${et(e.until)}` : ''}</td><td>{e.sport}</td><td>{e.label}</td>
+              <td>{when(e.at, now)}{e.until ? `–${when(e.until, now)}` : ''}</td><td>{e.sport}</td><td>{e.label}</td>
               <td>{e.matchup}</td><td>{STATUS_TEXT[e.status]}</td>
             </tr>
           ))}
@@ -201,7 +294,9 @@ function ClusterMark({ c, x, y, color, pinned, onTip, onHide, onPin }: {
   )
 }
 
-function PinnedList({ cluster, decisionsHref, onClose }: { cluster: Cluster; decisionsHref: string; onClose: () => void }) {
+function PinnedList({ cluster, decisionsHref, onClose, now }: { cluster: Cluster; decisionsHref: string; onClose: () => void; now: number }) {
+  const at = (e: AgendaEvent) => (e as ShownEvent).actualAt ?? e.at
+  const until = (e: AgendaEvent) => (e as ShownEvent).actualUntil ?? e.until
   return (
     <div className="cc-agenda__pinned" role="region" aria-label={`${KIND_LABEL[cluster.kind]} details`} style={{ ['--sport' as string]: SPORT_COLORS[cluster.sport] }}>
       <header>
@@ -211,7 +306,7 @@ function PinnedList({ cluster, decisionsHref, onClose }: { cluster: Cluster; dec
       <ul>
         {cluster.events.map((e) => (
           <li key={e.key}>
-            <span className="cc-agenda__pinned-time">{et(e.at)}{e.until ? `–${et(e.until)}` : ''}</span>
+            <span className="cc-agenda__pinned-time">{when(at(e), now)}{until(e) ? `–${when(until(e)!, now)}` : ''}</span>
             <Link to={gameHref(e.sport, e.gameId)}>{e.matchup}</Link>
             <span className="cc-muted">{e.label}</span>
             {(e.kind === 'decision' || e.kind === 'position') && <Link to={decisionsHref}>Decision</Link>}

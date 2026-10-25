@@ -1,0 +1,41 @@
+/* My Picks — personal play-money preview picks. Light-first, navy/teal. */
+.mypicks__banner {
+  margin: 0 0 16px; padding: 12px 14px; border: 1px solid #ecd9a8; background: #fbf4e4;
+  border-radius: 12px; color: #6b4a12; font-size: 13.5px; line-height: 1.45; max-width: 90ch;
+}
+.mypicks__banner a { color: #0b6d61; font-weight: 700; }
+
+.mypicks__empty {
+  border: 1px solid #e3e7ec; background: #fff; border-radius: 14px; padding: 22px 20px; max-width: 70ch;
+}
+.mypicks__empty h2 { margin: 0 0 6px; font-size: 20px; color: #10203a; }
+.mypicks__empty p { margin: 0; color: #55677d; line-height: 1.5; }
+.mypicks__emptyactions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+.mypicks__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.mypicks__item {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px 18px;
+  align-items: center; padding: 14px 16px; background: #fff; border: 1px solid #e3e7ec; border-radius: 14px;
+  border-left: 3px solid var(--sport, #0b7f79);
+}
+.mypicks__main { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.mypicks__game { font: 800 17px/1.2 "Inter", system-ui, sans-serif; color: #10203a; text-decoration: none; }
+.mypicks__game:hover { color: #0b7f79; }
+.mypicks__sport { font: 700 10.5px/1 "Inter", sans-serif; letter-spacing: .06em; color: #58697e; border: 1px solid #e3e7ec; border-radius: 999px; padding: 3px 8px; }
+.mypicks__added { font-size: 12px; color: #8294a7; }
+.mypicks__k { display: block; font: 700 10px/1 "Inter", sans-serif; letter-spacing: .07em; text-transform: uppercase; color: #8294a7; margin-bottom: 3px; }
+.mypicks__pick b { font: 800 16px/1 "Inter", sans-serif; color: #0b6d61; }
+.mypicks__model { color: #243245; font-size: 14px; }
+.mypicks__actions { display: flex; gap: 8px; align-items: center; justify-self: end; }
+.mypicks__remove { min-height: 40px; padding: 0 12px; border: 1px solid #e3e7ec; background: #fff; border-radius: 10px; color: #b23b3b; font-weight: 700; font-family: "Inter", sans-serif; cursor: pointer; }
+.mypicks__remove:hover { border-color: #b23b3b; background: #fdf4f4; }
+.mypicks__remove:focus-visible, .mypicks__game:focus-visible { outline: 3px solid #13a89f; outline-offset: 2px; }
+
+@media (max-width: 860px) {
+  .mypicks__item { grid-template-columns: 1fr 1fr; }
+  .mypicks__main { grid-column: 1 / -1; }
+  .mypicks__actions { grid-column: 1 / -1; justify-self: start; }
+}
+@media (max-width: 480px) {
+  .mypicks__item { grid-template-columns: 1fr; }
+}

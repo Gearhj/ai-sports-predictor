@@ -16,6 +16,8 @@ import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import type { NflGameDetail } from '../types/nfl'
 import { teamIdentity } from '../services/teamIdentity'
+import { GameStory } from '../components/story/GameStory'
+import { GameHeader } from '../features/shared/GameHeader'
 
 export function NflGamePage() {
   const { gameId = '' } = useParams()
@@ -54,12 +56,20 @@ export function NflGamePage() {
         <ChevronRight size={13} aria-hidden="true" />
         <span aria-current="page">{away} @ {home}</span>
       </nav>
-      <PageHeader
+      {event.canonical_game_id ? (
+        <>
+          <h1 className="sr-only">{teamIdentity('NFL', away).name} at {teamIdentity('NFL', home).name}</h1>
+          <GameHeader gameId={event.canonical_game_id} sport="NFL" startsAt={event.kickoff_utc}
+            away={{ abbr: away, name: teamIdentity('NFL', away).name }} home={{ abbr: home, name: teamIdentity('NFL', home).name }} />
+        </>
+      ) : <PageHeader
         eyebrow={`NFL · WEEK ${event.week} · ${stateLabel(event.state).toUpperCase()} · RESEARCH SHADOW`}
         title={`${teamIdentity('NFL', away).name} at ${teamIdentity('NFL', home).name}`}
         description={`Kickoff ${event.kickoff_utc ? formatTimestamp(event.kickoff_utc) : 'not scheduled'}${event.final_score ? ` · final ${home} ${event.final_score.home}–${away} ${event.final_score.away}` : ''} · research shadow — not executable, no wagering authority.`}
         actions={<Link className="primary-button" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}><FlaskConical size={14} aria-hidden="true" /> Open Simulation Lab</Link>}
-      />
+      />}
+
+      {event.canonical_game_id && <GameStory gameId={event.canonical_game_id} />}
 
       <Panel title="What does our model predict?" eyebrow="FORECAST" className="section-panel"
         action={data.engines.length > 1 ? (
@@ -100,6 +110,9 @@ export function NflGamePage() {
         <NflMarketComparison comparison={engine?.market_comparison} homeTeam={home} awayTeam={away} />
       </Panel>
 
+      <details className="ga-evidence">
+        <summary>Evidence &amp; audit — saved score-distribution supplements and research results</summary>
+        <div className="ga-evidence__body">
       {data.research_candidates.length > 0 && (
         <Panel title="Saved score-distribution evidence" eyebrow="VERIFIED SUPPLEMENTS" className="section-panel">
           <ul className="nfl-candidates">
@@ -118,6 +131,8 @@ export function NflGamePage() {
       <Panel title="How has it performed?" eyebrow="RESEARCH RESULTS" className="section-panel">
         <ResearchResultsPanel results={data.research_results} />
       </Panel>
+        </div>
+      </details>
 
       <p className="labs-return">
         <Link className="lab-game__action" to={`/games/${event.canonical_game_id}/simulation?sport=NFL`}>Open the NFL Simulation Lab for this game <ArrowRight size={13} aria-hidden="true" /></Link>

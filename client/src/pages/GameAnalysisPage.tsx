@@ -1,5 +1,7 @@
+import type { ForecastGame } from '../types/domain'
 import { useCallback, useMemo } from 'react'
 import { Link, Navigate, useParams, useSearchParams} from 'react-router-dom'
+import { GameHeader } from '../features/shared/GameHeader'
 import { useScoreboard } from '../hooks/useScoreboard'
 import { GameScoreboard } from '../components/scoreboard/GameScoreboard'
 import { MarketPulsePanel } from '../components/MarketPulsePanel'
@@ -25,9 +27,22 @@ import { getDemoGame } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { ShadowForecastPanel } from '../components/ShadowForecastPanel'
+import { GameStory } from '../components/story/GameStory'
 import { usePublicPolicy } from '../hooks/usePublicPolicy'
 import { endpoints } from '../services/api'
 import { formatCompactTimestamp, formatTime, formatTimestamp } from '../services/format'
+
+/** True only while the freshest two-sided pair is inside the 4-hour window and the game has not begun. */
+export function isCurrentMarket(game: Pick<ForecastGame, 'market_quote_observed_at' | 'last_update' | 'start_time' | 'status'>, now = Date.now()): boolean {
+  const status = String(game.status ?? '').toUpperCase()
+  if (['FINAL', 'COMPLETED', 'LIVE', 'IN_PROGRESS', 'STARTED'].some((s) => status.includes(s))) return false
+  const start = Date.parse(game.start_time)
+  if (Number.isFinite(start) && start <= now) return false
+  const observed = Date.parse(game.market_quote_observed_at ?? game.last_update ?? '')
+  if (!Number.isFinite(observed)) return false
+  const age = (now - observed) / 60_000
+  return age >= 0 && age <= 240
+}
 
 export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   const { gameId = 'demo-nym-atl' } = useParams()
@@ -103,7 +118,19 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
   const favorite = homeProbability >= awayProbability ? game.home_team : game.away_team
   const favoriteProbability = Math.max(homeProbability, awayProbability)
   const edgeTeam = game.edge_side === 'home' ? game.home_team : game.edge_side === 'away' ? game.away_team : null
+  // A stored price is "current" only inside the 4-hour freshness window and
+  // before first pitch; otherwise every label says it is a stored reference.
+  const marketCurrent = marketAvailable && isCurrentMarket(game)
   const topDriver = data.drivers[0]
+  // Why no forecast is on screen, in the backend's words. "Inputs are
+  // incomplete" is only one of the reasons; the controlling engine may simply
+  // not have published yet.
+  const unavailableReason = game.forecast_selection?.selection_note
+    ?? 'The controlling model has not published a forecast for this game'
+  // Gen 1 detail panels are withheld when another engine leads the page; that
+  // engine's distribution lives on the simulation page.
+  const hasModelDetail = data.simulation.iterations > 0 || data.drivers.length > 0
+    || data.model_components.length > 0 || data.forecast_history.length > 0
   const windDirection = data.weather.wind_direction?.trim()
   const windDirectionLabel = windDirection && windDirection.toLowerCase() !== 'unavailable'
     ? /^-?\d+(\.\d+)?$/.test(windDirection)
@@ -148,6 +175,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
     <div className="page game-page">
       <Link className="back-link" to={demo ? '/demo' : '/'}><ArrowLeft size={15} /> {demo ? 'Illustrative forecast' : 'Today’s forecasts'}</Link>
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
+      {!demo && <GameHeader gameId={game.id} sport="MLB" startsAt={game.start_time}
+        away={{ abbr: game.away_team.abbreviation, name: game.away_team.name }} home={{ abbr: game.home_team.abbreviation, name: game.home_team.name }} />}
 
       <section className="game-hero">
         <h1 className="sr-only">{game.away_team.name} at {game.home_team.name} game analysis</h1>
@@ -160,6 +189,7 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
             stays where it was. A reader looking at a game in progress wants
             the score; they still need to see what was forecast beforehand, so
             neither replaces the other. */}
+        {/* Live play detail (linescore, count, bases); the header above carries the score itself. */}
         {scoreboard?.available && scoreboard.status !== 'SCHEDULED' && (
           <div className="game-hero__score">
             <GameScoreboard game={scoreboard} onRefresh={board.refresh} />
@@ -186,12 +216,15 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         {forecastAvailable ? <div className="game-hero__probability">
           <div style={{ width: `${awayProbability}%` }}><span>{game.away_team.abbreviation} {formatPct(awayProbability)}</span></div>
           <div style={{ width: `${homeProbability}%` }}><span>{formatPct(homeProbability)} {game.home_team.abbreviation}</span></div>
-        </div> : <div className="game-hero__unavailable">Forecast unavailable · required pregame inputs are incomplete</div>}
+        </div> : <div className="game-hero__unavailable">Forecast pending · {unavailableReason}</div>}
         <footer className="game-hero__footer">
           <span><Database size={14} /> Data as of {formatTimestamp(data.data_as_of)}</span>
           <span>{data.model_version}</span>
         </footer>
       </section>
+
+      {/* The visual game story leads; the detailed tables live in Evidence & audit below. */}
+      {!demo && <GameStory gameId={game.id} />}
 
       <GameLifecyclePanel game={game} />
 
@@ -202,14 +235,10 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         <Link className="text-link" to="/labs?league=MLB">Interactive labs</Link>.
       </p>
 
-      <nav className="analysis-tabs" aria-label="Analysis sections">
-        <a href="#forecast">Forecast</a><a href="#market">Market</a><a href="#matchup">Matchup</a><a href="#simulation">Simulation</a><a href="#history">History</a><a href="#audit">Data audit</a>
-      </nav>
-
       <section className="forecast-summary" id="forecast">
         <article><span>Home win</span><strong>{forecastAvailable ? formatPct(game.home_win_probability) : '—'}</strong><small>{marketAvailable ? `Market ${formatPct(game.market_home_probability)}` : 'Market unavailable'}</small></article>
-        <article><span>Fair home moneyline</span><strong>{forecastAvailable ? formatMoneyline(game.fair_home_moneyline) : '—'}</strong><small>{marketAvailable ? `Best current ${formatMoneyline(game.best_home_moneyline)}` : 'Market unavailable'}</small></article>
-        <article><span>Model edge</span><strong className={game.model_edge != null && game.model_edge > 0 ? 'positive' : ''}>{forecastAvailable && marketAvailable && game.model_edge != null ? `+${game.model_edge.toFixed(1)} pts` : '—'}</strong><small>{forecastAvailable && marketAvailable ? game.opportunity : 'Not classified'}</small></article>
+        <article><span>Fair home moneyline</span><strong>{forecastAvailable ? formatMoneyline(game.fair_home_moneyline) : '—'}</strong><small>{marketAvailable ? `${marketCurrent ? 'Best current' : 'Best stored (not current)'} ${formatMoneyline(game.best_home_moneyline)}` : 'Market unavailable'}</small></article>
+        <article><span>Model edge</span><strong className={marketCurrent && game.model_edge != null && game.model_edge > 0 ? 'positive' : ''}>{forecastAvailable && marketAvailable && game.model_edge != null ? `${edgeTeam ? `${edgeTeam.abbreviation} ` : ''}+${game.model_edge.toFixed(1)} pts` : '—'}</strong><small>{!(forecastAvailable && marketAvailable) ? 'Not classified' : marketCurrent ? game.opportunity : 'Against the last stored price · not current, not classified'}</small></article>
         <article><span>Projected total</span><strong>{forecastAvailable ? formatNumber(game.projected_total) : '—'}</strong><small>{marketAvailable ? `Market ${formatNumber(game.market_total)}` : 'Market unavailable'}</small></article>
         <article><span>Projected run differential</span><strong>{forecastAvailable && game.projected_run_difference != null ? `${game.projected_run_difference > 0 ? '+' : ''}${formatNumber(game.projected_run_difference)}` : '—'}</strong><small>Home minus away</small></article>
         <article><span>Model uncertainty</span><strong>{forecastAvailable && game.uncertainty != null ? formatPct(game.uncertainty * 100) : '—'}</strong><small>Probability dispersion</small></article>
@@ -217,6 +246,9 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         <article><ScoreBar value={game.data_readiness} label="Data readiness" tone="teal" /></article>
       </section>
 
+      <details className="ga-evidence" open={demo}>
+        <summary>Evidence &amp; audit — prices by book, pitchers, bullpen, Statcast, model detail and source readiness</summary>
+        <div className="ga-evidence__body">
       <div className="analysis-grid analysis-grid--wide-left">
         <Panel title="Model vs. market" eyebrow="WIN PROBABILITY">
           <div className="probability-rows">
@@ -231,18 +263,18 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </Panel>
         <Panel title="Forecast interpretation" eyebrow="MODEL SUMMARY" className="narrative-panel">
           <div className="narrative-label"><Sparkles size={15} /> Deterministic explanation</div>
-          <p>{forecastAvailable ? <>ASP makes <strong>{favorite.name}</strong> the {formatPct(favoriteProbability)} side. {edgeTeam && marketAvailable && game.model_edge != null ? `${edgeTeam.name} carries a ${game.model_edge.toFixed(1)} percentage-point difference versus the current no-vig market.` : 'A complete two-sided market comparison is not currently available.'} {topDriver ? `The largest reported model driver is ${topDriver.label.toLowerCase()}: ${topDriver.detail}` : 'No model-driver explanation is available for this forecast version.'}</> : <>ASP has not published a forecast because required pregame inputs are incomplete. No probability, fair line, or model edge is inferred.</>}</p>
+          <p>{forecastAvailable ? <>ASP makes <strong>{favorite.name}</strong> the {formatPct(favoriteProbability)} side. {edgeTeam && marketAvailable && game.model_edge != null ? `${edgeTeam.name} carries a ${game.model_edge.toFixed(1)} percentage-point difference versus the ${marketCurrent ? 'current' : 'last stored (not current)'} no-vig market.` : 'A complete two-sided market comparison is not currently available.'} {topDriver ? `The largest reported model driver is ${topDriver.label.toLowerCase()}: ${topDriver.detail}` : 'No model-driver explanation is available for this forecast version.'}</> : <>No forecast is shown: {unavailableReason}. No probability, fair line, or model edge is inferred, and no other model is substituted.</>}</p>
           <p className="muted">This summary describes model associations, not causal certainty.</p>
         </Panel>
       </div>
 
-      <Panel title="Sportsbook comparison" eyebrow="CURRENT MONEYLINE" action={<span className="update-label">{game.books_reporting} books · updated {game.last_update}</span>} className="section-panel" >
+      <Panel title="Sportsbook comparison" eyebrow={marketCurrent ? 'CURRENT MONEYLINE' : 'STORED MONEYLINE · NOT CURRENT'} action={<span className="update-label">{game.books_reporting} books · updated {formatTimestamp(game.last_update)}</span>} className="section-panel" >
         <TableScroll>
           <table className="data-table market-table" id="market">
             <thead><tr><th>Sportsbook</th><th>{game.away_team.abbreviation}</th><th>{game.home_team.abbreviation}</th><th>Observed</th></tr></thead>
             <tbody>
               {data.market_prices.map((price) => (
-                <tr key={price.book}><td><strong>{price.book}</strong></td><td className={price.is_best_away ? 'best-price' : ''}>{formatMoneyline(price.away)}{price.is_best_away && <small> BEST</small>}</td><td className={price.is_best_home ? 'best-price' : ''}>{formatMoneyline(price.home)}{price.is_best_home && <small> BEST</small>}</td><td className="muted">{formatCompactTimestamp(price.observed_at)}</td></tr>
+                <tr key={price.book}><td><strong>{price.book}</strong></td><td className={marketCurrent && price.is_best_away ? 'best-price' : ''}>{formatMoneyline(price.away)}{marketCurrent && price.is_best_away && <small> BEST</small>}</td><td className={marketCurrent && price.is_best_home ? 'best-price' : ''}>{formatMoneyline(price.home)}{marketCurrent && price.is_best_home && <small> BEST</small>}</td><td className="muted">{formatCompactTimestamp(price.observed_at)}</td></tr>
               ))}
               <tr className="table-summary"><td><strong>ASP fair price</strong></td><td>{forecastAvailable ? formatMoneyline(game.fair_away_moneyline) : '—'}</td><td>{forecastAvailable ? formatMoneyline(game.fair_home_moneyline) : '—'}</td><td>{data.model_version}</td></tr>
             </tbody>
@@ -259,6 +291,7 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         <Panel title="Statcast matchup" eyebrow="CONTACT QUALITY"><ComparisonTable away={game.away_team} home={game.home_team} rows={data.statcast_metrics} /></Panel>
       </div>
 
+      {hasModelDetail ? <>
       <div className="analysis-grid analysis-grid--wide-left" id="simulation">
         <Panel title="Simulated run distribution" eyebrow={data.simulation.iterations > 0 ? `${data.simulation.iterations.toLocaleString()} ITERATIONS` : 'SIMULATION UNAVAILABLE'}>
           <AnalyticsChart option={runDistributionOption} height={310} ariaLabel="Probability distribution of simulated runs for both teams" />
@@ -314,6 +347,17 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
         </Panel>
       </div>
 
+      </> : (
+        <Panel title="Simulation and model detail" eyebrow="DISPLAYED MODEL" className="section-panel" >
+          <p id="simulation">
+            {forecastAvailable
+              ? <>The simulated score distribution for {data.model_version} is on the{' '}
+                  <Link className="text-link" to={`/games/${game.id}/simulation`}>Monte Carlo Diamond Simulator</Link>.
+                  Component weights, drivers and version history shown on this page belong to the earlier Gen 1 baseline and are not displayed beside another model&rsquo;s forecast.</>
+              : <>No simulation, driver or version detail is shown until the controlling model publishes a forecast for this game.</>}
+          </p>
+        </Panel>
+      )}
       <Panel title="Data audit" eyebrow="SOURCE FRESHNESS & COMPLETENESS" className="section-panel" action={<span className="score-chip">{game.data_readiness == null ? 'Readiness unavailable' : `${Math.round(game.data_readiness)}/100 ready`}</span>}>
         <div className="readiness-breakdown" aria-label="Readiness component detail">
           {(game.readiness_detail ?? []).map((component) => (
@@ -332,6 +376,8 @@ export function GameAnalysisPage({ demo = false }: { demo?: boolean }) {
           ))}
         </div>
       </Panel>
+        </div>
+      </details>
 
       <p className="page-footnote">All values on this page are pregame estimates tied to the forecast version shown. Published versions are retained. No model driver should be interpreted as proof of causality.</p>
     </div>

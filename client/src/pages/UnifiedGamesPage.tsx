@@ -27,7 +27,10 @@
  * allowed to make.
  */
 import { SportReadiness } from '../components/readiness/SportReadiness'
-import { useCallback, useMemo, useState } from 'react'
+import { CfbSlateSection } from '../components/cfb/CfbSlateSection'
+import { NhlSlateSection } from '../components/nhl/NhlSlateSection'
+import '../components/cfb/cfb.css'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable, SignalPill } from '../components/ui'
 import { PrefetchLink } from '../components/PrefetchLink'
@@ -35,8 +38,12 @@ import {
   ArrowRight, Beaker, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, LineChart,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
+import { upcomingOnly } from '../services/nextUp'
+import { loadNflProductionStatus, loadNflScoredCount, monitoringNote, slateBadge, type NflProductionStatus } from '../services/nflGovernance'
+import { SLATE_SORT_LABEL, currentGap, hasCurrentPrice, hasForecast, sortSlate, type SlateSort } from '../services/slateSort'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
 import { closedStyle, edgeDescription, hasStarted, marketWait, opportunityStyle } from '../services/statusStyle'
+import { marketLine, marketShort, modelLine } from '../services/pregameStatus'
 import { availabilityNote, engineShortName, isCurrent, type ForecastIdentity } from '../services/forecastSelection'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { useSportRegistry } from '../hooks/useSportRegistry'
@@ -54,6 +61,7 @@ import type { DashboardData, MarketBoardData, MarketBoardRow } from '../types/do
 import type { NflEvent, NflWeeks } from '../types/nfl'
 import '../broadcast.css'
 import '../components/command/command.css'
+import { useScores, type ScoreState } from '../features/shared/ScoreBug'
 
 type NflMarketsBoard = { season: number; week: number; events: NflEvent[] }
 type StateFilter = 'ALL' | 'UPCOMING' | 'STARTED' | 'FINAL'
@@ -67,6 +75,15 @@ interface GamesBoard {
   weeks: NflWeeks | null
   nfl: NflMarketsBoard | null
   warnings: string[]
+}
+
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return now
 }
 
 const stateOf = (game: SlateGame): StateFilter => {
@@ -96,6 +113,14 @@ export function nextCheckpoint(startsAt: string | null, now: number = Date.now()
     weekday: 'short', hour: 'numeric', minute: '2-digit' })}`
 }
 
+/** Why a section is empty: a filter hiding games is not the same as no games. */
+export function filteredNote(league: string, total: number, filter: string, none: string): string {
+  if (total === 0 || filter === 'ALL') return none
+  const word = filter === 'UPCOMING' ? 'upcoming' : filter === 'STARTED' ? 'started' : filter === 'FINAL' ? 'final' : filter.toLowerCase()
+  const extra = filter === 'UPCOMING' ? ' — every game on this slate has already started' : ''
+  return `No ${word} ${league} game${extra}. ${total} game${total === 1 ? ' is' : 's are'} listed under All.`
+}
+
 export function UnifiedGamesPage() {
   useBroadcastTheme()
   const { sport, withSport } = useSportSelection()
@@ -106,6 +131,13 @@ export function UnifiedGamesPage() {
   const [params, setParams] = useSearchParams()
   const dateParam = params.get('date')
   const [stateFilter, setStateFilter] = useState<StateFilter>('ALL')
+  const sortMode: SlateSort = (['KICKOFF', 'FORECAST', 'GAP'] as const).find((m) => m === params.get('sort')) ?? 'KICKOFF'
+  const setSortMode = (mode: SlateSort) => setParams((old) => {
+    const q = new URLSearchParams(old)
+    if (mode === 'KICKOFF') q.delete('sort')
+    else q.set('sort', mode)
+    return q
+  }, { replace: true })
 
   // Two independent regions: the MLB slate never waits for the slower NFL week
   // board, and either one failing leaves the other usable.
@@ -157,7 +189,30 @@ export function UnifiedGamesPage() {
   const nflPending = wantsNfl && nflRes.loading
 
   const mlbGames = useMemo(() => mlbSlate(board?.mlb ?? null).sort(byStartTime), [mlbRes.data])
-  const nflGames = useMemo(() => nflSlate(board?.nfl?.events ?? []).sort(byStartTime), [nflRes.data])
+  // Which NFL kickoffs a verified production handoff governs. Fail-closed on
+  // the server, so a fetch problem leaves every game reading as research.
+  const [nflGovernance, setNflGovernance] = useState<NflProductionStatus | null>(null)
+  useEffect(() => {
+    if (!wantsNfl) return undefined
+    const controller = new AbortController()
+    loadNflProductionStatus(controller.signal).then(setNflGovernance).catch(() => setNflGovernance(null))
+    return () => controller.abort()
+  }, [wantsNfl])
+  const nflGames = useMemo(
+    () => nflSlate(board?.nfl?.events ?? [], 'NFL_M1_XGBOOST', nflGovernance).sort(byStartTime),
+    [nflRes.data, nflGovernance])
+  const nflGoverned = useMemo(() => nflGames.filter((game) => !game.researchOnly).length, [nflGames])
+  // The sample the disclosure quotes, read from the scorecard rather than assumed.
+  const [nflScored, setNflScored] = useState<number | null>(null)
+  const nflSeason = board?.nfl?.season
+  const nflWeek = board?.nfl?.week
+  useEffect(() => {
+    if (!wantsNfl || !nflSeason || !nflWeek) return undefined
+    const controller = new AbortController()
+    loadNflScoredCount(nflSeason, nflWeek, controller.signal)
+      .then(setNflScored).catch(() => setNflScored(null))
+    return () => controller.abort()
+  }, [wantsNfl, nflSeason, nflWeek])
   // Stored sportsbook evidence for every date on screen, from the coverage read
   // model (all persisted LIVE quotes, with provider classification), and the
   // ledger for recorded entry terms. Both are cached, provider-free reads.
@@ -171,9 +226,13 @@ export function UnifiedGamesPage() {
     return out
   }, [ledger.data])
   const all = useMemo(() => [...mlbGames, ...nflGames].sort(byStartTime), [mlbGames, nflGames])
+  const byGame = evidence.data?.byGame ?? null
   const visible = useCallback(
-    (games: SlateGame[]) => stateFilter === 'ALL' ? games : games.filter((game) => stateOf(game) === stateFilter),
-    [stateFilter],
+    (games: SlateGame[]) => sortSlate(
+      stateFilter === 'ALL' ? games : games.filter((game) => stateOf(game) === stateFilter),
+      sortMode, (game) => (game.gameId ? byGame?.[game.gameId] : null),
+    ),
+    [stateFilter, sortMode, byGame],
   )
 
   const displayedDate = board?.date ?? dateParam ?? ''
@@ -191,9 +250,11 @@ export function UnifiedGamesPage() {
     const q = new URLSearchParams(old); q.set('date', value); return q
   }, { replace: true })
 
+  // Only games whose scheduled start is still ahead; re-evaluated each minute.
+  const clock = useMinuteClock()
   const nextUp = useMemo(
-    () => all.filter((game) => stateOf(game) === 'UPCOMING').slice(0, 8),
-    [all],
+    () => upcomingOnly(all.filter((game) => stateOf(game) === 'UPCOMING'), clock, 8),
+    [all, clock],
   )
 
   return (
@@ -250,6 +311,13 @@ export function UnifiedGamesPage() {
               </button>
             ))}
           </div>
+          <label className="bx-field">Sort
+            <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SlateSort)} aria-label="Sort games">
+              {(Object.keys(SLATE_SORT_LABEL) as SlateSort[]).map((mode) => (
+                <option key={mode} value={mode}>{SLATE_SORT_LABEL[mode]}</option>
+              ))}
+            </select>
+          </label>
           <span className="bx-dim">
             {all.length} game{all.length === 1 ? '' : 's'} on the board
             {board?.warnings?.length ? ` · ${board.warnings.join(' · ')}` : ''}
@@ -293,7 +361,7 @@ export function UnifiedGamesPage() {
             evidence={evidence.data?.byGame ?? null}
             entries={entriesByGame}
             withSport={withSport}
-            emptyNote={mlbPending ? 'Loading the MLB slate…' : 'No MLB game is recorded for this date.'}
+            emptyNote={mlbPending ? 'Loading the MLB slate…' : filteredNote('MLB', mlbGames.length, stateFilter, 'No MLB game is recorded for this date.')}
           />
         )}
 
@@ -307,10 +375,15 @@ export function UnifiedGamesPage() {
             evidence={evidence.data?.byGame ?? null}
             entries={entriesByGame}
             withSport={withSport}
-            emptyNote={nflPending ? 'Loading the NFL week…' : 'No NFL game is recorded for this week.'}
-            researchNote="NFL M1 research forecasts. A virtual paper position is recorded only under the NFL paper policy, with producer eligibility and a fresh price inside the decision window."
+            emptyNote={nflPending ? 'Loading the NFL week…' : filteredNote('NFL', nflGames.length, stateFilter, 'No NFL game is recorded for this week.')}
+            researchNote={monitoringNote(nflGovernance, nflScored)}
+            slateChip={slateBadge(nflGovernance, nflGoverned > 0)}
+            governedCount={nflGoverned}
           />
         )}
+
+        {(sport === 'ALL' || sport === 'CFB') && <CfbSlateSection date={dateParam} />}
+        {(sport === 'ALL' || sport === 'NHL') && <NhlSlateSection date={dateParam} />}
 
         <details className="cc-below">
           <summary>Forecast and price readiness for each sport</summary>
@@ -321,7 +394,7 @@ export function UnifiedGamesPage() {
             nothing in it. NBA holds imported research forecasts and no market;
             saying "no forecasts" here would contradict the surface that shows
             them. The registry's own research href decides which sentence runs. */}
-        {!['ALL', 'MLB', 'NFL'].includes(sport) && (
+        {!['ALL', 'MLB', 'NFL', 'CFB', 'NHL'].includes(sport) && (
           researchHref ? (
             <p className="bx-empty">
               {sport} has no slate, market or position in AISP. Its imported research
@@ -339,13 +412,20 @@ export function UnifiedGamesPage() {
 
 function LeagueSection({
   league, title, subtitle, games, books, withSport, emptyNote, researchNote, evidence, entries,
+  slateChip, governedCount,
 }: {
   league: 'MLB' | 'NFL'; title: string; subtitle: string; games: SlateGame[]
   books: MarketBoardRow[]; emptyNote: string; researchNote?: string
+  /** Section chip: the production baseline when a handoff governs this slate. */
+  slateChip?: string
+  /** How many games on this slate the handoff actually governs. */
+  governedCount?: number
   evidence: Record<string, CoverageGame> | null
   entries: Record<string, LedgerPosition[]>
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
 }) {
+  // One scoreboard read for the whole section: live and final scores per row.
+  const scores = useScores(games.map((g) => g.gameId ?? '').filter(Boolean))
   return (
     <section aria-label={`${league} games`} style={{ display: 'grid', gap: 12 }}>
       <div className={`bx-league-head bx-league-head--${league}`}>
@@ -353,7 +433,8 @@ function LeagueSection({
         <h2>{title}</h2>
         <span className="bx-dim">{subtitle}</span>
         <div className="bx-league-head__meta">
-          {researchNote && <span className="bx-chip">Research shadow</span>}
+          {researchNote && <span className="bx-chip">{slateChip ?? 'Research shadow'}</span>}
+          {governedCount ? <span className="bx-dim">{governedCount} governed</span> : null}
           <span className="bx-dim">{games.length} shown</span>
         </div>
       </div>
@@ -365,7 +446,8 @@ function LeagueSection({
             <GameRow key={game.key} game={game} withSport={withSport}
               books={books.filter((row) => row.game_id === game.gameId)}
               evidence={game.gameId ? evidence?.[game.gameId] ?? null : null}
-              entries={game.gameId ? entries[game.gameId] ?? [] : []} />
+              entries={game.gameId ? entries[game.gameId] ?? [] : []}
+              score={game.gameId ? scores[game.gameId] : undefined} />
           ))}
         </div>}
     </section>
@@ -373,11 +455,12 @@ function LeagueSection({
 }
 
 function GameRow({
-  game, books, withSport, evidence, entries,
+  game, books, withSport, evidence, entries, score,
 }: {
   game: SlateGame; books: MarketBoardRow[]; withSport: (href: string, sport?: 'MLB' | 'NFL') => string
-  evidence: CoverageGame | null; entries: LedgerPosition[]
+  evidence: CoverageGame | null; entries: LedgerPosition[]; score?: ScoreState
 }) {
+  const hasScore = score && (score.phase === 'LIVE' || score.phase === 'FINAL') && score.away != null
   const [open, setOpen] = useState(false)
   const state = stateOf(game)
   const homeLead = (game.homeWin ?? 0) >= (game.awayWin ?? 0)
@@ -389,24 +472,32 @@ function GameRow({
   const totalRow = books.find((row) => row.market_type === 'Total')
   const handicap = game.handicap ?? runLine?.line ?? null
   const totalLine = game.totalLine ?? totalRow?.line ?? null
+  // Emphasis only for what is genuinely current: a held forecast AND a price
+  // inside the freshness window. Stale or missing prices never get it.
+  const ready = hasForecast(game) && hasCurrentPrice(game, evidence)
+  const gap = currentGap(game, evidence)
 
   return (
-    <article className={`bx-slate__row bx-slate__row--${game.league}`} aria-label={`${game.away.name} at ${game.home.name}`}>
+    <article className={`bx-slate__row bx-slate__row--${game.league}${ready ? ' bx-slate__row--ready' : ''}`}
+      aria-label={`${game.away.name} at ${game.home.name}${ready ? ', forecast and current price' : ''}`}>
       <div className="bx-slate__when">
-        <b>{clockOf(game.startsAt)}</b>
-        <small>{state === 'UPCOMING' ? dayOf(game.startsAt).split(',')[0] : state.toLowerCase()}</small>
+        {hasScore
+          ? <b className={`bx-score-state bx-score-state--${score!.phase.toLowerCase()}`}>{score!.phase === 'LIVE' && <i className="sb-dot" />}{score!.phase === 'LIVE' ? 'LIVE' : 'FINAL'}</b>
+          : <b>{clockOf(game.startsAt)}</b>}
+        <small>{hasScore ? (score!.phase === 'LIVE' ? score!.detail : score!.detail !== 'Final' ? score!.detail : dayOf(game.startsAt).split(',')[0]) : state === 'UPCOMING' ? dayOf(game.startsAt).split(',')[0] : state.toLowerCase()}</small>
+        {ready && <span className="bx-ready-tag">Forecast · current price{gap != null ? ` · gap ${(gap * 100).toFixed(1)} pts` : ''}</span>}
       </div>
 
       <div className="bx-slate__match">
         <div className={`bx-slate__side${homeLead ? '' : ' bx-slate__side--lead'}`}>
           <TeamMark league={game.league} abbreviation={game.away.abbreviation} />
           <em>{game.away.name}</em>
-          <i className="bx-num">{decimals(game.expAway, 1)}</i>
+          {hasScore ? <i className={`bx-num bx-actual${score!.away! > score!.home! ? ' is-ahead' : ''}`} title={`Projected ${decimals(game.expAway, 1)}`}>{score!.away}</i> : <i className="bx-num">{decimals(game.expAway, 1)}</i>}
         </div>
         <div className={`bx-slate__side${homeLead ? ' bx-slate__side--lead' : ''}`}>
           <TeamMark league={game.league} abbreviation={game.home.abbreviation} />
           <em>{game.home.name}</em>
-          <i className="bx-num">{decimals(game.expHome, 1)}</i>
+          {hasScore ? <i className={`bx-num bx-actual${score!.home! > score!.away! ? ' is-ahead' : ''}`} title={`Projected ${decimals(game.expHome, 1)}`}>{score!.home}</i> : <i className="bx-num">{decimals(game.expHome, 1)}</i>}
         </div>
       </div>
 
@@ -415,8 +506,9 @@ function GameRow({
           awayLabel={game.away.abbreviation} homeLabel={game.home.abbreviation}
           awayColor={game.away.color ?? 'var(--bx-nfl)'} homeColor={game.home.color ?? 'var(--bx-accent)'} />
         <p className="bx-dim" style={{ marginTop: 5 }}>
-          {game.scoreUnit === 'runs' ? 'Projected runs' : 'Projected points'} ·{' '}
-          total {decimals(game.expTotal, 1)}
+          {hasScore
+            ? <>Projected {decimals(game.expAway, 1)}–{decimals(game.expHome, 1)} · total {decimals(game.expTotal, 1)}</>
+            : <>{game.scoreUnit === 'runs' ? 'Projected runs' : 'Projected points'} · total {decimals(game.expTotal, 1)}</>}
         </p>
       </div>
 
@@ -436,20 +528,26 @@ function GameRow({
         )}
         {/* The band describes one side; the old bare signed number was always
             the home side, so the two disagreed in sign on every away edge. */}
-        <span className="bx-dim">
-          {edgeDescription({
-            edgeSide: game.edgeSide,
-            modelEdgePoints: game.modelEdgePoints,
-            homeEdgePoints: game.edgePoints,
-            homeAbbrev: game.home.abbreviation,
-            awayAbbrev: game.away.abbreviation,
-          }).text}
-        </span>
+        {/* With no controlling forecast there is nothing to compare, but the
+            price itself may be perfectly current: say that, not "No comparable price". */}
+        {evidence?.model_status && evidence.model_status.state !== 'PUBLISHED' && evidence.market_status
+          ? <span className="bx-dim" title={marketLine(evidence.market_status)?.detail}>{marketShort(evidence.market_status)}</span>
+          : (
+            <span className="bx-dim">
+              {edgeDescription({
+                edgeSide: game.edgeSide,
+                modelEdgePoints: game.modelEdgePoints,
+                homeEdgePoints: game.edgePoints,
+                homeAbbrev: game.home.abbreviation,
+                awayAbbrev: game.away.abbreviation,
+              }).text}
+            </span>
+          )}
       </div>
 
       <div className="bx-slate__actions">
         <PrefetchLink className="bx-btn" to={withSport(game.analysisHref, game.league)}>
-          Analysis <ArrowRight size={13} />
+          Open Game Center <ArrowRight size={13} />
         </PrefetchLink>
         {game.simulationHref && (
           <PrefetchLink className="bx-btn bx-btn--primary" to={withSport(game.simulationHref, game.league)}>
@@ -487,7 +585,11 @@ function GameRow({
           )}
           <p>{game.researchOnly
             ? 'Research shadow. This forecast creates no decision and no position.'
-            : 'A displayed price is persisted evidence, not a wagering eligibility decision.'}</p>
+            : game.league === 'NFL'
+              ? 'NFL M1 production baseline · prospective monitoring. The forecast is recorded '
+                + 'before kickoff and scored afterwards; it is not calibrated and is not a claim '
+                + 'of profitability.'
+              : 'A displayed price is persisted evidence, not a wagering eligibility decision.'}</p>
         </div>
       )}
     </article>
@@ -550,11 +652,35 @@ function DecisionChip({ game, evidence }: { game: SlateGame; evidence?: Coverage
         title={wait.title} sub={wait.detail} />
     )
   }
+  // No controlling forecast yet: the stored morning band is not a decision.
+  // Show where the model actually is -- its target, or the producer's reason.
+  const model = evidence?.model_status
+  if (model && model.state !== 'PUBLISHED' && !hasStarted(game.status)) {
+    const line = modelLine(model, game.league === 'NFL' ? 'M1' : 'V18')
+    if (line) {
+      return (
+        <SignalPill label={line.label}
+          className={`signal-pill ${line.tone === 'bad' ? 'signal-pill--closed' : line.tone === 'watch' ? 'signal-pill--watch' : 'signal-pill--neutral'}`}
+          title={line.detail} sub={model.schedule.publication_target ? 'target, not guaranteed' : undefined} />
+      )
+    }
+  }
   if (game.researchOnly) {
     return (
       <SignalPill
         label="Research only" className="signal-pill signal-pill--neutral"
         title="This sport publishes research forecasts and no governed decision band."
+      />
+    )
+  }
+  // A governed NFL kickoff says so plainly, and says what governed means here:
+  // monitoring, not a claim that the model is proven or profitable.
+  if (game.league === 'NFL') {
+    return (
+      <SignalPill
+        label="Production baseline" className="signal-pill signal-pill--watch"
+        title="Governed by the verified NFL M1 production handoff · prospective monitoring."
+        sub="Monitoring only"
       />
     )
   }

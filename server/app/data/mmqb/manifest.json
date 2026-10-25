@@ -1,0 +1,45 @@
+{
+ "artifacts": {
+  "NFL|2026|3": {
+   "bytes": 23117,
+   "content_sha256": "d5bbbb821e94b81d2a9d8db6998d28be4e30055dfd0cee1afa09e48293bb62a5",
+   "extracted_at_utc": "2026-09-28T19:46:12.422344+00:00",
+   "file": "nfl_2026_w03_game_evidence.json",
+   "file_sha256": "00a9ecb0dd04abb463df49421ee5dce737d954c3d5f5d7f99c8d9c4beadc3c5d",
+   "games": [
+    "2026_03_SEA_WAS",
+    "2026_03_LV_NO",
+    "2026_03_BAL_DAL"
+   ],
+   "source_vintage": {
+    "archive_observed_at_utc": "2026-09-28T11:37:49.510013Z",
+    "object_sha256": "c30db07862378e0b3b1e540ac18763b6993371e9879f7ee008c0b70c5cd88332",
+    "retrieved_at_utc": "2026-09-28T09:30:37.022651Z",
+    "row_count": 8156,
+    "source_url_as_recorded": "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2026.parquet"
+   }
+  }
+ },
+ "required_positions": {
+  "NFL|2026|3": {
+   "decision_ids": [
+    "135b44c7-9475-44e3-be24-60dbfef32fe3",
+    "213ab1b6-3a83-48c0-8511-311ea1f97a5a",
+    "2f377b09-80fb-4b13-9306-a85ceb32df41",
+    "3bed7adb-0cd3-4b13-b58a-c5d1fbc58674",
+    "3cee37ff-b260-470d-9492-7b132ef0803b",
+    "6d537fcb-d957-47cd-ad4a-5f5e8600c4fe",
+    "7770a220-1100-4c32-a065-c42b4f20c59f",
+    "78a4dfdc-427d-41fd-bd8c-8b3a4ed3358c",
+    "87359733-45d5-4089-9981-f3f6fb29a80d",
+    "8fa58785-21da-4dc1-a32c-7559a6cc6e4e",
+    "a3fde7e7-ce7a-4925-b210-afe74cf426ab",
+    "b8db7eee-0346-4378-93da-d22d05f22137",
+    "e33186ca-f59c-4f0b-9686-25948221ca74",
+    "f87809bb-ae61-4786-afbc-39018d070799"
+   ],
+   "scope": "Sunday 2026-09-27 (ET) slate: the 14 official positions reviewed for Week 3"
+  }
+ },
+ "schema": "AISP_MMQB_GAME_EVIDENCE_MANIFEST_V1"
+}

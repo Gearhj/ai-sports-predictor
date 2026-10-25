@@ -33,17 +33,19 @@
 import type { CoverageGame, DecisionItem, Ledger, LedgerPosition, SportCode } from './commandCenter'
 import { asSport } from './commandCenter'
 import { bookRange, forSide, rangeForSide, type Side } from './marketMath'
+import { decisionLead } from './decisionLead'
 
 export const MAX_CARDS = 4
 
 export type HeroState = 'BEST_EDGES' | 'CLOSEST' | 'MODEL_LEANS' | 'ON_DECK'
 export type CardStatus = 'POSITION' | 'QUALIFIED' | 'WATCHING' | 'DECLINED' | 'MARKET_PENDING' | 'EVALUATION_PENDING' | 'ON_DECK'
 
+/** Same vocabulary as the Daily Decisions lead (services/decisionLead). */
 export const STATUS_LABEL: Record<CardStatus, string> = {
-  POSITION: 'Position recorded',
-  QUALIFIED: 'Qualified',
-  WATCHING: 'Watching',
-  DECLINED: 'Declined',
+  POSITION: 'Funded paper wager',
+  QUALIFIED: 'Qualified · not funded',
+  WATCHING: 'Early read · not final',
+  DECLINED: 'Final · declined',
   MARKET_PENDING: 'Market pending',
   EVALUATION_PENDING: 'Priced · pending',
   ON_DECK: 'On deck',
@@ -90,8 +92,20 @@ export interface EdgeCard {
   range: [number, number] | null
   edge: number | null
   edgeBasis: 'ADJUSTED' | 'RECORDED' | null
+  /** Display only: evidence.adjusted_edge exactly as the decision recorded it; null = unavailable. */
+  recordedPolicyEdge: number | null
   expectedValue: number | null
+  /** Which return `expectedValue` is: the recorded policy-adjusted one, or the stored unadjusted model return. */
+  expectedValueBasis: 'RECORDED_POLICY_ADJUSTED' | 'UNADJUSTED_MODEL' | null
+  /**
+   * Evaluated cards: the price RECORDED at the decision (basis AT_EVALUATION).
+   * Lean cards: the best current price (no decision exists yet).
+   */
   price: PriceTerms | null
+  /** Evaluated cards: the best current cross-book quote for the side (not assumed later than the decision), kept apart from `price`. */
+  latest: PriceTerms | null
+  /** Evaluated cards: one plain sentence on what happens next or why it passed (services/decisionLead). */
+  nextStep: string | null
   position: { american: number | null; sportsbook: string | null; stake: number | null; status: string; result: string | null; profitLoss: number | null } | null
   reason: string | null
   projected: { home: number; away: number } | null
@@ -128,7 +142,8 @@ export function edgeIneligibility(item: DecisionItem): string | null {
 export function evaluatedStatus(item: DecisionItem): CardStatus {
   if (item.position) return 'POSITION'
   if (item.phase === 'FINAL_PREGAME' && item.recommendation === 'QUALIFIED_BET') return 'QUALIFIED'
-  if (item.phase === 'FINAL_PREGAME' && item.recommendation === 'NO_BET') return 'DECLINED'
+  // Any other final disposition did not qualify: it is a final decline, never an early read.
+  if (item.phase === 'FINAL_PREGAME') return 'DECLINED'
   return 'WATCHING'
 }
 
@@ -193,13 +208,17 @@ function baseCard(game: CoverageGame | null, fallback: { gameId: string; sport: 
   }
 }
 
-export function evaluatedCard(item: DecisionItem, game: CoverageGame | null, ledger: Ledger | null, decisionsHref: string): EdgeCard {
+export function evaluatedCard(item: DecisionItem, game: CoverageGame | null, ledger: Ledger | null, decisionsHref: string, now = Date.now()): EdgeCard {
   const side = sideOf(item.selection, game)
   const mi = item.market_integrity!
-  const best = side && game?.best?.[side]
-  const price: PriceTerms = best && best.american != null
+  const best = side && game?.price_state === 'CURRENT_PRICE' ? game.best?.[side] : null
+  // The price the decision recorded; a later best current price is kept apart in `latest`.
+  const price: PriceTerms = { american: mi.selected_american ?? item.american, sportsbook: mi.sportsbook ?? item.sportsbook, provider: mi.provider, classification: mi.classification, observedAt: item.quote_observed_at ?? mi.older_leg_observed_at, basis: 'AT_EVALUATION' }
+  const latest: PriceTerms | null = best && best.american != null
     ? { american: best.american, sportsbook: best.sportsbook, provider: best.provider, classification: game?.quotes.find((q) => q.sportsbook === best.sportsbook && q.market === 'MONEYLINE')?.classification ?? null, observedAt: best.observed_at, basis: 'BEST_CURRENT' }
-    : { american: mi.selected_american ?? item.american, sportsbook: mi.sportsbook, provider: mi.provider, classification: mi.classification, observedAt: mi.older_leg_observed_at, basis: 'AT_EVALUATION' }
+    : null
+  const recorded = item.position ? ledger?.sports.flatMap((s) => s.positions).find((p) => p.position_id === item.position?.position_id) ?? null : null
+  const nextStep = decisionLead({ item, game, ledgerPosition: recorded, ledgerLoaded: ledger != null, now }).sentence
   const adjusted = item.adjusted?.edge != null
   return {
     key: `decision:${item.decision_id}`,
@@ -215,8 +234,13 @@ export function evaluatedCard(item: DecisionItem, game: CoverageGame | null, led
     range: side && game ? rangeForSide(bookRange(game), side) : null,
     edge: adjusted ? item.adjusted!.edge : item.edge,
     edgeBasis: adjusted ? 'ADJUSTED' : 'RECORDED',
+    recordedPolicyEdge: item.adjusted?.edge ?? null,
     expectedValue: item.adjusted?.expected_value ?? item.expected_value,
+    expectedValueBasis: item.adjusted?.expected_value != null ? 'RECORDED_POLICY_ADJUSTED'
+      : item.expected_value != null ? 'UNADJUSTED_MODEL' : null,
     price,
+    latest,
+    nextStep,
     position: positionFor(item, ledger),
     reason: plainReason(item),
     evaluatedAt: item.recommended_at,
@@ -246,10 +270,14 @@ export function leanCard(game: CoverageGame, sport: SportCode, analyzeHref: stri
     range: current && side ? rangeForSide(bookRange(game), side) : null,
     edge: null,
     edgeBasis: null,
+    recordedPolicyEdge: null,
     expectedValue: null,
+    expectedValueBasis: null,
     price: best && best.american != null
       ? { american: best.american, sportsbook: best.sportsbook, provider: best.provider, classification: null, observedAt: best.observed_at, basis: 'BEST_CURRENT' }
       : reference ? { american: null, sportsbook: null, provider: null, classification: null, observedAt: game.freshest_observed_at, basis: 'REFERENCE' } : null,
+    latest: null,
+    nextStep: null,
     position: null,
     reason: null,
     evaluatedAt: null,
@@ -288,7 +316,7 @@ export function buildEdgeBoard({ decisions, games, ledger, now, decisionsHref, a
 
   const evaluated = decisions
     .filter((item) => edgeIneligibility(item) === null)
-    .map((item) => evaluatedCard(item, gameById.get(item.game_id) ?? null, ledger, decisionsHref(item.sport)))
+    .map((item) => evaluatedCard(item, gameById.get(item.game_id) ?? null, ledger, decisionsHref(item.sport), now))
   // One card per game: the best-ranked evaluation of it.
   const bestPerGame = (cards: EdgeCard[]) => {
     const seen = new Set<string>()
@@ -306,7 +334,7 @@ export function buildEdgeBoard({ decisions, games, ledger, now, decisionsHref, a
       state: strong ? 'BEST_EDGES' : 'CLOSEST',
       title: HERO_TITLE[strong ? 'BEST_EDGES' : 'CLOSEST'],
       subtitle: strong
-        ? 'Evaluated with a current controlling forecast and a complete same-book market'
+        ? 'Where AISP’s forecast and a sportsbook price disagreed enough to qualify · virtual research, no real money'
         : 'Evaluated today · nothing has cleared the qualifying thresholds',
       cards: pool.slice(0, MAX_CARDS),
       available: pool.length,
@@ -316,11 +344,21 @@ export function buildEdgeBoard({ decisions, games, ledger, now, decisionsHref, a
   const forecasted = upcoming.filter((g) => g.model?.home_two_way != null && !evaluatedGames.has(g.game_id))
   if (forecasted.length) {
     const conviction = (g: CoverageGame) => Math.abs((g.model?.home_two_way ?? 0.5) - 0.5)
-    const cards = [...forecasted]
-      .sort((a, b) => conviction(b) - conviction(a)
-        || startMs(a.checkpoints.decision_window_opens_at) - startMs(b.checkpoints.decision_window_opens_at)
-        || (a.matchup ?? '').localeCompare(b.matchup ?? ''))
-      .map((g) => leanCard(g, asSport(g.league)!, analyzeHref(asSport(g.league)!, g.game_id)))
+    const byWindow = (a: CoverageGame, b: CoverageGame) =>
+      startMs(a.checkpoints.decision_window_opens_at) - startMs(b.checkpoints.decision_window_opens_at)
+      || (a.matchup ?? '').localeCompare(b.matchup ?? '')
+    // Forecasts land at different times: College Football publishes at midday,
+    // MLB's controlling forecast near first pitch. Ranking only the forecasted
+    // games by conviction then hides every earlier game still awaiting its
+    // forecast. So conviction ranks the board only when every upcoming game has
+    // one; otherwise the board runs in decision-window order, a lean card where
+    // a forecast exists and an on-deck card where it does not.
+    const pending = upcoming.filter((g) => g.model?.home_two_way == null && !evaluatedGames.has(g.game_id))
+    const cards = pending.length === 0
+      ? [...forecasted].sort((a, b) => conviction(b) - conviction(a) || byWindow(a, b))
+        .map((g) => leanCard(g, asSport(g.league)!, analyzeHref(asSport(g.league)!, g.game_id)))
+      : [...forecasted, ...pending].sort(byWindow)
+        .map((g) => (g.model?.home_two_way != null ? leanCard : deckCard)(g, asSport(g.league)!, analyzeHref(asSport(g.league)!, g.game_id)))
     const anyCurrent = forecasted.some((g) => g.price_state === 'CURRENT_PRICE')
     return {
       state: 'MODEL_LEANS',

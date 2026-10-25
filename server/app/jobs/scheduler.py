@@ -15,11 +15,12 @@ from app.core.time import local_day_bounds, local_today
 from app.db.session import SessionLocal
 from app.jobs.orchestrator import JobOrchestrator
 from app.models.entities import (
-    Game, GameStatus, JobRun, RunStatus, ShadowBoardDecision, ShadowDecisionSettlement,
+    Game, GameStateObservation, GameStatus, JobRun, RunStatus, ShadowBoardDecision, ShadowDecisionSettlement,
     ShadowForecast, ShadowForecastBundle,
 )
 from sqlalchemy import select
 from app.services.game_refresh_state_service import GameRefreshStateService
+from app.services.league_scope import MLB
 
 # Local (display-timezone) hour at which the daily pipeline is scheduled.
 DAILY_PIPELINE_HOUR = 6
@@ -202,11 +203,74 @@ def _scheduled_event_dates(
     if job_name != "finalize-games":
         return (today,)
     previous = today - timedelta(days=1)
+    session = getattr(orchestrator, "session", None)
+    now = datetime.now(UTC)
+    games = list(orchestrator._games_for_date(previous, MLB))
     previous_incomplete = any(
         game.status in (GameStatus.SCHEDULED, GameStatus.LIVE)
-        for game in orchestrator._games_for_date(previous)
+        and not (session is not None and _dropped_from_source(
+            session, game, now, siblings=[other.id for other in games if other.id != game.id]))
+        for game in games
     )
     return (previous, today) if previous_incomplete else (today,)
+
+
+#: A game counts as DROPPED by its schedule source once the source has listed
+#: other games of the same Eastern date at least this long after it last listed
+#: this one, and the game's own start is this long past.
+DROPPED_SOURCE_LAG = timedelta(minutes=90)
+DROPPED_START_AGE = timedelta(hours=6)
+
+
+def _dropped_from_source(session: Any, game: Any, now: datetime, *, siblings: list[Any]) -> bool:
+    """True when the schedule source stopped listing this still-SCHEDULED/LIVE game.
+
+    Every schedule fetch appends one observation per listed game, so a game
+    MLB removed (an unplayed "if necessary" postseason game) simply stops
+    receiving observations while its siblings on the same date keep them.
+    Such a row would otherwise keep finalize-games re-fetching its old date
+    forever. A provider outage starves every sibling too, so it never looks
+    like a drop; a game still listed (suspended, delayed) keeps carrying.
+
+    ``siblings`` are the other MLB games of the same date (already loaded by
+    the caller); reading only their observations keeps the lookup on the
+    (game_id, available_as_of) index instead of scanning the table. A game
+    with no sibling on its date is never treated as dropped.
+    """
+
+    starts_at = getattr(game, "starts_at", None)
+    if starts_at is None or not siblings:
+        return False
+    starts = starts_at if starts_at.tzinfo else starts_at.replace(tzinfo=UTC)
+    if starts + DROPPED_START_AGE > now:
+        return False
+    mode = getattr(game, "source_mode", None) or "LIVE"
+    own = session.execute(
+        select(GameStateObservation.available_as_of, GameStateObservation.source, GameStateObservation.scheduled_at)
+        .where(GameStateObservation.game_id == game.id, GameStateObservation.source_mode == mode)
+        .order_by(GameStateObservation.available_as_of.desc()).limit(1)
+    ).first()
+    if own is None:
+        return False
+    last_seen, source, scheduled_at = own
+    day = (scheduled_at if scheduled_at.tzinfo else scheduled_at.replace(tzinfo=UTC)).astimezone(
+        ZoneInfo("America/New_York")).date()
+    start = datetime.combine(day, datetime.min.time(), tzinfo=ZoneInfo("America/New_York"))
+    sibling_seen = session.scalar(
+        select(GameStateObservation.available_as_of)
+        .where(
+            GameStateObservation.game_id.in_(siblings),
+            GameStateObservation.source == source,
+            GameStateObservation.source_mode == mode,
+            GameStateObservation.scheduled_at >= start.astimezone(UTC),
+            GameStateObservation.scheduled_at < (start + timedelta(days=1)).astimezone(UTC),
+        )
+        .order_by(GameStateObservation.available_as_of.desc()).limit(1)
+    )
+    if sibling_seen is None:
+        return False
+    aware = lambda value: value if value.tzinfo else value.replace(tzinfo=UTC)  # noqa: E731
+    return aware(sibling_seen) - aware(last_seen) >= DROPPED_SOURCE_LAG
 
 
 #: Stamped by the supervisor at the launch that owns this process. A survivor
@@ -358,6 +422,75 @@ async def execute_pm_finalize_pregame(settings: Settings) -> None:
     await execute_scheduled_job(action, settings)
 
 
+async def execute_v18_market_pilot_seal(settings: Settings) -> None:
+    """Research-export tick: run the sealer only when a packet or a first-seen
+    game is due, so an idle window writes no job row. Reads only."""
+
+    if not settings.v18_market_pilot_export_enabled:
+        return
+    from app.research_exports.v18_market_pilot_seal import JOB_NAME, work_due
+
+    try:
+        with SessionLocal() as session:
+            due = work_due(session, settings)
+    except Exception as exc:
+        logger.error("v18_market_pilot_due_check_failed", error=str(exc))
+        return
+    if not due:
+        return
+    await execute_scheduled_job(JOB_NAME, settings)
+
+
+async def execute_v18_market_pilot_outcomes(settings: Settings) -> None:
+    """Research-export tick: export admitted outcomes for sealed pilot episodes
+    only when a revision, a reason or a stop is due, so an unchanged slate
+    writes no job row. Reads only (read-only transaction, rolled back)."""
+
+    if not settings.v18_market_pilot_outcomes_export_enabled:
+        return
+    from app.research_exports.v18_market_pilot_outcomes import JOB_NAME, work_due
+
+    try:
+        with SessionLocal() as session:
+            due = work_due(session, settings)
+    except Exception as exc:
+        logger.error("v18_market_pilot_outcomes_due_check_failed", error=str(exc))
+        return
+    if not due:
+        return
+    await execute_scheduled_job(JOB_NAME, settings)
+
+
+async def execute_v18_market_pilot_outcomes_v2(settings: Settings) -> None:
+    """Research-export tick for the V2 (capture-bound) outcome lane: runs the
+    export only when a V2 revision, an unresolved reason or a stop is due.
+    Reads only (read-only transaction, rolled back)."""
+
+    if not settings.v18_market_pilot_outcomes_v2_enabled:
+        return
+    from app.research_exports.v18_market_pilot_outcomes_v2 import JOB_NAME, work_due
+
+    try:
+        with SessionLocal() as session:
+            due = work_due(session, settings)
+    except Exception as exc:
+        logger.error("v18_market_pilot_outcomes_v2_due_check_failed", error=str(exc))
+        return
+    # THE PROSPECTIVE CAPTURE RIDES THIS OWNER, SO IT MUST NOT BE HOSTAGE TO IT.
+    #
+    # This gate used to fire the owner only when MLB V2 outcome work was due. The
+    # prospective capture is a trailing step of the same owner, so it ran only as
+    # a side effect of MLB work -- an NFL-only day captured nothing, and once the
+    # MLB season ended the NFL capture would have stopped without a word. While
+    # capture is enabled the owner therefore runs every tick. That is harmless to
+    # the V2 lane: with no action planned, `run_outcomes_v2_tick` iterates zero
+    # actions and writes nothing.
+    if (not due and not getattr(settings, "prospective_capture_enabled", False)
+            and not getattr(settings, "nfl_early_line_capture_enabled", False)):
+        return
+    await execute_scheduled_job(JOB_NAME, settings)
+
+
 async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
     """Spend NFL quota only when a bounded event-relative checkpoint is due."""
 
@@ -371,8 +504,28 @@ async def execute_nfl_shadow_odds_refresh(settings: Settings) -> None:
     await execute_scheduled_job("refresh-nfl-shadow-odds", settings)
 
 
+#: The due window for FINAL_PREGAME generation, as offsets before kickoff.
+#:
+#: WHY IT OPENS AT T-60
+#: --------------------
+#: The producer's delivery policy is T-60 / T-21 / T-15: it may begin an hour
+#: before kickoff, must publish by T-21, and the consumer decides by T-15. This
+#: gate opened at T-30, so the producer was never invited before T-30 no matter
+#: what it supported. On 2026-09-21 the producer's own one-minute owner logged
+#: `no_unfrozen_game_in_window` from its intended 23:15Z trigger right through
+#: 23:44Z and only began computing when this gate opened; NYG @ LAR published at
+#: 23:47:12 against a 23:54 hard boundary -- about seven minutes of margin
+#: instead of the designed thirty-nine. Model Studio traced the cause here.
+#:
+#: The LOWER boundary is unchanged at T-15: past it the consumer's cutoff has
+#: passed and a forecast can no longer control a decision, so inviting the
+#: producer then would spend work on a game that cannot use it.
+NFL_FINAL_GENERATION_OPENS = timedelta(minutes=60)
+NFL_FINAL_GENERATION_CLOSES = timedelta(minutes=15)
+
+
 async def execute_nfl_final_pregame_generation(settings: Settings) -> None:
-    """Invoke the producer only for an unfrozen game in its 15–30m window."""
+    """Invoke the producer only for an unfrozen game inside its T-60..T-15 window."""
 
     now = datetime.now(UTC)
     with SessionLocal() as session:
@@ -381,8 +534,8 @@ async def execute_nfl_final_pregame_generation(settings: Settings) -> None:
             .join(ShadowForecastBundle, ShadowForecastBundle.id == ShadowForecast.bundle_id)
             .where(
                 ShadowForecastBundle.sport == "NFL",
-                ShadowForecast.scheduled_start_utc >= now + timedelta(minutes=15),
-                ShadowForecast.scheduled_start_utc <= now + timedelta(minutes=30),
+                ShadowForecast.scheduled_start_utc >= now + NFL_FINAL_GENERATION_CLOSES,
+                ShadowForecast.scheduled_start_utc <= now + NFL_FINAL_GENERATION_OPENS,
             )
             .distinct()
         ))
@@ -418,7 +571,12 @@ def select_event_relative_refresh_states(settings: Settings) -> None:
             logger.error("event_relative_state_selection_failed", error=str(exc))
 
 
-#: One worker thread runs every scheduled coroutine, in submission order.
+#: Scheduled coroutines run on single-worker LANES, in submission order per lane
+#: (see app/jobs/lanes.py: prediction-market observation has its own lane so it
+#: cannot hold up forecast imports and decision checkpoints, and the decision
+#: checkpoints themselves -- `asp-dc-*` -- have a lane no other job shares, so a
+#: long core job can never again spend a fifteen-minute window queued ahead of
+#: them the way `generate-nfl-final-pregame-forecasts` did on 2026-09-20).
 #:
 #: WHY: job bodies are `async def` but do synchronous database, file-hashing and
 #: CPU work. Awaited on the web server's event loop they froze HTTP for their
@@ -429,34 +587,36 @@ def select_event_relative_refresh_states(settings: Settings) -> None:
 #: web loop while keeping the jobs as serial as they effectively were: one at
 #: a time, first come first served, each still `max_instances=1`. Schedules,
 #: ownership and job logic are unchanged.
-_JOB_EXECUTOR = None
+def _job_executor(lane: str | None = None):
+    from app.jobs import lanes
+
+    return lanes.executor(lane or lanes.CORE_LANE)
 
 
-def _job_executor():
-    global _JOB_EXECUTOR
-    if _JOB_EXECUTOR is None:
-        from concurrent.futures import ThreadPoolExecutor
-
-        _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aisp-scheduled-job")
-    return _JOB_EXECUTOR
-
-
-def off_event_loop(func):
-    """Run a scheduled coroutine function on the job thread, not the web loop."""
+def off_event_loop(func, lane: str | None = None):
+    """Run a scheduled coroutine function on its lane's thread, not the web loop."""
 
     import asyncio
     import functools
     import inspect
 
+    from app.jobs import lanes
+
     if not inspect.iscoroutinefunction(func):
         return func
+    lane = lane or lanes.CORE_LANE
 
     @functools.wraps(func)
     async def runner(*args: Any, **kwargs: Any) -> Any:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(_job_executor(), lambda: asyncio.run(func(*args, **kwargs)))
+        fired_at = datetime.now(UTC)
+        return await loop.run_in_executor(
+            _job_executor(lane),
+            lambda: lanes.run_with_meta(lane, fired_at, lambda: asyncio.run(func(*args, **kwargs))),
+        )
 
     runner.__aisp_off_event_loop__ = True  # type: ignore[attr-defined]
+    runner.__aisp_job_lane__ = lane  # type: ignore[attr-defined]
     return runner
 
 
@@ -465,7 +625,9 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     _add_job = scheduler.add_job
 
     def add_job(func, *args: Any, **kwargs: Any):
-        return _add_job(off_event_loop(func), *args, **kwargs)
+        from app.jobs.lanes import lane_for
+
+        return _add_job(off_event_loop(func, lane_for(kwargs.get("id"))), *args, **kwargs)
 
     scheduler.add_job = add_job  # type: ignore[method-assign]
     common: dict[str, Any] = {
@@ -488,9 +650,73 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         scheduler.add_job(
             execute_scheduled_job, "interval",
             minutes=settings.model_exchange_import_interval_minutes,
-            id="asp-model-exchange-consumer",
+            # The `asp-im-` prefix puts this on the `producer-import` lane. It
+            # used to share `core` with model execution, and on 2026-09-20 the
+            # import due at about 12:31:52 waited a measured 703.56 seconds
+            # behind `generate-nfl-final-pregame-forecasts` (799.3 s on core).
+            # A FINAL forecast is only usable once IMPORTED, so an import queued
+            # behind the job that produces the forecast is the one delay that
+            # silently costs a decision. Cadence and behaviour are unchanged --
+            # only the thread it runs on.
+            id="asp-im-model-exchange-consumer",
             kwargs={"job_name": "consume-model-exchange-research-artifacts", "settings": settings},
             next_run_time=datetime.now(UTC),
+            **common,
+        )
+        # THE NFL FINAL PAIR, ON ITS OWN OWNER AND ITS OWN LANE.
+        #
+        # The broad pass above commits every sport in one transaction, so an
+        # NFL forecast verified in its first stage is invisible to a checkpoint
+        # until CFB, NBA, the labs family, the lab study and MLB V18 have all
+        # finished. And `max_instances=1` means a long broad pass SKIPS the next
+        # fire rather than delaying it -- a 353-second run on 2026-09-21 skipped
+        # the following one outright.
+        #
+        # Against a T-15 edge either is fatal to the last usable import, so this
+        # runs every minute on `nfl-final-import`, commits on its own, and
+        # imports nothing but the NFL forecast/supplement pair. Idempotent by
+        # content address, so it cannot duplicate what the broad pass imports.
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=settings.nfl_final_import_interval_minutes,
+            id="asp-nf-nfl-final-pair",
+            kwargs={"job_name": "import-nfl-final-pair", "settings": settings},
+            next_run_time=datetime.now(UTC) + timedelta(seconds=90),
+            **common,
+        )
+    if settings.nhl_forward_import_enabled:
+        # FORWARD NHL DELIVERIES (Model Studio interface 0bcf/adf270). Local files
+        # only: the producer's discovery index, its dated workspace and the SAME
+        # research exchange; never a provider request or a model run. Idempotent
+        # per manifest. A delivery verifies only while its pointer is current, so
+        # it is polled rather than fired once.
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=settings.nhl_forward_import_interval_minutes,
+            id="asp-im-nhl-forward-delivery",
+            kwargs={"job_name": "import-nhl-forward-delivery", "settings": settings},
+            next_run_time=datetime.now(UTC) + timedelta(seconds=120),
+            **common,
+        )
+    if settings.nhl_forecast_generation_enabled:
+        # AISP'S OWN NHL GEN1 FORECASTS (app/nhl/inprocess_generator.py): the frozen,
+        # accepted model run in-process on the public schedule for today and tomorrow
+        # ET. 09:20 ET follows the publisher's nightly (~08:00Z) asset refresh; 15:20 ET
+        # picks up late schedule moves before the evening slate. One extra run shortly
+        # after startup so a deploy never waits for the next cron fire. The `asp-im-`
+        # prefix puts it on the `producer-import` lane with the other forecast imports
+        # -- never `core`, never `decision-checkpoints`. Idempotent: an unchanged
+        # game writes nothing, so the overlapping startup and cron runs are harmless.
+        scheduler.add_job(
+            execute_scheduled_job, "cron", hour="9,15", minute=20, timezone="America/New_York",
+            id="asp-im-nhl-forecast-generation",
+            kwargs={"job_name": "generate-nhl-forecasts", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "date", run_date=datetime.now(UTC) + timedelta(minutes=5),
+            id="asp-im-nhl-forecast-generation-startup",
+            kwargs={"job_name": "generate-nhl-forecasts", "settings": settings},
             **common,
         )
     # AISP DAY-BEFORE SHOW PREVIEW V1: registers the 4:30 PM ET freeze only when
@@ -565,10 +791,17 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "record-shadow-threshold-ladder", "settings": settings},
         **common,
     )
+    # Settlement's owner. The recurring cadence stays thirty minutes, but
+    # without an explicit next_run_time an interval job first fires a full
+    # interval after process start, so every restart deferred settlement by up
+    # to half an hour -- a game that went final during a deploy sat unsettled
+    # and read as an open position. Ninety seconds lets the process finish
+    # starting and then settles whatever became final while it was down.
     scheduler.add_job(
         execute_scheduled_job,
         "interval",
         minutes=30,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=90),
         id="asp-finalize-games",
         kwargs={"job_name": "finalize-games", "settings": settings},
         **common,
@@ -652,17 +885,43 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "collect-nfl-live-scores", "settings": settings},
         **common,
     )
+    # Free in-game NFL score from ESPN's public scoreboard (display only). Its
+    # own `asp-ls-` lane, so a slow public request can never delay a decision
+    # checkpoint or an import. Outside a game's watch window it makes no request.
+    if getattr(settings, "nfl_espn_live_scores_enabled", True):
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=2,
+            jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=1),
+            id="asp-ls-nfl-live-scores-espn",
+            kwargs={"job_name": "collect-nfl-live-scores-espn", "settings": settings},
+            **common,
+        )
     # NFL pregame odds: one object, spent close to a game's decision
     # checkpoint so the quote is still inside the 240-minute freshness window
     # when the policy evaluates it. Every cycle outside a game's 75-minute
     # collection window costs nothing and makes no request at all.
+    # CADENCE AND THE RETIME.
+    #
+    # The retimed PRIMARY interval is [T-27, T-25] -- two minutes wide. A
+    # fifteen-minute tick would step straight over it for nearly every game, so
+    # the retime needs a minute-level tick to be reachable at all. The extra
+    # ticks are free: `due_games` makes no request outside a game's window, and
+    # still buys at most once per window, so the object count is unchanged.
+    #
+    # The `asp-nc-` prefix puts it on its own `nfl-pregame-collector` lane, so a
+    # busy `core` (e.g. `asp-nfl-shadow-import`, ~160 s at ~16:30:34 UTC on a
+    # Sunday) cannot carry it past the two-minute primary. Only the thread it
+    # runs on changes; the trigger below is otherwise identical.
     scheduler.add_job(
         execute_scheduled_job,
         "interval",
-        minutes=15,
+        minutes=1 if getattr(settings, "nfl_late_checkpoint_retime_enabled", False) else 15,
         jitter=None,
         next_run_time=datetime.now(UTC) + timedelta(minutes=2),
-        id="asp-nfl-pregame-odds",
+        id="asp-nc-nfl-pregame-odds",
         kwargs={"job_name": "collect-nfl-pregame-odds", "settings": settings},
         **common,
     )
@@ -670,16 +929,156 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     # final-pregame cadence, and the 30-15 minute window means a game is
     # evaluated two or three times rather than once -- which is what makes a
     # single slow tick harmless. Every run outside a window is a no-op.
+    #
+    # The `asp-dc-` prefix puts it on the `decision-checkpoints` lane. On
+    # 2026-09-20 this job was due at 12:29:52 and could not run before its 12:45
+    # window closed, because `generate-nfl-final-pregame-forecasts` started at
+    # 12:30:13 and held the shared `core` thread for 799 seconds. A slow tick is
+    # harmless; a slow NEIGHBOUR was not. The cadence, the window and every gate
+    # below are unchanged -- only the thread it runs on.
     scheduler.add_job(
         execute_scheduled_job,
         "interval",
         minutes=5,
         jitter=None,
         next_run_time=datetime.now(UTC) + timedelta(minutes=3),
-        id="asp-nfl-paper-checkpoint",
+        id="asp-dc-nfl-paper-checkpoint",
         kwargs={"job_name": "evaluate-nfl-paper-checkpoint", "settings": settings},
         **common,
     )
+    # The NHL paper checkpoint (AISP_NHL_PAPER_POLICY_V1): decisions for games in
+    # T-30..T-15, then settlement from source-backed NHL results. Same cadence and
+    # lane as CFB. Registered only when NHL_PAPER_CHECKPOINT_ENABLED; positions also
+    # need NHL_PAPER_DECISIONS_ENABLED and an NHL era the owner opened.
+    if settings.nhl_paper_checkpoint_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=5, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+            id="asp-dc-nhl-paper-checkpoint",
+            kwargs={"job_name": "evaluate-nhl-paper-checkpoint", "settings": settings},
+            **common,
+        )
+    # NHL moneylines from The Odds API (icehockey_nhl, h2h only), the NHL policy's
+    # only permitted quote source: registered only when the owner turns it on.
+    # Each tick requests at most once, and only when a SCHEDULED NHL game with an
+    # admissible, decision-capable forecast has entered its T-75..T-35 buy window
+    # with no NHL request reserved since. The NHL_RESEARCH credit lane is zero
+    # unless funded; SportsGameOdds capacity is never consulted.
+    if settings.nhl_odds_api_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=10, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=8),
+            id="asp-nhl-odds-api",
+            kwargs={"job_name": "collect-nhl-odds-api", "settings": settings},
+            **common,
+        )
+    # NHL finals from ESPN's free public scoreboard: the results the NHL checkpoint settles from.
+    # On the core lane with the other result/settlement inputs (never the decision lane: a slow
+    # public request must not hold a T-30..T-15 checkpoint). Registered only when
+    # NHL_ESPN_RESULTS_ENABLED; a cycle with no NHL game awaiting its result makes no request.
+    if settings.nhl_espn_results_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=settings.nhl_espn_results_interval_minutes, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+            id="asp-nhl-finals-espn",
+            kwargs={"job_name": "ingest-nhl-finals-espn", "settings": settings},
+            **common,
+        )
+    # The CFB paper checkpoint (AISP_CFB_PAPER_POLICY_V1), same window as NFL,
+    # and on the same `decision-checkpoints` lane. Registered only when the CFB
+    # consumer is on; positions additionally wait on CFB_PAPER_DECISIONS_ENABLED
+    # inside the owner. Every 2 minutes since 2026-10-17
+    # (CFB_PAPER_CHECKPOINT_INTERVAL_MINUTES, was 5): under load the producer's
+    # discovery leases lapsed for 10+ minutes at a time, and a 5-minute tick
+    # then reached a current lease only once or twice inside T-30..T-15. A
+    # BLOCKED (prerequisite) decision is superseded by a later tick's outcome
+    # (`cfb.paper_decision.record`), so more ticks only add chances to decide.
+    if settings.cfb_production_consumer_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval",
+            minutes=int(getattr(settings, "cfb_paper_checkpoint_interval_minutes", 2)), jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+            id="asp-dc-cfb-paper-checkpoint",
+            kwargs={"job_name": "evaluate-cfb-paper-checkpoint", "settings": settings},
+            **common,
+        )
+        # CFB finals from retained producer evidence, then scoring. Reads local
+        # files only; settlement stays with finalize-games.
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=30, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=5),
+            id="asp-cfb-final-ingest",
+            kwargs={"job_name": "ingest-cfb-finals", "settings": settings},
+            **common,
+        )
+        # CFB SportsGameOdds prices: registered only when the owner turns the
+        # lane on, and even then it spends only genuinely uncommitted capacity.
+        if settings.cfb_sgo_lane_enabled:
+            scheduler.add_job(
+                execute_scheduled_job, "interval", minutes=10, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=7),
+                id="asp-cfb-pregame-odds",
+                kwargs={"job_name": "collect-cfb-pregame-odds", "settings": settings},
+                **common,
+            )
+        # CFB moneylines from The Odds API (h2h only): registered only when the
+        # owner turns it on; each tick requests at most once, and only when a
+        # forecast CFB game has entered its T-75..T-35 buy window with no NCAAF
+        # request reserved since. SportsGameOdds capacity is never consulted.
+        if settings.cfb_odds_api_enabled:
+            scheduler.add_job(
+                execute_scheduled_job, "interval", minutes=10, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=6),
+                id="asp-cfb-odds-api",
+                kwargs={"job_name": "collect-cfb-odds-api", "settings": settings},
+                **common,
+            )
+    # NBA Gen1: nothing is registered unless the owner turns the NBA consumer on.
+    # Then the paper checkpoint records a reason per game (positions additionally
+    # wait on a pinned owner grant and NBA_PAPER_DECISIONS_ENABLED), and finals
+    # are read from pinned retained objects only. The historical import is
+    # manual (import-nba-historical-evidence) and never scheduled.
+    if settings.nba_production_consumer_enabled:
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=5, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+            id="asp-nba-paper-checkpoint",
+            kwargs={"job_name": "evaluate-nba-paper-checkpoint", "settings": settings},
+            **common,
+        )
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=30, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=8),
+            id="asp-nba-final-ingest",
+            kwargs={"job_name": "ingest-nba-finals", "settings": settings},
+            **common,
+        )
+        # NBA SportsGameOdds prices: registered only when the owner turns the lane
+        # on; it still spends nothing without an authority window and an object cap.
+        if settings.nba_sgo_lane_enabled:
+            scheduler.add_job(
+                execute_scheduled_job, "interval", minutes=10, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=9),
+                id="asp-nba-pregame-odds",
+                kwargs={"job_name": "collect-nba-pregame-odds", "settings": settings},
+                **common,
+            )
+        # NBA moneylines from The Odds API (h2h only): registered only when the
+        # owner turns it on (and the NBA consumer above is on); each tick requests
+        # at most once, and only when a decision-eligible NBA game has entered its
+        # T-75..T-35 buy window with no NBA request reserved since. The
+        # NBA_RESEARCH credit lane is zero unless funded; SportsGameOdds capacity
+        # is never consulted.
+        # Normal startup tick after one minute, then the existing10-minute interval.
+        # Price planner still enforces original T75..T35; no manual provider or decision tick.
+        if settings.nba_odds_api_enabled:
+            scheduler.add_job(
+                execute_scheduled_job, "interval", minutes=10, jitter=None,
+                next_run_time=datetime.now(UTC) + timedelta(minutes=1),
+                id="asp-nba-odds-api",
+                kwargs={"job_name": "collect-nba-odds-api", "settings": settings},
+                **common,
+            )
     # NFL quarter breakdowns, one SportsGameOdds object per completed game.
     # Hourly is far more often than it needs to be and costs nothing on the runs
     # where every recent game already has its breakdown -- which is most of
@@ -730,11 +1129,16 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         # Provider-free, idempotent evidence capture and cutoff finalization.
         # Five-minute cadence ensures the 15-minute decision cutoff is not
         # missed by the coarser 30-minute finalization interval.
+        #
+        # This is MLB's FINAL_PREGAME checkpoint -- the phase that may create a
+        # virtual position -- so it belongs on the `decision-checkpoints` lane
+        # with NFL's and CFB's, not behind whatever long import happens to hold
+        # `core` when its cutoff arrives.
         scheduler.add_job(
             execute_scheduled_job,
             "interval",
             minutes=5,
-            id="asp-shadow-experiment-freeze",
+            id="asp-dc-shadow-experiment-freeze",
             kwargs={"job_name": "freeze-shadow-experiment", "settings": settings},
             **common,
         )
@@ -768,9 +1172,15 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
     if settings.nfl_shadow_enabled:
         # Provider-free import/evaluation/finalization jobs reuse the one app
         # scheduler and remain independently idempotent.
+        #
+        # The `asp-ns-` prefix puts the bundle re-import on its own
+        # `nfl-shadow-import` lane. On `core` it held the thread 400-470 s every
+        # 30 minutes and 2,059 s under load on 2026-10-16, while the CFB, NHL
+        # and MLB price collectors, finalize-games and lineup polling waited
+        # behind it. Cadence and body unchanged -- only the thread it runs on.
         scheduler.add_job(
             execute_scheduled_job, "interval", minutes=30,
-            id="asp-nfl-shadow-import",
+            id="asp-ns-nfl-shadow-import",
             kwargs={"job_name": "import-nfl-shadow-forecast-bundle", "settings": settings},
             **common,
         )
@@ -892,5 +1302,31 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         scheduler.add_job(
             execute_pm_finalize_pregame, "interval", minutes=5,
             id="asp-pm-finalize-pregame", kwargs={"settings": settings}, **common,
+        )
+    if settings.v18_market_pilot_export_enabled:
+        # Private V18 vs fresh-market pilot export (protocol f75aeccd...). Its
+        # own lane (asp-rx-*): it only reads retained rows and writes its own
+        # write-once packet files, so it neither waits behind nor delays an
+        # import or a decision checkpoint. Registered only with the core jobs,
+        # in the one process that owns them, so there is a single writer.
+        scheduler.add_job(
+            execute_v18_market_pilot_seal, "interval",
+            minutes=settings.v18_market_pilot_interval_minutes, jitter=None,
+            id="asp-rx-v18-market-pilot-seal", kwargs={"settings": settings}, **common,
+        )
+    if settings.v18_market_pilot_outcomes_export_enabled:
+        # The same pilot's admitted-outcome export: a separate switch, the same
+        # research-export lane and the same single-writer owner. Every 10
+        # minutes; it reads retained rows only and writes its own files.
+        scheduler.add_job(
+            execute_v18_market_pilot_outcomes, "interval", minutes=10, jitter=None,
+            id="asp-rx-v18-market-pilot-outcomes", kwargs={"settings": settings}, **common,
+        )
+    if settings.v18_market_pilot_outcomes_v2_enabled:
+        # V2 outcome lane for the accepted amendment 7508ae72...: its own switch,
+        # the same research-export lane and single-writer owner, every 10 minutes.
+        scheduler.add_job(
+            execute_v18_market_pilot_outcomes_v2, "interval", minutes=10, jitter=None,
+            id="asp-rx-v18-market-pilot-outcomes-v2", kwargs={"settings": settings}, **common,
         )
     return scheduler

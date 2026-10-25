@@ -6,7 +6,7 @@ import json
 from math import log10
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from app.data_sources.base import (
@@ -348,6 +348,16 @@ class CanonicalNormalizer:
         pending = self._pending_team_ratings
         held = pending.get(key)
         if held is not None:
+            # A FLUSH is not a new transaction. The identity check above resets
+            # the map when the transaction changes, but a flush turns a pending
+            # object into a real row while the transaction continues -- and this
+            # normalizer flushes in a dozen places. Correcting it then would
+            # UPDATE a stored observation, which the append-only guard refuses,
+            # rolling back the whole finalize transaction: game status and
+            # settlement included. Once it is persistent it is an immutable
+            # observation like any other, so the earlier record stands.
+            if inspect(held).persistent:
+                return
             if games > held.sample_size:
                 held.rating = rating
                 held.sample_size = float(games)
@@ -972,11 +982,36 @@ class CanonicalNormalizer:
         source: str,
         available_as_of: datetime,
         *,
+        league_code: str,
+        provider_league: str | None,
         source_mode: str | None = None,
         event_date: date | None = None,
     ) -> int:
-        count = 0
+        """Bind provider odds events to ``league_code`` games and store their quotes.
+
+        ``league_code`` is required and has no default; ``provider_league`` is
+        the league / sport key the provider request was made for, and must map
+        to that same league (``app.ingestion.odds_league``). Events that cannot
+        be bound are skipped with a structured receipt in ``self.odds_receipts``.
+        """
+        from app.ingestion.odds_league import (
+            LEAGUE_MISMATCH_EXCLUDED, PROVIDER_LEAGUE_UNMAPPED, canonical_league_for, receipt,
+        )
+        from app.services.league_scope import in_league
+
+        self.odds_receipts: list[dict[str, Any]] = []
+        # Validate every event's provenance first, whatever else is refused.
         inferred_event_modes = {_source_mode(event.source_mode, "odds event") for event in events}
+        mapped = canonical_league_for(source, provider_league)
+        if mapped != league_code:
+            reason = PROVIDER_LEAGUE_UNMAPPED if mapped is None else LEAGUE_MISMATCH_EXCLUDED
+            self.odds_receipts = [
+                receipt(reason, source=source, league_code=league_code, event_id=event.source_event_id,
+                        provider_league=provider_league, provider_maps_to=mapped)
+                for event in events
+            ]
+            return 0
+        count = 0
         if source_mode is not None:
             expected_mode = _source_mode(source_mode, "odds ingestion")
         elif source == "ASP_DEMO_FIXTURE":
@@ -989,21 +1024,32 @@ class CanonicalNormalizer:
         # event while targeting an already-known DEMO game. Production
         # orchestration always supplies an explicit mode and never takes this.
         if source_mode is None and inferred_event_modes == {"LIVE"}:
-            live_exists = self.session.scalar(select(Game.id).where(Game.source_mode == "LIVE").limit(1))
-            demo_exists = self.session.scalar(select(Game.id).where(Game.source_mode == "DEMO").limit(1))
+            # Scoped to the league being ingested: another league's LIVE game
+            # says nothing about whether this league has live games.
+            live_exists = self.session.scalar(
+                select(Game.id).where(Game.source_mode == "LIVE", in_league(league_code)).limit(1))
+            demo_exists = self.session.scalar(
+                select(Game.id).where(Game.source_mode == "DEMO", in_league(league_code)).limit(1))
             if live_exists is None and demo_exists is not None:
                 expected_mode = "DEMO"
-        game_query = select(Game).where(Game.source_mode == expected_mode)
+        game_query = select(Game).where(Game.source_mode == expected_mode, in_league(league_code))
         if event_date is not None:
             start = datetime.combine(event_date, datetime.min.time(), tzinfo=UTC) - timedelta(hours=12)
             end = start + timedelta(days=2)
             game_query = game_query.where(Game.starts_at >= start, Game.starts_at < end)
         games = list(self.session.scalars(game_query.order_by(Game.starts_at)))
+        names = self._side_names([game.id for game in games])
         for event in events:
             if source_mode is not None and event.source_mode.upper() != expected_mode:
                 continue
-            game = self._match_game(games, event.home_team, event.away_team, event.commence_time)
+            game, why = self._match_game(games, event.home_team, event.away_team, event.commence_time, names=names)
             if game is None:
+                other = self._other_league_match(league_code, expected_mode, event) if why == "no_canonical_candidate" else None
+                self.odds_receipts.append(receipt(
+                    LEAGUE_MISMATCH_EXCLUDED if other else why, source=source, league_code=league_code,
+                    event_id=event.source_event_id, provider_league=provider_league,
+                    other_league=other,
+                ))
                 continue
             game_teams = list(self.session.execute(
                 select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id == game.id)
@@ -1274,26 +1320,83 @@ class CanonicalNormalizer:
                 matches.append(game)
         return matches[0] if len(matches) == 1 else None
 
-    def _match_game(self, games: list[Game], home: str, away: str, commence_time: datetime) -> Game | None:
+    def _side_names(self, game_ids: list[Any]) -> dict[Any, tuple[str, str]]:
+        """(home name, away name) per game, in one statement."""
+        names: dict[Any, dict[bool, str]] = {}
+        if game_ids:
+            for game_id, is_home, name in self.session.execute(
+                select(GameTeam.game_id, GameTeam.is_home, Team.name)
+                .join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id.in_(game_ids))
+            ):
+                names.setdefault(game_id, {})[bool(is_home)] = name
+        return {gid: (sides.get(True, ""), sides.get(False, "")) for gid, sides in names.items()}
+
+    def _match_game(
+        self, games: list[Game], home: str, away: str, commence_time: datetime,
+        *, names: dict[Any, tuple[str, str]] | None = None,
+    ) -> tuple[Game | None, str]:
+        """The unique nearest same-orientation candidate, or None and the reason.
+
+        Callers pass games of ONE league; this never widens the pool.
+        """
+        from app.ingestion.odds_league import (
+            EVENT_IDENTITY_AMBIGUOUS, NO_CANONICAL_CANDIDATE, PARTICIPANT_IDENTITY_CONFLICT,
+            SCHEDULED_TIME_MISMATCH, START_TOLERANCE_SECONDS,
+        )
+
         target = commence_time if commence_time.tzinfo else commence_time.replace(tzinfo=UTC)
+        names = names if names is not None else self._side_names([game.id for game in games])
         candidates: list[tuple[float, Game]] = []
+        conflict = time_mismatch = False
         for game in games:
-            rows = list(self.session.execute(select(GameTeam, Team).join(Team, Team.id == GameTeam.team_id).where(GameTeam.game_id == game.id)))
-            home_name = next((team.name for game_team, team in rows if game_team.is_home), "")
-            away_name = next((team.name for game_team, team in rows if not game_team.is_home), "")
+            home_name, away_name = names.get(game.id, ("", ""))
+            starts_at = game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)
+            difference = abs((starts_at - target).total_seconds())
             if game_match(home_name, away_name, home, away):
-                starts_at = game.starts_at if game.starts_at.tzinfo else game.starts_at.replace(tzinfo=UTC)
-                difference = abs((starts_at - target).total_seconds())
-                if difference <= 6 * 60 * 60:
+                if difference <= START_TOLERANCE_SECONDS:
                     candidates.append((difference, game))
+                else:
+                    time_mismatch = True
+            elif difference <= START_TOLERANCE_SECONDS and (
+                game_match(home_name, away_name, away, home)
+                or team_name_match(home_name, home) != team_name_match(away_name, away)
+            ):
+                # Reversed orientation, or only one participant agrees: the
+                # event names a different fixture than this game.
+                conflict = True
         if not candidates:
-            return None
+            if conflict:
+                return None, PARTICIPANT_IDENTITY_CONFLICT
+            if time_mismatch:
+                return None, SCHEDULED_TIME_MISMATCH
+            return None, NO_CANONICAL_CANDIDATE
         candidates.sort(key=lambda item: item[0])
         # Exact ambiguity can occur for malformed doubleheader feeds. Refuse to
         # attach odds rather than silently assigning them to an arbitrary game.
         if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+            return None, EVENT_IDENTITY_AMBIGUOUS
+        return candidates[0][1], "matched"
+
+    def _other_league_match(self, league_code: str, source_mode: str, event: OddsEventDTO) -> str | None:
+        """For the receipt only: the league of another league's game this event
+        would have matched by participants and time. Never binds anything."""
+        from app.ingestion.odds_league import START_TOLERANCE_SECONDS
+        from app.services.league_scope import in_league
+
+        target = event.commence_time if event.commence_time.tzinfo else event.commence_time.replace(tzinfo=UTC)
+        window = timedelta(seconds=START_TOLERANCE_SECONDS)
+        others = list(self.session.scalars(select(Game).where(
+            ~in_league(league_code), Game.source_mode == source_mode,
+            Game.starts_at >= target - window, Game.starts_at <= target + window,
+        )))
+        if not others:
             return None
-        return candidates[0][1]
+        names = self._side_names([game.id for game in others])
+        for game in others:
+            home_name, away_name = names.get(game.id, ("", ""))
+            if game_match(home_name, away_name, event.home_team, event.away_team):
+                return self.session.scalar(select(League.code).where(League.id == game.league_id))
+        return None
 
 
 def _abbreviation(name: str) -> str:

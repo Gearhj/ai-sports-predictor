@@ -200,18 +200,26 @@ def _period_rows(row: GameScoreboardObservation) -> list[dict[str, Any]]:
 
 
 def _situation(row: GameScoreboardObservation) -> dict[str, Any] | None:
-    """Baseball outs and base state, only where the source actually supplied it."""
+    """Outs and base state (baseball) plus whatever situation detail the source delivered.
+
+    ``detail`` is the sport's own live detail, exactly as the collector kept it in the row's
+    ``bases`` JSON: MLB batter / on deck / in the hole / pitcher, NFL (ESPN) down, distance,
+    possession, last play and ESPN's win probability. Display only. None where the source
+    supplied none, and the whole situation is None where nothing at all was supplied.
+    """
 
     if row.outs is None and row.bases is None:
         return None
     bases = row.bases or {}
     occupied = [base for base in ("first", "second", "third") if bases.get(base)]
+    detail = bases.get("detail")
     return {
         "outs": row.outs,
         "balls": row.balls,
         "strikes": row.strikes,
         "bases_occupied": occupied,
         "runners": {base: bases.get(base) for base in ("first", "second", "third")},
+        "detail": detail if isinstance(detail, dict) else None,
     }
 
 

@@ -132,3 +132,23 @@ describe('useApiResource', () => {
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
   })
 })
+
+
+describe('signing in after a page has mounted', () => {
+  it('refetches under the new scope instead of waiting forever', async () => {
+    let calls = 0
+    let resolveFirst: (value: Slate) => void = () => undefined
+    const loader = vi.fn(() => {
+      calls += 1
+      if (calls === 1) return new Promise<Slate>((resolve) => { resolveFirst = resolve })
+      return Promise.resolve({ data_mode: 'live' as const, label: 'after sign-in' })
+    })
+    render(<Probe loader={loader} cacheKey="scope-change" />)
+    expect(screen.getByTestId('loading').textContent).toBe('true')
+    // Auth resolves: the scope changes and the cache is cleared mid-flight.
+    act(() => { setCacheScope('user:signed-in') })
+    resolveFirst({ data_mode: 'live', label: 'stale anon answer' })
+    await waitFor(() => expect(screen.getByTestId('label').textContent).toBe('after sign-in'))
+    expect(loader).toHaveBeenCalledTimes(2)
+  })
+})

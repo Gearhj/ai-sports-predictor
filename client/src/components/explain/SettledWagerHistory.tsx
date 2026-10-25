@@ -12,6 +12,7 @@
  * result was known — which is the only thing that makes a historical rationale
  * worth reading at all.
  */
+import { etDateOf } from '../../services/commandCenter'
 import { useCallback } from 'react'
 import { useApiResource } from '../../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../../services/queryCache'
@@ -27,6 +28,24 @@ interface SettledExplanations {
   settled: number
   with_event_evidence: number
   with_population_comparison: number
+}
+
+/** A bare side ("AWAY") reads as the team's moneyline, taken from the "AWY at HOM" label. */
+/**
+ * The game's own Eastern calendar date. A Sunday-night kickoff is stored in
+ * UTC on the following day; the canonical timestamp is untouched, only the
+ * label is Eastern, as everywhere else in AISP.
+ */
+export function gameDateLabel(startsAtUtc: string | null | undefined, fallback: string): string {
+  return etDateOf(startsAtUtc) ?? fallback
+}
+
+export function selectionLabel(selection: string, matchup: string | null | undefined): string {
+  const side = selection?.toUpperCase()
+  if ((side !== 'AWAY' && side !== 'HOME') || !matchup) return selection
+  const [away, home] = matchup.split(/\s+(?:at|@)\s+/)
+  const team = side === 'AWAY' ? away : home
+  return team ? `${team} ML` : selection
 }
 
 export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
@@ -69,7 +88,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
   return (
     <div data-testid="settled-wager-history">
       <p className="info-label" data-testid="settled-coverage">
-        {settled} settled wagers · {withEvents} with bound event evidence ·{' '}
+        {settled} settled virtual positions · {withEvents} with bound event evidence ·{' '}
         {withPopulation} with a simulated population comparison
       </p>
       <div className="settled-history">
@@ -82,7 +101,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
             <header className="settled-history__head">
               <strong>{explanation.matchup?.label ?? 'Unknown matchup'}</strong>
               <span className="settled-history__selection">
-                {explanation.why.selection}
+                {selectionLabel(explanation.why.selection, explanation.matchup?.label)}
               </span>
               <span
                 className={`settled-history__result settled-history__result--${
@@ -90,7 +109,7 @@ export function SettledWagerHistory({ limit = 25 }: { limit?: number }) {
               >
                 {explanation.what_happened?.result_language ?? 'open'}
               </span>
-              <span className="settled-history__date">{explanation.slate_date}</span>
+              <span className="settled-history__date">{gameDateLabel(explanation.matchup?.starts_at_utc, explanation.slate_date)}</span>
             </header>
             {/* The observed final, beside the wager it settled. Shown for a
                 completed wager because "what happened" is the question this

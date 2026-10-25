@@ -150,6 +150,54 @@ def fallback_window_open(now: datetime | None = None) -> bool:
     return moment.date() <= GOVERNED_FALLBACK_UNTIL
 
 
+# --- the NFL pregame lane's bounded October renewal ---------------------------
+# A SEPARATE, narrower window for ONE lane: the NFL pregame collector
+# (`sgo_nfl_events`, app/services/sgo_nfl_pregame.py). It does not reopen the
+# governed MLB fallback above, does not add SportsGameOdds to
+# `governed_sources()`, and does not reach the NFL live-score, Show Preview or
+# MLB request paths, which all keep reading `fallback_window_open` and therefore
+# stay refused from 2026-10-01T00:00Z.
+#
+# Like the fallback it is code, not configuration, so it expires by
+# construction: nothing is eligible after the last day, and no setting can
+# widen it. Its spend inside the renewal billing month is additionally capped
+# (NFL_LANE_RENEWAL_OBJECT_CAP) on top of the lane's daily allowance, the
+# T-26 reservation and both account-wide budget guards, none of which change.
+NFL_LANE_RENEWAL_ENDPOINT = "sgo_nfl_events"
+NFL_LANE_ELIGIBLE_UNTIL = date(2026, 10, 31)
+#: The provider billing month (UTC calendar month) the renewal cap counts.
+NFL_LANE_RENEWAL_BILLING_MONTH = "2026-10"
+#: At most this many event objects on the NFL pregame lane in that month.
+#: October 2026 has 60 NFL games in AISP's schedule: 60 T-26 checkpoint objects
+#: plus at most 60 Show Prep preview objects is 120; the remaining 30 is retry
+#: headroom (a retry is owed only after a terminal zero-charge primary failure).
+NFL_LANE_RENEWAL_OBJECT_CAP = 150
+
+
+def nfl_lane_window_open(now: datetime | None = None) -> bool:
+    """True while the NFL pregame lane may ask SportsGameOdds, in UTC.
+
+    Open through the general fallback's last day (so September is unchanged)
+    and through the lane's own renewal day. The instant is CONVERTED to UTC
+    first: the DB session hands back Eastern-aware datetimes, and `.date()` on
+    one of those would read the Eastern calendar day.
+    """
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    day = moment.astimezone(UTC).date()
+    return day <= GOVERNED_FALLBACK_UNTIL or day <= NFL_LANE_ELIGIBLE_UNTIL
+
+
+def nfl_lane_renewal_in_force(now: datetime | None = None) -> bool:
+    """True when the NFL lane is eligible ONLY because of the renewal."""
+    moment = now or datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    day = moment.astimezone(UTC).date()
+    return GOVERNED_FALLBACK_UNTIL < day <= NFL_LANE_ELIGIBLE_UNTIL
+
+
 def governed_sources(
     *, now: datetime | None = None, fallback_enabled: bool | None = None,
 ) -> frozenset[str]:

@@ -72,10 +72,11 @@ NBA = SportDefinition(
     short_label="NBA",
     official_positions_supported=False,
     official_positions_note=(
-        "Planned. AISP holds imported research forecasts for NBA and nothing else: "
-        "no day surface, no read adapter, no odds, no policy and no position. The "
-        "research forecasts are readable at the research href; they are research "
-        "output and can never be funded."
+        "Virtual paper only, and not yet active. AISP verifies Codex's NBA Gen1 production "
+        "packages (Ridge points, Elo winner and joint-distribution channels, kept separate) "
+        "once the owner pins and enables the consumer, and holds the 2025-26 assessment as "
+        "HISTORICAL evidence. AISP_NBA_PAPER_POLICY_V1 ($1,000 virtual account) has a built "
+        "checkpoint that is off; no NBA price is collected. The 2026-27 season opens 2026-10-20."
     ),
     navigable=False,
     # Read-only evidence, deliberately not a day surface. See SportDefinition.
@@ -91,10 +92,12 @@ CFB = SportDefinition(
     short_label="CFB",
     official_positions_supported=False,
     official_positions_note=(
-        "Planned. AISP holds an imported research forecast for College Football and "
-        "nothing else: no admitted schedule source, no day surface, no read adapter, "
-        "no odds, no bankroll, no policy and no position. The forecast is readable at "
-        "the research href; it is research output and can never be funded."
+        "Virtual paper only. AISP imports the producer's verified College Football "
+        "slate discovery and decides each game at T-30..T-15 under the owner-approved "
+        "AISP_CFB_PAPER_POLICY_V1 ($1,000 virtual account). No College Football price "
+        "is collected this month, so checkpoints record explicit no-position reasons. "
+        "Games are listed on Games & Forecasts and at the research href; the sport is "
+        "not wired into the MLB/NFL day-surface and scoreboard adapters."
     ),
     # navigable=False is the whole point. A navigable sport is wired into the
     # day surface, scoreboard and odds adapters, none of which can serve College
@@ -116,6 +119,29 @@ WNBA = SportDefinition(
     navigable=False,
 )
 
+NHL = SportDefinition(
+    sport_code=SportCode.HOCKEY,
+    league_code=LeagueCode.NHL,
+    participant_type=ParticipantType.TEAM,
+    availability=SportAvailabilityState.PLANNED,
+    display_name="NHL",
+    short_label="NHL",
+    official_positions_supported=False,
+    official_positions_note=(
+        "Virtual paper only. Since 2026-10-16 AISP runs the accepted, frozen NHL Gen1 model "
+        "in-process (a three-way regulation result and a two-way final including overtime and "
+        "shootout, scored separately) and decides each game at T-30..T-15 under "
+        "AISP_NHL_PAPER_POLICY_V1 ($1,000 virtual 2026-27 account) on The Odds API's full-game "
+        "two-way moneyline, funded by the shared $100 daily allowance and settled from ESPN finals. "
+        "Games are read at the research href; the sport is not wired into the MLB/NFL day-surface "
+        "and scoreboard adapters."
+    ),
+    # Same reasoning as CFB/NBA: not wired into the MLB/NFL day surface,
+    # scoreboard or odds adapters, so it gets a read-only research href.
+    navigable=False,
+    research_href="/nhl/research",
+)
+
 UFC = SportDefinition(
     sport_code=SportCode.MMA,
     league_code=LeagueCode.UFC,
@@ -130,7 +156,7 @@ UFC = SportDefinition(
     navigable=False,
 )
 
-SPORT_REGISTRY: tuple[SportDefinition, ...] = (MLB, NFL, NBA, CFB, WNBA, UFC)
+SPORT_REGISTRY: tuple[SportDefinition, ...] = (MLB, NFL, NBA, CFB, WNBA, NHL, UFC)
 
 _BY_LEAGUE = {str(entry.league_code): entry for entry in SPORT_REGISTRY}
 
@@ -201,6 +227,7 @@ __all__ = [
     "MLB",
     "NBA",
     "NFL",
+    "NHL",
     "SPORT_REGISTRY",
     "UFC",
     "WNBA",

@@ -15,6 +15,7 @@ const TEAMS: Record<SportCode, [string, string][]> = {
   NFL: [['KC', 'BUF'], ['DET', 'GB']],
   NBA: [['BOS', 'NYK']],
   CFB: [['UGA', 'BAMA']],
+  NHL: [['MTL', 'TOR']],
 }
 
 export function game(clock: Clock, id: string, opts: Partial<CoverageGame> & { startIn?: number; homeP?: number | null; sport?: SportCode; pair?: number } = {}): CoverageGame {

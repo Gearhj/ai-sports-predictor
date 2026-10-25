@@ -32,6 +32,7 @@
 import { useState } from 'react'
 import type { CfbResearchForecast } from '../../types/cfbResearch'
 import { CfbDistribution } from './CfbDistribution'
+import { CfbPipelinePanel } from './CfbPipelinePanel'
 import { CfbTotalScenarioInput } from './CfbTotalScenarioInput'
 
 /** The single multiplication by 100 on this path. */
@@ -75,6 +76,16 @@ export function CfbForecastCard({ forecast }: { forecast: CfbResearchForecast })
         </span>
       </header>
 
+      {(forecast.horizon_label || forecast.canonical_game || forecast.paper_eligibility) && (
+        <ul className="cfbcard__status" data-testid="cfb-status">
+          {forecast.horizon_label && <li data-testid="cfb-horizon">{forecast.horizon_label}</li>}
+          {forecast.canonical_game && <li data-testid="cfb-binding">{forecast.canonical_game.label}</li>}
+          {forecast.paper_eligibility && <li data-testid="cfb-eligibility">{forecast.paper_eligibility.label}</li>}
+        </ul>
+      )}
+
+      {forecast.pipeline && <CfbPipelinePanel pipeline={forecast.pipeline} home={game.home_team} away={game.away_team} />}
+
       {/* The pick. A forecast, and labelled as one. */}
       <p className="cfbcard__pick" data-testid="cfb-pick">{pick.label}</p>
 
@@ -89,10 +100,15 @@ export function CfbForecastCard({ forecast }: { forecast: CfbResearchForecast })
         </div>
       </div>
 
+      <p className="cfbcard__meaning" data-testid="cfb-points-channel">
+        Expected points are the Ridge point model's means. The joint simulation&rsquo;s
+        own means differ slightly; its draws drive the distributions below.
+      </p>
+
       <dl className="cfbcard__figures">
-        <div><dt>Expected total</dt><dd className="bx-num">{points(expected.total)}</dd></div>
+        <div><dt>Expected total (Ridge)</dt><dd className="bx-num">{points(expected.total)}</dd></div>
         <div>
-          <dt>Expected {game.home_team} margin</dt>
+          <dt>Expected {game.home_team} margin (Ridge)</dt>
           <dd className="bx-num">{expected.home_margin > 0 ? '+' : ''}{points(expected.home_margin)}</dd>
         </div>
         <div>
@@ -117,6 +133,7 @@ export function CfbForecastCard({ forecast }: { forecast: CfbResearchForecast })
               <span className="cfbcard__alt bx-num">
                 {game.away_team} {pct(entry.away)}
               </span>
+              {entry.meaning && <small className="cfbcard__meaning">{entry.meaning}</small>}
             </li>
           ))}
         </ul>

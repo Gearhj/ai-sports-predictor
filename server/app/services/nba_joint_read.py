@@ -24,6 +24,12 @@ def joint_comparison(session: Session, *, game_id: str | None = None) -> dict[st
     """Both arms of the imported joint comparison, with their distributions."""
 
     from app.models import NbaJointComparisonArm
+    from app.services.research_paper_policy import NBA
+
+    # Only the paired-residual baseline is the selected comparison arm (the
+    # configuration the NBA paper policy names). The close-score arm is retained
+    # as published research and is never promoted by being displayed.
+    selected_configuration = NBA.controlling_configuration
 
     query = select(NbaJointComparisonArm).order_by(NbaJointComparisonArm.arm)
     if game_id:
@@ -49,6 +55,10 @@ def joint_comparison(session: Session, *, game_id: str | None = None) -> dict[st
             "forecast_id": row.forecast_id,
             "forecast_sha256": row.forecast_sha256,
             "configuration_identity": row.configuration_identity,
+            "selected": row.configuration_identity == selected_configuration,
+            "selection_label": (
+                "Selected comparison arm" if row.configuration_identity == selected_configuration
+                else "Retained challenger · not selected or promoted"),
             "draw_count": row.draw_count,
             "winner_probabilities": {
                 "away": row.away_win_probability,
@@ -68,6 +78,7 @@ def joint_comparison(session: Session, *, game_id: str | None = None) -> dict[st
             "imported_at": _iso(row.imported_at),
         })
 
+    arms.sort(key=lambda a: not a["selected"])
     identical = False
     if len(arms) == 2:
         first, second = (a["winner_probabilities"] for a in arms)
@@ -89,10 +100,11 @@ def joint_comparison(session: Session, *, game_id: str | None = None) -> dict[st
             "research_only": True,
             "wagering_authority": False,
             "note": (
-                "Research only. No NBA account, market, policy, position or "
-                "wagering authority exists, and importing these arms created "
-                "none. Illustrative totals are labelled by the producer as not "
-                "a recorded market and are not prices AISP was offered."
+                "Research only. The NBA regular season has not started and AISP holds "
+                "no NBA sportsbook price, so neither arm can be assessed or positioned; "
+                "importing these arms created no account, policy, market or position. "
+                "Illustrative totals are labelled by the producer as not a recorded "
+                "market and are not prices AISP was offered."
             ),
         },
     }

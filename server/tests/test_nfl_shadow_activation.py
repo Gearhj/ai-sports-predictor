@@ -190,7 +190,7 @@ async def test_locator_family_import_and_scheduler_jobs_are_idempotent(session, 
     scheduler = build_scheduler(configured)
     job_ids = {job.id for job in scheduler.get_jobs()}
     assert {
-        "asp-nfl-shadow-import", "asp-nfl-shadow-evaluate",
+        "asp-ns-nfl-shadow-import", "asp-nfl-shadow-evaluate",
         "asp-nfl-shadow-final-pregame", "asp-nfl-shadow-odds",
         "asp-nfl-shadow-finalize", "asp-nfl-shadow-settle",
         "asp-nfl-shadow-performance", "asp-nfl-shadow-producer-current",

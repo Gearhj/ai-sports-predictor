@@ -1,0 +1,45 @@
+{
+ "classes": [
+  "PASS_SL",
+  "PASS_SM",
+  "PASS_SR",
+  "PASS_DL",
+  "PASS_DM",
+  "PASS_DR",
+  "RUN_L",
+  "RUN_M",
+  "RUN_R",
+  "PUNT",
+  "FG",
+  "KNEEL"
+ ],
+ "shape": [
+  4,
+  8,
+  11,
+  9,
+  8
+ ],
+ "scale": 10000,
+ "dtype": "uint16-le",
+ "ydBuckets": "1,2,3,4-5,6-7,8-10,11-14,15+",
+ "ylBuckets": "1-3,4-9,10-19,...,90-99 (yards to the end zone)",
+ "scoreBuckets": "<=-17,-16..-9,-8..-4,-3..-1,0,1..3,4..8,9..16,>=17 (offense minus defense)",
+ "timeBuckets": "Q1,Q2>2:00,Q2<=2:00,Q3,Q4>5:00,Q4 2-5:00,Q4<2:00,OT",
+ "trainedOn": "nflverse play-by-play 2015-2026, 431,842 plays",
+ "validation": {
+  "train": "2015-2024",
+  "test": "2025 + 2026 to date",
+  "test_plays": 50955,
+  "train_plays": 380887,
+  "stage1_logloss_model": 0.5151,
+  "stage1_logloss_prior": 1.014,
+  "stage1_logloss_grid": 0.5816,
+  "pass_vs_run_accuracy_model": 0.7122,
+  "pass_vs_run_accuracy_grid": 0.7049,
+  "pass_vs_run_always_majority": 0.6052,
+  "pass_direction_logloss_model": 1.5125,
+  "pass_direction_logloss_prior": 1.5417
+ },
+ "builtAt": "2026-10-24T14:36:21Z"
+}

@@ -5,6 +5,7 @@
  * single multiplication by 100 happens in the view. Typing them as fractions is
  * the cheapest way to stop a second multiplication appearing later.
  */
+import type { CfbMarket, CheckpointSemantics } from '../services/cfbMarket'
 
 export interface CfbInterval {
   lower: number
@@ -19,6 +20,8 @@ export interface CfbWinProbability {
   /** Fraction 0–1. */
   away: number
   primary: boolean
+  /** What this channel is, so it is never read as another method's number. */
+  meaning?: string
 }
 
 export interface CfbPmf {
@@ -47,8 +50,30 @@ export interface CfbTotalScenario {
   integer_line: boolean
   push_possible: boolean
   label: string
-  market_recorded: false
+  /** True only when a stored sportsbook total exists at exactly this line. */
+  market_recorded: boolean
   note: string
+}
+
+export interface CfbPipeline {
+  origin: string
+  publication_clock: { source: string | null; label: string; published_utc: string | null }
+  discovery: { state: string; eligible: boolean; detail?: string; lease_valid_until?: string | null; manifest_sha256?: string }
+  decision?: {
+    recommendation: string; reason: string | null; detail: string | null; recorded_at: string | null
+    /** NO_BET vs NO_PRICE vs BLOCKED, derived from the recorded row. */
+    semantics?: CheckpointSemantics | null
+    position: { position_id: string; stake: number; status: string; result: string } | null
+  } | null
+  decision_window?: { opens_utc: string; closes_utc: string }
+  game_status?: string | null
+  final?: { home_score: number | null; away_score: number | null; source: string; observed_utc: string | null
+    completion_clock: string | null; overtime: boolean | null }
+  evaluation?: { channel: string; log_loss: number; two_way_brier: number | null; winner_correct: boolean
+    probability_of_actual: number; margin_error: number | null; total_error: number | null } | null
+  price?: { reason: string; detail: string; reference_lines?: string } | null
+  /** Stored SportsGameOdds quotes with their clocks, compared with the joint channel only. */
+  market?: CfbMarket | null
 }
 
 export interface CfbResearchForecast {
@@ -60,6 +85,12 @@ export interface CfbResearchForecast {
   publication_receipt_sha256: string | null
   baseline_configuration: string
   engine_label: string
+  horizon?: string
+  horizon_label?: string
+  canonical_game?: { bound: boolean; game_id: string | null; source: string; source_game_id: string; label: string }
+  paper_eligibility?: { eligible: boolean; state: string; label: string }
+  /** Where the forecast stands now: lease, decision, price, final and score. */
+  pipeline?: CfbPipeline
   game: {
     source_provider: string
     source_game_id: string

@@ -22,12 +22,14 @@ from app.models.entities import (
     OpenDataDownloadManifest, OpenDataIdentityMapping,
     OddsSnapshot, OddsStatus,
     OfficialAspPosition, ParkFactorVersion, PitchEvent, Pitcher, PitchingFeature,
+    NflAcquisitionPhaseClaim,
     Player, PlayerGameHistoryObservation, PlayerTalentEstimate, ProviderRequestLedger,
     PlayerGameStat, PlayerTeamHistory, PositionResult, PositionSettlement,
     PositionStatus, PrivateLeague, PrivateLeagueMember, Roster,
     ProspectiveEvaluationClaim, ProspectiveEvaluationClaimBinding,
     ProspectiveEvaluationGameAssignment, ProspectiveEvaluationLabelAccess,
     ProspectiveEvaluationPlan,
+    RffReadingSnapshot,
     RosterAvailabilityObservation, RunStatus, Season, SourceFreshnessPolicy, Sport,
     NflFinalObservation,
     ShadowThresholdSelection,
@@ -129,6 +131,12 @@ from app.models.cfb_research_forecast import (  # noqa: E402,F401
     CFB_SPORT_LABEL,
     CfbResearchForecast,
 )
+from app.models.cfb_consumer import (  # noqa: E402,F401
+    CfbDiscoveryManifest,
+    CfbDiscoveryObservation,
+    CfbFinalObservation,
+    PositionSettlementAdjustment,
+)
 
 # AISP DAY-BEFORE SHOW PREVIEW V1: research/editorial only, never read by the
 # governed decision, staking, bankroll or settlement code.
@@ -144,4 +152,49 @@ from app.models.show_preview import (  # noqa: E402,F401
     ShowPreviewSnapshot,
 )
 
-__all__ = [name for name in globals() if not name.startswith("_")]
+# Authentic sportsbook player-prop quotes: quote display and a user's own
+# virtual pick only. No assessment, decision or position reads them.
+from app.models.player_prop_quote import (  # noqa: E402,F401
+    PLAYER_PROP_QUARANTINED,
+    PLAYER_PROP_RESOLVED,
+    PlayerPropQuote,
+)
+
+# A House Divided: a prospective virtual competition. New accounts and wagers;
+# nothing here reads or writes the $1,000 Experiment or an official position.
+from app.models.house_divided import (  # noqa: E402,F401
+    CompetitionAccount,
+    CompetitionParticipant,
+    CompetitionWager,
+)
+
+# NBA Gen1 consumer evidence: production packages, the 2025-26 HISTORICAL
+# assessment rows, discovery observations, retained finals and per-channel
+# scores. Separate from the NBA research tables (see the module docstring).
+from app.models.nba_gen1 import (  # noqa: E402,F401
+    NbaChannelEvaluation,
+    NbaDiscoveryManifest,
+    NbaDiscoveryObservation,
+    NbaFinalDiscoveryManifest,
+    NbaFinalObservation,
+    NbaGen1Forecast,
+    NbaHistoricalForecast,
+)
+
+# MLB_V18_FUNDING_PAUSE_V1: one immutable record per exact-authority V18
+# QUALIFIED_BET decision that was blocked before funding evaluation. Carries no
+# stake, payout, profit, bankroll or settlement field of any kind.
+from app.models.mlb_v18_funding_pause import (  # noqa: E402,F401
+    MlbV18FundingPause,
+)
+
+# NHL Gen1 research forecasts, results and import receipts. Separate from
+# shadow_forecasts: a three-way regulation result and a two-way final are
+# different outcomes and are stored apart. Research only; no wagering.
+from app.models.nhl_research import (  # noqa: E402,F401
+    NhlGameResult,
+    NhlImportReceipt,
+    NhlResearchForecast,
+)
+
+__all__ =[name for name in globals() if not name.startswith("_")]

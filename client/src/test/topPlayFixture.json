@@ -1,0 +1,2971 @@
+{
+ "captured_at": "2026-09-17T15:54:45.129279+00:00",
+ "games": [
+  {
+   "assessment": {
+    "game_id": "99dbc2a5-8332-44e1-81f8-2113ad76817b",
+    "sport": "MLB",
+    "binding": {
+     "channel": "PAIRED_POPULATION",
+     "status": "SUPPORTED",
+     "binding": {
+      "sport": "MLB",
+      "gameId": "99dbc2a5-8332-44e1-81f8-2113ad76817b",
+      "forecastId": "mlb-v18-daily-f7254ae7c6fe64a34c3bdab8669ee2942a1ce9421a810b76ca557d67ff277856",
+      "modelId": "MLB_V18_HGB_PA",
+      "configurationId": "UNRESTRICTED_V18_FOLD5_PA_TRANSITION_FOLD4",
+      "packageSha256": "f7254ae7c6fe64a34c3bdab8669ee2942a1ce9421a810b76ca557d67ff277856",
+      "populationSha256": "cf8cb5889b101cb86eb5559050e31bfedad5afc1508b771c1a976dd0077dc800",
+      "drawCount": 5000
+     },
+     "capabilities": {
+      "moneyline": true,
+      "spread": true,
+      "total": true,
+      "same_game": true
+     },
+     "authority": "CONTROLLING_VIRTUAL_RESEARCH",
+     "authority_label": "Controlling MLB forecast (V18) for the virtual research experiment",
+     "tie_policy": "ZERO_TIE_FINAL",
+     "moneyline_tie_settlement": "PUSH",
+     "forecast_created_at": "2026-09-17T10:31:51.682061-04:00",
+     "source_cutoff": "2026-09-17T10:20:42.872479-04:00",
+     "horizon": "PROSPECTIVE",
+     "winner": {
+      "home": 0.3474,
+      "away": 0.6526000000000001,
+      "tie": 0.0
+     },
+     "expected_score": {
+      "home": 3.596,
+      "away": 5.4438
+     }
+    },
+    "quotes": [
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Betmgm (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:betmgm",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:39:18.507000+00:00",
+      "age_minutes": 195.4,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 140,
+        "decimal": 2.4,
+        "no_vig": 0.39823008849557523,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.05083008849557524,
+        "expected_return": -0.16624,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -170,
+        "decimal": 1.5882352941176472,
+        "no_vig": 0.6017699115044247,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.05083008849557524,
+        "expected_return": 0.03648235294117652,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Bovada (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:bovada",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:31.750000+00:00",
+      "age_minutes": 197.2,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 141,
+        "decimal": 2.41,
+        "no_vig": 0.397234073856113,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.04983407385611299,
+        "expected_return": -0.1627659999999999,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -170,
+        "decimal": 1.5882352941176472,
+        "no_vig": 0.6027659261438869,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.04983407385611305,
+        "expected_return": 0.03648235294117652,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Caesars (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:caesars",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:35:42.750000+00:00",
+      "age_minutes": 199.0,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 144,
+        "decimal": 2.44,
+        "no_vig": 0.3942757009345795,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.04687570093457949,
+        "expected_return": -0.15234400000000003,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -170,
+        "decimal": 1.5882352941176472,
+        "no_vig": 0.6057242990654205,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.04687570093457949,
+        "expected_return": 0.03648235294117652,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Draftkings (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:draftkings",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:25.492000+00:00",
+      "age_minutes": 197.3,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 139,
+        "decimal": 2.3899999999999997,
+        "no_vig": 0.4002867726132155,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.052886772613215505,
+        "expected_return": -0.1697140000000001,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -168,
+        "decimal": 1.5952380952380953,
+        "no_vig": 0.5997132273867845,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.052886772613215505,
+        "expected_return": 0.04105238095238101,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Espnbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:espnbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:41.250000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 145,
+        "decimal": 2.45,
+        "no_vig": 0.3932993445010925,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.04589934450109251,
+        "expected_return": -0.14886999999999995,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -170,
+        "decimal": 1.5882352941176472,
+        "no_vig": 0.6067006554989075,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.045899344501092454,
+        "expected_return": 0.03648235294117652,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Fanduel (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:fanduel",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:38:00.008000+00:00",
+      "age_minutes": 196.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 144,
+        "decimal": 2.44,
+        "no_vig": 0.39324543141337037,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.045845431413370386,
+        "expected_return": -0.15234400000000003,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -172,
+        "decimal": 1.5813953488372094,
+        "no_vig": 0.6067545685866297,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.045845431413370274,
+        "expected_return": 0.03201860465116285,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Pointsbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:pointsbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:40.750000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 140,
+        "decimal": 2.4,
+        "no_vig": 0.39875481766973025,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.05135481766973027,
+        "expected_return": -0.16624,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -169,
+        "decimal": 1.5917159763313609,
+        "no_vig": 0.6012451823302698,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.05135481766973016,
+        "expected_return": 0.03875384615384608,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Unibet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:unibet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:40.250000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 138,
+        "decimal": 2.38,
+        "no_vig": 0.3992015968063872,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.05180159680638724,
+        "expected_return": -0.173188,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -172,
+        "decimal": 1.5813953488372094,
+        "no_vig": 0.6007984031936128,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.051801596806387185,
+        "expected_return": 0.03201860465116285,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Williamhill (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:williamhill",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:51.250000+00:00",
+      "age_minutes": 196.9,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": 138,
+        "decimal": 2.38,
+        "no_vig": 0.39768618944323936,
+        "model": {
+         "win": 0.3474,
+         "loss": 0.6526,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3474,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 2.8785261945883707,
+         "fair_american": 188
+        },
+        "edge": -0.05028618944323937,
+        "expected_return": -0.173188,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -175,
+        "decimal": 1.5714285714285714,
+        "no_vig": 0.6023138105567607,
+        "model": {
+         "win": 0.6526,
+         "loss": 0.3474,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6526,
+         "mcse": 0.00673369497378668,
+         "fair_decimal": 1.5323322096230463,
+         "fair_american": -188
+        },
+        "edge": 0.05028618944323926,
+        "expected_return": 0.025514285714285656,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Betmgm (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:betmgm",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:39:18.507000+00:00",
+      "age_minutes": 195.4,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.046434236186348954,
+        "expected_return": -0.1317739130434783,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.04643423618634884,
+        "expected_return": 0.04569523809523807,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Bovada (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:bovada",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:31.750000+00:00",
+      "age_minutes": 197.2,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -110,
+        "decimal": 1.9090909090909092,
+        "no_vig": 0.5,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.03560000000000002,
+        "expected_return": -0.11341818181818175,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -110,
+        "decimal": 1.9090909090909092,
+        "no_vig": 0.5,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.035599999999999965,
+        "expected_return": 0.022509090909090923,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Caesars (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:caesars",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:35:42.750000+00:00",
+      "age_minutes": 199.0,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -109,
+        "decimal": 1.9174311926605505,
+        "no_vig": 0.5011051189107948,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.03670511891079481,
+        "expected_return": -0.10954495412844034,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -108,
+        "decimal": 1.925925925925926,
+        "no_vig": 0.4988948810892052,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.036705118910794754,
+        "expected_return": 0.03152592592592596,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Draftkings (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:draftkings",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:25.492000+00:00",
+      "age_minutes": 197.3,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -113,
+        "decimal": 1.8849557522123894,
+        "no_vig": 0.5064960374171755,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.04209603741717555,
+        "expected_return": -0.12462654867256634,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -107,
+        "decimal": 1.9345794392523366,
+        "no_vig": 0.4935039625828245,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.04209603741717549,
+        "expected_return": 0.03616074766355143,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Espnbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:espnbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:41.250000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.046434236186348954,
+        "expected_return": -0.1317739130434783,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.04643423618634884,
+        "expected_return": 0.04569523809523807,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Fanduel (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:fanduel",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:38:00.008000+00:00",
+      "age_minutes": 196.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -111,
+        "decimal": 1.900900900900901,
+        "no_vig": 0.5032696834946377,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.03886968349463776,
+        "expected_return": -0.11722162162162153,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -108,
+        "decimal": 1.925925925925926,
+        "no_vig": 0.49673031650536226,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.03886968349463771,
+        "expected_return": 0.03152592592592596,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Pointsbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:pointsbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:40.750000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -111,
+        "decimal": 1.900900900900901,
+        "no_vig": 0.5,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.03560000000000002,
+        "expected_return": -0.11722162162162153,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -111,
+        "decimal": 1.900900900900901,
+        "no_vig": 0.5,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.035599999999999965,
+        "expected_return": 0.018122522522522555,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": 1.5,
+      "sportsbook": "Unibet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:unibet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:29.750000+00:00",
+      "age_minutes": 197.3,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -113,
+        "decimal": 1.8849557522123894,
+        "no_vig": 0.5053754192827041,
+        "model": {
+         "win": 0.4644,
+         "loss": 0.5356,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4644,
+         "mcse": 0.007053121861984238,
+         "fair_decimal": 2.153316106804479,
+         "fair_american": 115
+        },
+        "edge": -0.04097541928270415,
+        "expected_return": -0.12462654867256634,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -108,
+        "decimal": 1.925925925925926,
+        "no_vig": 0.494624580717296,
+        "model": {
+         "win": 0.5356,
+         "loss": 0.4644,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5356,
+         "mcse": 0.007053121861984237,
+         "fair_decimal": 1.8670649738610905,
+         "fair_american": -115
+        },
+        "edge": 0.040975419282703984,
+        "expected_return": 0.03152592592592596,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 9.5,
+      "sportsbook": "Betmgm (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:betmgm",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:39:18.507000+00:00",
+      "age_minutes": 195.4,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -125,
+        "decimal": 1.8,
+        "no_vig": 0.5203045685279188,
+        "model": {
+         "win": 0.4136,
+         "loss": 0.5864,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4136,
+         "mcse": 0.006964697265495466,
+         "fair_decimal": 2.4177949709864603,
+         "fair_american": 142
+        },
+        "edge": -0.10670456852791882,
+        "expected_return": -0.25551999999999997,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4796954314720812,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.4136,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5864,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.7053206002728514,
+         "fair_american": -142
+        },
+        "edge": 0.10670456852791882,
+        "expected_return": 0.14487619047619044,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 10.0,
+      "sportsbook": "Bovada (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:bovada",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:31.750000+00:00",
+      "age_minutes": 197.2,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.3448,
+         "loss": 0.5864,
+         "push": 0.0688,
+         "void": 0.0,
+         "conditional": 0.37027491408934704,
+         "mcse": 0.006721799758993122,
+         "fair_decimal": 2.700696055684455,
+         "fair_american": 170
+        },
+        "edge": -0.11889084972430408,
+        "expected_return": -0.25801904761904765,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.3448,
+         "push": 0.0688,
+         "void": 0.0,
+         "conditional": 0.6297250859106529,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.5879945429740792,
+         "fair_american": -170
+        },
+        "edge": 0.11889084972430397,
+        "expected_return": 0.16511304347826083,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 9.5,
+      "sportsbook": "Caesars (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:caesars",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:36:48.978000+00:00",
+      "age_minutes": 197.9,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -117,
+        "decimal": 1.8547008547008548,
+        "no_vig": 0.5163869952805453,
+        "model": {
+         "win": 0.4136,
+         "loss": 0.5864,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4136,
+         "mcse": 0.006964697265495466,
+         "fair_decimal": 2.4177949709864603,
+         "fair_american": 142
+        },
+        "edge": -0.1027869952805453,
+        "expected_return": -0.23289572649572648,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -102,
+        "decimal": 1.9803921568627452,
+        "no_vig": 0.4836130047194546,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.4136,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5864,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.7053206002728514,
+         "fair_american": -142
+        },
+        "edge": 0.10278699528054541,
+        "expected_return": 0.16130196078431375,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 10.0,
+      "sportsbook": "Draftkings (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:draftkings",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:25.492000+00:00",
+      "age_minutes": 197.3,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -102,
+        "decimal": 1.9803921568627452,
+        "no_vig": 0.4826358742837298,
+        "model": {
+         "win": 0.3448,
+         "loss": 0.5864,
+         "push": 0.0688,
+         "void": 0.0,
+         "conditional": 0.37027491408934704,
+         "mcse": 0.006721799758993122,
+         "fair_decimal": 2.700696055684455,
+         "fair_american": 170
+        },
+        "edge": -0.11236096019438274,
+        "expected_return": -0.2483607843137255,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -118,
+        "decimal": 1.847457627118644,
+        "no_vig": 0.5173641257162701,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.3448,
+         "push": 0.0688,
+         "void": 0.0,
+         "conditional": 0.6297250859106529,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.5879945429740792,
+         "fair_american": -170
+        },
+        "edge": 0.1123609601943828,
+        "expected_return": 0.15214915254237288,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 9.5,
+      "sportsbook": "Espnbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:espnbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:41.250000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.4136,
+         "loss": 0.5864,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4136,
+         "mcse": 0.006964697265495466,
+         "fair_decimal": 2.4177949709864603,
+         "fair_american": 142
+        },
+        "edge": -0.10813913043478257,
+        "expected_return": -0.2417333333333333,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.4136,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5864,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.7053206002728514,
+         "fair_american": -142
+        },
+        "edge": 0.10813913043478263,
+        "expected_return": 0.1728,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 9.5,
+      "sportsbook": "Fanduel (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:fanduel",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:38:00.008000+00:00",
+      "age_minutes": 196.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -118,
+        "decimal": 1.847457627118644,
+        "no_vig": 0.5149751839808318,
+        "model": {
+         "win": 0.4136,
+         "loss": 0.5864,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4136,
+         "mcse": 0.006964697265495466,
+         "fair_decimal": 2.4177949709864603,
+         "fair_american": 142
+        },
+        "edge": -0.10137518398083173,
+        "expected_return": -0.23589152542372882,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -104,
+        "decimal": 1.9615384615384617,
+        "no_vig": 0.4850248160191682,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.4136,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5864,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.7053206002728514,
+         "fair_american": -142
+        },
+        "edge": 0.10137518398083184,
+        "expected_return": 0.15024615384615397,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 9.5,
+      "sportsbook": "Pointsbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:pointsbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:37:40.750000+00:00",
+      "age_minutes": 197.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.4136,
+         "loss": 0.5864,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4136,
+         "mcse": 0.006964697265495466,
+         "fair_decimal": 2.4177949709864603,
+         "fair_american": 142
+        },
+        "edge": -0.09723423618634891,
+        "expected_return": -0.2267478260869566,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.4136,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5864,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.7053206002728514,
+         "fair_american": -142
+        },
+        "edge": 0.09723423618634891,
+        "expected_return": 0.14487619047619044,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 9.5,
+      "sportsbook": "Unibet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:unibet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T12:25:49.030000+00:00",
+      "age_minutes": 208.9,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -112,
+        "decimal": 1.8928571428571428,
+        "no_vig": 0.5032246968784934,
+        "model": {
+         "win": 0.4136,
+         "loss": 0.5864,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4136,
+         "mcse": 0.006964697265495466,
+         "fair_decimal": 2.4177949709864603,
+         "fair_american": 142
+        },
+        "edge": -0.08962469687849334,
+        "expected_return": -0.21711428571428576,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -109,
+        "decimal": 1.9174311926605505,
+        "no_vig": 0.49677530312150653,
+        "model": {
+         "win": 0.5864,
+         "loss": 0.4136,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5864,
+         "mcse": 0.006964697265495465,
+         "fair_decimal": 1.7053206002728514,
+         "fair_american": -142
+        },
+        "edge": 0.0896246968784935,
+        "expected_return": 0.12438165137614682,
+        "edge_reason": null
+       }
+      }
+     }
+    ],
+    "parlay_lab": [
+     {
+      "legs": [
+       {
+        "market": "MONEYLINE",
+        "selection": "AWAY",
+        "tieSettlement": "PUSH"
+       },
+       {
+        "market": "TOTAL",
+        "selection": "UNDER",
+        "line": 9.5
+       }
+      ],
+      "probabilities": {
+       "win": 0.3666,
+       "loss": 0.6334,
+       "push": 0.0,
+       "void": 0.0
+      },
+      "counts": {
+       "win": 1833,
+       "loss": 3167,
+       "push": 0,
+       "void": 0
+      },
+      "effective_draw_count": 5000,
+      "mcse": 0.006814755168015943,
+      "method": "PER_DRAW_SAME_GAME_INTERSECTION",
+      "display_method": "PAIRED_DRAW_INTERSECTION",
+      "fair_american": 173,
+      "population": {
+       "sport": "MLB",
+       "gameId": "99dbc2a5-8332-44e1-81f8-2113ad76817b",
+       "forecastId": "mlb-v18-daily-f7254ae7c6fe64a34c3bdab8669ee2942a1ce9421a810b76ca557d67ff277856",
+       "modelId": "MLB_V18_HGB_PA",
+       "configurationId": "UNRESTRICTED_V18_FOLD5_PA_TRANSITION_FOLD4",
+       "packageSha256": "f7254ae7c6fe64a34c3bdab8669ee2942a1ce9421a810b76ca557d67ff277856",
+       "populationSha256": "cf8cb5889b101cb86eb5559050e31bfedad5afc1508b771c1a976dd0077dc800",
+       "drawCount": 5000
+      },
+      "authority": "CONTROLLING_VIRTUAL_RESEARCH",
+      "authority_label": "Controlling MLB forecast (V18) for the virtual research experiment",
+      "parlay": {
+       "quote_status": "SPORTSBOOK_PARLAY_PRICE_UNAVAILABLE",
+       "message": "Model probability available. Sportsbook parlay price unavailable, so edge and expected return cannot be assessed.",
+       "quote": null,
+       "implied_probability": null,
+       "edge": null,
+       "expected_return": null
+      },
+      "lines_from": "CONSENSUS_QUOTED_LINES"
+     },
+     {
+      "legs": [
+       {
+        "market": "SPREAD",
+        "selection": "AWAY",
+        "line": -1.5
+       },
+       {
+        "market": "TOTAL",
+        "selection": "UNDER",
+        "line": 9.5
+       }
+      ],
+      "probabilities": {
+       "win": 0.279,
+       "loss": 0.721,
+       "push": 0.0,
+       "void": 0.0
+      },
+      "counts": {
+       "win": 1395,
+       "loss": 3605,
+       "push": 0,
+       "void": 0
+      },
+      "effective_draw_count": 5000,
+      "mcse": 0.006342854247103586,
+      "method": "PER_DRAW_SAME_GAME_INTERSECTION",
+      "display_method": "PAIRED_DRAW_INTERSECTION",
+      "fair_american": 258,
+      "population": {
+       "sport": "MLB",
+       "gameId": "99dbc2a5-8332-44e1-81f8-2113ad76817b",
+       "forecastId": "mlb-v18-daily-f7254ae7c6fe64a34c3bdab8669ee2942a1ce9421a810b76ca557d67ff277856",
+       "modelId": "MLB_V18_HGB_PA",
+       "configurationId": "UNRESTRICTED_V18_FOLD5_PA_TRANSITION_FOLD4",
+       "packageSha256": "f7254ae7c6fe64a34c3bdab8669ee2942a1ce9421a810b76ca557d67ff277856",
+       "populationSha256": "cf8cb5889b101cb86eb5559050e31bfedad5afc1508b771c1a976dd0077dc800",
+       "drawCount": 5000
+      },
+      "authority": "CONTROLLING_VIRTUAL_RESEARCH",
+      "authority_label": "Controlling MLB forecast (V18) for the virtual research experiment",
+      "parlay": {
+       "quote_status": "SPORTSBOOK_PARLAY_PRICE_UNAVAILABLE",
+       "message": "Model probability available. Sportsbook parlay price unavailable, so edge and expected return cannot be assessed.",
+       "quote": null,
+       "implied_probability": null,
+       "edge": null,
+       "expected_return": null
+      },
+      "lines_from": "CONSENSUS_QUOTED_LINES"
+     }
+    ]
+   },
+   "game": {
+    "game_id": "99dbc2a5-8332-44e1-81f8-2113ad76817b",
+    "league": "MLB",
+    "matchup": "LAD @ CIN",
+    "home": {
+     "team_id": "1861c30e-99af-4fac-b0b6-eed1259d36dc",
+     "abbreviation": "CIN",
+     "name": "Cincinnati Reds"
+    },
+    "away": {
+     "team_id": "05f434e5-0334-462d-b84a-2e56c51ac25b",
+     "abbreviation": "LAD",
+     "name": "Los Angeles Dodgers"
+    },
+    "starts_at": "2026-09-17T16:40:00+00:00",
+    "status": "SCHEDULED",
+    "model": {
+     "engine_id": "MLB_V18_WHOLE_GAME",
+     "home": 0.3474,
+     "away": 0.6526000000000001,
+     "home_two_way": 0.3474,
+     "expected_home": 3.6,
+     "expected_away": 5.44,
+     "created_at": "2026-09-17T14:31:51.682061+00:00"
+    }
+   },
+   "item": {
+    "decision_id": "2e3d3085-bae6-40c8-ba72-e95efffe7046",
+    "sport": "MLB",
+    "experiment": "ASP MLB V18 CONDITIONAL VIRTUAL - 2026 V1",
+    "game_id": "99dbc2a5-8332-44e1-81f8-2113ad76817b",
+    "matchup": "LAD @ CIN",
+    "starts_at": "2026-09-17T16:40:00+00:00",
+    "phase": "MORNING",
+    "market": "MONEYLINE",
+    "selection": "LAD ML",
+    "line": null,
+    "sportsbook": "Draftkings (SportsGameOdds, research)",
+    "american": -168,
+    "quote_observed_at": "2026-09-17T12:37:25.492000+00:00",
+    "quote_age_minutes": 194.2,
+    "model_probability": 0.6526000000000001,
+    "market_probability": 0.5997132273867846,
+    "edge": 0.02573432835820899,
+    "expected_value": 0.04105238095238112,
+    "recommendation": "QUALIFIED_BET",
+    "stored_recommendation": "QUALIFIED_BET",
+    "reason": "V2 TIER_B_PROBABLE_STABLE: MONEYLINE selection LAD ML qualifies with adjusted edge +3.3 pts (raw +5.3; uncertainty -0.0; starter -2.0; lineup -0.0) and positive adjusted EV under AISP_PRACTICAL_PREGAME_POLICY_V2_1.",
+    "recommended_at": "2026-09-17T15:51:37.755194+00:00",
+    "market_integrity": {
+     "two_sided_same_book": true,
+     "market_matches": true,
+     "provider": "SportsGameOdds",
+     "provider_permitted": true,
+     "classification": "RESEARCH",
+     "sportsbook": "Draftkings (SportsGameOdds, research)",
+     "sportsbook_key": "sgo:draftkings",
+     "selected_american": -168,
+     "opposite_american": 139,
+     "older_leg_observed_at": "2026-09-17T12:37:25.492000+00:00",
+     "older_leg_age_minutes_at_decision": 194.2,
+     "fresh_at_decision": true
+    },
+    "forecast_check": {
+     "engine_id": "MLB_V18_WHOLE_GAME",
+     "controlling": true,
+     "latest_at_decision": true,
+     "superseded_since_decision": false,
+     "published_at": "2026-09-17T14:31:51.682061+00:00"
+    },
+    "adjusted": {
+     "edge": 0.032887,
+     "expected_value": 0.009124,
+     "probability": 0.6326
+    },
+    "plain_reasons": [],
+    "decision_window": {
+     "opens_at": "2026-09-17T16:10:00+00:00",
+     "closes_at": "2026-09-17T16:25:00+00:00"
+    },
+    "group": "WATCHING",
+    "position": null
+   }
+  },
+  {
+   "assessment": {
+    "game_id": "3e49e756-2cf0-4857-a9e4-c050caf8b514",
+    "sport": "MLB",
+    "binding": {
+     "channel": "PAIRED_POPULATION",
+     "status": "SUPPORTED",
+     "binding": {
+      "sport": "MLB",
+      "gameId": "3e49e756-2cf0-4857-a9e4-c050caf8b514",
+      "forecastId": "mlb-v18-daily-bb33fc8491431a99ffdebd97208d1e7edd7b5e0325443485c7ebdff80415dd6c",
+      "modelId": "MLB_V18_HGB_PA",
+      "configurationId": "UNRESTRICTED_V18_FOLD5_PA_TRANSITION_FOLD4",
+      "packageSha256": "bb33fc8491431a99ffdebd97208d1e7edd7b5e0325443485c7ebdff80415dd6c",
+      "populationSha256": "344f5d36f9e216c2d22e33331892ae5471ca4f654c757fe85e6013dac73f0fd5",
+      "drawCount": 5000
+     },
+     "capabilities": {
+      "moneyline": true,
+      "spread": true,
+      "total": true,
+      "same_game": true
+     },
+     "authority": "CONTROLLING_VIRTUAL_RESEARCH",
+     "authority_label": "Controlling MLB forecast (V18) for the virtual research experiment",
+     "tie_policy": "ZERO_TIE_FINAL",
+     "moneyline_tie_settlement": "PUSH",
+     "forecast_created_at": "2026-09-17T10:56:48.233911-04:00",
+     "source_cutoff": "2026-09-17T10:48:45.414739-04:00",
+     "horizon": "PROSPECTIVE",
+     "winner": {
+      "home": 0.6578,
+      "away": 0.34219999999999995,
+      "tie": 0.0
+     },
+     "expected_score": {
+      "home": 4.7568,
+      "away": 3.2888
+     }
+    },
+    "quotes": [
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Betmgm (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:betmgm",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:36.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -285,
+        "decimal": 1.3508771929824561,
+        "no_vig": 0.7063870352716872,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.04858703527168717,
+        "expected_return": -0.11139298245614035,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 225,
+        "decimal": 3.25,
+        "no_vig": 0.29361296472831266,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.04858703527168734,
+        "expected_return": 0.11214999999999997,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Bovada (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:bovada",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:50.966000+00:00",
+      "age_minutes": 167.9,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -280,
+        "decimal": 1.3571428571428572,
+        "no_vig": 0.7054263565891473,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.04762635658914727,
+        "expected_return": -0.10727142857142852,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 225,
+        "decimal": 3.25,
+        "no_vig": 0.2945736434108528,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.04762635658914721,
+        "expected_return": 0.11214999999999997,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Caesars (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:caesars",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:11.466000+00:00",
+      "age_minutes": 168.6,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -280,
+        "decimal": 1.3571428571428572,
+        "no_vig": 0.7085889570552146,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.05078895705521458,
+        "expected_return": -0.10727142857142852,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 230,
+        "decimal": 3.3,
+        "no_vig": 0.29141104294478526,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.050788957055214745,
+        "expected_return": 0.12925999999999993,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Draftkings (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:draftkings",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:35.630000+00:00",
+      "age_minutes": 168.2,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -286,
+        "decimal": 1.3496503496503496,
+        "no_vig": 0.7084768291946106,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.050676829194610584,
+        "expected_return": -0.11220000000000002,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 228,
+        "decimal": 3.28,
+        "no_vig": 0.29152317080538936,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.05067682919461064,
+        "expected_return": 0.12241599999999986,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Espnbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:espnbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:36.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -280,
+        "decimal": 1.3571428571428572,
+        "no_vig": 0.7085889570552146,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.05078895705521458,
+        "expected_return": -0.10727142857142852,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 230,
+        "decimal": 3.3,
+        "no_vig": 0.29141104294478526,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.050788957055214745,
+        "expected_return": 0.12925999999999993,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Fanduel (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:fanduel",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:08.038000+00:00",
+      "age_minutes": 167.6,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -275,
+        "decimal": 1.3636363636363638,
+        "no_vig": 0.7044334975369458,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.04663349753694579,
+        "expected_return": -0.1029999999999999,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 225,
+        "decimal": 3.25,
+        "no_vig": 0.29556650246305427,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.046633497536945734,
+        "expected_return": 0.11214999999999997,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Pointsbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:pointsbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:37.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -278,
+        "decimal": 1.3597122302158273,
+        "no_vig": 0.7081982399258916,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.05039823992589154,
+        "expected_return": -0.10558129496402877,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 230,
+        "decimal": 3.3,
+        "no_vig": 0.29180176007410835,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.05039823992589165,
+        "expected_return": 0.12925999999999993,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Unibet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:unibet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:59.466000+00:00",
+      "age_minutes": 167.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -278,
+        "decimal": 1.3597122302158273,
+        "no_vig": 0.7017986746607764,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.04399867466077634,
+        "expected_return": -0.10558129496402877,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 220,
+        "decimal": 3.2,
+        "no_vig": 0.2982013253392238,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.04399867466077623,
+        "expected_return": 0.09504000000000001,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "MONEYLINE",
+      "line": null,
+      "sportsbook": "Williamhill (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:williamhill",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:47.466000+00:00",
+      "age_minutes": 168.0,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -275,
+        "decimal": 1.3636363636363638,
+        "no_vig": 0.6945010183299388,
+        "model": {
+         "win": 0.6578,
+         "loss": 0.3422,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.6578,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 1.5202189115232594,
+         "fair_american": -192
+        },
+        "edge": -0.03670101832993877,
+        "expected_return": -0.1029999999999999,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 210,
+        "decimal": 3.1,
+        "no_vig": 0.3054989816700611,
+        "model": {
+         "win": 0.3422,
+         "loss": 0.6578,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.3422,
+         "mcse": 0.006709681959675883,
+         "fair_decimal": 2.9222676797194627,
+         "fair_american": 192
+        },
+        "edge": 0.036701018329938884,
+        "expected_return": 0.060819999999999985,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Betmgm (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:betmgm",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:58.477000+00:00",
+      "age_minutes": 166.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.04013913043478262,
+        "expected_return": -0.1170666666666666,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.040139130434782566,
+        "expected_return": 0.0368,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Bovada (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:bovada",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:50.966000+00:00",
+      "age_minutes": 167.9,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.04013913043478262,
+        "expected_return": -0.1170666666666666,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.040139130434782566,
+        "expected_return": 0.0368,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Caesars (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:caesars",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:22.477000+00:00",
+      "age_minutes": 167.4,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -114,
+        "decimal": 1.8771929824561404,
+        "no_vig": 0.5121724504249292,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.03057245042492923,
+        "expected_return": -0.09594385964912278,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": -103,
+        "decimal": 1.970873786407767,
+        "no_vig": 0.4878275495750709,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.030572450424929065,
+        "expected_return": 0.021700970873786363,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Draftkings (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:draftkings",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:35.630000+00:00",
+      "age_minutes": 168.2,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -122,
+        "decimal": 1.819672131147541,
+        "no_vig": 0.5248491074868369,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.04324910748683691,
+        "expected_return": -0.12364590163934425,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 101,
+        "decimal": 2.01,
+        "no_vig": 0.47515089251316295,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.043249107486837024,
+        "expected_return": 0.041983999999999855,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Espnbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:espnbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:36.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.04013913043478262,
+        "expected_return": -0.1170666666666666,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.040139130434782566,
+        "expected_return": 0.0368,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Fanduel (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:fanduel",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:08.038000+00:00",
+      "age_minutes": 167.6,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.04013913043478262,
+        "expected_return": -0.1170666666666666,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.040139130434782566,
+        "expected_return": 0.0368,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Pointsbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:pointsbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:37.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.04013913043478262,
+        "expected_return": -0.1170666666666666,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.040139130434782566,
+        "expected_return": 0.0368,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "SPREAD",
+      "line": -1.5,
+      "sportsbook": "Unibet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:unibet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:59.466000+00:00",
+      "age_minutes": 167.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "HOME": {
+        "american": -121,
+        "decimal": 1.8264462809917354,
+        "no_vig": 0.5226781857451405,
+        "model": {
+         "win": 0.4816,
+         "loss": 0.5184,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.4816,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 2.0764119601328903,
+         "fair_american": 108
+        },
+        "edge": -0.041078185745140494,
+        "expected_return": -0.12038347107438019,
+        "edge_reason": null
+       },
+       "AWAY": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4773218142548596,
+        "model": {
+         "win": 0.5184,
+         "loss": 0.4816,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5184,
+         "mcse": 0.007066278228317931,
+         "fair_decimal": 1.9290123456790123,
+         "fair_american": -108
+        },
+        "edge": 0.04107818574514038,
+        "expected_return": 0.0368,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Betmgm (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:betmgm",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:58.477000+00:00",
+      "age_minutes": 166.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -118,
+        "decimal": 1.847457627118644,
+        "no_vig": 0.5173641257162701,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.017364125716270107,
+        "expected_return": -0.07627118644067798,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -102,
+        "decimal": 1.9803921568627452,
+        "no_vig": 0.4826358742837298,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.017364125716270218,
+        "expected_return": -0.009803921568627416,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Bovada (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:bovada",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:50.966000+00:00",
+      "age_minutes": 167.9,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -120,
+        "decimal": 1.8333333333333335,
+        "no_vig": 0.5217391304347826,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.021739130434782594,
+        "expected_return": -0.08333333333333326,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": 100,
+        "decimal": 2.0,
+        "no_vig": 0.4782608695652174,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.021739130434782594,
+        "expected_return": 0.0,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Caesars (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:caesars",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:22.477000+00:00",
+      "age_minutes": 167.4,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -114,
+        "decimal": 1.8771929824561404,
+        "no_vig": 0.5109861135524697,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.0109861135524697,
+        "expected_return": -0.06140350877192979,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -104,
+        "decimal": 1.9615384615384617,
+        "no_vig": 0.48901388644753035,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.010986113552469645,
+        "expected_return": -0.019230769230769162,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Draftkings (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:draftkings",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:35.630000+00:00",
+      "age_minutes": 168.2,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -118,
+        "decimal": 1.847457627118644,
+        "no_vig": 0.5173641257162701,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.017364125716270107,
+        "expected_return": -0.07627118644067798,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -102,
+        "decimal": 1.9803921568627452,
+        "no_vig": 0.4826358742837298,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.017364125716270218,
+        "expected_return": -0.009803921568627416,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Espnbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:espnbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:36.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.010834236186348933,
+        "expected_return": -0.0652173913043479,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.010834236186348878,
+        "expected_return": -0.023809523809523836,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Fanduel (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:fanduel",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:07:08.038000+00:00",
+      "age_minutes": 167.6,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.010834236186348933,
+        "expected_return": -0.0652173913043479,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.010834236186348878,
+        "expected_return": -0.023809523809523836,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Pointsbet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:pointsbet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:37.966000+00:00",
+      "age_minutes": 168.1,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -115,
+        "decimal": 1.8695652173913042,
+        "no_vig": 0.5108342361863489,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.010834236186348933,
+        "expected_return": -0.0652173913043479,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4891657638136511,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.010834236186348878,
+        "expected_return": -0.023809523809523836,
+        "edge_reason": null
+       }
+      }
+     },
+     {
+      "market": "TOTAL",
+      "line": 7.5,
+      "sportsbook": "Unibet (SportsGameOdds, research)",
+      "sportsbook_key": "sgo:unibet",
+      "provider": "SportsGameOdds",
+      "classification": "RESEARCH",
+      "observed_at": "2026-09-17T13:06:59.466000+00:00",
+      "age_minutes": 167.8,
+      "fresh": true,
+      "state": "CURRENT",
+      "sides": {
+       "OVER": {
+        "american": -117,
+        "decimal": 1.8547008547008548,
+        "no_vig": 0.5128287363694676,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": -0.012828736369467575,
+        "expected_return": -0.07264957264957261,
+        "edge_reason": null
+       },
+       "UNDER": {
+        "american": -105,
+        "decimal": 1.9523809523809523,
+        "no_vig": 0.4871712636305324,
+        "model": {
+         "win": 0.5,
+         "loss": 0.5,
+         "push": 0.0,
+         "void": 0.0,
+         "conditional": 0.5,
+         "mcse": 0.007071067811865475,
+         "fair_decimal": 2.0,
+         "fair_american": 100
+        },
+        "edge": 0.012828736369467575,
+        "expected_return": -0.023809523809523836,
+        "edge_reason": null
+       }
+      }
+     }
+    ],
+    "parlay_lab": [
+     {
+      "legs": [
+       {
+        "market": "MONEYLINE",
+        "selection": "HOME",
+        "tieSettlement": "PUSH"
+       },
+       {
+        "market": "TOTAL",
+        "selection": "OVER",
+        "line": 7.5
+       }
+      ],
+      "probabilities": {
+       "win": 0.3334,
+       "loss": 0.6666,
+       "push": 0.0,
+       "void": 0.0
+      },
+      "counts": {
+       "win": 1667,
+       "loss": 3333,
+       "push": 0,
+       "void": 0
+      },
+      "effective_draw_count": 5000,
+      "mcse": 0.00666699992500375,
+      "method": "PER_DRAW_SAME_GAME_INTERSECTION",
+      "display_method": "PAIRED_DRAW_INTERSECTION",
+      "fair_american": 200,
+      "population": {
+       "sport": "MLB",
+       "gameId": "3e49e756-2cf0-4857-a9e4-c050caf8b514",
+       "forecastId": "mlb-v18-daily-bb33fc8491431a99ffdebd97208d1e7edd7b5e0325443485c7ebdff80415dd6c",
+       "modelId": "MLB_V18_HGB_PA",
+       "configurationId": "UNRESTRICTED_V18_FOLD5_PA_TRANSITION_FOLD4",
+       "packageSha256": "bb33fc8491431a99ffdebd97208d1e7edd7b5e0325443485c7ebdff80415dd6c",
+       "populationSha256": "344f5d36f9e216c2d22e33331892ae5471ca4f654c757fe85e6013dac73f0fd5",
+       "drawCount": 5000
+      },
+      "authority": "CONTROLLING_VIRTUAL_RESEARCH",
+      "authority_label": "Controlling MLB forecast (V18) for the virtual research experiment",
+      "parlay": {
+       "quote_status": "SPORTSBOOK_PARLAY_PRICE_UNAVAILABLE",
+       "message": "Model probability available. Sportsbook parlay price unavailable, so edge and expected return cannot be assessed.",
+       "quote": null,
+       "implied_probability": null,
+       "edge": null,
+       "expected_return": null
+      },
+      "lines_from": "CONSENSUS_QUOTED_LINES"
+     },
+     {
+      "legs": [
+       {
+        "market": "SPREAD",
+        "selection": "AWAY",
+        "line": 1.5
+       },
+       {
+        "market": "TOTAL",
+        "selection": "OVER",
+        "line": 7.5
+       }
+      ],
+      "probabilities": {
+       "win": 0.2238,
+       "loss": 0.7762,
+       "push": 0.0,
+       "void": 0.0
+      },
+      "counts": {
+       "win": 1119,
+       "loss": 3881,
+       "push": 0,
+       "void": 0
+      },
+      "effective_draw_count": 5000,
+      "mcse": 0.005894294868769291,
+      "method": "PER_DRAW_SAME_GAME_INTERSECTION",
+      "display_method": "PAIRED_DRAW_INTERSECTION",
+      "fair_american": 347,
+      "population": {
+       "sport": "MLB",
+       "gameId": "3e49e756-2cf0-4857-a9e4-c050caf8b514",
+       "forecastId": "mlb-v18-daily-bb33fc8491431a99ffdebd97208d1e7edd7b5e0325443485c7ebdff80415dd6c",
+       "modelId": "MLB_V18_HGB_PA",
+       "configurationId": "UNRESTRICTED_V18_FOLD5_PA_TRANSITION_FOLD4",
+       "packageSha256": "bb33fc8491431a99ffdebd97208d1e7edd7b5e0325443485c7ebdff80415dd6c",
+       "populationSha256": "344f5d36f9e216c2d22e33331892ae5471ca4f654c757fe85e6013dac73f0fd5",
+       "drawCount": 5000
+      },
+      "authority": "CONTROLLING_VIRTUAL_RESEARCH",
+      "authority_label": "Controlling MLB forecast (V18) for the virtual research experiment",
+      "parlay": {
+       "quote_status": "SPORTSBOOK_PARLAY_PRICE_UNAVAILABLE",
+       "message": "Model probability available. Sportsbook parlay price unavailable, so edge and expected return cannot be assessed.",
+       "quote": null,
+       "implied_probability": null,
+       "edge": null,
+       "expected_return": null
+      },
+      "lines_from": "CONSENSUS_QUOTED_LINES"
+     }
+    ]
+   },
+   "game": {
+    "game_id": "3e49e756-2cf0-4857-a9e4-c050caf8b514",
+    "league": "MLB",
+    "matchup": "ATH @ TB",
+    "home": {
+     "team_id": "e7f252fc-8dc4-4a82-a658-a5445bbe13d0",
+     "abbreviation": "TB",
+     "name": "Tampa Bay Rays"
+    },
+    "away": {
+     "team_id": "31d823b3-efad-4907-b55e-8e447d70c754",
+     "abbreviation": "ATH",
+     "name": "Athletics"
+    },
+    "starts_at": "2026-09-17T17:10:00+00:00",
+    "status": "SCHEDULED",
+    "model": {
+     "engine_id": "MLB_V18_WHOLE_GAME",
+     "home": 0.6578,
+     "away": 0.34219999999999995,
+     "home_two_way": 0.6578,
+     "expected_home": 4.76,
+     "expected_away": 3.29,
+     "created_at": "2026-09-17T14:56:48.233911+00:00"
+    }
+   },
+   "item": {
+    "decision_id": "8c8b1a69-cd8f-4f2d-aa69-eb878a77057f",
+    "sport": "MLB",
+    "experiment": "ASP MLB V18 CONDITIONAL VIRTUAL - 2026 V1",
+    "game_id": "3e49e756-2cf0-4857-a9e4-c050caf8b514",
+    "matchup": "ATH @ TB",
+    "starts_at": "2026-09-17T17:10:00+00:00",
+    "phase": "MORNING",
+    "market": "MONEYLINE",
+    "selection": "ATH ML",
+    "line": null,
+    "sportsbook": "Pointsbet (SportsGameOdds, research)",
+    "american": 230,
+    "quote_observed_at": "2026-09-17T13:06:37.966000+00:00",
+    "quote_age_minutes": 165.0,
+    "model_probability": 0.34219999999999995,
+    "market_probability": 0.29180176007410835,
+    "edge": 0.03916969696969691,
+    "expected_value": 0.12925999999999982,
+    "recommendation": "QUALIFIED_BET",
+    "stored_recommendation": "QUALIFIED_BET",
+    "reason": "V2 TIER_B_PROBABLE_STABLE: MONEYLINE selection ATH ML qualifies with adjusted edge +3.0 pts (raw +5.0; uncertainty -0.0; starter -2.0; lineup -0.0) and positive adjusted EV under AISP_PRACTICAL_PREGAME_POLICY_V2_1.",
+    "recommended_at": "2026-09-17T15:51:37.755194+00:00",
+    "market_integrity": {
+     "two_sided_same_book": true,
+     "market_matches": true,
+     "provider": "SportsGameOdds",
+     "provider_permitted": true,
+     "classification": "RESEARCH",
+     "sportsbook": "Pointsbet (SportsGameOdds, research)",
+     "sportsbook_key": "sgo:pointsbet",
+     "selected_american": 230,
+     "opposite_american": -278,
+     "older_leg_observed_at": "2026-09-17T13:06:37.966000+00:00",
+     "older_leg_age_minutes_at_decision": 165.0,
+     "fresh_at_decision": true
+    },
+    "forecast_check": {
+     "engine_id": "MLB_V18_WHOLE_GAME",
+     "controlling": true,
+     "latest_at_decision": true,
+     "superseded_since_decision": false,
+     "published_at": "2026-09-17T14:56:48.233911+00:00"
+    },
+    "adjusted": {
+     "edge": 0.030398,
+     "expected_value": 0.06326,
+     "probability": 0.3222
+    },
+    "plain_reasons": [],
+    "decision_window": {
+     "opens_at": "2026-09-17T16:40:00+00:00",
+     "closes_at": "2026-09-17T16:55:00+00:00"
+    },
+    "group": "WATCHING",
+    "position": null
+   }
+  }
+ ]
+}

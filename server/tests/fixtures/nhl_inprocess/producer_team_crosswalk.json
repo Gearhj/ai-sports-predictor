@@ -1,0 +1,205 @@
+{
+ "aliasSourceSha256": "8e2a187a9ee5df31c3b813c9f4f3d4cb07424d821509be0aace3c2bc023e361f",
+ "note": "teamCrosswalk exactly as the producer's preparer recorded it in CURRENT_SCHEDULE_AND_MODEL_INPUTS.json (identical in the Oct 10, 12 and 13 workspaces).",
+ "schema": "AISP_NHL_PRODUCER_TEAM_CROSSWALK_FIXTURE_V1",
+ "teamCrosswalk": {
+  "ANA": {
+   "canonicalTeamId": "nhl:team:24",
+   "name": "Anaheim Ducks",
+   "sourceTeamId": "24",
+   "triCode": "ANA"
+  },
+  "ARI": {
+   "canonicalTeamId": "nhl:team:53",
+   "name": "Arizona Coyotes",
+   "sourceTeamId": "53",
+   "triCode": "ARI"
+  },
+  "BOS": {
+   "canonicalTeamId": "nhl:team:6",
+   "name": "Boston Bruins",
+   "sourceTeamId": "6",
+   "triCode": "BOS"
+  },
+  "BUF": {
+   "canonicalTeamId": "nhl:team:7",
+   "name": "Buffalo Sabres",
+   "sourceTeamId": "7",
+   "triCode": "BUF"
+  },
+  "CAR": {
+   "canonicalTeamId": "nhl:team:12",
+   "name": "Carolina Hurricanes",
+   "sourceTeamId": "12",
+   "triCode": "CAR"
+  },
+  "CBJ": {
+   "canonicalTeamId": "nhl:team:29",
+   "name": "Columbus Blue Jackets",
+   "sourceTeamId": "29",
+   "triCode": "CBJ"
+  },
+  "CGY": {
+   "canonicalTeamId": "nhl:team:20",
+   "name": "Calgary Flames",
+   "sourceTeamId": "20",
+   "triCode": "CGY"
+  },
+  "CHI": {
+   "canonicalTeamId": "nhl:team:16",
+   "name": "Chicago Blackhawks",
+   "sourceTeamId": "16",
+   "triCode": "CHI"
+  },
+  "COL": {
+   "canonicalTeamId": "nhl:team:21",
+   "name": "Colorado Avalanche",
+   "sourceTeamId": "21",
+   "triCode": "COL"
+  },
+  "DAL": {
+   "canonicalTeamId": "nhl:team:25",
+   "name": "Dallas Stars",
+   "sourceTeamId": "25",
+   "triCode": "DAL"
+  },
+  "DET": {
+   "canonicalTeamId": "nhl:team:17",
+   "name": "Detroit Red Wings",
+   "sourceTeamId": "17",
+   "triCode": "DET"
+  },
+  "EDM": {
+   "canonicalTeamId": "nhl:team:22",
+   "name": "Edmonton Oilers",
+   "sourceTeamId": "22",
+   "triCode": "EDM"
+  },
+  "FLA": {
+   "canonicalTeamId": "nhl:team:13",
+   "name": "Florida Panthers",
+   "sourceTeamId": "13",
+   "triCode": "FLA"
+  },
+  "LAK": {
+   "canonicalTeamId": "nhl:team:26",
+   "name": "Los Angeles Kings",
+   "sourceTeamId": "26",
+   "triCode": "LAK"
+  },
+  "MIN": {
+   "canonicalTeamId": "nhl:team:30",
+   "name": "Minnesota Wild",
+   "sourceTeamId": "30",
+   "triCode": "MIN"
+  },
+  "MTL": {
+   "canonicalTeamId": "nhl:team:8",
+   "name": "Montréal Canadiens",
+   "sourceTeamId": "8",
+   "triCode": "MTL"
+  },
+  "NJD": {
+   "canonicalTeamId": "nhl:team:1",
+   "name": "New Jersey Devils",
+   "sourceTeamId": "1",
+   "triCode": "NJD"
+  },
+  "NSH": {
+   "canonicalTeamId": "nhl:team:18",
+   "name": "Nashville Predators",
+   "sourceTeamId": "18",
+   "triCode": "NSH"
+  },
+  "NYI": {
+   "canonicalTeamId": "nhl:team:2",
+   "name": "New York Islanders",
+   "sourceTeamId": "2",
+   "triCode": "NYI"
+  },
+  "NYR": {
+   "canonicalTeamId": "nhl:team:3",
+   "name": "New York Rangers",
+   "sourceTeamId": "3",
+   "triCode": "NYR"
+  },
+  "OTT": {
+   "canonicalTeamId": "nhl:team:9",
+   "name": "Ottawa Senators",
+   "sourceTeamId": "9",
+   "triCode": "OTT"
+  },
+  "PHI": {
+   "canonicalTeamId": "nhl:team:4",
+   "name": "Philadelphia Flyers",
+   "sourceTeamId": "4",
+   "triCode": "PHI"
+  },
+  "PIT": {
+   "canonicalTeamId": "nhl:team:5",
+   "name": "Pittsburgh Penguins",
+   "sourceTeamId": "5",
+   "triCode": "PIT"
+  },
+  "SEA": {
+   "canonicalTeamId": "nhl:team:55",
+   "name": "Seattle Kraken",
+   "sourceTeamId": "55",
+   "triCode": "SEA"
+  },
+  "SJS": {
+   "canonicalTeamId": "nhl:team:28",
+   "name": "San Jose Sharks",
+   "sourceTeamId": "28",
+   "triCode": "SJS"
+  },
+  "STL": {
+   "canonicalTeamId": "nhl:team:19",
+   "name": "St. Louis Blues",
+   "sourceTeamId": "19",
+   "triCode": "STL"
+  },
+  "TBL": {
+   "canonicalTeamId": "nhl:team:14",
+   "name": "Tampa Bay Lightning",
+   "sourceTeamId": "14",
+   "triCode": "TBL"
+  },
+  "TOR": {
+   "canonicalTeamId": "nhl:team:10",
+   "name": "Toronto Maple Leafs",
+   "sourceTeamId": "10",
+   "triCode": "TOR"
+  },
+  "UTA": {
+   "canonicalTeamId": "nhl:team:68",
+   "name": "Utah Mammoth",
+   "sourceTeamId": "68",
+   "triCode": "UTA"
+  },
+  "VAN": {
+   "canonicalTeamId": "nhl:team:23",
+   "name": "Vancouver Canucks",
+   "sourceTeamId": "23",
+   "triCode": "VAN"
+  },
+  "VGK": {
+   "canonicalTeamId": "nhl:team:54",
+   "name": "Vegas Golden Knights",
+   "sourceTeamId": "54",
+   "triCode": "VGK"
+  },
+  "WPG": {
+   "canonicalTeamId": "nhl:team:52",
+   "name": "Winnipeg Jets",
+   "sourceTeamId": "52",
+   "triCode": "WPG"
+  },
+  "WSH": {
+   "canonicalTeamId": "nhl:team:15",
+   "name": "Washington Capitals",
+   "sourceTeamId": "15",
+   "triCode": "WSH"
+  }
+ }
+}

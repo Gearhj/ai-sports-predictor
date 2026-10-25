@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,7 +28,10 @@ class TheOddsAPIAdapter:
         self.api_key = api_key.strip()
         self.markets = markets or ["h2h", "spreads", "totals"]
         self.regions = regions
-        allowed_sports = {"baseball_mlb", "americanfootball_nfl"}
+        # NCAAF is priced only by the CFB paper lane (app/cfb/odds_api_price.py),
+        # and NHL only by the NHL paper lane (app/nhl/odds_api_price.py); neither
+        # is admitted by the name-keyed ingest_odds binder (odds_league).
+        allowed_sports = {"baseball_mlb", "americanfootball_nfl", "americanfootball_ncaaf", "icehockey_nhl", "basketball_nba"}
         if sport_key not in allowed_sports:
             raise ValueError(f"Unsupported Odds API sport key: {sport_key}")
         self.sport_key = sport_key
@@ -110,19 +114,23 @@ class TheOddsAPIAdapter:
             raw = response.json()
             if not isinstance(raw, list):
                 raise SourceError(self.source, "Odds API returned an unexpected payload", retryable=False)
-            events = [self._normalize_event(event) for event in raw]
+            clock_refusals: list[dict[str, Any]] = []
+            events = [self._normalize_event(event, clock_refusals) for event in raw]
             quota = {
                 "requests_remaining": _header_int(response.headers, "x-requests-remaining"),
                 "requests_used": _header_int(response.headers, "x-requests-used"),
                 "requests_last": _header_int(response.headers, "x-requests-last"),
             }
+            # Present only when a bookmaker had no clock, so a normal response's
+            # metadata is unchanged.
+            extra = {"clock_refusals": clock_refusals} if clock_refusals else {}
             fetched_at = datetime.now(UTC)
             return AdapterResponse(
                 envelope=SourceEnvelope(
                     source=self.source,
                     fetched_at=fetched_at,
                     data=[event.model_dump(mode="json") for event in events],
-                    metadata={"event_count": len(events), "sport_key": self.sport_key, **quota},
+                    metadata={"event_count": len(events), "sport_key": self.sport_key, **quota, **extra},
                 ),
                 raw_payload=raw,
             )
@@ -130,6 +138,67 @@ class TheOddsAPIAdapter:
             raise
         except (httpx.HTTPError, ValueError) as exc:
             raise SourceError(self.source, f"Odds request failed: {type(exc).__name__}") from exc
+        finally:
+            if owns_client:
+                await client.aclose()
+
+    async def get_event_odds(self, event_id: str, markets: list[str]) -> AdapterResponse:
+        """One event's odds for explicitly listed markets (single-event endpoint).
+
+        ``GET /v4/sports/{sport}/events/{eventId}/odds``. The provider bills
+        markets x regions. The caller must reserve credits first; this method
+        never loops, never widens the market list and never echoes the key --
+        errors carry only the exception type, because an httpx error string
+        includes the full URL.
+        """
+
+        if not self.api_key:
+            raise SourceError(self.source, "THE_ODDS_API_KEY is not configured", retryable=False)
+        if not _EVENT_ID.fullmatch(event_id or ""):
+            raise SourceError(self.source, "Invalid provider event id", retryable=False)
+        if not markets or any(not _MARKET_KEY.fullmatch(m) for m in markets):
+            raise SourceError(self.source, "Markets must be listed explicitly", retryable=False)
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.get(
+                f"{self.base_url}/sports/{self.sport_key}/events/{event_id}/odds",
+                params={
+                    "apiKey": self.api_key,
+                    "regions": self.regions,
+                    "markets": ",".join(markets),
+                    "oddsFormat": "american",
+                    "dateFormat": "iso",
+                },
+            )
+            quota = {
+                "requests_remaining": _header_int(response.headers, "x-requests-remaining"),
+                "requests_used": _header_int(response.headers, "x-requests-used"),
+                "requests_last": _header_int(response.headers, "x-requests-last"),
+            }
+            if response.status_code >= 400:
+                error = SourceError(self.source, f"Event odds request failed: HTTP {response.status_code}",
+                                    retryable=False, status_code=response.status_code)
+                error.quota = quota  # type: ignore[attr-defined]
+                raise error
+            raw = response.json()
+            if not isinstance(raw, dict):
+                raise SourceError(self.source, "Odds API returned an unexpected payload", retryable=False)
+            return AdapterResponse(
+                envelope=SourceEnvelope(
+                    source=self.source,
+                    fetched_at=datetime.now(UTC),
+                    data=[],
+                    metadata={"endpoint": "v4/sports/{sport}/events/{eventId}/odds",
+                              "sport_key": self.sport_key, "markets": list(markets),
+                              "regions": self.regions, **quota},
+                ),
+                raw_payload=raw,
+            )
+        except SourceError:
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SourceError(self.source, f"Event odds request failed: {type(exc).__name__}") from exc
         finally:
             if owns_client:
                 await client.aclose()
@@ -185,22 +254,42 @@ class TheOddsAPIAdapter:
                 await client.aclose()
 
     @staticmethod
-    def _normalize_event(item: dict[str, Any]) -> OddsEventDTO:
+    def _normalize_event(item: dict[str, Any], clock_refusals: list[dict[str, Any]] | None = None) -> OddsEventDTO:
+        """One provider event -> DTO.
+
+        CLOCKS. A market's quote clock is its own ``last_update``. The documented
+        ``/odds`` response shape may carry only the bookmaker ``last_update``;
+        such a market takes the bookmaker clock and is marked
+        ``clock_source="BOOK"`` so no consumer mistakes it for an observed market
+        clock. When the market clock is present nothing changes (the DTO and its
+        dump are byte-identical to before). A bookmaker with no clock of its own
+        is skipped with its markets (a clockless market there has NEITHER clock;
+        no time is invented) -- never the whole response -- and named in
+        ``clock_refusals`` when a list is supplied.
+        """
+
         books: list[BookmakerDTO] = []
         for book in item.get("bookmakers") or []:
-            markets = [
-                BookMarketDTO(
-                    key=market["key"],
-                    last_update=market["last_update"],
-                    outcomes=[OddsOutcomeDTO(**outcome) for outcome in market.get("outcomes") or []],
-                )
-                for market in book.get("markets") or []
-            ]
+            book_clock = book.get("last_update")
+            if not book_clock:
+                if clock_refusals is not None:
+                    clock_refusals.append({"reason": "BOOK_CLOCK_MISSING", "event_id": item.get("id"),
+                                           "book": book.get("key")})
+                continue
+            markets: list[BookMarketDTO] = []
+            for market in book.get("markets") or []:
+                outcomes = [OddsOutcomeDTO(**outcome) for outcome in market.get("outcomes") or []]
+                if market.get("last_update"):
+                    markets.append(BookMarketDTO(key=market["key"], last_update=market["last_update"],
+                                                 outcomes=outcomes))
+                else:
+                    markets.append(BookMarketDTO(key=market["key"], last_update=book_clock,
+                                                 outcomes=outcomes, clock_source="BOOK"))
             books.append(
                 BookmakerDTO(
                     key=book["key"],
                     title=book["title"],
-                    last_update=book["last_update"],
+                    last_update=book_clock,
                     markets=markets,
                 )
             )
@@ -227,6 +316,10 @@ class TheOddsAPIAdapter:
             scores=scores,
             last_update=item.get("last_update"),
         )
+
+
+_EVENT_ID = re.compile(r"[A-Za-z0-9]{8,64}")
+_MARKET_KEY = re.compile(r"[a-z][a-z0-9_]{1,48}")
 
 
 def _header_int(headers: httpx.Headers, name: str) -> int | None:

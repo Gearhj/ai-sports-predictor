@@ -47,3 +47,5 @@
   .nfl-weeknav label { min-width:0; width:100%; max-width:100%; flex:1 1 100%; }
   .nfl-weeknav select { width:0; min-width:0; max-width:100%; flex:1 1 0; text-overflow:ellipsis; }
 }
+
+.planned-sport-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 10px; background: #fdf1dd; color: #5c3b07; font-size: 13px; }

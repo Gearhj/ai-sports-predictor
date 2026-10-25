@@ -1,5 +1,5 @@
 /**
- * RFF Lab — Ripe For Fuckery.
+ * RFF Lens — Market reality check.
  *
  * The measure is meant to be fun. The thing that makes it fun rather than
  * irresponsible is that it never rounds an absence up into a finding: a
@@ -57,13 +57,26 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
   }
   const range = game.score_range
   const needle = game.score == null ? null : point(at(game.score))
+  // Below the publication floor the dial shows the known contribution as the
+  // start of the interval, never as a score.
+  // A point estimate leads only when the interval identifies one band; when it
+  // does not, the range is the finding and the dial says so.
+  const leadWithPoint = game.score != null && game.emphasize_point !== false
+  const headline = leadWithPoint
+    ? game.score!.toFixed(0)
+    : game.score != null && range
+      ? `${range[0].toFixed(0)}–${range[1].toFixed(0)}`
+      : `${game.known_contribution.toFixed(0)}+`
+  const caption = game.status === 'RFF_PUBLISHED'
+    ? (leadWithPoint ? game.band.label.toUpperCase() : 'RANGE — NO SINGLE BAND')
+    : game.status === 'PROVISIONAL_WIDE_RANGE' ? 'PROVISIONAL' : 'UNKNOWN — NOT CALM'
 
   return (
     <div className="bx-rff__gauge" style={{ color: tone }}>
       <svg width={size} height={height} viewBox={`0 0 ${size} ${height}`} role="img"
         aria-label={game.score == null
-          ? 'No RFF score: no component has data'
-          : `Provisional RFF ${game.score.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}, ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage`}>
+          ? `Unknown: no RFF Core score. ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage, known contribution ${game.known_contribution.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}. Unknown is not calm.`
+          : `RFF Core ${game.score.toFixed(0)}, plausible range ${range?.[0].toFixed(0)} to ${range?.[1].toFixed(0)}, ${(game.evidence_coverage * 100).toFixed(0)} percent evidence coverage`}>
         <path d={arc(Math.PI, 2 * Math.PI)} fill="none" stroke="var(--bx-sunk)"
           strokeWidth={stroke} strokeLinecap="round" />
         {/* The plausible range, drawn behind the needle: a third of the weight
@@ -81,11 +94,11 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
         )}
         <text x={cx} y={cy - 6} textAnchor="middle" fill="currentColor"
           style={{ font: '800 42px/1 inherit', letterSpacing: '-.04em' }}>
-          {game.score == null ? '—' : game.score.toFixed(0)}
+          {headline}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fill="var(--bx-muted)"
           style={{ font: '600 10px var(--bx-mono)', letterSpacing: '.13em' }}>
-          {game.band.label.toUpperCase()}
+          {caption}
         </text>
         <text x={cx - radius} y={cy + 20} textAnchor="middle" fill="var(--bx-dim)"
           style={{ font: '600 9px var(--bx-mono)' }}>0</text>
@@ -94,7 +107,8 @@ export function RffGauge({ game, size = 200 }: { game: RffGame; size?: number })
       </svg>
       {range && (
         <span className="bx-dim" style={{ textAlign: 'center' }}>
-          plausible {range[0].toFixed(0)}–{range[1].toFixed(0)} at {pct(game.evidence_coverage, 0)} coverage
+          known {game.known_contribution.toFixed(0)} · plausible {range[0].toFixed(0)}–{range[1].toFixed(0)}
+          {' '}at {pct(game.evidence_coverage, 0)} coverage
         </span>
       )}
     </div>
@@ -107,7 +121,7 @@ export function RffComponents({ game }: { game: RffGame }) {
     <div className="bx-rff__components">
       {game.components.map((component) => (
         <ComponentRow key={component.key} component={component}
-          share={game.contributions.find((entry) => entry.key === component.key)?.share_of_score ?? null} />
+          share={game.contributions.find((entry) => entry.key === component.key)?.share_of_measure ?? null} />
       ))}
     </div>
   )
@@ -131,7 +145,12 @@ function ComponentRow({ component, share }: { component: RffComponent; share: nu
         </span>
         <b className={`bx-num${available ? '' : ' bx-rff__unavailable'}`}>{component.display}</b>
         <small className="bx-dim">
-          {available && share != null ? `${(share * 100).toFixed(0)}% of score` : `weight ${(component.weight * 100).toFixed(0)}%`}
+          {/* Weight is null only for an Extended component, which has none. */}
+          {component.weight == null
+            ? 'no source yet · not part of RFF Core'
+            : available && share != null
+              ? `${(share * 100).toFixed(0)} of 100 points · weight ${(component.weight * 100).toFixed(1)}%`
+              : `weight ${(component.weight * 100).toFixed(1)}% · not counted`}
         </small>
       </button>
       {open && (
@@ -177,7 +196,7 @@ export function RffShareCard({ game }: { game: RffGame }) {
   return (
     <div className="bx-rff__share" style={{ borderColor: bandTone(game.band.key) }}>
       <div className="bx-rff__share-head">
-        <span className="bx-eyebrow"><Flame size={12} aria-hidden="true" /> RFF Index — Ripe For Fuckery</span>
+        <span className="bx-eyebrow"><Flame size={12} aria-hidden="true" /> RFF Lens — Market reality check</span>
         <button type="button" className="bx-btn bx-btn--ghost"
           onClick={() => {
             // Clipboard is unavailable in some contexts; the text is on screen

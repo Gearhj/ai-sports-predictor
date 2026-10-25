@@ -3,12 +3,21 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import type { ExperienceLeagueCode } from '../services/sportExperience'
 
 export type SelectedSport = 'ALL' | ExperienceLeagueCode
-const CODES = new Set(['ALL', 'MLB', 'NFL', 'NBA', 'WNBA', 'NHL', 'UFC'])
+const CODES = new Set(['ALL', 'MLB', 'NFL', 'NBA', 'CFB', 'WNBA', 'NHL', 'UFC'])
 const STORAGE_KEY = 'aisp_selected_sport_v1'
 
 export function normalizeSport(value: string | null | undefined): SelectedSport | null {
   const code = value?.toUpperCase()
   return code && CODES.has(code) ? code as SelectedSport : null
+}
+
+/** Research pages belong to one sport whatever was chosen before. */
+export function impliedSport(pathname: string): SelectedSport | null {
+  if (pathname === '/nba' || pathname.startsWith('/nba/')) return 'NBA' as SelectedSport
+  if (pathname === '/nhl' || pathname.startsWith('/nhl/')) return 'NHL' as SelectedSport
+  if (pathname.startsWith('/college-football')) return 'CFB' as SelectedSport
+  if (pathname === '/nfl' || pathname.startsWith('/nfl/')) return 'NFL' as SelectedSport
+  return null
 }
 
 /** Keep the event, view and hash; only replace the sport query value. */
@@ -45,12 +54,14 @@ export function SportSelectionProvider({ children }: { children: ReactNode }) {
   })
   const params = new URLSearchParams(location.search)
   const explicit = normalizeSport(params.get('sport') ?? params.get('league'))
-  const sport = explicit ?? remembered
+  const implied = impliedSport(location.pathname)
+  const sport = explicit ?? implied ?? remembered
   useEffect(() => {
-    if (!explicit) return
-    remember(explicit)
-    try { localStorage.setItem(STORAGE_KEY, explicit) } catch { /* Private browsing still keeps URL state. */ }
-  }, [explicit])
+    const chosen = explicit ?? implied
+    if (!chosen) return
+    remember(chosen)
+    try { localStorage.setItem(STORAGE_KEY, chosen) } catch { /* Private browsing still keeps URL state. */ }
+  }, [explicit, implied])
   const withSport = (href: string, override?: SelectedSport) => sportHref(href, override ?? sport)
   const setSport = (next: SelectedSport) => {
     remember(next)

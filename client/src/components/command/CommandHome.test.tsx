@@ -26,12 +26,12 @@ vi.mock('../../services/api', async (importOriginal) => {
 
 import { CommandHome } from './CommandHome'
 
-afterEach(() => { cleanup(); current = null; hang = false; requests.length = 0 })
+afterEach(() => { cleanup(); current = null; hang = false; requests.length = 0; try { window.localStorage.clear() } catch { /* ignore */ } })
 
 async function renderScenario(name: string) {
   current = namedScenario(name, { now: Date.now() })
   render(<MemoryRouter><CommandHome withSport={(href) => href} /></MemoryRouter>)
-  const hero = await screen.findByRole('region', { name: /Today’s|Closest/ })
+  const hero = await screen.findByRole('region', { name: /^(Today’s (Best|Model|Games on)|Closest)/ })
   await within(hero).findAllByRole('listitem')
   return hero
 }
@@ -43,10 +43,15 @@ describe('Home Edge Board', () => {
     const cards = within(hero).getAllByRole('listitem')
     expect(cards).toHaveLength(4)
     // Qualified first (largest adjusted edge), declined after every qualified game.
-    expect(cards[0]).toHaveAccessibleName(/^1\. .*Qualified$/)
-    expect(cards.map((c) => c.getAttribute('aria-label')!.split(', ').pop())).toEqual(['Qualified', 'Qualified', 'Qualified', 'Declined'])
+    expect(cards[0]).toHaveAccessibleName(/^1\. .*Qualified · not funded$/)
+    expect(cards.map((c) => c.getAttribute('aria-label')!.split(', ').pop())).toEqual(['Qualified · not funded', 'Qualified · not funded', 'Qualified · not funded', 'Final · declined'])
     expect(within(cards[0]).getByTitle('+7.1 pts')).toBeInTheDocument()
-    expect(within(hero).getAllByRole('link', { name: /View decision/ })).toHaveLength(4)
+    // The recorded policy value, named as such; the stored break-even figure never carries this name.
+    expect(within(cards[0]).getByText('Recorded policy-adjusted edge')).toBeInTheDocument()
+    expect(within(hero).queryByText(/^Edge$|^Adj\. edge$/)).toBeNull()
+    // Rank 1 is the featured summary with an "Open Game Brief" action; the other three keep "View decision".
+    expect(within(hero).getByRole('link', { name: /Open Game Brief/ })).toBeInTheDocument()
+    expect(within(hero).getAllByRole('link', { name: /View decision/ })).toHaveLength(3)
     expect(within(hero).getByText('+2 more on Daily Decisions')).toBeInTheDocument()
     const rail = within(cards[0]).getAllByRole('img').find((el) => /win probability: model/.test(el.getAttribute('aria-label') ?? ''))!
     expect(rail.getAttribute('aria-label')).toMatch(/no-vig consensus .*books .* to .*gap/)
@@ -57,11 +62,30 @@ describe('Home Edge Board', () => {
     const hero = await renderScenario('forecasts-only')
     expect(within(hero).getByRole('heading', { level: 1 })).toHaveTextContent('Today’s Model Leans')
     expect(within(hero).getByText('Sportsbook markets pending')).toBeInTheDocument()
-    expect(within(hero).queryByText(/Adj\. edge|Exp\. return|Declined|NO BET/i)).toBeNull()
+    expect(within(hero).queryByText(/Adj\. edge|Exp\. return|policy-adjusted|Unadjusted model return|Declined|NO BET/i)).toBeNull()
     expect(within(hero).getAllByText('Market pending')).toHaveLength(4)
-    expect(within(hero).getAllByRole('link', { name: /Analyze game/ })).toHaveLength(4)
+    // Rank 1 is the featured summary ("Open Game Brief"); the other three leans keep "Analyze game".
+    expect(within(hero).getByRole('link', { name: /Open Game Brief/ })).toBeInTheDocument()
+    expect(within(hero).getAllByRole('link', { name: /Analyze game/ })).toHaveLength(3)
     expect(within(hero).getAllByRole('img', { name: /Model win split/ })).toHaveLength(4)
     expect(within(hero).getAllByText('Market collection').length).toBeGreaterThan(0)
+  })
+
+  it('the sport selector narrows the hero: MLB shows no College Football card, CFB shows only it', async () => {
+    const base = namedScenario('forecasts-only', { now: Date.now() })
+    const cfb = { ...base.markets.games[0], game_id: 'cfb-1', league: 'CFB', matchup: 'Miami @ Wake Forest' }
+    const mlbCount = Math.min(4, base.markets.games.filter((g) => g.league === 'MLB').length)
+    for (const [sport, expected] of [['MLB', mlbCount], ['CFB', 1]] as const) {
+      current = { ...base, markets: { ...base.markets, games: [...base.markets.games, cfb] } }
+      render(<MemoryRouter><CommandHome withSport={(href) => href} sport={sport} /></MemoryRouter>)
+      const hero = await screen.findByRole('region', { name: /^Today’s Model/ })
+      await within(hero).findAllByRole('listitem')
+      const cards = [...hero.querySelectorAll('article')]
+      expect(cards).toHaveLength(expected)
+      const cfbCards = cards.filter((c) => c.querySelector('a[href*="college-football"]'))
+      expect(cfbCards).toHaveLength(sport === 'CFB' ? 1 : 0)
+      cleanup()
+    }
   })
 
   it('before forecasts and prices: games on deck with the milestones still required', async () => {
@@ -74,7 +98,7 @@ describe('Home Edge Board', () => {
   it('a recorded position leads, with its entry terms', async () => {
     const hero = await renderScenario('open-position')
     const cards = within(hero).getAllByRole('listitem')
-    expect(cards[0]).toHaveAccessibleName(/Position recorded$/)
+    expect(cards[0]).toHaveAccessibleName(/Funded paper wager$/)
     expect(within(cards[0]).getByText(/Entered \+125 · Betmgm · stake \$12\.50/)).toBeInTheDocument()
   })
 
@@ -89,19 +113,33 @@ describe('Home layout and timeline', () => {
   it('puts the bankroll with its sport chips below the hero and removes the separate sport-card row', async () => {
     await renderScenario('four-plus')
     const bank = screen.getByRole('region', { name: 'Combined virtual bankroll' })
-    expect(within(bank).getByRole('list', { name: 'Sport accounts' }).children).toHaveLength(4)
+    // One chip per sport account: MLB, NFL, NBA, College Football and (since 2026-10-16) NHL.
+    expect(within(bank).getByRole('list', { name: 'Sport accounts' }).children).toHaveLength(5)
     expect(screen.queryByRole('list', { name: 'Sport bankrolls' })).toBeNull()
     const order = [...document.querySelectorAll('.cc-edge, .cc-bank, .cc-agenda-panel')].map((el) => el.className.split(' ').find((c) => ['cc-edge', 'cc-bank', 'cc-agenda-panel'].includes(c)))
     expect(order).toEqual(['cc-edge', 'cc-bank', 'cc-agenda-panel'])
   })
 
-  it('groups games sharing a start time and lists them on Enter', async () => {
-    await renderScenario('shared-start')
-    const timeline = screen.getByRole('region', { name: "Today's timeline" })
-    const pill = within(timeline).getAllByRole('button', { name: /^Game start, MLB, 4 games, / })[0]
-    fireEvent.keyDown(pill, { key: 'Enter' })
-    const details = await within(timeline).findByRole('region', { name: 'Game start details' })
-    expect(within(details).getAllByRole('link')).toHaveLength(4)
+  it("lists today's games in start order, four identical starts under one time label", async () => {
+    // A morning clock, so the fixture's games (2–3 hours ahead) stay on today's Eastern date.
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-09-17T14:00:00Z') })
+    try {
+      await renderScenario('shared-start')
+      const schedule = screen.getByRole('region', { name: 'Today’s games' })
+      // Timeline is the default; the list is the alternate view.
+      expect(within(schedule).getByRole('button', { name: 'Timeline' })).toHaveAttribute('aria-pressed', 'true')
+      expect(schedule.querySelector('.cc-agenda')).not.toBeNull()
+      fireEvent.click(within(schedule).getByRole('button', { name: 'List' }))
+      expect(schedule.querySelector('.cc-agenda')).toBeNull()
+      expect(within(schedule).getByText('Game times and AISP positions · Eastern Time')).toBeInTheDocument()
+      expect(within(schedule).getByText('8 games · 0 AISP positions')).toBeInTheDocument()
+      expect(within(schedule).getByText('No AISP positions have been opened yet.')).toBeInTheDocument()
+      expect(within(schedule).getByRole('heading', { level: 3 })).toHaveTextContent(/ET · 4 games$/)
+      expect(within(schedule).getAllByRole('link')).toHaveLength(8)
+      expect(schedule.querySelector('svg')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders the cached ledger immediately while the refresh is still pending', async () => {

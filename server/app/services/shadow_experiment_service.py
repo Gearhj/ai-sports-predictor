@@ -55,8 +55,32 @@ from app.models import (
     ShadowExperiment,
     ShadowExperimentDecision,
 )
+from app.services.league_scope import MLB, LeagueMismatchError, require_league
 
 FINAL_PREGAME_CUTOFF_MINUTES = 15
+#: Canonical position-path dispositions. The literal values are the ones
+#: app.services.mlb_v18_funding_pause names; they are repeated here so the
+#: flag-off path imports nothing new.
+POSITION_CREATED = "CREATED"
+POSITION_INELIGIBLE = "INELIGIBLE"
+POSITION_NOT_FUNDED = "NOT_FUNDED"
+#: The durable funding receipt for a FINAL_PREGAME QUALIFIED_BET that reached
+#: staking (audit 2026-10-16, item 13 / MLB PC2 gap). Decision rows are
+#: append-only and are written before the cutoff, while the position is sized
+#: after it, so the disposition, its honest reason and the shared-allowance
+#: snapshot are kept as one append-only audit event per (decision, disposition,
+#: reason, stake) -- the MLB counterpart of NFL's ``staking_detail``.
+FUNDING_RECEIPT_ACTION = "MLB_FINAL_PREGAME_FUNDING_V1"
+#: Funding-receipt reason when the database refused the position INSERT (a
+#: uniqueness backstop fired). The position is not created; that one game is
+#: INELIGIBLE and every other game in the freeze run keeps its own outcome.
+POSITION_WRITE_CONFLICT = "POSITION_UNIQUENESS_CONFLICT"
+POSITION_WRITE_REFUSED = "POSITION_WRITE_REFUSED"
+#: The partial unique index migration 20261019_0055 creates in place of
+#: UNIQUE(shadow_experiment_id, market_outcome_id): one non-VOID position per
+#: experiment and market outcome. Only its presence lets a VOID original
+#: occurrence and its makeup's position share one outcome.
+LIVE_OUTCOME_INDEX = "uq_official_position_experiment_outcome_live"
 # The FINAL_PREGAME phase may only be frozen inside this window before the
 # cutoff (three freeze cadences of 5 minutes, so a single missed run cannot
 # leave a slate without a final evaluation). Versioned with the pipeline:
@@ -127,6 +151,21 @@ def same_quoted_price(snapshot: Any, decision: Any) -> bool:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def live_outcome_index_present(session: Session) -> bool:
+    """True when the database has ``LIVE_OUTCOME_INDEX`` (migration 20261019_0055 applied).
+
+    Read from the catalog on the session's own connection, inside its
+    transaction. Asked only on the rare path where a VOID prior of another
+    occurrence would otherwise stop blocking, so it is not cached: applying
+    the migration takes effect on the next evaluation.
+    """
+
+    from sqlalchemy import inspect as sa_inspect
+
+    indexes = sa_inspect(session.connection()).get_indexes(OfficialAspPosition.__tablename__)
+    return any(index.get("name") == LIVE_OUTCOME_INDEX and index.get("unique") for index in indexes)
 
 
 class ShadowExperimentService:
@@ -341,7 +380,13 @@ class ShadowExperimentService:
         ))
 
     def _realized_profit(self, experiment: ShadowExperiment) -> float:
-        return sum(float(row.profit_loss) for row in self._settlements(experiment))
+        # Original settlements plus any correction recorded beside them. No
+        # adjustment exists for MLB/NFL today, so this adds exactly 0.0 there.
+        from app.cfb.settlement_corrections import adjustment_total
+
+        settlements = self._settlements(experiment)
+        return (sum(float(row.profit_loss) for row in settlements)
+                + adjustment_total(self.session, [row.position_id for row in settlements]))
 
     def _reserved_open_stake(self, experiment: ShadowExperiment) -> float:
         return sum(
@@ -402,7 +447,7 @@ class ShadowExperimentService:
         from app.services.read_service import ReadService
 
         read = ReadService(self.session, self.settings)
-        games = read._live_games_for_date(event_date)
+        games = read._live_games_for_date(event_date, MLB)
         games = [game for game in games if _aware(game.starts_at) >= _aware(experiment.started_at)]
         if not games:
             return {"note": "no live games", "frozen": 0, "primary": 0}
@@ -417,6 +462,13 @@ class ShadowExperimentService:
 
         frozen = 0
         primary_count = 0
+        # MLB_V18_FUNDING_PAUSE_V1: a receipt exists only while the flag is on,
+        # so the flag-off payload is exactly what it always was.
+        funding_pause = None
+        if self.settings.mlb_v18_funding_pause_enabled:
+            from app.services.mlb_v18_funding_pause import FundingPauseReceipt
+
+            funding_pause = FundingPauseReceipt(experiment_id=str(experiment.id))
         for game, card, forecast in zip(games, cards, forecasts):
             if phase == ExperimentDecisionPhase.LINEUP_CONFIRMED and not self._lineup_confirmed(card):
                 continue  # capture this phase only once the lineup is actually confirmed
@@ -468,13 +520,16 @@ class ShadowExperimentService:
             if (
                 phase == ExperimentDecisionPhase.FINAL_PREGAME
                 and cutoff <= now < _aware(game.starts_at)
-                and self._create_canonical_position(experiment, game, event_date, now)
+                and self._create_canonical_position(
+                    experiment, game, event_date, now, funding_pause=funding_pause)
             ):
                 primary_count += 1
 
         self.session.commit()
         payload = {"frozen": frozen, "primary": primary_count, "phase": phase.value,
                    "games": len(games), "policy": experiment.decision_policy}
+        if funding_pause is not None:
+            payload["funding_pause"] = funding_pause.as_dict()
         if experiment.model_era_id:
             payload["model_era_id"] = experiment.model_era_id
             payload["controlling_engine"] = experiment.controlling_engine
@@ -638,9 +693,21 @@ class ShadowExperimentService:
             reasons.append(f"Exact MONEYLINE selection classified {state}")
         return reason, list(dict.fromkeys(reasons))[:8]
 
+    def _is_mlb_game(self, game: Game, process: str) -> bool:
+        """Every decision and position here is MLB; another league's game is
+        refused (and logged) even if a caller hands it in directly."""
+
+        try:
+            require_league(self.session, game, MLB, process=process)
+        except LeagueMismatchError:
+            return False
+        return True
+
     def _append_decision(
         self, experiment, game, forecast, phase, opportunity, now, *, v2=None,
     ) -> ShadowExperimentDecision | None:
+        if not self._is_mlb_game(game, "MLB experiment decision"):
+            return None
         bet = self._moneyline_selection(opportunity)
         if v2 is not None:
             # V2 challenger: the recommendation and reasons come from the
@@ -833,16 +900,54 @@ class ShadowExperimentService:
         game: Game,
         event_date: date,
         now: datetime,
+        *,
+        funding_pause: Any = None,
     ) -> bool:
-        """Create exactly one canonical virtual position from cutoff-safe evidence."""
+        """Create exactly one canonical virtual position from cutoff-safe evidence.
 
+        True only when a position was created. The disposition itself (and,
+        while MLB_V18_FUNDING_PAUSE_V1 is on, the receipt) says why not.
+        """
+
+        disposition = self._canonical_position_disposition(
+            experiment, game, event_date, now, funding_pause=funding_pause,
+        )
+        if funding_pause is not None:
+            funding_pause.count(disposition)
+        return disposition == POSITION_CREATED
+
+    def _canonical_position_disposition(
+        self,
+        experiment: ShadowExperiment,
+        game: Game,
+        event_date: date,
+        now: datetime,
+        *,
+        funding_pause: Any = None,
+    ) -> str:
+        """One of CREATED / INELIGIBLE / NOT_FUNDED, or a funding-pause disposition.
+
+        ORDER IS THE CONTRACT. Every decision-integrity guard runs first; then
+        the MLB V18 funding pause (flag-gated); only then any account, bankroll,
+        stake or cap read. A paused decision never reaches staking.
+        """
+
+        if not self._is_mlb_game(game, "MLB experiment position"):
+            return POSITION_INELIGIBLE
         cutoff = _aware(game.starts_at) - timedelta(minutes=FINAL_PREGAME_CUTOFF_MINUTES)
+        # Only a decision made for THIS occurrence may fund it. A rescheduled
+        # game keeps its games row, so without the slate filter the original
+        # date's QUALIFIED decision (older than any later cutoff) would pass
+        # every check below and fund the makeup at the original date's price.
+        # A same-day time change keeps the same slate date.
+        occurrence_slate = _aware(game.starts_at).astimezone(ZoneInfo(self.settings.display_timezone)).date()
         decision = self.session.scalar(
             select(ShadowExperimentDecision).where(
                 ShadowExperimentDecision.experiment_id == experiment.id,
                 ShadowExperimentDecision.game_id == game.id,
                 ShadowExperimentDecision.phase == ExperimentDecisionPhase.FINAL_PREGAME,
                 ShadowExperimentDecision.recommended_at <= cutoff,
+                ShadowExperimentDecision.slate_date == occurrence_slate,
             ).order_by(ShadowExperimentDecision.recommended_at.desc()).limit(1)
         )
         if (
@@ -858,12 +963,15 @@ class ShadowExperimentService:
             or decision.decimal_odds is None
             or decision.model_probability is None
         ):
-            return False
-        if self.session.scalar(select(OfficialAspPosition.id).where(
+            return POSITION_INELIGIBLE
+        if self.settings.mlb_rescheduled_occurrence_positions_enabled:
+            if self._prior_position_blocks(experiment, decision, occurrence_slate, game):
+                return POSITION_INELIGIBLE
+        elif self.session.scalar(select(OfficialAspPosition.id).where(
             OfficialAspPosition.shadow_experiment_id == experiment.id,
             OfficialAspPosition.market_outcome_id == decision.market_outcome_id,
         )):
-            return False
+            return POSITION_INELIGIBLE
         snapshot = self.session.get(OddsSnapshot, decision.odds_snapshot_id)
         forecast = self._decision_forecast(decision)
         if (
@@ -877,7 +985,39 @@ class ShadowExperimentService:
             or _aware(forecast.generated_at) > cutoff
             or decision.source_mode != "LIVE"
         ):
-            return False
+            return POSITION_INELIGIBLE
+
+        # Oct19 owner funding-only restrictions. All original occurrence,
+        # quote/forecast integrity and duplicate guards above remain binding.
+        # Retain the decision and append the existing immutable funding receipt.
+        from app.services.owner_funding_restrictions import mlb_position_restriction
+        owner_restriction = mlb_position_restriction(
+            starts_at=game.starts_at, decision=decision,
+            moment=now, settings=self.settings,
+        )
+        if owner_restriction is not None:
+            self._record_funding(
+                experiment, game, decision, now, disposition=POSITION_NOT_FUNDED,
+                reason=owner_restriction["reason"], stake=0.0,
+                limits={"owner_funding_restriction": owner_restriction}, shared=None,
+            )
+            return POSITION_NOT_FUNDED
+
+        # MLB_V18_FUNDING_PAUSE_V1 -- the decision is now proven real,
+        # cutoff-safe and not a duplicate, and nothing below this point has run:
+        # no account read, no bankroll, no stake, no cap. An exact-authority V18
+        # QUALIFIED_BET stops here with an immutable pause record; a V18
+        # authority mismatch stops here with an operating alert; anything else
+        # continues exactly as before. Off by default.
+        if self.settings.mlb_v18_funding_pause_enabled:
+            from app.services.mlb_v18_funding_pause import funding_pause_disposition
+
+            paused = funding_pause_disposition(
+                self.session, experiment=experiment, game=game, decision=decision,
+                forecast=forecast, snapshot=snapshot, now=now, receipt=funding_pause,
+            )
+            if paused is not None:
+                return paused
 
         # Capital comes from the season account when the era has one. The
         # account is what holds the money: it spans model eras, so the
@@ -893,21 +1033,51 @@ class ShadowExperimentService:
             available = basis["available"]
         stake = self.compute_position_stake(experiment, decision, bankroll)
         if stake is None:
-            return False
+            self._record_funding(experiment, game, decision, now, disposition=POSITION_NOT_FUNDED,
+                                 reason="NO_POSITIVE_STAKE", stake=0.0, limits=None, shared=None)
+            return POSITION_NOT_FUNDED
         daily_used, same_game_used = self._stake_used(
             experiment, game=game, event_date=event_date, basis=basis,
         )
+        daily_room = max(0.0, bankroll * experiment.max_daily_percentage - daily_used)
+        # The owner's shared cross-sport allowance, once effective, replaces this
+        # aggregate daily ceiling: one $100 per Eastern slate date across all
+        # official sports, taken under the cross-sport lock that is held until
+        # this transaction commits the position. MLB is a PRIORITY sport
+        # (AISP_SHARED_100_PRIORITY_MLB_NHL_V1, owner 2026-10-16): its room
+        # excludes its own hold and counts only the holds of other undecided
+        # MLB/NHL games ordered before it.
+        from app.services.shared_daily_allowance import eastern_date, room as shared_room
+
+        shared = shared_room(self.session, self.settings, day=eastern_date(game.starts_at),
+                             moment=now or datetime.now(UTC), sport="MLB",
+                             game_id=game.id) if getattr(game, "starts_at", None) else None
+        if shared is not None:
+            daily_room = shared["room_usd"]
+        limits = {
+            "policy_stake": round(stake, 2),
+            "available": round(available, 2),
+            "same_game_cap": round(max(0.0, bankroll * experiment.max_same_game_percentage - same_game_used), 2),
+            "daily_cap": round(daily_room, 2),
+        }
         stake = min(
             stake,
             available,
             max(0.0, bankroll * experiment.max_same_game_percentage - same_game_used),
-            max(0.0, bankroll * experiment.max_daily_percentage - daily_used),
+            daily_room,
         )
         stake = round(stake, 2)
         if stake <= 0:
-            return False
+            from app.services.shared_daily_allowance import zero_room_reason
 
-        self.session.add(OfficialAspPosition(
+            shared_alone = (shared is not None and limits["daily_cap"] <= 0
+                            and all(v > 0 for k, v in limits.items() if k != "daily_cap"))
+            self._record_funding(experiment, game, decision, now, disposition=POSITION_NOT_FUNDED,
+                                 reason=zero_room_reason(shared) if shared_alone else "STAKING_OR_EXPOSURE_CAP",
+                                 stake=0.0, limits=limits, shared=shared)
+            return POSITION_NOT_FUNDED
+
+        position = OfficialAspPosition(
             forecast_id=decision.forecast_id,
             shadow_forecast_id=decision.shadow_forecast_id,
             market_outcome_id=decision.market_outcome_id,
@@ -923,9 +1093,125 @@ class ShadowExperimentService:
             bankroll_before_position=round(available, 2),
             recommendation_policy_version=experiment.recommendation_policy_version,
             staking_policy_version=experiment.staking_policy_version,
-        ))
+        )
+        # The INSERT runs in its own SAVEPOINT. The database's uniqueness
+        # backstops (one position per decision; one non-VOID position per
+        # experiment and outcome) must refuse ONE game, never roll back the
+        # whole freeze transaction -- every other game's decisions and
+        # positions in this run. Everything already pending is flushed first,
+        # outside the savepoint, so only this position can be undone here.
+        from sqlalchemy.exc import IntegrityError
+
         self.session.flush()
-        return True
+        try:
+            with self.session.begin_nested():
+                self.session.add(position)
+                self.session.flush()
+        except IntegrityError as error:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "official position INSERT refused by a uniqueness constraint: experiment=%s game=%s "
+                "decision=%s error=%s", experiment.id, game.id, decision.id, str(error.orig)[:200])
+            unique = "unique" in str(error.orig).lower() or "duplicate key" in str(error.orig).lower()
+            self._record_funding(experiment, game, decision, now, disposition=POSITION_INELIGIBLE,
+                                 reason=POSITION_WRITE_CONFLICT if unique else POSITION_WRITE_REFUSED,
+                                 stake=0.0, limits=limits, shared=shared)
+            return POSITION_INELIGIBLE
+        self._record_funding(experiment, game, decision, now, disposition=POSITION_CREATED,
+                             reason="POSITION_TAKEN", stake=stake, limits=limits, shared=shared,
+                             position_id=position.id)
+        return POSITION_CREATED
+
+    def _prior_position_blocks(
+        self, experiment: ShadowExperiment, decision: ShadowExperimentDecision, occurrence_slate: date,
+        game: Game,
+    ) -> bool:
+        """The occurrence-aware duplicate guard (mlb_rescheduled_occurrence_positions_enabled).
+
+        A game has one moneyline market, so a rescheduled game's makeup reuses
+        the very market outcome its original occurrence's position named. A
+        prior position on that outcome blocks a new one UNLESS it is VOID
+        (stake returned) and provably belongs to ANOTHER occurrence: a
+        different decision, whose slate date and placement-time original date
+        are both known and both differ from this occurrence's Eastern date.
+
+        Everything else blocks exactly as before: an OPEN prior on any
+        occurrence (the settlement owner, finalize-games, voids an unplayed one
+        at the end of its original date + grace -- this guard never writes), a
+        settled W/L/PUSH -- including one the owner chose to keep as action or
+        later corrected beside its settlement -- and a VOID on THIS occurrence
+        (e.g. a cancellation that flipped back to scheduled): re-funding that
+        would also re-select the same decision.
+
+        Read-only, so it is safe ahead of the funding pause. A non-blocking
+        answer also needs the database to allow it: migration 20261019_0055
+        replaces UNIQUE(shadow_experiment_id, market_outcome_id) with a partial
+        unique index over non-VOID rows. Without that index the guard keeps
+        blocking, so the flag on before the migration changes nothing.
+        """
+
+        from app.bankroll import occurrence as occ
+
+        priors = list(self.session.scalars(select(OfficialAspPosition).where(
+            OfficialAspPosition.shadow_experiment_id == experiment.id,
+            OfficialAspPosition.market_outcome_id == decision.market_outcome_id,
+        ).order_by(OfficialAspPosition.placed_at)))
+        if not priors:
+            return False
+        for prior in priors:
+            if prior.status != PositionStatus.VOID:
+                return True
+            if prior.shadow_decision_id is None or prior.shadow_decision_id == decision.id:
+                return True
+            prior_decision = self.session.get(ShadowExperimentDecision, prior.shadow_decision_id)
+            if prior_decision is None or prior_decision.slate_date in (None, occurrence_slate):
+                return True
+            original = occ.original_occurrence(self.session, game=game, placed_at=prior.placed_at,
+                                               decision=prior_decision)
+            if original.et_date is None or original.et_date == occurrence_slate:
+                return True
+        return not live_outcome_index_present(self.session)
+
+    def _record_funding(self, experiment: ShadowExperiment, game: Game, decision: ShadowExperimentDecision,
+                        now: datetime | None, *, disposition: str, reason: str, stake: float,
+                        limits: dict[str, Any] | None, shared: dict[str, Any] | None,
+                        position_id: Any = None) -> None:
+        """Append the funding receipt (``FUNDING_RECEIPT_ACTION``) once per distinct outcome.
+
+        A tick that repeats the same disposition, reason and stake writes
+        nothing; a later tick that funds a decision the shared allowance held
+        back writes its own receipt beside the earlier one.
+        """
+
+        from app.models import AuditEvent
+
+        def _plain(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {str(k): _plain(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_plain(v) for v in value]
+            if isinstance(value, (UUID, date, datetime)):
+                return str(value) if isinstance(value, UUID) else value.isoformat()
+            return value
+
+        for (prior,) in self.session.execute(select(AuditEvent.metadata_json).where(
+                AuditEvent.action == FUNDING_RECEIPT_ACTION, AuditEvent.entity_id == decision.id)).all():
+            prior = prior if isinstance(prior, dict) else {}
+            if (prior.get("disposition"), prior.get("reason"), prior.get("stake")) == (
+                    disposition, reason, round(float(stake), 2)):
+                return
+        moment = _aware(now or datetime.now(UTC))
+        self.session.add(AuditEvent(
+            action=FUNDING_RECEIPT_ACTION, entity_type="shadow_experiment_decision", entity_id=decision.id,
+            occurred_at=moment,
+            metadata_json=_plain({
+                "disposition": disposition, "reason": reason, "stake": round(float(stake), 2),
+                "position_id": position_id, "decision_id": decision.id, "experiment_id": experiment.id,
+                "game_id": game.id, "evaluated_at": moment, "limits": limits,
+                "shared_daily_allowance": shared,
+            })))
+        self.session.flush()
 
     def _decision_forecast(self, decision: ShadowExperimentDecision) -> Any | None:
         """The forecast a decision was actually made on, from either table."""
@@ -956,6 +1242,13 @@ class ShadowExperimentService:
         return {"settled": total, "experiments": per_experiment}
 
     def _settle_experiment(self, experiment: ShadowExperiment, *, now: datetime | None = None) -> dict[str, Any]:
+        if experiment.sport == "NHL":
+            # NHL positions have ONE owner: app.nhl.paper.settle, which settles from the
+            # source-backed NHL result (official final incl. OT/SO), voids on the producer's
+            # CANCELLED/POSTPONED schedule status and records corrections by result hash.
+            # The NHL result import also marks the game FINAL, so without this guard the
+            # generic score rule would settle the same positions a second way.
+            return {"settled": 0, "owner": "app.nhl.paper.settle"}
         now = now or datetime.now(UTC)
         positions = list(self.session.scalars(select(OfficialAspPosition).where(
             OfficialAspPosition.shadow_experiment_id == experiment.id,
@@ -963,6 +1256,17 @@ class ShadowExperimentService:
         ).order_by(OfficialAspPosition.placed_at)))
         running = self.current_bankroll(experiment)
         settled = 0
+        voided: list[dict[str, Any]] = []
+        awaiting: list[dict[str, Any]] = []
+        unverified: list[dict[str, Any]] = []
+        # AISP_MLB_POSTPONED_NOT_PLAYED_ON_ORIGINAL_ET_DATE_V1 -- MLB only. A
+        # rained-out game keeps its games row and moves to the makeup date; a
+        # position placed on the original occurrence is VOID, never settled on
+        # the makeup's final. NFL/CFB/NBA keep their own market rules for a
+        # moved game (documented, unchanged here); NHL has its own owner.
+        occurrence_rule = (experiment.sport or "MLB").upper() == "MLB"
+        from app.bankroll import occurrence as occ
+
         for position in positions:
             if self.session.scalar(select(PositionSettlement.id).where(
                 PositionSettlement.position_id == position.id
@@ -975,6 +1279,25 @@ class ShadowExperimentService:
             if decision is None or outcome is None or market is None or game is None:
                 continue
             cancelled = game.status == GameStatus.CANCELED
+            verdict = None
+            if occurrence_rule and not cancelled:
+                verdict = occ.occurrence_verdict(
+                    self.session, position=position, decision=decision, game=game, now=now,
+                )
+                receipt = {"position_id": str(position.id), "game_id": str(game.id), **verdict.as_dict()}
+                if verdict.kind == occ.WAIT:
+                    if verdict.postponement_related:
+                        awaiting.append(receipt)
+                    continue
+                if verdict.kind == occ.VOID:
+                    running = self._apply_settlement(
+                        position, result=PositionResult.VOID, status=PositionStatus.VOID,
+                        note=verdict.void_note(), home_score=None, away_score=None,
+                        closing=None, running=running, now=now,
+                    )
+                    voided.append(receipt)
+                    settled += 1
+                    continue
             if not cancelled and (
                 game.status != GameStatus.FINAL
                 or game.home_score is None
@@ -982,41 +1305,88 @@ class ShadowExperimentService:
             ):
                 continue
             result = PositionResult.VOID if cancelled else determine_result(self.session, game, market, outcome)
-            profit = settle_profit(
-                float(position.stake),
-                decimal_odds=float(position.decimal_odds),
-                result=SettlementResult(result.value),
+            note = ("CANCELLED — virtual stake voided"
+                    if cancelled else "Settled deterministically from canonical final score")
+            if verdict is not None and verdict.unverified:
+                # The rule could not check this position against the occurrence
+                # it was placed on, so it settles exactly as it always did --
+                # but it says so, in the note, the payload and (for the
+                # incident class) one operating alert. Never silent.
+                note = (f"{note}; {occ.RULE_ID} could not verify the original occurrence "
+                        f"({verdict.reason})")
+            running = self._apply_settlement(
+                position, result=result,
+                status=PositionStatus.VOID if cancelled else PositionStatus.SETTLED,
+                note=note,
+                home_score=game.home_score, away_score=game.away_score,
+                closing=self._closing_snapshot(position, game), running=running, now=now,
             )
-            before = running
-            after = round(before + profit, 2)
-            running = after
-            closing = self._closing_snapshot(position, game)
-            clv, movement, beat_close, closing_american, closing_decimal = self._closing_line_value(position, closing)
-            position.result = result
-            position.status = PositionStatus.VOID if cancelled else PositionStatus.SETTLED
-            position.settled_at = now
-            position.payout = round(float(position.stake) + profit, 2)
-            position.closing_decimal_odds = closing_decimal
-            self.session.add(PositionSettlement(
-                position_id=position.id,
-                result=result,
-                profit_loss=round(profit, 2),
-                bankroll_before=round(before, 2), bankroll_after=after,
-                game_home_score=game.home_score,
-                game_away_score=game.away_score,
-                settlement_note=(
-                    "CANCELLED — virtual stake voided"
-                    if cancelled else "Settled deterministically from canonical final score"
-                ),
-                closing_odds_snapshot_id=closing.id if closing else None,
-                closing_american_odds=closing_american,
-                closing_decimal_odds=closing_decimal,
-                implied_probability_movement=movement,
-                closing_line_value=clv, beat_close=beat_close, settled_at=now,
-            ))
             settled += 1
+            if verdict is not None and verdict.unverified:
+                alerted = (occ.record_review_alert(self.session, position=position, game=game,
+                                                   verdict=verdict, now=now)
+                           if verdict.review_required else False)
+                unverified.append({**receipt, "result": result.name, "operating_alert": alerted})
         self.session.commit()
-        return {"settled": settled, "current_bankroll": round(running, 2)}
+        payload: dict[str, Any] = {"settled": settled, "current_bankroll": round(running, 2)}
+        # Present only when the occurrence rule acted, is waiting or could not
+        # verify, so an ordinary night's payload is exactly what it always was.
+        if voided:
+            payload["voided_not_played_on_original_date"] = voided
+        if awaiting:
+            payload["awaiting_occurrence"] = awaiting
+        if unverified:
+            payload["legacy_settled_unverified"] = unverified
+        return payload
+
+    def _apply_settlement(
+        self,
+        position: OfficialAspPosition,
+        *,
+        result: PositionResult,
+        status: PositionStatus,
+        note: str,
+        home_score: int | None,
+        away_score: int | None,
+        closing: OddsSnapshot | None,
+        running: float,
+        now: datetime,
+    ) -> float:
+        """Write one position's settlement (the position update plus its one result row).
+
+        Returns the bankroll after it. A VOID returns the stake: profit 0,
+        payout = stake, bankroll_before == bankroll_after. The single writer for
+        a W/L/PUSH, a cancellation and a postponement VOID.
+        """
+
+        profit = settle_profit(
+            float(position.stake),
+            decimal_odds=float(position.decimal_odds),
+            result=SettlementResult(result.value),
+        )
+        before = running
+        after = round(before + profit, 2)
+        clv, movement, beat_close, closing_american, closing_decimal = self._closing_line_value(position, closing)
+        position.result = result
+        position.status = status
+        position.settled_at = now
+        position.payout = round(float(position.stake) + profit, 2)
+        position.closing_decimal_odds = closing_decimal
+        self.session.add(PositionSettlement(
+            position_id=position.id,
+            result=result,
+            profit_loss=round(profit, 2),
+            bankroll_before=round(before, 2), bankroll_after=after,
+            game_home_score=home_score,
+            game_away_score=away_score,
+            settlement_note=note,
+            closing_odds_snapshot_id=closing.id if closing else None,
+            closing_american_odds=closing_american,
+            closing_decimal_odds=closing_decimal,
+            implied_probability_movement=movement,
+            closing_line_value=clv, beat_close=beat_close, settled_at=now,
+        ))
+        return after
 
     def _closing_snapshot(self, position: OfficialAspPosition, game: Game) -> OddsSnapshot | None:
         """Last legitimate same-book price after recommendation and before first pitch."""
@@ -1036,19 +1406,27 @@ class ShadowExperimentService:
 
     # -- read/ledger aggregation -----------------------------------------
     @staticmethod
-    def _settlement_order(events: list[tuple[Any, Any]], starting: float) -> list[tuple[Any, Any]]:
+    def _settlement_order(
+        events: list[tuple[Any, Any]], starting: float,
+        adjustments: list[tuple[datetime, float]] | tuple[()] = (),
+    ) -> list[tuple[Any, Any]]:
         """Chronological settlement order with the persisted bankroll chain as tie-breaker.
 
         settled_at is the primary key. When several settlements carry the same
         timestamp (one settlement pass over several finals), the settlement
         engine's own persisted bankroll_before/bankroll_after chain decides
         which was applied first; recommended_at is only the last resort.
+        A correction recorded before a settlement pass is part of the bankroll
+        that pass started from, so its delta joins the running chain.
         """
         remaining = sorted(events, key=lambda item: (_aware(item[0].settled_at), _aware(item[1].recommended_at)))
+        pending = sorted(((_aware(at), float(delta)) for at, delta in adjustments), key=lambda item: item[0])
         ordered: list[tuple[Any, Any]] = []
         running = float(starting)
         while remaining:
             head_time = _aware(remaining[0][0].settled_at)
+            while pending and pending[0][0] < head_time:
+                running = round(running + pending.pop(0)[1], 2)
             group = [event for event in remaining if _aware(event[0].settled_at) == head_time]
             pick = next(
                 (event for event in group
@@ -1146,6 +1524,20 @@ class ShadowExperimentService:
         settlement_sequence: dict[Any, int] = {}
         monthly: dict[str, dict[str, Any]] = {}
         breakdowns: dict[str, dict[str, dict[str, float]]] = {"tier": {}, "market": {}, "month": {}, "engine": {}, "sportsbook": {}}
+        # Corrections recorded beside a settlement (position_settlement_adjustments).
+        # The original settlement stays in the curve where it happened; each
+        # correction is its own ADJUSTMENT point at the moment it was recorded,
+        # and per-position figures use the corrected result. Empty today, in
+        # which case every figure below is exactly what it always was.
+        from app.cfb.settlement_corrections import effective_settlements
+
+        effective = effective_settlements(self.session, list(settlements))
+        selection_by_position = {position.id: decision.selection for position, decision in position_rows}
+        adjustment_events = sorted(
+            ((_aware(at), delta, corrected, position_id)
+             for position_id, item in effective.items() for at, delta, corrected in item.events),
+            key=lambda event: event[0],
+        )
         settlement_events = self._settlement_order(
             [
                 (settlement, decision)
@@ -1153,13 +1545,41 @@ class ShadowExperimentService:
                 if (settlement := settlements.get(position.id)) is not None
             ],
             starting,
+            [(at, delta) for at, delta, _corrected, _pid in adjustment_events],
         )
         chain_reconciled = True
-        for sequence, (settlement, event_decision) in enumerate(settlement_events, start=1):
+        sequence = 0
+        display_zone = ZoneInfo(self.settings.display_timezone)
+
+        def _adjustment_point(event: tuple[datetime, float, str, Any]) -> None:
+            # A correction is not a settlement: it moves the bankroll but takes
+            # no settlement number, so every later settlement keeps its own
+            # "Settlement #N" (sequence None; readers fall back to the index).
+            nonlocal balance, peak, max_dd, trough
+            at, delta, corrected, position_id = event
+            balance = round(balance + delta, 2)
+            peak = max(peak, balance)
+            max_dd = max(max_dd, peak - balance)
+            trough = min(trough, balance)
+            local = at.astimezone(display_zone)
+            equity.append({
+                "date": local.date().isoformat(), "bankroll": balance, "benchmark": round(starting, 2),
+                "sequence": None, "position_id": str(position_id),
+                "selection": selection_by_position.get(position_id), "result": corrected,
+                "profit_loss": round(delta, 2),
+                "high_water": round(peak, 2), "drawdown": round(peak - balance, 2),
+                "settled_at": local.isoformat(), "kind": "ADJUSTMENT",
+            })
+
+        pending_adjustments = list(adjustment_events)
+        for settlement, event_decision in settlement_events:
+            while pending_adjustments and pending_adjustments[0][0] < _aware(settlement.settled_at):
+                _adjustment_point(pending_adjustments.pop(0))
+            sequence += 1
             balance = round(balance + float(settlement.profit_loss), 2)
             peak = max(peak, balance)
             max_dd = max(max_dd, peak - balance)
-            settled_local = _aware(settlement.settled_at).astimezone(ZoneInfo(self.settings.display_timezone))
+            settled_local = _aware(settlement.settled_at).astimezone(display_zone)
             settled_date = settled_local.date().isoformat()
             if settlement.bankroll_after is not None and abs(float(settlement.bankroll_after) - balance) > 0.005:
                 chain_reconciled = False
@@ -1174,6 +1594,8 @@ class ShadowExperimentService:
                 "settled_at": settled_local.isoformat(),
             })
             trough = min(trough, balance)
+        for event in pending_adjustments:
+            _adjustment_point(event)
         for position, decision in position_rows:
             settlement = settlements.get(position.id)
             stake = float(position.stake)
@@ -1183,13 +1605,17 @@ class ShadowExperimentService:
             # dividing a REALIZED profit by it understates the return while
             # looking like a precise number -- it is the difference between
             # 11.50% and 10.62% on this ledger.
+            corrected = effective.get(position.id)
             if settlement is not None:
                 settled_stake += stake
-                payouts += float(position.payout or 0.0)
+                payouts += float(position.payout or 0.0) + (corrected.delta if corrected else 0.0)
             else:
                 open_exposure += stake
-            result = settlement.result.value.upper() if settlement else "OPEN"
-            profit = float(settlement.profit_loss) if settlement else 0.0
+            result = (corrected.result if corrected else settlement.result.value.upper()) if settlement else "OPEN"
+            profit = (corrected.profit_loss if corrected else float(settlement.profit_loss)) if settlement else 0.0
+            clv = (corrected.closing_line_value if corrected else settlement.closing_line_value) if settlement else None
+            beat_close = (None if corrected is not None and corrected.result == "VOID"
+                          else settlement.beat_close) if settlement else None
             if settlement is not None:
                 if result == "WIN":
                     wins += 1
@@ -1202,9 +1628,9 @@ class ShadowExperimentService:
                     pushes += 1
                 else:
                     voids += 1
-                if settlement.closing_line_value is not None:
-                    clvs.append(float(settlement.closing_line_value))
-                if settlement.beat_close:
+                if clv is not None:
+                    clvs.append(float(clv))
+                if beat_close:
                     beats += 1
             month = decision.slate_date.strftime("%Y-%m")
             for dim, key in (("tier", decision.recommendation), ("market", decision.market), ("month", month),
@@ -1233,8 +1659,9 @@ class ShadowExperimentService:
                 "selection": decision.selection, "market": decision.market.title(),
                 "price": decision.american_odds or decimal_to_american(position.decimal_odds), "stake": round(stake, 2),
                 "result": result, "profit_loss": round(profit, 2),
-                "closing_price": settlement.closing_american_odds if settlement else None,
-                "clv": settlement.closing_line_value if settlement else None,
+                "closing_price": (None if corrected is not None and corrected.result == "VOID"
+                                  else settlement.closing_american_odds) if settlement else None,
+                "clv": clv,
                 # Additive public-ledger evidence (all persisted at decision or
                 # settlement time; nothing is derived from later data).
                 "matchup": matchups.get(decision.game_id),
@@ -1245,7 +1672,7 @@ class ShadowExperimentService:
                     _aware(settlement.settled_at).astimezone(ZoneInfo(self.settings.display_timezone)).isoformat()
                     if settlement else None
                 ),
-                "beat_close": settlement.beat_close if settlement else None,
+                "beat_close": beat_close,
                 "model_probability": decision.model_probability,
                 "market_probability": decision.no_vig_probability,
                 "raw_edge": decision.edge,
@@ -1274,6 +1701,9 @@ class ShadowExperimentService:
                 "forecast_identity": forecast_identity_by_decision.get(decision.id),
                 "decision_phase": decision.phase.value if hasattr(decision.phase, "value") else str(decision.phase),
                 "recommended_at": _aware(decision.recommended_at).astimezone(ZoneInfo(self.settings.display_timezone)).isoformat(),
+                # Only on a corrected position: the original settlement it
+                # replaced, so a reader can show "LOSS -> VOID" honestly.
+                **(corrected.as_dict() if corrected is not None else {}),
             })
         settled_count = len(settlements)
         net = balance - starting
@@ -1293,7 +1723,12 @@ class ShadowExperimentService:
         streak_result: str | None = None
         streak_length = 0
         for point in reversed(equity[1:]):
+            if point.get("kind") == "ADJUSTMENT":
+                continue
             result = point.get("result")
+            corrected = effective.get(UUID(point["position_id"])) if point.get("position_id") else None
+            if corrected is not None:
+                result = corrected.result
             if result in (None, "PUSH", "VOID"):
                 continue
             if streak_result is None:
@@ -1307,8 +1742,8 @@ class ShadowExperimentService:
         #: a small sample this is usually the most important number on the page
         #: and it is never flattering, which is exactly why it is computed.
         settled_profits = [
-            float(settlement.profit_loss)
-            for settlement in settlements.values()
+            effective[position_id].profit_loss if position_id in effective else float(settlement.profit_loss)
+            for position_id, settlement in settlements.items()
         ]
         best_result = max(settled_profits) if settled_profits else None
         worst_result = min(settled_profits) if settled_profits else None
@@ -1383,7 +1818,7 @@ class ShadowExperimentService:
             ),
             "lowest_bankroll": round(trough, 2),
             "no_bet_days": no_bet_days,
-            "daily": self._daily_rows(experiment, position_rows, settlements),
+            "daily": self._daily_rows(experiment, position_rows, settlements, effective),
             "current_drawdown": round((peak - balance) / peak * 100, 3) if peak else 0.0,
             "closing_quote_coverage": {
                 "positions_with_closing_quote": len(clvs),
@@ -1392,7 +1827,7 @@ class ShadowExperimentService:
             },
         }
 
-    def _daily_rows(self, experiment, position_rows, settlements) -> list[dict[str, Any]]:
+    def _daily_rows(self, experiment, position_rows, settlements, effective=None) -> list[dict[str, Any]]:
         # This table needs three columns off the decision row, and the row also
         # carries a ~2 KB `evidence` JSONB that none of them touch. Loading whole
         # ORM decisions meant decoding tens of megabytes of JSON on every read to
@@ -1439,7 +1874,12 @@ class ShadowExperimentService:
         for slate_date in sorted(dates):
             day_positions = [(p, d) for p, d in position_rows if d.slate_date == slate_date]
             day_settlements = [settlements[p.id] for p, _ in day_positions if p.id in settlements]
-            profit = sum(float(item.profit_loss) for item in day_settlements)
+            # A corrected position counts at its corrected P&L (original + delta).
+            profit = sum(
+                effective[item.position_id].profit_loss if effective and item.position_id in effective
+                else float(item.profit_loss)
+                for item in day_settlements
+            )
             balance += profit
             reasons: list[str] = []
             if not day_positions:

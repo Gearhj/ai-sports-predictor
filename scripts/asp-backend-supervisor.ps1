@@ -141,11 +141,14 @@ print("PREFLIGHT_OK prefix=%s pydantic_settings=%s" % (sys.prefix, pydantic_sett
 function Get-PortOwner {
   <# PID already listening on $Port, or $null. #>
   try {
-    $conn = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+    $conn = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction Stop |
               Select-Object -First 1
     if ($null -eq $conn) { return $null }
     return $conn.OwningProcess
-  } catch { return $null }
+  } catch {
+    if ($_.FullyQualifiedErrorId -like 'CmdletizationQuery_NotFound*') { return $null }
+    throw "Port ownership is unverified; refusing to launch or reclaim: $($_.Exception.Message)"
+  }
 }
 
 function Test-OwnDescendant {
@@ -227,7 +230,7 @@ function Start-Backend {
   $ownerFile = Join-Path $runtimeDir 'scheduler-owner'
   Set-Content -LiteralPath $ownerFile -Value $instance -Encoding ascii -NoNewline
   $psi.EnvironmentVariables['ASP_SCHEDULER_INSTANCE'] = $instance
-  Write-Log ('scheduler instance {0} claimed in {1}' -f $instance, $ownerFile)
+  Write-Log ('scheduler instance file sha256={0} claimed in {1}' -f (Get-FileHash -LiteralPath $ownerFile -Algorithm SHA256).Hash.ToLowerInvariant(), $ownerFile)
 
   $proc = [System.Diagnostics.Process]::Start($psi)
   Write-Log ('uvicorn launched (cmd pid={0}) on 127.0.0.1:{1}' -f $proc.Id, $Port)
@@ -278,15 +281,28 @@ try {
       # refuse -- and the machine served superseded code for days while the
       # task reported success. This port belongs to this task, so the question
       # is not whether the holder is alive but whether it is OURS.
-      if (Test-BackendHealthy -Port $Port) {
-        if (Test-OwnDescendant -HolderId $owner) {
-          Write-Log "port $Port is served by this supervisor's own child (pid $owner); nothing to do. Exiting."
-          exit 0
-        }
-        Write-Log "port $Port is served by a healthy but FOREIGN process (pid $owner) -- a stale owner from a previous run of this task. Reclaiming it."
-      } else {
-        Write-Log "port $Port is held by pid $owner but it is not answering /readyz; reclaiming it."
+      if ((Test-BackendHealthy -Port $Port) -and (Test-OwnDescendant -HolderId $owner)) {
+        Write-Log "port $Port belongs to this supervisor's own child; exiting"
+        exit 0
       }
+      # Healthy OR unready foreign holders may still have active worker jobs.
+      # Only an explicitly requested, actually fenced and drained owner is reclaimed.
+      $requestPath = Join-Path $RepoRoot '.runtime/backend-maintenance-request.json'
+      if (-not (Test-Path -LiteralPath $requestPath)) {
+        Write-Log 'foreign holder has no explicit safe-maintenance request; leaving it untouched'
+        exit 0
+      }
+      $handoff=@(& $python (Join-Path $RepoRoot 'scripts/asp-safe-handoff-probe.py') --repo $RepoRoot --request $requestPath 2>&1)
+      if ($LASTEXITCODE -ne 0) {
+        foreach($line in $handoff){Write-Log "handoff qualification: $line"}
+        Write-Log 'handoff not qualified; refusing to kill an active prior owner'
+        exit 0
+      }
+      $qualified=$handoff[-1]|ConvertFrom-Json
+      $age=([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($qualified.observed_at_utc)).TotalSeconds
+      if(-not $qualified.ready -or -not $qualified.fenced_and_drained -or $age -gt 2){throw 'Fenced/drained proof absent or expired'}
+      if((Get-PortOwner) -ne $owner){throw 'Port owner changed after qualification'}
+      Write-Log ("fenced owner drained; proof={0} age={1:N3}s; original supervisor reclaim pid={2}" -f $qualified.proof_sha256,$age,$owner)
       try {
         Stop-Process -Id $owner -Force -ErrorAction Stop
         Start-Sleep -Seconds 3

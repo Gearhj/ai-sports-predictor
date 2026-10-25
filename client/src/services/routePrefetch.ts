@@ -59,6 +59,26 @@ const ROUTES: Record<string, RouteWarmer> = {
     chunk: () => import('../pages/ExperimentRoute'),
     data: () => { warmLedger(); warmReadiness() },
   },
+  // The Mission Control module is itself lazy, so its loader is imported on
+  // demand rather than pulled into the shell bundle.
+  '/mission-control': {
+    chunk: () => import('../features/mission/MissionControl'),
+    data: () => {
+      void import('../features/mission/missionData')
+        .then(({ MISSION_STALE_MS, loadMission, missionKey }) => prefetchQuery(missionKey(today()), loadMission(today()), MISSION_STALE_MS))
+        .catch(() => { /* a failed warm is invisible; the page fetches for itself */ })
+    },
+  },
+  // Game Night reads Mission Control and the ledger first; both are warmed. Never a game's distribution.
+  '/game-night': {
+    chunk: () => import('../features/gamenight/GameNight'),
+    data: () => {
+      warmLedger()
+      void import('../features/mission/missionData')
+        .then(({ MISSION_STALE_MS, loadMission, missionKey }) => prefetchQuery(missionKey(today()), loadMission(today()), MISSION_STALE_MS))
+        .catch(() => { /* a failed warm is invisible; the page fetches for itself */ })
+    },
+  },
   '/mlb': {
     chunk: () => import('../pages/TodayPage'),
     data: () => prefetchQuery('dashboard/today', endpoints.dashboard, STALE_TIME.slate),

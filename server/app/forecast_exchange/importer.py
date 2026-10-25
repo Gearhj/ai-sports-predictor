@@ -21,6 +21,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,29 @@ _SPORTS_VALIDATION_V1_SHA256 = hashlib.sha256(_SPORTS_VALIDATION_V1).hexdigest()
 
 class ForecastBundleImportError(RuntimeError):
     """A bundle is missing, corrupted, non-canonical, or unsafe to trust."""
+
+
+class SportsIdentityInconsistencyError(ForecastBundleImportError):
+    """One event's snapshots inside a single NFL bundle disagree on exact identity.
+
+    Still a refusal: the bundle is never imported. It is raised only after every
+    other check (address, canonical bytes, contract, child bindings, record
+    count) has passed, so the kickoffs it carries are authentic producer claims
+    and a caller may use them to tell a bundle whose games have all started
+    from one that can still control a pregame decision.
+
+    The real case is a moved kickoff: on 2026-10-11 bundle 77afaba3 carried
+    2026_05_CHI_GB's EARLY snapshot at the 08-29 schedule (20:25Z) beside its
+    CURRENT snapshot at the 10-05 schedule (17:00Z).
+    """
+
+    def __init__(self, message: str, *, event_id: str, latest_scheduled_start_utc: datetime) -> None:
+        super().__init__(message)
+        self.event_id = event_id
+        #: The LATEST kickoff any child in the whole bundle claims, across every
+        #: event and snapshot -- not just the conflicting one, because refusing
+        #: the bundle also refuses every other child it carries.
+        self.latest_scheduled_start_utc = latest_scheduled_start_utc
 
 
 @dataclass(frozen=True)
@@ -446,8 +470,10 @@ def _reject_sports_identity_inconsistency(bundle: SportsForecastBundleV1) -> Non
         )
         existing = identities.setdefault(forecast.event_id, identity)
         if existing != identity:
-            raise ForecastBundleImportError(
-                f"NFL event {forecast.event_id} has inconsistent exact identity across snapshots"
+            raise SportsIdentityInconsistencyError(
+                f"NFL event {forecast.event_id} has inconsistent exact identity across snapshots",
+                event_id=forecast.event_id,
+                latest_scheduled_start_utc=max(row.scheduled_start_utc for row in bundle.forecasts),
             )
 
 
@@ -455,6 +481,7 @@ __all__ = [
     "ForecastBundleImportError",
     "ImportedForecastBundle",
     "ImportedSportsForecastBundle",
+    "SportsIdentityInconsistencyError",
     "verify_and_load_any_bundle",
     "verify_and_load_bundle",
     "verify_and_load_sports_bundle",

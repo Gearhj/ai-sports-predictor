@@ -27,12 +27,49 @@ export interface ScoreboardPeriod {
   home_played: boolean
 }
 
+export interface ScoreboardPerson {
+  id: number | null
+  full_name: string | null
+  /** Only when the feed's node itself carried a count. */
+  pitch_count?: number | null
+}
+
+/** MLB: who is up and who is pitching, from the schedule hydrate (display only). */
+export interface ScoreboardMlbDetail {
+  source: 'MLB_STATS_API'
+  batter: ScoreboardPerson | null
+  on_deck: ScoreboardPerson | null
+  in_hole: ScoreboardPerson | null
+  pitcher: ScoreboardPerson | null
+}
+
+/** NFL: ESPN's live situation as delivered (display only; never settlement). */
+export interface ScoreboardNflDetail {
+  source: 'ESPN'
+  down: number | null
+  distance: number | null
+  yard_line: number | null
+  down_distance_text: string | null
+  is_red_zone: boolean | null
+  possession: { team_id: string | null; abbreviation: string | null; home_away: 'home' | 'away' | null } | null
+  last_play: {
+    text: string | null
+    home_win_percentage: number | null
+    away_win_percentage: number | null
+    probability_source: 'ESPN' | null
+  } | null
+}
+
+export type ScoreboardSituationDetail = ScoreboardMlbDetail | ScoreboardNflDetail
+
 export interface ScoreboardSituation {
   outs: number | null
   balls: number | null
   strikes: number | null
   bases_occupied: string[]
   runners: Record<string, string | null>
+  /** The source's own live detail, when it delivered any. Absent on older payloads. */
+  detail?: ScoreboardSituationDetail | null
 }
 
 /**
@@ -154,7 +191,9 @@ export interface ScoreboardCoverage {
       cadence_minutes: number
       daily_cap: number
       spent_today: number
-      mlb_pregame_floor: number
+      /** Retired: the shared provider allocation replaced this floor. Always null. */
+      mlb_pregame_floor: number | null
+      daily_room?: number | null
       objects_spendable: number | null
       detail: string
     }

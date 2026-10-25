@@ -5,8 +5,10 @@
  *   * A dark header: sport and model selectors, the publication-clock cohort,
  *     the evidence period and sample, then AUC, log loss, Brier (convention
  *     stated), accuracy, margin / total MAE and the model-vs-market deltas.
- *   * One D3 area with four views: calibration, performance over time, model
- *     versus market, and margin / total error distribution.
+ *   * One D3 area with five views: calibration, performance over time, model
+ *     versus market, margin / total error distribution, and Wager Results.
+ *     The first four score FORECASTS; Wager Results reads OFFICIAL FUNDED
+ *     POSITIONS from `/research/wager-results` and prints its own scope.
  *   * A compact ledger of recent scored games.
  *
  * Everything comes from `/research/model-performance?league=`, computed from
@@ -20,9 +22,17 @@ import { Link } from 'react-router-dom'
 import { useApiResource } from '../../hooks/useApiResource'
 import { apiRequest } from '../../services/api'
 import { STALE_TIME, cacheKey } from '../../services/queryCache'
-import { SPORT_CODES, SPORT_COLORS, SPORT_NAMES, etTime, expectSchema, gameHref, type SportCode } from '../../services/commandCenter'
+import {
+  PERFORMANCE_SPORTS, PERFORMANCE_SPORT_COLORS, PERFORMANCE_SPORT_NAMES, etTime, expectSchema, gameHref,
+  type PerformanceSport, type SportCode,
+} from '../../services/commandCenter'
+import { NhlNoPositions, NhlPerformanceTiles, NhlScoredLedger, type NhlModelEntry } from '../nhl/NhlPerformance'
+import { useNhlTestData } from '../../hooks/useNhlResearch'
+import { NhlTestDataToggle } from '../../pages/NhlResearchPage'
 import { ChartTable, Tooltip, useTooltip, useWidth } from './chartKit'
 import { AsOf } from './RegionState'
+import { NflScorecard } from './NflScorecard'
+import { WagerResults } from './WagerResults'
 import './command.css'
 
 interface Metrics {
@@ -75,6 +85,12 @@ interface ModelEvidence {
   scoring_version: string
   snapshot_types: string[]
   evidence_classification: string
+  /** NBA Gen1 only: the channel scored, and whether it is a probability at all. */
+  channel?: string
+  /** NHL only: REGULATION_3WAY or FINAL_2WAY -- separate outcomes, never pooled. */
+  outcome_definition?: string
+  record_class?: string
+  is_probability?: boolean
   cohorts: { ALL: Metrics; VERIFIED_PUBLICATION: Metrics }
   cohort_note: string
   games: ScoredGame[]
@@ -90,7 +106,7 @@ interface Performance {
 }
 
 type Cohort = 'ALL' | 'VERIFIED_PUBLICATION'
-type View = 'CALIBRATION' | 'TIME' | 'MARKET' | 'ERRORS'
+export type View = 'CALIBRATION' | 'TIME' | 'MARKET' | 'ERRORS' | 'WAGERS'
 const VERIFIED = 'VERIFIED_INDEPENDENT_PUBLICATION'
 const f = (v: number | null | undefined, d = 3) => (v == null ? '—' : v.toFixed(d))
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
@@ -101,28 +117,78 @@ const signed = (v: number | null | undefined, d = 3) => {
 }
 const dateOnly = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }) : '—')
 
-export function CommandPerformance({ initialSport }: { initialSport?: SportCode }) {
-  const [sport, setSport] = useState<SportCode>(initialSport ?? 'MLB')
+const KNOWN_MODELS: Record<string, string> = {
+  MLB_V18_WHOLE_GAME: 'MLB V18 whole-game model',
+  NFL_M1_XGBOOST: 'NFL M1 model',
+  NBA_GEN1_JOINT_BASELINE: 'NBA research baseline',
+  CFB_GEN1_JOINT_BASELINE: 'College Football research baseline',
+  NBA_GEN1_RIDGE_POINTS: 'NBA Gen1 · Ridge expected points',
+  NBA_GEN1_ELO_WINNER: 'NBA Gen1 · Elo win probability',
+  NBA_GEN1_JOINT_DISTRIBUTION: 'NBA Gen1 · Joint-distribution probabilities',
+  NHL_GEN1_REGULATION_3WAY: 'NHL Gen1 · Regulation 3-way (60:00)',
+  NHL_GEN1_FINAL_2WAY: 'NHL Gen1 · Final 2-way (incl. OT/SO)',
+}
+const FIXTURE_EVIDENCE = 'PREVIEW_FIXTURE_NOT_EVIDENCE'
+
+const HISTORICAL_EVIDENCE = 'HISTORICAL_RECONSTRUCTION_NOT_PROSPECTIVE'
+
+/** The model's name plus, when it applies, its evidence class -- never hidden in a tooltip. */
+function modelTitle(m: ModelEvidence): string {
+  const name = modelName(m.engine_id, m.engine_version, m.model_label)
+  if (m.evidence_classification === FIXTURE_EVIDENCE) return `${name} · PREVIEW FIXTURE (not real)`
+  return m.evidence_classification === HISTORICAL_EVIDENCE ? `${name} · HISTORICAL 2025–26` : name
+}
+
+/**
+ * A reader-facing model name. Candidates share one engine id, so their version
+ * is what tells them apart ("mlb-v18-three-arm-duration-v1" -> "three-arm
+ * duration"); the full technical identity stays in the line under the title.
+ */
+export function modelName(engineId: string, version: string, label?: string | null): string {
+  const known = KNOWN_MODELS[engineId]
+  if (known) return known
+  if (engineId.endsWith('_CANDIDATE')) {
+    const variant = version.replace(/^[a-z]+-v\d+-/i, '').replace(/-v\d+$/i, '').replace(/-/g, ' ').trim()
+    const family = engineId.replace(/_CANDIDATE$/, '').replace(/_/g, ' ').toLowerCase()
+    return `${family.replace(/^(\w+)/, (w) => w.toUpperCase())} candidate${variant ? ` · ${variant}` : ''}`
+  }
+  const text = (label || engineId).replace(/_/g, ' ')
+  return text === text.toUpperCase() ? text.charAt(0) + text.slice(1).toLowerCase() : text
+}
+
+export function CommandPerformance({ initialSport, initialView }: { initialSport?: PerformanceSport; initialView?: View }) {
+  const [sport, setSport] = useState<PerformanceSport>(initialSport ?? 'MLB')
+  const nhl = sport === 'NHL'
+  const [nhlTest] = useNhlTestData()
+  const testQuery = nhl && nhlTest ? '&test_data=true' : ''
   const loader = useCallback(async (signal: AbortSignal) =>
-    expectSchema(await apiRequest<Performance>(`/research/model-performance?league=${sport}`, {}, signal), 'AISP_MODEL_PERFORMANCE_V1'), [sport])
-  const resource = useApiResource<Performance>(loader, { key: cacheKey('model-performance', { league: sport }), staleTimeMs: STALE_TIME.slate })
+    expectSchema(await apiRequest<Performance>(`/research/model-performance?league=${sport}${testQuery}`, {}, signal), 'AISP_MODEL_PERFORMANCE_V1'), [sport, testQuery])
+  const resource = useApiResource<Performance>(loader, { key: cacheKey('model-performance', { league: sport, testQuery }), staleTimeMs: STALE_TIME.slate })
   const data = resource.data?.league === sport ? resource.data : null
   const [engine, setEngine] = useState<string | null>(null)
   const [cohort, setCohort] = useState<Cohort>('ALL')
-  const [view, setView] = useState<View>('CALIBRATION')
+  const [view, setView] = useState<View>(initialView ?? 'CALIBRATION')
   const [showAll, setShowAll] = useState(false)
   const model = data?.models.find((m) => `${m.engine_id}|${m.engine_version}` === engine) ?? data?.models[0] ?? null
-  const metrics = model?.cohorts[cohort] ?? null
-  const games = useMemo(() => (model?.games ?? []).filter((g) => cohort === 'ALL' || g.publication_clock === VERIFIED), [model, cohort])
-  const color = SPORT_COLORS[sport]
+  // NHL has no independently verified publication clock, so it offers no verified
+  // cohort: everything NHL shows is the ALL cohort, and says so (never relabelled).
+  const shown: Cohort = nhl ? 'ALL' : cohort
+  const metrics = model?.cohorts[shown] ?? null
+  const games = useMemo(() => (model?.games ?? []).filter((g) => shown === 'ALL' || g.publication_clock === VERIFIED), [model, shown])
+  const color = PERFORMANCE_SPORT_COLORS[sport]
 
   return (
     <section className="cc-perf" aria-label="Model performance">
       <section className="cc-dark cc-perf__head" aria-label="Model quality summary" style={{ ['--sport' as string]: color }}>
         <header className="cc-perf__top">
           <div>
-            <h1 className="cc-kicker cc-perf__title">Model performance · {SPORT_NAMES[sport]} · prospective research scores</h1>
-            <h2>{model ? model.model_label : `${SPORT_NAMES[sport]} forecasts`}</h2>
+            <h1 className="cc-kicker cc-perf__title">
+              Model performance · {PERFORMANCE_SPORT_NAMES[sport]} · {model?.evidence_classification === HISTORICAL_EVIDENCE
+                ? 'HISTORICAL reconstruction scores — not prospective'
+                : model?.evidence_classification === FIXTURE_EVIDENCE ? 'PREVIEW FIXTURE scores — invented data, not evidence'
+                  : 'prospective research scores'}
+            </h1>
+            <h2>{model ? modelTitle(model) : `${PERFORMANCE_SPORT_NAMES[sport]} forecasts`}</h2>
             <span className="cc-perf__ident">{model ? `${model.engine_version} · ${model.scoring_version}` : ''}</span>
           </div>
           <div className="cc-perf__asof">
@@ -133,11 +199,11 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
 
         <div className="cc-perf__controls">
           <div className="cc-tabs cc-tabs--dark" role="tablist" aria-label="Sport">
-            {SPORT_CODES.map((code) => (
+            {PERFORMANCE_SPORTS.map((code) => (
               <button key={code} role="tab" type="button" aria-selected={sport === code}
-                style={{ ['--sport' as string]: SPORT_COLORS[code] }}
+                style={{ ['--sport' as string]: PERFORMANCE_SPORT_COLORS[code] }}
                 onClick={() => { setSport(code); setEngine(null); setShowAll(false) }}>
-                <i className="cc-dot" />{SPORT_NAMES[code]}
+                <i className="cc-dot" />{PERFORMANCE_SPORT_NAMES[code]}
               </button>
             ))}
           </div>
@@ -147,13 +213,19 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
               <select value={model ? `${model.engine_id}|${model.engine_version}` : ''} onChange={(e) => setEngine(e.target.value)}>
                 {data.models.map((m) => (
                   <option key={`${m.engine_id}|${m.engine_version}`} value={`${m.engine_id}|${m.engine_version}`}>
-                    {m.model_label} · {m.engine_version.slice(-12)} · n={m.cohorts.ALL.n}
+                    {modelTitle(m)} · n={m.cohorts.ALL.n}
                   </option>
                 ))}
               </select>
             </label>
           )}
-          {model && (
+          {nhl && <NhlTestDataToggle />}
+          {model && nhl && (
+            <span className="cc-muted" data-testid="nhl-cohort-all-only">
+              All scored · {model.cohorts.ALL.n} · NHL has no independent publication clock, so no verified-clock cohort is offered
+            </span>
+          )}
+          {model && !nhl && (
             <div className="cc-filters" role="group" aria-label="Evidence cohort">
               <button type="button" aria-pressed={cohort === 'ALL'} onClick={() => setCohort('ALL')}>All scored · {model.cohorts.ALL.n}</button>
               <button type="button" aria-pressed={cohort === 'VERIFIED_PUBLICATION'} onClick={() => setCohort('VERIFIED_PUBLICATION')}>Verified publication clock · {model.cohorts.VERIFIED_PUBLICATION.n}</button>
@@ -164,12 +236,24 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
         {!data
           ? <p className="cc-muted" role="status">{resource.error ? `Performance evidence is unavailable: ${resource.error}` : 'Loading scored forecasts…'}</p>
           : !model || !metrics
-            ? <p className="cc-perf__none">{data.requirement ?? `No ${SPORT_NAMES[sport]} forecast has been scored.`}</p>
-            : (
+            ? <p className="cc-perf__none">{data.requirement ?? `No ${PERFORMANCE_SPORT_NAMES[sport]} forecast has been scored.`}</p>
+            : nhl ? <NhlPerformanceTiles model={model as unknown as NhlModelEntry} />
+            : model.is_probability === false ? (
+              // A points-only channel (NBA Ridge): no probability metric exists, so none is drawn.
+              <dl className="cc-perf__tiles" data-testid="perf-points-only">
+                <div className="cc-perf__tile--wide"><dt>Evidence period · sample</dt>
+                  <dd>{metrics.n} games</dd>
+                  <small>{dateOnly(metrics.period.first_start_utc)} – {dateOnly(metrics.period.last_start_utc)} · expected points only</small></div>
+                <div><dt>Margin MAE</dt><dd>{f(metrics.margin_mae, 2)}</dd><small>points</small></div>
+                <div><dt>Total MAE</dt><dd>{f(metrics.total_mae, 2)}</dd><small>points</small></div>
+                <div className="cc-perf__tile--wide"><dt>Probability metrics</dt><dd>n/a</dd>
+                  <small>An expected score is not a probability: no log loss, Brier, accuracy or market comparison exists for this channel.</small></div>
+              </dl>
+            ) : (
               <dl className="cc-perf__tiles">
                 <div className="cc-perf__tile--wide"><dt>Evidence period · sample</dt>
                   <dd>{metrics.n} games</dd>
-                  <small>{dateOnly(metrics.period.first_start_utc)} – {dateOnly(metrics.period.last_start_utc)} · {model.snapshot_types.join(', ').toLowerCase()} · {cohort === 'ALL' ? 'all scored' : 'verified clock only'}</small></div>
+                  <small>{dateOnly(metrics.period.first_start_utc)} – {dateOnly(metrics.period.last_start_utc)} · {model.snapshot_types.join(', ').toLowerCase()} · {shown === 'ALL' ? 'all scored' : 'verified clock only'}</small></div>
                 <div><dt>AUC</dt><dd>{f(metrics.auc)}</dd><small>{metrics.auc == null ? 'undefined: needs both outcomes' : `home win, n=${metrics.two_way_n}`}</small></div>
                 <div><dt>Log loss</dt><dd>{f(metrics.log_loss)}</dd><small>as scored · two-way {f(metrics.log_loss_two_way)}</small></div>
                 <div><dt>Brier · three-class</dt><dd>{f(metrics.brier_three_class)}</dd><small>range 0–2 · two-way {f(metrics.brier_two_way)}</small></div>
@@ -181,32 +265,49 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
                   <small>{metrics.market ? `${signed(metrics.market.delta_log_loss)} log loss · n=${metrics.market.n} · two-way, negative favours the model` : 'no matched sportsbook quote'}</small></div>
               </dl>
             )}
-        {model && <p className="cc-perf__note">{model.cohort_note} Descriptive only; nothing here promotes a model, changes a threshold or creates a position. Metrics are defined within {SPORT_NAMES[sport]} and are not comparable across sports.</p>}
+        {model && <p className="cc-perf__note">{model.cohort_note} Descriptive only; nothing here promotes a model, changes a threshold or creates a position. Metrics are defined within {PERFORMANCE_SPORT_NAMES[sport]} and are not comparable across sports.</p>}
       </section>
 
-      {model && metrics && (
+      {/* NFL leads with the scorecard: coverage, review progress, per-game results and audit drawers. */}
+      {sport === 'NFL' && <NflScorecard />}
+
+      {/* NHL: scores per outcome definition and its paper positions (counted from Wager Results);
+          the two-way charts below are built for single-outcome sports. */}
+      {nhl && model && <NhlScoredLedger model={model as unknown as NhlModelEntry} />}
+      {nhl && <NhlNoPositions />}
+
+      {!nhl && (data || view === 'WAGERS') && (
         <section className="cc-mpanel cc-perf__area" aria-label="Performance charts">
           <div className="cc-perf__areahead">
             <div className="cc-tabs" role="tablist" aria-label="Chart view">
-              {([['CALIBRATION', 'Calibration'], ['TIME', 'Over time'], ['MARKET', 'Model vs market'], ['ERRORS', 'Score error']] as const).map(([key, label]) => (
+              {([['CALIBRATION', 'Calibration'], ['TIME', 'Over time'], ['MARKET', 'Model vs market'], ['ERRORS', 'Score error'], ['WAGERS', 'Wager Results']] as const).map(([key, label]) => (
                 <button key={key} role="tab" type="button" aria-selected={view === key} onClick={() => setView(key)}>{label}</button>
               ))}
             </div>
             <span className="cc-note" style={{ margin: 0 }}>{VIEW_NOTE[view]}</span>
           </div>
-          {view === 'CALIBRATION' && <CalibrationChart metrics={metrics} color={color} />}
-          {view === 'TIME' && <TimeChart metrics={metrics} color={color} />}
-          {view === 'MARKET' && <MarketScatter games={games} color={color} />}
-          {view === 'ERRORS' && <ErrorHistogram metrics={metrics} sport={sport} color={color} />}
+          {view === 'WAGERS'
+            // Its own population and scope: official funded positions, never the scored forecasts above.
+            ? <WagerResults key={`${sport}|${model?.engine_id ?? ''}`} pageSport={sport as SportCode} pageEngine={model?.engine_id ?? null} />
+            : !model || !metrics
+              ? <p className="cc-muted">The accuracy views need scored {PERFORMANCE_SPORT_NAMES[sport]} forecasts; none are available for this selection.</p>
+              : model.is_probability === false
+                ? <ErrorHistogram metrics={metrics} sport={sport as SportCode} color={color} />
+                : <>
+                  {view === 'CALIBRATION' && <CalibrationChart metrics={metrics} color={color} />}
+                  {view === 'TIME' && <TimeChart metrics={metrics} color={color} />}
+                  {view === 'MARKET' && <MarketScatter games={games} color={color} />}
+                  {view === 'ERRORS' && <ErrorHistogram metrics={metrics} sport={sport as SportCode} color={color} />}
+                </>}
         </section>
       )}
 
-      {model && games.length > 0 && (
+      {model && games.length > 0 && sport !== 'NFL' && !nhl && view !== 'WAGERS' && (
         <section className="cc-mpanel" aria-label="Recent scored games">
           <h3>Recent scored games · {games.length}</h3>
           <div className="cc-table__scroll">
             <table className="cc-board cc-perf__ledger">
-              <thead><tr><th>Date</th><th>Game</th><th>Final</th><th>Model home</th><th>Market home</th><th>Winner</th><th>Log loss</th><th>Margin err</th><th>Total err</th><th>Clock</th></tr></thead>
+              <thead><tr><th>Date</th><th>Game</th><th>Final</th><th>Model home</th><th>Market home</th><th>Winner</th><th>Log loss</th><th title="Predicted minus actual, home − away">Margin err</th><th title="Predicted minus actual: negative = underestimate">Total err</th><th>Clock</th></tr></thead>
               <tbody>
                 {(showAll ? games : games.slice(0, 10)).map((g) => (
                   <tr key={g.evaluation_id}>
@@ -215,11 +316,13 @@ export function CommandPerformance({ initialSport }: { initialSport?: SportCode 
                     <td>{g.final.away}–{g.final.home}</td>
                     <td>{pct(g.home_probability_two_way)}</td>
                     <td>{pct(g.market_no_vig_home)}</td>
-                    <td className={g.winner_correct ? 'is-up' : 'is-down'}>{g.winner_correct ? 'Correct' : 'Missed'}</td>
+                    <td className={g.winner_correct == null ? '' : g.winner_correct ? 'is-up' : 'is-down'}>
+                      {g.winner_correct == null ? '—' : g.winner_correct ? 'Correct' : 'Missed'}</td>
                     <td>{f(g.log_loss)}</td>
                     <td>{signed(g.margin_error, 1)}</td>
                     <td>{signed(g.total_error, 1)}</td>
-                    <td>{g.publication_clock === VERIFIED ? 'verified' : 'qualified'}</td>
+                    <td>{g.publication_clock === VERIFIED ? 'verified'
+                      : g.publication_clock === 'HISTORICAL_NO_PUBLICATION_CLOCK' ? 'historical' : 'qualified'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -244,6 +347,7 @@ const VIEW_NOTE: Record<View, string> = {
   TIME: 'Cumulative two-way Brier by date · lower is better',
   MARKET: 'Each game: model vs sportsbook no-vig home probability',
   ERRORS: 'Predicted minus actual',
+  WAGERS: 'Official funded positions · settled results vs estimates recorded at entry',
 }
 
 const CalibrationChart = memo(function CalibrationChart({ metrics, color }: { metrics: Metrics; color: string }) {

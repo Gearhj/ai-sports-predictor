@@ -28,6 +28,7 @@ def test_each_sport_has_exactly_one_contract():
         "NFL": "ASP_NFL_PAPER_RESEARCH_ELIGIBILITY_V1",
         "NBA": "ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1",
         "CFB": "ASP_CFB_PAPER_RESEARCH_ELIGIBILITY_V1",
+        "NHL": "ASP_NHL_PAPER_RESEARCH_ELIGIBILITY_V1",
     }
 
 

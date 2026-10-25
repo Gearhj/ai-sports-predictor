@@ -37,6 +37,13 @@ from app.models import CollectionLaneHalt
 #: The provider returned at least one game the request did not select.
 SELECTION_MISMATCH = "PROVIDER_RETURNED_UNSELECTED_GAME"
 
+#: Objects were CHARGED and not one selected game was stored. Kept apart from
+#: SELECTION_MISMATCH on purpose: "it returned someone else's game" and "it
+#: returned nothing I can use" are different faults with different owners. The
+#: first is a provider substituting an event; the second can equally be a
+#: binding failure on this side, and a reader must not have to guess which.
+PAID_STORED_NOTHING = "PAID_RESPONSE_STORED_NONE_OF_SELECTION"
+
 
 def active_halt(session: Session, *, lane: str) -> CollectionLaneHalt | None:
     """The live halt on this lane, if any."""
@@ -98,4 +105,50 @@ def mismatch(selected: list[str], ingested: list[str]) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["SELECTION_MISMATCH", "active_halt", "halt_lane", "mismatch"]
+def paid_and_stored_nothing(
+    selected: list[str], ingested: list[str], *, objects_charged: int,
+) -> dict[str, Any] | None:
+    """Did this purchase pay for objects and store none of what it asked for?
+
+    THE GAP THIS CLOSES
+    -------------------
+    ``mismatch`` asks "did the provider return a game I did not select?" -- and
+    it can only see games that BOUND. On 2026-09-20 the NFL requests carried a
+    mislabelled window, were answered with games already in progress, and bound
+    nothing at all. With an empty ``ingested`` there was no unselected game to
+    find, so the divergence was ``None``, the lane did not latch, and the same
+    wrong request was paid for twice more.
+
+    So this asks the other half of the question: "did I pay, and receive nothing
+    I asked for?" It is the paid-for-nothing case, and one occurrence is enough
+    -- a retry spends a second object on a request that has just demonstrated it
+    buys nothing.
+
+    A ZERO-OBJECT RESPONSE IS NOT THIS FAULT. The provider bills per event
+    object returned, so an answer carrying no events costs nothing; that is a
+    legitimate no-op (a window with no events in it, a finalized slate) and the
+    next tick may ask again for free. Only a CHARGED response that stored none
+    of the selection latches the lane, which is why ``objects_charged`` is a
+    required argument and not an optional hint.
+    """
+
+    if int(objects_charged or 0) <= 0:
+        return None  # nothing was billed; nothing to protect against
+    stored = sorted(set(selected) & set(ingested))
+    if stored:
+        return None  # at least one selected game was actually bought
+    return {
+        "reason": PAID_STORED_NOTHING,
+        "objects_charged": int(objects_charged),
+        "games_selected": sorted(selected),
+        "games_ingested": sorted(ingested),
+        "selected_games_missing": sorted(selected),
+        "detail": ("Objects were charged and not one of the selected games was "
+                   "stored. Either the provider answered with something else or "
+                   "nothing in the response could be bound; both mean this "
+                   "request bought nothing it asked for."),
+    }
+
+
+__all__ = ["PAID_STORED_NOTHING", "SELECTION_MISMATCH", "active_halt",
+           "halt_lane", "mismatch", "paid_and_stored_nothing"]

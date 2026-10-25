@@ -122,8 +122,10 @@ def nba_research_board(
         "schema_version": SCHEMA_VERSION,
         "forecasts": out,
         "note": (
-            "NBA is research-only and unfunded. These forecasts create no "
-            "account, wager, bankroll, staking policy or scheduler entry."
+            "NBA forecasts are early research examples: the 2026-27 regular season has "
+            "not started. A virtual paper account and paper policy exist, but no NBA "
+            "sportsbook price is held, so no assessment or paper position can occur. "
+            "Importing these forecasts created no account, position or scheduler entry."
         ),
     }
 

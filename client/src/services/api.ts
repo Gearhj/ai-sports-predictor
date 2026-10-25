@@ -93,8 +93,12 @@ export async function apiRequest<T>(
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     try {
-      const body = (await response.json()) as { detail?: string; message?: string }
-      message = body.detail || body.message || message
+      const body = (await response.json()) as { detail?: string | { code?: string; message?: string }; message?: string }
+      // Structured refusals ({code, message}) keep their stable code in the text.
+      const detail = typeof body.detail === 'object' && body.detail
+        ? [body.detail.code, body.detail.message].filter(Boolean).join(': ')
+        : body.detail
+      message = detail || body.message || message
     } catch {
       // Retain the status-based error when the server does not return JSON.
     }

@@ -9,7 +9,7 @@ balance cannot express "these 100 credits are not yours".
 
 THE LANES
 ---------
-Five, in strict precedence. A lane may spend only from its own allocation, and
+In strict precedence. A lane may spend only from its own allocation, and
 an optional lane must additionally leave every protected lane whole:
 
     1 MLB_REQUIRED    same-book two-sided moneylines for games that can be
@@ -21,6 +21,20 @@ an optional lane must additionally leave every protected lane whole:
     3 NFL_RESEARCH    research moneylines. No wagering authority.
     4 OPTIONAL_MARKETS spreads and totals, for either sport.
     5 OTHER_RESEARCH  anything else.
+    6 CFB_RESEARCH    CFB paper-policy moneylines (americanfootball_ncaaf).
+                      Zero unless the deployer funds it (ODDS_CFB_LANE_*); it is
+                      never NFL's lane, although both sport keys start with
+                      ``americanfootball``.
+    8 NHL_RESEARCH    NHL paper-policy moneylines (icehockey_nhl). Zero unless
+                      the deployer funds it (ODDS_NHL_LANE_*). Every NHL request
+                      is filed here (spreads and totals included), so nothing
+                      NHL can draw on another sport's or a shared funded lane.
+                      It YIELDS to NFL_RESEARCH, and to CFB_RESEARCH only while
+                      ODDS_NHL_YIELDS_TO_CFB is on (off by default since the
+                      owner's 2026-10-16 priority "MLB and NHL over CFB"; see
+                      "A LANE THAT YIELDS"). (Precedence 7 is left to
+                      NBA_RESEARCH, built on claude/nba-odds-api-lane, so the
+                      two never tie.)
 
 ARITHMETIC THAT ACTUALLY BINDS
 ------------------------------
@@ -31,7 +45,27 @@ ARITHMETIC THAT ACTUALLY BINDS
   * for a NON-protected lane, the credits left after the spend must still cover
     every protected lane's UNSPENT allocation. This is the rule that makes the
     reserve real rather than a number in a report;
+  * for a YIELDING lane, also what the lanes it yields to are owed (below);
   * the provider floor, unchanged at its configured value, has the final word.
+
+A LANE THAT YIELDS (precedence enforced, not only displayed)
+-----------------------------------------------------------
+Between optional lanes precedence used to be display order only: the shared pool
+(what is left after the protected holdback, ~100 credits a month at cap 500 /
+reserve 150) and the shared daily guards went to whoever asked first. A lane with
+``yields_to`` -- today only NHL_RESEARCH, yielding to NFL_RESEARCH (and to CFB_RESEARCH when the
+deployer sets ODDS_NHL_YIELDS_TO_CFB; the compiled default below still lists both) -- must
+additionally leave whole:
+
+  * the UNSPENT MONTHLY allocation of every lane it yields to, always;
+  * on an operational day when that lane's sport still has a SCHEDULED game to
+    start (``lanes_in_play_today``), its UNSPENT DAILY allocation inside the shared
+    AISP daily credit budget -- and the orchestrator holds back the same number of
+    the shared ODDS_DAILY_REQUEST_BUDGET requests for it (a request costs >= 1 credit).
+
+So a funded NHL lane can spend only what NFL and CFB could not use under their
+own allocations; it cannot take the credits or requests those allocations entitle
+them to. Every other lane's arithmetic is unchanged (their ``yields_to`` is empty).
 
 RECONCILIATION
 --------------
@@ -42,13 +76,32 @@ trusting our own lower number -- is how a plan overspends. Both directions are
 handled: if the provider says LESS remaining than we believe, the difference is
 charged to the unattributed lane immediately; if it says MORE, we keep our own
 pessimistic figure and merely record the discrepancy.
+
+THE FIRST READING OF A BILLING MONTH
+------------------------------------
+With no provider reading inside the current UTC billing month there is nothing
+to reconcile against, so optional lanes are locked (PROVIDER_BALANCE_UNKNOWN).
+That lock used to be released only by a protected MLB request taking the
+month's first reading -- and MLB makes none once its season ends in October, so
+from 1 November every optional lane (NFL, CFB, NHL) would have stayed dark all
+month. While no in-window reading exists AND fewer than
+``FIRST_READING_ATTEMPTS`` chargeable requests have been reserved in the window,
+an optional lane may therefore send the request that TAKES the reading
+(PROVIDER_BALANCE_UNREAD_FIRST_READING). Nothing else is relaxed: the lane's own
+monthly and daily allocation, the protected-lane holdback, the AISP monthly cap
+and reserve, the daily request budget and the provider floor on the newest
+reading all still apply to that request. The provider's counter itself reset at
+the window start, so the only spend this cannot see is someone else's in the
+first moments of the month -- and the response's reading reconciles it at once.
+If those attempts all come back without a reading, the lock returns exactly as
+before (a manual zero-credit balance probe still releases it).
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -62,8 +115,19 @@ LANE_MLB_RECOVERY = "MLB_RECOVERY"
 LANE_NFL_RESEARCH = "NFL_RESEARCH"
 LANE_OPTIONAL_MARKETS = "OPTIONAL_MARKETS"
 LANE_OTHER_RESEARCH = "OTHER_RESEARCH"
+LANE_CFB_RESEARCH = "CFB_RESEARCH"
+LANE_NHL_RESEARCH = "NHL_RESEARCH"
+LANE_NBA_RESEARCH = "NBA_RESEARCH"
 #: Spend the provider counted that we could not attribute to a lane.
 LANE_UNATTRIBUTED = "UNATTRIBUTED"
+
+#: How many chargeable requests a billing window may hold, with no provider
+#: reading yet, while optional lanes may still take that reading (see "THE FIRST
+#: READING OF A BILLING MONTH" above): the month's first request, and one retry
+#: if it came back without a reading. Zero-cost balance probes do not count.
+FIRST_READING_ATTEMPTS = 2
+STATE_BALANCE_UNKNOWN = "PROVIDER_BALANCE_UNKNOWN"
+STATE_FIRST_READING = "PROVIDER_BALANCE_UNREAD_FIRST_READING"
 
 
 @dataclass(frozen=True)
@@ -80,6 +144,11 @@ class LaneSpec:
     #: non-protected lane may spend.
     protected: bool
     purpose: str
+    #: Optional lanes this lane must leave whole (see "A LANE THAT YIELDS"): their
+    #: unspent MONTHLY allocation always, and their unspent DAILY allocation of the
+    #: shared daily guards on a day their sport is in play. Empty for every lane
+    #: but NHL_RESEARCH, so no other lane's arithmetic changes.
+    yields_to: tuple[str, ...] = ()
 
 
 #: The allocation the brief specifies, expressed as data so the operator view
@@ -104,7 +173,10 @@ DEFAULT_LANES: tuple[LaneSpec, ...] = (
     ),
     LaneSpec(
         key=LANE_NFL_RESEARCH, label="NFL research moneylines", precedence=3,
-        monthly_allocation=60, daily_cap=4, protected=False,
+        # daily_cap 4 -> 6 approved by the owner (James) on 2026-10-06: Sundays with a
+        # London game have five T-26 kickoff clusters (13:30, 17:00, 20:05, 20:25 and SNF
+        # 00:20Z, still the same ET day), plus room for one owed retry. Monthly 60 unchanged.
+        monthly_allocation=60, daily_cap=6, protected=False,
         purpose="Research-shadow NFL moneylines. No wagering authority.",
     ),
     LaneSpec(
@@ -120,6 +192,35 @@ DEFAULT_LANES: tuple[LaneSpec, ...] = (
         monthly_allocation=0, daily_cap=0, protected=False,
         purpose="Unallocated by default. Anything else must be given an allocation first.",
     ),
+    LaneSpec(
+        key=LANE_CFB_RESEARCH, label="CFB paper moneylines", precedence=6,
+        monthly_allocation=0, daily_cap=0, protected=False,
+        purpose=(
+            "CFB paper-policy moneylines (americanfootball_ncaaf, h2h). Zero unless explicitly "
+            "funded (ODDS_CFB_LANE_MONTHLY_CREDITS / ODDS_CFB_LANE_DAILY_CREDITS); never NFL's lane."
+        ),
+    ),
+    LaneSpec(
+        key=LANE_NHL_RESEARCH, label="NHL paper moneylines", precedence=8,
+        monthly_allocation=0, daily_cap=0, protected=False,
+        purpose=(
+            "NHL paper-policy moneylines (icehockey_nhl, h2h). Zero unless explicitly funded "
+            "(ODDS_NHL_LANE_MONTHLY_CREDITS / ODDS_NHL_LANE_DAILY_CREDITS); never another sport's lane. "
+            "Yields to NFL and CFB: it leaves their unspent allocations whole."
+        ),
+        # Review MAJOR 2026-10-16: first come, first served, a funded NHL lane could spend the
+        # whole optional pool (and the shared daily request budget) before NFL's T-26 fallback.
+        yields_to=(LANE_NFL_RESEARCH, LANE_CFB_RESEARCH),
+    ),
+    LaneSpec(
+            key=LANE_NBA_RESEARCH, label="NBA paper moneylines", precedence=9,
+            monthly_allocation=0, daily_cap=0, protected=False,
+            yields_to=(LANE_NFL_RESEARCH, LANE_CFB_RESEARCH, LANE_NHL_RESEARCH),
+            purpose=(
+                "NBA paper-policy moneylines (basketball_nba, h2h). Zero unless explicitly funded "
+                "(ODDS_NBA_LANE_MONTHLY_CREDITS / ODDS_NBA_LANE_DAILY_CREDITS); never another sport's lane."
+            ),
+        ),
 )
 
 LANES: dict[str, LaneSpec] = {lane.key: lane for lane in DEFAULT_LANES}
@@ -129,6 +230,9 @@ LANES: dict[str, LaneSpec] = {lane.key: lane for lane in DEFAULT_LANES}
 #: recovery request is otherwise indistinguishable from a scheduled one.
 RECOVERY_MARKER = "recovery"
 
+#: Player-prop market keys never draw on an MLB lane: they buy no decision.
+PLAYER_PROP_MARKET_PREFIXES = ("batter_", "pitcher_", "player_")
+
 
 def lane_for_request(
     *, league_code: str, markets: tuple[str, ...] | list[str], recovery: bool = False,
@@ -137,6 +241,8 @@ def lane_for_request(
 
     markets = tuple(m.strip().lower() for m in markets if m and m.strip())
     league = (league_code or "").upper()
+    if any(market.startswith(PLAYER_PROP_MARKET_PREFIXES) for market in markets):
+        return LANE_OTHER_RESEARCH
     optional = any(market in ("spreads", "totals") for market in markets)
     if league == "MLB":
         if optional:
@@ -144,7 +250,77 @@ def lane_for_request(
         return LANE_MLB_RECOVERY if recovery else LANE_MLB_REQUIRED
     if league == "NFL":
         return LANE_OPTIONAL_MARKETS if optional else LANE_NFL_RESEARCH
+    if league == "CFB":
+        return LANE_OPTIONAL_MARKETS if optional else LANE_CFB_RESEARCH
+    if league == "NBA":
+        return LANE_NBA_RESEARCH
+    if league == "NHL":
+        # Spreads and totals included: an NHL request never draws on the shared,
+        # funded OPTIONAL_MARKETS lane, so nothing NHL spends until NHL is funded.
+        return LANE_NHL_RESEARCH
     return LANE_OTHER_RESEARCH
+
+
+def league_of_endpoint(endpoint_key: str | None) -> str:
+    """The league a THE_ODDS_API ledger endpoint key prices ('' when none).
+
+    NCAAF is checked FIRST: ``americanfootball_ncaaf`` also contains
+    ``americanfootball``, and must never be attributed to NFL's lane.
+    """
+
+    key = endpoint_key or ""
+    if "basketball_nba" in key:
+        return "NBA"
+    if "icehockey_nhl" in key:
+        return "NHL"
+    if "ncaaf" in key:
+        return "CFB"
+    if "baseball" in key:
+        return "MLB"
+    if "americanfootball" in key:
+        return "NFL"
+    return ""
+
+
+def lanes_with_cfb(monthly_credits: int, daily_credits: int,
+                   lanes: tuple[LaneSpec, ...] = DEFAULT_LANES) -> tuple[LaneSpec, ...]:
+    """``lanes`` with the CFB lane funded from explicit settings (zero by default)."""
+
+    from dataclasses import replace
+
+    return tuple(
+        replace(lane, monthly_allocation=max(0, int(monthly_credits or 0)),
+                daily_cap=max(0, int(daily_credits or 0)))
+        if lane.key == LANE_CFB_RESEARCH else lane
+        for lane in lanes
+    )
+
+
+def lanes_with_nhl(monthly_credits: int, daily_credits: int,
+                   lanes: tuple[LaneSpec, ...] = DEFAULT_LANES, *,
+                   yields_to_cfb: bool = True) -> tuple[LaneSpec, ...]:
+    """``lanes`` with the NHL lane funded from explicit settings (zero by default).
+
+    ``yields_to_cfb=False`` drops CFB_RESEARCH from the NHL lane's ``yields_to`` (it still
+    yields to NFL_RESEARCH). The orchestrator passes ``ODDS_NHL_YIELDS_TO_CFB``, which is
+    False by default since the owner's 2026-10-16 priority "MLB and NHL over CFB"; the
+    compiled ``DEFAULT_LANES`` and this function's own default keep the 1aee96d arithmetic.
+    """
+
+    from dataclasses import replace
+
+    def funded(lane: LaneSpec) -> LaneSpec:
+        yields, purpose = lane.yields_to, lane.purpose
+        if not yields_to_cfb:
+            yields = tuple(k for k in lane.yields_to if k != LANE_CFB_RESEARCH)
+            purpose = purpose.replace(
+                "Yields to NFL and CFB: it leaves their unspent allocations whole.",
+                "Yields to NFL: it leaves NFL's unspent allocation whole (not CFB's: owner priority "
+                "2026-10-16, MLB and NHL over CFB).")
+        return replace(lane, monthly_allocation=max(0, int(monthly_credits or 0)),
+                       daily_cap=max(0, int(daily_credits or 0)), yields_to=yields, purpose=purpose)
+
+    return tuple(funded(lane) if lane.key == LANE_NHL_RESEARCH else lane for lane in lanes)
 
 
 def lane_of_ledger_row(
@@ -170,9 +346,7 @@ def lane_of_ledger_row(
         shape = (row.response_metadata or {}).get("request_shape") or {}
     markets = shape.get("markets") or []
     recovery = bool(shape.get(RECOVERY_MARKER))
-    league = "MLB" if "baseball" in (row.endpoint_key or "") else (
-        "NFL" if "americanfootball" in (row.endpoint_key or "") else ""
-    )
+    league = league_of_endpoint(row.endpoint_key)
     if not league:
         return LANE_OTHER_RESEARCH
     if not markets:
@@ -213,6 +387,7 @@ class LaneState:
             "spent_today": self.spent_today,
             "remaining_today": self.remaining_today,
             "requests": self.requests,
+            "yields_to": list(self.spec.yields_to),
         }
 
 
@@ -224,12 +399,37 @@ class LaneBudget:
     base: odds_budget.BudgetState
     unattributed_spend: int = 0
     reconciliation: dict[str, Any] = field(default_factory=dict)
+    #: Lanes whose sport is in play today (``lanes_in_play_today``). ``None`` = not
+    #: computed, and then every lane a yielding lane yields to counts as in play
+    #: (the conservative reading). Only a yielding lane's arithmetic reads it.
+    in_play_today: frozenset[str] | None = None
 
     @property
     def protected_unspent(self) -> int:
         return sum(
             state.remaining for state in self.lanes.values() if state.spec.protected
         )
+
+    def yield_holdback(self, lane_key: str) -> dict[str, Any]:
+        """What ``lane_key`` must leave to the lanes it yields to (zero for every other lane).
+
+        ``monthly``: their unspent monthly allocations, always. ``daily``: their unspent
+        daily allocations, for lanes in play today only. Credits are also an upper bound on
+        requests (every request costs at least one), so ``daily`` doubles as the number of
+        shared daily REQUESTS to leave them.
+        """
+
+        state = self.lanes.get(lane_key)
+        held: list[dict[str, Any]] = []
+        for key in (state.spec.yields_to if state is not None else ()):
+            other = self.lanes.get(key)
+            if other is None:
+                continue
+            playing = self.in_play_today is None or key in self.in_play_today
+            held.append({"lane": key, "label": other.spec.label, "monthly": other.remaining,
+                         "today": other.remaining_today if playing else 0, "in_play_today": playing})
+        return {"monthly": sum(h["monthly"] for h in held), "daily": sum(h["today"] for h in held),
+                "lanes": held}
 
     @property
     def total_allocated(self) -> int:
@@ -268,6 +468,24 @@ class LaneBudget:
                     f"{state.spec.label} may not spend: {self.protected_unspent} credits are "
                     f"reserved for protected lanes and only {max(0, available)} are free"
                 )
+            # A yielding lane (NHL) also leaves the lanes it yields to (NFL, CFB) whole: their
+            # unspent monthly allocation, and on a day their sport plays, their unspent share
+            # of the shared AISP daily credit budget. Precedence is enforced, not just displayed.
+            hold = self.yield_holdback(lane_key)
+            if hold["lanes"]:
+                names = ", ".join(h["label"] for h in hold["lanes"])
+                left = available - hold["monthly"]
+                if credits > left:
+                    return False, (
+                        f"{state.spec.label} yields to {names}: {hold['monthly']} of their monthly credits "
+                        f"stay unspent for them and only {max(0, left)} are free"
+                    )
+                today = self.base.daily_remaining - hold["daily"]
+                if credits > today:
+                    return False, (
+                        f"{state.spec.label} yields to {names}: {hold['daily']} of today's shared "
+                        f"{self.base.daily_cap}-credit daily budget stay for them and only {max(0, today)} are free"
+                    )
         elif credits > self.base.budgeted_remaining:
             return False, (
                 f"Monthly budget exhausted: {self.base.spent}/{self.base.monthly_cap} used, "
@@ -290,6 +508,7 @@ class LaneBudget:
             ],
             "total_allocated": self.total_allocated,
             "protected_unspent": self.protected_unspent,
+            "in_play_today": None if self.in_play_today is None else sorted(self.in_play_today),
             "unattributed_spend": self.unattributed_spend,
             "reconciliation": self.reconciliation,
             "base_budget": self.base.as_dict(),
@@ -298,6 +517,7 @@ class LaneBudget:
 
 def _reconcile(
     *, provider_used: int | None, lane_total: int, unattributed: int,
+    chargeable_requests: int | None = None,
 ) -> dict[str, Any]:
     """Compare the provider's own counter with our lane accounting.
 
@@ -306,11 +526,32 @@ def _reconcile(
     optional lanes are locked until it is. If it has counted LESS, we keep our
     own higher figure and simply record it: believing the smaller number is how
     a budget is overrun.
+
+    ``chargeable_requests`` is the number of chargeable reservations in this
+    billing window. With no reading yet and fewer than
+    ``FIRST_READING_ATTEMPTS`` of them, an optional lane may take the month's
+    first reading; ``None`` (a caller that does not say) keeps the lock.
     """
 
+    if provider_used is None and chargeable_requests is not None \
+            and 0 <= chargeable_requests < FIRST_READING_ATTEMPTS:
+        return {
+            "state": STATE_FIRST_READING,
+            "optional_locked": False,
+            "detail": (
+                f"No provider reading inside this billing window yet, and {chargeable_requests} of "
+                f"{FIRST_READING_ATTEMPTS} first-reading attempts used. One guarded request may take the "
+                "month's first reading; every allocation, daily cap, protected holdback, reserve and "
+                "the provider floor still apply to it."
+            ),
+            "provider_used": None,
+            "lane_total": lane_total,
+            "chargeable_requests": chargeable_requests,
+            "first_reading_attempts": FIRST_READING_ATTEMPTS,
+        }
     if provider_used is None:
         return {
-            "state": "PROVIDER_BALANCE_UNKNOWN",
+            "state": STATE_BALANCE_UNKNOWN,
             "optional_locked": True,
             "detail": (
                 "No provider reading inside this billing window, so consumed credits cannot "
@@ -367,8 +608,13 @@ def lane_budget(
     now: datetime | None = None,
     display_timezone: str = "America/New_York",
     lanes: tuple[LaneSpec, ...] = DEFAULT_LANES,
+    in_play_today: frozenset[str] | None = None,
 ) -> LaneBudget:
-    """Compute every lane's position from the provider request ledger."""
+    """Compute every lane's position from the provider request ledger.
+
+    ``in_play_today`` (``lanes_in_play_today``) only matters to a yielding lane; ``None``
+    treats every lane it yields to as in play today.
+    """
 
     now = now or datetime.now(UTC)
     if now.tzinfo is None:
@@ -420,8 +666,45 @@ def lane_budget(
         lanes=states, base=base, unattributed_spend=unattributed,
         reconciliation=_reconcile(
             provider_used=base.provider_used, lane_total=lane_total, unattributed=unattributed,
+            chargeable_requests=base.requests_this_window,
         ),
+        in_play_today=None if in_play_today is None else frozenset(in_play_today),
     )
+
+
+#: The league whose SCHEDULED games put a yielded-to lane in play.
+IN_PLAY_LEAGUES: dict[str, str] = {LANE_NFL_RESEARCH: "NFL", LANE_CFB_RESEARCH: "CFB"}
+#: A game starting this long after the operational day ends still counts: its buy window
+#: (T-75 at the earliest for any lane) opens before midnight.
+IN_PLAY_AFTER_DAY_END = timedelta(hours=2)
+
+
+def lanes_in_play_today(session: Session, *, now: datetime | None = None,
+                        display_timezone: str = "America/New_York") -> frozenset[str]:
+    """Yielded-to lanes whose sport has a SCHEDULED game still to start in this operational day.
+
+    The daily part of a yield is held only for these: a sport with nothing left to price
+    today needs none of today's shared requests or credits (NFL on a Saturday in October),
+    while its MONTHLY holdback always stands.
+    """
+
+    from app.core.time import local_day_bounds, local_today
+    from app.models import Game, GameStatus, League
+
+    now = now or datetime.now(UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    _start, day_end = local_day_bounds(local_today(display_timezone, now), display_timezone)
+    playing = set()
+    for lane, code in IN_PLAY_LEAGUES.items():
+        found = session.scalar(
+            select(Game.id).join(League, League.id == Game.league_id)
+            .where(League.code == code, Game.status == GameStatus.SCHEDULED,
+                   Game.starts_at > now, Game.starts_at < day_end + IN_PLAY_AFTER_DAY_END)
+            .limit(1))
+        if found is not None:
+            playing.add(lane)
+    return frozenset(playing)
 
 
 def projected_month(
@@ -459,6 +742,17 @@ def projected_month(
 
 __all__ = [
     "DEFAULT_LANES",
+    "FIRST_READING_ATTEMPTS",
+    "STATE_BALANCE_UNKNOWN",
+    "STATE_FIRST_READING",
+    "IN_PLAY_AFTER_DAY_END",
+    "IN_PLAY_LEAGUES",
+    "lanes_in_play_today",
+    "LANE_CFB_RESEARCH",
+    "LANE_NHL_RESEARCH",
+    "league_of_endpoint",
+    "lanes_with_cfb",
+    "lanes_with_nhl",
     "LANES",
     "LANE_MLB_RECOVERY",
     "LANE_MLB_REQUIRED",
@@ -475,3 +769,17 @@ __all__ = [
     "lane_of_ledger_row",
     "projected_month",
 ]
+
+
+def lanes_with_nba(monthly_credits: int, daily_credits: int,
+                   lanes: tuple[LaneSpec, ...] = DEFAULT_LANES) -> tuple[LaneSpec, ...]:
+    """``lanes`` with the NBA lane funded from explicit settings (zero by default)."""
+
+    from dataclasses import replace
+
+    return tuple(
+        replace(lane, monthly_allocation=max(0, int(monthly_credits or 0)),
+                daily_cap=max(0, int(daily_credits or 0)))
+        if lane.key == LANE_NBA_RESEARCH else lane
+        for lane in lanes
+    )

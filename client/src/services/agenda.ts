@@ -12,6 +12,7 @@
  *    EXPECTED, labelled as such, because their timing belongs to other owners
  *    (the model publisher; the governed final).
  */
+import { modelLine } from './pregameStatus'
 import type { CoverageGame, DecisionItem, Ledger, SportCode } from './commandCenter'
 import { asSport } from './commandCenter'
 
@@ -37,7 +38,7 @@ const MIN = 60_000
 /** Publisher cadence is not fixed; an unpublished forecast is expected by T-60. */
 const FORECAST_EXPECTED_BEFORE = 60 * MIN
 /** Settlement follows the governed final; these are estimates of when a check will find one. */
-const SETTLEMENT_ESTIMATE: Record<SportCode, number> = { MLB: 195 * MIN, NFL: 225 * MIN, NBA: 165 * MIN, CFB: 240 * MIN }
+const SETTLEMENT_ESTIMATE: Record<SportCode, number> = { MLB: 195 * MIN, NFL: 225 * MIN, NBA: 165 * MIN, CFB: 240 * MIN, NHL: 180 * MIN }
 
 export function buildAgenda(games: CoverageGame[], decisions: DecisionItem[], ledger: Ledger | null, now: number): AgendaEvent[] {
   const events: AgendaEvent[] = []
@@ -57,19 +58,31 @@ export function buildAgenda(games: CoverageGame[], decisions: DecisionItem[], le
 
     // Forecast publication
     if (g.model?.created_at) {
+      // created_at is the start of AISP's import transaction, not the producer's
+      // publication and not an exact insert or commit time.
       events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at: Date.parse(g.model.created_at), status: 'done',
-        label: 'Forecast published', detail: g.model.engine_id.replace(/_/g, ' ') })
+        label: 'Forecast import began', detail: `${g.model.engine_id.replace(/_/g, ' ')} · AISP import transaction start` })
+    } else if (g.model_status?.schedule.publication_target) {
+      // The producer contract: input checks from T-60, a T-45 publication
+      // TARGET (not a guaranteed arrival), decisions T-30..T-15.
+      const m = g.model_status
+      const at = Date.parse(m.schedule.publication_target as string)
+      const line = modelLine(m)
+      const late = m.state === 'OVERDUE' || m.state === 'MISSED'
+      events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at, status: started || m.state === 'MISSED' ? 'missed' : 'expected',
+        label: started ? 'No forecast before first pitch' : late ? (line?.label ?? 'Forecast overdue') : 'Forecast publication target',
+        detail: line?.detail ?? 'Publication target T-45 (a target, not a guaranteed arrival)' })
     } else {
       const at = start - FORECAST_EXPECTED_BEFORE
       events.push({ ...base, key: `${g.game_id}:forecast`, kind: 'forecast', at, status: started ? 'missed' : 'expected',
         label: started ? 'No forecast before first pitch' : 'Forecast expected', detail: started ? 'The controlling forecast was not published' : 'Final-pregame forecast expected by T-60 (publisher timing varies)' })
     }
 
-    // Sportsbook collection window
-    const cOpen = Date.parse(g.checkpoints.collection_opens_at)
+    // Sportsbook collection window (none for College Football: no collection is planned)
+    const cOpen = g.checkpoints.collection_opens_at ? Date.parse(g.checkpoints.collection_opens_at) : NaN
     const cClose = Date.parse(g.checkpoints.decision_window_closes_at)
     const collected = g.quotes.length > 0 && g.freshest_observed_at != null && Date.parse(g.freshest_observed_at) >= cOpen
-    events.push({ ...base, key: `${g.game_id}:collection`, kind: 'collection', at: cOpen, until: cClose,
+    if (!Number.isNaN(cOpen)) events.push({ ...base, key: `${g.game_id}:collection`, kind: 'collection', at: cOpen, until: cClose,
       status: collected ? 'done' : now >= cClose ? 'missed' : now >= cOpen ? 'open' : 'scheduled',
       label: collected ? 'Market collected' : now >= cClose ? 'No price collected' : now >= cOpen ? 'Collection window open' : 'Market collection scheduled',
       detail: collected ? `${g.fresh_books || g.books} books · latest ${new Date(Date.parse(g.freshest_observed_at as string)).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })} ET` : 'Sportsbook prices for this game' })
@@ -120,7 +133,11 @@ export interface AttentionItem {
  */
 export function nextAttention(events: AgendaEvent[], now: number, count = 3): AttentionItem[] {
   const pending = events
-    .filter((e) => (e.status === 'open' && (e.until ?? e.at) >= now) || ((e.status === 'scheduled' || e.status === 'expected') && e.at >= now - 5 * MIN))
+    .filter((e) => (e.status === 'open' && (e.until ?? e.at) >= now)
+      // A game start is "next" only while it is still ahead; other scheduled
+      // milestones keep a short grace so a just-due check is still listed.
+      || (e.kind === 'game' && e.status === 'scheduled' && e.at > now)
+      || (e.kind !== 'game' && (e.status === 'scheduled' || e.status === 'expected') && e.at >= now - 5 * MIN))
     .sort((a, b) => (a.status === 'open' ? now : a.at) - (b.status === 'open' ? now : b.at) || a.matchup.localeCompare(b.matchup))
   const groups = new Map<string, AttentionItem>()
   for (const e of pending) {

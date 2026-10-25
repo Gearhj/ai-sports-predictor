@@ -84,6 +84,20 @@ def session() -> Session:
 
 
 @pytest.fixture(autouse=True)
+def _postgres_varchar_lengths():
+    """Postgres refuses an over-length VARCHAR; SQLite stores it. Hold every decision/position write in the
+    suite to the production column lengths (tests/postgres_column_lengths.py), even when the code under test
+    swallows the flush error."""
+    from tests import postgres_column_lengths as lengths
+
+    lengths.install()
+    lengths.drain()
+    yield
+    seen = lengths.drain()
+    assert not seen, f"Postgres would refuse these writes (VARCHAR too long): {seen}"
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limiter():
     """Isolate the process-global rate-limiter between tests."""
     from app.core.rate_limit import get_rate_limiter

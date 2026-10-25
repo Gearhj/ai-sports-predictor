@@ -31,9 +31,22 @@ from app.services.provider_allocation import PROVIDER, USAGE_ENDPOINT_KEY
 
 USAGE_PATH = "/account/usage"
 
+# James's bounded current-credential recovery authority. The dated recovery
+# release may read account usage until this instant; another scope requires a
+# reviewed successor. A closed event-price lane alone never stopped these reads.
+ACCOUNT_USAGE_AUTHORIZED_UNTIL = datetime(2026, 10, 6, 14, 45, tzinfo=UTC)
+
 
 class UsageUnavailableError(RuntimeError):
     """The provider could not be asked, and the reason says which way."""
+
+
+def _require_account_usage_authority(moment: datetime) -> float:
+    """Refuse new account HTTP work at the actual bounded authority deadline."""
+    if moment.tzinfo is None or moment >= ACCOUNT_USAGE_AUTHORIZED_UNTIL:
+        raise UsageUnavailableError(
+            "SGO_ACCOUNT_USAGE_AUTHORITY_EXPIRED: 2026-10-06T14:45:00Z")
+    return (ACCOUNT_USAGE_AUTHORIZED_UNTIL - moment).total_seconds()
 
 
 def parse_usage(payload: dict[str, Any]) -> dict[str, Any]:
@@ -74,11 +87,13 @@ def parse_usage(payload: dict[str, Any]) -> dict[str, Any]:
 def fetch_usage(settings: Any) -> dict[str, Any]:
     """One request to the account endpoint. No retry, no pagination."""
 
+    remaining = _require_account_usage_authority(datetime.now(UTC))
     base = (settings.sportsgameodds_base_url or "").rstrip("/")
     key = (settings.sportsgameodds_api_key or "").strip()
     if not base or not key:
         raise UsageUnavailableError("SportsGameOdds is not configured")
-    with httpx.Client(timeout=25.0, follow_redirects=False) as client:
+    with httpx.Client(timeout=min(25.0, remaining), follow_redirects=False) as client:
+        _require_account_usage_authority(datetime.now(UTC))
         response = client.get(
             f"{base}{USAGE_PATH}",
             headers={"X-Api-Key": key, "Accept": "application/json"},
@@ -97,6 +112,10 @@ def refresh_usage(
 
     moment = now or datetime.now(UTC)
     try:
+        # Both clocks must qualify. Backdated report timestamps cannot extend
+        # actual credential use, and a future/expired test or caller clock fails.
+        _require_account_usage_authority(datetime.now(UTC))
+        _require_account_usage_authority(moment)
         payload = (fetch or fetch_usage)(settings)
         usage = parse_usage(payload)
     except Exception as error:

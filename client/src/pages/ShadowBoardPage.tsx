@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowRight, FlaskConical, Lock, ShieldAlert, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MetricCard, PageHeader, Panel, TableScroll } from '../components/ui'
 import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
+import { teamIdentity } from '../services/teamIdentity'
+import { useSportSelection } from '../hooks/useSportSelection'
 import type {
   ProspectiveRescore,
   ShadowBoardData,
   ShadowDecisionView,
   ShadowEngineView,
+  ShadowGameView,
   ShadowRecommendation,
 } from '../types/domain'
 
@@ -25,6 +28,25 @@ const RECOMMENDATION_CLASS: Record<ShadowRecommendation, string> = {
 const pct = (value: number | null): string => (value == null ? '—' : `${(value * 100).toFixed(1)}%`)
 const edge = (value: number | null): string => (value == null ? '—' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`)
 const money = (value: number): string => `$${value.toFixed(2)}`
+
+/**
+ * The team a reader recognises. Bundles store canonical team ids, and the
+ * canonical names are historical franchise names ("San Diego Chargers"), so the
+ * abbreviation is resolved through the same season-aware identity every other
+ * page uses. The stored id is only a last resort.
+ */
+export function teamLabel(game: ShadowGameView, side: 'home' | 'away'): string {
+  const league = !game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport
+  const abbreviation = side === 'home' ? game.home_team_abbreviation : game.away_team_abbreviation
+  const when = game.scheduled_start_utc ?? game.event_date
+  const year = Number(when.slice(0, 4))
+  // An NFL game in January or February belongs to the previous season.
+  const season = league === 'NFL' && Number(when.slice(5, 7)) <= 2 ? year - 1 : year
+  const identity = abbreviation ? teamIdentity(league, abbreviation, season) : null
+  if (identity?.known) return identity.name
+  return (side === 'home' ? game.home_team_name : game.away_team_name)
+    ?? abbreviation ?? (side === 'home' ? game.home_team_id : game.away_team_id)
+}
 
 function initialSlateDate(): string {
   // Same date authority as every daily surface: an explicit ?date= wins,
@@ -42,6 +64,14 @@ export function ShadowBoardPage() {
   const [slateDate, setSlateDate] = useState<string>(initialSlateDate)
   const [data, setData] = useState<ShadowBoardData | null>(null)
   const [sport, setSport] = useState<string | null>(initialSport)
+  // Follow the global sport selector while mounted (MLB is "BASEBALL" here).
+  const { sport: selected } = useSportSelection()
+  const firstSelected = useRef(selected)
+  useEffect(() => {
+    if (selected === firstSelected.current) return // the URL already set the initial slate
+    firstSelected.current = selected
+    setSport(selected === 'NFL' ? 'NFL' : selected === 'MLB' ? 'BASEBALL' : null)
+  }, [selected])
   const [rescores, setRescores] = useState<ProspectiveRescore[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -156,7 +186,7 @@ export function ShadowBoardPage() {
       {games.map((game) => (
         <Panel
           key={game.event_id}
-          title={`${game.away_team_id} @ ${game.home_team_id}`}
+          title={`${teamLabel(game, 'away')} @ ${teamLabel(game, 'home')}`}
           // Kickoff/first pitch in the reader's own locale, not a raw ISO string.
           eyebrow={`${!game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport} · ${
             game.scheduled_start_utc ? formatTimestamp(game.scheduled_start_utc) : game.event_date}`}

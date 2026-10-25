@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -44,6 +44,7 @@ from app.models import (
     GameTeam,
     IngestionRun,
     JobRun,
+    League,
     MarketOutcome,
     ModelVersion,
     OddsSnapshot,
@@ -56,6 +57,8 @@ from app.models import (
     ShadowForecastBundle,
 )
 from app.services.forecast_service import ForecastNotReadyError, ForecastService, ForecastWindowClosedError
+from app.services.game_state_service import GameStateUnavailableError
+from app.services.league_scope import MLB, LeagueMismatchError, in_league
 from app.services.read_service import ReadService
 
 
@@ -94,8 +97,18 @@ AVAILABLE_JOBS = {
     "refresh-scoreboard": "Refresh Live Scoreboard (MLB)",
     "collect-nfl-period-breakdowns": "Collect NFL Quarter Breakdowns",
     "collect-nfl-live-scores": "Collect NFL In-Game Scores (tracked games)",
+    "collect-nfl-live-scores-espn": "Collect NFL In-Game Scores From ESPN's Free Public Scoreboard (display only)",
     "collect-nfl-pregame-odds": "Collect NFL Pregame Odds (one object, near the checkpoint)",
     "evaluate-nfl-paper-checkpoint": "Evaluate the NFL Paper Policy at its Final-Pregame Checkpoint",
+    "evaluate-cfb-paper-checkpoint": "Evaluate the CFB Paper Policy at its Final-Pregame Checkpoint",
+    "ingest-cfb-finals": "Admit CFB Finals From Retained Evidence and Score CFB Forecasts (no network)",
+    "collect-cfb-pregame-odds": "Collect CFB Pregame Odds (capacity-gated, at most ten objects)",
+    "collect-cfb-odds-api": "Collect CFB Moneylines From The Odds API (h2h, one request per kickoff cluster; off by default)",
+    "evaluate-nba-paper-checkpoint": "Evaluate the NBA Paper Policy at its Final-Pregame Checkpoint (off by default)",
+    "ingest-nba-finals": "Admit NBA Finals From Retained ESPN Objects and Score NBA Channels (no network)",
+    "collect-nba-pregame-odds": "Collect NBA Pregame Odds (lane off; no allowance until the owner grants one)",
+    "collect-nba-odds-api": "Collect NBA moneylines from the existing included OddsAPI plan (guarded)",
+    "import-nba-historical-evidence": "Import Model Studio's 2025-26 NBA Assessment as HISTORICAL Evidence (manual)",
     "recover-governed-finals": "Recover Governed Finals For Completed Games",
     "refresh-provider-usage": "Refresh SportsGameOdds Account Usage",
     "backfill-scoreboard": "Backfill Scoreboard From Retained Captures",
@@ -111,6 +124,12 @@ AVAILABLE_JOBS = {
     "generate-nfl-final-pregame-forecasts": "Generate NFL M1 Final-Pregame Research-Shadow Forecasts",
     "import-nfl-shadow-forecast-bundle": "Import NFL M1 Research-Shadow Forecast Bundle",
     "consume-model-exchange-research-artifacts": "Consume Verified Model Exchange Research Artifacts",
+    "import-nfl-final-pair": "Import NFL FINAL Forecast and Eligibility Pair",
+    "import-nhl-forward-delivery": "Import a Verified Forward NHL Research Publication",
+    "generate-nhl-forecasts": "Generate NHL Gen1 Forecasts In-Process From the Public Schedule (frozen model; off by default)",
+    "evaluate-nhl-paper-checkpoint": "Evaluate the NHL Paper Checkpoint and Settle NHL Positions",
+    "collect-nhl-odds-api": "Collect NHL Moneylines From The Odds API (h2h, one request per start-time cluster; off by default)",
+    "ingest-nhl-finals-espn": "Ingest NHL Finals From ESPN's Free Public Scoreboard (results for NHL settlement; off by default)",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
@@ -134,7 +153,38 @@ AVAILABLE_JOBS = {
     "finalize-prediction-market-pregame": "Finalize Prediction-Market Pregame",
     "capture-prediction-market-pregame-cuts": "Capture Scheduled Pregame Cuts (T-6h/T-2h/T-30m/T-5m)",
     "backfill-prediction-market-history": "Backfill Prediction-Market History (bounded)",
+    "seal-v18-market-pilot-packets": "Seal V18 Market-Pilot Pregame Packets (read-only research export)",
+    "export-v18-market-pilot-outcomes": "Export V18 Market-Pilot Admitted Outcomes (read-only research export)",
+    "export-v18-market-pilot-outcomes-v2": "Export V18 Market-Pilot Capture-Bound V2 Outcomes (read-only research export)",
+    # Admin-only, never scheduled. Inert while their code registry is empty.
+    "plan-postponed-position-voids": "Governed Postponement VOID Corrections: dry run (read-only plan of the registry)",
+    "correct-postponed-position-voids": "Governed Postponement VOID Corrections (applies registry entries marked APPLY)",
 }
+
+def _checkpoint_already_running(job_name: str) -> dict[str, Any]:
+    """Receipt for a checkpoint execution that found the slot already held.
+
+    The decision owners write by reading first and then inserting when nothing
+    is there, which is idempotent only while executions are serialised. The
+    scheduled runs are -- they share one single-worker lane -- but the admin
+    path (``POST /admin/jobs/{job_name}``) awaits the orchestrator on the web
+    event loop, outside every lane, so it can overlap a scheduled run.
+
+    Declining is the right answer rather than a loss: the execution holding the
+    slot is evaluating the same window from the same rows and will record the
+    same outcome per game. What must not happen is a silent no-op, so this is a
+    named reason in ``job_runs.result``, distinguishable from "no game was due".
+    """
+
+    return {
+        "records": 0,
+        "reason": "CHECKPOINT_ALREADY_RUNNING",
+        "detail": (f"Another execution of {job_name} is in flight in this "
+                   "process; this one declined rather than interleave with it. "
+                   "No decision and no position were written by this run."),
+        "decisions": [],
+    }
+
 
 ALIASES = {
     "schedule": "refresh-schedule", "refresh-todays-schedule": "refresh-schedule",
@@ -153,18 +203,29 @@ class JobOrchestrator:
         self.normalizer = CanonicalNormalizer(session)
         self.demo = DemoSportsSource()
         self._active_job_run_id: Any | None = None
+        #: Which entry path is executing: the scheduler, or POST /admin/jobs.
+        #: Recorded on the acquisition claim; it never decides who wins.
+        self._requested_by_user_id: Any | None = None
 
     async def run(self, name: str, *, requested_by_user_id: Any | None = None, event_date: date | None = None) -> JobRun:
+        self._requested_by_user_id = requested_by_user_id
         canonical = _job_key(name)
         if canonical not in AVAILABLE_JOBS:
             raise ValueError(f"Unknown job '{name}'. Available jobs: {', '.join(AVAILABLE_JOBS)}")
         event_date = event_date or local_today(self.settings.display_timezone)
+        from app.jobs.lanes import current_meta
+
+        parameters: dict[str, Any] = {"event_date": event_date.isoformat()}
+        scheduling = current_meta()
+        if scheduling:
+            # When APScheduler fired this run, and how long it waited for its lane.
+            parameters["scheduling"] = scheduling
         run = JobRun(
             job_name=canonical,
             status=RunStatus.RUNNING,
             requested_by_user_id=requested_by_user_id,
             started_at=datetime.now(UTC),
-            parameters={"event_date": event_date.isoformat()},
+            parameters=parameters,
         )
         self.session.add(run)
         self.session.commit()
@@ -229,8 +290,18 @@ class JobOrchestrator:
             "refresh-scoreboard": self.refresh_scoreboard,
             "collect-nfl-period-breakdowns": self.collect_nfl_period_breakdowns,
             "collect-nfl-live-scores": self.collect_nfl_live_scores,
+            "collect-nfl-live-scores-espn": self.collect_nfl_live_scores_espn,
             "collect-nfl-pregame-odds": self.collect_nfl_pregame_odds,
             "evaluate-nfl-paper-checkpoint": self.evaluate_nfl_paper_checkpoint,
+            "evaluate-cfb-paper-checkpoint": self.evaluate_cfb_paper_checkpoint,
+            "ingest-cfb-finals": self.ingest_cfb_finals,
+            "collect-cfb-pregame-odds": self.collect_cfb_pregame_odds,
+            "collect-cfb-odds-api": self.collect_cfb_odds_api,
+            "evaluate-nba-paper-checkpoint": self.evaluate_nba_paper_checkpoint,
+            "ingest-nba-finals": self.ingest_nba_finals,
+            "collect-nba-pregame-odds": self.collect_nba_pregame_odds,
+            "collect-nba-odds-api": self.collect_nba_odds_api,
+            "import-nba-historical-evidence": self.import_nba_historical_evidence,
             "recover-governed-finals": self.recover_governed_finals,
             "refresh-provider-usage": self.refresh_provider_usage,
             "backfill-scoreboard": self.backfill_scoreboard,
@@ -245,6 +316,12 @@ class JobOrchestrator:
             "generate-nfl-final-pregame-forecasts": self.generate_nfl_final_pregame_forecasts,
             "import-nfl-shadow-forecast-bundle": self.import_nfl_shadow_bundle,
             "consume-model-exchange-research-artifacts": self.consume_model_exchange_artifacts,
+            "import-nfl-final-pair": self.import_nfl_final_pair,
+            "import-nhl-forward-delivery": self.import_nhl_forward_delivery,
+            "generate-nhl-forecasts": self.generate_nhl_forecasts,
+            "evaluate-nhl-paper-checkpoint": self.evaluate_nhl_paper_checkpoint,
+            "collect-nhl-odds-api": self.collect_nhl_odds_api,
+            "ingest-nhl-finals-espn": self.ingest_nhl_finals_espn,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
@@ -268,8 +345,115 @@ class JobOrchestrator:
             "freeze-shadow-experiment": self.freeze_shadow_experiment,
             "settle-shadow-experiment": self.settle_shadow_experiment,
             "register-practical-experiment-v2": self.register_practical_experiment_v2,
+            "seal-v18-market-pilot-packets": self.seal_v18_market_pilot_packets,
+            "export-v18-market-pilot-outcomes": self.export_v18_market_pilot_outcomes,
+            "export-v18-market-pilot-outcomes-v2": self.export_v18_market_pilot_outcomes_v2,
+            "plan-postponed-position-voids": self.plan_postponed_position_voids,
+            "correct-postponed-position-voids": self.correct_postponed_position_voids,
         }
         return await handlers[name](event_date)
+
+    async def correct_postponed_position_voids(self, event_date: date) -> dict[str, Any]:
+        """Governed VOID corrections for MLB positions settled on a makeup game.
+
+        Writes ONLY what a reviewed commit names in
+        ``app.bankroll.postponement_corrections.GOVERNED_VOID_CORRECTIONS``
+        with mode APPLY -- one adjustment row plus one audit event per
+        position, each refused unless the position still meets
+        AISP_MLB_POSTPONED_NOT_PLAYED_ON_ORIGINAL_ET_DATE_V1 and matches what
+        the owner reviewed. The registry is empty, so this is inert. Never
+        scheduled; ``event_date`` is not used.
+        """
+        from app.bankroll.postponement_corrections import run
+
+        return run(self.session, actor_user_id=self._requested_by_user_id,
+                   job_run_id=self._active_job_run_id)
+
+    async def plan_postponed_position_voids(self, event_date: date) -> dict[str, Any]:
+        """The DRY RUN of ``correct-postponed-position-voids``: every registry entry's plan, nothing written.
+
+        Read-only whatever an entry's mode, so the owner can see exactly what
+        the apply job would write (previous/corrected result and P&L, delta,
+        evidence) before running it. Never scheduled; ``event_date`` is not used.
+        """
+        from app.bankroll.postponement_corrections import run
+
+        return run(self.session, actor_user_id=self._requested_by_user_id,
+                   job_run_id=self._active_job_run_id, dry_run=True)
+
+    async def seal_v18_market_pilot_packets(self, event_date: date) -> dict[str, Any]:
+        """Seal due V18 market-pilot pregame packets (protocol f75aeccd...).
+
+        Inert unless V18_MARKET_PILOT_EXPORT_ENABLED. Reads retained rows only
+        and writes only its own write-once files: no provider request, no
+        decision, no position, no database row besides this job's own run.
+        """
+        from app.research_exports.v18_market_pilot_seal import run_seal_tick
+
+        return run_seal_tick(self.session, self.settings)
+
+    async def export_v18_market_pilot_outcomes(self, event_date: date) -> dict[str, Any]:
+        """Export admitted outcomes for sealed V18 market-pilot episodes.
+
+        Inert unless V18_MARKET_PILOT_OUTCOMES_EXPORT_ENABLED. Reads in its own
+        session under a READ ONLY transaction that is always rolled back, so
+        this job's run row is untouched; writes only its own write-once files
+        outside the packets directory. No provider request, no decision, no
+        position, no settlement.
+        """
+        from app.research_exports.v18_market_pilot_outcomes import run_outcomes_tick
+
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            return run_outcomes_tick(reader, self.settings)
+
+    async def export_v18_market_pilot_outcomes_v2(self, event_date: date) -> dict[str, Any]:
+        """Export V2 (capture-bound) outcomes for sealed V18 market-pilot episodes.
+
+        Inert unless V18_MARKET_PILOT_OUTCOMES_V2_ENABLED. Same isolation as V1:
+        its own READ ONLY session, always rolled back; writes only its own
+        write-once lane. V1 and its withheld lane are untouched.
+
+        THE PROSPECTIVE CAPTURE RIDES HERE, AND IS OFF
+        ----------------------------------------------
+        The model-market prospective export needs an owner once Model Studio
+        passes its contract, and it must not get a new one. This job is the
+        right existing owner: it is already on the ``research-export`` lane
+        (``asp-rx-*``), already opens its own reader session, already makes zero
+        provider requests, and already runs strictly AFTER the decision-time
+        evidence it reads is fixed. So the capture is a TRAILING step of this
+        tick, in its own reader session, after the V2 outcome tick has returned.
+
+        It is ``PREPARED_NOT_ACTIVATED``: ``prospective_capture_enabled``
+        defaults to false, and the hook returns inert while it is. Nothing is
+        registered: no scheduler id, no job, no owner is created here. The V2
+        result is returned unchanged whatever the hook does, and a hook failure
+        can never fail this job -- the capture must never be able to disturb an
+        owner that already has work of its own.
+        """
+        from app.research_exports.prospective_capture import research_export_tick_hook
+        from app.research_exports.v18_market_pilot_outcomes_v2 import run_outcomes_v2_tick
+
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            result = run_outcomes_v2_tick(reader, self.settings)
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            try:
+                result = {**result, "prospectiveCapture": research_export_tick_hook(
+                    reader, self.settings)}
+            except Exception as error:  # pragma: no cover - defensive, never fails the owner
+                result = {**result, "prospectiveCapture": {
+                    "enabled": True, "failed": type(error).__name__, "detail": str(error)}}
+        # The NFL early-line research export rides the same owner, in its own
+        # reader session, after both of the above. Same guarantees: off by
+        # default, never fails the owner, calls no provider, writes no row.
+        from app.research_exports.nfl_early_line import research_export_tick_hook as early_line_hook
+
+        with Session(bind=self.session.get_bind(), autoflush=False, expire_on_commit=False) as reader:
+            try:
+                result = {**result, "nflEarlyLine": early_line_hook(reader, self.settings)}
+            except Exception as error:  # pragma: no cover - defensive, never fails the owner
+                result = {**result, "nflEarlyLine": {
+                    "enabled": True, "failed": type(error).__name__, "detail": str(error)}}
+        return result
 
     # -- Prediction Market Observer jobs (provider I/O confined here) -----
     def _pm_jobs(self):
@@ -512,7 +696,9 @@ class JobOrchestrator:
         if not team_abbrev:
             return None
         team = self.session.scalar(
-            select(Team).where(func.upper(Team.abbreviation) == team_abbrev.upper())
+            select(Team)
+            .join(League, League.id == Team.league_id)
+            .where(League.code == MLB, func.upper(Team.abbreviation) == team_abbrev.upper())
         )
         if team is None:
             return None
@@ -521,7 +707,7 @@ class JobOrchestrator:
             select(Game)
             .join(GameTeam, GameTeam.game_id == Game.id)
             .where(
-                GameTeam.team_id == team.id, Game.source_mode == "LIVE",
+                GameTeam.team_id == team.id, Game.source_mode == "LIVE", in_league(MLB),
                 Game.starts_at >= start, Game.starts_at < end,
             )
             .limit(1)
@@ -552,6 +738,111 @@ class JobOrchestrator:
             **payload,
         }
 
+    async def import_nfl_final_pair(self, event_date: date) -> dict[str, Any]:
+        """Import the NFL FINAL forecast/supplement pair alone, and commit.
+
+        Deadline-bound: a FINAL forecast is usable only once IMPORTED, and the
+        last checkpoint tick inside a T-30..T-15 window is a hard edge. This
+        owner exists so neither the broad pass's duration nor its
+        `max_instances=1` skip can consume that edge. No provider request, no
+        model execution, and no other sport's artifacts.
+        """
+
+        from app.jobs.model_exchange_consumer import run_nfl_final_import
+
+        payload = run_nfl_final_import(self.session, self.settings)
+        return {"records": int(payload.get("records", 0)), **payload}
+
+    async def evaluate_nhl_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """AISP_NHL_PAPER_POLICY_V1: decisions for games in their window, then source-backed settlement.
+
+        Local reads only (forecasts, eligibility, stored native quotes, NHL results); never a
+        provider request. Without an owner-opened NHL era it records nothing; without
+        ``nhl_paper_decisions_enabled`` no position is written. Commits its own work.
+        """
+
+        if not self.settings.nhl_paper_checkpoint_enabled:
+            return {"records": 0, "status": "DISABLED", "research_only": True}
+        from app.jobs.lanes import decision_checkpoint_guard
+        from app.nhl.paper import run_checkpoint
+
+        with decision_checkpoint_guard("evaluate-nhl-paper-checkpoint") as mine:
+            if not mine:
+                return _checkpoint_already_running("evaluate-nhl-paper-checkpoint")
+            return run_checkpoint(self.session, self.settings)
+
+    async def ingest_nhl_finals_espn(self, event_date: date) -> dict[str, Any]:
+        """NHL finals from ESPN's free public scoreboard into ``nhl_game_results``; $0, OFF by default.
+
+        Asks only for dates holding a real NHL game that started 2h30m+ ago and awaits its result
+        (or holds one from this source inside the correction window). Writes contract results and
+        marks games final; settles nothing -- ``app.nhl.paper.settle`` in the NHL checkpoint does.
+        Commits its own work. With ``nhl_espn_results_enabled`` off a manual run makes no request.
+        """
+
+        if not self.settings.nhl_espn_results_enabled:
+            return {"records": 0, "requests": 0, "status": "DISABLED", "research_only": True}
+        from app.nhl.espn_results import ingest
+
+        return ingest(self.session, self.settings)
+
+    async def import_nhl_forward_delivery(self, event_date: date) -> dict[str, Any]:
+        """Consume the producer's forward NHL delivery (interface 0bcf/adf270), and commit.
+
+        Reads only local files: the producer's discovery index, its dated
+        workspace and the SAME research exchange. Never a provider request, a
+        model run, a decision, a quote or a position. Scheduled only when
+        ``nhl_forward_import_enabled`` is on; a manual run while it is off
+        returns DISABLED and reads and writes nothing.
+        """
+
+        if not self.settings.nhl_forward_import_enabled:
+            return {"records": 0, "writes": False, "status": "DISABLED", "research_only": True,
+                    "paper_authority": False}
+        from app.nhl.forward_delivery import consume_forward_delivery
+
+        try:
+            payload = consume_forward_delivery(self.session)
+        except Exception:
+            self.session.rollback()
+            raise
+        if payload.get("writes"):
+            self.session.commit()
+        else:
+            self.session.rollback()
+        return {"records": int(payload.get("records", 0)), **payload}
+
+    async def generate_nhl_forecasts(self, event_date: date) -> dict[str, Any]:
+        """AISP's own NHL Gen1 forecasts for today and tomorrow (ET), from the frozen model. Commits.
+
+        At most five free public GitHub requests (LICENSE, README, release API,
+        asset + its redirect hop); fails closed with a named status when the
+        rights text changed, the asset's bytes do not match the release digest
+        or the evidence cannot be retained. Writes research forecasts only --
+        never a decision, quote, price or position. Scheduled only when
+        ``nhl_forecast_generation_enabled`` is on; a manual run while it is off
+        returns DISABLED, sends nothing and writes nothing.
+        """
+
+        if not self.settings.nhl_forecast_generation_enabled:
+            return {"records": 0, "writes": False, "status": "DISABLED", "provider_called": False,
+                    "research_only": True, "paper_authority": False}
+        from app.nhl.inprocess_generator import run_generation
+
+        try:
+            payload = await run_generation(self.session, self.settings)
+        except Exception:
+            self.session.rollback()
+            raise
+        if payload.get("writes"):
+            self.session.commit()
+        else:
+            self.session.rollback()
+        if payload.get("status") != "COMPLETED":
+            logger.warning("nhl_forecast_generation_refused", status=payload.get("status"),
+                           reason=payload.get("reason"))
+        return {**payload, "records": int(payload.get("records", 0))}
+
     async def open_model_era_at_boundary(self, event_date: date) -> dict[str, Any]:
         """Open an armed model era once -- and only once -- its boundary arrives.
 
@@ -570,17 +861,32 @@ class JobOrchestrator:
         self.session.commit()
         return {"armed": armed, "captured": captured, "status": service.status()}
 
-    async def import_nfl_shadow_bundle(self, event_date: date) -> dict[str, Any]:
+    async def import_nfl_shadow_bundle(
+        self, event_date: date, *, now: datetime | None = None
+    ) -> dict[str, Any]:
         """Import the configured verified NFL bundle family; no provider call.
 
         The mutable index is navigation only. Each listed content-addressed
         object is independently verified before it can reach persistence.
         Unlisted objects (including the protected legacy MLB bundle in the
         shared family) are never opened.
+
+        ONE NARROW EXCEPTION TO FAIL-THE-RUN. A bundle refused only because one
+        event's snapshots disagree on exact identity, and whose every kickoff
+        has already passed, is skipped and recorded rather than aborting the
+        loop. Such a bundle can no longer control a pregame decision, and
+        aborting on it left every address sorted after it unimported by this
+        job on every run (2026_05_CHI_GB, bundle 77afaba3, 2026-10-11 onward).
+        The skipped bundle is still never imported. Any other refusal, or an
+        identity conflict in a bundle with a game still to start, fails the run
+        exactly as before.
         """
         from pathlib import Path
 
-        from app.forecast_exchange import verify_nfl_shadow_bundle_index
+        from app.forecast_exchange import (
+            SportsIdentityInconsistencyError,
+            verify_nfl_shadow_bundle_index,
+        )
         from app.services.shadow_board_service import ShadowBoardService
 
         directory = self.settings.nfl_shadow_bundle_import_dir.strip()
@@ -610,10 +916,28 @@ class JobOrchestrator:
             if len(child.name) == 64 and all(ch in "0123456789abcdef" for ch in child.name)
         }
         results: list[dict[str, Any]] = []
+        identity_conflicts_skipped: list[dict[str, Any]] = []
+        checked_at = now or datetime.now(UTC)
         service = ShadowBoardService(self.session, self.settings)
         for address in selected_addresses:
             object_dir = locator.sha256_root / address
-            result = service.import_bundle(object_dir)
+            try:
+                result = service.import_bundle(object_dir)
+            except SportsIdentityInconsistencyError as exc:
+                # Verification refuses before anything is added to the session,
+                # so there is nothing to roll back.
+                if exc.latest_scheduled_start_utc > checked_at:
+                    raise
+                skipped = {
+                    "bundle_sha256": address,
+                    "event_id": exc.event_id,
+                    "reason": str(exc),
+                    "latest_scheduled_start_utc": exc.latest_scheduled_start_utc.isoformat(),
+                    "disposition": "NOT_IMPORTED_ALL_KICKOFFS_PASSED",
+                }
+                logger.warning("nfl_bundle_identity_conflict_skipped", **skipped)
+                identity_conflicts_skipped.append(skipped)
+                continue
             if result.get("bundle_sha256") != address:
                 raise ValueError(f"NFL bundle import returned a different address for {address}")
             if "NFL_M1_XGBOOST" not in result.get("engines", ["NFL_M1_XGBOOST"]):
@@ -633,6 +957,8 @@ class JobOrchestrator:
                 for row in results
             ),
             "unlisted_objects_skipped": len(address_names - selected),
+            "identity_conflict_skipped_bundles": len(identity_conflicts_skipped),
+            "identity_conflicts_skipped": identity_conflicts_skipped,
             "locator_schema": locator.index.schema_version,
             "locator_current_list_sha256": getattr(
                 locator.index, "current_bundle_list_sha256",
@@ -1416,6 +1742,15 @@ class JobOrchestrator:
         available. Only a FINAL_PREGAME QUALIFIED_BET may create a virtual
         position. Reads persisted forecasts + odds only; never a provider call.
         """
+        from app.jobs.lanes import decision_checkpoint_guard
+
+        with decision_checkpoint_guard("freeze-shadow-experiment") as mine:
+            if not mine:
+                return _checkpoint_already_running("freeze-shadow-experiment")
+            return await self._freeze_shadow_experiment(event_date)
+
+    async def _freeze_shadow_experiment(self, event_date: date) -> dict[str, Any]:
+        """The freeze itself. Called only while this process holds the slot."""
         from app.models import ExperimentDecisionPhase
         from app.services.shadow_experiment_service import ShadowExperimentService
 
@@ -1428,12 +1763,15 @@ class JobOrchestrator:
         # challenger's pre-effective-date slates are skipped inside freeze().
         results: dict[str, Any] = {}
         primary = 0
+        funding_pause_blocks: list[dict[str, Any]] = []
         for experiment in service.active_experiments():
             phases: dict[str, Any] = {}
             for phase in ExperimentDecisionPhase:
                 result = service.freeze(event_date, phase=phase, experiment=experiment)
                 phases[phase.value] = result
                 primary += int(result.get("primary", 0))
+                if result.get("funding_pause"):
+                    funding_pause_blocks.append(result["funding_pause"])
             results[experiment.decision_policy] = phases
         # Narrow pregame-evidence monitoring (idempotent AuditEvents): runs on
         # the freeze cadence, reads persisted rows only, never a provider.
@@ -1445,7 +1783,16 @@ class JobOrchestrator:
         except Exception as exc:  # monitoring must never break the freeze job
             self.session.rollback()
             monitor = {"error": f"{type(exc).__name__}: {exc}"[:200]}
-        return {"records": primary, "experiments": results, "pregame_evidence_monitor": monitor}
+        receipt = {"records": primary, "experiments": results, "pregame_evidence_monitor": monitor}
+        if funding_pause_blocks:
+            # MLB_V18_FUNDING_PAUSE_V1: one job-level receipt. ``results`` is
+            # keyed by decision policy, which the V18 era shares with the
+            # practical-policy experiment, so the per-experiment blocks are
+            # collected here rather than read back out of it.
+            from app.services.mlb_v18_funding_pause import aggregate_receipts
+
+            receipt["mlb_v18_funding_pause"] = aggregate_receipts(funding_pause_blocks)
+        return receipt
 
     async def register_practical_experiment_v2(self, event_date: date) -> dict[str, Any]:
         """Register the V2 practical pregame challenger prospectively (idempotent).
@@ -1513,11 +1860,20 @@ class JobOrchestrator:
         """
 
         from app.scoreboard.collect import collect_mlb_scoreboard, should_run_fast
+        from app.services.rff_capture import capture_due_rff_snapshots
+
+        # Passive RFF Core capture rides this job's two-minute cadence. It runs
+        # BEFORE the watch-window gate, because a pregame reading is due when no
+        # game is live; it makes no provider request and never raises, so a
+        # capture problem cannot stop the scoreboard. Research/display only.
+        rff = capture_due_rff_snapshots(self.session, now=datetime.now(UTC))
 
         if not should_run_fast(self.session, now=datetime.now(UTC)):
             return {"records": 0, "league": "MLB", "requests": 0,
-                    "reason": "NO_GAME_IN_WATCH_WINDOW"}
-        return await collect_mlb_scoreboard(self.session, event_date=event_date)
+                    "reason": "NO_GAME_IN_WATCH_WINDOW", "rff_capture": rff}
+        result = await collect_mlb_scoreboard(self.session, event_date=event_date)
+        result["rff_capture"] = rff
+        return result
 
     async def collect_nfl_period_breakdowns(self, event_date: date) -> dict[str, Any]:
         """One budget-governed pass for NFL quarter breakdowns still missing.
@@ -1544,6 +1900,13 @@ class JobOrchestrator:
 
         return collect_nfl_live(self.session, self.settings)
 
+    async def collect_nfl_live_scores_espn(self, event_date: date) -> dict[str, Any]:
+        """In-game NFL score from ESPN's free public scoreboard; display only, $0."""
+
+        from app.scoreboard.nfl_espn import collect_nfl_live_espn
+
+        return collect_nfl_live_espn(self.session, self.settings)
+
     async def collect_nfl_pregame_odds(self, event_date: date) -> dict[str, Any]:
         """One SportsGameOdds event object for an NFL game near its checkpoint.
 
@@ -1556,7 +1919,168 @@ class JobOrchestrator:
 
         from app.services.sgo_nfl_pregame import collect_nfl_pregame
 
-        return collect_nfl_pregame(self.session, self.settings)
+        # The two REAL entry paths reach the same collector, and therefore the
+        # same atomic claim: the scheduler calls `run` with no user, and
+        # `POST /admin/jobs/{job_name}` calls it with the requesting user. The
+        # path is recorded on the claim; it never decides who wins.
+        invocation_path = "ADMINISTRATIVE" if self._requested_by_user_id else "SCHEDULED"
+        result = collect_nfl_pregame(
+            self.session, self.settings, job_run_id=self._active_job_run_id,
+            invocation_path=invocation_path)
+        # THE FALLBACK, AND ONLY ON A REFUSAL. Off by default; with the flag off
+        # the SGO receipt is returned exactly as before, with no added key.
+        from app.services import nfl_odds_api_fallback as fallback
+
+        if fallback.enabled(self.settings) and fallback.sgo_refused(result):
+            result = {**result, "odds_api_fallback": await self._nfl_odds_api_fallback(
+                invocation_path=invocation_path)}
+        return result
+
+    async def _nfl_odds_api_fallback(
+        self, *, invocation_path: str = "SCHEDULED", now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """ONE The Odds API NFL request (h2h, us) for a due T-26 cluster SGO refused.
+
+        The order of refusals is the order of costs, as in the SGO collector:
+        process ownership and credentials, then something due, then the
+        fallback's own daily cap, then every existing Odds API guard, then the
+        atomic per-cluster claim -- and only then a reservation and the request.
+        A refusal or a failed request returns a receipt; it never fails the SGO
+        job it rides on.
+        """
+
+        from app.services import nfl_odds_api_fallback as fallback
+        from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+        from app.services.sgo_nfl_pregame import claim_phase
+
+        moment = now or datetime.now(UTC)
+        # Whatever the SGO collector decided is kept before anything here can
+        # roll back.
+        self.session.commit()
+        base: dict[str, Any] = {"provider": fallback.PROVIDER, "sport_key": fallback.SPORT_KEY,
+                                "markets": list(fallback.MARKETS), "regions": fallback.REGIONS}
+        if not self.settings.owns_odds_collection:
+            return {**base, "attempted": False, "reason": "NOT_THE_ODDS_COLLECTION_OWNER"}
+        if not self.settings.the_odds_api_key:
+            return {**base, "attempted": False, "reason": "THE_ODDS_API_KEY_NOT_CONFIGURED"}
+        due = fallback.due_games(self.session, now=moment)
+        if not due:
+            return {**base, "attempted": False, "reason": "NO_GAME_IN_THE_CHECKPOINT_PHASE"}
+        cap = fallback.daily_request_cap(self.settings)
+        used = fallback.requests_today(self.session, now=moment,
+                                       display_timezone=self.settings.display_timezone)
+        if used >= cap:
+            return {**base, "attempted": False, "reason": "DAILY_REQUEST_CAP_REACHED",
+                    "requests_today": used, "daily_request_cap": cap, "games_due": due}
+        try:
+            self._enforce_odds_quota_policy(
+                fallback.CREDIT_COST, cooldown_endpoint_key=fallback.ENDPOINT_KEY)
+        except SourceError as exc:
+            self.session.rollback()
+            return {**base, "attempted": False, "reason": "ODDS_QUOTA_POLICY_REFUSED",
+                    "detail": str(exc), "games_due": due}
+
+        # THE ATOMIC CLAIM, one per (kickoff cluster, phase), committed before
+        # any reservation or provider work. A cluster another run holds is
+        # dropped; if every cluster is held, this run is inert.
+        claimed = []
+        for (kickoff, phase), game_ids in sorted(fallback.clusters(due).items()):
+            claim = claim_phase(
+                self.session, kickoff_cluster=kickoff, phase=phase, due_game_ids=game_ids,
+                invocation_id=str(self._active_job_run_id or "no-job-run"),
+                invocation_path=invocation_path, now=moment,
+                lane=fallback.CLAIM_LANE, provider=fallback.PROVIDER)
+            if claim is not None:
+                claimed.append((kickoff, phase, game_ids, claim))
+        if not claimed:
+            return {**base, "attempted": False, "reason": "PHASE_ALREADY_CLAIMED",
+                    "games_due": due}
+        scope = sorted({gid for _k, _p, ids, _c in claimed for gid in ids})
+        request_shape = {
+            "sport_key": fallback.SPORT_KEY, "regions": fallback.REGIONS,
+            "markets": sorted(fallback.MARKETS),
+            "trigger": "SGO_REFUSED",
+            "clusters": [{"kickoff_cluster_utc": k.isoformat(), "phase": p}
+                         for k, p, _ids, _c in claimed],
+            "games": scope,
+        }
+        try:
+            ledger = self._reserve_provider_request(
+                fallback.PROVIDER, fallback.ENDPOINT_KEY,
+                controlled_live_request=False, request_shape=request_shape)
+        except SourceError as exc:
+            self.session.rollback()
+            return {**base, "attempted": False, "reason": "ODDS_LANE_BUDGET_REFUSED",
+                    "detail": str(exc), "games_due": due, "clusters": request_shape["clusters"]}
+        for _k, _p, _ids, claim in claimed:
+            claim.reservation_id = ledger.id
+        self.session.commit()
+
+        response_received = False
+        try:
+            response = await TheOddsAPIAdapter(
+                self.settings.the_odds_api_key, list(fallback.MARKETS), fallback.REGIONS,
+                sport_key=fallback.SPORT_KEY,
+            ).get_market_snapshot()
+            response_received = True
+            archive = self.archive.write(response.envelope.source, response.raw_payload)
+            events = [OddsEventDTO.model_validate(item) for item in response.envelope.data]
+            result = NFLShadowOddsService(self.session).ingest(
+                events, available_as_of=response.envelope.fetched_at, game_ids=set(scope))
+            metadata = response.envelope.metadata or {}
+            summary = {
+                "sport_key": fallback.SPORT_KEY, "trigger": "SGO_REFUSED",
+                "archive_path": str(archive.raw_file_reference),
+                "archive_payload_sha256": archive.payload_checksum,
+                "clock_refusals": list(metadata.get("clock_refusals") or []),
+                **result,
+            }
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=_int_or_none(metadata.get("requests_last")),
+                quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                records_received=len(events), controlled_live_request=False,
+                source_mode="LIVE", job_run_id=self._active_job_run_id,
+                reservation_id=ledger.id,
+                response_metadata={
+                    "request_shape": request_shape,
+                    "requests_used": _int_or_none(metadata.get("requests_used")),
+                    "response_received": True, **summary,
+                },
+            ))
+            self._ingestion_run(response.envelope, archive.raw_file_reference, result["quotes"],
+                                "collect-nfl-pregame-odds")
+            self.session.commit()
+            return {**base, "attempted": True, "reason": "COLLECTED",
+                    "reservation_id": str(ledger.id), "games_due": due,
+                    "games_selected": scope, "quota": metadata, **summary}
+        except Exception as exc:  # one attempt; the owed retry is the only second one
+            self.session.rollback()
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=None, quota_remaining=None, records_received=None,
+                controlled_live_request=False, source_mode="LIVE",
+                job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                error_type=type(exc).__name__,
+                response_metadata={
+                    "request_shape": request_shape, "sport_key": fallback.SPORT_KEY,
+                    "response_received": response_received,
+                    # explicit evidence only: a lost response or missing quota is UNKNOWN
+                    "zero_charge_proven": (not response_received)
+                    and fallback.zero_charge_proven(exc),
+                },
+            ))
+            self.session.commit()
+            return {**base, "attempted": True, "reason": "REQUEST_FAILED",
+                    "error_type": type(exc).__name__, "response_received": response_received,
+                    "zero_charge_proven": (not response_received)
+                    and fallback.zero_charge_proven(exc),
+                    "reservation_id": str(ledger.id), "games_due": due,
+                    "games_selected": scope}
 
     async def evaluate_nfl_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
         """The NFL paper policy's decision, at the final-pregame window.
@@ -1567,9 +2091,513 @@ class JobOrchestrator:
         Reads the frozen forecast and the stored quote; calls no provider.
         """
 
-        from app.services.nfl_paper_decision import evaluate
+        from app.services.runtime_source_proof import emit
+        try:
+            from app.jobs.lanes import decision_checkpoint_guard
+            from app.services.nfl_paper_decision import evaluate
 
-        return evaluate(self.session, self.settings)
+            with decision_checkpoint_guard("evaluate-nfl-paper-checkpoint") as mine:
+                if not mine:
+                    return _checkpoint_already_running("evaluate-nfl-paper-checkpoint")
+                return evaluate(self.session, self.settings)
+        finally:
+            emit(stage="nfl_paper_checkpoint_completed")
+
+    async def evaluate_cfb_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """AISP_CFB_PAPER_POLICY_V1 at T-30..T-15: one recorded outcome per game, always with its reason.
+
+        Refreshes the CFB discovery first (local files only) so the lease it
+        judges is the newest one. Calls no provider.
+        """
+
+        from app.cfb.paper_decision import evaluate
+        from app.jobs.lanes import decision_checkpoint_guard
+
+        with decision_checkpoint_guard("evaluate-cfb-paper-checkpoint") as mine:
+            if not mine:
+                return _checkpoint_already_running("evaluate-cfb-paper-checkpoint")
+            return evaluate(self.session, self.settings)
+
+    async def ingest_cfb_finals(self, event_date: date) -> dict[str, Any]:
+        """Admit CFB finals from the producer's retained evidence, then score. No network.
+
+        Settlement stays with finalize-games, which settles any experiment's
+        position once its game is FINAL with scores.
+        """
+
+        from app.cfb.evaluation import evaluate_cfb
+        from app.cfb.final_ingest import ingest_retained_finals
+
+        finals = ingest_retained_finals(self.session, self.settings)
+        self.session.commit()
+        scoring = evaluate_cfb(self.session)
+        self.session.commit()
+        return {"records": int(finals.get("observations_written", 0)) + int(scoring.get("scored", 0)),
+                "finals": {k: v for k, v in finals.items() if k != "skipped"},
+                "finals_skipped": finals.get("skipped", [])[:20], "scoring": scoring}
+
+    async def collect_cfb_pregame_odds(self, event_date: date) -> dict[str, Any]:
+        """CFB SportsGameOdds prices, only from genuinely uncommitted capacity.
+
+        Spends nothing while the lane is off, its identities are unresolved or
+        uncommitted capacity is zero; see app/cfb/sgo_price.py.
+        """
+
+        from app.cfb.sgo_price import collect
+
+        result = collect(self.session, self.settings)
+        self.session.commit()
+        return {"records": int(result.get("objects_spent", 0)), **result}
+
+    async def collect_cfb_odds_api(self, event_date: date) -> dict[str, Any]:
+        """CFB moneylines from The Odds API (americanfootball_ncaaf, h2h) for the CFB paper checkpoint.
+
+        Requests nothing while CFB_ODDS_API_ENABLED is off or no forecast CFB
+        game is in its buy window. Otherwise ONE request, reserved in the
+        provider ledger first and passed through every existing Odds API guard
+        plus the CFB_RESEARCH credit lane; each event is bound or refused on its
+        own (app/cfb/odds_api_price.py). SportsGameOdds is never touched.
+        """
+
+        from app.cfb import odds_api_price as cfb_odds
+
+        if not self.settings.cfb_odds_api_enabled:
+            return {"records": 0, "status": "DISABLED", "provider_called": False}
+        planned = cfb_odds.plan(self.session)
+        if not planned["due"]:
+            return {"records": 0, "status": "NOT_DUE", "provider_called": False, "plan": planned}
+        if not self.settings.the_odds_api_key:
+            raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+        market_list = list(cfb_odds.MARKETS)
+        self._enforce_odds_quota_policy(
+            len(market_list) * max(1, len(self.settings.odds_regions.split(","))),
+            cooldown_endpoint_key=cfb_odds.ENDPOINT_KEY,       # this lane's own cooldown only (MEDIUM-2)
+        )
+        now = datetime.now(UTC)
+        ledger = self._reserve_provider_request(
+            cfb_odds.PROVIDER, cfb_odds.ENDPOINT_KEY,
+            controlled_live_request=False,
+            request_shape={
+                "sport_key": cfb_odds.SPORT_KEY,
+                "regions": self.settings.odds_regions,
+                "markets": sorted(market_list),
+                "request_window": int(
+                    now.timestamp() // (max(1, self.settings.odds_pregame_refresh_minutes) * 60)
+                ),
+                "due_games": [g["source_game_id"] for g in planned["due_games"]],
+            },
+        )
+        self.session.commit()
+        response_received = False
+        try:
+            response = await TheOddsAPIAdapter(
+                self.settings.the_odds_api_key,
+                market_list,
+                self.settings.odds_regions,
+                sport_key=cfb_odds.SPORT_KEY,
+            ).get_market_snapshot()
+            response_received = True
+            archive = self.archive.write(response.envelope.source, response.raw_payload)
+            received_at = response.envelope.fetched_at
+            events = [OddsEventDTO.model_validate(item) for item in response.envelope.data]
+            bound, event_receipts = cfb_odds.bind_events(self.session, events, received_at=received_at)
+            written = cfb_odds.persist(
+                self.session, bound, requested_at=ledger.requested_at, received_at=received_at,
+                response={"archive_path": str(archive.raw_file_reference),
+                          "archive_payload_sha256": archive.payload_checksum,
+                          "ledger_reservation_id": str(ledger.id)},
+            )
+            metadata = response.envelope.metadata or {}
+            summary = {
+                "sport_key": cfb_odds.SPORT_KEY, "events": len(events), "bound": len(bound),
+                "created": written["created"], "existing": written["existing"],
+                "archive_path": str(archive.raw_file_reference),
+                "archive_payload_sha256": archive.payload_checksum,
+                # Bookmakers the adapter skipped because they carried no clock.
+                "clock_refusals": list(metadata.get("clock_refusals") or []),
+            }
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=_int_or_none(metadata.get("requests_last")),
+                quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                records_received=len(events), controlled_live_request=False,
+                source_mode="LIVE", job_run_id=self._active_job_run_id,
+                reservation_id=ledger.id,
+                response_metadata={
+                    "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                    "requests_used": _int_or_none(metadata.get("requests_used")),
+                    "response_received": True, **summary,
+                    "event_receipts": event_receipts, "quote_receipts": written["quote_receipts"],
+                },
+            ))
+            self._ingestion_run(response.envelope, archive.raw_file_reference, written["created"],
+                                "collect-cfb-odds-api")
+            self.session.commit()
+            return {"records": written["created"], "provider_called": True, "quota": metadata,
+                    "plan": planned, **summary, "event_receipts": event_receipts,
+                    "quote_receipts": written["quote_receipts"]}
+        except Exception as exc:
+            self.session.rollback()
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=None, quota_remaining=None, records_received=None,
+                controlled_live_request=False, source_mode="LIVE",
+                job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                error_type=type(exc).__name__,
+                response_metadata={
+                    "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                    "sport_key": cfb_odds.SPORT_KEY, "response_received": response_received,
+                },
+            ))
+            self.session.commit()
+            raise
+
+    async def collect_nhl_odds_api(self, event_date: date) -> dict[str, Any]:
+        """NHL moneylines from The Odds API (icehockey_nhl, h2h) for the NHL paper checkpoint.
+
+        Requests nothing while NHL_ODDS_API_ENABLED is off, or while no SCHEDULED
+        NHL game with an admissible, decision-capable forecast is in its buy
+        window (app/nhl/odds_api_price.py ``plan``). Otherwise ONE request,
+        reserved in the provider ledger first and passed through every existing
+        Odds API guard plus the NHL_RESEARCH credit lane (zero unless funded);
+        each event is bound or refused on its own (zero start tolerance). The
+        same reserve -> adapter -> archive -> bind -> persist -> SUCCEEDED/FAILED
+        flow as the CFB lane. SportsGameOdds is never touched.
+        """
+
+        from app.nhl import odds_api_price as nhl_odds
+
+        if not self.settings.nhl_odds_api_enabled:
+            return {"records": 0, "status": "DISABLED", "provider_called": False}
+        planned = nhl_odds.plan(self.session)
+        if not planned["due"]:
+            return {"records": 0, "status": "NOT_DUE", "provider_called": False, "plan": planned}
+        if not self.settings.the_odds_api_key:
+            raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+        market_list = list(nhl_odds.MARKETS)
+        # NHL yields to NFL -- and to CFB only while ODDS_NHL_YIELDS_TO_CFB is on (off by default
+        # since the owner's 2026-10-16 priority "MLB and NHL over CFB"; odds_budget_lanes "A LANE
+        # THAT YIELDS"): on a day their sport is still in play, their unspent daily allocation
+        # stays out of the shared daily request budget.
+        from app.services.odds_budget_lanes import LANE_NHL_RESEARCH
+
+        hold = self._odds_lane_yield(LANE_NHL_RESEARCH)
+        self._enforce_odds_quota_policy(
+            len(market_list) * max(1, len(self.settings.odds_regions.split(","))),
+            request_holdback=hold["daily"],
+            holdback_for=", ".join(h["label"] for h in hold["lanes"] if h["today"]),
+            cooldown_endpoint_key=nhl_odds.ENDPOINT_KEY,       # this lane's own cooldown only (MEDIUM-2)
+        )
+        now = datetime.now(UTC)
+        ledger = self._reserve_provider_request(
+            nhl_odds.PROVIDER, nhl_odds.ENDPOINT_KEY,
+            controlled_live_request=False,
+            request_shape={
+                "sport_key": nhl_odds.SPORT_KEY,
+                "regions": self.settings.odds_regions,
+                "markets": sorted(market_list),
+                "request_window": int(
+                    now.timestamp() // (max(1, self.settings.odds_pregame_refresh_minutes) * 60)
+                ),
+                "due_games": [g["source_game_id"] for g in planned["due_games"]],
+            },
+        )
+        self.session.commit()
+        response_received = False
+        try:
+            response = await TheOddsAPIAdapter(
+                self.settings.the_odds_api_key,
+                market_list,
+                self.settings.odds_regions,
+                sport_key=nhl_odds.SPORT_KEY,
+            ).get_market_snapshot()
+            response_received = True
+            archive = self.archive.write(response.envelope.source, response.raw_payload)
+            received_at = response.envelope.fetched_at
+            events = [OddsEventDTO.model_validate(item) for item in response.envelope.data]
+            bound, event_receipts = nhl_odds.bind_events(self.session, events, received_at=received_at)
+            written = nhl_odds.persist(
+                self.session, bound, requested_at=ledger.requested_at, received_at=received_at,
+                response={"archive_path": str(archive.raw_file_reference),
+                          "archive_payload_sha256": archive.payload_checksum,
+                          "ledger_reservation_id": str(ledger.id)},
+            )
+            metadata = response.envelope.metadata or {}
+            summary = {
+                "sport_key": nhl_odds.SPORT_KEY, "events": len(events), "bound": len(bound),
+                "created": written["created"], "existing": written["existing"],
+                "archive_path": str(archive.raw_file_reference),
+                "archive_payload_sha256": archive.payload_checksum,
+                # Bookmakers the adapter skipped because they carried no clock.
+                "clock_refusals": list(metadata.get("clock_refusals") or []),
+            }
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=_int_or_none(metadata.get("requests_last")),
+                quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                records_received=len(events), controlled_live_request=False,
+                source_mode="LIVE", job_run_id=self._active_job_run_id,
+                reservation_id=ledger.id,
+                response_metadata={
+                    "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                    "requests_used": _int_or_none(metadata.get("requests_used")),
+                    "response_received": True, **summary,
+                    "event_receipts": event_receipts, "quote_receipts": written["quote_receipts"],
+                },
+            ))
+            self._ingestion_run(response.envelope, archive.raw_file_reference, written["created"],
+                                "collect-nhl-odds-api")
+            self.session.commit()
+            return {"records": written["created"], "provider_called": True, "quota": metadata,
+                    "plan": planned, **summary, "event_receipts": event_receipts,
+                    "quote_receipts": written["quote_receipts"]}
+        except Exception as exc:
+            self.session.rollback()
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=None, quota_remaining=None, records_received=None,
+                controlled_live_request=False, source_mode="LIVE",
+                job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                error_type=type(exc).__name__,
+                response_metadata={
+                    "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                    "sport_key": nhl_odds.SPORT_KEY, "response_received": response_received,
+                },
+            ))
+            self.session.commit()
+            raise
+
+    async def collect_nba_odds_api(self, event_date: date) -> dict[str, Any]:
+        """NBA moneylines from The Odds API (basketball_nba, h2h) for the NBA paper checkpoint.
+
+        Requests nothing while NBA_ODDS_API_ENABLED (or the NBA production
+        consumer) is off, or while no decision-eligible NBA game is in its buy
+        window. Otherwise ONE request, reserved in the provider ledger first and
+        passed through every existing Odds API guard plus the NBA_RESEARCH credit
+        lane (zero unless funded); each event is bound or refused on its own
+        (app/nba/odds_api_price.py). SportsGameOdds is never touched. Stored
+        quotes are usable by the checkpoint only once the owner sets the NBA
+        source amendment's effective clock (NBA_ODDS_API_SOURCE_EFFECTIVE_FROM).
+        """
+
+        from app.services.runtime_source_proof import emit
+        try:
+            from app.nba import odds_api_price as nba_odds
+
+            if not self.settings.nba_odds_api_enabled:
+                return {"records": 0, "status": "DISABLED", "provider_called": False}
+            if not self.settings.nba_production_consumer_enabled:
+                return {"records": 0, "status": "DISABLED", "provider_called": False,
+                        "reason": "NBA_PRODUCTION_CONSUMER_DISABLED"}
+            from app.nba.retained_quote_admission import admit_retained_quotes
+            try:
+                recovery = admit_retained_quotes(self.session,self.settings)
+                self.session.commit()
+            except SQLAlchemyError:
+                self.session.rollback()
+                raise
+            except Exception as error:
+                self.session.rollback()
+                recovery = {"status":"FAILED:"+type(error).__name__,"created":0,"in_flight":0}
+            if recovery.get("in_flight") or not recovery.get("scan_complete",True):
+                return {"records":recovery.get("created",0),"status":"RETAINED_RECOVERY_IN_FLIGHT","provider_called":False,"retained_recovery":recovery}
+            planned = nba_odds.plan(self.session)
+            if not planned["due"]:
+                return {"records": recovery.get("created",0), "status": "NOT_DUE", "provider_called": False, "plan": planned, "retained_recovery": recovery}
+            if not self.settings.the_odds_api_key:
+                raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+            market_list = list(nba_odds.MARKETS)
+            self._enforce_odds_quota_policy(
+                len(market_list) * max(1, len(self.settings.odds_regions.split(","))),
+                cooldown_endpoint_key=nba_odds.ENDPOINT_KEY,
+            )
+            now = datetime.now(UTC)
+            ledger = self._reserve_provider_request(
+                nba_odds.PROVIDER, nba_odds.ENDPOINT_KEY,
+                controlled_live_request=False,
+                request_shape={
+                    "sport_key": nba_odds.SPORT_KEY,
+                    "regions": self.settings.odds_regions,
+                    "markets": sorted(market_list),
+                    "request_window": int(
+                        now.timestamp() // (max(1, self.settings.odds_pregame_refresh_minutes) * 60)
+                    ),
+                    "due_games": [g["espn_game_id"] for g in planned["due_games"]],
+                },
+            )
+            self.session.commit()
+            response_received = False
+            archive = None
+            received_at = None
+            try:
+                response = await TheOddsAPIAdapter(
+                    self.settings.the_odds_api_key,
+                    market_list,
+                    self.settings.odds_regions,
+                    sport_key=nba_odds.SPORT_KEY,
+                ).get_market_snapshot()
+                response_received = True
+                received_at = response.envelope.fetched_at
+                archive = self.archive.write(response.envelope.source, response.raw_payload)
+                events = [OddsEventDTO.model_validate(item) for item in response.envelope.data]
+                bound, event_receipts = nba_odds.bind_events(self.session, events, received_at=received_at)
+                written = nba_odds.persist(
+                    self.session, bound, requested_at=ledger.requested_at, received_at=received_at,
+                    response={"archive_path": str(archive.raw_file_reference),
+                              "archive_payload_sha256": archive.payload_checksum,
+                              "ledger_reservation_id": str(ledger.id), "archive_file_sha256": archive.file_checksum, "archive_bytes": archive.bytes_written},
+                )
+                metadata = response.envelope.metadata or {}
+                from uuid import UUID
+                coverage_ids = {game_id for _event,game_id in bound} | {UUID(game["game_id"]) for game in planned["due_games"]}
+                coverage = {str(game_id): nba_odds.quote_coverage(self.session,game_id,moment=datetime.now(UTC)) for game_id in coverage_ids}
+                summary = {
+                    "sport_key": nba_odds.SPORT_KEY, "events": len(events), "bound": len(bound),
+                    "created": written["created"], "existing": written["existing"],
+                    "per_event_coverage": coverage, "response_received_at": received_at.isoformat(),
+                    "archive_file_sha256": archive.file_checksum, "archive_bytes": archive.bytes_written,
+                    "archive_path": str(archive.raw_file_reference),
+                    "archive_payload_sha256": archive.payload_checksum,
+                    # Bookmakers the adapter skipped because they carried no clock.
+                    "clock_refusals": list(metadata.get("clock_refusals") or []),
+                }
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                    requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                    status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=_int_or_none(metadata.get("requests_last")),
+                    quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                    records_received=len(events), controlled_live_request=False,
+                    source_mode="LIVE", job_run_id=self._active_job_run_id,
+                    reservation_id=ledger.id,
+                    response_metadata={
+                        "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                        "requests_used": _int_or_none(metadata.get("requests_used")),
+                        "response_received": True, **summary,
+                        "event_receipts": event_receipts, "quote_receipts": written["quote_receipts"],
+                    },
+                ))
+                self._ingestion_run(response.envelope, archive.raw_file_reference, written["created"],
+                                    "collect-nba-odds-api")
+                self.session.commit()
+                return {"records": written["created"], "provider_called": True, "quota": metadata,
+                        "plan": planned, "retained_recovery": recovery, **summary, "event_receipts": event_receipts,
+                        "quote_receipts": written["quote_receipts"]}
+            except Exception as exc:
+                self.session.rollback()
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                    requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                    status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=None, quota_remaining=None, records_received=None,
+                    controlled_live_request=False, source_mode="LIVE",
+                    job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                    error_type=type(exc).__name__,
+                    response_metadata={
+                        "request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                        "sport_key": nba_odds.SPORT_KEY, "response_received": response_received,
+                        **({"response_received_at":received_at.isoformat()} if received_at is not None else {}),
+                        **({"archive_path":str(archive.raw_file_reference),"archive_payload_sha256":archive.payload_checksum,
+                            "archive_file_sha256":archive.file_checksum,"archive_bytes":archive.bytes_written} if archive is not None else {}),
+                    },
+                ))
+                self.session.commit()
+                raise
+        finally:
+            emit(stage="nba_odds_collection_completed")
+
+    async def evaluate_nba_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
+        """AISP_NBA_PAPER_POLICY_V1 at T-30..T-15. Records a reason per game; positions stay off.
+
+        Refreshes NBA discovery first (local files only) when the consumer is on.
+        Calls no provider. See app/nba/gen1_paper.py for the gates.
+        """
+
+        from app.services.runtime_source_proof import emit
+        try:
+            from app.nba.gen1_paper import evaluate
+
+            return evaluate(self.session, self.settings)
+        finally:
+            emit(stage="nba_paper_checkpoint_completed")
+
+    async def ingest_nba_finals(self, event_date: date) -> dict[str, Any]:
+        """Both NBA final lanes, then per-channel scoring. Local bytes only; no network.
+
+        Lane 1 is the PRODUCTION path: the producer's source-confirmed finals
+        exchange (``finals-discovery/current.json``). Lane 2 is the separate
+        historical reconstruction from retained ESPN season exports. They are
+        reported separately and never summed into one "finals" count.
+        """
+
+        from app.services.runtime_source_proof import emit
+        try:
+            from app.nba.gen1_evaluation import evaluate as evaluate_nba
+            from app.nba.gen1_finals import ingest
+
+            finals = ingest(self.session, self.settings)
+            self.session.commit()
+            scoring = evaluate_nba(self.session)
+            self.session.commit()
+            production = finals.get("production_lane") or {}
+            historical = finals.get("historical_lane") or {}
+            return {"records": int(finals.get("observations_written", 0)) + int(scoring.get("written", 0)),
+                    "status": finals.get("status"),
+                    "production_lane": {k: v for k, v in production.items()
+                                        if k not in ("refused_records", "advisories")},
+                    "historical_lane": {k: v for k, v in historical.items()
+                                        if k not in ("skipped", "source_objects")},
+                    "finals_skipped": historical.get("skipped", [])[:20],
+                    "reconciliation_required": finals.get("reconciliation_required", [])[:20],
+                    "scoring": {k: v for k, v in scoring.items() if k != "skipped"}}
+        finally:
+            emit(stage="nba_finals_ingest_completed")
+
+    async def collect_nba_pregame_odds(self, event_date: date) -> dict[str, Any]:
+        """NBA SportsGameOdds prices. Spends nothing while the lane is off, unauthorised or unresolved."""
+
+        from app.nba.sgo_price import collect
+
+        result = collect(self.session, self.settings)
+        self.session.commit()
+        return {"records": int(result.get("objects_spent", 0)), **result}
+
+    async def import_nba_historical_evidence(self, event_date: date) -> dict[str, Any]:
+        """HISTORICAL 2025-26 rows from pinned Model Studio receipts, their finals and channel scores.
+
+        Manual only (never scheduled). Refuses unless both receipts are pinned.
+        Reads local files; no request is made.
+        """
+
+        from app.nba.gen1_evaluation import evaluate as evaluate_nba
+        from app.nba.gen1_finals import ingest
+        from app.nba.gen1_historical import HistoricalRefused, import_historical
+
+        try:
+            imported = import_historical(self.session, self.settings)
+        except HistoricalRefused as exc:
+            self.session.rollback()
+            return {"records": 0, "status": f"REFUSED:{exc}"}
+        self.session.commit()
+        finals = ingest(self.session, self.settings)
+        self.session.commit()
+        scoring = evaluate_nba(self.session)
+        self.session.commit()
+        return {"records": int(imported.get("imported", 0)),
+                "historical": {k: v for k, v in imported.items() if k not in ("skipped", "source_objects")},
+                "historical_skipped": imported.get("skipped", [])[:20],
+                "finals": {"status": finals.get("status"),
+                           "historical_lane": {k: v for k, v in (finals.get("historical_lane") or {}).items()
+                                               if k not in ("skipped", "source_objects")}},
+                "scoring": {k: v for k, v in scoring.items() if k != "skipped"}}
 
     async def recover_governed_finals(self, event_date: date) -> dict[str, Any]:
         """Governed finals for completed games that have none, automatically.
@@ -1656,6 +2684,7 @@ class JobOrchestrator:
                 Game.starts_at >= self._day_bounds(event_date)[0],
                 Game.starts_at < self._day_bounds(event_date)[1],
                 Game.source_mode == "LIVE",
+                in_league(MLB),
             ).limit(1)
         ) is not None
         # Never mix provenance within a refresh. Live games take precedence;
@@ -1670,6 +2699,7 @@ class JobOrchestrator:
                 Game.starts_at >= self._day_bounds(event_date)[0],
                 Game.starts_at < self._day_bounds(event_date)[1],
                 Game.source_mode == target_mode,
+                in_league(MLB),
                 ExternalIdMapping.source == (
                     "MLB_STATS_API" if target_mode == "LIVE" else self.demo.source
                 ),
@@ -1771,6 +2801,7 @@ class JobOrchestrator:
                             Game.starts_at >= self._day_bounds(event_date)[0],
                             Game.starts_at < self._day_bounds(event_date)[1],
                             Game.source_mode == "LIVE",
+                            in_league(MLB),
                         )
                         .order_by(Game.starts_at)
                     ))
@@ -1794,6 +2825,7 @@ class JobOrchestrator:
                     Game.starts_at >= self._day_bounds(event_date)[0],
                     Game.starts_at < self._day_bounds(event_date)[1],
                     Game.source_mode == "LIVE",
+                    in_league(MLB),
                 )
             ))
             for mapping in game_mappings:
@@ -1852,6 +2884,7 @@ class JobOrchestrator:
         upcoming = self.session.scalars(
             select(Game).where(
                 Game.source_mode == "LIVE",
+                in_league(MLB),
                 Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE)),
                 Game.starts_at > now,
             )
@@ -1926,9 +2959,14 @@ class JobOrchestrator:
                 events,
                 envelope.source,
                 envelope.fetched_at,
+                # This refresh is the MLB odds lane. The provider's own sport
+                # key must say so; a response without one binds nothing.
+                league_code=MLB,
+                provider_league=("baseball_mlb" if demo_only else provider_metadata.get("sport_key")),
                 source_mode=envelope.source_mode.upper(),
                 event_date=event_date,
             )
+            unbound_odds_events = list(self.normalizer.odds_receipts)
             if ledger is not None:
                 self.session.add(ProviderRequestLedger(
                     provider=ledger.provider,
@@ -1960,6 +2998,8 @@ class JobOrchestrator:
                 "source": envelope.source,
                 "source_mode": envelope.source_mode,
                 "quota": envelope.metadata,
+                # Events not bound to an MLB game, each with its reason.
+                "unbound_events": unbound_odds_events,
             }
         except Exception as exc:
             self.session.rollback()
@@ -1995,6 +3035,7 @@ class JobOrchestrator:
                 Game.starts_at >= self._day_bounds(event_date)[0],
                 Game.starts_at < self._day_bounds(event_date)[1],
                 Game.source_mode == ("DEMO" if demo_only else "LIVE"),
+                in_league(MLB),
             )
         ))
         count = 0
@@ -2089,14 +3130,14 @@ class JobOrchestrator:
     async def rebuild_features(self, event_date: date) -> dict[str, Any]:
         # Team features are normalized as part of MLB data ingestion. This job is
         # idempotent and validates readiness rather than copying observations.
-        games = self._games_for_date(event_date)
+        games = self._games_for_date(event_date, MLB)
         return {"records": len(games), "status": "validated", "games": len(games)}
 
     async def generate_forecasts(self, event_date: date, *, data_as_of: datetime | None = None) -> dict[str, Any]:
         service = ForecastService(self.session, self.settings)
         created = 0
         skipped: list[dict[str, Any]] = []
-        for game in self._games_for_date(event_date):
+        for game in self._games_for_date(event_date, MLB):
             try:
                 service.generate_for_game(game, data_as_of=data_as_of)
                 created += 1
@@ -2104,6 +3145,12 @@ class JobOrchestrator:
                 skipped.append({"game_id": str(game.id), "reason": str(exc), "score": exc.score})
             except ForecastWindowClosedError as exc:
                 skipped.append({"game_id": str(game.id), "reason": str(exc), "score": None})
+            except GameStateUnavailableError as exc:
+                # No point-in-time game state yet. One game without evidence must
+                # not abort the pipeline before positions and the shadow freeze.
+                skipped.append({"game_id": str(game.id), "reason": str(exc), "score": None})
+            except LeagueMismatchError as exc:
+                skipped.append({**exc.receipt(), "score": None})
         self.session.commit()
         return {"records": created, "forecasts": created, "skipped": skipped}
 
@@ -2116,7 +3163,7 @@ class JobOrchestrator:
         return {"records": len(settlements), "final_games_seen": len(final_games), "status": "settlement complete"}
 
     async def publish_positions(self, event_date: date) -> dict[str, Any]:
-        positions = publish_official_positions(self.session, self.settings, self._games_for_date(event_date))
+        positions = publish_official_positions(self.session, self.settings, self._games_for_date(event_date, MLB))
         self.session.commit()
         return {
             "records": len(positions),
@@ -2161,7 +3208,7 @@ class JobOrchestrator:
         steps["weather"] = await self.refresh_weather(event_date)
         if self.settings.odds_polling_enabled:
             steps["odds"] = await self.refresh_odds(event_date)
-        elif demo_only and self.settings.demo_mode and all(game.source_mode == "DEMO" for game in self._games_for_date(event_date)):
+        elif demo_only and self.settings.demo_mode and all(game.source_mode == "DEMO" for game in self._games_for_date(event_date, MLB)):
             steps["odds"] = await self.refresh_odds(event_date, demo_only=True)
         else:
             steps["odds"] = {
@@ -2190,8 +3237,30 @@ class JobOrchestrator:
         # Parlay tickets settle from the same governed finals this step just
         # refreshed, on the existing schedule rather than a new one.
         steps["parlay_tickets"] = await self.settle_parlay_tickets(event_date)
+        # A House Divided: settle virtual competition wagers and copy newly
+        # final official decisions. Reads the official ledger, never writes it.
+        steps["house_divided"] = await self.run_house_divided(event_date)
         steps["performance"] = await self.recalculate_performance(event_date)
         return {"records": sum(int(value.get("records", 0)) for value in steps.values()), "steps": steps}
+
+    async def run_house_divided(self, event_date: date) -> dict[str, Any]:
+        """The virtual competition's step, isolated so it can never fail finalize.
+
+        Runs in a savepoint after every official settlement step: a fault here
+        rolls back only the competition's own writes and is reported, while the
+        official positions, experiment and parlay settlement already committed.
+        """
+
+        from app.services import house_divided
+
+        try:
+            with self.session.begin_nested():
+                report = house_divided.run(self.session)
+            self.session.commit()
+            return report
+        except Exception as exc:  # noqa: BLE001 -- reported, never raised into finalize
+            self.session.rollback()
+            return {"records": 0, "error": f"{type(exc).__name__}: {exc}"[:400]}
 
     async def settle_parlay_tickets(self, event_date: date) -> dict[str, Any]:
         """Settle every open ticket whose games all have a governed final.
@@ -2270,6 +3339,7 @@ class JobOrchestrator:
             Game.starts_at >= bounds[0],
             Game.starts_at < bounds[1],
             Game.source_mode == "LIVE",
+            in_league(MLB),
         )) or 0
         if live_games == 0:
             raise SourceError(
@@ -2305,12 +3375,18 @@ class JobOrchestrator:
             "steps": steps,
         }
 
-    def _games_for_date(self, event_date: date) -> list[Game]:
+    def _games_for_date(self, event_date: date, league_code: str) -> list[Game]:
+        """One league's pipeline slate: its LIVE games, else its DEMO fixtures.
+
+        The league is required. Another league's game never enters, whatever
+        its source mode, and a date with none of this league's games is empty.
+        """
         games = list(self.session.scalars(select(Game).where(
-            Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1]
+            Game.starts_at >= self._day_bounds(event_date)[0], Game.starts_at < self._day_bounds(event_date)[1],
+            in_league(league_code),
         ).order_by(Game.starts_at)))
         live = [game for game in games if game.source_mode == "LIVE"]
-        return live or games
+        return live or [game for game in games if game.source_mode == "DEMO"]
 
     def _ingestion_run(
         self,
@@ -2338,11 +3414,15 @@ class JobOrchestrator:
     def _day_bounds(self, value: date) -> tuple[datetime, datetime]:
         return local_day_bounds(value, self.settings.display_timezone)
 
-    def _enforce_odds_quota_policy(self, credit_cost: int = 1) -> None:
+    def _enforce_odds_quota_policy(self, credit_cost: int = 1, *, request_holdback: int = 0,
+                                   holdback_for: str = "", cooldown_endpoint_key: str | None = None) -> None:
         # The "daily" budget window is the operational day in the configured
         # display timezone — the same day that defines the slate it serves. A
         # UTC window resets at 20:00 ET and lets the prior evening's spend
         # exhaust the next slate's budget by mid-afternoon.
+        # ``request_holdback``: requests of that shared budget a YIELDING lane (NHL)
+        # must leave for the lanes it yields to (``_odds_lane_yield``); 0 for every
+        # other caller, whose check is exactly what it always was.
         budget_day = local_today(self.settings.display_timezone)
         start_of_day, end_of_day = local_day_bounds(budget_day, self.settings.display_timezone)
         requests_today = self.session.scalar(
@@ -2359,6 +3439,14 @@ class JobOrchestrator:
                 "THE_ODDS_API",
                 f"Daily request budget reached ({requests_today}/{self.settings.odds_daily_request_budget}) "
                 f"for operational day {budget_day.isoformat()}",
+                retryable=False,
+            )
+        if request_holdback > 0 and requests_today + request_holdback >= self.settings.odds_daily_request_budget:
+            raise SourceError(
+                "THE_ODDS_API",
+                f"Daily request budget: {requests_today}/{self.settings.odds_daily_request_budget} used on "
+                f"operational day {budget_day.isoformat()} and {request_holdback} held for {holdback_for} "
+                "(in play today); this lane yields to them",
                 retryable=False,
             )
         # Second, independent guard: AISP's own credit accounting for the UTC
@@ -2431,12 +3519,67 @@ class JobOrchestrator:
                 f"probe has been reserved to refresh the balance; this request is refused.",
                 retryable=False,
             )
-        if latest.completed_at:
-            elapsed = datetime.now(UTC) - _aware(latest.completed_at)
+        cooldown_completed_at = latest.completed_at
+        if cooldown_endpoint_key is not None:
+            # PER-ENDPOINT COOLDOWN (hotfix 2026-10-24, review MEDIUM-2). The
+            # cooldown is double-refresh protection for ONE lane, never a money
+            # guard: the budget, credit, floor and latch checks above stay
+            # global. Scoped lanes (NBA, the NFL fallback, and now CFB and NHL)
+            # read only their own endpoint's newest success, so one sport's buy
+            # cannot refuse another sport's first tick (NE@CHI 10-22: the TNF
+            # fallback was refused twice by a cooldown another lane had set;
+            # 15 collector ticks failed the same way since 10-20).
+            cooldown_completed_at = self.session.scalar(
+                select(ProviderRequestLedger.completed_at).where(
+                    ProviderRequestLedger.provider == "THE_ODDS_API",
+                    ProviderRequestLedger.endpoint_key == cooldown_endpoint_key,
+                    ProviderRequestLedger.status == "SUCCEEDED",
+                    ProviderRequestLedger.completed_at.is_not(None),
+                ).order_by(ProviderRequestLedger.completed_at.desc()).limit(1)
+            )
+        if cooldown_completed_at:
+            elapsed = datetime.now(UTC) - _aware(cooldown_completed_at)
             cooldown = timedelta(minutes=self.settings.odds_manual_cooldown_minutes)
             if elapsed < cooldown:
                 seconds = int((cooldown - elapsed).total_seconds())
                 raise SourceError("THE_ODDS_API", f"Odds refresh cooldown active for {seconds} more seconds", retryable=False)
+
+    def _odds_lane_budget(self, *, yielding_lane: str | None = None):
+        """Every Odds API credit lane, as the guard reads them (``odds_budget_lanes.lane_budget``).
+
+        Only the CFB and NHL lanes' allocations come from settings (zero unless funded);
+        every other lane keeps its compiled allocation. ``in_play_today`` is computed only
+        when ``yielding_lane`` yields to another lane (NHL), the only arithmetic that reads it.
+        """
+
+        from app.services.odds_budget_lanes import (
+            DEFAULT_LANES, LANES, lane_budget, lanes_in_play_today, lanes_with_cfb, lanes_with_nhl, lanes_with_nba,
+        )
+
+        spec = LANES.get(yielding_lane or "")
+        in_play = (lanes_in_play_today(self.session, display_timezone=self.settings.display_timezone)
+                   if spec is not None and spec.yields_to else None)
+        return lane_budget(
+            self.session,
+            monthly_cap=self.settings.odds_monthly_credit_cap,
+            reserve=self.settings.odds_monthly_credit_reserve,
+            daily_cap=self.settings.odds_daily_credit_budget,
+            floor=self.settings.odds_quota_floor,
+            display_timezone=self.settings.display_timezone,
+            # ODDS_NHL_YIELDS_TO_CFB (default False since the owner's 2026-10-16 priority "MLB
+            # and NHL over CFB"): NHL leaves NFL its share; whether it also leaves CFB's is this switch.
+            lanes=lanes_with_nba(self.settings.odds_nba_lane_monthly_credits, self.settings.odds_nba_lane_daily_credits, lanes=lanes_with_nhl(self.settings.odds_nhl_lane_monthly_credits,
+                                 self.settings.odds_nhl_lane_daily_credits,
+                                 lanes_with_cfb(self.settings.odds_cfb_lane_monthly_credits,
+                                                self.settings.odds_cfb_lane_daily_credits, DEFAULT_LANES),
+                                 yields_to_cfb=bool(getattr(self.settings, "odds_nhl_yields_to_cfb", False)))),
+            in_play_today=in_play,
+        )
+
+    def _odds_lane_yield(self, lane: str) -> dict[str, Any]:
+        """What a yielding lane must leave today: ``LaneBudget.yield_holdback`` (zero for other lanes)."""
+
+        return self._odds_lane_budget(yielding_lane=lane).yield_holdback(lane)
 
     def _enforce_lane_budget(self, endpoint_key: str, request_shape: dict[str, Any]) -> None:
         """Refuse a request whose lane cannot pay for it.
@@ -2445,27 +3588,22 @@ class JobOrchestrator:
         working -- so it is raised non-retryable with the lane named, and the
         protected MLB lanes keep their allocation whatever else is asking.
         """
-        from app.services.odds_budget_lanes import lane_budget, lane_for_request
+        from app.services.odds_budget_lanes import lane_for_request, league_of_endpoint
 
         markets = list(request_shape.get("markets") or [])
         regions = request_shape.get("regions") or []
-        league = ("MLB" if "baseball" in endpoint_key
-                  else "NFL" if "americanfootball" in endpoint_key else "")
-        if not league or not markets:
+        # NCAAF before NFL: both sport keys contain "americanfootball".
+        league = league_of_endpoint(endpoint_key)
+        # NHL never bypasses its lane: even a shape that declares no markets is
+        # charged to NHL_RESEARCH (zero unless funded), never waved through.
+        if not league or (not markets and league not in ("NHL", "NBA")):
             return  # nothing declared to price; the monthly guard still applies
         cost = max(1, len(markets) * max(1, len(regions) if isinstance(regions, list) else 1))
         lane = lane_for_request(
             league_code=league, markets=markets,
             recovery=bool(request_shape.get("recovery")),
         )
-        budget = lane_budget(
-            self.session,
-            monthly_cap=self.settings.odds_monthly_credit_cap,
-            reserve=self.settings.odds_monthly_credit_reserve,
-            daily_cap=self.settings.odds_daily_credit_budget,
-            floor=self.settings.odds_quota_floor,
-            display_timezone=self.settings.display_timezone,
-        )
+        budget = self._odds_lane_budget(yielding_lane=lane)
         allowed, refusal = budget.may_spend(lane, cost)
         if not allowed:
             raise SourceError(

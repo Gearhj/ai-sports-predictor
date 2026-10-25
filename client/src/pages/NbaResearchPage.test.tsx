@@ -109,12 +109,13 @@ describe('NBA research page', () => {
     expect(screen.queryByTestId('nba-day-2026-10-20')).toBeNull()
   })
 
-  it('never implies a market, a policy or a position exists', async () => {
+  it('never implies a market price, an assessment or a live season exists', async () => {
     vi.mocked(apiRequest).mockResolvedValue(BOARD as never)
     mount()
     await screen.findByTestId('nba-day-2026-10-20')
     const page = document.body.textContent ?? ''
-    expect(page).toContain('no NBA odds, evaluation, policy, position or bankroll')
+    expect(page).toContain('regular season has not started')
+    expect(page).toContain('AISP holds no NBA sportsbook price, so no assessment or paper position can occur yet')
     expect(page).toContain('Over/Under probabilities and market fair prices are unavailable')
     // The expected total must never surface as a line to bet against.
     expect(page).not.toContain('225.72')

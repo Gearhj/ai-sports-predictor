@@ -33,6 +33,7 @@ import { LazyDetails } from './LazyDetails'
 import { MarketDetail } from './MarketDetail'
 import { ChartTable, Tooltip, activate, useTooltip, useWidth } from './chartKit'
 import { AsOf } from './RegionState'
+import { BookDispersion, CoverageStrip, LargestGaps, PriceMovement } from './MarketVisuals'
 import { todayEt } from './CommandHome'
 import { countdown } from './CommandDecisions'
 import './command.css'
@@ -49,7 +50,7 @@ const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
 
 
-export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: string) => void }) {
+export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDay: (next: string) => void; initialSport?: SportCode }) {
   const today = useMarketCoverage(day)
   const summary = today.data?.summary
   const todayHasQuotes = (today.data?.games ?? []).some((g) => g.quotes.length > 0)
@@ -58,7 +59,7 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
   const snapshot = useMarketCoverage(useSnapshot ? (snapshotDay as string) : day)
   const evidence = useSnapshot ? snapshot : today
   const ledger = useLedger()
-  const [sport, setSport] = useState<SportCode | 'ALL'>('ALL')
+  const [sport, setSport] = useState<SportCode | 'ALL'>(initialSport ?? 'ALL')
   const [tab, setTab] = useState<FamilyTab>('MONEYLINE')
   const market: Market = tab === 'SPREAD' || tab === 'TOTAL' ? tab : 'MONEYLINE'
   const [selected, setSelected] = useState<string | null>(null)
@@ -73,8 +74,9 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
   const largest = [...withQuotes].filter((g) => gapOf(g) != null).sort((a, b) => Math.abs(gapOf(b)!) - Math.abs(gapOf(a)!))[0] ?? null
   const current = (today.data?.games ?? []).filter((g) => g.price_state === 'CURRENT_PRICE').length
   const scheduled = (today.data?.games ?? [])
-    .filter((g) => g.price_state === 'NOT_COLLECTED' && g.starts_at && Date.parse(g.starts_at) > now)
-    .sort((a, b) => a.checkpoints.collection_opens_at.localeCompare(b.checkpoints.collection_opens_at))
+    .filter((g) => g.price_state === 'NOT_COLLECTED' && g.checkpoints.collection_opens_at != null
+      && g.starts_at && Date.parse(g.starts_at) > now)
+    .sort((a, b) => (a.checkpoints.collection_opens_at ?? '').localeCompare(b.checkpoints.collection_opens_at ?? ''))
   const evSummary = evidence.data?.summary
   const positions = useMemo(() => (ledger.data?.sports ?? []).flatMap((s) => s.positions.map((p) => ({ ...p, sport: s.sport }))), [ledger.data])
   const recorded = chosen ? positions.filter((p) => p.game_id === chosen.game_id) : []
@@ -95,7 +97,7 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
                 <li key={g.game_id} style={{ ['--sport' as string]: SPORT_COLORS[code] }}>
                   <Link to={gameHref(code, g.game_id)}><i className="cc-dot" /><b>{g.matchup}</b></Link>
                   <span>{etTime(g.starts_at).replace(' ET', '')} start</span>
-                  <span className="is-gold">{Date.parse(g.checkpoints.collection_opens_at) <= now ? 'collection open' : `collect in ${countdown(g.checkpoints.collection_opens_at, now)}`}</span>
+                  <span className="is-gold">{Date.parse(g.checkpoints.collection_opens_at ?? '') <= now ? 'collection open' : `collect in ${countdown(g.checkpoints.collection_opens_at ?? '', now)}`}</span>
                 </li>
               )
             })}
@@ -149,13 +151,13 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
 
       <div className="cc-feedbar">
         <div className="cc-tabs" role="tablist" aria-label="Market family">
-          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays'], ['RFF', 'RFF lens']] as const).map(([key, label]) => (
+          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays'], ['RFF', 'RFF Lens']] as const).map(([key, label]) => (
             <button key={key} role="tab" type="button" aria-selected={tab === key} onClick={() => setTab(key)}>{label}</button>
           ))}
         </div>
-        {sports.length > 1 && (
+        {(sports.length > 1 || sport !== 'ALL') && (
           <div className="cc-filters" role="group" aria-label="Sport" style={{ margin: 0 }}>
-            {(['ALL', ...sports] as const).map((code) => (
+            {(['ALL', ...new Set([...sports, ...(sport === 'ALL' ? [] : [sport])])] as const).map((code) => (
               <button key={code} type="button" aria-pressed={sport === code} onClick={() => setSport(code)}>
                 {code === 'ALL' ? 'All sports' : SPORT_NAMES[code]}
               </button>
@@ -170,7 +172,14 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
       {(tab === 'MONEYLINE' || tab === 'SPREAD' || tab === 'TOTAL') && (!evidence.data
         ? <p className="cc-empty" role="status">{evidence.error ? `Market evidence is unavailable: ${evidence.error}` : 'Loading stored quotes…'}</p>
         : withQuotes.length === 0
-          ? <><p className="cc-empty">No stored sportsbook quote exists for {SPORT_NAMES[sport as SportCode] ?? 'any sport'} in AISP yet.</p>{scheduledPanel}</>
+          ? <><p className="cc-empty">
+              {sport === 'ALL'
+                ? 'No stored sportsbook quote exists for this date.'
+                : `No stored ${SPORT_NAMES[sport as SportCode]} sportsbook quote for this date.`}
+              {sport !== 'ALL' && evidenceGames.some((g) => g.quotes.length > 0) && (
+                <> <button type="button" className="cc-linkish" onClick={() => setSport('ALL')}>Show all sports</button></>
+              )}
+            </p>{scheduledPanel}</>
           : (
             <div className="cc-mgrid">
               <div className="cc-mcol">
@@ -206,6 +215,15 @@ export function CommandMarkets({ day, onDay }: { day: string; onDay: (next: stri
               </section>
             </div>
           ))}
+
+      {(tab === 'MONEYLINE' || tab === 'SPREAD' || tab === 'TOTAL') && evidence.data && (
+        <div className="mv-grid" aria-label="Market visuals">
+          {chosen && withQuotes.includes(chosen) && <PriceMovement game={chosen} />}
+          <LargestGaps games={games} onSelect={setSelected} />
+          <BookDispersion games={withQuotes} onSelect={setSelected} />
+          <CoverageStrip games={(today.data?.games ?? []).filter((g) => sport === 'ALL' || asSport(g.league) === sport)} />
+        </div>
+      )}
 
       <p className="cc-note">Prediction-market (crowd) evidence is shown only where it was captured; see the detailed boards below. Model output is never shown as a price.</p>
     </section>
@@ -250,7 +268,7 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect,
           <dt>Consensus</dt><dd>{pct(g.consensus_no_vig_home)}{g.consensus_is_current ? '' : ' · stale'}</dd>
           <dt>Gap</dt><dd>{gapOf(g) != null ? `${(gapOf(g)! * 100).toFixed(1)} pts` : '—'}</dd>
           <dt>Book range</dt><dd>{range ? `${pct(range[0])}–${pct(range[1])}` : '—'} ({g.books} books)</dd>
-          {rff[g.game_id]?.score != null && <><dt>RFF lens</dt><dd>{Math.round(rff[g.game_id].score as number)} · {rff[g.game_id].band?.label ?? 'scored'}</dd></>}
+          {rff[g.game_id]?.score != null && <><dt>RFF Lens</dt><dd>{Math.round(rff[g.game_id].score as number)} · {rff[g.game_id].band?.label ?? 'scored'}</dd></>}
           {best && <><dt>Latest</dt><dd>{shortBook(best.sportsbook)} {am(best.sides.AWAY?.american)}/{am(best.sides.HOME?.american)}</dd>
             <dt>Provider</dt><dd>{best.provider} · {best.classification.toLowerCase()}</dd>
             <dt>Observed</dt><dd>{etTime(best.observed_at, true)} ({relative(best.observed_at)})</dd></>}

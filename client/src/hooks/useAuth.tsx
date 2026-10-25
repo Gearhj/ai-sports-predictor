@@ -73,3 +73,8 @@ export function useAuth() {
   if (!context) throw new Error('useAuth must be used inside AuthProvider')
   return context
 }
+
+/** The signed-in user if an AuthProvider is mounted, else null (shared chrome such as the left menu renders outside it in tests and isolated views). */
+export function useOptionalUser() {
+  return useContext(AuthContext)?.user ?? null
+}

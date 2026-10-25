@@ -45,6 +45,30 @@ class RawArchiveRecord:
         return self.checksum
 
 
+@dataclass(frozen=True)
+class RawResponseRecord:
+    """One provider HTTP response kept twice: readable, and byte-exact.
+
+    ``path`` is the ordinary RawArchive wrapper (``metadata`` + parsed
+    ``payload``) in the live layout, so existing readers work unchanged.
+    ``body_path`` holds the EXACT response bytes, gzip-compressed; ``body_sha256``
+    and ``body_bytes`` are of those exact, uncompressed bytes -- the response's
+    own identity, which re-serialised JSON can never reproduce.
+    """
+
+    path: str
+    sha256: str
+    bytes: int
+    body_path: str
+    body_sha256: str
+    body_bytes: int
+    body_gzip_sha256: str
+    body_gzip_bytes: int
+    payload_checksum: str | None
+    ingestion_timestamp: datetime
+    request_fingerprint: str | None
+
+
 class RawArchiveConflictError(RuntimeError):
     """Captured bytes disagree with what an existing immutable object holds.
 
@@ -102,6 +126,80 @@ class RawArchive:
             compressed=False,
             historical=False,
             idempotent_reuse=False,
+        )
+
+    def write_response(
+        self,
+        source: str,
+        body: bytes,
+        *,
+        request_fingerprint: str | None,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> RawResponseRecord:
+        """Keep one provider response's exact bytes in the live layout.
+
+        Two write-once files share one stem,
+        ``<source>/YYYY/MM/DD/HHMMSS_ffffff_<hex>``:
+
+        * ``.json`` -- the standard wrapper: ``metadata`` (source,
+          ``ingestion_timestamp``, ``request_fingerprint``, ``checksum`` of the
+          canonical payload, and the exact body's sha256/bytes) plus the parsed
+          ``payload`` (``null`` when the body is not JSON);
+        * ``.body.gz`` -- the exact response bytes, gzip with a zero mtime so
+          the same bytes always compress identically.
+
+        The body is written first; the wrapper names it. Nothing is ever
+        overwritten: both files are created exclusively.
+        """
+
+        timestamp = datetime.now(UTC)
+        body = bytes(body)
+        try:
+            payload: Any = json.loads(body)
+        except ValueError:
+            payload = None
+        checksum = _payload_checksum(payload) if payload is not None else None
+        directory = self.root / source.lower() / f"{timestamp:%Y}" / f"{timestamp:%m}" / f"{timestamp:%d}"
+        directory.mkdir(parents=True, exist_ok=True)
+        stem = f"{timestamp:%H%M%S_%f}_{uuid4().hex[:10]}"
+        body_path = directory / f"{stem}.body.gz"
+        compressed = gzip.compress(body, mtime=0)
+        with body_path.open("xb") as stream:
+            stream.write(compressed)
+            stream.flush()
+            os.fsync(stream.fileno())
+        body_sha = hashlib.sha256(body).hexdigest()
+        document = _document(
+            source,
+            payload,
+            timestamp=timestamp,
+            source_event_timestamp=None,
+            checksum=checksum or "",
+            status="success" if payload is not None else "unparseable",
+            schema_version="1",
+            historical=False,
+            request_fingerprint=request_fingerprint,
+            historical_metadata={
+                **(extra_metadata or {}),
+                "response_body_file": body_path.name,
+                "response_body_sha256": body_sha,
+                "response_body_bytes": len(body),
+                "response_body_encoding": "gzip(mtime=0) of the exact HTTP response body",
+                "response_body_gzip_sha256": hashlib.sha256(compressed).hexdigest(),
+                "response_body_gzip_bytes": len(compressed),
+            },
+        )
+        path = directory / f"{stem}.json"
+        data = json.dumps(document, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        with path.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return RawResponseRecord(
+            path=str(path), sha256=hashlib.sha256(data).hexdigest(), bytes=len(data),
+            body_path=str(body_path), body_sha256=body_sha, body_bytes=len(body),
+            body_gzip_sha256=hashlib.sha256(compressed).hexdigest(), body_gzip_bytes=len(compressed),
+            payload_checksum=checksum, ingestion_timestamp=timestamp, request_fingerprint=request_fingerprint,
         )
 
     def write_historical(

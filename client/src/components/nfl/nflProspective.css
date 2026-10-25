@@ -83,8 +83,9 @@
 .np-error__track { position: relative; height: 9px; border-radius: 99px; background: #eef2f5; overflow: hidden; }
 .np-error__zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line-strong); }
 .np-error__bar { position: absolute; top: 0; bottom: 0; border-radius: 99px; }
-.np-error__bar.is-over { background: linear-gradient(90deg, #e0a45a, var(--orange)); }
-.np-error__bar.is-under { background: linear-gradient(90deg, var(--blue), #7fb3d5); }
+.np-error__bar.is-small { background: #8fb9a8; }
+.np-error__bar.is-medium { background: #d8a657; }
+.np-error__bar.is-large { background: var(--orange); }
 .np-error__clip { position: absolute; right: 2px; top: -3px; color: var(--orange); font-size: 11px; }
 .np-error__value { color: var(--muted); font: 600 12px "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
 .np-error__value.is-large { color: var(--orange); font-weight: 700; }
@@ -212,6 +213,7 @@
 .np-card__verdicts small { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: .03em; }
 .np-card__verdicts strong { font-size: 34px; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
 .np-card__verdicts strong.is-good { color: var(--green); }
+.np-card__verdicts strong.is-warn { color: #9a6a12; }
 .np-card__verdicts strong.is-bad { color: var(--orange); }
 .np-card__verdicts span { color: var(--muted); font-size: 13.5px; }
 .np-card__story { margin: 0; color: var(--ink); font-size: 16.5px; line-height: 1.6; max-width: 76ch; }

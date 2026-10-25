@@ -40,6 +40,9 @@ from typing import Any
 THE_ODDS_API = "THE_ODDS_API"
 NFLVERSE = "NFLVERSE"
 MLB_STATS_API = "MLB_STATS_API"
+CFBD = "CFBD"
+ESPN_SPORTSDATAVERSE = "ESPN_SPORTSDATAVERSE"
+NBA_SOURCE_CONFIRMED_FINAL = "NBA_GEN1_SOURCE_CONFIRMED_FINAL"
 OPERATOR_ENTERED = "OPERATOR_ENTERED"
 
 #: Lower is stronger.
@@ -47,6 +50,9 @@ RESULT_TIERS: dict[str, int] = {
     THE_ODDS_API: 1,
     NFLVERSE: 2,
     MLB_STATS_API: 2,
+    CFBD: 2,
+    ESPN_SPORTSDATAVERSE: 2,
+    NBA_SOURCE_CONFIRMED_FINAL: 2,
     OPERATOR_ENTERED: 3,
 }
 
@@ -60,6 +66,23 @@ SOURCE_NOTES: dict[str, str] = {
                    "league's official wire for game state and final scores. It is "
                    "not the governed odds provider, so it is not described as "
                    "provider-verified and it grants no wagering authority.",
+    CFBD: "Recorded automatically from CollegeFootballData.com /games rows that the "
+          "producer retained under its approved capture plan (completed=true, points, "
+          "exact CFBD game and team ids). CFBD supplies no completion or revision "
+          "time; the capture time is shown as the observation time only. Not the "
+          "governed odds provider, so it is not described as provider-verified.",
+    NBA_SOURCE_CONFIRMED_FINAL: "Recorded from a NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1 record delivered on the "
+                                "producer's finals-discovery lane and proved from its own bytes (exact game "
+                                "and franchise identities, source STATUS_FINAL with completed=true, full-game "
+                                "score including overtime). The record states that no admitted source retains "
+                                "a completion time, so capture, validation and admission are shown as what "
+                                "they are and none stands in for one. Evidence only: not the governed odds "
+                                "provider, and it grants no settlement authority of its own.",
+    ESPN_SPORTSDATAVERSE: "Recorded automatically from a SportsDataverse/hoopR ESPN-derived NBA schedule "
+                          "export (CC BY 4.0) that Model Studio retained at a content address under its "
+                          "reviewed acquisition receipt (STATUS_FINAL, completed=true, exact ESPN game and "
+                          "team ids). The export carries no completion time; the capture time is shown as "
+                          "the observation time only. Not the governed odds provider.",
 }
 
 #: An unclassified source outranks nothing.

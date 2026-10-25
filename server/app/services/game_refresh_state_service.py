@@ -22,6 +22,7 @@ from app.models import (
     GameStateObservation,
     GameStatus,
 )
+from app.services.league_scope import MLB, in_league
 
 
 class GameRefreshStateService:
@@ -43,6 +44,7 @@ class GameRefreshStateService:
                 select(Game)
                 .where(
                     Game.source_mode == "LIVE",
+                    in_league(MLB),
                     Game.status.in_((GameStatus.SCHEDULED, GameStatus.LIVE, GameStatus.FINAL)),
                 )
                 .order_by(Game.starts_at, Game.id)

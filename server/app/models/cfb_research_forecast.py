@@ -41,6 +41,7 @@ because when AISP learned something is not when the producer knew it.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -50,9 +51,11 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -161,6 +164,21 @@ class CfbResearchForecast(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     #: False would be refused at import, not narrowed.
     research_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # -- where it came from, for the production discovery consumer ----------
+    #: RESEARCH_TREE (the manual research importer) or PRODUCTION_DISCOVERY.
+    origin: Mapped[str] = mapped_column(String(40), nullable=False, default="RESEARCH_TREE",
+                                        server_default="RESEARCH_TREE")
+    #: Which clock ``exchange_published_utc`` holds. Discovery imports use the
+    #: discovery-bound receipt's committedAtUtc; nothing is ever relabelled.
+    publication_clock_source: Mapped[str | None] = mapped_column(String(60))
+    discovery_receipt_sha256: Mapped[str | None] = mapped_column(String(64))
+    revision_key: Mapped[str | None] = mapped_column(String(80))
+    first_manifest_sha256: Mapped[str | None] = mapped_column(String(64))
+    producer_status: Mapped[str | None] = mapped_column(String(80))
+    orientation_check: Mapped[str | None] = mapped_column(String(60))
+    canonical_game_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("games.id"), index=True)
 
     __table_args__ = tuple(
         [

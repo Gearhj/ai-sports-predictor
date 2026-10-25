@@ -83,6 +83,20 @@ async def test_total_push_and_unmatched_moneyline_void(session, settings) -> Non
 
 
 @pytest.mark.asyncio
+async def test_a_moneyline_tie_is_a_push_for_both_sides(session, settings) -> None:
+    await seed_demo_data(session, settings, date(2026, 8, 12))
+    game = session.scalar(select(Game).order_by(Game.starts_at))
+    game.status = GameStatus.FINAL
+    game.home_score = 20
+    game.away_score = 20
+    moneyline = session.scalar(select(Market).where(Market.game_id == game.id, Market.market_type == MarketType.MONEYLINE))
+    sides = [o for o in session.scalars(select(MarketOutcome).where(MarketOutcome.market_id == moneyline.id))
+             if o.participant_team_id is not None]
+    assert len(sides) == 2
+    assert {determine_result(session, game, moneyline, side) for side in sides} == {PositionResult.PUSH}
+
+
+@pytest.mark.asyncio
 async def test_bankroll_api_schema_accepts_void_position(session, settings) -> None:
     await seed_demo_data(session, settings, date(2026, 8, 12))
     games = list(session.scalars(select(Game)))

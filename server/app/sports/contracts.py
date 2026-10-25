@@ -23,6 +23,7 @@ class SportCode(StrEnum):
     BASEBALL = "BASEBALL"
     FOOTBALL = "FOOTBALL"
     BASKETBALL = "BASKETBALL"
+    HOCKEY = "HOCKEY"
     MMA = "MMA"
 
 
@@ -36,6 +37,7 @@ class LeagueCode(StrEnum):
     #: forecasts that never reconcile.
     CFB = "CFB"
     WNBA = "WNBA"
+    NHL = "NHL"
     UFC = "UFC"
 
 

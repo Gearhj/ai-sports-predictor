@@ -98,6 +98,9 @@ class FunnelReadContext:
     lineup_rows_by_game_team: dict[tuple[Any, Any], list[LineupObservation]] = field(default_factory=dict)
     starter_rows_by_game_team: dict[tuple[Any, Any], list[StarterObservation]] = field(default_factory=dict)
     players_by_id: dict[Any, Player] = field(default_factory=dict)
+    # Every player id the context looked up, including ids with no player row,
+    # so a known-missing pitcher never triggers a per-game fallback query.
+    player_ids_loaded: set[Any] = field(default_factory=set)
     pitcher_by_player_id: dict[Any, Pitcher] = field(default_factory=dict)
     team_features_by_team: dict[Any, list[TeamFeature]] = field(default_factory=dict)  # newest first
     # Availability events per game, newest received first (same order as the read model).
@@ -108,6 +111,15 @@ class FunnelReadContext:
     active_experiments: list[ShadowExperiment] = field(default_factory=list)
     # Latest FINAL_PREGAME decision at or before each game's cutoff, per experiment.
     final_decision_by_experiment_game: dict[tuple[Any, Any], ShadowExperimentDecision] = field(default_factory=dict)
+    # Forecast selection (app.services.forecast_selection), bulk-loaded so the
+    # selector issues no per-game SQL. ``selection_loaded`` distinguishes
+    # "loaded and empty" from "not loaded".
+    selection_loaded: bool = False
+    v18_effective_at: datetime | None = None
+    v18_rows_by_game: dict[Any, list[Any]] = field(default_factory=dict)
+    latest_decision_by_game: dict[Any, ShadowExperimentDecision] = field(default_factory=dict)
+    gen1_forecast_by_game: dict[Any, Forecast | None] = field(default_factory=dict)
+    model_versions_by_id: dict[Any, Any] = field(default_factory=dict)
     # Request-local memo for ledger-derived values (e.g. current bankroll).
     memo: dict[str, Any] = field(default_factory=dict)
     statement_count: int = 0
@@ -285,6 +297,7 @@ def build_funnel_read_context(
                 pitcher_ids.add(side.probable_pitcher_id)
 
     # 11. players, 12. pitchers
+    ctx.player_ids_loaded = set(pitcher_ids)
     if pitcher_ids:
         ctx.players_by_id = {p.id: p for p in session.scalars(select(Player).where(Player.id.in_(list(pitcher_ids))))}
         ctx.statement_count += 1
@@ -405,8 +418,65 @@ def build_funnel_read_context(
             ctx.memo[f"bankroll:{experiment.id}"] = service.current_bankroll(experiment)
             ctx.statement_count += 1
 
+    # 19-23. forecast selection families, same rules as ForecastSelector.
+    _load_selection(session, ctx)
+
     ctx.evidence_watermark = max((w for w in watermark if w is not None), default=None)
     return ctx
+
+
+def _load_selection(session: Session, ctx: FunnelReadContext) -> None:
+    """Bulk form of ForecastSelector's per-game reads (at most 5 statements)."""
+
+    from app.models import ModelVersion, ShadowForecast
+    from app.models.entities import ModelChampionAuthority
+    from app.services.forecast_selection import V18_ENGINE
+
+    ids = ctx.game_ids
+    authority = session.scalar(
+        select(ModelChampionAuthority).where(ModelChampionAuthority.engine_id == V18_ENGINE)
+        .order_by(ModelChampionAuthority.effective_at.desc()).limit(1))
+    ctx.v18_effective_at = _aware(authority.effective_at) if authority else None
+    ctx.statement_count += 1
+
+    for row in session.scalars(
+        select(ShadowForecast)
+        .where(ShadowForecast.canonical_game_id.in_(ids), ShadowForecast.engine_id == V18_ENGINE)
+        .order_by(ShadowForecast.canonical_game_id, ShadowForecast.snapshot_version, ShadowForecast.created_at)
+    ):
+        ctx.v18_rows_by_game.setdefault(row.canonical_game_id, []).append(row)
+    ctx.statement_count += 1
+
+    rn = func.row_number().over(
+        partition_by=ShadowExperimentDecision.game_id,
+        order_by=(ShadowExperimentDecision.recommended_at.desc(), ShadowExperimentDecision.id.desc()),
+    ).label("rn")
+    ranked = (select(ShadowExperimentDecision.id, rn)
+              .where(ShadowExperimentDecision.game_id.in_(ids)).subquery())
+    for decision in session.scalars(select(ShadowExperimentDecision).where(
+        ShadowExperimentDecision.id.in_(select(ranked.c.id).where(ranked.c.rn == 1))
+    )):
+        ctx.latest_decision_by_game[decision.game_id] = decision
+    ctx.statement_count += 1
+
+    published: dict[Any, Forecast] = {}
+    anything: dict[Any, Forecast] = {}
+    for forecast in session.scalars(
+        select(Forecast).where(Forecast.game_id.in_(ids))
+        .order_by(Forecast.game_id, Forecast.generated_at.desc(), Forecast.id)
+    ):
+        anything.setdefault(forecast.game_id, forecast)
+        if forecast.status == ForecastStatus.PUBLISHED:
+            published.setdefault(forecast.game_id, forecast)
+    ctx.statement_count += 1
+    ctx.gen1_forecast_by_game = {gid: published.get(gid) or anything.get(gid) for gid in ids}
+
+    version_ids = {f.model_version_id for f in ctx.gen1_forecast_by_game.values() if f and f.model_version_id}
+    if version_ids:
+        ctx.model_versions_by_id = {
+            v.id: v for v in session.scalars(select(ModelVersion).where(ModelVersion.id.in_(version_ids)))}
+        ctx.statement_count += 1
+    ctx.selection_loaded = True
 
 
 __all__ = [

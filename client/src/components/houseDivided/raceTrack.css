@@ -1,0 +1,35 @@
+/* The Race + The Next Lock: brushed steel on navy, each runner in the participant's colour. */
+.rt { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; margin: 14px 0; }
+.rt__track, .rt__lock { border-radius: 16px; padding: 14px 16px; border: 1px solid #4a5466; color: #eef2f7;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3b4452, #2c333f 55%, #20262f); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 10px 26px rgba(0, 0, 0, .35); }
+.rt h2, .rt h3 { margin: 0; color: #fff; font-weight: 900; } .rt h2 { font-size: 18px; } .rt h3 { font-size: 15px; }
+.rt__track header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.rt__track header small { font-size: 12px; color: #a9b4c4; }
+.rt__lanes { position: relative; display: grid; gap: 8px; margin-top: 12px; padding: 8px 0; border-radius: 12px; background: repeating-linear-gradient(90deg, #0b1526 0 10%, #0e1a2e 10% 20%); }
+.rt__line { position: absolute; left: calc(170px + (100% - 170px - 130px) * .5); top: 0; bottom: 0; width: 3px; background: repeating-linear-gradient(180deg, #fff 0 8px, #111 8px 16px); opacity: .7; }
+.rt__line b { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 9.5px; letter-spacing: .14em; color: #a9b4c4; }
+.rt__lane { display: grid; grid-template-columns: 170px minmax(0, 1fr) 130px; align-items: center; gap: 0; min-height: 46px; border-bottom: 1px dashed rgba(255, 255, 255, .07); }
+.rt__lane:last-child { border-bottom: 0; }
+.rt__name { display: grid; padding-left: 12px; line-height: 1.15; } .rt__name b { font-size: 15px; color: var(--c); } .rt__name small { font-size: 11px; color: #a9b4c4; }
+.rt__run { position: relative; height: 40px; }
+.rt__trail { position: absolute; top: 18px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--c)); animation: rt-trail 1.6s ease-out both; opacity: .8; }
+@keyframes rt-trail { from { width: 0; } }
+.rt__runner { position: absolute; top: 2px; transform: translateX(-50%); animation: rt-run 1.6s cubic-bezier(.25, 1.2, .45, 1) both; }
+@keyframes rt-run { from { left: 50%; } }
+.rt__runner i { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; font-style: normal; font-weight: 900; font-size: 16px; color: #fff; background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 70%, #fff), var(--c)); border: 2px solid #fff; box-shadow: 0 0 16px color-mix(in srgb, var(--c) 70%, transparent); }
+.rt__runner em { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 16px; }
+.rt__runner.is-lead i { box-shadow: 0 0 0 3px #fbbf24, 0 0 22px #fbbf24; }
+.rt__num { display: grid; text-align: right; padding-right: 12px; line-height: 1.15; } .rt__num b { font-size: 16px; } .rt__num small { font-size: 11px; color: #a9b4c4; }
+.rt .is-up { color: #34d399; } .rt .is-down { color: #f87171; }
+.rt__call { margin: 10px 0 0; font-size: 13.5px; color: #dfe7f2; }
+.rt__lock { display: grid; gap: 6px; align-content: start; justify-items: center; text-align: center; }
+.rt__lockgame { display: flex; align-items: center; gap: 10px; margin-top: 4px; } .rt__lockgame small { color: #a9b4c4; font-weight: 800; }
+.rt__lockgame img, .rt__lockgame .sl-logo, .rt__lockgame .team-logo { width: 34px; height: 34px; }
+.rt__lockname { font-size: 14px; }
+.rt__clock { font-family: "JetBrains Mono", Consolas, monospace; font-size: 34px; font-weight: 900; color: #fbbf24; padding: 4px 14px; border-radius: 10px; background: #05080f; box-shadow: inset 0 0 0 1px #000, 0 0 18px rgba(251, 191, 36, .2); }
+.rt__lock small { font-size: 11.5px; color: #a9b4c4; }
+.rt__lock button { margin-top: 4px; font: inherit; font-size: 13px; font-weight: 900; color: #062a26; background: #2dd4bf; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; box-shadow: 0 0 18px rgba(45, 212, 191, .35); }
+.rt__lock p { margin: 8px 0 0; color: #a9b4c4; font-size: 13px; }
+@media (max-width: 1100px) { .rt { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .rt__lane { grid-template-columns: 96px minmax(0, 1fr) 92px; } .rt__line { left: calc(96px + (100% - 96px - 92px) * .5); } }
+@media (prefers-reduced-motion: reduce) { .rt__runner, .rt__trail { animation: none; } }

@@ -1007,6 +1007,7 @@ class ShadowBoardService:
             game["engines"].append(self._engine_view(forecast, decisions_by_forecast.get(forecast.id, [])))
         for game in games.values():
             game["model_disagreement"] = self._disagreement(game["engines"])
+        self._attach_team_names(games.values())
         available_sports = sorted({bundle_sports.get(row.bundle_id, "BASEBALL") for row in forecasts})
         has_nfl = "NFL" in available_sports
         return {
@@ -1027,6 +1028,51 @@ class ShadowBoardService:
             } if has_nfl else None),
             "games": list(games.values()),
         }
+
+    def _attach_team_names(self, games) -> None:
+        """Readable team names beside the stored team ids.
+
+        Bundles carry canonical team UUIDs (or provider codes); a reader needs
+        names. The canonical game's sides are authoritative; a stored id that is
+        itself a canonical team id is the fallback. Nothing is guessed.
+        """
+        import uuid as _uuid
+
+        from app.models import GameTeam, Team
+
+        game_ids = []
+        for game in games:
+            try:
+                game_ids.append(_uuid.UUID(str(game["canonical_game_id"])))
+            except (TypeError, ValueError):
+                pass
+        sides: dict[str, dict[bool, tuple[str, str]]] = {}
+        if game_ids:
+            for game_id, is_home, name, abbreviation in self.session.execute(
+                select(GameTeam.game_id, GameTeam.is_home, Team.name, Team.abbreviation)
+                .join(Team, Team.id == GameTeam.team_id)
+                .where(GameTeam.game_id.in_(game_ids))
+            ):
+                sides.setdefault(str(game_id), {})[bool(is_home)] = (name, abbreviation)
+        team_ids = []
+        for game in games:
+            for key in ("home_team_id", "away_team_id"):
+                try:
+                    team_ids.append(_uuid.UUID(str(game[key])))
+                except (TypeError, ValueError):
+                    pass
+        teams = {
+            str(team_id): (name, abbreviation)
+            for team_id, name, abbreviation in self.session.execute(
+                select(Team.id, Team.name, Team.abbreviation).where(Team.id.in_(team_ids))
+            )
+        } if team_ids else {}
+        for game in games:
+            known = sides.get(str(game.get("canonical_game_id")), {})
+            for is_home, prefix in ((True, "home"), (False, "away")):
+                named = known.get(is_home) or teams.get(str(game[f"{prefix}_team_id"]))
+                game[f"{prefix}_team_name"] = named[0] if named else None
+                game[f"{prefix}_team_abbreviation"] = named[1] if named else None
 
     def _engine_view(self, forecast: ShadowForecast, decisions: list[ShadowBoardDecision]) -> dict:
         return {

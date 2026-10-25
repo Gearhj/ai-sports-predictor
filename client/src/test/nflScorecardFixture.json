@@ -1,0 +1,480 @@
+{
+ "schema_version": "AISP_NFL_SCORECARD_V1",
+ "generated_at_utc": "2026-09-17T17:30:47.677000+00:00",
+ "league": "NFL",
+ "scoring_version": "AISP_NFL_PROSPECTIVE_SCORING_V1",
+ "coverage": {
+  "eligible_games_started": 16,
+  "settled_and_scored": 16,
+  "open_awaiting_final": 0,
+  "unscored": 0,
+  "unscored_reasons": {},
+  "upcoming_with_forecast": 256
+ },
+ "cohorts": [
+  {
+   "model_id": "NFL_M1_XGBOOST",
+   "model_revision": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+   "model_label": "NFL_M1_XGBOOST",
+   "authority": "PAPER_RESEARCH_EVIDENCE",
+   "cohort_identity": {
+    "model_id": "NFL_M1_XGBOOST",
+    "model_revision": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+    "scoring_version": "AISP_NFL_PROSPECTIVE_SCORING_V1",
+    "pooled_with_other_versions": false
+   },
+   "settled_games": 16,
+   "dates": [
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-13",
+    "2026-09-14"
+   ],
+   "weeks": [
+    1
+   ],
+   "review": {
+    "settled_eligible_games": 16,
+    "checkpoints": [
+     {
+      "games": 50,
+      "reached": false,
+      "remaining": 34
+     },
+     {
+      "games": 100,
+      "reached": false,
+      "remaining": 84
+     }
+    ],
+    "last_reached": null,
+    "next_checkpoint": 50,
+    "note": "Review checkpoints count settled eligible games within one frozen model cohort. Reaching one opens a review; it does not pass or fail anything."
+   },
+   "summary": {
+    "games": 16,
+    "correct_winners": 10,
+    "winner_accuracy": 0.625,
+    "ties": 0,
+    "log_loss": 0.7151852309435592,
+    "brier_score": 0.4911965925,
+    "home_score_mae": 8.9173875,
+    "away_score_mae": 9.3446,
+    "pooled_score_mae": 9.13099375,
+    "margin_mae": 12.1500625,
+    "total_mae": 12.886,
+    "mean_margin_error": 1.3683000000000003,
+    "mean_total_error": -5.360475,
+    "probability_of_actual": 0.502525
+   },
+   "explanations": {
+    "log_loss": "How surprised the forecast was by what happened, across home win, away win and tie. Lower is better; a forecast that gave the result 50% scores 0.69.",
+    "brier_score": "The squared miss across the three outcomes, from 0 (certain and right) to 2 (certain and wrong). Lower is better.",
+    "winner_accuracy": "How often the most likely outcome happened. A tie counts as a miss for a home or away call.",
+    "score_errors": "Average distance between predicted and final points; margin is home minus away and total is both teams combined."
+   },
+   "lines": {
+    "SPREAD": {
+     "scored": 15,
+     "pushes": 0,
+     "integer_lines": 4,
+     "mean_log_loss": 0.7818431020698623,
+     "mean_brier_score": 0.5749670653333333,
+     "basis": "The model's win/loss/push masses at the last stored pre-kickoff line (not a closing line)."
+    },
+    "TOTAL": {
+     "scored": 15,
+     "pushes": 0,
+     "integer_lines": 0,
+     "mean_log_loss": 0.7959126613050069,
+     "mean_brier_score": 0.5999511226666667,
+     "basis": "The model's win/loss/push masses at the last stored pre-kickoff line (not a closing line)."
+    }
+   },
+   "calibration": {
+    "available": false,
+    "pairs": 16,
+    "minimum": 100,
+    "reason": "Calibration is shown from 100 settled games; 16 so far."
+   },
+   "paper_view": {
+    "games": 1,
+    "same_revision_as_research": 0,
+    "log_loss": 0.9631203192309531,
+    "brier_score": 0.7151139800000001,
+    "note": "Scores of the exact revision each paper-eligibility supplement names. Kept separate from the research record and never added to it."
+   },
+   "games": [
+    {
+     "evaluation_id": "279dcd15-f71a-4416-ae1b-9a0948bc2dee",
+     "game_id": "b1dec4c5-c509-4550-8853-2cffa5a89a0c",
+     "week": 1,
+     "nflverse_id": "nflverse:2026_01_NE_SEA",
+     "matchup": "NE @ SEA",
+     "home": {
+      "abbreviation": "SEA",
+      "name": "Seattle Seahawks"
+     },
+     "away": {
+      "abbreviation": "NE",
+      "name": "New England Patriots"
+     },
+     "kickoff_utc": "2026-09-09T20:20:00-04:00",
+     "probabilities": {
+      "home": 0.5736,
+      "away": 0.3966,
+      "tie": 0.0298
+     },
+     "predicted": {
+      "home": 22.7482,
+      "away": 19.9418,
+      "margin": 2.8064,
+      "total": 42.69,
+      "outcome": "HOME"
+     },
+     "final": {
+      "home": 13,
+      "away": 10,
+      "outcome": "HOME",
+      "margin": 3,
+      "total": 23,
+      "overtime": false
+     },
+     "errors": {
+      "home": 9.7482,
+      "away": 9.9418,
+      "margin": -0.1936,
+      "total": 19.689999999999998
+     },
+     "scores": {
+      "log_loss": 0.5558229896967265,
+      "brier_score": 0.33999656,
+      "winner_correct": true,
+      "probability_of_actual": 0.5736
+     },
+     "mass_reconciliation": {
+      "reconciled": true,
+      "sum": 1.0,
+      "residual": 0.0,
+      "tolerance": 1e-06
+     },
+     "lines": [],
+     "market_reference": null,
+     "paper_view": null,
+     "audit": {
+      "forecast_revision": {
+       "forecast_id": "asp-sports-game-forecast:sha256:67584a9c59b560dab16beda0eb2bfd8155ebdb4b302b87ba6e2ade956b5e4be8",
+       "shadow_forecast_id": "11d1fd8c-f138-47f5-9980-8768c37db140",
+       "snapshot_type": "CURRENT",
+       "snapshot_version": 9,
+       "model_id": "NFL_M1_XGBOOST",
+       "model_revision": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+       "model_artifact_sha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+       "package_sha256": "368e235de6586e3f716143b260cb2412f18a80ec71fe7f4b3f23bd6636dcdfd7",
+       "created_utc": "2026-09-08T19:08:28.722372-04:00",
+       "published_utc": "2026-09-08T18:53:07.919053-04:00",
+       "source_cutoff_utc": "2026-08-29T10:07:34.968754-04:00",
+       "kickoff_utc": "2026-09-09T20:20:00-04:00",
+       "horizon": {
+        "snapshot_type": "CURRENT",
+        "hours_before_kickoff": 25.45
+       },
+       "published_before_kickoff": true,
+       "forecast_kind": "RESEARCH_SHADOW_PACKAGE",
+       "controlling_reason": "LATEST_PRE_KICKOFF_PUBLICATION_PER_MODEL_IDENTITY",
+       "population_sha256": "27aab70327c18f12820598cc30c3a3a500ec03e639a517efd7dd90d49f2d459a",
+       "draw_count": 10000,
+       "population_verification": {
+        "verified": true
+       }
+      },
+      "population_sha256": "27aab70327c18f12820598cc30c3a3a500ec03e639a517efd7dd90d49f2d459a",
+      "kickoff_utc": "2026-09-09T20:20:00-04:00",
+      "final_result": {
+       "result_identity": "NFLVERSE:1e7d2a6f1a558df28817613b83027962598fcedb0ca6aa4289b451cee521e258",
+       "source": "NFLVERSE",
+       "tier": 2,
+       "home_score": 13,
+       "away_score": 10,
+       "outcome": "HOME",
+       "overtime": false,
+       "observed_utc": "2026-09-10T17:54:10.918246-04:00",
+       "label": "Automated source",
+       "note": "Recorded automatically from the nflverse schedules release. Free, well-identified and independent of us, but not the governed provider, so it is not described as provider-verified.",
+       "provider_verified": false,
+       "automated": true,
+       "revisions": [
+        {
+         "source": "OPERATOR_ENTERED",
+         "result_identity": "OPERATOR_ENTERED:6e454379dbe105a816f5c09fcc3d724d9a7a3ccb3debd14c4f9988690d8e692b",
+         "score": "13-10",
+         "available_utc": "2026-09-09T23:30:00-04:00",
+         "current": false
+        },
+        {
+         "source": "NFLVERSE",
+         "result_identity": "NFLVERSE:1e7d2a6f1a558df28817613b83027962598fcedb0ca6aa4289b451cee521e258",
+         "score": "13-10",
+         "available_utc": "2026-09-10T17:54:10.918246-04:00",
+         "current": true
+        }
+       ]
+      },
+      "scoring_receipt": {
+       "evaluation_id": "279dcd15-f71a-4416-ae1b-9a0948bc2dee",
+       "scoring_version": "AISP_NFL_PROSPECTIVE_SCORING_V1",
+       "evaluated_utc": "2026-09-10T17:56:07.350401-04:00",
+       "result_identity": "NFLVERSE:1e7d2a6f1a558df28817613b83027962598fcedb0ca6aa4289b451cee521e258",
+       "forecast_identity": "asp-sports-game-forecast:sha256:67584a9c59b560dab16beda0eb2bfd8155ebdb4b302b87ba6e2ade956b5e4be8",
+       "replaces": [
+        {
+         "evaluation_id": "2c3c4b72-b67c-4f26-9e55-03433a9fd23d",
+         "reason": "PROVENANCE_UPGRADE",
+         "score": "13-10",
+         "result_identity": "OPERATOR_ENTERED:6e454379dbe105a816f5c09fcc3d724d9a7a3ccb3debd14c4f9988690d8e692b"
+        }
+       ]
+      },
+      "settlement_records": [],
+      "publication_clock": null
+     }
+    },
+    {
+     "evaluation_id": "cec3738d-0c18-4c76-8788-ad9e90c075f2",
+     "game_id": "14a64986-3d92-48af-ba69-15731e936d54",
+     "week": 1,
+     "nflverse_id": "nflverse:2026_01_DEN_KC",
+     "matchup": "DEN @ KC",
+     "home": {
+      "abbreviation": "KC",
+      "name": "Kansas City Chiefs"
+     },
+     "away": {
+      "abbreviation": "DEN",
+      "name": "Denver Broncos"
+     },
+     "kickoff_utc": "2026-09-14T20:15:00-04:00",
+     "probabilities": {
+      "home": 0.3925,
+      "away": 0.5665,
+      "tie": 0.041
+     },
+     "predicted": {
+      "home": 18.5042,
+      "away": 20.4649,
+      "margin": -1.9606999999999992,
+      "total": 38.9691,
+      "outcome": "AWAY"
+     },
+     "final": {
+      "home": 31,
+      "away": 10,
+      "outcome": "HOME",
+      "margin": 21,
+      "total": 41,
+      "overtime": false
+     },
+     "errors": {
+      "home": -12.4958,
+      "away": 10.4649,
+      "margin": -22.9607,
+      "total": -2.0309000000000026
+     },
+     "scores": {
+      "log_loss": 0.9352187417596739,
+      "brier_score": 0.6916595,
+      "winner_correct": false,
+      "probability_of_actual": 0.3925
+     },
+     "mass_reconciliation": {
+      "reconciled": true,
+      "sum": 1.0,
+      "residual": 0.0,
+      "tolerance": 1e-06
+     },
+     "lines": [
+      {
+       "market": "SPREAD",
+       "line": -3.0,
+       "book": "DraftKings",
+       "observed_utc": "2026-08-29T22:08:45-04:00",
+       "scored_side": "HOME",
+       "line_kind": "INTEGER",
+       "probabilities": {
+        "win": 0.3016,
+        "loss": 0.667,
+        "push": 0.0314
+       },
+       "push_possible": true,
+       "actual_state": "WIN",
+       "log_loss": 1.198653642848336,
+       "brier_score": 0.93363752,
+       "draws": 10000,
+       "scored": true
+      },
+      {
+       "market": "TOTAL",
+       "line": 42.5,
+       "book": "DraftKings",
+       "observed_utc": "2026-08-29T22:08:45-04:00",
+       "scored_side": "OVER",
+       "line_kind": "HALF_POINT",
+       "probabilities": {
+        "win": 0.356,
+        "loss": 0.644,
+        "push": 0.0
+       },
+       "push_possible": false,
+       "actual_state": "LOSS",
+       "log_loss": 0.4400565528777834,
+       "brier_score": 0.253472,
+       "draws": 10000,
+       "scored": true
+      }
+     ],
+     "market_reference": {
+      "book": "Fanduel (SportsGameOdds, research)",
+      "observed_utc": "2026-09-14T19:43:06.090000-04:00",
+      "no_vig_home": 0.5506567324679315,
+      "log_loss_two_way": 0.5966436540445249,
+      "brier_two_way": 0.20190937207639612,
+      "scored": true,
+      "reason": null
+     },
+     "paper_view": {
+      "forecast_id": "asp-sports-game-forecast:sha256:2d9d0197aa7ef02c15a110cf7ce5f36ad2a87d2f1c2a92601d9989d5c487aec9",
+      "supplement_sha256": "c533de6a1d714615552a2055d52d45cebc40799ccfe14767156165c73207bb69",
+      "authority": "PAPER_RESEARCH_EVIDENCE",
+      "same_revision": false,
+      "scored": true,
+      "published_utc": "2026-09-08T05:30:50.543556-04:00",
+      "log_loss": 0.9631203192309531,
+      "brier_score": 0.7151139800000001,
+      "result_identity": "NFLVERSE:b507dfc129bd8d31257b8d87a3ae9eeb3e043822a2a32d501c4260cba0226300"
+     },
+     "audit": {
+      "forecast_revision": {
+       "forecast_id": "asp-sports-game-forecast:sha256:1d7b73e58cdf5f1ce547525faf7dc0d6ad60efed2719be51b5c522949c19c4e6",
+       "shadow_forecast_id": "918fe322-3575-4486-b68e-d79318d10f96",
+       "snapshot_type": "FINAL_PREGAME",
+       "snapshot_version": 1,
+       "model_id": "NFL_M1_XGBOOST",
+       "model_revision": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+       "model_artifact_sha256": "7bec06646fd5035380107501d07e139425ac483a47e02e0bbbd56301124fb8fd",
+       "package_sha256": "0d383a225a2f6d8890435970dfe4bb0270c131059d730f1e8e3eadbc429dcd42",
+       "created_utc": "2026-09-14T19:53:59.814790-04:00",
+       "published_utc": "2026-09-14T19:47:42.697975-04:00",
+       "source_cutoff_utc": "2026-09-14T05:31:35.465218-04:00",
+       "kickoff_utc": "2026-09-14T20:15:00-04:00",
+       "horizon": {
+        "snapshot_type": "FINAL_PREGAME",
+        "hours_before_kickoff": 0.45
+       },
+       "published_before_kickoff": true,
+       "forecast_kind": "RESEARCH_SHADOW_PACKAGE",
+       "controlling_reason": "LATEST_PRE_KICKOFF_PUBLICATION_PER_MODEL_IDENTITY",
+       "population_sha256": "c898369c55523fd898cf52b993785c81abd6f39a4c9bc2d69220266eae3d2d61",
+       "draw_count": 10000,
+       "population_verification": {
+        "verified": true
+       }
+      },
+      "population_sha256": "c898369c55523fd898cf52b993785c81abd6f39a4c9bc2d69220266eae3d2d61",
+      "kickoff_utc": "2026-09-14T20:15:00-04:00",
+      "final_result": {
+       "result_identity": "NFLVERSE:b507dfc129bd8d31257b8d87a3ae9eeb3e043822a2a32d501c4260cba0226300",
+       "source": "NFLVERSE",
+       "tier": 2,
+       "home_score": 31,
+       "away_score": 10,
+       "outcome": "HOME",
+       "overtime": false,
+       "observed_utc": "2026-09-15T00:04:33.258800-04:00",
+       "label": "Automated source",
+       "note": "Recorded automatically from the nflverse schedules release. Free, well-identified and independent of us, but not the governed provider, so it is not described as provider-verified.",
+       "provider_verified": false,
+       "automated": true,
+       "revisions": [
+        {
+         "source": "NFLVERSE",
+         "result_identity": "NFLVERSE:b507dfc129bd8d31257b8d87a3ae9eeb3e043822a2a32d501c4260cba0226300",
+         "score": "31-10",
+         "available_utc": "2026-09-15T00:04:33.258800-04:00",
+         "current": true
+        }
+       ]
+      },
+      "scoring_receipt": {
+       "evaluation_id": "cec3738d-0c18-4c76-8788-ad9e90c075f2",
+       "scoring_version": "AISP_NFL_PROSPECTIVE_SCORING_V1",
+       "evaluated_utc": "2026-09-15T00:06:33.292874-04:00",
+       "result_identity": "NFLVERSE:b507dfc129bd8d31257b8d87a3ae9eeb3e043822a2a32d501c4260cba0226300",
+       "forecast_identity": "asp-sports-game-forecast:sha256:1d7b73e58cdf5f1ce547525faf7dc0d6ad60efed2719be51b5c522949c19c4e6",
+       "replaces": []
+      },
+      "settlement_records": [
+       {
+        "position_id": "d85909ab-f8ae-488b-be5c-dd0b0cc98117",
+        "status": "SETTLED",
+        "stake": 5.0,
+        "decimal_odds": 2.15,
+        "settlement_id": "0d49ea74-4846-40eb-828e-ce03d2753cca",
+        "result": "LOSS",
+        "settled_utc": "2026-09-15T00:33:22.300644-04:00",
+        "note": "An experiment position is settled by its own policy and is not part of model scoring."
+       }
+      ],
+      "publication_clock": "VERIFIED_INDEPENDENT_PUBLICATION"
+     }
+    }
+   ]
+  }
+ ],
+ "production_status": {
+  "status": "NOT_RECEIVED",
+  "accepted": false,
+  "fixture": false,
+  "production_label_allowed": false,
+  "handoff_sha256": null,
+  "identity": {},
+  "reasons": [
+   {
+    "code": "NOT_RECEIVED",
+    "detail": "No Codex NFL M1 production handoff has been received and pinned. NFL M1 remains research-shadow with paper research evidence only."
+   }
+  ],
+  "required_identity_fields": [
+   "contract",
+   "status",
+   "modelId",
+   "configurationId",
+   "modelRevision",
+   "modelArtifactSha256",
+   "discoveryPath",
+   "discoveryIndexSha256",
+   "drawCount",
+   "tiePolicy",
+   "forecastContract",
+   "effectiveFromUtc",
+   "calibrationAuthority",
+   "issuedAtUtc",
+   "issuer"
+  ],
+  "contract": "ASP_NFL_M1_PRODUCTION_HANDOFF_V1",
+  "statement": "NFL M1 production authority is displayed only after the exact pinned Codex handoff verifies. Research and paper evidence never imply it."
+ },
+ "benchmark": {
+  "registered_prospective_benchmark": null,
+  "statement": "No benchmark is registered as authoritative for prospective NFL comparison. Where a two-sided pre-kickoff sportsbook quote was stored, the market's no-vig probability is shown as a reference, not a benchmark and not a closing line."
+ },
+ "small_sample_warning": "Small sample. These are results for the games scored so far. A week of NFL games cannot show whether the model is skilful, well calibrated or profitable, and nothing here promotes a model, changes a threshold or grants wagering authority.",
+ "separation": {
+  "model_scoring": "research_forecast_evaluations (this page)",
+  "decision_policy": "shadow experiment decisions (Daily Decisions)",
+  "virtual_bankroll": "experiment positions and settlements ($1,000 Experiment)",
+  "my_card": "browser-local picks; never read here"
+ },
+ "provider_calls": 0,
+ "models_executed": 0,
+ "positions_created": 0
+}

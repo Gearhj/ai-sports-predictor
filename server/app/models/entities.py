@@ -163,6 +163,11 @@ class UUIDPrimaryKeyMixin:
 
 
 class CreatedAtMixin:
+    #: PostgreSQL now(): the START of the inserting transaction. A job that opens
+    #: its transaction, fetches, then inserts stamps rows earlier than the fetch's
+    #: own observed/available clocks (94 of 124 V18 starter/lineup inputs on
+    #: 2026-09-18). It is not the insert time and not the commit time; a row is
+    #: visible to other sessions only after its transaction commits.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -3270,6 +3275,16 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     shadow_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("shadow_forecasts.id"), index=True
     )
+    #: College Football forecasts live in their own research table; a CFB paper
+    #: decision names the exact imported row here instead.
+    cfb_research_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("cfb_research_forecasts.id"), index=True
+    )
+    #: The NBA Gen1 production package an NBA paper decision read. Same rule:
+    #: a decision names the exact imported row it used.
+    nba_gen1_forecast_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("nba_gen1_forecasts.id"), index=True
+    )
     forecast_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     forecast_version: Mapped[str | None] = mapped_column(String(40))
@@ -3289,6 +3304,40 @@ class ShadowExperimentDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # penalties, adjusted probability/edge, raw Kelly, evidence multiplier,
     # final stake, policy version). NULL for V1 strict-control decisions.
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # -- what was decided, and what was then executed (D2) -------------------
+    #
+    # `recommendation` above is the POST-staking disposition: what AISP actually
+    # did. These two pairs keep the two questions apart, because conflating them
+    # is what let three exposure-capped games persist as QUALIFIED_BET on
+    # 2026-09-20 while the job receipt recorded DECLINED / daily_cap.
+    qualification_outcome: Mapped[str | None] = mapped_column(String(40))
+    qualification_reason: Mapped[str | None] = mapped_column(String(80))
+    execution_outcome: Mapped[str | None] = mapped_column(String(40))
+    execution_reason: Mapped[str | None] = mapped_column(String(80))
+    #: Binding limits, bound_by, stake, and the analytical recommended-Kelly and
+    #: constrained-bankroll fields. Durable, not telemetry-only.
+    staking_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # -- which forecast actually controlled this decision (D3) ---------------
+    #
+    # `forecast_imported_at` is the IMPORT COMPLETION, deliberately not the
+    # forecast row's created_at: in Postgres that is the transaction-start
+    # stamp, and on 2026-09-20 eight FINAL rows carried created_at 12:41:07
+    # while their transaction did not commit until 12:43:32.
+    forecast_snapshot_phase: Mapped[str | None] = mapped_column(String(40))
+    forecast_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forecast_imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    eligibility_supplement_id: Mapped[str | None] = mapped_column(String(200))
+    #: The content-addressed identity of the CONTROLLING forecast. The uuid
+    #: `forecast_id` above is a foreign key to `forecasts`; an NFL forecast
+    #: lives in `shadow_forecasts` (see `shadow_forecast_id`), so the identity
+    #: gets its own column rather than being forced into the wrong key.
+    controlling_forecast_identity: Mapped[str | None] = mapped_column(String(200))
+
+    # -- the authority behind the decision (D6) ------------------------------
+    eligibility_binding: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
     __table_args__ = (
         Index("ix_experiment_decision_experiment_slate", "experiment_id", "slate_date"),
     )
@@ -3656,4 +3705,115 @@ class ShadowThresholdSelection(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         UniqueConstraint("ladder_id", "rung_percentage", "game_id", "slate_date",
                          name="uq_shadow_threshold_selection"),
         Index("ix_shadow_threshold_rung_slate", "rung_percentage", "slate_date"),
+    )
+
+
+class RffReadingSnapshot(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One prospectively captured RFF Core reading, or the receipt of a miss.
+
+    APPEND-ONLY. There is no update and no delete path: an accepted row is the
+    authoritative record of what the index said at a registered offset, and a
+    later recomputation is a diagnostic comparison, never a correction.
+
+    A reading is admissible only when it is captured within
+    ``MAX_CAPTURE_LAG_SECONDS`` of its target instant. Past that, the row is a
+    ``MISSED_CAPTURE_WINDOW`` receipt carrying no index values, and it is never
+    backfilled -- a reading assembled after the fact is not the reading that
+    existed, which is the whole point of capturing prospectively.
+
+    Research and display only. Nothing here is read by a forecast, a decision,
+    a stake, a position or a settlement.
+    """
+
+    __tablename__ = "rff_reading_snapshots"
+
+    game_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("games.id"), index=True, nullable=False)
+    league_code: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+
+    #: One of the four registered offsets: T-6h, T-3h, T-90m, T-30m.
+    target_offset: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
+    target_instant_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    captured_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The instant handed to the calculation. Equals captured_at_utc: the
+    #: reading is what the index said then, not a reconstruction of the target.
+    as_of_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    capture_lag_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: ACCEPTED or MISSED_CAPTURE_WINDOW.
+    status: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    missed_reason: Mapped[str | None] = mapped_column(String(200))
+
+    # -- calculation identity --------------------------------------------
+    calculation_version: Mapped[str | None] = mapped_column(String(40))
+    calculation_git_sha: Mapped[str | None] = mapped_column(String(40))
+    #: SHA-256 over the physical source files that determine the number.
+    calculation_source_sha256: Mapped[str | None] = mapped_column(String(64))
+    weights_sha256: Mapped[str | None] = mapped_column(String(64))
+    policy_sha256: Mapped[str | None] = mapped_column(String(64))
+    calculation_identity: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    # -- the reading ------------------------------------------------------
+    components: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    known_contribution: Mapped[float | None] = mapped_column(Float)
+    evidence_coverage: Mapped[float | None] = mapped_column(Float)
+    lower_bound: Mapped[float | None] = mapped_column(Float)
+    upper_bound: Mapped[float | None] = mapped_column(Float)
+    interval_width: Mapped[float | None] = mapped_column(Float)
+    publication_tier: Mapped[str | None] = mapped_column(String(24), index=True)
+    band_key: Mapped[str | None] = mapped_column(String(32))
+    band_label: Mapped[str | None] = mapped_column(String(40))
+    emphasize_point: Mapped[bool | None] = mapped_column(Boolean)
+    rankable: Mapped[bool | None] = mapped_column(Boolean)
+    available_components: Mapped[int | None] = mapped_column(Integer)
+
+    # -- provenance -------------------------------------------------------
+    evidence_health: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    source_hashes: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    source_row_identities: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    __table_args__ = (
+        # One accepted reading per game per offset, enforced by the database
+        # and not only by the service: a second process, a retry or a replayed
+        # job can never produce a competing reading for the same instant.
+        UniqueConstraint("game_id", "target_offset", name="uq_rff_snapshot_game_offset"),
+        Index("ix_rff_snapshot_offset_status", "target_offset", "status"),
+    )
+
+
+class NflAcquisitionPhaseClaim(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """One durable claim per acquisition lane, kickoff cluster and phase.
+
+    The uniqueness is the point. Two concurrent contenders both insert; the
+    database refuses the second, and the loser returns inert without touching a
+    provider. The claim is committed BEFORE any provider work, so a failed call,
+    a rollback or a crash cannot reopen an opportunity already taken -- which is
+    exactly what the retry rule requires, since the opportunity is spent by
+    trying rather than by succeeding.
+    """
+
+    __tablename__ = "nfl_acquisition_phase_claims"
+
+    lane: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    sport: Mapped[str] = mapped_column(String(16), nullable=False)
+    kickoff_cluster_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    due_game_ids_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    due_game_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    invocation_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    invocation_path: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: Bound after the reservation exists, for reconciliation only. Never part
+    #: of the uniqueness: the CLAIM is what is exclusive, not its outcome.
+    reservation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("phase IN ('PRIMARY', 'RETRY')", name="ck_nfl_phase_claim_phase"),
+        # THE EXACT INVARIANT, AND NOTHING WIDER. Provider and sport stay as
+        # descriptive columns, but they are deliberately NOT part of the key:
+        # both are currently hard-coded, so including them would let a future
+        # second provider or sport value silently open a second claim for the
+        # same lane, cluster and phase.
+        UniqueConstraint("lane", "kickoff_cluster_utc", "phase",
+                         name="uq_nfl_phase_claim"),
+        Index("ix_nfl_phase_claim_cluster", "kickoff_cluster_utc", "phase"),
     )

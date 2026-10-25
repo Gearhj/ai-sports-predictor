@@ -10,7 +10,8 @@ import type {
   AccountPosition, EquityPoint, EraSummary, ExperimentAccountsData, SeasonAccount,
 } from '../types/accounts'
 
-const PROGRAM_SPORTS = ['MLB', 'NFL', 'NBA', 'NHL', 'MMA']
+// The server's program order (season_calendar.supported_sports); College Football was missing here.
+const PROGRAM_SPORTS = ['MLB', 'NFL', 'NBA', 'CFB', 'NHL', 'MMA']
 
 /** A percentage, or an explicit unavailability. Never a fabricated 0.0%. */
 function pct(value: number | null | undefined, unavailable = 'Unavailable'): string {

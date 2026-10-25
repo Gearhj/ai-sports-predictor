@@ -12,6 +12,9 @@ export interface NbaJointArm {
   forecast_id: string
   forecast_sha256: string
   configuration_identity: string
+  /** True only for the arm the NBA paper policy names; the other is retained, not promoted. */
+  selected?: boolean
+  selection_label?: string
   draw_count: number
   winner_probabilities: { away: number | null; home: number | null; tie: number | null }
   expected_scores: { away: number | null; home: number | null; total: number | null }

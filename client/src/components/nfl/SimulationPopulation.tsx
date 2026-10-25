@@ -205,6 +205,21 @@ export function SimulationPopulation({
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
+  // Every hook runs before the early returns below: a first, uncached visit
+  // renders once while loading and again with data, and a hook declared after
+  // those returns changed the hook count between the two (React error #310).
+  // One point per ~2.5% of the reveal, so the curve fills smoothly without the
+  // chart re-rendering on every single play.
+  const accumulation = useMemo(() => {
+    const step = Math.max(1, Math.round(Math.max(1, revealed) / 40))
+    const points: { x: number; y: number }[] = []
+    for (let index = 0; index <= revealed; index += step) points.push({ x: index, y: index })
+    if (points.length === 0 || points[points.length - 1].x !== revealed) {
+      points.push({ x: revealed, y: revealed })
+    }
+    return points
+  }, [revealed])
+
   if (error) {
     return <p className="pop-empty">Play-level population unavailable: {error}</p>
   }
@@ -222,18 +237,6 @@ export function SimulationPopulation({
 
   const home = population.home_team?.abbreviation ?? 'HOME'
   const away = population.away_team?.abbreviation ?? 'AWAY'
-
-  // One point per ~2.5% of the reveal, so the curve fills smoothly without the
-  // chart re-rendering on every single play.
-  const accumulation = useMemo(() => {
-    const step = Math.max(1, Math.round(Math.max(1, revealed) / 40))
-    const points: { x: number; y: number }[] = []
-    for (let index = 0; index <= revealed; index += step) points.push({ x: index, y: index })
-    if (points.length === 0 || points[points.length - 1].x !== revealed) {
-      points.push({ x: revealed, y: revealed })
-    }
-    return points
-  }, [revealed])
 
   return (
     <div className={`pop${fullscreen ? ' pop--fullscreen' : ''}`} ref={wrapRef}>

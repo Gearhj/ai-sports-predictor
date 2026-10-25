@@ -157,36 +157,46 @@ describe('usableAt', () => {
 
 function component(over: Partial<RffComponent> = {}): RffComponent {
   return {
-    key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', weight: 0.14,
+    key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', weight: 0.21875,
+    family: 'CROSS_BOOK_STRUCTURE', family_label: 'Cross-book structure',
     available: true, score: 67, display: '67', basis: 'spread between books',
     detail: { spread_points: 3.4 }, requires: null, limitation: null,
+    unavailable_reason: null, observed_utc: null, stale: false,
     ...over,
   }
 }
 
 function rff(over: Partial<RffGame> = {}): RffGame {
   const components = [
-    component({ key: 'PUBLIC_CONCENTRATION', label: 'Public concentration', weight: 0.2,
+    component({ key: 'LATE_MOVEMENT', label: 'Late movement', weight: 0.21875,
+      family: 'PRICE_MOVEMENT', family_label: 'Price movement',
       available: false, score: null, display: 'Unavailable',
-      requires: 'A public betting-percentage source.' }),
+      unavailable_reason: 'INSUFFICIENT_OBSERVATIONS',
+      requires: 'At least two priced frames inside the late window.' }),
     component(),
   ]
   return {
-    schema_version: 'AISP_RFF_INDEX_V1', generated_at_utc: T(0), game_id: 'g1',
-    status: 'PROVISIONAL_RFF', label: 'RFF Index — Ripe For Fuckery',
+    schema_version: 'AISP_RFF_CORE_V1', generated_at_utc: T(0), game_id: 'g1',
+    status: 'PROVISIONAL_WIDE_RANGE', label: 'RFF Core — Market reality check',
     description: 'A research measure of market imbalance.',
     market_type: 'MONEYLINE',
     event: tape().event,
     components,
-    score: 60, score_range: [30, 80],
-    score_basis: 'Weighted mean of the components that have data.',
-    band: { key: 'SPICY', label: 'Spicy', description: 'Real disagreement.' },
+    score: null, known_contribution: 9.4, unknown_weight: 0.86, lower_bound: 9.4, upper_bound: 95.4,
+    interval_width: 86, score_range: [9.4, 95.4],
+    score_basis: 'Fixed weights over the whole measure.',
+    band: { key: 'CATEGORY_UNKNOWN', label: 'Unknown', description: 'Not enough of the measure was observed. Unknown is not calm.' },
+    emphasize_point: false,
+    category_reason: 'No category is assigned below the publication threshold.',
     evidence_coverage: 0.5, available_components: 1, unavailable_components: 1,
-    contributions: [{ key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', score: 67, weight: 0.14, share_of_score: 1 }],
+    families_present: ['CROSS_BOOK_STRUCTURE'], family_labels: ['Cross-book structure'],
+    publication_blockers: [{ code: 'COVERAGE_BELOW_PUBLICATION_THRESHOLD', detail: '50% of the measure has data.' }],
+    rankable: false,
+    contributions: [{ key: 'CROSS_BOOK_DISAGREEMENT', label: 'Cross-book disagreement', family: 'CROSS_BOOK_STRUCTURE', score: 67, weight: 0.21875, share_of_measure: 0.1466, share_of_known_contribution: 1 }],
     earlier: null,
-    explanation: 'Provisional RFF 60 · 50% evidence coverage.',
+    explanation: 'Provisional read · 50% coverage.',
     share_card: {
-      matchup: 'TB @ ATL', headline: 'Provisional RFF 60', band: 'Spicy', coverage: 0.5,
+      matchup: 'TB @ ATL', headline: 'Provisional · known 9, range 9–95', band: 'Category uncertain', coverage: 0.5,
       triggers: [{ label: 'Cross-book disagreement', score: 67, why: 'spread between books' }],
       disclaimer: 'Research index. Not evidence that a game is manipulated, and not a betting signal.',
     },
@@ -200,35 +210,53 @@ describe('RFF components', () => {
   it('renders an unavailable component as the word, never as a zero', () => {
     render(<RffComponents game={rff()} />)
     expect(screen.getByText('Unavailable')).toBeInTheDocument()
-    const row = screen.getByText('Public concentration').closest('.bx-rff__component')!
+    const row = screen.getByText('Late movement').closest('.bx-rff__component')!
     expect(row).not.toHaveTextContent(/\b0\b/)
     expect(row.className).toContain('is-unavailable')
   })
 
-  it('shows an available component as its score with its share of the number', () => {
+  it('sizes an available component against the WHOLE measure, never against the observed part', () => {
     render(<RffComponents game={rff()} />)
     expect(screen.getByText('67')).toBeInTheDocument()
-    expect(screen.getByText('100% of score')).toBeInTheDocument()
+    // 0.21875 weight x 67 = 15 of 100 points. The old label said "100% of
+    // score", which is exactly how one component came to look like the index.
+    expect(screen.getByText('15 of 100 points · weight 21.9%')).toBeInTheDocument()
   })
 
-  it('shows the weight of a component that has no data, so its absence is sized', () => {
+  it('shows the weight of a component that has no data, and that it is not counted', () => {
     render(<RffComponents game={rff()} />)
-    expect(screen.getByText('weight 20%')).toBeInTheDocument()
+    expect(screen.getByText('weight 21.9% · not counted')).toBeInTheDocument()
   })
 })
 
 describe('RFF gauge', () => {
-  it('publishes the plausible range beside the point estimate', () => {
+  it('publishes the known contribution and the plausible range, not a point estimate', () => {
     render(<RffGauge game={rff()} />)
-    expect(screen.getByText(/plausible 30–80 at 50% coverage/i)).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /plausible range 30 to 80, 50 percent evidence coverage/i }))
+    expect(screen.getByText(/known 9 · plausible 9–95 at 50% coverage/i)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /known contribution 9, plausible range 9 to 95/i }))
       .toBeInTheDocument()
+    expect(screen.getByText('PROVISIONAL')).toBeInTheDocument()
   })
 
-  it('says a game with no scored component is unscored rather than calm', () => {
-    render(<RffGauge game={rff({ score: null, score_range: null, band: { key: 'UNSCORED', label: 'Unscored', description: 'No component has data.' } })} />)
-    expect(screen.getByRole('img', { name: /No RFF score: no component has data/i })).toBeInTheDocument()
-    expect(screen.queryByText(/plausible/i)).toBeNull()
+  it('calls a game with almost no evidence unknown, never calm and never extreme', () => {
+    render(<RffGauge game={rff({ status: 'INSUFFICIENT_EVIDENCE', score: null, known_contribution: 12.5, lower_bound: 12.5, upper_bound: 100, score_range: [12.5, 100], evidence_coverage: 0.125 })} />)
+    expect(screen.getByText('UNKNOWN — NOT CALM')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Unknown: no RFF Core score/i })).toBeInTheDocument()
+    // The range is what a sparse game must show: 13 known, anything up to 100 unknown.
+    expect(screen.getByText(/known 13 · plausible 13–100 at 13% coverage/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Maximum unrest/i)).toBeNull()
+    // The only mention of calm on a sparse game is the denial of it.
+    expect(screen.getByText('UNKNOWN — NOT CALM').textContent).toMatch(/not calm/i)
+  })
+
+  it('leads with the range, not the point, when the interval crosses bands', () => {
+    render(<RffGauge game={rff({
+      status: 'RFF_PUBLISHED', score: 52.5, known_contribution: 52.5, lower_bound: 52.5,
+      upper_bound: 65, score_range: [52.5, 65], evidence_coverage: 0.875, emphasize_point: false,
+      band: { key: 'CATEGORY_UNCERTAIN', label: 'Category uncertain', description: 'spans two bands' },
+    })} />)
+    expect(screen.getByText('RANGE — NO SINGLE BAND')).toBeInTheDocument()
+    expect(screen.getByText('53–65')).toBeInTheDocument()
   })
 })
 

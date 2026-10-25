@@ -13,3 +13,21 @@
 # These two finalized evidence files contain intentional end-of-line spaces.
 /server/app/gen2/fd1_recovery.py whitespace=-blank-at-eol
 /docs/GATE_3C_FD1_INTERRUPTED_EXECUTION_REPORT.md text eol=lf whitespace=-blank-at-eol
+
+# Shell hook installer runs under sh, which rejects CRLF.
+/scripts/*.sh text eol=lf
+
+# Model Studio market-probability contract fixtures are hash-verified byte for byte.
+/server/tests/fixtures/market_probability_contract_v1/** -text
+
+# Vendored frozen V18 market-pilot protocol and packet schema: SHA-256 bound.
+/server/app/research_exports/frozen/** -text
+
+# Vendored MMQB game evidence: sha256-verified byte for byte by the service.
+/server/app/data/mmqb/** -text
+
+# Vendored frozen NHL Gen1 state and team aliases: SHA-256 pinned byte for byte.
+/server/app/nhl/gen1_frozen/*.json -text
+/server/app/nhl/gen1_frozen/*.csv -text
+# NHL in-process reproduction fixtures cut from the producer's retained workspaces.
+/server/tests/fixtures/nhl_inprocess/** -text

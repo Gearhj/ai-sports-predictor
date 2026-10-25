@@ -93,6 +93,7 @@ PAPER_ELIGIBILITY_VERSIONS = {
     "NFL": PAPER_ELIGIBILITY_VERSION,
     "NBA": "ASP_NBA_PAPER_RESEARCH_ELIGIBILITY_V1",
     "CFB": "ASP_CFB_PAPER_RESEARCH_ELIGIBILITY_V1",
+    "NHL": "ASP_NHL_PAPER_RESEARCH_ELIGIBILITY_V1",
 }
 
 #: Every tree a research supplement may live in. The NFL tree is unchanged; the
@@ -100,7 +101,10 @@ PAPER_ELIGIBILITY_VERSIONS = {
 SUPPLEMENT_ROOTS = (
     SUPPLEMENT_ROOT,
     "nba-gen1-research-v1/paper-eligibility",
+    "nba-gen1-production-v1/paper-eligibility",  # current frozen-model publisher, same exact NBA contract
     "cfb-gen1-research-v1/paper-eligibility",
+    # NHL: the SAME research exchange the forecasts live in (proposed to the producer 2026-10-14).
+    "nhl-gen1-research-v1/paper-eligibility",
 )
 
 SIMULATION_KINDS = frozenset({"EXACT_DISTRIBUTION", "MONTE_CARLO", "DETERMINISTIC", "NONE"})
@@ -345,7 +349,7 @@ def _verify_paper_eligibility(
         raise SupplementImportError(
             "A paper-eligibility supplement must require explicit settlement")
 
-    if sport in ("NBA", "CFB"):
+    if sport in ("NBA", "CFB", "NHL"):
         _verify_research_paper_terms(supplement, summaries, authorization, frozen, sport)
 
 
@@ -362,9 +366,11 @@ def _verify_research_paper_terms(
     """
 
     from app.services.nfl_paper_eligibility import experiment_key
-    from app.services.research_paper_policy import POLICIES
+    from app.services.research_paper_policy import NHL, POLICIES
 
-    policy = POLICIES[sport]
+    # NHL is defined but deliberately not in POLICIES (never auto-activated); its record is
+    # still checked against AISP's own constants, never against what the document states.
+    policy = NHL if sport == "NHL" else POLICIES[sport]
     expected_key = experiment_key(policy.policy_version, policy.sport, policy.season_id)
     if authorization.get("experimentId") != expected_key:
         raise SupplementImportError(
@@ -407,12 +413,14 @@ def _verify_research_paper_terms(
             raise SupplementImportError(f"binding.{key} and frozenConfiguration.{key} disagree")
 
     channels = _require(summaries, "probabilityChannels", label="paper-eligibility summaries")
-    joint = channels.get("controllingJoint") or {}
+    # NHL controls on the final two-way channel (OT/SO included), never a regulation 3-way.
+    controlling = "controllingFinalTwoWay" if sport == "NHL" else "controllingJoint"
+    joint = channels.get(controlling) or {}
     for mine, theirs in (("homeWinProbability", "homeWin"), ("awayWinProbability", "awayWin"),
                          ("tieProbability", "tie")):
         if joint.get(theirs) is None or abs(float(joint[theirs]) - float(frozen[mine])) > _PROBABILITY_TOLERANCE:
             raise SupplementImportError(
-                f"controllingJoint.{theirs} does not equal frozenConfiguration.{mine}")
+                f"{controlling}.{theirs} does not equal frozenConfiguration.{mine}")
 
     # Chronology: evidence, then forecast, then its publication, then this
     # permission. A permission dated before the forecast it permits is refused.
@@ -639,7 +647,7 @@ def register_supplement(session: Session, verified: VerifiedSupplement) -> dict[
             f"{same_id.supplement_sha256}; conflicting bytes at {verified.address} are refused")
 
     forecast: ShadowForecast | None = None
-    if verified.kind == KIND_PAPER_ELIGIBILITY and sport in ("NBA", "CFB"):
+    if verified.kind == KIND_PAPER_ELIGIBILITY and sport in ("NBA", "CFB", "NHL"):
         _bind_research_forecast(session, verified, sport)
     elif verified.kind in EVENT_BOUND_KINDS:
         forecast = session.scalar(select(ShadowForecast).where(
@@ -696,6 +704,42 @@ def register_supplement(session: Session, verified: VerifiedSupplement) -> dict[
             "forecast_id": row.forecast_id, "idempotent_reuse": False}
 
 
+def _bind_nhl_forecast(session: Session, doc: dict[str, Any], binding: dict[str, Any]) -> None:
+    """NHL: the record must bind a real forecast AISP imported, on its FINAL two-way channel, exactly."""
+
+    from app.models.nhl_research import NhlResearchForecast
+
+    summaries = doc["summaries"]
+    frozen = summaries["frozenConfiguration"]
+    frozen_forecast = summaries.get("frozenForecast") or {}
+    cutoff = _iso(doc["sourceCutoffUtc"], label="sourceCutoffUtc")
+    row = session.scalar(select(NhlResearchForecast).where(
+        NhlResearchForecast.forecast_id == str(binding["forecastId"]),
+        NhlResearchForecast.record_class == "FORECAST"))
+    if row is None:
+        raise SupplementImportError(
+            f"NHL eligibility binds forecast {binding['forecastId']}, which AISP has not imported as a real forecast")
+
+    def close(a: Any, b: Any) -> bool:
+        return a is not None and b is not None and abs(float(a) - float(b)) <= _PROBABILITY_TOLERANCE
+
+    stored_cutoff = row.source_cutoff_utc
+    checks = {
+        "forecast object": row.object_sha256 == frozen_forecast.get("forecastSha256"),
+        "model": row.model_id == "NHL_GEN1_REGULATION_POISSON",
+        "model artifact": row.configuration_sha256 == binding.get("modelArtifactSha256"),
+        "event": str(binding.get("eventId")) == row.canonical_game_ref,
+        "final home probability": close(row.final_home_probability, frozen["homeWinProbability"]),
+        "final away probability": close(row.final_away_probability, frozen["awayWinProbability"]),
+        "tie probability": close(0.0, frozen["tieProbability"]),
+        "source cutoff": stored_cutoff is not None and (
+            stored_cutoff if stored_cutoff.tzinfo else stored_cutoff.replace(tzinfo=UTC)).astimezone(UTC) == cutoff,
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    if failed:
+        raise SupplementImportError(f"NHL eligibility does not match AISP's imported forecast: {', '.join(failed)}")
+
+
 def _bind_research_forecast(session: Session, verified: VerifiedSupplement, sport: str) -> None:
     """NBA and CFB forecasts live in their own research tables, not shadow_forecasts.
 
@@ -709,6 +753,9 @@ def _bind_research_forecast(session: Session, verified: VerifiedSupplement, spor
 
     doc = verified.supplement
     binding = verified.binding
+    if sport == "NHL":
+        _bind_nhl_forecast(session, doc, binding)
+        return
     summaries = doc["summaries"]
     frozen = summaries["frozenConfiguration"]
     frozen_forecast = summaries.get("frozenForecast") or {}
@@ -724,6 +771,39 @@ def _bind_research_forecast(session: Session, verified: VerifiedSupplement, spor
             "a.source_cutoff_utc, a.canonical_game_id, a.supplements_forecast_id "
             "from nba_joint_comparison_arms a where a.forecast_id = :f"),
             {"f": str(binding["forecastId"])}).mappings().first()
+        if row is None:
+            # A production package (nba_gen1_forecasts). Same comparisons, against
+            # the production row's JOINT channel -- the channel the NBA paper policy
+            # names -- and its bound Ridge point-model artifact.
+            from app.models import NbaGen1Forecast
+
+            production = session.scalar(select(NbaGen1Forecast).where(
+                NbaGen1Forecast.forecast_id == str(binding["forecastId"])))
+            if production is not None:
+                mapped = session.execute(text(
+                    "select entity_id from external_id_mappings where entity_type = 'game' "
+                    "and source = 'NBA_ESPN' and external_id = :x"),
+                    {"x": str(binding.get("providerGameId"))}).scalar()
+                artifact = (((production.detail or {}).get("bindings") or {}).get("pointModel") or {}).get("sha256")
+                checks = {
+                    "forecast digest": production.forecast_sha256 == frozen_forecast.get("forecastSha256"),
+                    "source package": production.package_index_sha256 == binding.get("sourcePackageAddress"),
+                    "configuration": production.distribution_configuration_identity
+                    == binding.get("configurationIdentity"),
+                    "home probability": close(production.joint_home_win_probability, frozen["homeWinProbability"]),
+                    "away probability": close(production.joint_away_win_probability, frozen["awayWinProbability"]),
+                    "tie probability": close(0.0, frozen["tieProbability"]),
+                    "source cutoff": (production.source_cutoff_utc is not None
+                                      and production.source_cutoff_utc.astimezone(UTC) == cutoff),
+                    "provider game": (str(binding.get("eventId")) == production.codex_game_id
+                                      and mapped is not None and str(mapped) == str(production.canonical_game_id)),
+                    "model artifact": artifact == binding.get("modelArtifactSha256"),
+                }
+                failed = [name for name, ok in checks.items() if not ok]
+                if failed:
+                    raise SupplementImportError(
+                        f"NBA eligibility does not match AISP's imported production forecast: {', '.join(failed)}")
+                return
         if row is None:
             raise SupplementImportError(
                 f"NBA eligibility binds forecast {binding['forecastId']}, which AISP has not imported")
@@ -766,7 +846,8 @@ def _bind_research_forecast(session: Session, verified: VerifiedSupplement, spor
             "home probability": close(row["joint_home_win_probability"], frozen["homeWinProbability"]),
             "away probability": close(row["joint_away_win_probability"], frozen["awayWinProbability"]),
             "tie probability": close(row["tie_probability"], frozen["tieProbability"]),
-            "source cutoff": row["source_cutoff_utc"].astimezone(UTC) == cutoff,
+            "source cutoff": datetime.fromisoformat(str(row["source_cutoff_utc"])).replace(tzinfo=UTC) == cutoff
+            if isinstance(row["source_cutoff_utc"], str) else row["source_cutoff_utc"].astimezone(UTC) == cutoff,
             "provider game": (str(binding.get("providerGameId")) == row["source_game_id"]
                               and str(binding.get("eventId")) == f"cfbd:{row['source_game_id']}"),
             "model artifact": row["artifact"] == binding.get("modelArtifactSha256"),

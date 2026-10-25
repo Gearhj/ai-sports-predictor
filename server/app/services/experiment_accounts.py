@@ -90,7 +90,13 @@ SPORT_READINESS: dict[str, str] = {
         "opens under AISP_CFB_PAPER_POLICY_V1; positions additionally require "
         "the producer's eligibility record for the exact forecast."
     ),
-    "NHL": "No NHL ingestion, forecasting or decision policy exists yet.",
+    "NHL": (
+        "NHL decides under AISP_NHL_PAPER_POLICY_V1 on AISP's own in-process "
+        "Gen1 forecasts (the accepted frozen model; AISP_NHL_IN_PROCESS_ELIGIBILITY_V1) "
+        "against The Odds API's full-game two-way moneyline, funded by the shared "
+        "$100 daily allowance. A season's paper account opens when its era is "
+        "opened; until then this allocation is planned only."
+    ),
     "MMA": "No MMA ingestion, forecasting or decision policy exists yet.",
 }
 
@@ -445,7 +451,16 @@ class ExperimentAccountService:
             .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
             .where(OfficialAspPosition.shadow_experiment_id.in_(ids))
         )
-        return float(total or 0.0)
+        # Corrections are recorded beside the original settlement; count them.
+        from app.models import PositionSettlementAdjustment
+
+        adjustments = self.session.scalar(
+            select(func.coalesce(func.sum(PositionSettlementAdjustment.profit_loss_delta), 0))
+            .select_from(PositionSettlementAdjustment)
+            .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlementAdjustment.position_id)
+            .where(OfficialAspPosition.shadow_experiment_id.in_(ids))
+        )
+        return float(total or 0.0) + float(adjustments or 0.0)
 
     def reserved_stake(self, account: ExperimentAccount) -> float:
         """Stake locked in positions that are still open.
@@ -613,10 +628,21 @@ class ExperimentAccountService:
         )
 
     def _era_ledger(self, experiment: ShadowExperiment, role: MembershipRole) -> EraLedger:
+        from app.models import PositionSettlementAdjustment
+
         net = float(self.session.scalar(
             select(func.coalesce(func.sum(PositionSettlement.profit_loss), 0))
             .select_from(PositionSettlement)
             .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
+            .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
+        ) or 0.0)
+        # Corrections recorded beside a settlement count here exactly as they
+        # do in settled_net_pl() and the staking basis, so the era rows sum to
+        # the same realized bankroll the account stakes from.
+        net += float(self.session.scalar(
+            select(func.coalesce(func.sum(PositionSettlementAdjustment.profit_loss_delta), 0))
+            .select_from(PositionSettlementAdjustment)
+            .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlementAdjustment.position_id)
             .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
         ) or 0.0)
         settled_stake = float(self.session.scalar(
@@ -672,11 +698,18 @@ class ExperimentAccountService:
             .group_by(PositionSettlement.result)
         ).all()
         counts = {row[0]: int(row[1]) for row in rows}
-        return (
-            counts.get(PositionResult.WIN, 0),
-            counts.get(PositionResult.LOSS, 0),
-            counts.get(PositionResult.PUSH, 0) + counts.get(PositionResult.VOID, 0),
-        )
+        # A corrected position counts under its corrected result, once.
+        from app.cfb.settlement_corrections import effective_settlements
+
+        by_name = {PositionResult.WIN: "WIN", PositionResult.LOSS: "LOSS",
+                   PositionResult.PUSH: "PUSH", PositionResult.VOID: "VOID"}
+        named = {name: counts.get(member, 0) for member, name in by_name.items()}
+        for corrected in effective_settlements(self.session, experiment_ids=funded_ids).values():
+            if corrected.original_result in named:
+                named[corrected.original_result] -= 1
+            if corrected.result in named:
+                named[corrected.result] += 1
+        return (named["WIN"], named["LOSS"], named["PUSH"] + named["VOID"])
 
     def _equity_curve(
         self, account: ExperimentAccount, contribution: float, funded_ids: list[UUID],
@@ -705,13 +738,22 @@ class ExperimentAccountService:
             .where(OfficialAspPosition.shadow_experiment_id.in_(funded_ids))
             .order_by(PositionSettlement.settled_at)
         ).all())
+        # A correction moves the realized bankroll on the day it was recorded
+        # (it is not a settlement, so it does not add to the day's count).
+        from app.cfb.settlement_corrections import effective_settlements
+
+        events = [(settled_at, float(profit_loss), 1) for settled_at, profit_loss in rows]
+        for corrected in effective_settlements(self.session, experiment_ids=funded_ids).values():
+            events.extend((at, delta, 0) for at, delta, _result in corrected.events)
+        if len(events) > len(rows):
+            events.sort(key=lambda event: _aware_utc(event[0]))
         running = contribution
         by_day: dict[str, tuple[float, int]] = {}
-        for settled_at, profit_loss in rows:
+        for settled_at, profit_loss, count in events:
             running += float(profit_loss)
             day = settled_at.date().isoformat()
             previous = by_day.get(day, (running, 0))
-            by_day[day] = (running, previous[1] + 1)
+            by_day[day] = (running, previous[1] + count)
         for day in sorted(by_day):
             bankroll, count = by_day[day]
             points.append({"date": day, "bankroll": round(bankroll, 2), "settlements": count})
@@ -751,8 +793,12 @@ class ExperimentAccountService:
         from app.services.position_entry_terms import entry_terms
 
         terms = entry_terms(self.session, [row[0] for row in rows])
-        return [
-            {
+        from app.cfb.settlement_corrections import effective_settlements
+
+        corrected = effective_settlements(self.session, [row[0] for row in rows if row[7] is not None])
+        out = []
+        for row in rows:
+            item = {
                 "id": str(row[0]),
                 "entry": terms.get(str(row[0])),
                 "placed_at": row[1].isoformat(),
@@ -764,8 +810,12 @@ class ExperimentAccountService:
                 "profit_loss": None if row[7] is None else float(row[7]),
                 "settled_at": None if row[8] is None else row[8].isoformat(),
             }
-            for row in rows
-        ]
+            fix = corrected.get(row[0])
+            if fix is not None:
+                # Same value form as the column above (lower-case member value).
+                item.update(result=fix.result.lower(), profit_loss=fix.profit_loss, **fix.as_dict())
+            out.append(item)
+        return out
 
     # -- program overview --------------------------------------------------
 
@@ -801,6 +851,12 @@ class ExperimentAccountService:
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _aware_utc(value: datetime) -> datetime:
+    """Comparable instant: a naive value (SQLite) is UTC."""
+
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 @dataclass

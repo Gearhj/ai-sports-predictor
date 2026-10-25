@@ -43,11 +43,14 @@ AUTHORITY = {
                   "governed position and not final-pregame evidence. Final decisions are made on game day by the "
                   "unchanged final-pregame workflow and may differ."),
 }
+# "Not posted" would claim something about the sportsbook that AISP cannot
+# know: an absent row means AISP holds no capture (day-before collection is
+# disabled), not that no book offered a line.
 READINESS_LABEL = {
     "READY": "Forecast and market ready",
-    "FORECAST_ONLY": "Market not posted",
+    "FORECAST_ONLY": "No current preview price held",
     "MARKET_ONLY": "Preview forecast pending",
-    "NEITHER": "Preview forecast pending · Market not posted",
+    "NEITHER": "Preview forecast pending · No current preview price held",
 }
 PROVIDER_LABEL = {"SPORTSGAMEODDS": "SportsGameOdds", "THE_ODDS_API": "The Odds API"}
 MIN = 60
@@ -111,6 +114,61 @@ def _clock_text(value: datetime | None, tz: ZoneInfo) -> str:
 
 # ------------------------------------------------------------------ games ----
 
+def _display_code(team: dict[str, Any] | None) -> str:
+    """A team's short label. College Football teams admitted from a research
+    package carry their CFBD id as the stored abbreviation (no abbreviation is
+    invented), so their name is shown instead."""
+    if not team:
+        return "?"
+    code = str(team.get("abbreviation") or "")
+    return team.get("name") or code if code.startswith("CFBD") else code or "?"
+
+
+#: Leagues with a governed final-pregame decision window. An admitted College
+#: Football or NBA game has none, so its row shows no window.
+DECISION_WINDOW_LEAGUES = ("MLB", "NFL", "CFB")
+
+
+def _research_reference(session: Session, game_id: Any) -> dict[str, Any] | None:
+    """The imported CFB research forecast for an admitted game, labelled as research.
+
+    Never a Show Preview: it is shown beside the row, not in the preview lean,
+    and it does not change the row's readiness.
+    """
+
+    from app.cfb.game_binding import SOURCE_CFBD
+    from app.models import CfbResearchForecast, ExternalIdMapping
+
+    mapping = session.scalar(select(ExternalIdMapping).where(
+        ExternalIdMapping.entity_type == "game", ExternalIdMapping.source == SOURCE_CFBD,
+        ExternalIdMapping.entity_id == game_id))
+    if mapping is None:
+        return None
+    row = session.scalar(select(CfbResearchForecast).where(
+        CfbResearchForecast.source_game_id == mapping.external_id)
+        .order_by(CfbResearchForecast.exchange_published_utc.desc().nullslast(),
+                  CfbResearchForecast.imported_at.desc()).limit(1))
+    if row is None:
+        return None
+    home_lead = row.joint_home_win_probability >= 0.5
+    published = row.exchange_published_utc
+    return {
+        "forecast_id": row.forecast_id,
+        "horizon": "PROSPECTIVE_RESEARCH",
+        "href": f"/college-football/games/{row.source_game_id}",
+        "pick": row.home_team_name if home_lead else row.away_team_name,
+        "joint_probability": max(row.joint_home_win_probability, row.joint_away_win_probability),
+        "ridge_expected_points": {"away": row.expected_away_points, "home": row.expected_home_points},
+        # Its real availability time and source, never restamped as a preview.
+        "published_utc": published.astimezone(UTC).isoformat() if published else None,
+        "publication_clock_source": row.publication_clock_source,
+        "source_identity": {"origin": row.origin, "package_index_sha256": row.package_index_sha256,
+                            "configuration": row.baseline_configuration},
+        "label": ("Prospective forecast (published before kickoff at its receipt clock; not a Show "
+                  "Preview and not a final-pregame refresh)"),
+    }
+
+
 def _slate_games(session: Session, slate_date: date, tz: ZoneInfo) -> list[dict[str, Any]]:
     lo = datetime.combine(slate_date, time.min, tz).astimezone(UTC)
     hi = lo + timedelta(days=1)
@@ -132,7 +190,7 @@ def _slate_games(session: Session, slate_date: date, tz: ZoneInfo) -> list[dict[
         side = teams.get(game.id, {})
         out.append({
             "game": game, "league": league, "teams": side,
-            "away": side.get("away", {}).get("abbreviation", "?"), "home": side.get("home", {}).get("abbreviation", "?"),
+            "away": _display_code(side.get("away")), "home": _display_code(side.get("home")),
         })
     return out
 
@@ -404,7 +462,9 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
         if game is None:
             missing.append({"code": "SCHEDULE_NOT_REGISTERED", "message": "Game is not in AISP's registered schedule; no market can be bound"})
         if not markets["MONEYLINE"]:
-            missing.append({"code": "MARKET_NOT_POSTED", "message": "Market not posted: no sportsbook moneyline captured before the evidence cut"})
+            missing.append({"code": "PRICE_NOT_CAPTURED", "message": (
+                "No preview moneyline held: AISP captured none for this game before the evidence cut. "
+                "This is AISP's capture state, not a statement that no sportsbook posted a line")})
         elif ml and ml["complete_books"] == 0:
             if ml["stale_books"]:
                 missing.append({"code": "STALE_PREVIEW_PRICE", "message": "Only stale preview moneyline prices were captured"})
@@ -457,14 +517,24 @@ def build_board(session: Session, slate_date: date, settings: Settings, *, evide
         has_market = bool(ml and ml["complete_books"])
         readiness = "READY" if has_forecast and has_market else "FORECAST_ONLY" if has_forecast else "MARKET_ONLY" if has_market else "NEITHER"
         status = str(getattr(game.status, "value", game.status)).split(".")[-1].upper() if game else "UNREGISTERED"
+        research = _research_reference(session, game.id) if game is not None and sport == "CFB" else None
         record = {
             "game_key": key, "canonical_game_id": str(game.id) if game else None, "sport": sport, "league": sport,
             "matchup": f"{away} @ {home}",
             "away": {"abbreviation": away, "name": (teams.get("away") or {}).get("name") or away},
             "home": {"abbreviation": home, "name": (teams.get("home") or {}).get("name") or home},
             "kickoff_utc": _iso(start), "status": status,
-            "final_decision_window": {"opens_utc": _iso(start - timedelta(minutes=30)), "closes_utc": _iso(start - timedelta(minutes=15))} if start else None,
-            "readiness": readiness, "readiness_label": READINESS_LABEL[readiness],
+            "final_decision_window": ({"opens_utc": _iso(start - timedelta(minutes=30)), "closes_utc": _iso(start - timedelta(minutes=15))}
+                                      if start and sport in DECISION_WINDOW_LEAGUES else None),
+            "research_forecast": research,
+            # CFB analysis lives on the research page, addressed by CFBD id.
+            "analysis_href": research["href"] if research else None,
+            "readiness": readiness,
+            "readiness_label": (
+                "Forecast held · not in AISP schedule, so no price can be bound"
+                if game is None and readiness == "FORECAST_ONLY"
+                else READINESS_LABEL[readiness]
+            ),
             "forecast_status": "AVAILABLE" if has_forecast else "AWAITING_PRODUCER",
             "forecast": view,
             "disclosures": model_disclosures,

@@ -2,7 +2,7 @@
  * The College Football research board and the single-game view.
  *
  * Deliberately small, like the NBA research surface it follows. College
- * Football is research-only and unfunded, so this is not the start of a CFB
+ * Football has a virtual paper account but no bindable price, so this is not the start of a CFB
  * product — it is the view that makes an imported forecast discoverable and
  * readable without routing it through governed surfaces that cannot serve it.
  *
@@ -13,11 +13,13 @@
  * and because AISP has no admitted College Football schedule source, so the
  * games it cannot show are genuinely unknown to it rather than filtered out.
  */
+import { GameStory } from '../components/story/GameStory'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../components/ui'
 import { CfbForecastCard } from '../components/cfb/CfbForecastCard'
 import { useCfbGame, useCfbResearch } from '../hooks/useCfbResearch'
 import '../components/cfb/cfb.css'
+import { PaperStatusStrip } from '../components/readiness/PaperStatusStrip'
 
 function Authority({ note }: { note: string }) {
   return (
@@ -35,13 +37,15 @@ export function CfbResearchPage() {
   return (
     <div className="cfbpage">
       <PageHeader
-        eyebrow="College Football · Research"
-        title="College Football research forecasts"
+        eyebrow="College Football"
+        title="College Football forecasts"
         description={
-          'Imported research forecasts. College Football has no bankroll, wagering '
-          + 'policy, sportsbook price or forecast scheduler in AISP.'
+          'Prospective forecasts verified from the producer’s slate discovery, shown with their original '
+          + 'publication clock. Each game shows whether its forecast is currently decision-eligible, what the '
+          + 'paper checkpoint (AISP_CFB_PAPER_POLICY_V1, virtual only) recorded, and why no price is held.'
         }
       />
+      <PaperStatusStrip sport="CFB" />
 
       {loading && <p role="status">Loading research forecasts…</p>}
       {error && (
@@ -81,9 +85,9 @@ export function CfbResearchGamePage() {
   return (
     <div className="cfbpage">
       <PageHeader
-        eyebrow="College Football · Research"
-        title={data ? data.game.matchup : 'College Football research forecast'}
-        description="Research analysis. No wagering authority, and no recorded market."
+        eyebrow="College Football"
+        title={data ? data.game.matchup : 'College Football forecast'}
+        description="Prospective forecast under a virtual-only paper policy. No real-money authority."
       />
       {loading && <p role="status">Loading the forecast…</p>}
       {error && (
@@ -93,6 +97,7 @@ export function CfbResearchGamePage() {
       )}
       {data && (
         <>
+          {data.canonical_game?.bound && data.canonical_game.game_id && <GameStory gameId={data.canonical_game.game_id} />}
           <CfbForecastCard forecast={data} />
           <Authority note={data.authority.note} />
         </>

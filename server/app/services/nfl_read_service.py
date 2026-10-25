@@ -283,6 +283,14 @@ class NflReadService:
         # Paired on the book KEY, which carries the provider namespace
         # ("draftkings" vs "sgo:draftkings"), so two providers relaying the same
         # book can never be combined into one pair.
+        # Every quote carries its stored outcome identity ("HOME:None",
+        # "OVER:47.5"), whose side prefix must agree with the entry's side. An
+        # entry without one is malformed and is excluded by name rather than
+        # paired on a guessed identity.
+        malformed = [entry for entry in entries
+                     if not entry.get("outcome_key")
+                     or str(entry["outcome_key"]).split(":")[0] != entry.get("side")]
+        entries = [entry for entry in entries if entry not in malformed]
         by_book: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for entry in entries:
             by_book[entry.get("book_key") or entry["book"]].append(entry)
@@ -308,8 +316,11 @@ class NflReadService:
                     if b:
                         pairs.append({"book": a["book"], "a": a, "b": b, "line": a["point"]})
         if not pairs:
+            reason = "No complete two-sided quote on one book"
+            if malformed:
+                reason += f"; {len(malformed)} quote(s) excluded for a missing or inconsistent outcome identity"
             return {"market_type": market_type, "comparison_available": False,
-                    "reason": "No complete two-sided quote on one book", "quotes": entries and [
+                    "reason": reason, "quotes": entries and [
                         self._public_quote(q) for q in entries], "selected": None}
 
         # Freshest complete pair; ties broken by the better home/over price.

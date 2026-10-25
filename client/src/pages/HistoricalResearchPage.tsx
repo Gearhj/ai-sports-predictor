@@ -59,7 +59,7 @@ export function HistoricalResearchPage() {
           experiment actually recorded. Putting a wager's rationale on a
           training-population row would join two unrelated things. */}
       <Panel
-        title="Settled wagers and their rationale"
+        title="Settled virtual positions and their rationale"
         eyebrow="WHY IT WAS TAKEN, AND WHAT HAPPENED"
         className="section-panel"
       >

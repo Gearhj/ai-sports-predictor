@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 
 class SourceError(RuntimeError):
@@ -275,6 +275,19 @@ class BookMarketDTO(BaseModel):
     key: str
     last_update: datetime
     outcomes: list[OddsOutcomeDTO]
+    #: Which provider clock ``last_update`` came from. ``None`` (the default,
+    #: and every existing producer) means the market's own clock; ``"BOOK"``
+    #: means the provider sent no market clock and ``last_update`` is the
+    #: bookmaker-level clock. Omitted from dumps while ``None`` so every
+    #: existing serialized shape is byte-identical.
+    clock_source: Literal["BOOK"] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_default_clock_source(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and data.get("clock_source") is None:
+            data.pop("clock_source", None)
+        return data
 
 
 class BookmakerDTO(BaseModel):

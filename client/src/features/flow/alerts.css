@@ -1,0 +1,25 @@
+/* Alerts: a bell in the left menu, a panel, and toasts at the bottom right. Navy + steel. */
+.al-bell { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; font-size: 12.5px; font-weight: 700; color: #cbd5e1; background: none; border: 0; border-radius: 9px; padding: 7px 12px; cursor: pointer; text-align: left; }
+.al-bell:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+.al-bell i { font-style: normal; width: 18px; text-align: center; }
+.al-bell em { margin-left: auto; font-style: normal; font-size: 10.5px; font-weight: 900; color: #0b1526; background: #fbbf24; border-radius: 999px; padding: 1px 7px; }
+.al-bell.has-new i { animation: al-ring .9s ease-in-out 2; }
+@keyframes al-ring { 25% { transform: rotate(18deg); } 75% { transform: rotate(-18deg); } }
+.al-bell.is-compact { width: auto; padding: 6px 8px; }
+.al-panel { position: fixed; left: 210px; bottom: 16px; z-index: 90; width: 360px; max-height: 70vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; padding: 12px; border-radius: 14px; color: #eef2f7; border: 1px solid #4a5466;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3b4452, #2c333f 55%, #20262f); box-shadow: 0 20px 50px rgba(0, 0, 0, .55); }
+.al-panel header { display: flex; align-items: center; } .al-panel header b { font-size: 15px; } .al-panel header button { margin-left: auto; font: inherit; color: #cbd5e1; background: none; border: 0; cursor: pointer; }
+.al-set { display: grid; gap: 5px; font-size: 12.5px; padding: 8px 10px; border-radius: 10px; background: rgba(7, 13, 26, .5); }
+.al-set label { display: flex; gap: 8px; align-items: center; cursor: pointer; } .al-set small { color: #a9b4c4; }
+.al-enable { justify-self: start; font: inherit; font-size: 12px; font-weight: 800; color: #062a26; background: #2dd4bf; border: 0; border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.al-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; overflow: auto; }
+.al-list li, .al-toast { display: grid; gap: 1px; padding: 7px 10px; border-radius: 9px; background: rgba(7, 13, 26, .6); border-left: 3px solid #60a5fa; font-size: 12px; }
+.al-list li b, .al-toast b { font-size: 13px; color: #fff; } .al-list li span, .al-toast span { color: #cbd5e1; } .al-list li small { color: #7f8b9d; font-size: 10.5px; }
+.k-start { border-left-color: #34d399 !important; } .k-score, .k-lead { border-left-color: #fbbf24 !important; } .k-final { border-left-color: #a78bfa !important; } .k-price { border-left-color: #2dd4bf !important; }
+.is-good b { color: #6ee7b7 !important; } .is-bad b { color: #fca5a5 !important; }
+.al-empty { color: #a9b4c4; border-left-color: #4a5466 !important; }
+.al-toasts { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: 16px; z-index: 95; display: grid; gap: 8px; width: 340px; pointer-events: none; }
+.al-toast { pointer-events: auto; border: 1px solid #4a5466; border-left-width: 4px; background: linear-gradient(180deg, #2c333f, #20262f); box-shadow: 0 14px 34px rgba(0, 0, 0, .5); animation: al-in .35s ease-out both; }
+@keyframes al-in { from { opacity: 0; transform: translateY(14px); } }
+@media (max-width: 760px) { .al-panel { left: 12px; right: 12px; width: auto; } .al-toasts { left: 12px; width: auto; } }
+@media (prefers-reduced-motion: reduce) { .al-bell i, .al-toast { animation: none; } }

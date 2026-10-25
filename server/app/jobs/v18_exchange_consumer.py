@@ -46,6 +46,54 @@ from app.core.config import Settings
 
 PACKAGE_SCHEMA = "MLB_V18_PRECOMPUTED_EXCHANGE_PACKAGE_V1"
 PACKAGE_FILE = "exchange-package.json"
+
+#: Packages that verified from bytes AND were already fully registered earlier
+#: in THIS process, keyed by address -> (manifest size, manifest mtime_ns,
+#: monotonic time of that verification). Packages are content-addressed and
+#: immutable, yet every pass re-hashed ~256 of them (the V18 stage was 168-215 s
+#: of each 5-minute pass on 2026-09-18, holding the core lane in front of the
+#: decision checkpoints). A changed manifest, a restart, or MEMO_TTL_SECONDS
+#: elapsing forces full verification again.
+_VERIFIED_MEMO: dict[str, tuple[int, int, float]] = {}
+MEMO_TTL_SECONDS = 6 * 3600
+#: At most this many TTL-expired packages are re-verified per pass; the rest
+#: keep their memo until their turn. Without the cap every package expired in
+#: the same pass (2026-09-19 03:28 ET: a 275 s pass, checkpoints waiting up to
+#: 470 s), which inside a decision window re-creates the delay the memo removed.
+#: New or changed packages are never capped.
+MEMO_REVERIFY_PER_PASS = 20
+
+
+def _manifest_stamp(package_dir: Path) -> tuple[int, int] | None:
+    try:
+        stat = (package_dir / PACKAGE_FILE).stat()
+    except OSError:
+        return None
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _memo_state(address: str, package_dir: Path) -> str:
+    """HIT (use the memo), EXPIRED (unchanged but due for re-verification) or MISS."""
+
+    from time import monotonic
+
+    entry = _VERIFIED_MEMO.get(address)
+    stamp = _manifest_stamp(package_dir)
+    if entry is None or stamp is None or (entry[0], entry[1]) != stamp:
+        return "MISS"
+    return "HIT" if monotonic() - entry[2] < MEMO_TTL_SECONDS else "EXPIRED"
+
+
+def _memo_hit(address: str, package_dir: Path) -> bool:
+    return _memo_state(address, package_dir) == "HIT"
+
+
+def _memo_store(address: str, package_dir: Path) -> None:
+    from time import monotonic
+
+    stamp = _manifest_stamp(package_dir)
+    if stamp is not None:
+        _VERIFIED_MEMO[address] = (stamp[0], stamp[1], monotonic())
 ACCOUNTING_ONLY = "RESEARCH_ACCOUNTING_ONLY_NO_FORECASTS"
 
 _ADDRESS = re.compile(r"^[0-9a-f]{64}$")
@@ -189,7 +237,11 @@ def consume_v18_packages(
         })
         return outcome.as_dict()
 
-    for package_dir in discover_packages(exchange_root):
+    reverify_budget = MEMO_REVERIFY_PER_PASS
+    # Oldest memo first, so the periodic re-verification rolls through every package.
+    packages = sorted(discover_packages(exchange_root),
+                      key=lambda d: _VERIFIED_MEMO.get(d.name.lower(), (0, 0, 0.0))[2])
+    for package_dir in packages:
         outcome.scanned += 1
         address = package_dir.name.lower()
         try:
@@ -203,6 +255,19 @@ def consume_v18_packages(
         if kind is None:
             outcome.rejected.append({"package": address, "reason": reason})
             continue
+        if kind != "ACCOUNTING" and not dry_run:
+            state = _memo_state(address, package_dir)
+            if state == "EXPIRED":
+                if reverify_budget > 0:
+                    reverify_budget -= 1  # falls through to full verification this pass
+                else:
+                    state = "HIT"  # unchanged manifest; re-verified on a later pass
+            if state == "HIT":
+                outcome.reused.append({
+                    "package": address, "registered": 0,
+                    "fast_path": "VERIFIED_AND_FULLY_REGISTERED_EARLIER_IN_THIS_PROCESS",
+                })
+                continue
         if kind == "ACCOUNTING":
             # Counted, never imported. This is the producer telling us it could
             # not forecast a slate, which is evidence in itself.
@@ -243,6 +308,18 @@ def consume_v18_packages(
             outcome.imported.append(record)
             continue
 
+        if already_fully_registered(session, verified):
+            # Every forecast, and both view supplements on each, are already
+            # registered under this exact handoff. Re-running registration
+            # would reload every V18 forecast row twice per item for nothing
+            # (214 of a 217-second consumer pass on 2026-09-18), holding the
+            # core lane in front of the decision checkpoints.
+            record.update({"registered": 0, "already_present": len(verified.forecasts),
+                           "fast_path": "ALREADY_FULLY_REGISTERED"})
+            outcome.reused.append(record)
+            _memo_store(address, package_dir)
+            continue
+
         try:
             result = register_daily_slate(session, verified)
         except DailyV18ImportError as error:
@@ -260,6 +337,52 @@ def consume_v18_packages(
         (outcome.imported if registered else outcome.reused).append(record)
 
     return outcome.as_dict()
+
+
+def already_fully_registered(session: Session, verified: Any) -> bool:
+    """True only when registering ``verified`` again would change nothing.
+
+    Read-only. Requires the handoff's own bundle row, every forecast present
+    under its object-addressed identity for the same game and object, and --
+    where the forecast carries them -- both view supplements already attached
+    with the same supplement hash (the exact checks the registration functions
+    make before they skip). Anything else, including a new cumulative handoff
+    whose forecasts are already present, takes the full registration path.
+    """
+
+    from sqlalchemy import select
+
+    from app.models import ShadowForecast, ShadowForecastBundle
+    from app.shadow_import.mlb_v18_daily import forecast_identity
+    from app.shadow_import.mlb_v18_play_geometry import LINEAGE_KEY as PLAY_KEY
+    from app.shadow_import.mlb_v18_population_geometry import LINEAGE_KEY as POPULATION_KEY
+
+    forecasts = list(getattr(verified, "forecasts", ()) or ())
+    if not forecasts:
+        return False
+    bundle = session.scalar(select(ShadowForecastBundle.id).where(
+        ShadowForecastBundle.bundle_sha256 == verified.handoff_sha256))
+    if bundle is None:
+        return False
+    identities = {forecast_identity(item.object_sha256): item for item in forecasts}
+    rows = session.execute(
+        select(ShadowForecast.forecast_id, ShadowForecast.canonical_game_id, ShadowForecast.lineage_detail)
+        .where(ShadowForecast.forecast_id.in_(list(identities)))
+    ).all()
+    if len(rows) != len(identities):
+        return False
+    for forecast_id, game_id, lineage in rows:
+        item = identities.get(forecast_id)
+        lineage = lineage or {}
+        if item is None or str(game_id) != str(item.forecast.get("gameId")):
+            return False
+        if lineage.get("objectSha256") != item.object_sha256:
+            return False
+        if item.play_geometry is not None and str((lineage.get(PLAY_KEY) or {}).get("supplementSha256"))                 != item.play_geometry.supplement_sha256:
+            return False
+        if item.population_geometry is not None and str((lineage.get(POPULATION_KEY) or {}).get("supplementSha256"))                 != item.population_geometry.supplement_sha256:
+            return False
+    return True
 
 
 def _default_root(settings: Settings) -> Path:

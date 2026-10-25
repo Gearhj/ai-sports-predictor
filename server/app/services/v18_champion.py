@@ -495,11 +495,22 @@ class V18ChampionService:
 
     # -- predecessor accounting, read from its own ledger ----------------
     def _realized_profit(self, experiment: ShadowExperiment) -> float:
-        return float(self.session.scalar(
+        from app.models import PositionSettlementAdjustment
+
+        settled = float(self.session.scalar(
             select(func.coalesce(func.sum(PositionSettlement.profit_loss), 0))
             .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlement.position_id)
             .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
         ) or 0.0)
+        # Corrections recorded beside a settlement count, as they do in the
+        # era bankroll (ShadowExperimentService._realized_profit).
+        corrections = float(self.session.scalar(
+            select(func.coalesce(func.sum(PositionSettlementAdjustment.profit_loss_delta), 0))
+            .select_from(PositionSettlementAdjustment)
+            .join(OfficialAspPosition, OfficialAspPosition.id == PositionSettlementAdjustment.position_id)
+            .where(OfficialAspPosition.shadow_experiment_id == experiment.id)
+        ) or 0.0)
+        return settled + corrections
 
     def _reserved_open_stake(self, experiment: ShadowExperiment) -> float:
         return float(self.session.scalar(

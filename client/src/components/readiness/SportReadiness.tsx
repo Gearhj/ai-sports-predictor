@@ -32,11 +32,43 @@ export interface SportReadinessEntry {
   forecast?: ReadinessState
   price?: ReadinessState
   decision?: ReadinessState
-  eligibility?: { eligible: boolean; reason: string; contract?: string }
+  /** College Football adds the producer's discovery lease (CURRENT / EXPIRED_LEASE / ...), a separate gate.
+   *  NHL names its route (AISP_IN_PROCESS or PRODUCER_ELIGIBILITY) and says it in `label`. */
+  eligibility?: {
+    eligible: boolean; reason: string; contract?: string; discovery_lease?: string | null; route?: string | null; label?: string
+    /** College Football: the lease as the checkpoint would read it now (recorded, or the producer's verified renewal). */
+    discovery?: { state?: string; basis?: string; label?: string; renewal?: { state: string; lapsed_minutes?: number } }
+  }
   position?: ReadinessState & { open?: number; settled?: number }
   account?: { funded: boolean; label: string; funding_key?: string; realized_bankroll?: number; available_capital?: number; season_id?: string; effective_on?: string }
   pipeline: { ready: boolean; blocker: string | null; could_qualify: string | null }
   slate?: { games: number; controlling_forecasts: number; with_fresh_price: number; positions: number }
+  /** NBA Gen1: per-component truth -- what is present and what is due, each on its own evidence. */
+  components?: Record<string, unknown>
+}
+
+const COMPONENT_LABELS: Record<string, string> = {
+  handoff: 'Model handoff', forecast: 'Production package', eligibility: 'Decision eligibility',
+  price: 'Price lane', decision: 'Paper checkpoint', outcomes: 'Outcomes & scoring',
+  finals_lane: 'Source-confirmed finals lane',
+}
+
+function ComponentTruth({ components }: { components: Record<string, unknown> }) {
+  if (components.read_state === 'READ_FAILED') return null
+  return (
+    <details className="readiness__components" data-testid="readiness-components">
+      <summary>Component truth</summary>
+      <dl className="readiness__rows">
+        {Object.entries(COMPONENT_LABELS).map(([key, label]) => {
+          const part = components[key] as { state?: string; detail?: string; prospective?: string } | undefined
+          if (!part) return null
+          const state = (part.state ?? '—').replace(/_/g, ' ').toLowerCase()
+          const extra = key === 'outcomes' && part.prospective ? ` · prospective: ${part.prospective}` : ''
+          return <Row key={key} term={label} value={`${state}${part.detail ? ` — ${part.detail}` : ''}${extra}`} />
+        })}
+      </dl>
+    </details>
+  )
 }
 
 interface ReadinessPayload {
@@ -56,6 +88,7 @@ export function useSportReadiness() {
 const RESEARCH_ROUTES: Record<string, string> = {
   NBA: '/nba/research',
   CFB: '/college-football/research',
+  NHL: '/nhl/research',
 }
 
 function gameHref(entry: SportReadinessEntry): string | null {
@@ -106,16 +139,30 @@ function SportCard({ entry }: { entry: SportReadinessEntry }) {
         <Row term="Forecast" value={entry.forecast?.label} />
         <Row term="Price" value={entry.price?.label} />
         <Row term="Decision" value={entry.decision?.label} />
-        {entry.eligibility && (
-          <Row term="Eligibility" value={entry.eligibility.eligible ? 'Producer eligibility present'
-            : `Awaiting producer evidence (${entry.eligibility.reason})`}
-               tone={entry.eligibility.eligible ? 'readiness__ok' : 'readiness__warn'} />
-        )}
+        {entry.eligibility && (() => {
+          // The eligibility record and the discovery lease are separate gates; a
+          // present record with a lapsed lease is not eligible for the checkpoint.
+          const lease = entry.eligibility.discovery_lease
+          const lapsed = entry.eligibility.eligible && lease != null && lease !== 'CURRENT'
+          // The server says when a lapse is only the 15-minute renewal between imports.
+          const leaseText = entry.eligibility.discovery?.label
+            ?? (lease === 'EXPIRED_LEASE' ? 'expired' : (lease ?? '').replace(/_/g, ' ').toLowerCase())
+          return (
+            <Row term="Eligibility" value={lapsed
+              ? `Producer eligibility record present; discovery lease ${leaseText}`
+              // A sport that names its own eligibility route (NHL: AISP in-process or producer) says it.
+              : entry.eligibility.label ? entry.eligibility.label
+                : entry.eligibility.eligible ? 'Producer eligibility present'
+                  : `Awaiting producer evidence (${entry.eligibility.reason})`}
+                 tone={entry.eligibility.eligible && !lapsed ? 'readiness__ok' : 'readiness__warn'} />
+          )
+        })()}
         <Row term="Account" value={entry.account?.funded
           ? `${entry.account.label}${entry.account.effective_on ? ` · effective ${entry.account.effective_on}` : ''}`
           : entry.account?.label} />
         <Row term="Position" value={positions} />
       </dl>
+      {entry.components && <ComponentTruth components={entry.components} />}
       {entry.pipeline.blocker && (
         <p className="readiness__blocker" data-testid={`readiness-blocker-${entry.sport}`}>
           <b>Waiting for:</b> {entry.pipeline.blocker}
@@ -133,7 +180,7 @@ function SportCard({ entry }: { entry: SportReadinessEntry }) {
   )
 }
 
-export function SportReadiness({ sport, title = 'All four sports, right now' }: { sport?: string | null; title?: string }) {
+export function SportReadiness({ sport, title = 'Every sport, right now' }: { sport?: string | null; title?: string }) {
   const { data, loading, error } = useSportReadiness()
   const wanted = sport && sport !== 'ALL' ? sport.toUpperCase() : null
   const sports = (data?.sports ?? []).filter((entry) => !wanted || entry.sport === wanted)

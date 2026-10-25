@@ -12,6 +12,7 @@
  * total are different questions, and the row keeps them in separate fields so
  * nothing downstream can average them.
  */
+import { isGoverned, type NflProductionStatus } from './nflGovernance'
 import type { DashboardData, ForecastGame } from '../types/domain'
 import type { NflEngine, NflEvent, NflMarketBlock } from '../types/nfl'
 import { teamIdentity } from './teamIdentity'
@@ -191,7 +192,8 @@ export function conditionalHomeWin(engine: NflEngine | undefined): number | null
   return twoWay > 0 ? engine.home_win_probability / twoWay : null
 }
 
-export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST'): SlateGame[] {
+export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST',
+                         governance?: NflProductionStatus | null): SlateGame[] {
   return events.map((event) => {
     const engine = event.engines.find((e) => e.engine_id === preferredEngine) ?? event.engines[0]
     const moneyline = block(engine, 'MONEYLINE')
@@ -252,7 +254,9 @@ export function nflSlate(events: NflEvent[], preferredEngine = 'NFL_M1_XGBOOST')
       decisionState: null,
       // NFL keeps its retained M1 selection; this selector governs MLB only.
       selection: null,
-      researchOnly: true,
+      // Governed by the pinned handoff and the kickoff clock, not by the
+      // bundle's own lineage: a pre-activation kickoff stays research.
+      researchOnly: !isGoverned(governance ?? null, event.kickoff_utc ?? null),
     }
   })
 }

@@ -89,3 +89,29 @@ def test_a_different_knowledge_time_is_a_new_observation(session):
     call(normalizer, team, 72, 70, at=datetime(2026, 9, 5, 3, 25, tzinfo=UTC))
     session.flush()
     assert len(rows(session)) == 2
+
+
+def test_a_flushed_observation_is_never_corrected_in_place(session):
+    """A flush inside the transaction makes the row real. It is then immutable.
+
+    The pending map is reset only when the TRANSACTION changes, but a flush
+    turns a pending object persistent without changing the transaction -- and
+    the normalizer flushes in a dozen places. The later doubleheader listing
+    then updated a row that was already in the database, which the append-only
+    guard refuses, rolling back the whole finalize transaction: game status,
+    settlement and all. That is what left ten MLB games LIVE on 2026-09-22.
+    """
+
+    team = uuid4()
+    normalizer = CanonicalNormalizer(session)
+    call(normalizer, team, 71, 70)
+    session.flush()                  # the row is now persistent, same transaction
+    call(normalizer, team, 72, 70)   # game two's listing, arriving after the flush
+
+    # Nothing may be staged as an UPDATE against the stored observation.
+    assert not [o for o in session.dirty if isinstance(o, TeamRatingObservation)]
+    session.flush()
+    stored = rows(session)
+    assert len(stored) == 1
+    assert stored[0].source_record_id.endswith(":71-70")
+    assert stored[0].sample_size == 141.0

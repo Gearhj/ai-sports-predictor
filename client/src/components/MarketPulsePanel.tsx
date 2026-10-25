@@ -27,6 +27,13 @@ function pct(value: number | null | undefined): string {
  * displayed forecast, ranking, recommendation, or any stake — it only shows the
  * observed sportsbook / prediction-market beliefs beside the AISP forecast.
  */
+const QUALITY_LABEL: Record<string, string> = {
+  ROBUST: 'robust', USABLE: 'usable', THIN: 'thin', STALE: 'stale', INCOMPLETE: 'incomplete',
+  SEMANTICS_UNREVIEWED: 'market wording not yet reviewed', UNMAPPED: 'not matched to this game',
+}
+
+export const qualityLabel = (tier: string | null | undefined) => (tier ? QUALITY_LABEL[tier] ?? tier.toLowerCase().replaceAll('_', ' ') : '—')
+
 export function MarketPulsePanel({ gameId, demo = false }: { gameId: string; demo?: boolean }) {
   // Shared-cache read: one request per game across every panel that wants it,
   // and no refetch when the reader comes back to a game they just left.
@@ -63,7 +70,7 @@ export function MarketPulsePanel({ gameId, demo = false }: { gameId: string; dem
       </div>
       <p className="pulse-mini-note">
         Home win probability. Cross-market 30m move {row.movement_30m == null ? '—' : `${(row.movement_30m * 100).toFixed(1)} pts`} ·
-        quality {row.best_quality_tier ?? '—'} · <Link to={`${demo ? '/demo' : ''}/market-pulse/${gameId}`}>full market pulse →</Link>
+        quality {qualityLabel(row.best_quality_tier)} · <Link to={`${demo ? '/demo' : ''}/market-pulse/${gameId}`}>full market pulse →</Link>
       </p>
     </Panel>
   )

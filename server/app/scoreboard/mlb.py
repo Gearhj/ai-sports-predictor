@@ -122,6 +122,40 @@ def periods_from(linescore: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]
     return out, complete
 
 
+def _person(node: Any) -> dict[str, Any] | None:
+    """``{"id", "fullName"}`` exactly as the feed names a player; None when the feed has no one there."""
+
+    if not isinstance(node, dict) or not (node.get("id") or node.get("fullName")):
+        return None
+    person: dict[str, Any] = {"id": _int(node.get("id")), "full_name": str(node.get("fullName") or "") or None}
+    # The schedule hydrate rarely carries a count; kept only when the node itself says so.
+    for key in ("pitchCount", "pitchesThrown", "numberOfPitches"):
+        if node.get(key) is not None:
+            person["pitch_count"] = _int(node.get(key))
+            break
+    return person
+
+
+def situation_detail(linescore: dict[str, Any]) -> dict[str, Any] | None:
+    """What the feed already delivers about who is up and who is pitching (display only; step 9).
+
+    ``offense.batter`` / ``onDeck`` / ``inHole`` and ``defense.pitcher`` from the schedule
+    hydrate's linescore, id + full name each. Nothing is inferred: a missing node is None, and
+    when the feed names nobody at all the detail is None so the row is exactly as before.
+    """
+
+    offense = linescore.get("offense") or {}
+    defense = linescore.get("defense") or {}
+    detail = {
+        "source": "MLB_STATS_API",
+        "batter": _person(offense.get("batter")),
+        "on_deck": _person(offense.get("onDeck")),
+        "in_hole": _person(offense.get("inHole")),
+        "pitcher": _person(defense.get("pitcher")),
+    }
+    return detail if any(detail[k] for k in ("batter", "on_deck", "in_hole", "pitcher")) else None
+
+
 def scoreboard_from_schedule_game(
     game: dict[str, Any], *, retrieved_at: datetime | None = None,
 ) -> dict[str, Any]:
@@ -151,6 +185,14 @@ def scoreboard_from_schedule_game(
                    if isinstance(offense.get(base), dict) else None)
             for base in ("first", "second", "third")
         }
+        # Who is up and who is pitching, kept beside the runners in the same JSON
+        # (no new column); the read surface exposes it as ``situation.detail``.
+        # NOT ``detail``: that name holds the status text written to ``status_detail``
+        # (a VARCHAR). Reusing it put this dict there and failed the whole insert
+        # (2026-10-24 19:41 ET, World Series Game 2).
+        situation = situation_detail(linescore)
+        if situation is not None:
+            bases["detail"] = situation
 
     reconcile: bool | None = None
     if status == "FINAL" and complete and away_score is not None and home_score is not None:

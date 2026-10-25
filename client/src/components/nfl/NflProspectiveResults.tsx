@@ -31,6 +31,8 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Radio, Target, XCircle } from
 import type { NflProspectiveResults, ProspectiveGame, ProspectiveModel } from '../../types/nflProspective'
 import { TeamLogo } from '../TeamLogo'
 import { CalibrationChart, PredictedVsActualChart } from '../charts/d3Charts'
+import { describeError, domainWithZero, errorDirection, errorTone, signedNumber } from '../../services/errorWording'
+import { teamIdentity } from '../../services/teamIdentity'
 
 const number = (value: number | null | undefined, digits = 2): string =>
   value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits)
@@ -166,10 +168,57 @@ export function NflProspectiveSection({ data }: { data: NflProspectiveResults })
  * actual chart puts every quantity on ONE shared scale, which is what makes a
  * 0.19-point miss and a 19.69-point miss look as different as they are.
  */
+/**
+ * The headline card's sentence, derived from THIS game.
+ *
+ * It used to be a fixed string written for the first NE @ SEA result ("right
+ * winner, margin almost exact, scoring level overestimated"), so ATL @ GB -- a
+ * wrong winner, a 26.6-point margin miss and a total UNDERestimated by 5.5 --
+ * was described as the opposite of what happened. Every clause now reads the
+ * game's own winner, margin error and total error (predicted minus actual).
+ */
+export function scorecardStory(game: ProspectiveGame, n: number): string {
+  const home = teamName(game.home)
+  const away = teamName(game.away)
+  const winner = game.final.home > game.final.away ? home : game.final.away > game.final.home ? away : null
+  const predictedWinner = game.outcome.predicted === 'HOME' ? home : game.outcome.predicted === 'AWAY' ? away : 'a tie'
+  const winnerClause = game.final.home === game.final.away
+    ? `The game ended in a tie; the model had favoured ${predictedWinner}`
+    : game.outcome.winner_correct
+      ? `The model picked the right winner (${winner})`
+      : `The model picked ${predictedWinner}, but ${winner} won`
+  const marginSize = errorTone(game.margin.error, 'margin', 'NFL')
+  const marginClause = game.margin.error == null ? 'published no margin'
+    : marginSize === 'small' ? `got the margin within ${Math.abs(game.margin.error).toFixed(1)} points`
+      : `missed the margin by ${Math.abs(game.margin.error).toFixed(1)} points (predicted ${signedNumber(game.margin.predicted, 1)} for ${home}, actual ${signedNumber(game.margin.actual, 0)})`
+  const totalClause = game.total.error == null ? 'published no total'
+    : errorDirection(game.total.error) === 'exact' ? 'matched the total exactly'
+      : `${errorDirection(game.total.error) === 'over' ? 'overestimated' : 'underestimated'} the total by ${Math.abs(game.total.error).toFixed(1)} points (predicted ${number(game.total.predicted, 1)}, actual ${game.total.actual})`
+  return `${winnerClause}. It ${marginClause}, and ${totalClause}. Those are three separate findings. `
+    + `With ${n === 1 ? 'one game' : `${n} games`} none of them establishes whether the model is good.`
+}
+
+/** The name a team goes by now (the teams table still holds relocated franchises' old names). */
+function teamName(team: ProspectiveGame['home']): string {
+  if (!team?.abbreviation) return team?.name ?? 'Unknown team'
+  const identity = teamIdentity('NFL', team.abbreviation)
+  return identity.known ? identity.name : (team.name ?? team.abbreviation)
+}
+
+const TONE_CLASS = { small: 'is-good', medium: 'is-warn', large: 'is-bad' } as const
+
 function Scorecard({ game, n }: { game: ProspectiveGame; n: number }) {
   const away = game.away?.abbreviation ?? 'AWAY'
   const home = game.home?.abbreviation ?? 'HOME'
   const correct = game.outcome.winner_correct
+  const marginTone = errorTone(game.margin.error, 'margin', 'NFL')
+  const totalTone = errorTone(game.total.error, 'total', 'NFL')
+  const chartRows = [
+    { key: 'home', label: `${home} score`, predicted: game.scores.predicted_home ?? 0, actual: game.final.home, unit: 'pts' },
+    { key: 'away', label: `${away} score`, predicted: game.scores.predicted_away ?? 0, actual: game.final.away, unit: 'pts' },
+    { key: 'margin', label: 'Margin', predicted: game.margin.predicted ?? 0, actual: game.margin.actual, unit: 'pts' },
+    { key: 'total', label: 'Total', predicted: game.total.predicted ?? 0, actual: game.total.actual, unit: 'pts' },
+  ]
   return (
     <section className={`np-card${correct ? ' is-correct' : ' is-wrong'}`}
       aria-label="Most recent scored NFL forecast">
@@ -187,7 +236,7 @@ function Scorecard({ game, n }: { game: ProspectiveGame; n: number }) {
         <div className="np-card__team">
           <TeamLogo league="NFL" abbreviation={away} size={72} />
           <div className="np-card__name">
-            <b>{game.away?.name ?? away}</b>
+            <b>{teamName(game.away)}</b>
             <small>predicted {number(game.scores.predicted_away, 1)}</small>
           </div>
           <strong className="np-card__points">{game.final.away}</strong>
@@ -196,7 +245,7 @@ function Scorecard({ game, n }: { game: ProspectiveGame; n: number }) {
         <div className="np-card__team np-card__team--home">
           <strong className="np-card__points">{game.final.home}</strong>
           <div className="np-card__name">
-            <b>{game.home?.name ?? home}</b>
+            <b>{teamName(game.home)}</b>
             <small>predicted {number(game.scores.predicted_home, 1)}</small>
           </div>
           <TeamLogo league="NFL" abbreviation={home} size={72} />
@@ -209,34 +258,25 @@ function Scorecard({ game, n }: { game: ProspectiveGame; n: number }) {
           <strong className={correct ? 'is-good' : 'is-bad'}>{correct ? 'Right' : 'Wrong'}</strong>
           <span>{percent(game.outcome.probability_of_actual)} given to what happened</span>
         </div>
+        {/* Colour follows the SIZE of the miss, never its sign. */}
         <div>
           <small>Margin error</small>
-          <strong className="is-good">{signed(game.margin.error, 2)}</strong>
-          <span>{number(game.margin.predicted, 2)} predicted, {game.margin.actual} actual</span>
+          <strong className={marginTone ? TONE_CLASS[marginTone] : ''} data-testid="np-margin-error">{signed(game.margin.error, 2)}</strong>
+          <span>{number(game.margin.predicted, 2)} predicted, {game.margin.actual} actual · {describeError(game.margin.error)} (home − away)</span>
         </div>
         <div>
           <small>Total error</small>
-          <strong className="is-bad">{signed(game.total.error, 2)}</strong>
-          <span>{number(game.total.predicted, 2)} predicted, {game.total.actual} actual</span>
+          <strong className={totalTone ? TONE_CLASS[totalTone] : ''} data-testid="np-total-error">{signed(game.total.error, 2)}</strong>
+          <span>{number(game.total.predicted, 2)} predicted, {game.total.actual} actual · {describeError(game.total.error)}</span>
         </div>
       </div>
 
+      {/* The domain spans below zero whenever a margin is negative (an away win). */}
       <PredictedVsActualChart
-        rows={[
-          { key: 'home', label: `${home} score`, predicted: game.scores.predicted_home ?? 0, actual: game.final.home, unit: 'pts' },
-          { key: 'away', label: `${away} score`, predicted: game.scores.predicted_away ?? 0, actual: game.final.away, unit: 'pts' },
-          { key: 'margin', label: 'Margin', predicted: game.margin.predicted ?? 0, actual: game.margin.actual, unit: 'pts' },
-          { key: 'total', label: 'Total', predicted: game.total.predicted ?? 0, actual: game.total.actual, unit: 'pts' },
-        ]}
-        domain={[0, Math.max(50, (game.total.predicted ?? 0) + 6)]} />
+        rows={chartRows}
+        domain={domainWithZero(chartRows.flatMap((row) => [row.predicted, row.actual]), 50)} />
 
-      <p className="np-card__story">
-        The model picked the right winner and got the margin almost exactly right, while
-        overestimating the scoring level by {number(game.total.error, 1)} points. Those are three
-        separate findings. With {n === 1 ? 'one game' : `${n} games`} none of them establishes
-        whether the model is good, and the excellent margin may be nothing more than two large
-        same-direction score errors cancelling out.
-      </p>
+      <p className="np-card__story" data-testid="np-story">{scorecardStory(game, n)}</p>
       <ResultProvenance result={game.result} />
     </section>
   )
@@ -335,7 +375,7 @@ function GameCard({ game }: { game: ProspectiveGame }) {
       <header className="np-game__head">
         <div className="np-game__matchup">
           <span className="np-game__teams">
-            {game.away?.name ?? away} <i>at</i> {game.home?.name ?? home}
+            {teamName(game.away)} <i>at</i> {teamName(game.home)}
           </span>
           <span className="np-game__final">
             {away} <b>{game.final.away}</b> · {home} <b>{game.final.home}</b>
@@ -507,7 +547,8 @@ function ErrorBar({
         aria-label={`${label}: ${error == null ? 'no error published' : `${signed(error, 2)} ${unit}`}`}>
         <span className="np-error__zero" />
         {error != null && (
-          <span className={`np-error__bar${error > 0 ? ' is-over' : ' is-under'}`}
+          // Colour by the size of the miss; the side of the zero line already shows the direction.
+          <span className={`np-error__bar is-${errorTone(error, label === 'Total' ? 'total' : label === 'Margin' ? 'margin' : 'score', 'NFL')}`}
             style={{
               width: `${width}%`,
               left: error > 0 ? '50%' : `${50 - width}%`,

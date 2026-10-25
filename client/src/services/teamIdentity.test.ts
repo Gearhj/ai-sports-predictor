@@ -49,6 +49,11 @@ describe('abbreviations do not collide across leagues', () => {
   it('addresses the logo by league as well as club', () => {
     expect(logoUrl(teamIdentity('NFL', 'SF'))).toContain('/nfl/')
     expect(logoUrl(teamIdentity('MLB', 'SF'))).toContain('/mlb/')
+    // NHL and NBA use ESPN's own file names where they differ from AISP's abbreviation.
+    expect(logoUrl(teamIdentity('NHL', 'ANA'))).toBe('https://a.espncdn.com/i/teamlogos/nhl/500/ana.png')
+    expect(logoUrl(teamIdentity('NHL', 'TBL'))).toBe('https://a.espncdn.com/i/teamlogos/nhl/500/tb.png')
+    expect(logoUrl(teamIdentity('NBA', 'PHO'))).toMatch(/\/nba\/500\/phx\.png$/)
+    expect(logoUrl(teamIdentity('NBA', 'GSW'))).toMatch(/\/nba\/500\/gs\.png$/)
   })
 
   it('normalises the spellings feeds actually send', () => {

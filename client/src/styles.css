@@ -272,7 +272,8 @@ h1, h2, h3, p { margin-top: 0; }
 .forecast-summary article > span { color: #75869a; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .forecast-summary article > strong { margin: 5px 0 3px; color: #1d344c; font: 600 20px "IBM Plex Mono", monospace; }
 .forecast-summary article > small { color: #8795a4; font-size: 11px; }
-.analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.analysis-grid > * { min-width: 0; }
 .analysis-grid--wide-left { grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr); }
 .probability-rows { display: grid; gap: 14px; padding: 20px 18px 12px; }
 .probability-row { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 12px; }
@@ -584,16 +585,23 @@ h1, h2, h3, p { margin-top: 0; }
 .methodology-hero h2 { margin-bottom: 5px; font-size: 20px; letter-spacing: -.025em; }
 .methodology-hero p { max-width: 870px; margin: 0; color: #a4b3c0; font-size: 11px; line-height: 1.6; }
 .methodology-layout { display: grid; grid-template-columns: 165px minmax(0, 1fr); align-items: start; gap: 21px; }
+@media (max-width: 1000px) { .methodology-layout { grid-template-columns: minmax(0, 1fr); } .method-section { grid-template-columns: minmax(0, 1fr); } }
 .methodology-nav { position: sticky; top: 15px; display: flex; flex-direction: column; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: white; }
 .methodology-nav > span { margin-bottom: 6px; padding: 4px 7px; color: #8a98a7; font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .07em; }
 .methodology-nav a { padding: 7px; color: #687b8e; border-left: 2px solid transparent; font-size: 11px; text-decoration: none; }
 .methodology-nav a:hover { color: var(--teal-dark); border-left-color: var(--teal); background: #f2f8f7; }
 .methodology-content { display: grid; gap: 13px; }
+/* Encore: a quiet way out at the very end of Methodology. No label on purpose. */
+.methodology-encore { display: flex; justify-content: center; padding: 56px 0 8px; }
+.methodology-encore__link { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: #9aa6b2; opacity: .55; transition: color .18s ease, opacity .18s ease, background-color .18s ease; }
+.methodology-encore__link:hover { color: #0f8d7d; opacity: 1; background-color: rgba(15, 141, 125, .08); }
+.methodology-encore__link:focus-visible { color: #b8862f; opacity: 1; outline: 2px solid #b8862f; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .methodology-encore__link { transition: none; } }
 .method-section { scroll-margin-top: 14px; display: grid; grid-template-columns: 43px minmax(0, 1fr); gap: 17px; padding: 24px; background: white; border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); }
 .section-number { width: 35px; height: 35px; display: grid; place-items: center; color: var(--teal); border: 1px solid #badbd6; border-radius: 5px; background: var(--teal-soft); font: 600 11px "IBM Plex Mono", monospace; }
 .method-section h2 { margin: 4px 0 10px; color: #21384f; font-size: 19px; letter-spacing: -.025em; }
 .method-section > div > p:not(.eyebrow, .method-note) { color: #566b7f; font-size: 11px; line-height: 1.7; }
-.principle-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 17px 0 13px; }
+.principle-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 17px 0 13px; }
 .principle-cards article { padding: 14px; color: var(--teal); border: 1px solid var(--line); border-radius: 5px; background: #f9fbfc; }
 .principle-cards strong { display: block; margin: 8px 0 4px; color: #344c63; font-size: 11px; }
 .principle-cards p { margin: 0; color: #7a8999; font-size: 11px; line-height: 1.5; }
@@ -605,7 +613,7 @@ h1, h2, h3, p { margin-top: 0; }
 .pipeline span { color: var(--teal); font: 600 11px "IBM Plex Mono", monospace; }
 .pipeline strong { font-size: 11px; }
 .pipeline svg { position: absolute; right: -10px; z-index: 2; transform: rotate(-90deg); color: #9eb0be; }
-.source-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 14px; }
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 7px; margin-bottom: 14px; }
 .source-grid article { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; padding: 10px 12px; color: var(--teal); border: 1px solid var(--line); border-radius: 4px; }
 .source-grid strong { color: #40566c; font-size: 11px; }
 .source-grid span { grid-column: 2; color: #8391a0; font-size: 11px; }
@@ -750,7 +758,7 @@ h1, h2, h3, p { margin-top: 0; }
   .game-hero__matchup { gap: 15px; padding-inline: 25px; }
   .team-hero { gap: 9px; }.team-badge--lg { width: 51px; height: 51px; }
   .team-hero h2 { font-size: 19px; }
-  .analysis-grid, .analysis-grid--wide-left { grid-template-columns: 1fr; }
+  .analysis-grid, .analysis-grid--wide-left { grid-template-columns: minmax(0, 1fr); }
   .history-population-grid { grid-template-columns: 1fr; }
   .history-population-card { border-right: 0; border-bottom: 1px solid var(--line); }
   .history-population-card:last-child { border-bottom: 0; }
@@ -4080,6 +4088,31 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .nbares__facts dd { margin: 0; overflow-wrap: anywhere; }
 .nbares__back { margin: 0 0 18px; font-size: 13px; }
 .nbares__back a { display: inline-flex; align-items: center; gap: 5px; }
+/* NBA Gen1: three channels, side by side, never blended. */
+.nbag__channels {
+  display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin: 10px 0;
+}
+.nbag__channel { border: 1px solid var(--border, #e2e6ea); border-radius: 9px; padding: 12px 14px; min-width: 0; }
+.nbag__channel h4 {
+  margin: 0 0 8px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted, #667);
+}
+.nbag__badge {
+  display: inline-block; font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+  border-radius: 999px; padding: 2px 9px; margin-right: 8px;
+}
+.nbag__badge--historical { background: #fff3d6; color: #6b4b00; }
+.nbag__badge--prospective { background: #e3f1ff; color: #0d4a86; }
+.nbag__totals, .nbag__scores { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.nbag__totals caption, .nbag__scores caption { text-align: left; color: var(--muted, #667); font-size: 11px; padding-bottom: 4px; }
+.nbag__totals th, .nbag__totals td, .nbag__scores th, .nbag__scores td {
+  border-bottom: 1px solid var(--border, #e2e6ea); padding: 4px 6px; text-align: left; white-space: nowrap;
+}
+.nbag__facts { font-size: 12px; overflow-wrap: anywhere; }
+.nbag__block { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--border, #e2e6ea); }
+@media (prefers-color-scheme: dark) {
+  .nbag__badge--historical { background: #4a3a10; color: #ffe3a3; }
+  .nbag__badge--prospective { background: #123456; color: #cfe6ff; }
+}
 .nbares__scope { margin-top: 18px; font-size: 12px; line-height: 1.55; }
 
 /* ─── Slate row score ────────────────────────────────────────────────────────
@@ -4162,6 +4195,8 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .nbajoint__arm { border: 1px solid var(--border, #e2e6ea); border-radius: 9px;
   padding: 12px 14px; }
 .nbajoint__arm h4 { margin: 0; font-size: 14px; }
+.nbajoint__select { display: inline-block; margin: 4px 0; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid #c9d1db; color: var(--muted, #6d7d91); }
+.nbajoint__select--on { color: #0d6b49; background: #eaf7f1; border-color: #a9dfc6; }
 .nbajoint__figures { display: grid; gap: 7px; margin: 10px 0 0; }
 .nbajoint__figures > div { display: flex; flex-direction: column; }
 .nbajoint__figures dt { font-size: 10px; letter-spacing: .04em;
@@ -4228,6 +4263,12 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .readiness__chip { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
 .readiness__chip--ready { color: #0d6b49; background: #eaf7f1; border-color: #a9dfc6; }
 .readiness__chip--blocked { color: #8f5a10; background: #fdf3e4; border-color: #f0d6ab; }
+.paper-strip { border: 1px solid var(--line, #e3e8ef); border-radius: 12px; padding: 12px 14px; margin: 12px 0 16px; display: grid; gap: 8px; }
+.paper-strip dl { margin: 0; display: grid; gap: 8px 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.paper-strip dt { color: var(--muted, #7a8699); text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+.paper-strip dd { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.paper-strip p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.paper-strip code { font-size: 11px; }
 .readiness__game { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .readiness__game span { font-weight: 400; color: var(--muted, #7a8699); }
 .readiness__rows { margin: 0; display: grid; gap: 5px; }
@@ -4249,3 +4290,13 @@ a.multisport-selection:hover { border-color: #9db8c9; box-shadow: 0 5px 20px rgb
 .slate-check--yes b, .slate-check--done b { color: #0d6b49; }
 .slate-check--no b { color: #8f5a10; }
 .slate-check--pending b { color: var(--muted, #7a8699); font-weight: 600; }
+
+@media (max-width: 1000px) { .methodology-nav { position: static; flex-direction: row; overflow-x: auto; } .methodology-nav > span { display: none; } .methodology-nav a { white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; } }
+
+/* Long identifiers in audit panels wrap instead of widening the page on phones. */
+.mode-technical code,
+.research-study header .muted { overflow-wrap: anywhere; word-break: break-word; }
+
+/* A deployment happened while this tab was open. */
+.build-refresh { position: fixed; right: 16px; bottom: 16px; z-index: 1000; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: #0c1a2e; color: #eef3fa; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.build-refresh button { border: 0; border-radius: 999px; padding: 4px 12px; background: #3fd8c4; color: #06201c; font: inherit; font-weight: 800; cursor: pointer; }

@@ -39,7 +39,7 @@ from app.services.forecast_evaluation import CLOCK_VERIFIED
 from app.services.forecast_evaluation_read import ForecastEvaluationReadService
 
 SCHEMA_VERSION = "AISP_MODEL_PERFORMANCE_V1"
-LEAGUES = ("MLB", "NFL", "NBA", "CFB")
+LEAGUES = ("MLB", "NFL", "NBA", "CFB", "NHL")
 EPSILON = 1e-15
 CALIBRATION_BINS = 10
 EASTERN = ZoneInfo("America/New_York")
@@ -98,7 +98,7 @@ class ModelPerformanceReadService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def league(self, league: str, *, now: datetime | None = None) -> dict[str, Any]:
+    def league(self, league: str, *, now: datetime | None = None, include_test_data: bool = False) -> dict[str, Any]:
         now = now or datetime.now(UTC)
         code = league.upper()
         rows = list(self.session.scalars(
@@ -116,6 +116,28 @@ class ModelPerformanceReadService:
                   for (engine_id, version), entries in by_model.items()]
         models.sort(key=lambda m: m["cohorts"]["ALL"]["n"], reverse=True)
         as_of = max((row.created_at for row in rows if row.created_at is not None), default=None)
+        if code == "NBA":
+            # NBA scores live per channel in nba_channel_evaluations (a Ridge row has
+            # no log loss to put in research_forecast_evaluations). One entry per
+            # (evidence class, channel): HISTORICAL rows are never pooled with
+            # prospective ones, and the three channels are never averaged.
+            from app.nba.gen1_read import performance_models
+
+            try:
+                models.extend(performance_models(self.session))
+            except Exception:  # noqa: BLE001 -- e.g. before migration 0048: say "nothing scored", never 500
+                self.session.rollback()
+        if code == "NHL":
+            # NHL Gen1 lives in nhl_research_forecasts / nhl_game_results. Two entries
+            # per model -- REGULATION 3-way and FINAL 2-way -- each scored against its
+            # own outcome and never pooled.
+            from app.nhl.read_service import NhlReadService
+
+            try:
+                models.extend(NhlReadService(self.session).performance_models(include_test_data))
+            except Exception:  # noqa: BLE001 -- before the NHL migration: say "nothing scored", never 500
+                self.session.rollback()
+        scored = bool(models)
         return {
             "schema_version": SCHEMA_VERSION,
             "generated_at_utc": _iso(now),
@@ -123,7 +145,7 @@ class ModelPerformanceReadService:
             "evidence_as_of_utc": _iso(as_of),
             "conventions": CONVENTIONS,
             "models": models,
-            "requirement": None if rows else (
+            "requirement": None if scored else (
                 f"No {code} forecast has been scored. A forecast is scored only once its game has an "
                 "authoritative final; nothing is scored against an assumed result."
             ),

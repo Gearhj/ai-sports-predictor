@@ -1,0 +1,15 @@
+/* Tonight's Game Plan: one strip, six steps, navy + steel. */
+.gp { display: flex; align-items: stretch; gap: 10px; padding: 8px 16px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px), linear-gradient(180deg, #2c333f, #20262f); border-bottom: 1px solid #4a5466; font-family: Inter, "Segoe UI", Arial, sans-serif; color: #eef2f7; overflow-x: auto; scrollbar-width: none; }
+.gp::-webkit-scrollbar { display: none; }
+.gp__title { display: grid; align-content: center; padding-right: 6px; } .gp__title b { font-size: 10px; letter-spacing: .18em; color: #5eead4; white-space: nowrap; }
+.gp ol { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex: 1; min-width: max-content; }
+.gp__step { flex: 1 1 0; min-width: 150px; position: relative; }
+.gp__step + .gp__step::before { content: ''; position: absolute; left: -6px; top: 50%; width: 6px; height: 2px; background: rgba(255, 255, 255, .18); }
+.gp__step a { display: flex; align-items: center; gap: 9px; height: 100%; padding: 6px 10px; border-radius: 10px; text-decoration: none; color: inherit; background: rgba(7, 13, 26, .55); border: 1px solid rgba(255, 255, 255, .07); transition: border-color .15s, background .15s; }
+.gp__step a:hover { border-color: rgba(94, 234, 212, .5); }
+.gp__step i { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; font-style: normal; font-size: 11px; font-weight: 900; color: #0b1526; background: #94a3b8; }
+.gp__step span { display: grid; line-height: 1.2; min-width: 0; } .gp__step b { font-size: 12px; white-space: nowrap; } .gp__step small { font-size: 10.5px; color: #a9b4c4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gp__step.is-ok i { background: #34d399; } .gp__step.is-go i { background: #fbbf24; } .gp__step.is-warn i { background: #f87171; color: #fff; } .gp__step.is-info i { background: #60a5fa; }
+.gp__step.is-go small { color: #fcd34d; } .gp__step.is-warn small { color: #fca5a5; } .gp__step.is-ok small { color: #6ee7b7; }
+.gp__step.is-here a { background: linear-gradient(180deg, rgba(45, 212, 191, .22), rgba(45, 212, 191, .06)); border-color: #2dd4bf; box-shadow: 0 0 16px rgba(45, 212, 191, .25); }
+.gp__step.is-here b { color: #5eead4; }

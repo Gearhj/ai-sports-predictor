@@ -251,8 +251,10 @@ const LEAGUE_SEEDS: LeagueSeed[] = [
     accent: { base: '#4a6fa5', soft: '#eaf0f8', ink: '#2c456b' },
     forecastOutputs: [], labAvailable: false, labRoute: null, plannedStatus: 'PLANNED',
     emptyStateGuidance:
-      'NHL is planned. It is not yet in the backend sport registry, so AISP holds no NHL '
-      + 'model, market or forecast authority at all.',
+      'NHL runs AISP\'s in-process NHL Gen1 forecasts (regulation 3-way and final 2-way, scored '
+      + 'separately) and a virtual paper account: The Odds API prices each game 75–35 minutes before '
+      + 'puck drop and the checkpoint decides 30–15 minutes before. Games, decisions and positions '
+      + 'are on the NHL research page.',
   },
   {
     leagueCode: 'UFC', sportCode: 'MMA',

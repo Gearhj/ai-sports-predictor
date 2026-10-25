@@ -189,8 +189,11 @@ def nfl_live_funding(session: Session, *, now: datetime | None = None) -> dict[s
         "objects_per_game_per_hour": 4,
         "daily_cap": money["daily_cap"],
         "spent_today": money["spent_today"],
-        "mlb_pregame_floor": money["mlb_pregame_floor"],
-        "objects_spendable": money["budget"].get("objects_spendable"),
+        # The private MLB floor was retired in favour of the shared allocation;
+        # the field stays for older readers and says so by being null.
+        "mlb_pregame_floor": None,
+        "daily_room": money.get("daily_room"),
+        "objects_spendable": money["budget"].get("spendable"),
         "detail": money["detail"] or (
             "In-game tracking is funded: a tracked game in its watch window "
             "will be scored on the next cycle."

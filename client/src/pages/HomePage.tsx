@@ -21,11 +21,11 @@ import '../broadcast.css'
 
 export function HomePage() {
   useBroadcastTheme()
-  const { withSport } = useSportSelection()
+  const { sport, withSport } = useSportSelection()
   return (
     <div className="bx bx-home">
       <div className="bx__inner">
-        <RegionBoundary label="command center"><CommandHome withSport={withSport} /></RegionBoundary>
+        <RegionBoundary label="command center"><CommandHome withSport={withSport} sport={sport} /></RegionBoundary>
       </div>
     </div>
   )

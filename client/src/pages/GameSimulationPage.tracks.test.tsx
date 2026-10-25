@@ -245,8 +245,15 @@ afterEach(() => {
 })
 
 describe('simulator track routing', () => {
-  it('defaults to the official Gen 1 track and labels it as a distribution', async () => {
+  it('opens on the controlling V18 simulation when one is saved', async () => {
     mount('')
+    expect(await screen.findByRole('heading', { level: 1, name: /V18 Monte Carlo Diamond Theater/ }))
+      .toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: /Gen 1 baseline/ })).not.toBeInTheDocument()
+  })
+
+  it('pins Gen 1 on ?track=gen1 and labels it as a distribution', async () => {
+    mount('?track=gen1')
     expect(await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline · Final-score distribution/ }))
       .toBeInTheDocument()
     // Gen 1 is described as a distribution, never as play-by-play.
@@ -318,7 +325,7 @@ describe('simulator track routing', () => {
 
   it('switches tracks without claiming either forecast changed', async () => {
     const user = userEvent.setup()
-    mount('')
+    mount('?track=gen1')
     await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline/ })
     const selector = await screen.findByRole('navigation', { name: /simulation track/i })
     expect(screen.getByText(/Switching tracks changes only which engine/i)).toBeInTheDocument()
@@ -406,7 +413,7 @@ describe('the simulator view selector', () => {
   })
 
   it('offers no view selector on the Gen 1 track', async () => {
-    mount('')
+    mount('?track=gen1')
     await screen.findByRole('heading', { level: 1, name: /Gen 1 baseline/ })
     expect(screen.queryByRole('navigation', { name: /simulator view/i })).not.toBeInTheDocument()
   })

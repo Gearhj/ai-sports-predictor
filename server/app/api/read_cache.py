@@ -15,7 +15,8 @@ For an allowlisted GET path (keyed by path + query):
 * fresh (younger than ``FRESH_SECONDS``): served from memory;
 * stale (up to ``MAX_STALE_SECONDS``): served from memory immediately, and one
   background recomputation starts (single flight per key);
-* older, or absent: computed synchronously and stored.
+* older, or absent: computed synchronously and stored; concurrent misses for one
+  key share that one computation (single flight).
 
 Every response carries its real generation time -- ``X-AISP-Generated-At`` and
 ``Age`` -- plus ``X-AISP-Cache`` (HIT, STALE or MISS) and an ``ETag``;
@@ -40,6 +41,12 @@ from typing import Any
 
 FRESH_SECONDS = 30.0
 MAX_STALE_SECONDS = 15 * 60.0
+#: Read models whose labels describe finite windows (decision windows, quote
+#: freshness, leases) may not be served as stale for the full default window.
+#: Past this age the request recomputes instead of serving the old body.
+MAX_STALE_BY_PATH: dict[str, float] = {"/sports/readiness": 120.0,
+                                       # Mission Control's chips name live clocks and countdowns.
+                                       "/mission-control": 90.0}
 MAX_ENTRIES = 256
 MAX_BODY_BYTES = 4 * 1024 * 1024
 
@@ -50,7 +57,8 @@ ALLOWLIST: tuple[str, ...] = (
     "/prediction-markets/board", "/experiment/funnel", "/experiment/qualification-funnel",
     "/sports/readiness", "/sports/registry", "/markets/board", "/markets/rff", "/mlb/totals",
     "/bankroll", "/command-center/", "/slate-status", "/coverage/price-funnel",
-    "/research/model-era", "/research/model-performance", "/show-board", "/cfb/research", "/price-coverage", "/public/config",
+    "/research/model-era", "/research/model-performance", "/research/wager-results", "/research/nfl-scorecard", "/show-board", "/cfb/research", "/price-coverage", "/public/config",
+    "/mission-control",
 )
 
 
@@ -67,6 +75,8 @@ class ReadCache:
     prefix: str
     entries: dict[str, _Entry] = field(default_factory=dict)
     refreshing: set[str] = field(default_factory=set)
+    #: Synchronous (MISS) computations in flight, per key: concurrent misses share one.
+    inflight: dict[str, "asyncio.Future[_Entry | None]"] = field(default_factory=dict)
     stats: dict[str, int] = field(default_factory=lambda: {"HIT": 0, "STALE": 0, "MISS": 0, "BYPASS": 0})
 
     def cacheable(self, scope: dict[str, Any]) -> bool:
@@ -94,7 +104,9 @@ def first_viewport_paths(today: str) -> list[str]:
         f"/markets/board?date={today}", "/nfl/weeks", "/bankroll?experiment=v2", "/experiment/funnel",
         "/experiment/comparison", f"/prediction-markets/board?date={today}&sport=MLB",
         f"/slate-status?date={today}", "/markets/rff?limit=1",
+        "/research/model-performance/overview",
         "/research/model-performance?league=MLB", "/research/model-performance?league=NFL",
+        "/research/nfl-scorecard",
     ]
 
 
@@ -173,7 +185,9 @@ class ReadCacheMiddleware:
         key = _key(scope)
         entry = self.cache.entries.get(key)
         now = time.time()
-        if entry is not None and now - entry.generated <= MAX_STALE_SECONDS:
+        rest = scope.get("path", "")[len(self.cache.prefix):]
+        max_stale = MAX_STALE_BY_PATH.get(rest.rstrip("/"), MAX_STALE_SECONDS)
+        if entry is not None and now - entry.generated <= max_stale:
             fresh = now - entry.generated <= FRESH_SECONDS
             state = "HIT" if fresh else "STALE"
             if not fresh and key not in self.cache.refreshing:
@@ -182,7 +196,7 @@ class ReadCacheMiddleware:
             self.cache.stats[state] += 1
             await self._send(entry, state, scope, send)
             return
-        computed = await self._compute(scope)
+        computed = await self._compute_once(key, scope)
         if computed is None:  # not cacheable after all (error, too large, streamed)
             self.cache.stats["BYPASS"] += 1
             await self.app(scope, receive, send)
@@ -190,6 +204,25 @@ class ReadCacheMiddleware:
         self._store(key, computed)
         self.cache.stats["MISS"] += 1
         await self._send(computed, "MISS", scope, send)
+
+    async def _compute_once(self, key: str, scope: dict[str, Any]) -> _Entry | None:
+        """Single flight for a MISS: a hover prefetch and the page load (or two tabs) asking for the same
+        uncached key share ONE computation instead of each building it. The body does not vary by caller
+        (the cache keys by path + query only), so every waiter can be answered with it. A waiter that
+        disconnects does not cancel the shared computation (``shield``)."""
+
+        running = self.cache.inflight.get(key)
+        if running is None:
+            running = asyncio.ensure_future(self._compute(scope))
+            self.cache.inflight[key] = running
+
+            def _done(task: "asyncio.Future[_Entry | None]", k: str = key) -> None:
+                if self.cache.inflight.get(k) is task:
+                    self.cache.inflight.pop(k, None)
+                if not task.cancelled():
+                    task.exception()        # retrieved here, so a failure nobody awaited is never logged as lost
+            running.add_done_callback(_done)
+        return await asyncio.shield(running)
 
     async def _refresh(self, key: str, scope: dict[str, Any]) -> None:
         try:

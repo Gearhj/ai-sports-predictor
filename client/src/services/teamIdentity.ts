@@ -145,12 +145,88 @@ const MLB: Record<string, Franchise> = {
   WAS: { place: 'Washington', nickname: 'Nationals', primary: '#AB0003', secondary: '#14225A' },
 }
 
-const FRANCHISES: Record<string, Record<string, Franchise>> = { NFL, MLB }
+/* -- NHL -------------------------------------------------------------------
+ * Published primary/secondary (added 2026-10-24 for logos and colours on the NHL pages).
+ */
+const NHL: Record<string, Franchise> = {
+  ANA: { place: 'Anaheim', nickname: 'Ducks', primary: '#F47A38', secondary: '#B9975B' },
+  BOS: { place: 'Boston', nickname: 'Bruins', primary: '#FFB81C', secondary: '#000000' },
+  BUF: { place: 'Buffalo', nickname: 'Sabres', primary: '#003087', secondary: '#FFB81C' },
+  CGY: { place: 'Calgary', nickname: 'Flames', primary: '#C8102E', secondary: '#F1BE48' },
+  CAR: { place: 'Carolina', nickname: 'Hurricanes', primary: '#CC0000', secondary: '#000000' },
+  CHI: { place: 'Chicago', nickname: 'Blackhawks', primary: '#CF0A2C', secondary: '#000000' },
+  COL: { place: 'Colorado', nickname: 'Avalanche', primary: '#6F263D', secondary: '#236192' },
+  CBJ: { place: 'Columbus', nickname: 'Blue Jackets', primary: '#002654', secondary: '#CE1126' },
+  DAL: { place: 'Dallas', nickname: 'Stars', primary: '#006847', secondary: '#8F8F8C' },
+  DET: { place: 'Detroit', nickname: 'Red Wings', primary: '#CE1126', secondary: '#FFFFFF' },
+  EDM: { place: 'Edmonton', nickname: 'Oilers', primary: '#041E42', secondary: '#FF4C00' },
+  FLA: { place: 'Florida', nickname: 'Panthers', primary: '#041E42', secondary: '#C8102E' },
+  LAK: { place: 'Los Angeles', nickname: 'Kings', primary: '#111111', secondary: '#A2AAAD' },
+  MIN: { place: 'Minnesota', nickname: 'Wild', primary: '#154734', secondary: '#A6192E' },
+  MTL: { place: 'Montreal', nickname: 'Canadiens', primary: '#AF1E2D', secondary: '#192168' },
+  NSH: { place: 'Nashville', nickname: 'Predators', primary: '#FFB81C', secondary: '#041E42' },
+  NJD: { place: 'New Jersey', nickname: 'Devils', primary: '#CE1126', secondary: '#000000' },
+  NYI: { place: 'New York', nickname: 'Islanders', primary: '#00539B', secondary: '#F47D30' },
+  NYR: { place: 'New York', nickname: 'Rangers', primary: '#0038A8', secondary: '#CE1126' },
+  OTT: { place: 'Ottawa', nickname: 'Senators', primary: '#C52032', secondary: '#C2912C' },
+  PHI: { place: 'Philadelphia', nickname: 'Flyers', primary: '#F74902', secondary: '#000000' },
+  PIT: { place: 'Pittsburgh', nickname: 'Penguins', primary: '#000000', secondary: '#FCB514' },
+  SJS: { place: 'San Jose', nickname: 'Sharks', primary: '#006D75', secondary: '#EA7200' },
+  SEA: { place: 'Seattle', nickname: 'Kraken', primary: '#001628', secondary: '#99D9D9' },
+  STL: { place: 'St. Louis', nickname: 'Blues', primary: '#002F87', secondary: '#FCB514' },
+  TBL: { place: 'Tampa Bay', nickname: 'Lightning', primary: '#002868', secondary: '#FFFFFF' },
+  TOR: { place: 'Toronto', nickname: 'Maple Leafs', primary: '#00205B', secondary: '#FFFFFF' },
+  UTA: { place: 'Utah', nickname: 'Mammoth', primary: '#71AFE5', secondary: '#090909' },
+  VAN: { place: 'Vancouver', nickname: 'Canucks', primary: '#00205B', secondary: '#00843D' },
+  VGK: { place: 'Vegas', nickname: 'Golden Knights', primary: '#B4975A', secondary: '#333F42' },
+  WSH: { place: 'Washington', nickname: 'Capitals', primary: '#041E42', secondary: '#C8102E' },
+  WPG: { place: 'Winnipeg', nickname: 'Jets', primary: '#041E42', secondary: '#004C97' },
+}
+
+/* -- NBA -------------------------------------------------------------------
+ * Published primary/secondary; keys are AISP's abbreviations (BRK, CHO, PHO), ESPN file names are mapped in logoUrl.
+ */
+const NBA: Record<string, Franchise> = {
+  ATL: { place: 'Atlanta', nickname: 'Hawks', primary: '#E03A3E', secondary: '#C1D32F' },
+  BOS: { place: 'Boston', nickname: 'Celtics', primary: '#007A33', secondary: '#BA9653' },
+  BRK: { place: 'Brooklyn', nickname: 'Nets', primary: '#000000', secondary: '#FFFFFF' },
+  CHO: { place: 'Charlotte', nickname: 'Hornets', primary: '#1D1160', secondary: '#00788C' },
+  CHI: { place: 'Chicago', nickname: 'Bulls', primary: '#CE1141', secondary: '#000000' },
+  CLE: { place: 'Cleveland', nickname: 'Cavaliers', primary: '#860038', secondary: '#FDBB30' },
+  DAL: { place: 'Dallas', nickname: 'Mavericks', primary: '#00538C', secondary: '#002B5E' },
+  DEN: { place: 'Denver', nickname: 'Nuggets', primary: '#0E2240', secondary: '#FEC524' },
+  DET: { place: 'Detroit', nickname: 'Pistons', primary: '#C8102E', secondary: '#1D42BA' },
+  GSW: { place: 'Golden State', nickname: 'Warriors', primary: '#1D428A', secondary: '#FFC72C' },
+  HOU: { place: 'Houston', nickname: 'Rockets', primary: '#CE1141', secondary: '#000000' },
+  IND: { place: 'Indiana', nickname: 'Pacers', primary: '#002D62', secondary: '#FDBB30' },
+  LAC: { place: 'LA', nickname: 'Clippers', primary: '#C8102E', secondary: '#1D428A' },
+  LAL: { place: 'Los Angeles', nickname: 'Lakers', primary: '#552583', secondary: '#FDB927' },
+  MEM: { place: 'Memphis', nickname: 'Grizzlies', primary: '#5D76A9', secondary: '#12173F' },
+  MIA: { place: 'Miami', nickname: 'Heat', primary: '#98002E', secondary: '#F9A01B' },
+  MIL: { place: 'Milwaukee', nickname: 'Bucks', primary: '#00471B', secondary: '#EEE1C6' },
+  MIN: { place: 'Minnesota', nickname: 'Timberwolves', primary: '#0C2340', secondary: '#236192' },
+  NOP: { place: 'New Orleans', nickname: 'Pelicans', primary: '#0C2340', secondary: '#C8102E' },
+  NYK: { place: 'New York', nickname: 'Knicks', primary: '#006BB6', secondary: '#F58426' },
+  OKC: { place: 'Oklahoma City', nickname: 'Thunder', primary: '#007AC1', secondary: '#EF3B24' },
+  ORL: { place: 'Orlando', nickname: 'Magic', primary: '#0077C0', secondary: '#C4CED4' },
+  PHI: { place: 'Philadelphia', nickname: '76ers', primary: '#006BB6', secondary: '#ED174C' },
+  PHO: { place: 'Phoenix', nickname: 'Suns', primary: '#1D1160', secondary: '#E56020' },
+  POR: { place: 'Portland', nickname: 'Trail Blazers', primary: '#E03A3E', secondary: '#000000' },
+  SAC: { place: 'Sacramento', nickname: 'Kings', primary: '#5A2D81', secondary: '#63727A' },
+  SAS: { place: 'San Antonio', nickname: 'Spurs', primary: '#000000', secondary: '#C4CED4' },
+  TOR: { place: 'Toronto', nickname: 'Raptors', primary: '#CE1141', secondary: '#000000' },
+  UTA: { place: 'Utah', nickname: 'Jazz', primary: '#002B5C', secondary: '#F9A01B' },
+  WAS: { place: 'Washington', nickname: 'Wizards', primary: '#002B5C', secondary: '#E31837' },
+}
+
+const FRANCHISES: Record<string, Record<string, Franchise>> = { NFL, MLB, NHL, NBA }
 
 /** Feeds spell the same club differently; normalise before looking up. */
 const ALIASES: Record<string, Record<string, string>> = {
   MLB: { CHW: 'CWS', SDP: 'SD', SFG: 'SF', TBR: 'TB', KCR: 'KC', WSN: 'WSH', ATH: 'OAK' },
   NFL: { OAK: 'LV', SD: 'LAC', STL: 'LAR', LA: 'LAR', JAC: 'JAX', WSH: 'WAS', ARZ: 'ARI' },
+  NHL: { LA: 'LAK', NJ: 'NJD', SJ: 'SJS', TB: 'TBL', UTAH: 'UTA', VEG: 'VGK', WAS: 'WSH', MON: 'MTL', CLB: 'CBJ', WIN: 'WPG' },
+  NBA: { BKN: 'BRK', CHA: 'CHO', PHX: 'PHO', GS: 'GSW', NO: 'NOP', NOR: 'NOP', NY: 'NYK', SA: 'SAS', WSH: 'WAS', UTAH: 'UTA' },
 }
 
 /** A stable colour for a club we do not know, so unknown teams still differ. */
@@ -221,13 +297,19 @@ export function teamIdentity(
 export const TEAM_LOGOS_ENABLED =
   String(import.meta.env.VITE_TEAM_LOGOS ?? 'on').toLowerCase() !== 'off'
 
-const LOGO_LEAGUE_PATH: Record<string, string> = { NFL: 'nfl', MLB: 'mlb' }
+const LOGO_LEAGUE_PATH: Record<string, string> = { NFL: 'nfl', MLB: 'mlb', NHL: 'nhl', NBA: 'nba' }
+/** Where ESPN's logo file name differs from AISP's abbreviation (checked against the CDN 2026-10-24). */
+const ESPN_LOGO_ABBR: Record<string, Record<string, string>> = {
+  NHL: { LAK: 'la', NJD: 'nj', SJS: 'sj', TBL: 'tb', UTA: 'utah', UTAH: 'utah', VEG: 'vgk' },
+  NBA: { CHO: 'cha', CHA: 'cha', GSW: 'gs', NOP: 'no', NYK: 'ny', PHO: 'phx', SAS: 'sa', UTA: 'utah', WAS: 'wsh', BRK: 'bkn' },
+}
 
 export function logoUrl(identity: TeamIdentity): string | null {
   if (!TEAM_LOGOS_ENABLED || !identity.known) return null
   const path = LOGO_LEAGUE_PATH[identity.league]
   if (!path) return null
-  return `https://a.espncdn.com/i/teamlogos/${path}/500/${identity.abbreviation.toLowerCase()}.png`
+  const file = ESPN_LOGO_ABBR[identity.league]?.[identity.abbreviation.toUpperCase()] ?? identity.abbreviation.toLowerCase()
+  return `https://a.espncdn.com/i/teamlogos/${path}/500/${file}.png`
 }
 
 /**

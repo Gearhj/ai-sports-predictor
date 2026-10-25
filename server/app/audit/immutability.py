@@ -28,6 +28,7 @@ from app.models import (
     LineupObservation,
     MarketComparison,
     ModelEvaluation,
+    NflFinalObservation,
     ModelVersion,
     OpenDataDownloadManifest,
     OpenDataIdentityMapping,
@@ -117,6 +118,9 @@ _APPEND_ONLY_TYPES = (
     LineupEntry,
     LineupObservation,
     ModelEvaluation,
+    # NFL football facts beside each final observation: written once per
+    # distinct result checksum, never edited. A correction is a new row.
+    NflFinalObservation,
     OpenDataDownloadManifest,
     OpenDataIdentityMapping,
     ParkFactorVersion,
@@ -162,6 +166,20 @@ _APPEND_ONLY_TYPES = (
 from app.models.show_preview import APPEND_ONLY_SHOW_PREVIEW_TYPES  # noqa: E402
 
 _APPEND_ONLY_TYPES = _APPEND_ONLY_TYPES + APPEND_ONLY_SHOW_PREVIEW_TYPES
+
+# MLB_V18_FUNDING_PAUSE_V1: a pause record is written once and never edited or
+# deleted; its content hash is verified on every reuse.
+from app.models.mlb_v18_funding_pause import MlbV18FundingPause  # noqa: E402
+
+_APPEND_ONLY_TYPES = _APPEND_ONLY_TYPES + (MlbV18FundingPause,)
+
+# A settlement correction is recorded BESIDE the immutable original settlement
+# and is itself never edited or deleted: a later correction is a new row. Both
+# writers (CFB/NBA score corrections, NHL corrections) and the governed
+# postponement VOID correction only ever insert.
+from app.models import PositionSettlementAdjustment  # noqa: E402
+
+_APPEND_ONLY_TYPES = _APPEND_ONLY_TYPES + (PositionSettlementAdjustment,)
 
 
 # Model identity, lineage, fitted-state, and promotion evidence are immutable

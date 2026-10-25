@@ -1,0 +1,2328 @@
+{
+ "excluded": [],
+ "forecasts": [
+  {
+   "canonicalGameId": "nhl:game:2026020090",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:8c836a88d3bdfcf3a1da7134a600b6387fa4f62aaf88a3c1ec10eb5b46b26534",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:1",
+      "name": "New Jersey Devils",
+      "sourceTeamId": "1",
+      "triCode": "NJD"
+     },
+     "canonicalGameId": "nhl:game:2026020090",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:17",
+      "name": "Detroit Red Wings",
+      "sourceTeamId": "17",
+      "triCode": "DET"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T22:00:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020090"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.5811378350106517,
+      "expectedHome": 2.9995698620441877,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.42908778708451,
+      "home": 0.57091221291549
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.17069999311432396,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.3459293825502234,
+      "home": 0.48337062433545275,
+      "tie": 0.17069999311432396
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:8c836a88d3bdfcf3a1da7134a600b6387fa4f62aaf88a3c1ec10eb5b46b26534",
+   "objectBytes": 3062,
+   "objectSha256": "9c6c563289b4246dc88111c437cf5ac50e73b7713ca1f7c69a0b3b51bd31bce3"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020091",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:07e7d35ef1ea011bd096196b09a5fc2418a75ca9290b0ad86fc8b335b809ad80",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:13",
+      "name": "Florida Panthers",
+      "sourceTeamId": "13",
+      "triCode": "FLA"
+     },
+     "canonicalGameId": "nhl:game:2026020091",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:29",
+      "name": "Columbus Blue Jackets",
+      "sourceTeamId": "29",
+      "triCode": "CBJ"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T22:15:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020091"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.71136139335011,
+      "expectedHome": 3.2568656765521564,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.41135889804461234,
+      "home": 0.5886411019553877
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16336017948530354,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.3317761655407256,
+      "home": 0.5048636549739709,
+      "tie": 0.16336017948530354
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:07e7d35ef1ea011bd096196b09a5fc2418a75ca9290b0ad86fc8b335b809ad80",
+   "objectBytes": 3069,
+   "objectSha256": "e28c32daa9dfe6774ccce6d7714ea4b16f6946a30fcbe79a36b492e370e6acce"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020092",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:ed3abd84907074d78c3ba024189224a8d214d3aadca936cee30e7a798ce3e9e5",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:7",
+      "name": "Buffalo Sabres",
+      "sourceTeamId": "7",
+      "triCode": "BUF"
+     },
+     "canonicalGameId": "nhl:game:2026020092",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:8",
+      "name": "Montréal Canadiens",
+      "sourceTeamId": "8",
+      "triCode": "MTL"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T22:30:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020092"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 3.0531962139927655,
+      "expectedHome": 3.2457184710390043,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.4679697950599665,
+      "home": 0.5320302049400335
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.1620193519171634,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.38904026165285677,
+      "home": 0.4489403864299799,
+      "tie": 0.1620193519171634
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:ed3abd84907074d78c3ba024189224a8d214d3aadca936cee30e7a798ce3e9e5",
+   "objectBytes": 3061,
+   "objectSha256": "f3ac227682e2be8a6a1530ac81727de1f4af764cf0aa2d7be3166087a70a156c"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020093",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:d0cf42b6a4d9374aa41a926b7d3881a777b42d5912e787364bccde814d8ab0b8",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:15",
+      "name": "Washington Capitals",
+      "sourceTeamId": "15",
+      "triCode": "WSH"
+     },
+     "canonicalGameId": "nhl:game:2026020093",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:12",
+      "name": "Carolina Hurricanes",
+      "sourceTeamId": "12",
+      "triCode": "CAR"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T22:45:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020093"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.9124836110028407,
+      "expectedHome": 3.347630629589344,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.4302743631137753,
+      "home": 0.5697256368862247
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16073898265469108,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.3519685758658739,
+      "home": 0.48729244147943507,
+      "tie": 0.16073898265469108
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:d0cf42b6a4d9374aa41a926b7d3881a777b42d5912e787364bccde814d8ab0b8",
+   "objectBytes": 3071,
+   "objectSha256": "501f56f33ff601ffe06d5cc97121bb5c4c4356b77ac5591f13487ece4cc3fc36"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020094",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:93373963cca8cb96988e16a884307c7ad642a12f02df1295471ee2cc4498b97e",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:55",
+      "name": "Seattle Kraken",
+      "sourceTeamId": "55",
+      "triCode": "SEA"
+     },
+     "canonicalGameId": "nhl:game:2026020094",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:4",
+      "name": "Philadelphia Flyers",
+      "sourceTeamId": "4",
+      "triCode": "PHI"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T23:00:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020094"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.613856518495135,
+      "expectedHome": 3.0869093483910452,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.4210170445291146,
+      "home": 0.5789829554708854
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16818246265211392,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.33908508302381857,
+      "home": 0.4927324543240673,
+      "tie": 0.16818246265211392
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:93373963cca8cb96988e16a884307c7ad642a12f02df1295471ee2cc4498b97e",
+   "objectBytes": 3064,
+   "objectSha256": "2d40e3767acbfa9e9704199657f37aa902f1d2ec2c0afbcc2c75418d7dd2ad2c"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020095",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:31616b85f9ad5a25d68809605ff0ad7e998e0124963167fd08b1d516ab35f6f4",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:14",
+      "name": "Tampa Bay Lightning",
+      "sourceTeamId": "14",
+      "triCode": "TBL"
+     },
+     "canonicalGameId": "nhl:game:2026020095",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:3",
+      "name": "New York Rangers",
+      "sourceTeamId": "3",
+      "triCode": "NYR"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T23:15:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020095"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 3.282976878174867,
+      "expectedHome": 2.8269184529166176,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.569617814984743,
+      "home": 0.43038218501525705
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16252383628748263,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.49044251639286185,
+      "home": 0.3470336473196557,
+      "tie": 0.16252383628748263
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:31616b85f9ad5a25d68809605ff0ad7e998e0124963167fd08b1d516ab35f6f4",
+   "objectBytes": 3066,
+   "objectSha256": "1b3de6198f43589545931a33b16d05eccee5a138b9909f347771bde513b40b99"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020096",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:26ed8370ee52e65b0b4c1bc0683b9bb0e6871532bd177ba7b91a3ac3e1d3ebd4",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:19",
+      "name": "St. Louis Blues",
+      "sourceTeamId": "19",
+      "triCode": "STL"
+     },
+     "canonicalGameId": "nhl:game:2026020096",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:9",
+      "name": "Ottawa Senators",
+      "sourceTeamId": "9",
+      "triCode": "OTT"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T23:30:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020096"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.7334482673107323,
+      "expectedHome": 2.9893941722888795,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.4561683584685706,
+      "home": 0.5438316415314294
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16997478099149832,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.3733632491042649,
+      "home": 0.4566619699042367,
+      "tie": 0.16997478099149832
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:26ed8370ee52e65b0b4c1bc0683b9bb0e6871532bd177ba7b91a3ac3e1d3ebd4",
+   "objectBytes": 3061,
+   "objectSha256": "34ec7f58a208273092bf357a38f39e447f5bde0855d4303d61171c23c89564f5"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020097",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:15b7253ed2c9428996af7fb944d7ac7b7eaf82e3cab0c3c6eb00a2edb958829f",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:23",
+      "name": "Vancouver Canucks",
+      "sourceTeamId": "23",
+      "triCode": "VAN"
+     },
+     "canonicalGameId": "nhl:game:2026020097",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:2",
+      "name": "New York Islanders",
+      "sourceTeamId": "2",
+      "triCode": "NYI"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-13T23:45:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020097"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.5283433417134296,
+      "expectedHome": 3.3016564235407837,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.37476365196518246,
+      "home": 0.6252363480348175
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.1614556911923758,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.2961087121635956,
+      "home": 0.5424355966440287,
+      "tie": 0.1614556911923758
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:15b7253ed2c9428996af7fb944d7ac7b7eaf82e3cab0c3c6eb00a2edb958829f",
+   "objectBytes": 3065,
+   "objectSha256": "f863256d24dfa7a67d79fd92e95ffd32d0e7bf898860c29bf133863f8f6a69a0"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020098",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:d010a626475c7e4db5d15521aeaef44a3c0419d58ab66f0dd4f1b1b74e143bc4",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:5",
+      "name": "Pittsburgh Penguins",
+      "sourceTeamId": "5",
+      "triCode": "PIT"
+     },
+     "canonicalGameId": "nhl:game:2026020098",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:16",
+      "name": "Chicago Blackhawks",
+      "sourceTeamId": "16",
+      "triCode": "CHI"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T00:00:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020098"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 3.596091609196283,
+      "expectedHome": 2.8118982763940807,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.6174889309562717,
+      "home": 0.3825110690437284
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.1540388554038601,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.5424471853886922,
+      "home": 0.30351395920744795,
+      "tie": 0.1540388554038601
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:d010a626475c7e4db5d15521aeaef44a3c0419d58ab66f0dd4f1b1b74e143bc4",
+   "objectBytes": 3066,
+   "objectSha256": "afc7ef17bdfc044a142b37b5ea392c4da93457d0f227106aa1441e3c5cd89d0e"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020099",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:85fec364f092729b4b851e86f4543419f6f74df2c5b504916a7e8b2fda964a35",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:30",
+      "name": "Minnesota Wild",
+      "sourceTeamId": "30",
+      "triCode": "MIN"
+     },
+     "canonicalGameId": "nhl:game:2026020099",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:52",
+      "name": "Winnipeg Jets",
+      "sourceTeamId": "52",
+      "triCode": "WPG"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T00:15:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020099"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.6676563535107456,
+      "expectedHome": 2.8585867171245374,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.46616047462184895,
+      "home": 0.533839525378151
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.17352603363706118,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.38162533294345063,
+      "home": 0.4448486334194881,
+      "tie": 0.17352603363706118
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:85fec364f092729b4b851e86f4543419f6f74df2c5b504916a7e8b2fda964a35",
+   "objectBytes": 3061,
+   "objectSha256": "0fd0a70463b0c4e4bc9506d918dfa88017f204acd01fa57ff0e0dec45a3c2311"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020100",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:d305484fa2fbcbeedab1834a73550f29fd0a4ec23d7ab6811ba8ac25a4f4b6d8",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:21",
+      "name": "Colorado Avalanche",
+      "sourceTeamId": "21",
+      "triCode": "COL"
+     },
+     "canonicalGameId": "nhl:game:2026020100",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:25",
+      "name": "Dallas Stars",
+      "sourceTeamId": "25",
+      "triCode": "DAL"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T00:30:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020100"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.9869902416226357,
+      "expectedHome": 2.833990959726529,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.5225517523157857,
+      "home": 0.47744824768421434
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.1690264558780113,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.44020863010202754,
+      "home": 0.39076491401996105,
+      "tie": 0.1690264558780113
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:d305484fa2fbcbeedab1834a73550f29fd0a4ec23d7ab6811ba8ac25a4f4b6d8",
+   "objectBytes": 3063,
+   "objectSha256": "b304a3312932f70b309b060252fd2010a3f98565463a354c0c037c6d302b3d52"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020101",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:2cbd40ed62d638df5e04331d8e737827f285780b3a5e5f0fa2f6af106ac814b3",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:54",
+      "name": "Vegas Golden Knights",
+      "sourceTeamId": "54",
+      "triCode": "VGK"
+     },
+     "canonicalGameId": "nhl:game:2026020101",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:18",
+      "name": "Nashville Predators",
+      "sourceTeamId": "18",
+      "triCode": "NSH"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T00:45:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020101"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.973968742027004,
+      "expectedHome": 2.880109989729727,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.5129641254469737,
+      "home": 0.4870358745530263
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16871530273308505,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.43077258495636467,
+      "home": 0.40051211231054973,
+      "tie": 0.16871530273308505
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:2cbd40ed62d638df5e04331d8e737827f285780b3a5e5f0fa2f6af106ac814b3",
+   "objectBytes": 3072,
+   "objectSha256": "669559ec9772913a57069b46f6258f16f5cab13e0b854be77e14f0df22128d69"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020102",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:0628cfd47b293514fd2fa367aadcacfb46a179ca6dbd08db1fa11b6a908322f8",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:10",
+      "name": "Toronto Maple Leafs",
+      "sourceTeamId": "10",
+      "triCode": "TOR"
+     },
+     "canonicalGameId": "nhl:game:2026020102",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:68",
+      "name": "Utah Mammoth",
+      "sourceTeamId": "68",
+      "triCode": "UTA"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T01:00:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020102"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.9061460173094376,
+      "expectedHome": 3.5694296503647993,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.39707101766841235,
+      "home": 0.6029289823315876
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.15518615011428896,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.32147035469310925,
+      "home": 0.5233434951926019,
+      "tie": 0.15518615011428896
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:0628cfd47b293514fd2fa367aadcacfb46a179ca6dbd08db1fa11b6a908322f8",
+   "objectBytes": 3066,
+   "objectSha256": "4539952975952eab59cce4895e33e674f5d02a505e42c46ef4c8821ea1cc4e20"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020103",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:51caa744f5826e8ce102413f75e58826433502bfbc47be53c10c0594f43c76b3",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:20",
+      "name": "Calgary Flames",
+      "sourceTeamId": "20",
+      "triCode": "CGY"
+     },
+     "canonicalGameId": "nhl:game:2026020103",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:24",
+      "name": "Anaheim Ducks",
+      "sourceTeamId": "24",
+      "triCode": "ANA"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T01:45:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020103"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.9015384280307535,
+      "expectedHome": 3.0764376382624397,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.4699612631011544,
+      "home": 0.5300387368988456
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.1665907994444521,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.3888046980706343,
+      "home": 0.4446045024849137,
+      "tie": 0.1665907994444521
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:51caa744f5826e8ce102413f75e58826433502bfbc47be53c10c0594f43c76b3",
+   "objectBytes": 3058,
+   "objectSha256": "90d8d948c512472cc9e4a98433d8ec56e44c891bf9c8929b8b4e8f7dc40c8e71"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020104",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:6bdbc4a81e521eddb0e00ee18e4c81c07ac87377658289ad5baf7ca7cb53b5bc",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:22",
+      "name": "Edmonton Oilers",
+      "sourceTeamId": "22",
+      "triCode": "EDM"
+     },
+     "canonicalGameId": "nhl:game:2026020104",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:26",
+      "name": "Los Angeles Kings",
+      "sourceTeamId": "26",
+      "triCode": "LAK"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T02:30:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020104"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 2.931375436049511,
+      "expectedHome": 2.890073884159286,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.5045030841889112,
+      "home": 0.4954969158110888
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.16930615237668303,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.42202370470789063,
+      "home": 0.4086701429154256,
+      "tie": 0.16930615237668303
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:6bdbc4a81e521eddb0e00ee18e4c81c07ac87377658289ad5baf7ca7cb53b5bc",
+   "objectBytes": 3064,
+   "objectSha256": "711ba109e3d82aa74b61c3b0ece98d203f6cb82df34e8961bf62c3392f10b6c8"
+  },
+  {
+   "canonicalGameId": "nhl:game:2026020105",
+   "document": {
+    "authority": {
+     "decisionAuthority": false,
+     "modelPromotionAuthority": false,
+     "positionAuthority": false,
+     "wageringAuthority": false
+    },
+    "canonicalization": "SPORTS_CANONICAL_JSON_V1",
+    "createdAtUtc": "2026-10-13T16:19:49.613222Z",
+    "forecastId": "nhl-gen1-forecast:sha256:aee3192cc7419756cd61a138c65b9d56156190711b3a6e3b5f0b2b992844660d",
+    "game": {
+     "away": {
+      "canonicalTeamId": "nhl:team:6",
+      "name": "Boston Bruins",
+      "sourceTeamId": "6",
+      "triCode": "BOS"
+     },
+     "canonicalGameId": "nhl:game:2026020105",
+     "gameType": "REGULAR",
+     "home": {
+      "canonicalTeamId": "nhl:team:28",
+      "name": "San Jose Sharks",
+      "sourceTeamId": "28",
+      "triCode": "SJS"
+     },
+     "neutralSite": false,
+     "scheduleSource": {
+      "observedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "retrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+      "source": "SPORTSDATAVERSE_NHL_SCHEDULE_PUBLISHER_OFFERED_DAILY_SNAPSHOT"
+     },
+     "scheduledStartUtc": "2026-10-14T03:00:00Z",
+     "season": "2026-27",
+     "seasonStartYear": 2026,
+     "sourceGameId": "2026020105"
+    },
+    "goalies": {
+     "away": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     },
+     "home": {
+      "goalieId": null,
+      "goalieName": null,
+      "status": "UNKNOWN",
+      "statusObservedAtUtc": null,
+      "statusSource": null
+     }
+    },
+    "goals": {
+     "final": null,
+     "regulation": {
+      "distribution": null,
+      "expectedAway": 3.4908234498517823,
+      "expectedHome": 2.83285373640824,
+      "horizon": "REGULATION_60_MINUTES"
+     }
+    },
+    "league": "NHL",
+    "limitations": [
+     "UNFUNDED",
+     "PRIVATE_RESEARCH_ONLY",
+     "TEAM_LEVEL_GOALIE_FALLBACK",
+     "RECONSTRUCTED_HISTORICAL_SOURCE_AVAILABILITY_NOT_PROVED",
+     "NO_CURRENT_2026_27_OUTCOME_UPDATE",
+     "REST_IS_SCHEDULE_METADATA_NOT_ACTUAL_PARTICIPATION_PROOF",
+     "INDEPENDENT_POISSON_REGULATION_AND_POOLED_TIE_SPLIT_NOT_SHOOTOUT_MODEL",
+     "DAILY_SCHEDULE_SNAPSHOT_NOT_LIVE_POSTPONEMENT_PROOF",
+     "HOME_VENUE_SCHEDULE_ASSUMES_NON_NEUTRAL_NO_EXPLICIT_NEUTRAL_FLAG"
+    ],
+    "missingInputs": [
+     "HOME_GOALIE_UNKNOWN",
+     "AWAY_GOALIE_UNKNOWN",
+     "LINEUPS_UNAVAILABLE",
+     "INJURIES_UNAVAILABLE",
+     "MARKET_PRICES_NOT_USED"
+    ],
+    "model": {
+     "configurationSha256": "3f7981aac2bfee6f3d05b7e1d099a3342cc9057d09e13b09aaf4c81b7f720417",
+     "handoffSha256": "e9802f904188452609ac8d04f5be4596312d051bcd7a322358d3c3604629b05a",
+     "modelId": "NHL_GEN1_REGULATION_POISSON",
+     "modelVersion": "1.0.0",
+     "trainingCutoffUtc": null
+    },
+    "probabilities": {
+     "final": {
+      "away": 0.5992514389158983,
+      "home": 0.40074856108410173
+     },
+     "overtime": {
+      "conditionalOnShootout": null,
+      "conditionalOnTieAfterRegulation": {
+       "away": 0.4871611475613391,
+       "home": 0.5128388524386609
+      },
+      "pOvertime": 0.1571006213915303,
+      "pShootout": null
+     },
+     "regulation": {
+      "away": 0.522718119916201,
+      "home": 0.32018125869226877,
+      "tie": 0.1571006213915303
+     }
+    },
+    "provenance": {
+     "evidenceMode": "RECONSTRUCTED_HISTORY_CURRENT_FORECAST",
+     "goalieFeatureMode": "TEAM_LEVEL",
+     "producerEvidenceRef": {
+      "bytes": 10657,
+      "path": "evidence/sha256/5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622/producer-receipt.json",
+      "sha256": "5efc6535cf6fc2f399073f9618ea6952325f232d751ff380510ea8299a4f6622"
+     }
+    },
+    "publishedAtUtc": null,
+    "researchStatus": "RESEARCH_ONLY",
+    "schema": "NHL_GEN1_FORECAST_V1",
+    "sourceCutoffUtc": "2026-10-13T16:19:19.081427Z",
+    "sourceRetrievedAtUtc": "2026-10-13T16:19:19.081427Z",
+    "sport": "HOCKEY",
+    "supersedesForecastId": null
+   },
+   "forecastId": "nhl-gen1-forecast:sha256:aee3192cc7419756cd61a138c65b9d56156190711b3a6e3b5f0b2b992844660d",
+   "objectBytes": 3056,
+   "objectSha256": "17d73e996f36761a75514ca77b6c15d30ef89159d3246626a8758e8e442ff158"
+  }
+ ],
+ "fullRows": 1344,
+ "inputFeatures": [
+  {
+   "away_id": "1",
+   "away_last_scheduled_game_date": "2026-10-12",
+   "away_rest_days": 1,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020090",
+   "home_id": "17",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "13",
+   "away_last_scheduled_game_date": "2026-10-12",
+   "away_rest_days": 1,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020091",
+   "home_id": "29",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "7",
+   "away_last_scheduled_game_date": "2026-10-12",
+   "away_rest_days": 1,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020092",
+   "home_id": "8",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "15",
+   "away_last_scheduled_game_date": "2026-10-11",
+   "away_rest_days": 2,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020093",
+   "home_id": "12",
+   "home_last_scheduled_game_date": "2026-10-11",
+   "home_rest_days": 2,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "55",
+   "away_last_scheduled_game_date": "2026-10-11",
+   "away_rest_days": 2,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020094",
+   "home_id": "4",
+   "home_last_scheduled_game_date": "2026-10-11",
+   "home_rest_days": 2,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "14",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020095",
+   "home_id": "3",
+   "home_last_scheduled_game_date": "2026-10-11",
+   "home_rest_days": 2,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "19",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020096",
+   "home_id": "9",
+   "home_last_scheduled_game_date": "2026-10-12",
+   "home_rest_days": 1,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "23",
+   "away_last_scheduled_game_date": "2026-10-11",
+   "away_rest_days": 2,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020097",
+   "home_id": "2",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "5",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020098",
+   "home_id": "16",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "30",
+   "away_last_scheduled_game_date": "2026-10-12",
+   "away_rest_days": 1,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020099",
+   "home_id": "52",
+   "home_last_scheduled_game_date": "2026-10-09",
+   "home_rest_days": 4,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "21",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020100",
+   "home_id": "25",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "54",
+   "away_last_scheduled_game_date": "2026-10-12",
+   "away_rest_days": 1,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020101",
+   "home_id": "18",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "10",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020102",
+   "home_id": "68",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "20",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020103",
+   "home_id": "24",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "22",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020104",
+   "home_id": "26",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  },
+  {
+   "away_id": "6",
+   "away_last_scheduled_game_date": "2026-10-10",
+   "away_rest_days": 3,
+   "away_rest_missing": 0,
+   "date": "2026-10-13T00:00:00",
+   "game_date": "2026-10-13",
+   "game_id": "2026020105",
+   "home_id": "28",
+   "home_last_scheduled_game_date": "2026-10-10",
+   "home_rest_days": 3,
+   "home_rest_missing": 0,
+   "season": 2026
+  }
+ ],
+ "inputsSha256": "aa0d7738c73fd24518ae799a0804e00e3330187bc91ebe4102e2deb20577ac0f",
+ "note": "Cut from the producer's retained real workspace; rows are the 11 columns the preparer reads (no score column) for game dates <= targetDate + 1. The subset was checked to give exactly the full file's features and exclusions.",
+ "observedUtc": "2026-10-13T16:19:19.081427Z",
+ "preparedCreatedUtc": "2026-10-13T16:19:49.613222Z",
+ "preparedCurrentSha256": "1ede32ab394a1f025fb2b14b29f9745ccab9a2482f5cb172f47035335ab8900e",
+ "schema": "AISP_NHL_IN_PROCESS_REPRODUCTION_FIXTURE_V1",
+ "sourceRaw": {
+  "assetUpdatedAtUtc": "2026-10-13T08:04:01Z",
+  "bytes": 296420,
+  "sha256": "5032e57e8f2d079ddd478c3b162861a9c856f74cd8ddb5637da2ddf628bc87bb",
+  "url": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/nhl_schedules/nhl_schedule_2027.csv"
+ },
+ "subsetCsvSha256": "52faca83cf7d6a0f9d2368c372d64cf4797acc2a1f88b45281a752e7d51741b9",
+ "subsetRows": 107,
+ "targetDate": "2026-10-13",
+ "workspace": "asp-model-studio/outputs/nhl-current-slate-producer-20261013-v1"
+}

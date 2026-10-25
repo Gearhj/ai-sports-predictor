@@ -7,8 +7,11 @@
  *   2. The condensed virtual bankroll (with its D3 curve and the four sport
  *      accounts as chips) beside Today's Agenda: operational state, counts and
  *      the next three items needing attention.
- *   3. The day on one D3 axis, clustered and packed so a full MLB slate stays
- *      legible.
+ *   3. Today's games: one section with two alternate views -- the scrolling
+ *      timeline and a chronological list of today's (Eastern) games with any
+ *      AISP position on each.
+ *   4. AISP Today, last: the day in one sentence, seven counts and a
+ *      four-sport readiness strip, counted from the same read models as above.
  *
  * Every region reads the shared cache first and refreshes in the background;
  * nothing on this page reaches a provider.
@@ -25,9 +28,11 @@ import { BankrollHistory } from './BankrollHistory'
 import { AsOf } from './RegionState'
 import { RegionBoundary } from './RegionBoundary'
 import { EdgeBoard } from './EdgeBoard'
-import { AgendaTimeline } from './AgendaTimeline'
+import { buildSchedule } from './TodaysGames'
+import { HomeSchedule } from './HomeSchedule'
 import { buildAgenda, completedCount, nextAttention, KIND_LABEL, type AgendaEvent } from '../../services/agenda'
 import { buildEdgeBoard } from '../../services/edgeBoard'
+import { AispToday, buildTodaySummary } from './AispToday'
 import './command.css'
 
 export const todayEt = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
@@ -59,7 +64,11 @@ export function todaysSettlements(ledger: Ledger | null, day: string, sport?: Sp
 }
 
 const tone = (v: number | null | undefined) => (v == null || v === 0 ? '' : v > 0 ? 'is-up' : 'is-down')
-export function CommandHome({ withSport }: { withSport: (href: string, sport?: 'MLB' | 'NFL') => string }) {
+export function CommandHome({ withSport, sport = 'ALL' }: {
+  withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  /** The global sport selection; 'ALL' (or any sport without a slate) shows every game. */
+  sport?: string
+}) {
   const day = todayEt()
   const ledger = useLedger()
   const decisions = useDecisionBoard(day)
@@ -68,8 +77,13 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
 
   const totals = ledger.data?.totals
   const today = todaysSettlements(ledger.data, day)
-  const games = useMemo(() => coverage.data?.games ?? [], [coverage.data])
-  const items = useMemo(() => decisions.data?.items ?? [], [decisions.data])
+  // The sport selector narrows the slate surfaces (hero, agenda, today's games);
+  // the bankroll panel stays the four-account total it is labelled as.
+  const only = asSport(sport)
+  const games = useMemo(() => (coverage.data?.games ?? []).filter((g) => !only || asSport(g.league) === only),
+    [coverage.data, only])
+  const items = useMemo(() => (decisions.data?.items ?? []).filter((i) => !only || asSport(i.sport) === only),
+    [decisions.data, only])
   const now = useMinute()
 
   const qualified = items.filter((i) => i.recommendation === 'QUALIFIED_BET' && i.phase === 'FINAL_PREGAME')
@@ -80,23 +94,32 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
     const out: Partial<Record<SportCode, string>> = {}
     for (const s of readiness.data?.sports ?? []) {
       const code = asSport(s.sport)
+      if (only && code !== only) continue
       if (code && s.next_game && !games.some((g) => asSport(g.league) === code)) out[code] = `Next: ${s.next_game.matchup} · ${s.next_game.starts_label}`
     }
     return out
-  }, [readiness.data, games])
+  }, [readiness.data, games, only])
   const decisionsHref = withSport('/decisions')
   const board = useMemo(() => buildEdgeBoard({
     decisions: items, games, ledger: ledger.data, now,
     decisionsHref: (sport) => withSport('/decisions', sport === 'MLB' || sport === 'NFL' ? sport : undefined),
     analyzeHref: (sport, gameId) => gameHref(sport, gameId),
   }), [items, games, ledger.data, now, withSport])
+  // Today's games: Eastern-date games only, with the official positions on them.
+  const schedule = useMemo(() => buildSchedule({ games, ledger: ledger.data, items, day }), [games, ledger.data, items, day])
+  const summary = useMemo(() => buildTodaySummary({ games, items, ledger: ledger.data, now }), [games, items, ledger.data, now])
   const dateLabel = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
   const ret = totals && totals.starting_capital ? (totals.profit_loss / totals.starting_capital) * 100 : null
 
   return (
     <section className="cc-home" aria-label="Command center">
+      <p className="cc-home__intro">
+        AI Sports Predictor forecasts MLB and NFL games, compares each forecast with sportsbook prices, and tracks
+        a virtual $1,000-per-sport experiment. Research only — no real money.
+      </p>
       <RegionBoundary label="today's edge board">
-        <EdgeBoard board={board} now={now} loading={!decisions.data || !coverage.data} dateLabel={dateLabel}
+        <EdgeBoard board={board} now={now} loading={!decisions.data || !coverage.data}
+          error={Boolean((decisions.error || coverage.error) && !decisions.data && !coverage.data)} dateLabel={dateLabel}
           allHref={decisionsHref} asOf={<AsOf resource={decisions.data ? decisions : coverage} label="decisions" />} />
       </RegionBoundary>
 
@@ -104,7 +127,7 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
         <section className="cc-dark cc-bank" aria-label="Combined virtual bankroll">
           <header className="cc-bank__head">
             <div>
-              <span className="cc-kicker">Virtual bankroll · four sport accounts</span>
+              <span className="cc-kicker">Virtual bankroll · every sport account</span>
               <div className="cc-bank__value">{money(totals?.realized_bankroll)}</div>
               <div className={`cc-bank__change ${tone(totals?.profit_loss)}`}>
                 {totals && ret != null ? `${signedMoney(totals.profit_loss)} (${ret >= 0 ? '+' : '−'}${Math.abs(ret).toFixed(2)}%) net` : 'Reading the ledger…'}
@@ -138,18 +161,19 @@ export function CommandHome({ withSport }: { withSport: (href: string, sport?: '
         </section>
 
         <TodayAgenda events={agenda} now={now} positionsOpen={openPositions.length}
-          qualified={qualified.length} gamesToday={coverage.data ? games.length : null} withSport={withSport} />
+          qualified={qualified.length} gamesToday={coverage.data ? games.length : null} withSport={withSport}
+          loading={!coverage.data || !decisions.data}
+          error={Boolean((coverage.error || decisions.error) && !coverage.data && !decisions.data)} />
       </div>
 
-      <section className="cc-agenda-panel" aria-label="Today's timeline">
-        <header>
-          <h2>Today on one axis</h2>
-          <AsOf resource={coverage} label="slate" />
-        </header>
-        {coverage.data
-          ? <AgendaTimeline events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} />
-          : <p className="cc-empty">{coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'}</p>}
-      </section>
+      <HomeSchedule rows={schedule} events={agenda} now={now} idle={idle} decisionsHref={decisionsHref} withSport={withSport}
+        asOf={<AsOf resource={coverage} label="slate" />}
+        loading={coverage.data ? null : coverage.error ? 'The slate read is unavailable.' : 'Loading today’s slate…'} />
+
+      <RegionBoundary label="AISP today">
+        <AispToday summary={summary} readiness={readiness.data?.sports ?? []} decisionsHref={decisionsHref}
+          loading={!coverage.data || !decisions.data} />
+      </RegionBoundary>
     </section>
   )
 }
@@ -180,19 +204,24 @@ function operationalState(events: AgendaEvent[], now: number): string {
 
 const ET_CLOCK = (ms: number) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }).format(ms)
 
-function TodayAgenda({ events, now, positionsOpen, qualified, gamesToday, withSport }: {
+function TodayAgenda({ events, now, positionsOpen, qualified, gamesToday, withSport, loading = false, error = false }: {
   events: AgendaEvent[]; now: number; positionsOpen: number; qualified: number; gamesToday: number | null
   withSport: (href: string, sport?: 'MLB' | 'NFL') => string
+  /** The slate reads are still loading / failed with nothing cached — distinct from a genuinely empty slate. */
+  loading?: boolean; error?: boolean
 }) {
   const next = nextAttention(events, now, 3)
   const done = completedCount(events)
+  // Error takes precedence over loading (matching the hero), and neither is
+  // allowed to render "No game on today's slate" before the reads resolve.
+  const stateText = error ? 'The slate could not be loaded.' : loading ? 'Reading today’s slate…' : operationalState(events, now)
   return (
     <section className="cc-today" aria-label="Today's agenda">
       <header>
         <h2>Today’s Agenda</h2>
         <span className="cc-today__clock">{ET_CLOCK(now)} ET</span>
       </header>
-      <p className="cc-today__state">{operationalState(events, now)}</p>
+      <p className="cc-today__state" role={error ? 'alert' : undefined}>{stateText}</p>
       <dl className="cc-today__stats">
         <div><dt>Games</dt><dd>{gamesToday ?? '—'}</dd></div>
         <div><dt>Qualified</dt><dd className={qualified ? 'is-up' : ''}>{qualified}</dd></div>

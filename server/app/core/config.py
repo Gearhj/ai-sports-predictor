@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -61,6 +63,23 @@ class Settings(BaseSettings):
     odds_markets: str = "h2h,spreads,totals"
     odds_regions: str = "us"
     odds_manual_cooldown_minutes: int = Field(default=5, ge=1)
+    #: LEGACY QUOTE LEGS (hotfix 2026-10-24, review HIGH-4). Retained odds rows
+    #: written before the event-clock contract (every SportsGameOdds NFL row and
+    #: the week-7 Odds API snapshots held since 08-29) carry no
+    #: ``event_commence_time``, so the BOTH-leg pair gate refused them outright
+    #: and NFL had a single quote source. Such a pair is now accepted when the
+    #: kickoff the row retained (``identity_mapping.scheduled_start_utc`` or
+    #: ``commence_time``) agrees with the canonical start within this many
+    #: minutes AND both legs name the same provider event (identity mismatches
+    #: are still refused). The canonical start is then used as the provider
+    #: clock, so the cushion never extends betting time. 0 = exact agreement
+    #: only; capped at the 2-hour MATCH_WINDOW. Owner: "the game time needs to
+    #: exactly match or we can't move forward. I want there to be some cushion".
+    nfl_legacy_quote_clock_tolerance_minutes: int = Field(default=120, ge=0, le=120)
+    cfb_legacy_quote_clock_tolerance_minutes: int = Field(default=120, ge=0, le=120)
+    nhl_legacy_quote_clock_tolerance_minutes: int = Field(default=20, ge=0, le=120)
+    nba_legacy_quote_clock_tolerance_minutes: int = Field(default=20, ge=0, le=120)
+    mlb_legacy_quote_clock_tolerance_minutes: int = Field(default=20, ge=0, le=120)
     odds_quota_floor: int = Field(default=10, ge=0)
     # Bounded recovery from a latched quota guard. A LOW reading is respected
     # while it is fresh; once it is older than this it is no longer evidence
@@ -84,6 +103,9 @@ class Settings(BaseSettings):
         default=str(Path.home() / 'asp-model-exchange' / 'aisp-daily-forecast-bundles')
     )
     model_exchange_auto_import_enabled: bool = False
+    # Root of the immutable model exchange the probability adapter re-reads
+    # retained paired score populations from (read-only; never written).
+    probability_exchange_root: str = Field(default=str(Path.home() / 'asp-model-exchange'))
     # --- AISP DAY-BEFORE SHOW PREVIEW V1 ----------------------------------------
     # A research/editorial Show Board for the day-before 5:00 PM ET recording.
     # All three switches default OFF and fail closed: a missing or unparseable
@@ -151,6 +173,12 @@ class Settings(BaseSettings):
     #: doubleheader without letting a runaway spend the month in a day.
     odds_daily_credit_budget: int = Field(default=18, ge=0, le=500)
     #: Comma-separated per-league market overrides, e.g. "MLB=h2h;NFL=h2h,spreads,totals".
+    #: Player-prop quote collection (app.player_props.collector). Inactive by
+    #: default: a live single-event request needs the flag AND a nonzero
+    #: research-lane allocation AND an explicit --execute.
+    player_prop_live_enabled: bool = False
+    player_prop_research_monthly_credits: int = Field(default=0, ge=0, le=50)
+    player_prop_research_daily_credits: int = Field(default=0, ge=0, le=5)
     #: Empty keeps the compiled defaults in app.services.odds_collection_plan.
     odds_market_overrides: str = ""
     # --- Research fallback provider (disabled; no account, no credential) -----
@@ -166,12 +194,42 @@ class Settings(BaseSettings):
     #: remembering: from this date The Odds API is primary again. Empty means no
     #: authorized window at all, not an open one.
     sportsgameodds_fallback_until: str = ""
+    #: Whether the MLB fallback names the provider events AISP itself bound to
+    #: the selected games (``eventIDs``; see sgo_collection.EVENT_ID_FILTER_PARAM
+    #: for the retained provider documentation). OFF: never; an ambiguous
+    #: selection is deferred. VALIDATE: IDs for selections the window rule
+    #: already makes unambiguous (evidence only); the FIRST ambiguous
+    #: all-verified selection is sent by ID once as the owner-authorised
+    #: DISCRIMINATING_TEST. If it passes, VALIDATE behaves as ON from then on
+    #: (transition recorded once in the ledger); if it fails, VALIDATE stays
+    #: deferral-only. ON: whenever every selected game has a verified ID.
+    #: Every ID request is checked locally before sending and before ingesting,
+    #: and every ID purchase records exact_event_selection evidence.
+    sgo_exact_event_selection_mode: Literal["OFF", "VALIDATE", "ON"] = "OFF"
     open_meteo_enabled: bool = True
     statcast_enabled: bool = False
     demo_mode: bool = True
     enable_arbitrage_analytics: bool = False
     official_positions_enabled: bool = False
     official_max_stake_percentage: float = Field(default=0.025, gt=0, le=0.10)
+    #: MLB_V18_FUNDING_PAUSE_V1. When true, an exact-authority MLB V18
+    #: FINAL_PREGAME QUALIFIED_BET is recorded as a funding pause and creates
+    #: no paper position; a V18 authority mismatch creates no position and
+    #: raises an operating alert. Decisions, forecasts and thresholds are never
+    #: touched. When false (the default) position creation is exactly as before.
+    mlb_v18_funding_pause_enabled: bool = False
+    #: AISP_MLB_POSTPONED_NOT_PLAYED_ON_ORIGINAL_ET_DATE_V1, duplicate guard.
+    #: When true, an MLB game rescheduled onto its own games row may receive a
+    #: fresh paper position for the makeup occurrence: a prior position on the
+    #: same market outcome stops blocking it once it is VOID and provably
+    #: belongs to ANOTHER occurrence (different decision, slate date and
+    #: original Eastern date). An OPEN prior always blocks (finalize-games voids
+    #: it); the guard never writes. It also needs migration 20261019_0055 (the
+    #: per-outcome unique constraint narrowed to non-VOID rows, shipped
+    #: separately): until the database has that index the guard keeps
+    #: blocking, so turning this on early changes nothing. When false (the
+    #: default) the guard is exactly as before.
+    mlb_rescheduled_occurrence_positions_enabled: bool = False
 
     simulation_draws: int = Field(default=20_000, ge=100, le=1_000_000)
     simulation_seed: int = 20250601
@@ -226,6 +284,58 @@ class Settings(BaseSettings):
     nfl_shadow_enabled: bool = False
     nfl_shadow_bundle_import_dir: str = ""
     nfl_shadow_odds_enabled: bool = False
+    #: THE NFL PRICE FALLBACK: SportsGameOdds refused -> ONE The Odds API request.
+    #:
+    #: When `collect-nfl-pregame-odds` finds NFL games due in the T-27..T-25
+    #: checkpoint phase and the SportsGameOdds lane REFUSES them for budget or
+    #: eligibility (allocation paused/spent, provider not eligible, lane halted,
+    #: renewal cap, object reserve), this makes ONE americanfootball_nfl request
+    #: (h2h, region us; one credit) through every existing Odds API guard, once
+    #: per kickoff cluster plus one owed retry after a zero-charge failure
+    #: (app/services/nfl_odds_api_fallback.py). INDEPENDENT of
+    #: `nfl_shadow_odds_enabled`: it never arms the legacy interval poller.
+    #: Default ON (owner approval 2026-10-06: switch to The Odds API automatically when
+    #: SGO refuses). Set NFL_ODDS_API_FALLBACK_ENABLED=false to turn it off.
+    nfl_odds_api_fallback_enabled: bool = True
+    #: Fallback requests per operational (display-timezone) day. The existing
+    #: Odds API daily request budget, credit lanes and reserve still apply.
+    nfl_odds_api_fallback_daily_request_cap: int = Field(default=20, ge=0, le=100)
+    # ------------------------------------------------------------------
+    # THE NFL FINAL READINESS GATE, AND WHY IT SHIPS OFF.
+    #
+    # `nfl-final-delivery-operational-v2.md` requires the readiness family
+    # "for FINALs from the activated operational-V2 producer revision". That
+    # revision is NOT activated and the family does not exist on disk, so
+    # requiring it today would fail-close every FINAL that arrives from the
+    # CURRENT producer -- a consumer change breaking a producer that has not
+    # changed.
+    #
+    # Off (the default): the verification still RUNS on every FINAL and its
+    # verdict is recorded on the decision, so we accumulate real evidence
+    # about the family from the moment it starts appearing. It does not block.
+    # On: it blocks, and an unverified FINAL controls nothing.
+    #
+    # This is the activation switch. It is flipped only after the producer's
+    # operational-V2 revision is live and the first authentic receipts have
+    # been read back.
+    # ------------------------------------------------------------------
+    #: The EXACT producer revision the reviewed operational-V2 producer emits.
+    #: Empty means unpinned, and unpinned means an old-revision receipt would
+    #: satisfy the identity check -- acceptable only while enforcement is off.
+    #: Set this before arming `nfl_final_readiness_required`.
+    nfl_final_required_producer_revision: str = ""
+    #: The receipt schema hash the reviewed producer declares. Empty means
+    #: unpinned; set it with the revision.
+    nfl_final_readiness_schema_sha256: str = ""
+    #: Absolute path to READINESS_CONSUMER_SCHEMA.json. Re-hashed at every
+    #: verification and refused on mismatch, so the shape enforced is the
+    #: reviewed one rather than whatever is on the filesystem.
+    nfl_final_readiness_schema_path: str = ""
+    nfl_final_readiness_required: bool = False
+    #: Where the readiness family is read from. Empty means "the configured
+    #: model-exchange root", which is what production uses; tests point it at a
+    #: temporary directory so the real exchange tree is never touched.
+    nfl_final_readiness_root: str = ""
     # Automatic NFL final ingestion from the free nflverse schedules release.
     # This is the kill switch: off means completed games stop entering AISP by
     # themselves and prospective scoring waits for an operator again. It spends
@@ -233,6 +343,249 @@ class Settings(BaseSettings):
     # defaults on, unlike every credit-spending path in this file.
     nfl_final_ingest_enabled: bool = True
     nfl_final_ingest_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    # In-game NFL score from ESPN's free public scoreboard, for display only
+    # (app/scoreboard/nfl_espn.py). No key, no charge, never read as a final.
+    # Owner-approved 2026-10-11. Set NFL_ESPN_LIVE_SCORES_ENABLED=false to stop.
+    nfl_espn_live_scores_enabled: bool = True
+    # Future Codex NFL M1 production handoff (fail-closed; see
+    # app/forecast_exchange/nfl_production_handoff.py). Both empty means "not
+    # received": no production label is shown. The SHA-256 is the operator's
+    # pin of the exact handoff bytes; a file that does not hash to it is refused.
+    nfl_production_handoff_path: str = ""
+    nfl_production_handoff_sha256: str = ""
+    #: STAGED, NOT ACTIVE: the CFB Gen1 slate-publisher handoff. Empty means
+    #: NOT_RECEIVED; a pinned handoff that declares consumerActivated=false stays
+    #: STAGED_AWAITING_ACTIVATION, and ACTIVE also needs the consumer switch.
+    cfb_production_handoff_path: str = ""
+    cfb_production_handoff_sha256: str = ""
+    cfb_production_consumer_enabled: bool = False
+    #: Dev/test only. When false (the default, and the only production value) the
+    #: NHL read surfaces never include preview or synthetic fixture rows, whatever
+    #: a request asks for. Fixtures exist only in tests and isolated previews.
+    nhl_test_data_enabled: bool = False
+    #: Forward NHL publications (Model Studio interface 0bcf/adf270, see
+    #: app/nhl/forward_delivery.py). OFF by default; only the owner turns it on.
+    #: Even on, the job reads only the producer's local discovery index, its
+    #: dated workspace and the SAME NHL research exchange -- never a provider --
+    #: and imports research forecasts only: no decision, quote, price or position.
+    nhl_forward_import_enabled: bool = False
+    #: A delivery must be consumed before the next publication replaces the
+    #: exchange pointer (about a day later), so a short local poll is ample.
+    nhl_forward_import_interval_minutes: int = Field(default=10, ge=5, le=60)
+    #: AISP's own in-process NHL Gen1 forecasts (app/nhl/inprocess_generator.py): the frozen,
+    #: accepted model run on the public sportsdataverse schedule at 09:20 and 15:20 ET and
+    #: once shortly after startup. OFF by default. At most five free public GitHub requests
+    #: per run (two rights reads, the release API, the asset and its redirect); no paid
+    #: request, no decision, quote, price or position.
+    nhl_forecast_generation_enabled: bool = False
+    #: The schedule asset's own update clock must be at most this old at capture, or the
+    #: run refuses (ASSET_STALE). The publisher refreshes it nightly (~08:00Z).
+    nhl_forecast_generation_max_asset_age_hours: float = Field(default=48.0, ge=1.0, le=168.0)
+    #: NHL paper lifecycle (AISP_NHL_PAPER_POLICY_V1, app/nhl/paper.py). Two switches, both OFF:
+    #: the checkpoint job (decisions are recorded with their reason, settlement runs) and the
+    #: activation control (without it no NHL position is ever written). Neither opens an account.
+    nhl_paper_checkpoint_enabled: bool = False
+    nhl_paper_decisions_enabled: bool = False
+    #: The Odds API NHL lane for the NHL paper policy (app/nhl/odds_api_price.py).
+    #: Off by default. On, it requests h2h only (1 credit per region per request),
+    #: at most one request per start-time cluster (T-75..T-35 of a SCHEDULED game
+    #: with an admissible, decision-capable NHL forecast), through every existing
+    #: Odds API guard (daily request budget, monthly credit cap/reserve, provider
+    #: floor, cooldown) AND the NHL_RESEARCH credit lane below, which is zero
+    #: unless funded. The Odds API is the NHL policy's only permitted quote source.
+    nhl_odds_api_enabled: bool = False
+    odds_nhl_lane_monthly_credits: int = Field(default=0, ge=0, le=500)
+    odds_nhl_lane_daily_credits: int = Field(default=0, ge=0, le=48)
+    #: Does the NHL lane also yield to CFB (leave CFB's unspent monthly allocation and, on a
+    #: CFB day, its unspent daily share of the shared credit and request budgets)? It did from
+    #: 1aee96d (2026-10-16). The owner's priority on 2026-10-16 is "prioritize MLB and NHL over
+    #: CFB", so by default NHL now yields to NFL only. True restores the 1aee96d arithmetic
+    #: exactly, without a code rollback.
+    odds_nhl_yields_to_cfb: bool = False
+    #: NHL finals from ESPN's free public scoreboard (app/nhl/espn_results.py), the results source
+    #: app.nhl.paper.settle reads. OFF by default: off, no job is registered and a manual run makes
+    #: no request. On, it asks (one keyless GET per US-Eastern date, $0) only for dates holding a
+    #: real NHL game that started 2h30m+ ago and awaits its result, writes nhl_game_results and marks
+    #: the game final. It never settles; the NHL paper checkpoint does.
+    nhl_espn_results_enabled: bool = False
+    nhl_espn_results_interval_minutes: int = Field(default=30, ge=10, le=120)
+    #: How far back an unresolved game is still asked about.
+    nhl_espn_results_lookback_days: int = Field(default=7, ge=1, le=14)
+    #: How long a game final from this source is re-read, so a later score change is seen.
+    nhl_espn_results_correction_hours: int = Field(default=48, ge=0, le=168)
+    #: The discovery pointer the consumer reads; the pinned handoff must bind a
+    #: manifest reachable from it (same release lineage).
+    cfb_discovery_pointer_path: str = Field(default=str(
+        Path.home() / 'asp-model-exchange' / 'cfb-gen1-production-v1' / 'slate-discovery' / 'current.json'))
+    #: Independent orientation evidence: a raw CFBD /games capture (native
+    #: homeId/awayId). Never the producer's own adapted input.
+    cfb_independent_schedule_path: str = Field(default=str(
+        Path.home() / 'asp-model-studio' / 'outputs' / 'cfb-gen1-current-v1' / 'private-sources' / 'cfbd'
+        / 'games-2026.json'))
+    #: The producer's retained final-result evidence pointer. No network: the
+    #: finals consumer only reads what Codex already captured.
+    cfb_final_evidence_pointer_path: str = Field(default=str(
+        Path.home() / 'asp-model-exchange' / 'cfb-gen1-production-v1' / 'final-result-evidence' / 'current.json'))
+    #: Activation control for AISP_CFB_PAPER_POLICY_V1 positions. Off means the
+    #: checkpoint still evaluates and records its reason, but never positions.
+    cfb_paper_decisions_enabled: bool = False
+    #: Cadence of the CFB paper checkpoint (``asp-dc-cfb-paper-checkpoint``) on the decision lane.
+    #: 5 until 2026-10-17. Under load the producer's discovery leases lapsed in 10+ minute gaps, so a
+    #: 5-minute tick reached only one or two current-lease moments inside a T-30..T-15 window; 2 gives
+    #: seven ticks. A CFB run took <= 59.4 s even on 2026-10-10 (22 positions) and nothing else waits
+    #: on it for long (decision-lane max wait 18 s). Set back to 5 without a code rollback.
+    cfb_paper_checkpoint_interval_minutes: int = Field(default=2, ge=1, le=15)
+    #: SportsGameOdds CFB featured-slate lane: at most this many objects in
+    #: total for the 2026-09-18 assignment, and only from capacity both budget
+    #: guards leave uncommitted after MLB/NFL projected need.
+    cfb_sgo_lane_enabled: bool = False
+    #: Unresolved production identities for the CFB price adapter. Empty means
+    #: unresolved and the adapter requests nothing; they are pinned only from a
+    #: live observation (see app/cfb/sgo_price.py LIVE_VALIDATION) through a
+    #: reviewed binding artifact (app/cfb/sgo_binding.py), never guessed.
+    cfb_sgo_league_id: str = ""
+    cfb_sgo_team_map_path: str = ""
+    cfb_sgo_lane_object_cap: int = 10
+    #: An owner's per-day bound on the CFB lane. Unset keeps the total-only cap
+    #: above. It can only lower what the capacity gate allows; the lane itself
+    #: stays off (CFB_SGO_LANE_ENABLED) until the owner decides otherwise.
+    cfb_sgo_lane_daily_object_cap: int | None = Field(default=None, ge=0, le=20)
+    #: Objects of month headroom always left to MLB/NFL (projection error) before
+    #: any CFB object is uncommitted. Owner, 2026-09-18: retain the four objects
+    #: the September projection leaves beyond MLB/NFL demand for those commitments.
+    cfb_sgo_protected_headroom: int = 10
+    #: The Odds API NCAAF lane for the CFB paper policy (app/cfb/odds_api_price.py).
+    #: Off by default. On, it requests h2h only (1 credit per region per request),
+    #: at most one request per kickoff cluster, through every existing Odds API
+    #: guard (daily request budget, monthly credit cap/reserve, provider floor,
+    #: cooldown) AND the CFB_RESEARCH credit lane below, which is zero unless
+    #: funded. Odds API credits are a pool separate from SportsGameOdds objects.
+    cfb_odds_api_enabled: bool = False
+    odds_cfb_lane_monthly_credits: int = Field(default=0, ge=0, le=500)
+    odds_cfb_lane_daily_credits: int = Field(default=0, ge=0, le=48)
+    #: Effective clock (UTC) of the appended CFB quote-source amendment that
+    #: admits The Odds API (research_paper_policy.SOURCE_AMENDMENTS). Unset = the
+    #: frozen SportsGameOdds-only record alone governs; set by the owner at
+    #: activation, it applies only to decisions made at or after it.
+    cfb_odds_api_source_effective_from: datetime | None = None
+    #: Effective clock (UTC) of the appended CFB staking amendment that replaces
+    #: the paper account's 2%-of-bankroll daily limit with a flat $50 per Eastern
+    #: date, counting every stake entered that date (research_paper_policy.
+    #: STAKING_AMENDMENTS). Unset = the frozen 2% limit alone governs; set by the
+    #: owner at activation, it applies only to decisions made at or after it.
+    #: The $5 per-position cap never changes.
+    cfb_daily_limit_amendment_effective_from: datetime | None = None
+    #: Effective clock (UTC) of the owner's shared cross-sport daily allowance
+    #: (app/services/shared_daily_allowance.py): one $100 per Eastern slate date
+    #: for ALL official AISP paper positions combined, replacing each sport's own
+    #: aggregate daily ceiling; every stake entered that date counts, any status.
+    #: Unset = every sport keeps its existing daily rule. Applies only to
+    #: decisions made at or after it.
+    shared_daily_allowance_effective_from: datetime | None = None
+    #: Owner Oct19: prospective signed selected-side same-book gap >10pp is
+    #: recorded without funding. Set to the ACTUAL safe release UTC clock.
+    #: Unset leaves this candidate inactive; never backdate over old decisions.
+    owner_large_gap_record_only_effective_from: datetime | None = None
+    #: NBA paper funding RECORD-ONLY (owner decision pending 2026-10-24; hotfix
+    #: step 7). Unset (default) = NBA decisions fund exactly as today. Set to the
+    #: ACTUAL release UTC clock and every NBA decision made at or after it keeps
+    #: its value/quote evidence and is recorded with outcome RECORD_ONLY
+    #: (OWNER_NBA_PAPER_FUNDING_RECORD_ONLY) and no position -- the same
+    #: owner_funding_restrictions mechanism as the MLB 2026 record-only scope.
+    #: Never backdate over old decisions; existing positions are never rewritten.
+    nba_paper_funding_record_only_effective_from: datetime | None = None
+    # Exact already-approved NFL week7 funding gate; actual release clock only.
+    owner_nfl_qb_out_record_only_effective_from: datetime | None = None
+    owner_nfl_qb_out_admissions_root: str | None = None
+    owner_nfl_qb_out_observation_root: str | None = None
+    #: AISP_SHARED_100_PRIORITY_MLB_NHL_V1 (owner decision 2026-10-16 21:20Z: "I want
+    #: to prioritize MLB and NHL over CFB"; app/services/shared_priority_reservation.py).
+    #: Inside the unchanged shared $100, every MLB/NHL game still waiting for its
+    #: decision holds its policy maximum back from the other sports. On by
+    #: default (the owner's rule); false = the plain first-come shared $100.
+    shared_daily_priority_reservation_enabled: bool = True
+    #: MLB V18 forecasts arrive only 2-3 h before first pitch (after lineups), so an
+    #: MLB game reserves while still awaiting its V18 publication. False = an MLB
+    #: game reserves only once a ready V18 forecast is held.
+    shared_daily_priority_mlb_reserve_before_forecast: bool = True
+    #: The ONE live validation request that observes the provider's real CFB
+    #: league and team identifiers (app/cfb/sgo_price.py LIVE_VALIDATION). Off by
+    #: default; even when on, it spends only through the lane (switched on, with
+    #: capacity), at most ``cfb_sgo_validation_max_requests`` requests in total,
+    #: and it prices nothing: it writes a binding review artifact a person
+    #: reviews before CFB_SGO_LEAGUE_ID and the team map are pinned.
+    cfb_sgo_validation_enabled: bool = False
+    #: The provider's DOCUMENTED College Football league key (its OpenAPI example
+    #: data, retained 2026-09-19). A request filter only -- never a pinned identity.
+    cfb_sgo_validation_league_candidate: str = "NCAAF"
+    cfb_sgo_validation_max_requests: int = Field(default=1, ge=0, le=3)
+    # The V18 producer's own daily slate receipts, read-only, so a card with no
+    # forecast can show the producer's actual per-game reason.
+    mlb_v18_slate_receipts_root: str = str(
+        Path.home() / 'asp-model-studio' / 'outputs' / 'mlb-v18-current-state-pipeline-v1' / 'slates'
+    )
+    cfb_sgo_lane_authorized_until: str = "2026-10-01T00:00:00+00:00"
+    # -- NBA Gen1 (app/nba/gen1_*). EVERY switch here defaults OFF and every pin
+    # defaults EMPTY. Nothing NBA is imported, decided, requested or spent until
+    # the owner sets these deliberately; see docs/NBA_LAUNCH_PLAN_20260919.md.
+    #: The selected model handoff: a DIRECTORY, so the path is its index.json and
+    #: the SHA-256 pins that index (which in turn pins every member). Empty means
+    #: NOT_RECEIVED and no production label is shown.
+    nba_production_handoff_path: str = ""
+    nba_production_handoff_sha256: str = ""
+    #: The consumer switch. Off: the exchange consumer skips NBA production
+    #: packages entirely, even with a pin.
+    nba_production_consumer_enabled: bool = False
+    #: The producer's exchange tree. V2 slate discovery (slate-discovery/current.json)
+    #: is preferred; the V1 single-game discovery/current.json is read when no V2
+    #: pointer exists. Both are verified from bytes.
+    nba_exchange_root: str = Field(default=str(
+        Path.home() / 'asp-model-exchange' / 'nba-gen1-production-v1'))
+    #: HISTORICAL evidence (read-only, pinned). Model Studio's 2025-26 fixed
+    #: assessment receipt and its joint-residual season receipt; each binds its
+    #: artifacts by SHA-256. Empty means the historical import refuses to run.
+    nba_historical_assessment_receipt_path: str = ""
+    nba_historical_assessment_receipt_sha256: str = ""
+    nba_historical_joint_receipt_path: str = ""
+    nba_historical_joint_receipt_sha256: str = ""
+    #: THE PRODUCTION FINAL PATH: the source-confirmed finals exchange lane
+    #: (finals-discovery/current.json -> NBA_GEN1_FINAL_DISCOVERY_V1 ->
+    #: NBA_GEN1_SOURCE_CONFIRMED_FINAL_V1 records). Empty uses
+    #: <NBA_EXCHANGE_ROOT>/finals-discovery/current.json. An absent pointer is a
+    #: no-op, never an error; the lane is on because it is the delivery path, and
+    #: it spends nothing and requests nothing.
+    nba_finals_exchange_pointer: str = ""
+    nba_finals_exchange_enabled: bool = True
+    #: The SEPARATE HISTORICAL lane: retained ESPN-derived schedule objects
+    #: (content-addressed parquet files Model Studio captured). Finals are
+    #: re-read from these bytes only; no request is ever made. ';'-separated
+    #: "<path>|<sha256>" pairs. This lane reconstructs finished seasons; it is
+    #: not the production path.
+    nba_final_source_objects: str = ""
+    #: Activation control for AISP_NBA_PAPER_POLICY_V1 positions. Off: the NBA
+    #: checkpoint still evaluates and records its reason, but never positions.
+    nba_paper_decisions_enabled: bool = False
+    #: The producer's OPTIONAL, release-bound recurring paper grant (schema
+    #: NBA_RECURRING_PAPER_AUTHORIZATION_V1). Empty = no paper authority; the
+    #: checkpoint blocks NO_PAPER_AUTHORIZATION and everything else still
+    #: imports. A grant must be the one THIS package's slate release binds.
+    nba_paper_policy_grant_path: str = ""
+    nba_paper_policy_grant_sha256: str = ""
+    #: SportsGameOdds NBA price lane. Off, and the league id and reviewed team map
+    #: are unresolved: SGO's NBA identities have never been observed by AISP, so
+    #: nothing is guessed and nothing is requested. See app/nba/sgo_price.py.
+    # Existing included OddsAPI route, prospective owner NBA repair Oct20. OFF until qualified release.
+    nba_odds_api_enabled: bool = False
+    odds_nba_lane_monthly_credits: int = Field(default=0, ge=0, le=500)
+    odds_nba_lane_daily_credits: int = Field(default=0, ge=0, le=48)
+    nba_odds_api_source_effective_from: datetime | None = None
+    nba_sgo_lane_enabled: bool = False
+    nba_sgo_league_id: str = ""
+    nba_sgo_team_map_path: str = ""
+    #: Objects the lane may ever spend under its current authority. 0 = none.
+    #: An October allowance is an owner decision (docs/NBA_LAUNCH_PLAN_20260919.md).
+    nba_sgo_lane_object_cap: int = 0
+    nba_sgo_lane_authorized_until: str = ""
     # Optional local orchestration of the bounded Model Studio producer.  AISP
     # never computes NFL features itself: when explicitly armed, the existing
     # scheduler launches the pinned producer CLI without a shell, then imports
@@ -282,6 +635,122 @@ class Settings(BaseSettings):
     prediction_market_min_depth: float = Field(default=50.0, ge=0)
     prediction_market_max_spread: float = Field(default=0.10, gt=0, le=1)
 
+    # ------------------------------------------------------------------
+    # V18 vs fresh-market prospective pilot: consumer pregame packet export.
+    # Private research only (protocol f75aeccd..., frozen 2026-09-18). OFF by
+    # default and inert when off: nothing is registered, nothing is written.
+    # When on, the sealer reads retained rows and writes write-once packets to
+    # its own directory -- no provider request, no decision, no position.
+    # ------------------------------------------------------------------
+    v18_market_pilot_export_enabled: bool = False
+    #: Where sealed packets, their .sha256 files and the append-only attempt
+    #: ledger are written. Created on first write, never overwritten.
+    v18_market_pilot_packet_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-packets"))
+    #: Sealer cadence. The protocol allows T-15 .. T-5, so ticks stay short.
+    v18_market_pilot_interval_minutes: int = Field(default=2, ge=1, le=2)
+    #: The producer's frozen protocol object, cross-checked against the
+    #: byte-exact vendored copy when readable. Never written.
+    v18_market_pilot_protocol_dir: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-market-prospective-v1" / "objects"
+        / "sha256" / "f75aeccd8f0e472b399d1f470c29d6a443d77078f7c69333023292019d956bf7"))
+    #: The whole-game MLB quarantine ledger applied before any packet is built.
+    v18_market_pilot_quarantine_ledger_path: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "server" / "artifacts" / "governance"
+        / "mlb-final-oot-quarantine-v1.json"))
+    # -- Model Studio's readable canonical originals (SOURCE_ACCESS_REPAIR_PROPOSAL
+    # f69c0bf6aca205926bf707ccc8c665d89a86d711e07d1f34987fdbfbdb7e0572, 2026-09-19).
+    # The exchange package the importer read is ACL-restricted to elevated tokens,
+    # so a packet's object/input/receipt references resolve to files the producer's
+    # own private reader cannot open. These roots hold the SAME bytes, already
+    # readable unelevated. They are only ever read; a reference moves to them only
+    # when the physically read digest and length equal the identity the packet
+    # already binds, and never for an already-sealed packet.
+    #: <root>/<objectSHA>/manifest.json, pregame-evidence.json, execution-inputs.json.
+    v18_market_pilot_canonical_object_root: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-current-state-pipeline-v1"
+        / "objects" / "sha256"))
+    #: <root>/<logicalHandoffSHA>/aisp-handoff.json. Read only to learn the exact
+    #: member file names the handoff names; never emitted as a packet reference.
+    v18_market_pilot_canonical_handoff_root: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-current-state-pipeline-v1"
+        / "handoffs" / "sha256"))
+    #: <root>/<receiptSHA>/incremental-publication.json: the per-object atomic
+    #: publication receipt whose packageExposedAtUtc is the exchange-directory rename.
+    v18_market_pilot_publication_receipt_root: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "mlb-v18-unattended-v1"
+        / "objects" / "sha256"))
+    #: The same pilot's consumer-admitted outcomes (Model Studio's "same-final
+    #: export"). A SEPARATE switch, OFF by default and inert when off. When on,
+    #: a 10-minute research-export job reads only episodes with an authentic
+    #: SEALED packet, under a read-only transaction, and writes write-once
+    #: outcome records to its own directory -- never into the packets directory.
+    v18_market_pilot_outcomes_export_enabled: bool = False
+    v18_market_pilot_outcomes_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes"))
+    #: Non-PENDING outcomes (DECISIVE/TIE/VOID/NO_CONTEST) AISP admitted but
+    #: whose source supplied no finalAtUtc: Model Studio's frozen reader parses
+    #: finalAtUtc for every non-PENDING status, so they are kept OUT of the
+    #: input lane above, write-once, with their evidence and reason.
+    #: Must not overlap the outcomes or packets directory.
+    v18_market_pilot_outcomes_withheld_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-withheld"))
+    #: V2 export for the accepted outcome amendment 7508ae72... (source-confirmed
+    #: terminal, capture-bound, finalAtUtc null with an explicit basis). A
+    #: SEPARATE switch, OFF by default and inert when off; V1 is unchanged. It
+    #: writes only its own sibling lane, never the packets, V1 or withheld dirs.
+    v18_market_pilot_outcomes_v2_enabled: bool = False
+    v18_market_pilot_outcomes_v2_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "mlb-v18-market-prospective-v1" / "consumer-outcomes-v2"))
+
+    # ------------------------------------------------------------------
+    # Prospective model-market capture (app.research_exports.prospective_capture).
+    # Model Studio's contract IS frozen now (MODEL_MARKET_OBSERVATION_V1, contract
+    # sha256 e0ee599e..., protocol sha256 fcb530fc...), and the exporter is mapped
+    # onto it -- but it stays OFF until Codex passes the mapping. Off means inert:
+    # no row is read and no file is opened.
+    #
+    # There is deliberately NO scheduler entry for it. Its invocation path is
+    # PREPARED_NOT_ACTIVATED: a trailing step of the EXISTING research-export
+    # owner `export-v18-market-pilot-outcomes-v2` (`asp-rx-*`), which creates no
+    # new scheduler, job or owner and never touches the decision-checkpoint lane.
+    # Turning this on while that owner is registered is what activates it.
+    # It never writes a decision, a position or any production record.
+    # ------------------------------------------------------------------
+    #: How often the dedicated NFL FINAL pair import runs, in minutes. One
+    #: minute: a FINAL published at the producer's operational target must be
+    #: imported before the last checkpoint tick inside its T-30..T-15 window,
+    #: and the broad pass's five-minute cadence cannot guarantee that.
+    nfl_final_import_interval_minutes: int = 1
+    prospective_capture_enabled: bool = False
+    #: NFL early-line research export (NFL_EARLY_LINE_OBSERVATION_V1). OFF by
+    #: default and inert when off. Rides the same existing research-export owner
+    #: as the prospective capture; registers no job and calls no provider. Turned
+    #: on only after Model Studio accepts the mapping.
+    #: THE SPEND-NEUTRAL T-26 RETIME. OFF by default. It MOVES the existing
+    #: per-game NFL checkpoint into the frozen protocol's [T-27, T-25] request
+    #: interval; it never adds an object. Requires Model Studio's acceptance of
+    #: the exact bytes before it may be turned on.
+    nfl_late_checkpoint_retime_enabled: bool = False
+    nfl_early_line_capture_enabled: bool = False
+    #: Its own write-once lane, separate from every other research export.
+    nfl_early_line_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "nfl-early-line-research-v1"))
+    #: Where the three frozen contract files live. Re-hashed on every tick; a
+    #: mismatch refuses the tick rather than building against a changed contract.
+    nfl_early_line_contract_dir: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "nfl-early-line-information-edge-v1"))
+    #: Where Model Studio publishes the producer evidence this export depends on:
+    #: the point-in-time pregame schedule identity manifest and its narrow team
+    #: alias set. Content-addressed; nothing here is read by a declared path.
+    nfl_early_line_producer_evidence_dir: str = Field(default=str(
+        Path.home() / "asp-model-studio" / "outputs" / "nfl-early-line-information-edge-v1"
+        / "producer-evidence"))
+    #: Its own lane. Must not overlap any V18 market-pilot directory; the
+    #: exporter refuses to run if it does.
+    prospective_capture_dir: str = Field(default=str(
+        Path.home() / "asp-model-exchange" / "prospective-research-capture-v1"))
+
     scheduler_enabled: bool = False
     event_relative_scheduler_enabled: bool = False
     raw_data_root: Path = ASP_ROOT / "data" / "raw"
@@ -307,6 +776,13 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_optional_key(cls, value: object) -> str:
         return "" if value is None else str(value).strip()
+
+    @field_validator("sgo_exact_event_selection_mode", mode="before")
+    @classmethod
+    def normalize_exact_selection_mode(cls, value: object) -> str:
+        """``validate`` and ``VALIDATE`` are the same; empty is OFF."""
+        text = "" if value is None else str(value).strip().upper()
+        return text or "OFF"
 
     @model_validator(mode="after")
     def require_explicit_credentials(self) -> "Settings":
@@ -389,7 +865,9 @@ class Settings(BaseSettings):
 
     @property
     def prediction_market_sport_list(self) -> list[str]:
-        return [s.strip().upper() for s in self.prediction_market_sports.split(",") if s.strip()]
+        # NHL is research-only: never mapped to prediction-market contracts, whatever is configured.
+        return [s.strip().upper() for s in self.prediction_market_sports.split(",")
+                if s.strip() and s.strip().upper() != "NHL"]
 
     @property
     def prediction_market_type_list(self) -> list[str]:
@@ -408,6 +886,80 @@ class Settings(BaseSettings):
         return offsets
 
 
+#: The settings-load image proof for the CACHED Settings: the sha256 of the
+#: env_file bytes read immediately before and immediately after ``Settings()``
+#: was constructed, each with its UTC clock. One slot, bound to the instance by
+#: identity; it is never a Settings field and nothing in settings behaviour
+#: reads it. Only the RUNTIME_SETTINGS_PROOF startup line consumes it.
+_SETTINGS_LOAD_PROOF: dict[str, object] = {}
+
+
+def _read_env_file_bytes(path: str) -> bytes:
+    return Path(path).read_bytes()
+
+
+def _env_file_sha256(settings_cls: type[Settings]) -> str:
+    try:
+        env_file = settings_cls.model_config.get("env_file")
+        if not isinstance(env_file, (str, Path)) or not str(env_file):
+            return "UNREADABLE"
+        return hashlib.sha256(_read_env_file_bytes(str(env_file))).hexdigest()
+    except Exception:
+        return "UNREADABLE"
+
+
+def _utc_now_iso() -> str:
+    try:
+        return datetime.now(timezone.utc).isoformat()
+    except Exception:
+        return "UNREADABLE"
+
+
+def settings_load_proof(settings: object) -> dict[str, object] | None:
+    """The load proof recorded for exactly this instance, else None. Never raises."""
+    try:
+        if _SETTINGS_LOAD_PROOF.get("settings") is settings:
+            return {k: v for k, v in _SETTINGS_LOAD_PROOF.items() if k != "settings"}
+    except Exception:
+        pass
+    return None
+
+
+def _construct_with_load_proof(settings_cls: type[Settings] = Settings) -> Settings:
+    """Construct ``settings_cls()`` exactly as before, bracketed by the load proof.
+
+    Construction itself is untouched: a failing ``Settings()`` raises as it
+    always did, and a failing probe records UNREADABLE instead of raising.
+    """
+    # The clocks bracket the reads: before_utc precedes the first read and
+    # after_utc follows the second, so [before_utc, after_utc] encloses both
+    # digests and the whole construction. Equal digests qualify that interval
+    # only; they say nothing about the file outside it.
+    before_utc = _utc_now_iso()
+    before_sha = _env_file_sha256(settings_cls)
+    settings = settings_cls()
+    after_sha = _env_file_sha256(settings_cls)
+    after_utc = _utc_now_iso()
+    try:
+        stable = (
+            before_sha == after_sha
+            and len(before_sha) == 64
+            and all(c in "0123456789abcdef" for c in before_sha)
+        )
+        _SETTINGS_LOAD_PROOF.clear()
+        _SETTINGS_LOAD_PROOF.update(
+            settings=settings,
+            env_sha256_before=before_sha,
+            env_sha256_after=after_sha,
+            before_utc=before_utc,
+            after_utc=after_utc,
+            interval_stable=stable,
+        )
+    except Exception:
+        _SETTINGS_LOAD_PROOF.clear()
+    return settings
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return _construct_with_load_proof(Settings)

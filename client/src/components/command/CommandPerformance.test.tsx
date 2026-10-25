@@ -43,6 +43,17 @@ describe('CommandPerformance', () => {
     expect(requests.every((path) => path.includes('league=MLB'))).toBe(true)
   })
 
+  it('adds a fifth Wager Results view that states its own population and scope', async () => {
+    render(<MemoryRouter><CommandPerformance /></MemoryRouter>)
+    await screen.findByText('70 games')
+    const tabs = within(screen.getByRole('tablist', { name: 'Chart view' })).getAllByRole('tab').map((t) => t.textContent)
+    expect(tabs).toEqual(['Calibration', 'Over time', 'Model vs market', 'Score error', 'Wager Results'])
+    fireEvent.click(screen.getByRole('tab', { name: 'Wager Results' }))
+    expect(await screen.findByTestId('wager-results')).toBeInTheDocument()
+    expect(screen.getByTestId('wager-scope')).toHaveTextContent('Official funded positions — MLB')
+    expect(requests.some((p) => p.startsWith('/research/wager-results?sport=MLB&engine=MLB_V18_WHOLE_GAME'))).toBe(true)
+  })
+
   it('switches cohort without pooling and shows an honest empty state for an unscored sport', async () => {
     render(<MemoryRouter><CommandPerformance /></MemoryRouter>)
     await screen.findByText('70 games')

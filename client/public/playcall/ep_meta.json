@@ -1,0 +1,33 @@
+{
+ "shape": [
+  4,
+  8,
+  99
+ ],
+ "scale": 1000,
+ "dtype": "int16-le",
+ "ydReps": [
+  1,
+  2,
+  3,
+  4.5,
+  6.5,
+  9,
+  12.5,
+  18
+ ],
+ "trainedOn": "nflfastR expected points over 461,646 NFL snaps 2015-2026",
+ "validation": {
+  "train": "2015-2024",
+  "test": "2025-26 to date",
+  "corr_with_nflfastR_ep": 0.9749,
+  "rmse": 0.3876,
+  "rmse_if_constant": 1.7456
+ },
+ "examples": {
+  "1st and 10, own 25": 1.2,
+  "1st and goal, 2 yard line": 6.3,
+  "4th and 1, midfield": 0.6,
+  "3rd and 18, own 10": -1.52
+ }
+}

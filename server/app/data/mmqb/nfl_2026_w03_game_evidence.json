@@ -1,0 +1,934 @@
+{
+ "content_sha256": "d5bbbb821e94b81d2a9d8db6998d28be4e30055dfd0cee1afa09e48293bb62a5",
+ "extracted_at_utc": "2026-09-28T19:46:12.422344+00:00",
+ "games": {
+  "2026_03_BAL_DAL": {
+   "away": "BAL",
+   "ends_with_end_game": true,
+   "final_as_recorded": {
+    "away": 34,
+    "home": 31
+   },
+   "game_id": "2026_03_BAL_DAL",
+   "home": "DAL",
+   "last_row_desc": "END GAME",
+   "max_quarter": 4,
+   "passers": [
+    {
+     "gsis_id": "00-0034796",
+     "name_as_recorded": "L.Jackson",
+     "pass_attempts": 20,
+     "team": "BAL"
+    },
+    {
+     "gsis_id": "00-0033077",
+     "name_as_recorded": "D.Prescott",
+     "pass_attempts": 42,
+     "team": "DAL"
+    }
+   ],
+   "retained": true,
+   "rows": 186,
+   "scoring_sequence": [
+    {
+     "away": 0,
+     "clock": "Q1 8:13",
+     "home": 3,
+     "kick_distance_yards": 28.0,
+     "kind": "FG",
+     "play_id": 385.0,
+     "player_as_recorded": "B.Aubrey",
+     "points": 3,
+     "team": "DAL"
+    },
+    {
+     "away": 0,
+     "clock": "Q1 4:35",
+     "home": 9,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 644.0,
+     "player_as_recorded": "J.Williams",
+     "points": 6,
+     "team": "DAL"
+    },
+    {
+     "away": 0,
+     "clock": "Q1 4:32",
+     "home": 10,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 667.0,
+     "player_as_recorded": "B.Aubrey",
+     "points": 1,
+     "team": "DAL"
+    },
+    {
+     "away": 6,
+     "clock": "Q1 1:22",
+     "home": 10,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 863.0,
+     "player_as_recorded": "D.Henry",
+     "points": 6,
+     "team": "BAL"
+    },
+    {
+     "away": 7,
+     "clock": "Q1 1:18",
+     "home": 10,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 890.0,
+     "player_as_recorded": "T.Loop",
+     "points": 1,
+     "team": "BAL"
+    },
+    {
+     "away": 13,
+     "clock": "Q2 11:29",
+     "home": 10,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 1305.0,
+     "player_as_recorded": "D.Henry",
+     "points": 6,
+     "team": "BAL"
+    },
+    {
+     "away": 14,
+     "clock": "Q2 11:23",
+     "home": 10,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 1328.0,
+     "player_as_recorded": "T.Loop",
+     "points": 1,
+     "team": "BAL"
+    },
+    {
+     "away": 17,
+     "clock": "Q2 4:48",
+     "home": 10,
+     "kick_distance_yards": 27.0,
+     "kind": "FG",
+     "play_id": 1738.0,
+     "player_as_recorded": "T.Loop",
+     "points": 3,
+     "team": "BAL"
+    },
+    {
+     "away": 17,
+     "clock": "Q2 0:23",
+     "home": 13,
+     "kick_distance_yards": 38.0,
+     "kind": "FG",
+     "play_id": 2052.0,
+     "player_as_recorded": "B.Aubrey",
+     "points": 3,
+     "team": "DAL"
+    },
+    {
+     "away": 23,
+     "clock": "Q3 3:50",
+     "home": 13,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 2856.0,
+     "player_as_recorded": "C.Moore",
+     "points": 6,
+     "team": "BAL"
+    },
+    {
+     "away": 24,
+     "clock": "Q3 3:44",
+     "home": 13,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 2882.0,
+     "player_as_recorded": "T.Loop",
+     "points": 1,
+     "team": "BAL"
+    },
+    {
+     "away": 24,
+     "clock": "Q3 1:53",
+     "home": 19,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 3063.0,
+     "player_as_recorded": "J.Ferguson",
+     "points": 6,
+     "team": "DAL"
+    },
+    {
+     "away": 24,
+     "clock": "Q3 1:48",
+     "home": 21,
+     "kick_distance_yards": null,
+     "kind": "2PT",
+     "play_id": 3089.0,
+     "player_as_recorded": null,
+     "points": 2,
+     "team": "DAL"
+    },
+    {
+     "away": 24,
+     "clock": "Q4 9:46",
+     "home": 27,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 3526.0,
+     "player_as_recorded": "K.Turpin",
+     "points": 6,
+     "team": "DAL"
+    },
+    {
+     "away": 24,
+     "clock": "Q4 9:42",
+     "home": 28,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 3549.0,
+     "player_as_recorded": "B.Aubrey",
+     "points": 1,
+     "team": "DAL"
+    },
+    {
+     "away": 30,
+     "clock": "Q4 1:34",
+     "home": 28,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 4186.0,
+     "player_as_recorded": "M.Hibner",
+     "points": 6,
+     "team": "BAL"
+    },
+    {
+     "away": 31,
+     "clock": "Q4 1:30",
+     "home": 28,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 4212.0,
+     "player_as_recorded": "T.Loop",
+     "points": 1,
+     "team": "BAL"
+    },
+    {
+     "away": 31,
+     "clock": "Q4 0:10",
+     "home": 31,
+     "kick_distance_yards": 23.0,
+     "kind": "FG",
+     "play_id": 4522.0,
+     "player_as_recorded": "B.Aubrey",
+     "points": 3,
+     "team": "DAL"
+    },
+    {
+     "away": 34,
+     "clock": "Q4 0:01",
+     "home": 31,
+     "kick_distance_yards": 56.0,
+     "kind": "FG",
+     "play_id": 4594.0,
+     "player_as_recorded": "T.Loop",
+     "points": 3,
+     "team": "BAL"
+    }
+   ],
+   "turnover_counts": {
+    "BAL": 0,
+    "DAL": 1
+   },
+   "turnovers": [
+    {
+     "clock": "Q3 10:40",
+     "kind": "FUMBLE_LOST",
+     "lost_by": "DAL",
+     "play_id": 2346.0
+    }
+   ]
+  },
+  "2026_03_LV_NO": {
+   "away": "LV",
+   "ends_with_end_game": true,
+   "final_as_recorded": {
+    "away": 35,
+    "home": 27
+   },
+   "game_id": "2026_03_LV_NO",
+   "home": "NO",
+   "last_row_desc": "END GAME",
+   "max_quarter": 4,
+   "passers": [
+    {
+     "gsis_id": "00-0029604",
+     "name_as_recorded": "K.Cousins",
+     "pass_attempts": 38,
+     "team": "LV"
+    },
+    {
+     "gsis_id": "00-0040743",
+     "name_as_recorded": "T.Shough",
+     "pass_attempts": 44,
+     "team": "NO"
+    }
+   ],
+   "retained": true,
+   "rows": 188,
+   "scoring_sequence": [
+    {
+     "away": 3,
+     "clock": "Q1 7:39",
+     "home": 0,
+     "kick_distance_yards": 41.0,
+     "kind": "FG",
+     "play_id": 422.0,
+     "player_as_recorded": "M.Gay",
+     "points": 3,
+     "team": "LV"
+    },
+    {
+     "away": 3,
+     "clock": "Q1 0:54",
+     "home": 6,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 788.0,
+     "player_as_recorded": "J.Johnson",
+     "points": 6,
+     "team": "NO"
+    },
+    {
+     "away": 6,
+     "clock": "Q2 11:30",
+     "home": 6,
+     "kick_distance_yards": 37.0,
+     "kind": "FG",
+     "play_id": 1118.0,
+     "player_as_recorded": "M.Gay",
+     "points": 3,
+     "team": "LV"
+    },
+    {
+     "away": 12,
+     "clock": "Q2 5:49",
+     "home": 6,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 1562.0,
+     "player_as_recorded": "M.Mayer",
+     "points": 6,
+     "team": "LV"
+    },
+    {
+     "away": 13,
+     "clock": "Q2 5:46",
+     "home": 6,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 1590.0,
+     "player_as_recorded": "M.Gay",
+     "points": 1,
+     "team": "LV"
+    },
+    {
+     "away": 13,
+     "clock": "Q2 1:57",
+     "home": 12,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 1863.0,
+     "player_as_recorded": "N.Fant",
+     "points": 6,
+     "team": "NO"
+    },
+    {
+     "away": 13,
+     "clock": "Q2 1:54",
+     "home": 13,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 1889.0,
+     "player_as_recorded": "D.Carlson",
+     "points": 1,
+     "team": "NO"
+    },
+    {
+     "away": 16,
+     "clock": "Q2 0:04",
+     "home": 13,
+     "kick_distance_yards": 25.0,
+     "kind": "FG",
+     "play_id": 2312.0,
+     "player_as_recorded": "M.Gay",
+     "points": 3,
+     "team": "LV"
+    },
+    {
+     "away": 16,
+     "clock": "Q3 6:44",
+     "home": 19,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 2776.0,
+     "player_as_recorded": "J.Johnson",
+     "points": 6,
+     "team": "NO"
+    },
+    {
+     "away": 16,
+     "clock": "Q3 6:40",
+     "home": 20,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 2802.0,
+     "player_as_recorded": "D.Carlson",
+     "points": 1,
+     "team": "NO"
+    },
+    {
+     "away": 16,
+     "clock": "Q3 5:54",
+     "home": 26,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 2893.0,
+     "player_as_recorded": "N.Fant",
+     "points": 6,
+     "team": "NO"
+    },
+    {
+     "away": 16,
+     "clock": "Q3 5:46",
+     "home": 27,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 2924.0,
+     "player_as_recorded": "D.Carlson",
+     "points": 1,
+     "team": "NO"
+    },
+    {
+     "away": 22,
+     "clock": "Q3 3:29",
+     "home": 27,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 3068.0,
+     "player_as_recorded": "M.Washington",
+     "points": 6,
+     "team": "LV"
+    },
+    {
+     "away": 28,
+     "clock": "Q4 9:27",
+     "home": 27,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 3883.0,
+     "player_as_recorded": "C.White",
+     "points": 6,
+     "team": "LV"
+    },
+    {
+     "away": 34,
+     "clock": "Q4 6:28",
+     "home": 27,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 4095.0,
+     "player_as_recorded": "B.Bowers",
+     "points": 6,
+     "team": "LV"
+    },
+    {
+     "away": 35,
+     "clock": "Q4 6:22",
+     "home": 27,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 4121.0,
+     "player_as_recorded": "M.Gay",
+     "points": 1,
+     "team": "LV"
+    }
+   ],
+   "turnover_counts": {
+    "LV": 1,
+    "NO": 4
+   },
+   "turnovers": [
+    {
+     "clock": "Q3 6:40",
+     "kind": "FUMBLE_LOST",
+     "lost_by": "LV",
+     "play_id": 2817.0
+    },
+    {
+     "clock": "Q4 13:04",
+     "kind": "FUMBLE_LOST",
+     "lost_by": "NO",
+     "play_id": 3716.0
+    },
+    {
+     "clock": "Q4 8:03",
+     "kind": "INTERCEPTION",
+     "lost_by": "NO",
+     "play_id": 4001.0
+    },
+    {
+     "clock": "Q4 2:21",
+     "kind": "FUMBLE_LOST",
+     "lost_by": "NO",
+     "play_id": 4380.0
+    },
+    {
+     "clock": "Q4 1:02",
+     "kind": "FUMBLE_LOST",
+     "lost_by": "NO",
+     "play_id": 4698.0
+    }
+   ]
+  },
+  "2026_03_SEA_WAS": {
+   "away": "SEA",
+   "ends_with_end_game": true,
+   "final_as_recorded": {
+    "away": 31,
+    "home": 33
+   },
+   "game_id": "2026_03_SEA_WAS",
+   "home": "WAS",
+   "last_row_desc": "END GAME",
+   "max_quarter": 4,
+   "passers": [
+    {
+     "gsis_id": "00-0034869",
+     "name_as_recorded": "S.Darnold",
+     "pass_attempts": 45,
+     "team": "SEA"
+    },
+    {
+     "gsis_id": "00-0038543",
+     "name_as_recorded": "J.Smith-Njigba",
+     "pass_attempts": 1,
+     "team": "SEA"
+    },
+    {
+     "gsis_id": "00-0032268",
+     "name_as_recorded": "M.Mariota",
+     "pass_attempts": 33,
+     "team": "WAS"
+    }
+   ],
+   "retained": true,
+   "rows": 190,
+   "scoring_sequence": [
+    {
+     "away": 0,
+     "clock": "Q1 9:14",
+     "home": 6,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 445.0,
+     "player_as_recorded": "R.White",
+     "points": 6,
+     "team": "WAS"
+    },
+    {
+     "away": 0,
+     "clock": "Q1 9:08",
+     "home": 7,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 471.0,
+     "player_as_recorded": "D.Stevens",
+     "points": 1,
+     "team": "WAS"
+    },
+    {
+     "away": 6,
+     "clock": "Q2 13:31",
+     "home": 7,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 1161.0,
+     "player_as_recorded": "J.Smith-Njigba",
+     "points": 6,
+     "team": "SEA"
+    },
+    {
+     "away": 7,
+     "clock": "Q2 13:27",
+     "home": 7,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 1187.0,
+     "player_as_recorded": "J.Myers",
+     "points": 1,
+     "team": "SEA"
+    },
+    {
+     "away": 7,
+     "clock": "Q2 6:51",
+     "home": 13,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 1657.0,
+     "player_as_recorded": "T.Burks",
+     "points": 6,
+     "team": "WAS"
+    },
+    {
+     "away": 7,
+     "clock": "Q2 6:47",
+     "home": 14,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 1683.0,
+     "player_as_recorded": "D.Stevens",
+     "points": 1,
+     "team": "WAS"
+    },
+    {
+     "away": 10,
+     "clock": "Q2 0:57",
+     "home": 14,
+     "kick_distance_yards": 57.0,
+     "kind": "FG",
+     "play_id": 2259.0,
+     "player_as_recorded": "J.Myers",
+     "points": 3,
+     "team": "SEA"
+    },
+    {
+     "away": 10,
+     "clock": "Q2 0:03",
+     "home": 17,
+     "kick_distance_yards": 57.0,
+     "kind": "FG",
+     "play_id": 2432.0,
+     "player_as_recorded": "D.Stevens",
+     "points": 3,
+     "team": "WAS"
+    },
+    {
+     "away": 10,
+     "clock": "Q3 10:50",
+     "home": 23,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 2739.0,
+     "player_as_recorded": "T.McLaurin",
+     "points": 6,
+     "team": "WAS"
+    },
+    {
+     "away": 10,
+     "clock": "Q3 10:43",
+     "home": 24,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 2765.0,
+     "player_as_recorded": "D.Stevens",
+     "points": 1,
+     "team": "WAS"
+    },
+    {
+     "away": 16,
+     "clock": "Q3 6:14",
+     "home": 24,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 3001.0,
+     "player_as_recorded": "E.Saubert",
+     "points": 6,
+     "team": "SEA"
+    },
+    {
+     "away": 17,
+     "clock": "Q3 6:05",
+     "home": 24,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 3027.0,
+     "player_as_recorded": "J.Myers",
+     "points": 1,
+     "team": "SEA"
+    },
+    {
+     "away": 23,
+     "clock": "Q4 11:57",
+     "home": 24,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 3739.0,
+     "player_as_recorded": "J.Smith-Njigba",
+     "points": 6,
+     "team": "SEA"
+    },
+    {
+     "away": 24,
+     "clock": "Q4 11:53",
+     "home": 24,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 3765.0,
+     "player_as_recorded": "J.Myers",
+     "points": 1,
+     "team": "SEA"
+    },
+    {
+     "away": 24,
+     "clock": "Q4 4:39",
+     "home": 27,
+     "kick_distance_yards": 36.0,
+     "kind": "FG",
+     "play_id": 4119.0,
+     "player_as_recorded": "D.Stevens",
+     "points": 3,
+     "team": "WAS"
+    },
+    {
+     "away": 24,
+     "clock": "Q4 4:09",
+     "home": 33,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 4262.0,
+     "player_as_recorded": "K.Medrano",
+     "points": 6,
+     "team": "WAS"
+    },
+    {
+     "away": 30,
+     "clock": "Q4 2:55",
+     "home": 33,
+     "kick_distance_yards": null,
+     "kind": "TD",
+     "play_id": 4459.0,
+     "player_as_recorded": "C.Kupp",
+     "points": 6,
+     "team": "SEA"
+    },
+    {
+     "away": 31,
+     "clock": "Q4 2:51",
+     "home": 33,
+     "kick_distance_yards": null,
+     "kind": "XP",
+     "play_id": 4485.0,
+     "player_as_recorded": "J.Myers",
+     "points": 1,
+     "team": "SEA"
+    }
+   ],
+   "turnover_counts": {
+    "SEA": 3,
+    "WAS": 0
+   },
+   "turnovers": [
+    {
+     "clock": "Q1 11:06",
+     "kind": "FUMBLE_LOST",
+     "lost_by": "SEA",
+     "play_id": 315.0
+    },
+    {
+     "clock": "Q3 12:10",
+     "kind": "INTERCEPTION",
+     "lost_by": "SEA",
+     "play_id": 2662.0
+    },
+    {
+     "clock": "Q4 4:09",
+     "kind": "INTERCEPTION",
+     "lost_by": "SEA",
+     "play_id": 4262.0
+    }
+   ]
+  }
+ },
+ "league": "NFL",
+ "play_by_play": {
+  "archive_observed_at_utc": "2026-09-28T11:37:49.510013Z",
+  "asset_updated_at_utc": "2026-09-28T09:03:03Z",
+  "evidence_class": "OBSERVED_AS_OF",
+  "games_by_week": {
+   "1": 16,
+   "2": 16,
+   "3": 15
+  },
+  "payload_path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-forward-vintages-v1\\objects\\sha256\\c30db07862378e0b3b1e540ac18763b6993371e9879f7ee008c0b70c5cd88332\\snapshot.parquet",
+  "payload_sha256": "c30db07862378e0b3b1e540ac18763b6993371e9879f7ee008c0b70c5cd88332",
+  "retrieved_by_this_script": false,
+  "row_count_total": 8156,
+  "row_count_vintage": 8156,
+  "sha256_matches_vintage": true,
+  "source_retrieved_at_utc": "2026-09-28T09:30:37.022651Z",
+  "source_url_as_recorded": "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2026.parquet",
+  "vintage_path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-forward-vintages-v1\\vintages\\play_by_play\\sha256\\75b012b6a680ddad31c869eb2ad517009675b803a5260113cd7ce31eec49bed8\\vintage.json"
+ },
+ "qb_inputs": {
+  "2026_03_BAL_DAL": {
+   "admission_granted": false,
+   "evidence_class": null,
+   "forecast_cutoff_utc": "2026-09-27T19:25:00Z",
+   "funding_eligible": null,
+   "m1_production_probability_changed": null,
+   "path": "C:\\Users\\james\\asp-model-exchange\\cfb-activation-20260918\\objects\\sha256\\94ca1dd67d7d73d58f77e541dc3b5c6e94f594a782b5b34d3385495c52273be5.json",
+   "schema": "NFL_QB_1925_RETAINED_CAPTURE_CLOSEOUT_V1",
+   "sha256": "94ca1dd67d7d73d58f77e541dc3b5c6e94f594a782b5b34d3385495c52273be5",
+   "sides": [
+    {
+     "change_signal": "SAME_AS_PRIOR_DOMINANT_QB",
+     "confirmed_starter_status": "NOT_ESTABLISHED",
+     "depth_meaning": "DEPTH_RANK_ONE_EXPECTATION_PROXY_NOT_CONFIRMED_STARTER",
+     "depth_proxy_prior_pass_attempts": 65,
+     "depth_rank_one_gsis_id": "00-0033077",
+     "prior_dominant_gsis_id": "00-0033077",
+     "prior_game": "2026_02_WAS_DAL",
+     "reported_availability_status": "NO_QUALIFIED_SOURCE",
+     "roster_years_exp": 10,
+     "side": "home",
+     "source_observed_at_utc": "2026-09-27T06:01:58Z",
+     "team": "DAL"
+    },
+    {
+     "change_signal": "SAME_AS_PRIOR_DOMINANT_QB",
+     "confirmed_starter_status": "NOT_ESTABLISHED",
+     "depth_meaning": "DEPTH_RANK_ONE_EXPECTATION_PROXY_NOT_CONFIRMED_STARTER",
+     "depth_proxy_prior_pass_attempts": 56,
+     "depth_rank_one_gsis_id": "00-0034796",
+     "prior_dominant_gsis_id": "00-0034796",
+     "prior_game": "2026_02_NO_BAL",
+     "reported_availability_status": "NO_QUALIFIED_SOURCE",
+     "roster_years_exp": 8,
+     "side": "away",
+     "source_observed_at_utc": "2026-09-27T06:01:58Z",
+     "team": "BAL"
+    }
+   ]
+  },
+  "2026_03_LV_NO": {
+   "admission_granted": false,
+   "evidence_class": null,
+   "forecast_cutoff_utc": "2026-09-27T19:25:00Z",
+   "funding_eligible": null,
+   "m1_production_probability_changed": null,
+   "path": "C:\\Users\\james\\asp-model-exchange\\cfb-activation-20260918\\objects\\sha256\\94ca1dd67d7d73d58f77e541dc3b5c6e94f594a782b5b34d3385495c52273be5.json",
+   "schema": "NFL_QB_1925_RETAINED_CAPTURE_CLOSEOUT_V1",
+   "sha256": "94ca1dd67d7d73d58f77e541dc3b5c6e94f594a782b5b34d3385495c52273be5",
+   "sides": [
+    {
+     "change_signal": "SAME_AS_PRIOR_DOMINANT_QB",
+     "confirmed_starter_status": "NOT_ESTABLISHED",
+     "depth_meaning": "DEPTH_RANK_ONE_EXPECTATION_PROXY_NOT_CONFIRMED_STARTER",
+     "depth_proxy_prior_pass_attempts": 90,
+     "depth_rank_one_gsis_id": "00-0040743",
+     "prior_dominant_gsis_id": "00-0040743",
+     "prior_game": "2026_02_NO_BAL",
+     "reported_availability_status": "NO_QUALIFIED_SOURCE",
+     "roster_years_exp": 1,
+     "side": "home",
+     "source_observed_at_utc": "2026-09-27T06:01:58Z",
+     "team": "NO"
+    },
+    {
+     "change_signal": "SAME_AS_PRIOR_DOMINANT_QB",
+     "confirmed_starter_status": "NOT_ESTABLISHED",
+     "depth_meaning": "DEPTH_RANK_ONE_EXPECTATION_PROXY_NOT_CONFIRMED_STARTER",
+     "depth_proxy_prior_pass_attempts": 59,
+     "depth_rank_one_gsis_id": "00-0029604",
+     "prior_dominant_gsis_id": "00-0029604",
+     "prior_game": "2026_02_LV_LAC",
+     "reported_availability_status": "NO_QUALIFIED_SOURCE",
+     "roster_years_exp": 14,
+     "side": "away",
+     "source_observed_at_utc": "2026-09-27T06:01:58Z",
+     "team": "LV"
+    }
+   ]
+  },
+  "2026_03_SEA_WAS": {
+   "admission_granted": null,
+   "evidence_class": "OBSERVED_AS_OF_RESEARCH_SHADOW",
+   "forecast_cutoff_utc": "2026-09-27T16:00:00Z",
+   "funding_eligible": false,
+   "m1_production_probability_changed": false,
+   "path": "C:\\Users\\james\\.codex\\worktrees\\nfl-market-model-sprint\\asp-model-studio\\outputs\\nfl-qb-t60-admission-preparation-20260926-v1\\objects\\sha256\\69670b6b963766899d0b98c14ee9a7669c9412a7d9a0520552d1fdf7a67a2622\\SHADOW_BUNDLE_CANDIDATE.json",
+   "schema": "NFL_M1_QB_CHANGE_PROSPECTIVE_SHADOW_BUNDLE_V1",
+   "sha256": "69670b6b963766899d0b98c14ee9a7669c9412a7d9a0520552d1fdf7a67a2622",
+   "sides": [
+    {
+     "change_signal": "DEPTH_PROXY_DIFFERS_FROM_PRIOR_DOMINANT_QB",
+     "confirmed_starter_status": "NOT_ESTABLISHED",
+     "depth_meaning": "DEPTH_RANK_ONE_EXPECTATION_PROXY_NOT_CONFIRMED_STARTER",
+     "depth_proxy_prior_pass_attempts": 2,
+     "depth_rank_one_gsis_id": "00-0034869",
+     "prior_dominant_gsis_id": "00-0035704",
+     "prior_dominant_share": 1.0,
+     "prior_game": "2026_02_SEA_ARI",
+     "reported_availability_status": "NO_QUALIFIED_SOURCE",
+     "roster_years_exp": 8,
+     "side": "away",
+     "source_observed_at_utc": "2026-09-27T11:35:29.595620Z",
+     "team": "SEA"
+    },
+    {
+     "change_signal": "SAME_AS_PRIOR_DOMINANT_QB",
+     "confirmed_starter_status": "NOT_ESTABLISHED",
+     "depth_meaning": "DEPTH_RANK_ONE_EXPECTATION_PROXY_NOT_CONFIRMED_STARTER",
+     "depth_proxy_prior_pass_attempts": 51,
+     "depth_rank_one_gsis_id": "00-0039910",
+     "prior_dominant_gsis_id": "00-0039910",
+     "prior_dominant_share": 0.5476190476190477,
+     "prior_game": "2026_02_WAS_DAL",
+     "reported_availability_status": "NO_QUALIFIED_SOURCE",
+     "roster_years_exp": 2,
+     "side": "home",
+     "source_observed_at_utc": "2026-09-27T11:35:29.595620Z",
+     "team": "WAS"
+    }
+   ]
+  }
+ },
+ "schema": "AISP_MMQB_GAME_EVIDENCE_V1",
+ "searched": [
+  {
+   "finding": "week-3 NFLVERSE finals (status FINAL, scores, overtime flag, source_last_updated); raw_row holds schedule identity only, no play data",
+   "source": "AISP database: nfl_final_observations"
+  },
+  {
+   "finding": "one final-state row per game (status final, scores); no in-game rows",
+   "source": "AISP database: game_state_observations"
+  },
+  {
+   "finding": "0 rows for these games",
+   "source": "AISP database: game_scoreboard_observations, availability_events, lineup_observations, starter_observations, player_game_stats, team_game_stats"
+  },
+  {
+   "finding": "M1 LONG_HISTORY_CORE, 197 features, readiness 100, no QB, injury or availability field retained",
+   "source": "AISP database: shadow_forecasts (decision-bound FINAL_PREGAME rows)"
+  },
+  {
+   "finding": "research outputs; QB research-shadow capture bundles for week 3 (16:00Z and 19:25Z cutoffs; not admitted, not M1 inputs); no 2026 play-by-play file",
+   "source": "Model Studio (nfl-market-model-sprint worktree) outputs/"
+  },
+  {
+   "finding": "nflverse play_by_play_2026 vintage retrieved 2026-09-28T09:30:37Z, archive-observed 11:37:49Z, 8156 rows, week 3 = 15 games, every game ends END GAME with the final score; injuries family not opened (mixed-season source)",
+   "source": "Model Studio forward vintages C:\\Users\\james\\asp-model-studio\\outputs\\nfl-forward-vintages-v1"
+  },
+  {
+   "finding": "107 objects: NFL QB capture closeouts (16:00Z batch 9 games, 19:05Z, 19:25Z BAL@DAL and LV@NO, 23:20Z LA@DEN); confirmed starter NOT_ESTABLISHED and reported availability NO_QUALIFIED_SOURCE on every side; no play-by-play",
+   "source": "Exchange cfb-activation-20260918/objects"
+  }
+ ],
+ "season": 2026,
+ "week": 3
+}

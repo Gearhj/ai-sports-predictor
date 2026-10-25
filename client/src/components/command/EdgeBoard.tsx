@@ -16,6 +16,8 @@ import { STATUS_LABEL, type EdgeBoard as Board, type EdgeCard } from '../../serv
 import { teamIdentity } from '../../services/teamIdentity'
 import { ProbabilityRail, WinSplit } from './ProbabilityRail'
 import { countdown } from './CommandDecisions'
+import { clocksLine, type QuoteClocks } from '../../services/cfbMarket'
+import { BEST_QUOTE_LABEL, bestQuoteSource } from '../../services/decisionLead'
 
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
@@ -38,10 +40,12 @@ function timing(card: EdgeCard, now: number): { text: string; tone: '' | 'is-up'
   return { text: card.evaluatedAt ? `Decided ${clock(card.evaluatedAt)}` : 'Window closed', tone: '' }
 }
 
-export const EdgeBoard = memo(function EdgeBoard({ board, now, loading, asOf, allHref, dateLabel }: {
+export const EdgeBoard = memo(function EdgeBoard({ board, now, loading, error = false, asOf, allHref, dateLabel }: {
   board: Board
   now: number
   loading: boolean
+  /** The decision/market reads failed with nothing cached yet — a read failure, not an empty slate. */
+  error?: boolean
   asOf: React.ReactNode
   allHref: string
   dateLabel: string
@@ -68,13 +72,27 @@ export const EdgeBoard = memo(function EdgeBoard({ board, now, loading, asOf, al
     if (node && child) node.scrollTo({ left: child.offsetLeft - node.offsetLeft, behavior: 'smooth' })
   }
 
+  // Distinct states. While the reads are still loading (no cards yet) the header
+  // must NOT show the computed empty subtitle ("No game remains on today's
+  // slate") — that contradicts the "loading" body. An error is its own state,
+  // not an empty slate. Only once data is present do the board's computed title
+  // and subtitle describe the real slate.
+  // Error takes precedence: a failed read leaves `loading` (= no data) true, so
+  // gating error on !loading would mask it and show the loading state forever.
+  const showError = error && count === 0
+  const showLoading = loading && !showError && count === 0
+  const headTitle = showError ? 'Today’s board is unavailable' : showLoading ? 'Reading today’s slate…' : board.title
+  const headSub = showError
+    ? 'The decision and market reads could not be loaded. Nothing is substituted.'
+    : showLoading ? 'Forecasts, markets and decisions are loading.'
+      : board.subtitle
   return (
-    <section className={`cc-dark cc-edge cc-edge--${board.state}`} aria-labelledby="cc-edge-title">
+    <section className={`cc-dark cc-edge cc-edge--${showError ? 'ERROR' : showLoading ? 'LOADING' : board.state}`} aria-labelledby="cc-edge-title" aria-busy={showLoading}>
       <header className="cc-edge__head">
         <div>
           <span className="cc-kicker">{dateLabel} · virtual research</span>
-          <h1 id="cc-edge-title">{board.title}</h1>
-          <p className="cc-edge__sub">{board.subtitle}</p>
+          <h1 id="cc-edge-title">{headTitle}</h1>
+          <p className="cc-edge__sub">{headSub}</p>
         </div>
         <div className="cc-edge__side">
           {asOf}
@@ -82,14 +100,16 @@ export const EdgeBoard = memo(function EdgeBoard({ board, now, loading, asOf, al
         </div>
       </header>
 
-      {loading && count === 0
-        ? <div className="cc-edge__cards cc-edge__cards--n4" aria-busy="true">{[0, 1, 2, 3].map((i) => <div key={i} className="cc-ecard cc-ecard--skeleton" />)}</div>
-        : count === 0
-          ? <p className="cc-edge__empty">{board.subtitle}. The next slate appears here as soon as it is registered.</p>
-          : (
+      {showError
+        ? <p className="cc-edge__empty" role="alert">The board could not be loaded — a read failure, not an empty slate; nothing is substituted. <Link to={allHref}>Open Daily Decisions</Link> to retry.</p>
+        : showLoading
+          ? <div className="cc-edge__cards cc-edge__cards--n4" aria-busy="true">{[0, 1, 2, 3].map((i) => <div key={i} className="cc-ecard cc-ecard--skeleton" />)}</div>
+          : count === 0
+            ? <p className="cc-edge__empty">{board.subtitle}. The next slate appears here as soon as it is registered.</p>
+            : (
             <>
               <div className={`cc-edge__cards cc-edge__cards--n${count}`} ref={scroller} role="list" aria-label={board.title}>
-                {board.cards.map((card, index) => <GameCard key={card.key} card={card} rank={index + 1} now={now} showReason={board.state === 'CLOSEST'} />)}
+                {board.cards.map((card, index) => <GameCard key={card.key} card={card} rank={index + 1} now={now} showReason={board.state === 'CLOSEST'} featured={index === 0} />)}
               </div>
               {count > 1 && (
                 <div className="cc-edge__pager">
@@ -120,14 +140,14 @@ function Team({ sport, abbreviation, selected }: { sport: SportCode; abbreviatio
   )
 }
 
-const GameCard = memo(function GameCard({ card, rank, now, showReason }: { card: EdgeCard; rank: number; now: number; showReason: boolean }) {
+const GameCard = memo(function GameCard({ card, rank, now, showReason, featured = false }: { card: EdgeCard; rank: number; now: number; showReason: boolean; featured?: boolean }) {
   const when = timing(card, now)
   const color = SPORT_COLORS[card.sport]
   const away = card.game?.away?.abbreviation ?? card.matchup.split(' @ ')[0]
   const home = card.game?.home?.abbreviation ?? card.matchup.split(' @ ')[1]
   const nonQualifying = card.status === 'WATCHING' || card.status === 'DECLINED'
   return (
-    <article role="listitem" className={`cc-ecard cc-ecard--${card.status}`} style={{ ['--sport' as string]: color }}
+    <article role="listitem" className={`cc-ecard cc-ecard--${card.status}${featured ? ' cc-ecard--featured' : ''}`} style={{ ['--sport' as string]: color }}
       aria-label={`${rank}. ${card.matchup}, ${SPORT_NAMES[card.sport]}, ${STATUS_LABEL[card.status]}`}>
       <header className="cc-ecard__top">
         <span className="cc-ecard__rank">{rank}</span>
@@ -142,38 +162,118 @@ const GameCard = memo(function GameCard({ card, rank, now, showReason }: { card:
       </div>
       <p className="cc-ecard__when"><span>{clock(card.startsAt)} ET</span>{when.text && <span className={when.tone}>{when.text}</span>}</p>
 
-      {card.kind === 'evaluated' && <EvaluatedBody card={card} color={color} showReason={showReason || nonQualifying} />}
-      {card.kind === 'lean' && <LeanBody card={card} color={color} now={now} away={away} home={home} />}
-      {card.kind === 'deck' && <DeckBody card={card} now={now} />}
+      {/* The featured (rank 1) pre-market card reads as a summary: model
+          assessment, market freshness/availability and the operational decision
+          as three separate, labelled concepts — from the same card fields, never
+          mixed. Evaluated and on-deck cards keep their detailed bodies. */}
+      {featured && card.kind === 'lean'
+        ? <FeaturedBody card={card} now={now} away={away} home={home} />
+        : (
+          <>
+            {card.kind === 'evaluated' && <EvaluatedBody card={card} color={color} showReason={showReason || nonQualifying} />}
+            {card.kind === 'lean' && <LeanBody card={card} color={color} now={now} away={away} home={home} />}
+            {card.kind === 'deck' && <DeckBody card={card} now={now} />}
+          </>
+        )}
 
       <footer className="cc-ecard__foot">
-        <Link to={card.action.href} className="cc-ecard__action">{card.action.label} <ArrowRight size={13} /></Link>
+        <Link to={card.action.href} className="cc-ecard__action">{featured ? 'Open Game Brief' : card.action.label} <ArrowRight size={13} /></Link>
       </footer>
     </article>
   )
 })
 
+/** Short one-line market freshness/availability, from the card's own fields. */
+function marketLine(card: EdgeCard, now: number): { text: string; tone: string } {
+  const p = card.price
+  if (p?.basis === 'BEST_CURRENT' && p.american != null) return { text: `Current price · ${am(p.american)} ${shortBook(p.sportsbook) || ''}`.trim(), tone: 'is-up' }
+  if (card.status === 'EVALUATION_PENDING') return { text: 'Market collected · evaluation pending', tone: 'is-up' }
+  if (p?.basis === 'REFERENCE') return { text: `Stored reference ${clock(p.observedAt)} · not current`, tone: '' }
+  if (card.collectionOpensAt) {
+    const open = Date.parse(card.collectionOpensAt) <= now
+    return { text: `Market collection ${clock(card.collectionOpensAt)} · ${open ? 'open' : `in ${countdown(card.collectionOpensAt, now)}`}`, tone: 'is-gold' }
+  }
+  return { text: 'No sportsbook market stored yet', tone: '' }
+}
+
+/**
+ * The featured pre-market summary: three labelled concepts, kept separate.
+ *   Model assessment — the model's lean and projected score.
+ *   Market          — freshness/availability; a stale quote stays explicitly historical.
+ *   Decision        — the operational state (no decision yet) and its window.
+ * The card header badge already carries the status, so Decision does not repeat it.
+ */
+function FeaturedBody({ card, now, away, home }: { card: EdgeCard; now: number; away: string; home: string }) {
+  const market = marketLine(card, now)
+  const hasModel = card.modelProbability != null && card.selectionLabel != null && card.side != null
+  return (
+    <div className="cc-efeat">
+      <section className="cc-efeat__concept">
+        <h4>Model assessment</h4>
+        {hasModel
+          ? (
+            <>
+              <p className="cc-efeat__lead"><b>{card.selectionLabel}</b> <span>{pct(card.modelProbability, 0)}</span></p>
+              <WinSplit awayLabel={away} homeLabel={home}
+                homeProbability={card.side === 'HOME' ? card.modelProbability! : 1 - card.modelProbability!}
+                awayColor={teamIdentity(card.sport, away).primary} homeColor={teamIdentity(card.sport, home).primary}
+                projected={card.projected} emphasize={card.side!} />
+            </>
+          )
+          : <p className="cc-efeat__pending">Forecast pending · expected before the decision window</p>}
+      </section>
+      <section className="cc-efeat__concept">
+        <h4>Market</h4>
+        <p className={`cc-efeat__lead ${market.tone}`}>{market.text}</p>
+        {card.consensus != null && card.consensusCurrent && <p className="cc-efeat__sub">No-vig consensus {pct(card.consensus)}</p>}
+      </section>
+      <section className="cc-efeat__concept">
+        <h4>Decision</h4>
+        <p className="cc-efeat__lead"><b>No decision yet</b></p>
+        {card.window
+          ? <p className="cc-efeat__sub">Decision window {clock(card.window.opensAt)}–{clock(card.window.closesAt)}</p>
+          : <p className="cc-efeat__sub">Decision window not set</p>}
+      </section>
+    </div>
+  )
+}
+
 function EvaluatedBody({ card, color, showReason }: { card: EdgeCard; color: string; showReason: boolean }) {
   const price = card.price
+  const latest = card.latest
   const declined = card.status === 'DECLINED'
+  const pickLabel = card.status === 'POSITION' ? 'Funded selection'
+    : card.status === 'WATCHING' ? 'Early-read selection · not final' : 'Official selection · final'
   return (
     <>
       <div className="cc-ecard__pick">
-        <span>{declined ? 'Evaluated' : card.status === 'WATCHING' ? 'Model side' : 'Model pick'}</span>
+        <span>{pickLabel}</span>
         <b>{card.selectionLabel}</b>
         <strong className="cc-ecard__price">{am(price?.american)}</strong>
       </div>
       {price && (
         <p className="cc-ecard__book">
-          {price.basis === 'BEST_CURRENT' ? 'Best current' : `At evaluation · ${clock(price.observedAt)}`} · {shortBook(price.sportsbook)}
+          {price.basis === 'BEST_CURRENT' ? 'Best current' : `Recorded at decision${price.observedAt ? ` · quote ${clock(price.observedAt)}` : ''}`} · {shortBook(price.sportsbook) || 'sportsbook not available'}
           {price.provider ? ` · ${price.provider}` : ''}{price.classification ? ` ${price.classification.toLowerCase()}` : ''}
+          {card.evaluatedAt ? ` · decision recorded ${clock(card.evaluatedAt)}` : ''}
         </p>
       )}
+      {price?.basis === 'AT_EVALUATION' && (
+        <p className="cc-ecard__book cc-ecard__latest">
+          {BEST_QUOTE_LABEL} · {latest ? `${am(latest.american)} · ${bestQuoteSource(latest, price.observedAt)}` : 'no current price'}
+        </p>
+      )}
+      {card.nextStep && <p className="cc-ecard__next">{card.nextStep}</p>}
+      {cardQuoteClocks(card) && <p className="cc-ecard__book" data-testid="card-quote-clocks">{clocksLine(cardQuoteClocks(card))}</p>}
       <dl className="cc-ecard__nums">
         <div><dt>Model</dt><dd>{pct(card.modelProbability)}</dd></div>
         <div><dt>No-vig</dt><dd>{pct(card.marketProbability)}</dd></div>
-        <div><dt>{card.edgeBasis === 'ADJUSTED' ? 'Adj. edge' : 'Edge'}</dt><dd className={!declined && (card.edge ?? 0) > 0 ? 'is-up' : ''} title={pts(card.edge)}>{pts(card.edge).replace(' pts', '')}<small> pts</small></dd></div>
-        <div><dt>Exp. return</dt><dd className={!declined && (card.expectedValue ?? 0) > 0 ? 'is-up' : ''}>{signedPct(card.expectedValue)}</dd></div>
+        {/* The recorded policy value only; the stored unadjusted break-even figure is never shown under this name. */}
+        <div><dt>Recorded policy-adjusted edge</dt>
+          {card.recordedPolicyEdge == null
+            ? <dd className="is-dim">not available</dd>
+            : <dd className={!declined && card.recordedPolicyEdge > 0 ? 'is-up' : ''} title={pts(card.recordedPolicyEdge)}>{pts(card.recordedPolicyEdge).replace(' pts', '')}<small> pts</small></dd>}</div>
+        <div><dt>{card.expectedValueBasis === 'UNADJUSTED_MODEL' ? 'Unadjusted model return' : 'Recorded policy-adjusted return'}</dt><dd className={!declined && (card.expectedValue ?? 0) > 0 ? 'is-up' : ''}>{signedPct(card.expectedValue)}</dd></div>
       </dl>
       <ProbabilityRail label={`${card.selectionLabel ?? 'Selection'} win probability`} range={card.range} consensus={card.consensus}
         consensusCurrent={card.consensusCurrent} model={card.modelProbability} bookProbability={card.marketProbability}
@@ -186,7 +286,7 @@ function EvaluatedBody({ card, color, showReason }: { card: EdgeCard; color: str
             : ' · open'}
         </p>
       )}
-      {card.preFinal && !card.position && <p className="cc-ecard__note">Early read · final evaluation in the decision window</p>}
+      {!card.nextStep && card.preFinal && !card.position && <p className="cc-ecard__note">Early read · final evaluation in the decision window</p>}
       {showReason && !card.position && card.reason && <p className="cc-ecard__reason">{card.reason}</p>}
     </>
   )
@@ -199,7 +299,7 @@ function LeanBody({ card, color, now, away, home }: { card: EdgeCard; color: str
   return (
     <>
       <div className="cc-ecard__pick">
-        <span>Model lean</span>
+        <span>Model lean · no decision yet</span>
         <b>{card.selectionLabel}</b>
         <strong className="cc-ecard__price cc-ecard__price--prob">{pct(card.modelProbability, 0)}</strong>
       </div>
@@ -218,12 +318,24 @@ function DeckBody({ card, now }: { card: EdgeCard; now: number }) {
   return <Milestones card={card} now={now} forecast />
 }
 
+/**
+ * College Football moneyline quotes carry three clocks (book per side, AISP fetch,
+ * AISP receipt): the card's book first, else the newest clocked moneyline.
+ */
+export function cardQuoteClocks(card: Pick<EdgeCard, 'game' | 'price'>): QuoteClocks | null {
+  const quotes = (card.game?.quotes ?? []).filter((q) => q.market === 'MONEYLINE' && q.clocks)
+  const book = shortBook(card.price?.sportsbook)
+  return (quotes.find((q) => book && shortBook(q.sportsbook) === book) ?? quotes[0])?.clocks ?? null
+}
+
 function Milestones({ card, now, forecast = false }: { card: EdgeCard; now: number; forecast?: boolean }) {
   const collection = card.collectionOpensAt
   const priceCurrent = card.status === 'EVALUATION_PENDING'
   const collected = card.game?.price_state === 'CURRENT_PRICE'
+  const clocks = cardQuoteClocks(card)
   return (
     <ul className="cc-ecard__miles">
+      {clocks && <li className="cc-ecard__clocks" data-testid="card-quote-clocks"><span>Quote clocks</span><b>{clocksLine(clocks)}</b></li>}
       {forecast && card.startsAt && (
         <li><span>Forecast</span><b className="is-gold">expected by {clock(new Date(Date.parse(card.startsAt) - 60 * 60_000).toISOString())}</b></li>
       )}

@@ -287,4 +287,6 @@ def test_source_modes_reject_values_outside_live_and_demo(session) -> None:
             [event],
             "TEST",
             FIRST_PITCH - timedelta(hours=1),
+            league_code="MLB",
+            provider_league="MLB",
         )

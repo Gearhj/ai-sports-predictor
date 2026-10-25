@@ -50,13 +50,16 @@ export function NflLabPage() {
   const [params, setParams] = useSearchParams()
   const requestedRaw = params.get('view')
   const requested = (LEGACY_VIEWS[requestedRaw ?? ''] ?? requestedRaw) as View | null
-  // The play population is the play engine's primary experience, so it is what
-  // the lab opens on.
-  const view: View = requested && VIEWS.includes(requested) ? requested : 'population'
   const scenarioId = params.get('scenario') ?? 'BASE'
   const position = Number(params.get('rep') ?? 0) || 0
   const initialPlay = Math.max(0, Number(params.get('play') ?? 0) || 0)
   const theater = useNflPlayTheater(gameId, scenarioId, position)
+  // The play population is the play engine's primary experience, so the lab
+  // opens on it -- when the game has play-level evidence. Without it that view
+  // is an empty panel, so the lab opens on the Outcome Explorer, which every
+  // imported joint score distribution supports.
+  const defaultView: View = theater.index || theater.indexLoading ? 'population' : 'explorer'
+  const view: View = requested && VIEWS.includes(requested) ? requested : defaultView
   const populationResource = useNflPlayPopulation(gameId, scenarioId)
   const resource = useApiResource<NflGameDetail>(
     useCallback((signal: AbortSignal) => endpoints.nflGame(gameId, signal), [gameId]),

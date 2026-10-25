@@ -519,10 +519,16 @@ def _execute(session: Any, settings: Settings, plan: PreviewPlan, *, slate_date:
             continue
 
         anchor = min(_aware(t.kickoff_utc) for t in wanted_games) - timedelta(seconds=1)
+        # `_aware` above already converts, so these stamps were correct and stay
+        # byte-identical. They go through the shared `utc_stamp` so the whole
+        # SportsGameOdds request path has ONE way to write a provider timestamp
+        # and no site is left where a future edit could label a local wall clock.
+        from app.services.sgo_collection import utc_stamp
+
         params = {
             "leagueID": league, "limit": str(wanted),
-            "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "startsBefore": max(_aware(t.kickoff_utc) for t in wanted_games).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "startsAfter": utc_stamp(anchor),
+            "startsBefore": utc_stamp(max(_aware(t.kickoff_utc) for t in wanted_games)),
             "finalized": "false", "oddsPresent": "true",
         }
         reservation = record_request(
@@ -532,7 +538,8 @@ def _execute(session: Any, settings: Settings, plan: PreviewPlan, *, slate_date:
         reservations += 1
 
         try:
-            fetch = _fetch(settings, league=league, limit=wanted, now=now, anchor=anchor)
+            fetch = _fetch(settings, league=league, limit=wanted, now=now, anchor=anchor,
+                           request_fingerprint=getattr(reservation, "request_fingerprint", None))
         except Exception as error:  # noqa: BLE001 - one attempt per sport per run
             _complete(session, reservation, objects=0, succeeded=False, budget=budget,
                       error=type(error).__name__, job_run_id=job_run_id)
@@ -543,8 +550,9 @@ def _execute(session: Any, settings: Settings, plan: PreviewPlan, *, slate_date:
             continue
 
         written = _ingest(session, settings, sport, fetch)
+        raw_archive = getattr(fetch, "raw_archive", None)
         _complete(session, reservation, objects=fetch.objects, succeeded=True,
-                  budget=budget, job_run_id=job_run_id)
+                  budget=budget, job_run_id=job_run_id, raw_archive=raw_archive)
         session.commit()
         objects += fetch.objects
         remaining -= fetch.objects
@@ -553,6 +561,7 @@ def _execute(session: Any, settings: Settings, plan: PreviewPlan, *, slate_date:
             "games_requested": [t.source_game_ref for t in wanted_games[:wanted]],
             "request_filters": params, "markets_kept": list(REQUIRED_MARKETS),
             "bookmakers": sorted({pair.bookmaker_key for pair in fetch.pairs}),
+            "raw_archive": raw_archive,
             **written,
         })
 
@@ -570,22 +579,26 @@ def _execute(session: Any, settings: Settings, plan: PreviewPlan, *, slate_date:
     }
 
 
-def _fetch(settings: Settings, *, league: str, limit: int, now: datetime, anchor: datetime) -> Any:
+def _fetch(settings: Settings, *, league: str, limit: int, now: datetime, anchor: datetime,
+           request_fingerprint: str | None = None) -> Any:
     """Exactly one provider request. No retry, no pagination, no second call."""
 
     import httpx
 
     from app.services.sgo_collection import (
         FallbackFetch, _refuse, eligible, parse_events, parse_main_markets,
+        utc_stamp,
     )
 
     ok, reason = eligible(settings, now=now)
     if not ok:
         raise _refuse(f"SportsGameOdds is not eligible: {reason}")
+    # `anchor` is the caller's already-UTC value, so these stamps are unchanged;
+    # the shared helper converts anyway, and leaves nothing here to forget.
     params = {
         "leagueID": league, "limit": str(max(1, int(limit))),
-        "startsAfter": anchor.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "startsBefore": (anchor + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "startsAfter": utc_stamp(anchor),
+        "startsBefore": utc_stamp(anchor + timedelta(days=2)),
         "finalized": "false", "oddsPresent": "true",
     }
     url = f"{settings.sportsgameodds_base_url.rstrip('/')}/events"
@@ -594,6 +607,12 @@ def _fetch(settings: Settings, *, league: str, limit: int, now: datetime, anchor
         response = client.get(url, params=params, headers=headers)
     if response.status_code != 200:
         raise _refuse(f"SportsGameOdds returned HTTP {response.status_code}; not retried")
+    # The exact bytes, kept before parsing (never fails, retries or waits).
+    from app.services.sgo_raw_archive import archive_response
+
+    raw_archive = archive_response(settings, response.content, requested_at=now,
+                                   request_fingerprint=request_fingerprint, lane=PREVIEW_LANE,
+                                   league=league, filters=params)
     payload = response.json()
     # `now` stays the true retrieval moment: it becomes `available_as_of` on
     # every ingested row, and a preview quote that claimed to be retrieved later
@@ -604,7 +623,8 @@ def _fetch(settings: Settings, *, league: str, limit: int, now: datetime, anchor
     main = parse_main_markets(payload, received_at=now, now=now, league_id=league)
     return FallbackFetch(
         requested_at=now, objects=len(payload.get("data") or []),
-        pairs=parse.pairs, parse=parse, main=main,
+        pairs=parse.pairs, parse=parse, main=main, provider_league=league,
+        raw_archive=raw_archive,
     )
 
 
@@ -630,7 +650,7 @@ def _ingest(session: Any, settings: Settings, sport: str, fetch: Any) -> dict[st
                 "quotes": result["quotes"], "duplicates": result["duplicates"],
                 "rejected_events": result["rejected_events"], "source": SOURCE,
                 "provider_governed": False}
-    ingest(session, settings, fetch)
+    ingest(session, settings, fetch, league_code=sport)
     return {"events": fetch.events_ingested, "quotes": fetch.quotes_written,
             "market_quotes": fetch.market_quotes_written, "source": SOURCE,
             "provider_governed": False,
@@ -638,7 +658,8 @@ def _ingest(session: Any, settings: Settings, sport: str, fetch: Any) -> dict[st
 
 
 def _complete(session: Any, reservation: Any, *, objects: int, succeeded: bool,
-              budget: Any, job_run_id: Any, error: str | None = None) -> None:
+              budget: Any, job_run_id: Any, error: str | None = None,
+              raw_archive: dict[str, Any] | None = None) -> None:
     """Close the reservation on THIS lane, through the one shared writer.
 
     This used to write the terminal row itself, because ``complete_request``
@@ -654,7 +675,8 @@ def _complete(session: Any, reservation: Any, *, objects: int, succeeded: bool,
     complete_request(
         session, reservation, objects=objects, succeeded=succeeded, budget=budget,
         error=error, job_run_id=job_run_id, endpoint_key=PREVIEW_LANE,
-        extra_metadata={"horizon": "SHOW_PREVIEW", "grants_wagering_authority": False},
+        extra_metadata={"horizon": "SHOW_PREVIEW", "grants_wagering_authority": False,
+                        **({"raw_archive": raw_archive} if raw_archive is not None else {})},
     )
 
 
