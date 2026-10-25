@@ -79,6 +79,8 @@
 .nh-tug__bar em { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 900; color: #fff; text-shadow: 0 1px 3px #000, 0 0 6px #000; }
 
 /* three stars */
+.ar-grid > .nh-row { grid-column: 1 / -1; }
+.nh-stars__grid--five { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .nh-stars__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .nh-star { position: relative; display: grid; justify-items: center; gap: 3px; padding: 14px 8px 12px; border-radius: 16px; overflow: hidden; color: inherit; font: inherit; text-align: center; cursor: pointer;
   background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--c) 45%, transparent), transparent 62%), #0b1526; border: 1px solid color-mix(in srgb, var(--c) 60%, transparent); animation: nh-rise .55s ease-out both; transition: transform .15s; }

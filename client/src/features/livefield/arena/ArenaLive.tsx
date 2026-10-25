@@ -18,6 +18,7 @@ import type { MissionGame } from '../../mission/missionData'
 import { stageOf } from '../../mission/missionData'
 import { LiveShell, useFavorites, type StripInfo } from '../football/LiveShell'
 import { elapsedAt, onNavy, periodName, teamPair, useArenaLive, type ArenaFeed, type ArenaPlay, type ArenaTeam } from './arenaData'
+import { NbaPlayers, NbaStory } from './NbaExtras'
 import { NhlArena } from './NhlArena'
 import './arena.css'
 
@@ -40,7 +41,7 @@ export function ArenaLive({ game, games, onPickGame, sportFilter, onSport, booth
           <>
             <ScoreBug feed={feed} league={league} />
             <Pregame game={game} feed={feed} />
-            {league === 'nba' ? <NbaView feed={feed} /> : <NhlLive game={game} feed={feed} />}
+            {league === 'nba' ? <NbaLive game={game} feed={feed} /> : <NhlLive game={game} feed={feed} />}
           </>
         )}
         {boothOpen ? <div className="ar-booth">{booth}</div> : null}
@@ -126,7 +127,18 @@ function zoneOf(p: ArenaPlay): Zone {
 const cx = (x: number) => x * 10
 const cy = (y: number) => Math.min(46.5, y + 5.25) * 10
 
-function NbaView({ feed }: { feed: ArenaFeed }) {
+/** The NBA view: the plain-English story on top, then the court, flow and runs, then players of the night. */
+function NbaLive({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
+  const b = stageOf(game, 'bet')
+  return (
+    <>
+      <NbaStory feed={feed} bet={b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : null} />
+      <NbaView feed={feed} extras={<NbaPlayers feed={feed} />} />
+    </>
+  )
+}
+
+function NbaView({ feed, extras }: { feed: ArenaFeed; extras?: React.ReactNode }) {
   const { home, away } = feed.teams
   const pair = teamPair(home, away)
   const col = { [home.id]: pair.home, [away.id]: pair.away }
@@ -184,6 +196,7 @@ function NbaView({ feed }: { feed: ArenaFeed }) {
         <Runs feed={feed} />
         <Leaders feed={feed} />
       </div>
+      {extras}
       <BoxScore feed={feed} />
       <PlayFeed feed={feed} league="nba" />
     </div>
