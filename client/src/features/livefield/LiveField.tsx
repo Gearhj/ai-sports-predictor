@@ -56,8 +56,13 @@ export function LiveField() {
   const slate = useLiveSlate(day)
   const games = useMemo(() => orderSlate(slate.data?.games ?? []), [slate.data])
   const wanted = params.get('game')
-  const mlbFirst = games.find((g) => g.status === 'live' || g.phase === 'STARTED') ?? games.find((g) => g.sport === 'MLB') ?? games[0] ?? null
-  const game: MissionGame | null = games.find((g) => g.game_id === wanted) ?? mlbFirst
+  // ?sport=NHL (the menu's sport links) opens that sport's live game first, then its next game; otherwise any live game.
+  const wantedSport = (params.get('sport') ?? '').toUpperCase()
+  const inSport = wantedSport ? games.filter((g) => g.sport === wantedSport || (wantedSport === 'NCAAF' && g.sport === 'CFB')) : games
+  const isLive = (g: MissionGame) => g.status === 'live' || g.phase === 'STARTED'
+  const firstPick = inSport.find(isLive) ?? inSport.find((g) => g.status !== 'final' && g.phase !== 'FINAL') ?? inSport[0]
+    ?? games.find(isLive) ?? games.find((g) => g.sport === 'MLB') ?? games[0] ?? null
+  const game: MissionGame | null = games.find((g) => g.game_id === wanted) ?? firstPick
   const gameId = game?.game_id ?? null
   useEffect(() => {
     if (game && wanted !== game.game_id) setParams((prev) => { const o = new URLSearchParams(prev); o.set('game', game.game_id); return o }, { replace: true })

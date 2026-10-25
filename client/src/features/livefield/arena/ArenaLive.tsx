@@ -72,13 +72,21 @@ function ScoreBug({ feed, league }: { feed: ArenaFeed; league: 'nba' | 'nhl' }) 
   )
 }
 
+/** Home no-vig probability from a two-sided American pair (the fallback when no consensus was recorded). */
+function noVigHome(home: number | null | undefined, away: number | null | undefined): number | null {
+  const imp = (x: number) => (x > 0 ? 100 / (x + 100) : -x / (-x + 100))
+  if (home == null || away == null) return null
+  const h = imp(home); const a = imp(away)
+  return h / (h + a)
+}
+
 function Pregame({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
   const f = stageOf(game, 'forecast'); const p = stageOf(game, 'prices'); const b = stageOf(game, 'bet'); const d = stageOf(game, 'decision')
   const wp = feed.win_probability.length ? feed.win_probability[feed.win_probability.length - 1].home : null
   return (
     <section className="ar-pre" aria-label="AISP before the game">
       <span><small>AISP model, pregame</small><b>{feed.teams.home.abbr} {pct(f.home_win_prob ?? null)}</b></span>
-      <span><small>Market, pregame</small><b>{feed.teams.home.abbr} {pct(p.consensus_home ?? null)}</b></span>
+      <span><small>Market, pregame</small><b>{feed.teams.home.abbr} {pct(p.consensus_home ?? noVigHome(p.best?.home?.american, p.best?.away?.american))}</b></span>
       {wp != null ? <span className="is-live"><small>Live win probability (ESPN)</small><b>{feed.teams.home.abbr} {pct(wp)}</b></span> : null}
       <span className={b.state === 'DONE' ? 'is-bet' : ''}><small>AISP paper bet</small><b>{b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : d.label ?? 'No bet'}</b></span>
     </section>
