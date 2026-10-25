@@ -238,10 +238,23 @@ def _parent(session: Session, item: VerifiedLabsArtifact) -> ShadowForecast:
     return row
 
 
-def register_labs_current(session: Session, verified: list[VerifiedLabsArtifact], *, dry_run: bool = False) -> list[dict[str, Any]]:
-    """Only ResearchSupplement inserts; validate all bindings before any write."""
+LABS_LOCK_KEY = 0x4E464C4C414253  # 'NFLLABS'
+
+
+def register_labs_current(session: Session, verified: list[VerifiedLabsArtifact], *, dry_run: bool = False,
+                          wait_for_lock: bool = True) -> list[dict[str, Any]] | None:
+    """Only ResearchSupplement inserts; validate all bindings before any write.
+
+    The lock is transaction-scoped, so whoever takes it keeps it until their transaction ends. With
+    ``wait_for_lock=False`` (the NFL FINAL-pair job, 2026-10-25) a busy lock returns None instead of waiting:
+    labs are display-only, and on 10-25 a pair job blocked here behind the broad research pass kept the next
+    FINAL pair from importing until after the 1 PM decision window closed.
+    """
     if not dry_run and session.get_bind().dialect.name == "postgresql":
-        session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 0x4E464C4C414253})
+        if wait_for_lock:
+            session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LABS_LOCK_KEY})
+        elif not session.execute(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": LABS_LOCK_KEY}).scalar():
+            return None
     parents = [_parent(session, item) for item in verified]
     records = []
     for item, parent in zip(verified, parents, strict=True):

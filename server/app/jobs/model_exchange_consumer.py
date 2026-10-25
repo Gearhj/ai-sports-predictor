@@ -282,14 +282,18 @@ def consume_forecast_bundles(
     cfb_discovery = timed("cfb_discovery", lambda: _consume_cfb_discovery(session, settings, dry_run=dry_run))
     nba_production = timed("nba_production", lambda: _consume_nba_production(session, settings, dry_run=dry_run))
     timed("supplements", lambda: _consume_supplements(session, settings, exchange_root, outcome, dry_run=dry_run))
-    timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run))
     timed("lab_study", lambda: _consume_lab_study(session, settings, outcome, dry_run=dry_run))
-    payload = outcome.as_dict()
     # MLB V18 publishes its own content-addressed packages beside the NFL
     # bundles. Same single owner, same cadence, same refusal to execute
     # anything -- but a different manifest shape, so it gets its own scanner
     # rather than being forced through the bundle index.
-    payload["v18"] = timed("v18", lambda: _consume_v18(session, settings, dry_run=dry_run))
+    v18 = timed("v18", lambda: _consume_v18(session, settings, dry_run=dry_run))
+    # NFL labs LAST (2026-10-25): their advisory lock is transaction-scoped and this whole pass is one
+    # transaction, so taking it earlier held it through V18 and lab_study (15-30 min) and starved the NFL
+    # FINAL-pair job. Taken here it is held only until the commit that ends this pass.
+    timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(session, exchange_root, outcome, dry_run=dry_run))
+    payload = outcome.as_dict()
+    payload["v18"] = v18
     payload["cfb_discovery"] = cfb_discovery
     payload["nba_production"] = nba_production
     payload["stage_seconds"] = stage_seconds
@@ -368,20 +372,23 @@ def _consume_v18(session: Session, settings: Settings, *, dry_run: bool) -> dict
 
 
 def _consume_nfl_labs_v1(session: Session, exchange_root: Path, outcome: ConsumeOutcome,
-                         *, dry_run: bool) -> None:
+                         *, dry_run: bool, wait_for_lock: bool = True) -> bool:
     """The producer V1 artifact family, in the existing immutable supplement registry."""
     from app.forecast_exchange.nfl_labs_v1 import ROOT_NAME, register_labs_current, verify_labs_current
     from app.forecast_exchange.supplements import SupplementImportError
 
     root = exchange_root.parent if exchange_root.name == "aisp-daily-forecast-bundles" else exchange_root
     if not (root / ROOT_NAME / "current.json").is_file():
-        return
+        return False
     try:
         verified = verify_labs_current(root)
         outcome.supplements_scanned += len(verified)
         # Failure of this family must not roll back earlier bundle imports.
         with session.begin_nested():
-            records = register_labs_current(session, verified, dry_run=dry_run)
+            records = register_labs_current(session, verified, dry_run=dry_run, wait_for_lock=wait_for_lock)
+        if records is None:
+            # The labs lock is busy and this caller would rather skip than wait (display-only family).
+            return True
         for record in records:
             if record["idempotent_reuse"]:
                 outcome.supplements_skipped.append(record["supplement_sha256"])
@@ -389,6 +396,7 @@ def _consume_nfl_labs_v1(session: Session, exchange_root: Path, outcome: Consume
                 outcome.supplements_accepted.append({**record, "would_import": dry_run})
     except (SupplementImportError, OSError, ValueError, KeyError, TypeError) as error:
         outcome.supplements_rejected.append({"family": "NFL_LABS_CONTRACT_V1", "reason": str(error)})
+    return False
 
 
 def _consume_supplements(session: Session, settings: Settings, exchange_root: Path,
@@ -856,9 +864,12 @@ def run_nfl_final_import(session: Session, settings: Settings) -> dict[str, Any]
     # reads; a collision here means another pass registered it first, and it
     # can no longer take the pair with it.
     labs_reused_by_race = False
+    labs_skipped_lock_busy = False
     try:
-        timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(
-            session, exchange_root, outcome, dry_run=False))
+        # Never wait for the labs lock here (2026-10-25): the pair is already committed, labs are display-only,
+        # and a pair job parked on this lock delays the NEXT pair import, which is what decisions need.
+        labs_skipped_lock_busy = timed("nfl_labs_v1", lambda: _consume_nfl_labs_v1(
+            session, exchange_root, outcome, dry_run=False, wait_for_lock=False))
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -872,6 +883,7 @@ def run_nfl_final_import(session: Session, settings: Settings) -> dict[str, Any]
         "total_seconds": round(perf_counter() - started, 3),
         "reused_by_race": reused_by_race,
         "labs_reused_by_race": labs_reused_by_race,
+        "labs_skipped_lock_busy": labs_skipped_lock_busy,
         "pair_committed_before_labs": True,
         "records": len(outcome.accepted) + len(outcome.supplements_accepted),
     })
