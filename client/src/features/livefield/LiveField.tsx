@@ -432,7 +432,6 @@ export function LiveField() {
           <div className="lf-bar" role="banner">
             <div className="lf-bar__lead">
               <Link to="/" className="lf-brand"><b>AISP</b> LIVE VIEW</Link>
-              <span className="lf-pill lf-pill--test">TEST MODE · preview build</span>
             </div>
             <label className="lf-pick">
               <span className="lf-sr">Game</span>

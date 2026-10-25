@@ -59,7 +59,7 @@ export function MmaPage() {
       <div className="hq-main">
         <header className="sl-top">
           <div className="sl-title"><small>MMA · UFC</small><h1>Fight Night</h1><p>Every card, every fight, how it ended, and how the numbers saw it coming.</p></div>
-          <span className="mma-flag">Historical archive · test mode · no live card yet</span>
+          <span className="mma-flag">Historical archive · no live card yet</span>
         </header>
         {error ? <p className="sl-empty">The UFC archive could not be read ({error}).</p> : null}
         {!data && !error ? <p className="sl-empty">Loading 1,504 fights…</p> : null}

@@ -98,7 +98,6 @@ export function LiveShell({ games, gameId, onPick, sportFilter, onSport, favs, o
                 <span className="ls-meta"><b>{strip.week ? `Week ${strip.week} · ` : ''}{dateStr}</b><small>{[strip.venue, strip.city].filter(Boolean).join(' · ') || 'Venue not published'}</small></span>
                 {strip.weather && (strip.weather.temp != null || (strip.weather.text && Number.isNaN(Number(strip.weather.text)))) ? <span className="ls-meta ls-meta--wx"><b>{strip.weather.temp != null ? `${strip.weather.temp}°` : ''}</b><small>{strip.weather.text && Number.isNaN(Number(strip.weather.text)) ? strip.weather.text : 'at kickoff (ESPN)'}</small></span> : null}
                 <span className="ls-pill">Model: {strip.model} ▾</span>
-                <span className="ls-pill ls-pill--test">Test Mode</span>
                 <span className="ls-strip__right">
                   {strip.broadcast ? <span className="ls-tv">{strip.broadcast}</span> : null}
                   <span className={`ls-live ls-live--${strip.live ? 'on' : 'off'}`}>{strip.live ? 'LIVE' : strip.status}</span>

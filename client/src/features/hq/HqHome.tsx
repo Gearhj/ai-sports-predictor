@@ -122,7 +122,7 @@ export function HqHome() {
         <small className="hq-side__label">SPORTS</small>
         <nav className="hq-nav hq-nav--sports">
           {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(sport === s.key ? 'ALL' : s.key)}><i aria-hidden="true">{s.icon}</i>{s.label}<em>{counts.get(s.key) ?? 0}</em></button>)}
-          <Link to="/mma" className="hq-nav__mma" title="UFC Fight Night: historical archive, test mode"><i aria-hidden="true">🥊</i>MMA · UFC</Link>
+          <Link to="/mma" className="hq-nav__mma" title="UFC Fight Night: historical archive"><i aria-hidden="true">🥊</i>MMA · UFC</Link>
           <button type="button" disabled title="Not covered by AISP yet"><i aria-hidden="true">🥊</i>Boxing</button>
         </nav>
       </AispSide>

@@ -32,7 +32,7 @@ export function Booth({ turns, busy, ask, sport }: { turns: BoothTurn[]; busy: b
     <section className="lf-booth" aria-label="Ask the Booth">
       <header className="lf-booth__head">
         <h3>Ask the Booth</h3>
-        <span className="lf-pill lf-pill--test">test mode · explains only</span>
+        <span className="lf-pill">explains only</span>
       </header>
       <p className="lf-muted">A small model (Claude Haiku) answers from the numbers on this page plus general {sport === 'MLB' ? 'baseball' : sport === 'NFL' || sport === 'CFB' ? 'football' : 'game'} knowledge. It does not predict, pick sides or suggest a wager.</p>
       <div className="lf-booth__chips">

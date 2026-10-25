@@ -355,7 +355,7 @@ function CoachMe({ stats: s }: { stats: Record<string, unknown> }) {
     try {
       const res = await fetch('/preview-api/booth', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: 'Read this paper betting record back to me like a coach: where is it strongest, where is it struggling, and what does the data say about stake sizing? Do not tell me to place any bet.', context: { page: 'AISP Record (paper experiment, no real money)', ...s } }) })
       const type = res.headers.get('content-type') ?? ''
-      if (!type.includes('json')) throw new Error('The coach runs in test mode only.')
+      if (!type.includes('json')) throw new Error('The coach is not available right now.')
       const body = (await res.json()) as { answer?: string; error?: string }
       if (!res.ok || !body.answer) throw new Error(body.error ?? `HTTP ${res.status}`)
       setState({ busy: false, answer: body.answer, error: null })
