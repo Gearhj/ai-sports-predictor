@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Dices, Info, Pause, Play, RotateCcw, Target } from 'lucide-react'
 import { ScoreBar } from '../shared/ScoreBug'
@@ -7,6 +7,10 @@ import { distribution, fairAmerican, lineOutcome, makeSampler, useSimModel, type
 import { FORECAST_TIMING_SUMMARY, forecastRefreshText } from '../../services/forecastCadence'
 import './simulator.css'
 
+// the field views built before the simulator redesign: NFL drive/play theater, MLB diamond theater
+const NflLabPage = lazy(() => import('../../pages/NflLabPage').then((module) => ({ default: module.NflLabPage })))
+const GameSimulationPage = lazy(() => import('../../pages/GameSimulationPage').then((module) => ({ default: module.GameSimulationPage })))
+
 const pct = (p: number | null | undefined, d = 0) => (p == null ? '—' : `${(p * 100).toFixed(d)}%`)
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`)
 const odds = (n: number | null) => (n == null ? '—' : n > 0 ? `+${n}` : `${n}`)
@@ -14,10 +18,18 @@ const half = (x: number) => Math.round(x * 2) / 2
 
 export function SimulatorPage() {
   const { gameId = '' } = useParams()
-  const [params] = useSearchParams()
-  const sport = params.get('sport') ?? 'NFL'
+  const [params, setParams] = useSearchParams()
   const res = useSimModel(gameId)
   const m = res.data?.model ?? null
+  const sport = m?.sport ?? params.get('sport') ?? 'NFL'
+  const hasField = sport === 'NFL' || sport === 'MLB'
+  const mode = hasField && params.get('mode') === 'field' ? 'field' : 'outcomes'
+  const setMode = (next: 'outcomes' | 'field') => setParams((previous) => {
+    const p = new URLSearchParams(previous)
+    if (next === 'field') p.set('mode', 'field'); else p.delete('mode')
+    if (!p.get('sport')) p.set('sport', sport)
+    return p
+  }, { replace: true })
 
   return (
     <div className="sim">
@@ -25,16 +37,33 @@ export function SimulatorPage() {
         <Link to={`/games/${gameId}?sport=${sport}`}><ArrowLeft size={14} /> Game brief</Link>
         <span>Game Simulator</span>
       </nav>
-      {res.loading && <div className="sim-skel" style={{ height: 420 }} />}
-      {!res.loading && !m && (
-        <div className="sim-empty">
-          <Dices size={28} />
-          <h1>No simulation for this game yet</h1>
-          <p>{res.data?.reason ?? res.error ?? 'The model has not published a score distribution for this game.'}</p>
-          <p>Forecast timing ({sport}): {forecastRefreshText(sport)}. {FORECAST_TIMING_SUMMARY}. <Link to="/labs">Browse games that have one</Link>.</p>
+      {hasField ? (
+        <div className="sim__modes" role="tablist" aria-label="Simulator view">
+          <button type="button" role="tab" aria-selected={mode === 'outcomes'} className={mode === 'outcomes' ? 'is-on' : ''} onClick={() => setMode('outcomes')}><Dices size={15} /> Outcomes &amp; lines</button>
+          <button type="button" role="tab" aria-selected={mode === 'field'} className={mode === 'field' ? 'is-on' : ''} onClick={() => setMode('field')}><Target size={15} /> Field view <small>{sport === 'NFL' ? 'drives & plays on the field' : 'every pitch on the diamond'}</small></button>
         </div>
+      ) : null}
+      {mode === 'field' ? (
+        <div className="sim-field">
+          <Suspense fallback={<div className="sim-skel" style={{ height: 420 }} />}>
+            {sport === 'NFL' ? <NflLabPage /> : <GameSimulationPage />}
+          </Suspense>
+        </div>
+      ) : (
+        <>
+          {res.loading && <div className="sim-skel" style={{ height: 420 }} />}
+          {!res.loading && !m && (
+            <div className="sim-empty">
+              <Dices size={28} />
+              <h1>No simulation for this game yet</h1>
+              <p>{res.data?.reason ?? res.error ?? 'The model has not published a score distribution for this game.'}</p>
+              <p>Forecast timing ({sport}): {forecastRefreshText(sport)}. {FORECAST_TIMING_SUMMARY}. <Link to="/labs">Browse games that have one</Link>.</p>
+              {hasField ? <p><button type="button" className="sim-empty__field" onClick={() => setMode('field')}>Open the field view instead →</button></p> : null}
+            </div>
+          )}
+          {m && <Simulator m={m} gameId={gameId} />}
+        </>
       )}
-      {m && <Simulator m={m} gameId={gameId} />}
     </div>
   )
 }

@@ -26,7 +26,7 @@ export function DecisionLead({ lead, latest, countdown, now }: {
   const selectionLabel = lead.authority === 'FUNDED' ? 'Funded selection'
     : lead.authority === 'FINAL' ? 'Official selection' : 'Early-read selection'
   return (
-    <section className={`dl dl--${lead.authority.toLowerCase()}`} aria-label={`${AUTHORITY_LABEL[lead.authority]}: ${lead.label}`}>
+    <section className={`dl dl--${lead.authority.toLowerCase()} dl--tone-${lead.tone}`} aria-label={`${AUTHORITY_LABEL[lead.authority]}: ${lead.label}`}>
       <div className="dl-top">
         <span className="dl-kind">{AUTHORITY_LABEL[lead.authority]}</span>
         <span className={`dl-status cc-tone--${lead.tone}`}>{lead.label}</span>
@@ -41,6 +41,11 @@ export function DecisionLead({ lead, latest, countdown, now }: {
         <div className="dl-sel dl-sel--none"><small>Official selection</small><p>None recorded yet</p></div>
       )}
       <p className="dl-sentence">{lead.sentence}</p>
+      {lead.waitingOn ? (
+        <p className={`dl-waiting dl-waiting--${lead.tone}`} role="note">
+          <b>{lead.tone === 'red' ? '⛔' : '⚠'}</b> {lead.waitingOn === 'FORECAST' ? 'No position can be taken until the model publishes its forecast for this game.' : 'No position can be taken until a sportsbook posts a current price on both sides.'}
+        </p>
+      ) : null}
       {lead.fundingPause && (
         <p className="dl-paused">
           <b>Shadow only · no paper position</b> · funding pause recorded{' '}

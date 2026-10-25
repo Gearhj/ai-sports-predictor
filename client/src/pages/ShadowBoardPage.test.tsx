@@ -115,7 +115,7 @@ describe('ShadowBoardPage', () => {
     stubFetch(BOARD)
     render(<MemoryRouter><ShadowBoardPage /></MemoryRouter>)
 
-    expect(await screen.findByRole('heading', { name: /Shadow Betting Board/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /Shadow Board: the proving ground/i })).toBeInTheDocument()
     expect(screen.getByText(/Research shadow — not executable/i)).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'DIRECT_GOLD' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'E10' })).toBeInTheDocument()

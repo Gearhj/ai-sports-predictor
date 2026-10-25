@@ -46,6 +46,7 @@ const SimulatorPage = lazy(() => import('./features/simulator/SimulatorPage').th
 const PulseHome = lazy(() => import('./features/pulse/PulseHome').then((module) => ({ default: module.PulseHome })))
 const MissionControl = lazy(() => import('./features/mission/MissionControl').then((module) => ({ default: module.MissionControl })))
 const MmaPage = lazy(() => import('./features/mma/MmaPage').then((module) => ({ default: module.MmaPage })))
+const MmqbPage = lazy(() => import('./features/mmqb/MmqbPage').then((module) => ({ default: module.MmqbPage })))
 const StartPage = lazy(() => import('./features/start/StartPage').then((module) => ({ default: module.StartPage })))
 const ControlPage = lazy(() => import('./features/control/ControlPage').then((module) => ({ default: module.ControlPage })))
 const MyPicksPage = lazy(() => import('./pages/MyPicksPage').then((module) => ({ default: module.MyPicksPage })))
@@ -120,6 +121,7 @@ export default function App() {
                 {/* UFC Fight Night (2026-10-25): historical archive, orientation-corrected, test mode. */}
                 <Route path="mma" element={<MmaPage />} />
                 <Route path="start" element={<StartPage />} />
+                <Route path="mmqb" element={<MmqbPage />} />
                 {/* Model Lab withdrawn 2026-10-25 (owner: real model-building tools or none); the code stays for the rebuild. */}
                 <Route path="model-lab" element={<Navigate to="/performance" replace />} />
                 {/* Every page not yet rebuilt runs inside the shared AISP shell (one menu, navy + steel). */}

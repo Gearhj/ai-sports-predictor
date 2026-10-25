@@ -12,7 +12,7 @@
  *     theme (`theme=` query) and is sized to its content (no inner scrollbar);
  *     its game links open the site's own game page in the top window.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApiResource } from '../../hooks/useApiResource'
 import { API_BASE_URL, apiRequest } from '../../services/api'
@@ -50,7 +50,7 @@ export function MmqbLink({ league = 'NFL' }: { league?: string }) {
   if (!latest) return null
   return (
     <p className="mpo__mmqb" data-testid="mmqb-link">
-      <Link to={mmqbHref(latest, league)}>Monday Morning QB: {league} Week {latest.week}</Link>
+      <Link to={`/mmqb?season=${latest.season}&week=${latest.week}`}>Monday Morning QB: {league} Week {latest.week}</Link>
       <span className="cc-muted"> · the weekly report: every official position, the entry expectation, model vs market and a game-by-game check</span>
     </p>
   )
@@ -87,9 +87,6 @@ export function MmqbWeekPicker({ weeks, season, week, onChange }: {
 export function MmqbReport({ league = 'NFL', season, week }: { league?: string; season?: number | null; week?: number | null }) {
   const index = useMmqbIndex(league)
   const navigate = useNavigate()
-  const frame = useRef<HTMLIFrameElement>(null)
-  const [height, setHeight] = useState(1600)
-  const [loaded, setLoaded] = useState(false)
   const weeks = index.data?.weeks ?? []
   const latest = index.data?.latest ?? null
   // A bare ?panel=mmqb opens the latest week; the URL is then made explicit (replace, no extra history entry).
@@ -98,19 +95,6 @@ export function MmqbReport({ league = 'NFL', season, week }: { league?: string; 
   }, [season, week, latest, league, navigate])
   const theme = pageTheme()
   const src = season != null && week != null ? mmqbReportUrl({ league, season, week, theme }) : null
-  useEffect(() => { setLoaded(false) }, [src])
-  const fit = () => {
-    setLoaded(true)
-    try {
-      const doc = frame.current?.contentDocument
-      if (!doc) return
-      const measure = () => setHeight(Math.max(600, Math.ceil(doc.body.scrollHeight)))
-      measure()
-      // Cards open and close, and the width can change: follow the document's height.
-      if (typeof ResizeObserver !== 'undefined') new ResizeObserver(measure).observe(doc.body)
-      doc.querySelectorAll('details').forEach((d) => d.addEventListener('toggle', measure))
-    } catch { /* cross-origin API base: keep the default height */ }
-  }
   return (
     <section className="mmqb" aria-label="Monday Morning QB" data-testid="mmqb-report">
       <nav className="mmqb__weeks" aria-label="Report controls">
@@ -119,11 +103,11 @@ export function MmqbReport({ league = 'NFL', season, week }: { league?: string; 
         <Link to={`/performance?panel=wagers&sport=${league}`}>Official wagers: Wager Results</Link>
         {src && <a href={src.replace(`&theme=${theme}`, '')} target="_blank" rel="noreferrer">Open the report on its own</a>}
       </nav>
-      {!loaded && <p className="cc-muted" role="status">{src ? 'Building the report from one read-only snapshot…' : 'Loading the report weeks…'}</p>}
-      {src && (
-        <iframe ref={frame} title="Monday Morning QB report" src={src} onLoad={fit} scrolling="no"
-          style={{ width: '100%', height, border: 0, display: 'block', overflow: 'hidden' }} />
-      )}
+      {/* Monday Morning QB has its own page (2026-10-25); this tab points there instead of embedding the HTML report. */}
+      <div className="mmqb__moved">
+        <p><b>Monday Morning QB has its own page now:</b> every bet of the week on one chart, what went right and wrong, the lessons and what changed because of them.</p>
+        <Link className="mmqb__go" to={season != null && week != null ? `/mmqb?season=${season}&week=${week}` : '/mmqb'}>Open Monday Morning QB{week != null ? ` · Week ${week}` : ''} →</Link>
+      </div>
     </section>
   )
 }

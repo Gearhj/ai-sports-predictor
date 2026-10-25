@@ -27,10 +27,11 @@ export const AISP_NAV: Array<{ title: string; items: NavItem[] }> = [
     { to: '/a-house-divided', label: 'Compete', icon: '♛', ask: 'Race the AISP model and your friends on the same games.', next: '/experiment' },
   ] },
   { title: 'CAN I TRUST IT?', items: [
-    { to: '/experiment', label: 'Record', icon: '◎', ask: "AISP's paper bankroll: every bet, won or lost, and did it beat the close?", next: '/performance' },
+    { to: '/experiment', label: 'Record', icon: '◎', ask: "AISP's paper bankroll: every bet, won or lost, and did it beat the close?", next: '/mmqb' },
+    { to: '/mmqb', label: 'Monday Morning QB', icon: '🏈', ask: "Last week's NFL bets dissected: what went right, what went wrong, and what we changed.", next: '/performance' },
     { to: '/performance', label: 'Model Performance', icon: '▥', ask: 'Is the model better than the market? Accuracy and calibration.', next: '/decisions' },
     { to: '/decisions', label: 'Daily Decisions', icon: '☑', ask: 'Why AISP bet, or passed, on each game today.', next: '/shadow-board' },
-    { to: '/shadow-board', label: 'Shadow Board', icon: '◐', ask: 'Other strategies tracked side by side, never bet.', next: '/methodology' },
+    { to: '/shadow-board', label: 'Shadow Board', icon: '◐', ask: 'The proving ground: challenger models make would-be bets with no money, to earn promotion.', next: '/methodology' },
   ] },
   { title: 'DIG DEEPER', items: [
     { to: '/markets', label: 'Markets & Crowd', icon: '◇', ask: 'Best price, value plays, line moves and the prediction markets.', next: '/labs' },

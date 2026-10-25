@@ -7,13 +7,13 @@
 .gh__team--home { justify-content: flex-end; text-align: right; }
 .gh__team img, .gh__team .sl-logo { width: 84px; height: 84px; object-fit: contain; flex: none; padding: 8px; box-sizing: content-box; border-radius: 50%; background: radial-gradient(circle, rgba(205, 213, 224, .9) 0 54%, rgba(205, 213, 224, .45) 62%, transparent 72%); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .55)); }
 .gh__team > span { display: grid; min-width: 0; line-height: 1.1; }
-.gh__team small { font-size: 11px; font-weight: 900; letter-spacing: .16em; color: rgba(255, 255, 255, .7); }
+.gh__team small { font-size: 13px; font-weight: 900; letter-spacing: .16em; color: rgba(255, 255, 255, .7); }
 .gh__team b { font-size: 30px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 10px rgba(0, 0, 0, .5); }
-.gh__team em { font-style: normal; font-size: 13px; font-weight: 800; color: rgba(255, 255, 255, .85); }
+.gh__team em { font-style: normal; font-size: 14.5px; font-weight: 800; color: rgba(255, 255, 255, .85); }
 .gh__team strong { font-size: 64px; font-weight: 900; line-height: 1; color: rgba(255, 255, 255, .6); text-shadow: 0 4px 16px rgba(0, 0, 0, .5); }
 .gh__team strong.is-win { color: #fff; }
 .gh__mid { position: relative; z-index: 1; display: grid; justify-items: center; gap: 6px; min-width: 150px; }
-.gh__sport { font-size: 11px; font-weight: 900; letter-spacing: .2em; color: #a9b4c4; }
+.gh__sport { font-size: 13px; font-weight: 900; letter-spacing: .2em; color: #a9b4c4; }
 .gh__state { font-size: 18px; font-weight: 900; padding: 6px 14px; border-radius: 999px; background: rgba(7, 13, 26, .75); border: 1px solid rgba(255, 255, 255, .15); white-space: nowrap; }
 .gh__state.is-live { color: #34d399; border-color: rgba(52, 211, 153, .5); }
 .gh__stamp { font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .08em; padding: 4px 16px; border: 4px solid currentColor; border-radius: 10px; transform: rotate(-8deg); animation: gh-stamp .7s cubic-bezier(.2, 1.4, .4, 1) both .3s; }
@@ -21,11 +21,11 @@
 @keyframes gh-stamp { from { transform: rotate(-8deg) scale(2.6); opacity: 0; } to { transform: rotate(-8deg) scale(1); opacity: 1; } }
 .gh__body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; padding: 16px 20px 6px;
   background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3b4452, #2c333f 55%, #20262f); }
-.gh h3 { margin: 0; font-size: 15px; font-weight: 900; color: #fff; }
+.gh h3 { margin: 0; font-size: 16.5px; font-weight: 900; color: #fff; }
 .gh__tug { display: grid; gap: 8px; min-width: 0; }
 .gh__tug header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.gh__tug header small { font-size: 12px; color: #a9b4c4; }
-.gh__pull { margin-left: auto; font-size: 12px; font-weight: 900; padding: 4px 10px; border-radius: 999px; }
+.gh__tug header small { font-size: 14px; color: #a9b4c4; }
+.gh__pull { margin-left: auto; font-size: 14px; font-weight: 900; padding: 4px 10px; border-radius: 999px; }
 .gh__pull.is-model { color: #2dd4bf; background: rgba(45, 212, 191, .14); } .gh__pull.is-market { color: #fbbf24; background: rgba(251, 191, 36, .14); }
 .gh__rope { position: relative; height: 54px; margin: 22px 0 4px; }
 .gh__rope-away, .gh__rope-home { position: absolute; top: 22px; height: 10px; width: 50%; }
@@ -35,28 +35,28 @@
 .gh__knot { position: absolute; top: 0; transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; animation: gh-pull 1.4s cubic-bezier(.3, 1.3, .5, 1) both .2s; }
 @keyframes gh-pull { from { left: 50%; } }
 .gh__knot::before { content: ""; order: 2; width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 14px currentColor; background: currentColor; }
-.gh__knot b { order: 1; font-size: 10.5px; font-weight: 900; letter-spacing: .08em; position: absolute; top: -18px; white-space: nowrap; }
-.gh__knot em { order: 3; font-style: normal; font-size: 12px; font-weight: 900; }
+.gh__knot b { order: 1; font-size: 12.5px; font-weight: 900; letter-spacing: .08em; position: absolute; top: -18px; white-space: nowrap; }
+.gh__knot em { order: 3; font-style: normal; font-size: 14px; font-weight: 900; }
 .gh__knot.is-model { color: #2dd4bf; z-index: 2; } .gh__knot.is-market { color: #fbbf24; top: 16px; }
 .gh__knot.is-market::before { width: 14px; height: 14px; border-width: 2px; }
 .gh__knot.is-market b { top: auto; bottom: -32px; }
-.gh__ends { display: flex; justify-content: space-between; font-size: 11px; font-weight: 800; color: #a9b4c4; }
-.gh__tug p { margin: 0; font-size: 13px; color: #dfe7f2; line-height: 1.45; }
+.gh__ends { display: flex; justify-content: space-between; font-size: 13px; font-weight: 800; color: #a9b4c4; }
+.gh__tug p { margin: 0; font-size: 14.5px; color: #dfe7f2; line-height: 1.45; }
 .gh__ticket { position: relative; display: grid; gap: 4px; align-content: start; padding: 12px 14px; border-radius: 12px; background: linear-gradient(180deg, #2b2416, #1d1810); color: #fef3c7; border: 2px dashed #d97706; box-shadow: 0 8px 20px rgba(0, 0, 0, .35); }
-.gh__ticket h3 { color: #fbbf24; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.gh__ticket h3 { color: #fbbf24; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
 .gh__ticket.is-none { background: #20262f; color: #dfe7f2; border-color: #4a5466; } .gh__ticket.is-none h3 { color: #a9b4c4; }
 .gh__pick { font-size: 22px; font-weight: 900; }
-.gh__ticket span { font-size: 13px; font-weight: 700; }
-.gh__ticket small { font-size: 12px; color: #a9b4c4; line-height: 1.4; }
+.gh__ticket span { font-size: 14.5px; font-weight: 700; }
+.gh__ticket small { font-size: 14px; color: #a9b4c4; line-height: 1.4; }
 .gh__ticket em { font-style: normal; font-weight: 900; } .gh__ticket em.is-win { color: #34d399; } .gh__ticket em.is-loss { color: #f87171; } .gh__ticket em.is-open { color: #c4b5fd; }
-.gh__ticket a { margin-top: 4px; font-size: 12px; font-weight: 800; color: #93c5fd !important; text-decoration: none; }
+.gh__ticket a { margin-top: 4px; font-size: 14px; font-weight: 800; color: #93c5fd !important; text-decoration: none; }
 .gh__ticket.is-none a { color: #93c5fd !important; }
 .gh__gates { list-style: none; margin: 0; padding: 12px 20px 16px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; background: #20262f; }
 .gh__gates li { display: flex; gap: 8px; align-items: center; min-width: 0; padding: 7px 9px; border-radius: 10px; background: rgba(7, 13, 26, .55); border-top: 3px solid var(--tn); }
-.gh__gates li i { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; font-style: normal; font-size: 11px; font-weight: 900; color: #0b1526; background: var(--tn); }
+.gh__gates li i { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; font-style: normal; font-size: 13px; font-weight: 900; color: #0b1526; background: var(--tn); }
 .gh__gates li span { display: grid; min-width: 0; line-height: 1.2; }
-.gh__gates li small { font-size: 10px; font-weight: 800; color: #a9b4c4; letter-spacing: .06em; text-transform: uppercase; }
-.gh__gates li b { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gh__gates li small { font-size: 12px; font-weight: 800; color: #a9b4c4; letter-spacing: .06em; text-transform: uppercase; }
+.gh__gates li b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gh .t-done { --tn: #2dd4bf; } .gh .t-waiting { --tn: #fbbf24; } .gh .t-blocked { --tn: #f87171; } .gh .t-na { --tn: #64748b; } .gh .t-unknown { --tn: #94a3b8; }
 @media (max-width: 1100px) { .gh__body { grid-template-columns: minmax(0, 1fr); } .gh__gates { grid-template-columns: repeat(4, minmax(0, 1fr)); } .gh__team b { font-size: 22px; } .gh__team strong { font-size: 44px; } .gh__team img, .gh__team .sl-logo { width: 56px; height: 56px; } }
 @media (max-width: 640px) { .gh__band { grid-template-columns: 1fr; text-align: center; } .gh__team, .gh__team--home { justify-content: center; } .gh__gates { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

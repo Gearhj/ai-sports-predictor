@@ -60,8 +60,10 @@ describe('DecisionLead', () => {
   })
 
   it('no decision yet: no selection is invented', () => {
-    render(<DecisionLead lead={{ ...provisional, kind: 'NOT_EVALUATED', authority: 'NONE', official: null, label: 'Not evaluated yet' }} latest={null} countdown={null} now={NOW} />)
-    const lead = screen.getByRole('region', { name: /not made yet: Not evaluated yet$/ })
+    render(<DecisionLead lead={{ ...provisional, kind: 'NOT_EVALUATED', authority: 'NONE', official: null, tone: 'orange', label: 'Waiting on sportsbook prices', waitingOn: 'PRICE' }} latest={null} countdown={null} now={NOW} />)
+    const lead = screen.getByRole('region', { name: /not made yet: Waiting on sportsbook prices$/ })
+    expect(lead).toHaveClass('dl--tone-orange')
+    expect(screen.getByRole('note')).toHaveTextContent('No position can be taken until a sportsbook posts a current price on both sides.')
     expect(lead).toHaveTextContent('Official selectionNone recorded yet')
     expect(lead).not.toHaveTextContent('Best current quote')
   })

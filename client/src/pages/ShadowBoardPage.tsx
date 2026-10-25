@@ -100,10 +100,17 @@ export function ShadowBoardPage() {
     <div className="page shadow-board-page">
       <PageHeader
         eyebrow="RESEARCH · MODEL STUDIO SHADOW BOARD"
-        title="Shadow Betting Board"
-        description="Imported Model Studio research forecasts joined with governed odds. MLB research tracks remain separate from the NFL M1 prospective shadow."
+        title="Shadow Board: the proving ground"
+        description="Challenger models that are not trusted with AISP's paper money yet make their calls here against real sportsbook prices. Nothing is bet. If a challenger keeps beating the market, it earns promotion."
         actions={<span className="admin-chip"><FlaskConical size={14} /> RESEARCH SHADOW</span>}
       />
+
+      <section className="sbx" aria-label="What the Shadow Board is">
+        <div className="sbx__card"><b>1 · Who plays here</b><span>Research models from Model Studio that have not earned real paper money yet, such as the NFL M1 prospective model and the MLB research tracks.</span></div>
+        <div className="sbx__card"><b>2 · What they do</b><span>Each one prices today&apos;s games against the same sportsbook quotes AISP uses, and says what it <i>would</i> bet, with a virtual stake.</span></div>
+        <div className="sbx__card"><b>3 · Why it matters</b><span>Every call is kept and graded. A challenger that beats the market over time can replace or join the live model. One that does not stays here.</span></div>
+        <div className="sbx__card sbx__card--key"><b>Reading a game</b><span><em className="is-go">Qualified shadow</em> would bet · <em className="is-maybe">Provisional / Watch</em> close, not yet · <em className="is-no">No bet</em> no value or no price · <em className="is-review">Review</em> needs a human look</span></div>
+      </section>
 
       <div className="research-note" role="note" style={{ marginBottom: '1rem' }}>
         <ShieldAlert size={16} />

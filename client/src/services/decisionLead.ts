@@ -57,7 +57,8 @@ export type LeadKind =
 
 /** Which authority the status carries. */
 export type LeadAuthority = 'FUNDED' | 'FINAL' | 'PROVISIONAL' | 'NONE'
-export type LeadTone = 'green' | 'gold' | 'red' | 'gray'
+/** blue = scheduled and ready, orange = waiting on an input (forecast or price), red = blocked or lost. */
+export type LeadTone = 'green' | 'gold' | 'red' | 'gray' | 'orange' | 'blue'
 
 export const AUTHORITY_LABEL: Record<LeadAuthority, string> = {
   FUNDED: 'Funded paper wager',
@@ -152,6 +153,8 @@ export interface DecisionLead {
   funded: LeadFunded | null
   /** Set only for a shadow-only (funding-paused) decision. */
   fundingPause?: LeadFundingPause | null
+  /** Before a decision: the input that is missing, if any. A missing input is what stops a position being taken. */
+  waitingOn?: 'FORECAST' | 'PRICE' | null
 }
 
 export const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '') || null
@@ -325,14 +328,30 @@ export function decisionLead({ item, game, ledgerPosition = null, ledgerLoaded =
   // ---- NOT EVALUATED: say what the decision is waiting on.
   const pendingEvidence = /PENDING_FINAL_EVIDENCE|two-sided/i.test(item?.reason ?? '')
   const windowOpen = w.opensAt != null && Date.parse(w.opensAt) <= now
+  // the colour says whether anything stands in the way: orange = an input is missing, red = still missing
+  // while the window is open (nothing can be bet), blue = everything is in and it simply decides on schedule
+  const noForecast = Boolean(game && !game.model)
+  const noPrice = !noForecast && (pendingEvidence || Boolean(game && game.price_state !== 'CURRENT_PRICE'))
+  const waitingOn = noForecast ? 'FORECAST' as const : noPrice ? 'PRICE' as const : null
   let sentence: string
-  if (game && !game.model) sentence = `Waiting for the forecast; the decision is made in ${windowText(w)}.`
-  else if (pendingEvidence || (game && game.price_state !== 'CURRENT_PRICE')) {
+  let label: string
+  let tone: LeadTone
+  if (noForecast) {
+    sentence = `Waiting for the forecast; the decision is made in ${windowText(w)}.`
+    label = windowOpen ? 'Blocked · no model forecast' : 'Waiting on the model forecast'
+    tone = windowOpen ? 'red' : 'orange'
+  } else if (noPrice) {
     sentence = windowOpen
       ? `No complete same-book two-sided price yet; it is re-checked until ${clock(w.closesAt)} ET.`
       : `Waiting for a current two-sided sportsbook price; the decision is made in ${windowText(w)}.`
-  } else sentence = windowOpen ? `Being evaluated now; the window closes at ${clock(w.closesAt)} ET.` : `Evaluated automatically in ${windowText(w)}.`
-  return { ...base, official: null, kind: 'NOT_EVALUATED', authority: 'NONE', tone: 'gray', label: 'Not evaluated yet', sentence }
+    label = windowOpen ? 'Blocked · no usable price yet' : 'Waiting on sportsbook prices'
+    tone = windowOpen ? 'red' : 'orange'
+  } else {
+    sentence = windowOpen ? `Being evaluated now; the window closes at ${clock(w.closesAt)} ET.` : `Evaluated automatically in ${windowText(w)}.`
+    label = windowOpen ? 'Deciding now' : 'Scheduled · inputs ready'
+    tone = 'blue'
+  }
+  return { ...base, official: null, kind: 'NOT_EVALUATED', authority: 'NONE', tone, label, sentence, waitingOn }
 }
 
 /** The latest current price seen for the official selection's side, apart from the recorded one. */

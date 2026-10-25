@@ -155,10 +155,11 @@ describe('decision status mapping: provisional vs final decline vs funded', () =
 
   it('NOT_YET_EVALUATED shows no selection and says what it waits for', () => {
     const lead = decisionLead({ item: item({ phase: 'MORNING', recommendation: 'NOT_YET_EVALUATED', selection: '—', american: null }), game: game('1'), now: NOW })
-    expect(lead).toMatchObject({ kind: 'NOT_EVALUATED', authority: 'NONE', official: null, label: 'Not evaluated yet' })
+    expect(lead).toMatchObject({ kind: 'NOT_EVALUATED', authority: 'NONE', official: null, label: 'Waiting on sportsbook prices', tone: 'orange', waitingOn: 'PRICE' })
     expect(lead.sentence).toMatch(/^Waiting for a current two-sided sportsbook price/)
     const noForecast = decisionLead({ item: null, game: game('2', { homeP: null }), now: NOW })
     expect(noForecast.sentence).toMatch(/^Waiting for the forecast/)
+    expect(noForecast).toMatchObject({ label: 'Waiting on the model forecast', tone: 'orange', waitingOn: 'FORECAST' })
   })
 
   it('a started game without a final evaluation says no wager was made', () => {

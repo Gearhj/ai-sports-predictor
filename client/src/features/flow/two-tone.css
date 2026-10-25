@@ -40,24 +40,24 @@
 
 /* wayfinding: Start here, and the page you are on opens into YOU ARE HERE */
 .as-start { display: flex; align-items: center; gap: 10px; margin: 4px 2px 2px; padding: 9px 12px; border-radius: 12px; text-decoration: none; color: #062a26; background: linear-gradient(180deg, #5eead4, #2dd4bf); box-shadow: 0 6px 16px rgba(45, 212, 191, .25), inset 0 1px 0 rgba(255, 255, 255, .4); }
-.as-start i { font-style: normal; font-weight: 900; font-size: 16px; }
-.as-start span { display: grid; } .as-start b { font-size: 13px; font-weight: 900; } .as-start small { font-size: 10.5px; font-weight: 700; color: #0b3b36; }
+.as-start i { font-style: normal; font-weight: 900; font-size: 17.5px; }
+.as-start span { display: grid; } .as-start b { font-size: 14.5px; font-weight: 900; } .as-start small { font-size: 12.5px; font-weight: 700; color: #0b3b36; }
 .as-start:hover { filter: brightness(1.06); } .as-start.is-on { outline: 2px solid #fff; outline-offset: 1px; }
 .as-item { display: grid; }
 .as-here { margin: 4px 4px 8px 14px; padding: 9px 10px; border-radius: 10px; background: var(--tt-well); border: 1px solid rgba(45, 212, 191, .3); border-left: 3px solid #2dd4bf; animation: as-here-in .25s ease both; }
 @keyframes as-here-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.as-here small { display: block; font-size: 8.5px; font-weight: 900; letter-spacing: .2em; color: #5eead4; }
-.as-here p { margin: 4px 0 6px; font-size: 11.5px; line-height: 1.4; color: #cbd5e1; }
-.hq-nav .as-here__next { display: inline-flex; padding: 0; border: 0; font-size: 11.5px; font-weight: 900; color: #5eead4; background: none; }
+.as-here small { display: block; font-size: 10px; font-weight: 900; letter-spacing: .2em; color: #5eead4; }
+.as-here p { margin: 4px 0 6px; font-size: 13.5px; line-height: 1.4; color: #cbd5e1; }
+.hq-nav .as-here__next { display: inline-flex; padding: 0; border: 0; font-size: 13.5px; font-weight: 900; color: #5eead4; background: none; }
 .hq-nav .as-here__next:hover { text-decoration: underline; background: none; }
 @media (prefers-reduced-motion: reduce) { .as-here { animation: none; } }
 
 /* first-visit nudge on Home */
 .st-nudge { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--tt-frame); border: 1px solid #2dd4bf; box-shadow: 0 0 22px rgba(45, 212, 191, .18); }
 .st-nudge > i { font-style: normal; font-size: 20px; color: #2dd4bf; }
-.st-nudge p { margin: 0; flex: 1; font-size: 13px; color: var(--sl-muted); } .st-nudge p b { color: #fff; }
-.st-nudge__go { flex: none; font-size: 13px; font-weight: 900; color: #062a26; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: #2dd4bf; }
-.st-nudge button { flex: none; width: 28px; height: 28px; border-radius: 50%; font: inherit; font-size: 16px; color: var(--sl-muted); background: none; border: 1px solid var(--tt-steel-line); cursor: pointer; }
+.st-nudge p { margin: 0; flex: 1; font-size: 14.5px; color: var(--sl-muted); } .st-nudge p b { color: #fff; }
+.st-nudge__go { flex: none; font-size: 14.5px; font-weight: 900; color: #062a26; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: #2dd4bf; }
+.st-nudge button { flex: none; width: 28px; height: 28px; border-radius: 50%; font: inherit; font-size: 17.5px; color: var(--sl-muted); background: none; border: 1px solid var(--tt-steel-line); cursor: pointer; }
 @media (max-width: 640px) { .st-nudge { flex-wrap: wrap; } .st-nudge p { flex-basis: calc(100% - 80px); } }
 
 /* phone width: wide strips scroll inside their own frame instead of widening the page */
@@ -67,3 +67,67 @@
   .hq .hm-top { flex-wrap: wrap; }
   .hq .hm-table { display: block; max-width: 100%; overflow-x: auto; }
 }
+
+/* ---------------------------------------------------------------- the pages not yet rebuilt (James 10-25:
+ * Performance, Markets, Decisions, Shadow Board, Simulator "all the same dark blue"). legacy-dark.css now
+ * turns their white cards steel and their insets navy; this adds the canvas, the headers and a cycling accent
+ * edge so neighbouring panels never look alike. Selectors carry .aisp-legacy__page to outrank legacy-dark. */
+.hq .aisp-legacy__page { background: var(--sl-navy); }
+.hq .aisp-legacy__page :is(.cc-mpanel, .mv-card, .as-card, .cc-support__panel, .panel, .hub-card, .sim-card, .vw__why, .ed-card) {
+  background: var(--tt-frame); border-color: var(--tt-steel-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 10px 24px rgba(0, 0, 0, .3);
+}
+.hq .aisp-legacy__page :is(.cc-mpanel, .mv-card, .panel, .hub-card, .sim-card, .ed-card) { border-top: 3px solid var(--tt-acc, #2dd4bf); }
+.hq .aisp-legacy__page :is(.cc-mpanel, .mv-card, .panel, .hub-card, .sim-card, .ed-card):nth-child(4n+2) { --tt-acc: #60a5fa; }
+.hq .aisp-legacy__page :is(.cc-mpanel, .mv-card, .panel, .hub-card, .sim-card, .ed-card):nth-child(4n+3) { --tt-acc: #a78bfa; }
+.hq .aisp-legacy__page :is(.cc-mpanel, .mv-card, .panel, .hub-card, .sim-card, .ed-card):nth-child(4n+4) { --tt-acc: #fbbf24; }
+/* page heads: steel into navy, so each page opens on metal */
+.hq .aisp-legacy__page :is(.cc-perf__head, .cc-mpulse, .cc-dnow, .hub__hero, .page-header) {
+  background: radial-gradient(90% 140% at 0% 0%, rgba(45, 212, 191, .14), transparent 55%), linear-gradient(120deg, #3a4250 0%, #252c37 38%, #101b2e 100%);
+  border: 1px solid var(--tt-steel-line); border-radius: 16px;
+}
+/* data inside a steel card stays navy */
+.hq .aisp-legacy__page :is(.cc-mpanel, .panel, .sim-card, .mv-card) :is(.table-scroll, .sim-stats > div, .verdict, .ed-mover) { background: var(--tt-well); border-color: var(--tt-well-line); }
+.hq .aisp-legacy__page .ed-mover.has-steam { background: linear-gradient(90deg, rgba(251, 146, 60, .16), var(--tt-well) 45%); }
+
+/* simulator: outcomes / field view tabs */
+.sim__modes { display: flex; gap: 8px; flex-wrap: wrap; }
+.sim__modes button { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 15.5px; font-weight: 900; color: var(--sl-muted, #a9b4c4); background: var(--tt-frame); border: 1px solid var(--tt-steel-line); border-radius: 12px; padding: 10px 16px; cursor: pointer; }
+.sim__modes button small { font-size: 14px; font-weight: 700; color: #8b97a8; }
+.sim__modes button.is-on { color: #fff; border-color: #2dd4bf; box-shadow: 0 0 0 1px #2dd4bf, 0 0 20px rgba(45, 212, 191, .2); }
+.sim__modes button.is-on small { color: #5eead4; }
+.sim-empty__field { font: inherit; font-weight: 900; color: #062a26; background: #2dd4bf; border: 0; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+
+/* Daily Decisions: where each game stands, by colour (orange = waiting on data, red = blocked, blue = ready) */
+.cc-tone--orange { color: #fb923c; } .cc-tone--blue { color: #60a5fa; }
+.hq .aisp-legacy__page .dl.dl--tone-orange { border-left: 4px solid #fb923c; background: linear-gradient(90deg, rgba(251, 146, 60, .14), transparent 55%); }
+.hq .aisp-legacy__page .dl.dl--tone-red { border-left: 4px solid #f87171; background: linear-gradient(90deg, rgba(248, 113, 113, .16), transparent 55%); }
+.hq .aisp-legacy__page .dl.dl--tone-blue { border-left: 4px solid #60a5fa; background: linear-gradient(90deg, rgba(96, 165, 250, .1), transparent 55%); }
+.dl .dl-status.cc-tone--orange, .dl .dl-status.cc-tone--red, .dl .dl-status.cc-tone--blue { font-weight: 900; }
+.dl-waiting { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 700; line-height: 1.4; }
+.dl-waiting--orange { color: #fed7aa; background: rgba(251, 146, 60, .14); border: 1px solid rgba(251, 146, 60, .45); }
+.dl-waiting--red { color: #fecaca; background: rgba(248, 113, 113, .16); border: 1px solid rgba(248, 113, 113, .5); }
+.dg { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; margin-bottom: 14px; padding: 16px 18px; border-radius: 16px; background: var(--tt-frame); border: 1px solid var(--tt-steel-line); border-top: 3px solid #2dd4bf; color: #e2e8f0; }
+.dg h2 { margin: 0 0 8px; font-size: 18px; font-weight: 900; color: #fff; }
+.dg ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.45; color: #cbd5e1; }
+.dg ol b { color: #fff; }
+.dg__key { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dg__k { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; border-radius: 10px; background: var(--tt-well); border: 1px solid var(--tt-well-line); }
+.dg__k i { flex: none; width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; background: var(--k); box-shadow: 0 0 10px var(--k); }
+.dg__k span { display: grid; gap: 2px; } .dg__k b { font-size: 14px; color: var(--k); } .dg__k small { font-size: 12.5px; color: #a9b4c4; line-height: 1.35; }
+.dg__k--blue { --k: #60a5fa; } .dg__k--orange { --k: #fb923c; } .dg__k--red { --k: #f87171; } .dg__k--gold { --k: #fbbf24; } .dg__k--green { --k: #34d399; } .dg__k--gray { --k: #94a3b8; }
+@media (max-width: 900px) { .dg { grid-template-columns: 1fr; } .dg__key { grid-template-columns: 1fr; } }
+
+/* Shadow Board explainer */
+.sbx { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 14px; }
+.sbx__card { display: grid; gap: 6px; align-content: start; padding: 12px 14px; border-radius: 12px; background: var(--tt-frame); border: 1px solid var(--tt-steel-line); border-top: 3px solid #a78bfa; }
+.sbx__card b { font-size: 14.5px; color: #fff; } .sbx__card span { font-size: 13.5px; line-height: 1.45; color: #cbd5e1; }
+.sbx__card--key { border-top-color: #2dd4bf; background: var(--tt-well); }
+.sbx__card em { font-style: normal; font-weight: 900; } .sbx .is-go { color: #34d399; } .sbx .is-maybe { color: #fbbf24; } .sbx .is-no { color: #94a3b8; } .sbx .is-review { color: #f87171; }
+@media (max-width: 1100px) { .sbx { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .sbx { grid-template-columns: 1fr; } }
+
+/* Performance's old Monday Morning QB tab now points at /mmqb */
+.mmqb__moved { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; padding: 16px 18px; border-radius: 14px; background: var(--tt-frame); border: 1px solid var(--tt-steel-line); border-left: 4px solid #2dd4bf; color: #e2e8f0; font-size: 15px; }
+.mmqb__moved p { margin: 0; flex: 1 1 320px; } .mmqb__moved b { color: #fff; }
+.mmqb__go { font-weight: 900; color: #062a26 !important; background: #2dd4bf; border-radius: 999px; padding: 9px 16px; text-decoration: none; }

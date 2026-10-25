@@ -37,6 +37,7 @@ const TRAILS: Trail[] = [
   ] },
   { key: 'trust', icon: '◎', title: 'Is AISP any good?', who: 'You want proof before you trust a number.', steps: [
     { to: '/experiment', why: 'The paper bankroll: every bet AISP made, won or lost, and whether it beat the closing line.' },
+    { to: '/mmqb', why: 'The weekly review: every NFL bet dissected, the lessons, and what AISP changed because of them.' },
     { to: '/performance', why: 'Model against market: accuracy, calibration, and where it is better or worse.' },
     { to: '/decisions', why: 'Why AISP bet or passed on each game, gate by gate.' },
     { to: '/methodology', why: 'How the numbers are built, in plain English.' },
