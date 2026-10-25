@@ -110,14 +110,15 @@ class PredictionMarketObserver:
 
             # 2) mapping decision (append-only; only when it changes)
             raw = head.raw or {}
-            home_abbr = raw.get("home_abbr") or (polymarket_name_to_aisp(head.provider_home_team) if provider == "POLYMARKET" else None)
-            away_abbr = raw.get("away_abbr") or (polymarket_name_to_aisp(head.provider_away_team) if provider == "POLYMARKET" else None)
+            home_abbr = raw.get("home_abbr") or (polymarket_name_to_aisp(head.provider_home_team, head.league) if provider == "POLYMARKET" else None)
+            away_abbr = raw.get("away_abbr") or (polymarket_name_to_aisp(head.provider_away_team, head.league) if provider == "POLYMARKET" else None)
             decision = map_event_to_game(
                 self.session, provider=provider, provider_event_id=event_id, league_code=head.league,
                 provider_home_team=head.provider_home_team, provider_away_team=head.provider_away_team,
                 scheduled_start_at=head.scheduled_start_at,
                 provider_home_abbr=home_abbr, provider_away_abbr=away_abbr,
                 doubleheader_game_number=raw.get("doubleheader_game_number"),
+                start_is_date_only=bool(raw.get("date_only_start")),
             )
             semantics, sem_reason, sem_source = self._semantics_for(head, decision)
             latest = self._latest_mapping(provider, event_id)

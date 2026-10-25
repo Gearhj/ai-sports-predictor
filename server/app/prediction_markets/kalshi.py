@@ -43,7 +43,9 @@ SOURCE = "KALSHI"
 PUBLIC_REST_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 KALSHI_LOCAL_TZ = ZoneInfo("America/New_York")
 
-_EVENT_TICKER = re.compile(r"^(?P<series>KX[A-Z]+)-(?P<yy>\d{2})(?P<mon>[A-Z]{3})(?P<dd>\d{2})(?P<hh>\d{2})(?P<mm>\d{2})(?P<teams>[A-Z]+?)(?:G(?P<game>\d))?$")
+# MLB tickers carry the first-pitch time (KXMLBGAME-26SEP041915DETCLEG2); NFL/NBA/NHL tickers carry only the
+# date (KXNFLGAME-26OCT25PITNO), so the HHMM group is optional and a date-only identity is flagged.
+_EVENT_TICKER = re.compile(r"^(?P<series>KX[A-Z]+)-(?P<yy>\d{2})(?P<mon>[A-Z]{3})(?P<dd>\d{2})(?:(?P<hh>\d{2})(?P<mm>\d{2}))?(?P<teams>[A-Z]+?)(?:G(?P<game>\d))?$")
 _RULES_WHEN = re.compile(r"originally scheduled for (?P<when>[A-Z][a-z]{2} \d{1,2}, \d{4} at \d{1,2}:\d{2} [AP]M) E[DS]T")
 _MONTHS = {m: i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), start=1)}
 
@@ -103,22 +105,27 @@ def classify_series(series_ticker: str, league: str) -> str:
     return "PLAYER_PROP"
 
 
-def parse_event_ticker(event_ticker: str) -> dict[str, Any] | None:
+def parse_event_ticker(event_ticker: str, league: str = "MLB", sub_title: str | None = None) -> dict[str, Any] | None:
     """Decode a game event ticker: start (ET, tz-aware), away/home ticker
-    abbreviations and doubleheader game number. None when not a game ticker."""
+    abbreviations and doubleheader game number. None when not a game ticker.
+
+    A ticker without a time (NFL/NBA/NHL) yields the ET calendar date at 00:00
+    with ``date_only=True``: the game is identified by its exact teams within
+    that ET game day, never by a guessed kick-off time."""
     m = _EVENT_TICKER.match(event_ticker.strip().upper())
     if not m:
         return None
-    pair = split_kalshi_team_pair(m.group("teams"))
+    pair = split_kalshi_team_pair(m.group("teams"), league, sub_title)
     if pair is None:
         return None
+    date_only = m.group("hh") is None
     try:
         start = datetime(2000 + int(m.group("yy")), _MONTHS[m.group("mon")], int(m.group("dd")),
-                         int(m.group("hh")), int(m.group("mm")), tzinfo=KALSHI_LOCAL_TZ)
+                         0 if date_only else int(m.group("hh")), 0 if date_only else int(m.group("mm")), tzinfo=KALSHI_LOCAL_TZ)
     except (KeyError, ValueError):
         return None
     return {"series": m.group("series"), "starts_at": start, "away_ticker": pair[0], "home_ticker": pair[1],
-            "game_number": int(m.group("game")) if m.group("game") else None}
+            "game_number": int(m.group("game")) if m.group("game") else None, "date_only": date_only}
 
 
 def parse_rules_start(rules: str | None) -> datetime | None:
@@ -258,7 +265,8 @@ class KalshiPredictionMarketSource:
                 # Listings are newest-first: once a whole page predates the
                 # window of interest (settled reconstruction), stop paging.
                 if not_before is not None and events:
-                    dates = [parse_event_ticker(str(e.get("event_ticker") or "")) for e in events if isinstance(e, dict)]
+                    dates = [parse_event_ticker(str(e.get("event_ticker") or ""), league, str(e.get("sub_title") or "") or None)
+                             for e in events if isinstance(e, dict)]
                     starts = [d["starts_at"] for d in dates if d]
                     if starts and max(starts) < not_before:
                         break
@@ -282,12 +290,12 @@ class KalshiPredictionMarketSource:
         if family not in _FULL_GAME_FAMILIES.values():
             excluded[_bucket(family)] = excluded.get(_bucket(family), 0) + len(event.get("markets") or [])
             return []
-        identity = parse_event_ticker(event_ticker)
+        identity = parse_event_ticker(event_ticker, league, str(event.get("sub_title") or "") or None)
         if identity is None:
             excluded["unparseable_event_ticker"] = excluded.get("unparseable_event_ticker", 0) + len(event.get("markets") or [])
             return []
-        home_abbr = kalshi_ticker_to_aisp(identity["home_ticker"])
-        away_abbr = kalshi_ticker_to_aisp(identity["away_ticker"])
+        home_abbr = kalshi_ticker_to_aisp(identity["home_ticker"], league)
+        away_abbr = kalshi_ticker_to_aisp(identity["away_ticker"], league)
         if home_abbr is None or away_abbr is None:
             excluded["unregistered_team_alias"] = excluded.get("unregistered_team_alias", 0) + len(event.get("markets") or [])
             return []
@@ -301,10 +309,10 @@ class KalshiPredictionMarketSource:
                 excluded["missing_identifiers"] = excluded.get("missing_identifiers", 0) + 1
                 continue
             yes_ticker = ticker[len(event_ticker) + 1:]
-            yes_abbr = kalshi_ticker_to_aisp(yes_ticker)
+            yes_abbr = kalshi_ticker_to_aisp(yes_ticker, league)
             yes_label = str(market.get("yes_sub_title") or market.get("title") or yes_ticker)
             if yes_abbr is None:
-                yes_abbr = kalshi_name_to_aisp(yes_label)
+                yes_abbr = kalshi_name_to_aisp(yes_label, league)
             if family == "MONEYLINE":
                 if yes_abbr == home_abbr:
                     selection = CanonicalSelection.HOME
@@ -342,6 +350,7 @@ class KalshiPredictionMarketSource:
                     "series_ticker": series_ticker, "event_ticker": event_ticker, "yes_team_ticker": yes_ticker,
                     "yes_team_abbr": yes_abbr, "home_abbr": home_abbr, "away_abbr": away_abbr,
                     "doubleheader_game_number": identity["game_number"],
+                    "date_only_start": bool(identity.get("date_only")),
                     "ticker_start_local": starts_at.isoformat(),
                     "rules_start_local": rules_start.isoformat() if rules_start else None,
                     "start_time_conflict": bool(rules_start and rules_start != starts_at),

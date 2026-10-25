@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ from app.models import ExternalIdMapping, Game, GameTeam, League, Team
 from app.prediction_markets.contracts import MappingStatus, SemanticsStatus
 
 # A provider start time within this window of an AISP game is "aligned".
+ET = ZoneInfo("America/New_York")
 EXACT_START_WINDOW = timedelta(minutes=90)
 CANDIDATE_START_WINDOW = timedelta(hours=6)
 
@@ -56,6 +58,7 @@ def map_event_to_game(
     provider_home_abbr: str | None = None,
     provider_away_abbr: str | None = None,
     doubleheader_game_number: int | None = None,
+    start_is_date_only: bool = False,
 ) -> MappingDecision:
     """Resolve a provider event to a canonical AISP game, failing closed.
 
@@ -84,6 +87,11 @@ def map_event_to_game(
     start = _aware(scheduled_start_at)
     window_lo = start - CANDIDATE_START_WINDOW
     window_hi = start + CANDIDATE_START_WINDOW
+    if start_is_date_only:
+        # The provider names only the ET calendar day (Kalshi NFL/NBA/NHL tickers). Identity then comes from
+        # the exact registered teams within that ET game day (00:00 to 06:00 the next morning), never a guessed time.
+        day = start.astimezone(ET).replace(hour=0, minute=0, second=0, microsecond=0)
+        window_lo, window_hi = day, day + timedelta(hours=30)
     games = list(session.scalars(select(Game).where(
         Game.league_id == league_id,
         Game.starts_at >= window_lo,
@@ -95,7 +103,7 @@ def map_event_to_game(
     if provider_home_abbr and provider_away_abbr:
         decision = _map_by_abbreviation(
             session, games, start, home_abbr=provider_home_abbr.upper(), away_abbr=provider_away_abbr.upper(),
-            game_number=doubleheader_game_number,
+            game_number=doubleheader_game_number, date_only=start_is_date_only,
         )
         # Kalshi identity is abbreviation-only (registry) and fails closed here.
         # Polymarket supplies full names too; when the registry abbreviations
@@ -162,6 +170,7 @@ def map_event_to_game(
 
 def _map_by_abbreviation(
     session: Session, games: list[Game], start: datetime, *, home_abbr: str, away_abbr: str, game_number: int | None,
+    date_only: bool = False,
 ) -> MappingDecision:
     forward: list[Game] = []
     reversed_: list[Game] = []
@@ -195,6 +204,13 @@ def _map_by_abbreviation(
             game = within[0]
     else:
         game = forward[0]
+    if date_only:
+        if len(forward) > 1 and game_number is None:
+            return MappingDecision(MappingStatus.AMBIGUOUS, reason="Same teams twice on one ET day; provider ordinal missing",
+                                   candidate_game_ids=[str(g.id) for g in forward])
+        return MappingDecision(MappingStatus.EXACT, canonical_game_id=game.id,
+                               reason="Deterministic team-abbreviation match within the provider's ET game day (ticker carries no time)",
+                               start_time_delta_seconds=None, candidate_game_ids=[str(game.id)], home_is_yes=True)
     delta_seconds = int(abs((_aware(game.starts_at) - start).total_seconds()))
     if delta_seconds > EXACT_START_WINDOW.total_seconds():
         return MappingDecision(MappingStatus.REVIEW_REQUIRED, canonical_game_id=game.id,
