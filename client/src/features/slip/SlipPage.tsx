@@ -65,7 +65,7 @@ export function SlipPage() {
       <div className="hq-main">
         <GamePlanBar current="picks" />
         <div className="sp-layout">
-          <main className="sp-content">
+          <main id="main-content" className="sp-content">
             <header className="sp-head">
               <i aria-hidden="true">✓</i>
               <div><h1>My Picks</h1><p>Your bet slip. See the price, the edge and the risk before you lock it in. <b>Play money</b>, separate from the AISP paper record.</p></div>

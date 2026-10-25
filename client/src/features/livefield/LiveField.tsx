@@ -324,7 +324,7 @@ export function LiveField() {
         <LiveShell games={games} gameId={gameId} onPick={(id) => setParams((prev) => { const o = new URLSearchParams(prev); o.set('game', id); o.delete('demo'); return o })} sportFilter={sportFilter} onSport={setSportFilter} favs={favs} onFav={toggleFav}
           strip={{ league: game.sport, week: null, season: null, venue: live?.venue ?? null, city: null, weather: live?.weather?.condition ? { text: live.weather.condition, temp: live.weather.temp ? Number(live.weather.temp) : null } : null, model: game.sport === 'MLB' ? 'MLB V18' : game.sport, broadcast: null, live: Boolean(inPlay), clock: inPlay && live?.status ? `${live.status.inning_state ?? ''} ${live.status.inning_ordinal ?? ''}`.trim() : '', status: finalFeed ? 'FINAL' : 'PREGAME', date: game.starts_at }}
           onBooth={() => document.querySelector('.lf-booth, .booth')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
-          <main className="lf-main">
+          <main id="main-content" className="lf-main">
             <section className="lf-score" aria-label="Score">
               <div className="lf-score__team">
                 {game.sport === 'MLB' ? <TeamLogo league="MLB" abbreviation={awayAbbr} size={60} /> : null}<span className="lf-score__abbr">{awayAbbr}</span>
@@ -446,7 +446,7 @@ export function LiveField() {
             </div>
           </div>
 
-          <main className="lf-main"><p className="lf-note">{slate.error ? 'Tonight\'s board could not be read.' : slate.data ? 'No games on tonight\'s board.' : 'Loading tonight\'s board…'}</p></main>
+          <main id="main-content" className="lf-main"><p className="lf-note">{slate.error ? 'Tonight\'s board could not be read.' : slate.data ? 'No games on tonight\'s board.' : 'Loading tonight\'s board…'}</p></main>
         </>
       )}
     </div>

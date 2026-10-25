@@ -97,7 +97,7 @@ export function StartPage() {
         <header className="sl-top">
           <div className="sl-title"><small>START HERE</small><h1>The map of AISP</h1><p>{NAV_ITEMS.length} pages, three reasons to be here. Pick yours and follow the light.</p></div>
         </header>
-        <main className="st-body">
+        <main id="main-content" className="st-body">
           <section className="st-trails" aria-label="Choose what you want to do">
             {TRAILS.map((x) => (
               <button key={x.key} type="button" className={`st-trail${x.key === trail ? ' is-on' : ''}`} aria-pressed={x.key === trail} onClick={() => setTrail(x.key)}>

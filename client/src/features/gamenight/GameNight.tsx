@@ -477,7 +477,7 @@ export function GameNight() {
     </div>
   )
   // TV mode is the bare broadcast wall; otherwise the page sits in the platform shell with the one left menu.
-  return tv ? page : <div className="hq gn-shell"><AispSide /><div className="hq-main">{page}</div></div>
+  return tv ? page : <div className="hq gn-shell"><AispSide /><div className="hq-main" id="main-content" role="main">{page}</div></div>
 }
 
 function Methods({ gn, info, day }: { gn: ReturnType<typeof useGameNight>; info: StormInfo | null; day: string }) {

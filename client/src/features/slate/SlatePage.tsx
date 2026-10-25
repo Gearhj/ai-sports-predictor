@@ -169,7 +169,7 @@ export function SlatePage() {
 
         <GamePlanBar current="edges" />
         <div className="sl-layout">
-          <main className="sl-content">
+          <main id="main-content" className="sl-content">
             <section className="sl-kpis" aria-label="Today at a glance">
               <Kpi tone="green" icon="((•))" big={String(live.length)} label="Live Games" sub="Across all sports" onClick={() => setTab('live')} />
               <Kpi tone="blue" icon="◷" big={mins == null ? '—' : mins >= 120 ? `${Math.round(mins / 60)} hr` : `${mins} min`} label="Next Model Run" sub={nextRun ? `${new Date(nextRun.windowOpensAt!).toDateString() === new Date(now).toDateString() ? 'Today' : etClock(nextRun.windowOpensAt, { weekday: 'short' })} ${etClock(nextRun.windowOpensAt)} ET` : 'No window scheduled'} />

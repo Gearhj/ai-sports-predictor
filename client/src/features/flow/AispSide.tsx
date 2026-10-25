@@ -59,7 +59,8 @@ export function AispSide({ children, compact = false }: { children?: ReactNode; 
   const here = navItemAt(pathname)
   const next = here?.next ? NAV_ITEMS.find((it) => it.to === here.next) ?? (here.next === '/start' ? { to: '/start', label: 'Start here' } : undefined) : undefined
   return (
-    <div className="hq-side">
+    <nav className="hq-side" aria-label="Primary navigation">
+      <a href="#main-content" className="as-skip">Skip to content</a>
       <Link to="/" className="hq-logo"><b>✺ AISP</b><small>AI SPORTS PREDICTOR</small></Link>
       <Link to="/start" className={`as-start${pathname === '/start' ? ' is-on' : ''}`}><i aria-hidden="true">➜</i><span><b>Start here</b><small>New? The map of AISP</small></span></Link>
       {AISP_NAV.map((g) => (
@@ -88,6 +89,6 @@ export function AispSide({ children, compact = false }: { children?: ReactNode; 
         <Link to="/account" className={pathname === '/account' ? 'is-on' : ''}><i aria-hidden="true">⚙</i>{user ? user.display_name : 'Account & sign in'}</Link>
         <span className="as-note">Research &amp; paper only · no real-money wagering</span>
       </nav>
-    </div>
+    </nav>
   )
 }

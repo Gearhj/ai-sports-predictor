@@ -118,7 +118,7 @@ export function RecordPage() {
       <div className="hq-main">
         <GamePlanBar current="track" />
         <div className="rc-layout">
-          <main className="rc-content">
+          <main id="main-content" className="rc-content">
             <header className="rc-head">
               <i className="rc-head__icon" aria-hidden="true">▥</i>
               <div><h1>The Record</h1><p>Your immutable betting history. Analyze performance. Find edges. Make better decisions.</p></div>

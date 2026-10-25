@@ -3,7 +3,8 @@
  * page itself inside `.aisp-legacy__page`, where the generated navy + steel overrides (legacy-dark.css) restyle
  * the old light stylesheets until each page gets its own redesign.
  */
-import { Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import { ILLUSTRATIVE_DEMO_LABEL } from '../../config/publicModel'
 import { AispSide } from './AispSide'
 import { GamePlanBar, type PlanStep } from './GamePlanBar'
 import { GameHero } from './GameHero'
@@ -22,12 +23,14 @@ export function AispLayout() {
   const step = STEP.find(([re]) => re.test(pathname))?.[1] ?? 'scan'
   const gameId = GAME_PAGE.exec(pathname)?.[1]
   const gid = gameId && gameId !== 'classic' ? decodeURIComponent(gameId) : null
+  const demo = pathname === '/demo' || pathname.startsWith('/demo/')
   return (
     <div className="hq aisp-legacy">
       <AispSide />
       <div className="hq-main">
         <GamePlanBar current={step} />
-        <div className="aisp-legacy__page">{gid ? <GameHero key={gid} id={gid} /> : null}<Outlet /></div>
+        {demo ? <div className="demo-context-strip" role="status"><strong>{ILLUSTRATIVE_DEMO_LABEL}</strong><span>Static examples only.</span><Link to="/">View live application</Link></div> : null}
+        <main id="main-content" className="aisp-legacy__page" tabIndex={-1}>{gid ? <GameHero key={gid} id={gid} /> : null}<Outlet /></main>
       </div>
     </div>
   )

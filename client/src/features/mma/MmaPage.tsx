@@ -67,7 +67,7 @@ export function MmaPage() {
           <div className="mma-body">
             <Reel events={data.events} bouts={data.bouts} fighters={F} on={event.id} onPick={(id) => { setEventId(id); setBoutId(null); setRun((r) => r + 1) }} />
             <div className="mma-grid">
-              <main className="mma-main">
+              <main id="main-content" className="mma-main">
                 <Octagon key={`${bout.id}-${run}`} b={bout} F={F} event={event} onFighter={setFighterId} onReplay={() => setRun((r) => r + 1)} />
                 <Card event={event} bouts={data.bouts} F={F} on={bout.id} onPick={(id) => { setBoutId(id); setRun((r) => r + 1) }} onFighter={setFighterId} />
               </main>

@@ -126,7 +126,7 @@ export function HqHome() {
           <button type="button" disabled title="Not covered by AISP yet"><i aria-hidden="true">🥊</i>Boxing</button>
         </nav>
       </AispSide>
-      <div className="hq-main">
+      <div className="hq-main" id="main-content" role="main">
         <header className="hm-top">
           <label className="hq-search"><span className="lf-sr">Search</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams, players, games, or ask a question…" /></label>
           <span className="hq-date"><button type="button" aria-label="Previous day" onClick={() => setParams({ day: shiftDate(day, -1) })}>‹</button><b>📅 {day === today ? 'Today, ' : ''}{new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${day}T12:00:00Z`))}</b><button type="button" aria-label="Next day" onClick={() => setParams({ day: shiftDate(day, 1) })}>›</button></span>

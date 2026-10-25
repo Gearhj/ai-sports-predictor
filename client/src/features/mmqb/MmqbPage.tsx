@@ -85,7 +85,7 @@ export function MmqbPage() {
             </select>
           </label>
         </header>
-        <main className="mq-body">
+        <main id="main-content" className="mq-body">
           {!r ? <p className="sl-empty">{report.error ? `The report could not be read: ${report.error}` : 'Building the report from one read-only snapshot…'}</p> : <Report r={r} rules={rules} rulesKnown={Boolean(mission.data)} />}
         </main>
         <footer className="hq-foot">Research and paper only. Built from a read-only database snapshot; it changes no record, rule or stake. {r ? fixText(r.data_cutoff.statement) : ''}</footer>

@@ -132,7 +132,7 @@ export function ControlPage() {
         <GamePlanBar current="ready" />
 
         <div className="sl-layout">
-          <main className="sl-content mx-content">
+          <main id="main-content" className="sl-content mx-content">
             <section className="sl-kpis" aria-label="The day at a glance">
               <Kpi tone="green" icon="▦" big={String(games.length)} label="Games Today" sub={`${live.length} live · ${pre.length} to go · ${finals.length} final`} onClick={() => { setFocus(null); setTab('all') }} />
               <Kpi tone="gold" icon="◷" big={nextDecision ? countdownText(new Date(nextDecision.at).toISOString(), now) ?? 'now' : '—'} label="Next Decision" sub={nextDecision ? `${etClock(new Date(nextDecision.at).toISOString())} ET · ${nextDecision.games.length} game${nextDecision.games.length === 1 ? '' : 's'}` : 'No more windows today'} onClick={nextDecision ? () => showGames(`Deciding ${etClock(new Date(nextDecision.at).toISOString())}`, nextDecision.games.map((g) => g.game_id)) : undefined} />
