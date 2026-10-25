@@ -442,6 +442,21 @@ def eligibility_status(
             }}
 
 
+#: Owner rule (James, 2026-10-25): no paper bet under $1.00. A stake that sizes below this is not placed.
+MIN_STAKE_USD = 1.00
+STAKE_BELOW_MINIMUM = "STAKE_BELOW_MINIMUM"
+
+
+def below_minimum(terms: dict[str, Any] | None) -> bool:
+    """True when value qualified but the sized stake came to under $1.00 (owner minimum)."""
+    return bool(isinstance(terms, dict) and terms.get("below_minimum"))
+
+
+def below_minimum_detail(terms: dict[str, Any], sport: str) -> str:
+    return (f"{sport} value qualified, but the stake sized to ${float(terms.get('sized_stake', 0)):.2f}, under the owner's "
+            f"${MIN_STAKE_USD:.2f} minimum (usually the last of the shared $100); no position is placed.")
+
+
 def moneyline_terms(
     policy: SportPaperPolicy, *, win_probability: float, decimal_odds: float,
     opposite_decimal_odds: float, bankroll: float,
@@ -477,6 +492,10 @@ def moneyline_terms(
     }
     qualifies = edge >= policy.min_adjusted_edge and expected_return > 0
     stake = round(min(limits.values()), 2) if qualifies else 0.0
+    sized = stake
+    small = qualifies and 0 < stake < MIN_STAKE_USD
+    if small:
+        stake = 0.0
     return {
         "no_vig_probability": no_vig,
         "edge": edge,
@@ -487,8 +506,11 @@ def moneyline_terms(
         "bound_by": min(limits, key=limits.get) if qualifies else None,
         "qualifies": qualifies and stake > 0,
         "stake": stake,
+        "below_minimum": small,
+        "sized_stake": sized,
         "reason": (
             "QUALIFIES" if qualifies and stake > 0 else
+            f"stake ${sized:.2f} is under the ${MIN_STAKE_USD:.2f} minimum" if small else
             f"edge {edge:+.4f} below the {policy.min_adjusted_edge:.2f} minimum"
             if edge < policy.min_adjusted_edge else
             "expected return is not positive" if expected_return <= 0 else

@@ -747,6 +747,12 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
         # Value that qualified but was sized to $0 by the shared allowance alone is a
         # budget decline (fully entered, or held for other MLB/NHL games), never a no-edge.
         budget = [c for c in candidates if budget_only(c["terms"], POLICY.min_adjusted_edge)]
+        from app.services.research_paper_policy import STAKE_BELOW_MINIMUM, below_minimum, below_minimum_detail
+        small = [c for c in candidates if below_minimum(c["terms"])]
+        if small and not budget:
+            best = max(small, key=lambda c: c["terms"]["expected_return_per_dollar"])
+            return {**base, "outcome": "DECLINED", "reason": STAKE_BELOW_MINIMUM,
+                    "detail": below_minimum_detail(best["terms"], "NHL"), "best": best, "bankroll": bankroll}
         if budget:
             best = max(budget, key=lambda c: c["terms"]["expected_return_per_dollar"])
             return {**base, "outcome": "DECLINED", "reason": zero_room_reason(shared),

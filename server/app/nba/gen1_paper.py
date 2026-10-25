@@ -346,6 +346,12 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
         from app.services.shared_daily_allowance import budget_only, zero_room_detail, zero_room_reason
 
         budget = [c for c in candidates if budget_only(c["terms"], POLICY.min_adjusted_edge)]
+        from app.services.research_paper_policy import STAKE_BELOW_MINIMUM, below_minimum, below_minimum_detail
+        small = [c for c in candidates if below_minimum(c["terms"])]
+        if small and not budget:
+            best = max(small, key=lambda c: c["terms"]["expected_return_per_dollar"])
+            return {**base, "outcome": "DECLINED", "reason": STAKE_BELOW_MINIMUM,
+                    "detail": below_minimum_detail(best["terms"], "NBA"), "best": best, "bankroll": bankroll}
         if shared is not None and budget:
             best = max(budget, key=lambda c: c["terms"]["expected_return_per_dollar"])
             return {**base, "outcome": "DECLINED", "reason": zero_room_reason(shared),

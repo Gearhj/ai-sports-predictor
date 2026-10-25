@@ -421,6 +421,12 @@ def _resolve_staking(session: Session, experiment: ShadowExperiment, game_id: An
     if shared is not None:
         limits["daily_cap"] = shared["room_usd"]
     stake = round(min(limits.values()), 2)
+    # Owner rule (2026-10-25): no paper bet under $1.00.
+    from app.services.research_paper_policy import MIN_STAKE_USD
+    sized_stake = stake
+    below_minimum = 0 < stake < MIN_STAKE_USD
+    if below_minimum:
+        stake = 0.0
 
     # ANALYTICAL FIELDS -- recorded, never binding.
     #
@@ -437,6 +443,8 @@ def _resolve_staking(session: Session, experiment: ShadowExperiment, game_id: An
     receipt = {
         **limits,
         "stake": stake,
+        "below_minimum": below_minimum,
+        "sized_stake": sized_stake,
         "bound_by": min(limits, key=limits.get),
         "aggregate_daily_cap_binds": policy.AGGREGATE_DAILY_CAP_BINDS,
         **({"shared_daily_allowance": shared} if shared is not None else {}),
@@ -513,6 +521,10 @@ def _post_staking_reason(decision: dict[str, Any], staking: dict[str, Any] | Non
 
     if decision.get("outcome") != "QUALIFIED" or staking is None or staking["stake"] > 0:
         return str(decision.get("reason"))
+    if (staking.get("receipt") or {}).get("below_minimum"):
+        from app.services.research_paper_policy import STAKE_BELOW_MINIMUM
+
+        return STAKE_BELOW_MINIMUM
     if shared is not None and _shared_room_alone_binds(staking):
         from app.services.shared_daily_allowance import zero_room_reason
 
