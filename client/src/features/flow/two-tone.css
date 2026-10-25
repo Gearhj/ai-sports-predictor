@@ -1,0 +1,69 @@
+/*
+ * Navy + steel, as two jobs instead of one colour everywhere (James, 10-25: "most everything is dark blue").
+ * STEEL is the frame you hold: the menu, the top bar, the Game Plan, cards, panels and section heads.
+ * NAVY is the canvas and the data wells: the page behind everything, charts, tables and game rows.
+ * Loaded by AispSide, so every shell gets it; later page stylesheets win only where a card means something
+ * (a win/loss tint, a sport colour), which keeps those signals.
+ */
+:root {
+  --tt-steel-hi: #3d4553; --tt-steel: #2e3541; --tt-steel-lo: #232932; --tt-steel-line: #4d586a;
+  --tt-brush: repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 3px);
+  --tt-frame: var(--tt-brush), linear-gradient(180deg, var(--tt-steel-hi), var(--tt-steel) 55%, var(--tt-steel-lo));
+  --tt-frame-flat: var(--tt-brush), linear-gradient(180deg, #333b48, #282e38);
+  --tt-well: #08101f; --tt-well-line: rgba(120, 160, 220, .16);
+}
+
+/* the frame: menu, top bar, game plan */
+.hq .hq-side { background: var(--tt-brush), linear-gradient(90deg, #262c35, #2d343f 70%, #323a46); border-right: 1px solid var(--tt-steel-line); box-shadow: inset -1px 0 0 rgba(255, 255, 255, .05); }
+.hq .hq-nav a.is-on { background: linear-gradient(90deg, rgba(45, 212, 191, .2), rgba(45, 212, 191, .04)); border-color: rgba(45, 212, 191, .45); color: #fff; }
+.hq .hq-nav a:hover:not(.is-on) { background: rgba(255, 255, 255, .06); color: #fff; }
+.hq .sl-top, .hq .hm-top { background: var(--tt-frame-flat); border-bottom: 1px solid var(--tt-steel-line); backdrop-filter: none; }
+.hq .gp { background: var(--tt-brush), linear-gradient(180deg, #2a313c, #222831); border-bottom: 1px solid var(--tt-steel-line); }
+
+/* cards and panels are steel */
+.hq .sl-card, .hq .mx-card, .hq .rc-cc, .hq .ed-card, .hq .mv-card, .hq .cc-mpanel, .hq .as-card,
+.hq .cc-support__panel, .hq .hm-feat, .hq .tm__verdict, .hq .tm__market, .hq .vw__why, .hq .dv-authority,
+.hq .stl__main, .hq .stl__books, .hq .sl-sport__head, .hq .sl-next {
+  background: var(--tt-frame); border-color: var(--tt-steel-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 10px 24px rgba(0, 0, 0, .32);
+}
+
+/* the wells inside them stay navy, so a chart or a row reads as data set into metal */
+.hq .mx-flow__wrap, .hq .mx-night__wrap, .hq .tm__chart, .hq .ed-chart svg, .hq .ed-sweet__svg, .hq .ed-bank,
+.hq .stl__ladders, .hq .stl__big, .hq .vw__wall, .hq .cc-rows, .hq .mx-dep__list, .hq .as-forecast {
+  background: radial-gradient(120% 100% at 50% 0%, #0f1c33, var(--tt-well) 70%); border-color: var(--tt-well-line);
+}
+.hq .sl-row, .hq .hm-gc { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .03); }
+
+/* a steel card's own sunken controls stay navy */
+.hq .sl-card select, .hq .sl-card input, .hq .mx-card select { background: var(--tt-well); }
+
+/* wayfinding: Start here, and the page you are on opens into YOU ARE HERE */
+.as-start { display: flex; align-items: center; gap: 10px; margin: 4px 2px 2px; padding: 9px 12px; border-radius: 12px; text-decoration: none; color: #062a26; background: linear-gradient(180deg, #5eead4, #2dd4bf); box-shadow: 0 6px 16px rgba(45, 212, 191, .25), inset 0 1px 0 rgba(255, 255, 255, .4); }
+.as-start i { font-style: normal; font-weight: 900; font-size: 16px; }
+.as-start span { display: grid; } .as-start b { font-size: 13px; font-weight: 900; } .as-start small { font-size: 10.5px; font-weight: 700; color: #0b3b36; }
+.as-start:hover { filter: brightness(1.06); } .as-start.is-on { outline: 2px solid #fff; outline-offset: 1px; }
+.as-item { display: grid; }
+.as-here { margin: 4px 4px 8px 14px; padding: 9px 10px; border-radius: 10px; background: var(--tt-well); border: 1px solid rgba(45, 212, 191, .3); border-left: 3px solid #2dd4bf; animation: as-here-in .25s ease both; }
+@keyframes as-here-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.as-here small { display: block; font-size: 8.5px; font-weight: 900; letter-spacing: .2em; color: #5eead4; }
+.as-here p { margin: 4px 0 6px; font-size: 11.5px; line-height: 1.4; color: #cbd5e1; }
+.hq-nav .as-here__next { display: inline-flex; padding: 0; border: 0; font-size: 11.5px; font-weight: 900; color: #5eead4; background: none; }
+.hq-nav .as-here__next:hover { text-decoration: underline; background: none; }
+@media (prefers-reduced-motion: reduce) { .as-here { animation: none; } }
+
+/* first-visit nudge on Home */
+.st-nudge { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--tt-frame); border: 1px solid #2dd4bf; box-shadow: 0 0 22px rgba(45, 212, 191, .18); }
+.st-nudge > i { font-style: normal; font-size: 20px; color: #2dd4bf; }
+.st-nudge p { margin: 0; flex: 1; font-size: 13px; color: var(--sl-muted); } .st-nudge p b { color: #fff; }
+.st-nudge__go { flex: none; font-size: 13px; font-weight: 900; color: #062a26; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: #2dd4bf; }
+.st-nudge button { flex: none; width: 28px; height: 28px; border-radius: 50%; font: inherit; font-size: 16px; color: var(--sl-muted); background: none; border: 1px solid var(--tt-steel-line); cursor: pointer; }
+@media (max-width: 640px) { .st-nudge { flex-wrap: wrap; } .st-nudge p { flex-basis: calc(100% - 80px); } }
+
+/* phone width: wide strips scroll inside their own frame instead of widening the page */
+.hq > .hq-main { min-width: 0; }
+.hq .hm-picks { min-width: 0; overflow-x: auto; }
+@media (max-width: 640px) {
+  .hq .hm-top { flex-wrap: wrap; }
+  .hq .hm-table { display: block; max-width: 100%; overflow-x: auto; }
+}

@@ -13,19 +13,22 @@ describe('Mission Control in the app shell', () => {
   })
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('is in the one left menu, in the order a night flows, and says so when AISP cannot be reached', async () => {
+  it('is in the one left menu, in the order a night flows, with a you-are-here card, and says so when AISP cannot be reached', async () => {
     window.history.pushState({}, '', '/mission-control')
     render(<App />)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Mission Control' })).toBeInTheDocument()
-    const nav = screen.getByRole('navigation', { name: 'YOUR NIGHT' })
-    const link = within(nav).getByRole('link', { name: /Mission Control/ })
+    const nav = screen.getByRole('navigation', { name: 'TONIGHT' })
+    const link = within(nav).getAllByRole('link', { name: /Mission Control/ })[0]
     expect(link.getAttribute('href')).toBe('/mission-control')
     expect(link).toHaveClass('is-on')
-    // Games (edges) -> Mission Control (ready) -> Live View -> Game Night (outcomes).
-    const hrefs = within(nav).getAllByRole('link').map((a) => a.getAttribute('href'))
-    expect(hrefs.indexOf('/mission-control')).toBe(hrefs.indexOf('/games') + 1)
-    expect(hrefs.indexOf('/game-night')).toBe(hrefs.indexOf('/mission-control') + 2)
+    // Games (edges) -> Mission Control (ready) -> Game Night (outcomes) -> Live View.
+    const menu = within(nav).getAllByRole('link').filter((a) => !a.classList.contains('as-here__next')).map((a) => a.getAttribute('href'))
+    expect(menu.indexOf('/mission-control')).toBe(menu.indexOf('/games') + 1)
+    expect(menu.indexOf('/game-night')).toBe(menu.indexOf('/mission-control') + 1)
+    // The page you are on says what it answers and where to go next.
+    expect(within(nav).getByText('YOU ARE HERE')).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Next: Game Night →' }).getAttribute('href')).toBe('/game-night')
     // Offline: the page says so instead of rendering an empty success.
     expect(await screen.findByText(/Mission Control could not be read/)).toBeInTheDocument()
     expect(screen.getByText('Cannot reach AISP')).toBeInTheDocument()

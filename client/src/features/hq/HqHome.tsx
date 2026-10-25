@@ -8,6 +8,7 @@
  * and player cutouts come from ESPN through the test-mode preview feed. Paper experiment only.
  */
 import { AispSide } from '../flow/AispSide'
+import { StartNudge } from '../start/StartNudge'
 import { Crest, cfbColor } from '../flow/Crest'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -137,6 +138,7 @@ export function HqHome() {
 
         <div className="hm-grid">
           <div className="hm-main">
+            <StartNudge />
             <section className="hm-hero" aria-label="Welcome">
               <div className="hm-hero__stars" aria-hidden={!stars.length}>
                 {stars.length ? stars.map((s, i) => <figure key={s.id} className="hm-star" style={{ ['--i' as string]: i } as CSSProperties} title={`${s.name} (${s.team}) · ${s.line}`}><img src={s.img} alt={s.name} onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none' }} /><figcaption><b>{s.name}</b><small>{s.team} · {s.line}</small></figcaption></figure>)
