@@ -82,13 +82,30 @@ function noVigHome(home: number | null | undefined, away: number | null | undefi
   return h / (h + a)
 }
 
+/**
+ * The pregame market's home probability, from the best evidence the game carries: the recorded consensus, the best
+ * pair's no-vig price, the decision's market probability for its side, else the bet's own price (that one keeps its vig).
+ */
+function marketHome(game: MissionGame): { p: number; how: string } | null {
+  const p = stageOf(game, 'prices'); const d = stageOf(game, 'decision'); const b = stageOf(game, 'bet')
+  const pair = p.consensus_home ?? noVigHome(p.best?.home?.american, p.best?.away?.american)
+  if (pair != null) return { p: pair, how: 'pregame market' }
+  const side = (b.side ?? '').split(' ')[0].toUpperCase()
+  const isHome = side === game.home.abbr.toUpperCase() ? true : side === game.away.abbr.toUpperCase() ? false : null
+  if (isHome == null) return null
+  if (d.market_probability != null) return { p: isHome ? d.market_probability : 1 - d.market_probability, how: 'market at the decision' }
+  if (b.american != null) { const imp = b.american > 0 ? 100 / (b.american + 100) : -b.american / (-b.american + 100); return { p: isHome ? imp : 1 - imp, how: 'the bet price (with vig)' } }
+  return null
+}
+
 function Pregame({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
-  const f = stageOf(game, 'forecast'); const p = stageOf(game, 'prices'); const b = stageOf(game, 'bet'); const d = stageOf(game, 'decision')
+  const f = stageOf(game, 'forecast'); const b = stageOf(game, 'bet'); const d = stageOf(game, 'decision')
+  const mk = marketHome(game)
   const wp = feed.win_probability.length ? feed.win_probability[feed.win_probability.length - 1].home : null
   return (
     <section className="ar-pre" aria-label="AISP before the game">
       <span><small>AISP model, pregame</small><b>{feed.teams.home.abbr} {pct(f.home_win_prob ?? null)}</b></span>
-      <span><small>Market, pregame</small><b>{feed.teams.home.abbr} {pct(p.consensus_home ?? noVigHome(p.best?.home?.american, p.best?.away?.american))}</b></span>
+      <span><small>Market, pregame{mk && mk.how !== 'pregame market' ? ` · ${mk.how}` : ''}</small><b>{feed.teams.home.abbr} {pct(mk?.p ?? null)}</b></span>
       {wp != null ? <span className="is-live"><small>Live win probability (ESPN)</small><b>{feed.teams.home.abbr} {pct(wp)}</b></span> : null}
       <span className={b.state === 'DONE' ? 'is-bet' : ''}><small>AISP paper bet</small><b>{b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : d.label ?? 'No bet'}</b></span>
     </section>
@@ -99,11 +116,11 @@ function Pregame({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
 
 /** The NHL view starts its live win estimate from the pregame market (else AISP's model) and closes with the box and feed. */
 function NhlLive({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
-  const f = stageOf(game, 'forecast'); const p = stageOf(game, 'prices'); const b = stageOf(game, 'bet')
-  const market = p.consensus_home ?? noVigHome(p.best?.home?.american, p.best?.away?.american)
-  const prior = market ?? f.home_win_prob ?? null
+  const f = stageOf(game, 'forecast'); const b = stageOf(game, 'bet')
+  const market = marketHome(game)
+  const prior = market?.p ?? f.home_win_prob ?? null
   return (
-    <NhlArena feed={feed} prior={prior} priorSource={market != null ? 'pregame market' : 'AISP pregame model'} bet={b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : null}>
+    <NhlArena feed={feed} prior={prior} priorSource={market ? market.how : 'AISP pregame model'} bet={b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : null}>
       <BoxScore feed={feed} />
       <PlayFeed feed={feed} league="nhl" />
     </NhlArena>
