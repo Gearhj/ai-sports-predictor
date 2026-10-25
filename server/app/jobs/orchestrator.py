@@ -1931,7 +1931,13 @@ class JobOrchestrator:
         # the SGO receipt is returned exactly as before, with no added key.
         from app.services import nfl_odds_api_fallback as fallback
 
-        if fallback.enabled(self.settings) and fallback.sgo_refused(result):
+        # 2026-10-25: also when SGO is simply outside its two-minute [T-27, T-25] slot. The fallback used to be
+        # reachable only through an SGO refusal, which SGO gives only inside that slot; when the 3:58 and 3:59 ET
+        # collector ticks did not run, GB@DET and LAR@LV got no price and no decision. The fallback's own
+        # (T-21, T-30] window, single claim per cluster and capture check still bound it to one request.
+        if fallback.enabled(self.settings) and (
+                fallback.sgo_refused(result)
+                or (isinstance(result, dict) and result.get("reason") == "NO_NFL_GAME_IN_THE_COLLECTION_WINDOW")):
             result = {**result, "odds_api_fallback": await self._nfl_odds_api_fallback(
                 invocation_path=invocation_path)}
         return result

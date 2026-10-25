@@ -274,7 +274,6 @@ async def test_sgo_refused_makes_one_request_binds_the_cluster_and_the_decision_
 @pytest.mark.parametrize("receipt", [
     {"attempted": True, "reason": "COLLECTED", "objects": 2},
     {"attempted": True, "reason": "REQUEST_FAILED", "objects": 0},
-    {"attempted": False, "reason": "NO_NFL_GAME_IN_THE_COLLECTION_WINDOW", "objects": 0},
     {"attempted": False, "reason": "DEFERRED_AMBIGUOUS_SELECTION", "objects": 0},
     {"attempted": False, "reason": "PHASE_ALREADY_CLAIMED", "objects": 0},
 ])
@@ -284,6 +283,20 @@ async def test_no_fallback_unless_sgo_refused(world, on, provider, monkeypatch, 
     result = await _tick(world.session, on, T26)
     assert result == receipt
     assert provider.calls == [] and _ledger(world.session) == []
+
+
+@pytest.mark.asyncio
+async def test_sgo_outside_its_slot_still_reaches_the_fallback_once(world, on, provider, monkeypatch):
+    """2026-10-25: SGO answers NO_NFL_GAME_IN_THE_COLLECTION_WINDOW outside its [T-27, T-25] slot. When the 3:58
+    and 3:59 ET ticks did not run, GB@DET and LAR@LV got no price. The fallback now runs on that answer too, still
+    once per cluster."""
+    _measured_balance(world.session)
+    _sgo(monkeypatch, {"attempted": False, "reason": "NO_NFL_GAME_IN_THE_COLLECTION_WINDOW", "objects": 0})
+    first = await _tick(world.session, on, KICK - timedelta(minutes=24))
+    assert first["odds_api_fallback"]["reason"] == "COLLECTED", first["odds_api_fallback"].get("detail")
+    for offset in (23, 22):
+        await _tick(world.session, on, KICK - timedelta(minutes=offset))
+    assert len(provider.calls) == 1
 
 
 @pytest.mark.parametrize("reason", [
