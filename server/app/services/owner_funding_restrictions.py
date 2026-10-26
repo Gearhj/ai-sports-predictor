@@ -40,6 +40,10 @@ def runtime_state(settings: Any, *, now: datetime | None = None) -> dict:
                 _clock(getattr(settings, "nba_paper_funding_record_only_effective_from", None)).isoformat()
                 if _clock(getattr(settings, "nba_paper_funding_record_only_effective_from", None)) else None),
             "nba_paper_funding_record_only_active_at_observation": nba_record_only_active(moment=observed, settings=settings),
+            "cfb_paper_funding_record_only_effective_from_utc": (
+                _clock(getattr(settings, CFB_SETTING, None)).isoformat()
+                if _clock(getattr(settings, CFB_SETTING, None)) else None),
+            "cfb_paper_funding_record_only_active_at_observation": cfb_record_only_active(moment=observed, settings=settings),
             "qb_out_gate_implemented_by_this_module": qb_state["implemented"], "nfl_qb_out_gate": qb_state}
 
 def _number(value):
@@ -65,18 +69,40 @@ def nba_record_only_active(*, moment, settings) -> bool:
     clock = _clock(getattr(settings, NBA_SETTING, None))
     return clock is not None and moment.astimezone(timezone.utc) >= clock
 
-def _nba_record_only(decision: dict, moment: datetime, settings: Any) -> dict:
-    """Owner NBA record-only (hotfix 2026-10-24 step 7): same shape as the gap receipt, no gap arithmetic."""
+CFB_RULE = "AISP_OWNER_CFB_PAPER_FUNDING_RECORD_ONLY_V1"
+CFB_REASON = "OWNER_CFB_PAPER_FUNDING_RECORD_ONLY"
+CFB_SETTING = "cfb_paper_funding_record_only_effective_from"
+
+#: Sport-wide owner record-only switches: sport -> (rule, reason, setting).
+SPORT_RECORD_ONLY = {"NBA": (NBA_RULE, NBA_REASON, NBA_SETTING),
+                     "CFB": (CFB_RULE, CFB_REASON, CFB_SETTING)}
+
+def cfb_record_only_active(*, moment, settings) -> bool:
+    """Is the owner's CFB paper-funding record-only clock in force at ``moment``? Default OFF (unset)."""
+    clock = _clock(getattr(settings, CFB_SETTING, None))
+    return clock is not None and moment.astimezone(timezone.utc) >= clock
+
+def _sport_record_only_active(sport: str, moment, settings) -> bool:
+    entry = SPORT_RECORD_ONLY.get(sport)
+    if entry is None:
+        return False
+    clock = _clock(getattr(settings, entry[2], None))
+    return clock is not None and moment.astimezone(timezone.utc) >= clock
+
+def _nba_record_only(decision: dict, moment: datetime, settings: Any, sport: str = "NBA") -> dict:
+    """Owner sport-wide record-only (NBA hotfix 2026-10-24 step 7; CFB owner 2026-10-25):
+    same shape as the gap receipt, no gap arithmetic."""
+    rule, reason, setting = SPORT_RECORD_ONLY[sport]
     selection = decision.get("selection") or decision.get("best") or {}
-    receipt = {"rule": NBA_RULE, "effective_from_utc": _clock(getattr(settings, NBA_SETTING, None)).isoformat(),
-               "sport": "NBA", "record_only": True, "reason": NBA_REASON,
-               "scope": "ALL_NBA_PAPER_FUNDING_LANES_WHILE_THE_CLOCK_IS_SET",
+    receipt = {"rule": rule, "effective_from_utc": _clock(getattr(settings, setting, None)).isoformat(),
+               "sport": sport, "record_only": True, "reason": reason,
+               "scope": f"ALL_{sport}_PAPER_FUNDING_LANES_WHILE_THE_CLOCK_IS_SET",
                "original_qualification": {"outcome": decision.get("outcome"), "reason": decision.get("reason")},
                "sportsbook": selection.get("sportsbook"), "source": selection.get("source"),
                "snapshot_id": str(selection.get("odds_snapshot_id") or ""),
                "funding_checked_at_utc": moment.astimezone(timezone.utc).isoformat()}
-    return {**decision, "funding_restriction": receipt, "outcome": "RECORD_ONLY", "reason": NBA_REASON,
-            "detail": "Owner-approved funding restriction: retained decision and prices; no position. " + NBA_REASON}
+    return {**decision, "funding_restriction": receipt, "outcome": "RECORD_ONLY", "reason": reason,
+            "detail": "Owner-approved funding restriction: retained decision and prices; no position. " + reason}
 
 def apply_to_decision(decision: dict, sport: str, moment: datetime, settings: Any) -> dict:
     """Keep value/quote evidence; prevent a new position only after activation.
@@ -84,9 +110,9 @@ def apply_to_decision(decision: dict, sport: str, moment: datetime, settings: An
     Prior persisted decisions are dealt with by each original record function.
     Nonqualifying/budget/prerequisite outcomes remain byte-for-byte inputs.
     """
-    if sport == "NBA" and decision.get("outcome") == "QUALIFIED" and nba_record_only_active(moment=moment, settings=settings):
-        # Independent of the gap clock: the owner may switch NBA to record-only on its own.
-        return _nba_record_only(decision, moment, settings)
+    if decision.get("outcome") == "QUALIFIED" and _sport_record_only_active(sport, moment, settings):
+        # Independent of the gap clock: the owner may switch NBA or CFB to record-only on its own.
+        return _nba_record_only(decision, moment, settings, sport)
     clock = _clock(getattr(settings, "owner_large_gap_record_only_effective_from", None))
     if clock is None or moment.astimezone(timezone.utc) < clock:
         return decision

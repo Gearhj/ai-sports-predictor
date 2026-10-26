@@ -249,3 +249,11 @@ def test_lab_study_imports_from_a_byte_verified_handoff(session, tmp_path):
     (lab / "sha256" / manifest_sha / "handoff.json").write_bytes(raw + b" ")
     with pytest.raises(LabStudyImportError, match="do not hash"):
         register_lab_study(session, lab)
+
+
+@pytest.fixture
+def settings(settings):
+    """These MLB fixtures price synthetic books (demo_alpha/testbook...) that are not US-regulated,
+    so the owner's execution-book rule (default ON, fail closed) would refuse every position here.
+    That rule has its own tests (tests/test_monday_policy_20261026.py); this module tests the rest."""
+    return settings.model_copy(update={"execution_us_regulated_only": False})

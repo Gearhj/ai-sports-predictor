@@ -1038,6 +1038,40 @@ def _decide(
     p_away = forecast.full_away_win_probability
     p_tie = max(0.0, 1.0 - (p_home or 0) - (p_away or 0))
 
+    # Owner 2026-10-25 (AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1): only a US-regulated
+    # book may be the execution price. Excluded pairs are still priced (below) only to
+    # say whether the best value was at a book AISP may not execute at.
+    from app.services import execution_books
+
+    fresh, offshore = execution_books.partition(fresh, settings)
+    base = {**base, "execution_books": execution_books.receipt(offshore, settings)}
+    best = _best_nfl_side(fresh, p_home, p_away, p_tie, era)
+    if offshore and (best is None or best["expected_value"] < policy.MIN_ADJUSTED_EDGE):
+        offshore_best = _best_nfl_side(offshore, p_home, p_away, p_tie, era)
+        if best is None or offshore_best["expected_value"] >= policy.MIN_ADJUSTED_EDGE:
+            return {**base, "outcome": "DECLINED", "reason": execution_books.NO_US_REGULATED_PRICE,
+                    "detail": execution_books.no_us_regulated_detail("NFL", [p["sportsbook"] for p in offshore]),
+                    **({"best": best} if best is not None else {}),
+                    "excluded_execution_candidate": offshore_best,
+                    "pairs_considered": fresh, "forecast_id": forecast.forecast_id}
+
+    if best is None or best["expected_value"] < policy.MIN_ADJUSTED_EDGE:
+        return {**base, "outcome": "DECLINED", "reason": "NO_QUALIFYING_VALUE",
+                "detail": ("No side of any fresh permitted pair cleared the "
+                           f"{policy.MIN_ADJUSTED_EDGE * 100:.1f}-point minimum."),
+                "best": best, "pairs_considered": fresh,
+                "forecast_id": forecast.forecast_id}
+
+    # Everything passed. Recording the position itself is the next owner's job
+    # and is deliberately not done inline here.
+    return {**base, "outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED",
+            "selection": best, "eligibility": binding}
+
+
+def _best_nfl_side(fresh: list[dict[str, Any]], p_home: Any, p_away: Any, p_tie: float,
+                   era: ShadowExperiment) -> dict[str, Any] | None:
+    """The highest-EV side across ``fresh`` pairs (unchanged selection rule)."""
+
     best: dict[str, Any] | None = None
     for pair in fresh:
         for side, win, american in (
@@ -1074,18 +1108,7 @@ def _decide(
                         market, bankroll=float(era.starting_bankroll)),
                     "settlement": policy.TIE_TREATMENT,
                 }
-
-    if best is None or best["expected_value"] < policy.MIN_ADJUSTED_EDGE:
-        return {**base, "outcome": "DECLINED", "reason": "NO_QUALIFYING_VALUE",
-                "detail": ("No side of any fresh permitted pair cleared the "
-                           f"{policy.MIN_ADJUSTED_EDGE * 100:.1f}-point minimum."),
-                "best": best, "pairs_considered": fresh,
-                "forecast_id": forecast.forecast_id}
-
-    # Everything passed. Recording the position itself is the next owner's job
-    # and is deliberately not done inline here.
-    return {**base, "outcome": "QUALIFIED", "reason": "ALL_GATES_PASSED",
-            "selection": best, "eligibility": binding}
+    return best
 
 
 __all__ = ["MAX_QUOTE_AGE_MINUTES", "PHASE", "PREREQUISITE_REASONS",

@@ -735,12 +735,24 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
                                "pair_observed_at": pair["pair_observed_at"], "older_leg": pair["older_leg"],
                                "pair_age_minutes": pair["pair_age_minutes"], "terms": terms})
     base["quote_source_amendments"] = amendments
-    qualifying = [c for c in candidates if c["terms"]["qualifies"]]
-    best = max(qualifying or candidates, key=lambda c: c["terms"]["expected_return_per_dollar"])
+    # Owner 2026-10-25 (AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1): US-regulated execution books only.
+    from app.services import execution_books
+
+    candidates, offshore = execution_books.partition(candidates, settings)
+    base["execution_books"] = execution_books.receipt(offshore, settings)
     if held:
+        pool = candidates or offshore
+        best = max([c for c in pool if c["terms"]["qualifies"]] or pool,
+                   key=lambda c: c["terms"]["expected_return_per_dollar"])
         return {**base, "outcome": "DECLINED", "reason": "GAME_ALREADY_HOLDS_A_POSITION",
                 "detail": "One NHL position per game per era (any side); this game already holds one.",
                 "best": best, "bankroll": bankroll}
+    declined = execution_books.decline_without_us_price(base, sport="NHL", executable=candidates,
+                                                        excluded=offshore, bankroll=bankroll)
+    if declined is not None:
+        return declined
+    qualifying = [c for c in candidates if c["terms"]["qualifies"]]
+    best = max(qualifying or candidates, key=lambda c: c["terms"]["expected_return_per_dollar"])
     if not qualifying:
         from app.services.shared_daily_allowance import budget_only, zero_room_detail, zero_room_reason
 

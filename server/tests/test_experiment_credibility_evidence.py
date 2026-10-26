@@ -247,3 +247,11 @@ def test_market_pulse_board_read_makes_no_write(session, settings, monkeypatch):
     finally:
         event.remove(engine, "before_cursor_execute", _capture)
     assert [x for x in statements if x.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))] == []
+
+
+@pytest.fixture
+def settings(settings):
+    """These MLB fixtures price synthetic books (demo_alpha/testbook...) that are not US-regulated,
+    so the owner's execution-book rule (default ON, fail closed) would refuse every position here.
+    That rule has its own tests (tests/test_monday_policy_20261026.py); this module tests the rest."""
+    return settings.model_copy(update={"execution_us_regulated_only": False})

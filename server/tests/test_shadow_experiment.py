@@ -107,7 +107,7 @@ def _add_home_value(session, game, *, observed_at, american=+300):
 def _opportunities(monkeypatch, evidence_by_game, state="QUALIFIED_BET"):
     """Stub the read board with exact OpportunitySelection-shaped evidence."""
 
-    def fake_daily_opportunities(self, games, cards, forecasts):
+    def fake_daily_opportunities(self, games, cards, forecasts, **_execution):
         rows = []
         for game in games:
             evidence = evidence_by_game.get(game.id)
@@ -717,3 +717,11 @@ async def test_no_bet_day_and_collecting_states(session, settings, monkeypatch):
     assert performance.betting is not None
     assert performance.betting.has_settled is False
     assert performance.betting.roi is None
+
+
+@pytest.fixture
+def settings(settings):
+    """These MLB fixtures price synthetic books (demo_alpha/testbook...) that are not US-regulated,
+    so the owner's execution-book rule (default ON, fail closed) would refuse every position here.
+    That rule has its own tests (tests/test_monday_policy_20261026.py); this module tests the rest."""
+    return settings.model_copy(update={"execution_us_regulated_only": False})

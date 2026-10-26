@@ -270,8 +270,15 @@ class ReadService:
         games: list[Game],
         cards: list[ForecastGame],
         forecasts: list[Forecast | None],
+        *,
+        execution_only: bool = False,
     ) -> tuple[list[GameOpportunity], OpportunitySummary]:
         """Price the current slate into a governed best-opportunity board.
+
+        ``execution_only`` (the MLB paper decision path, owner rule
+        AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1): each side's best price is
+        chosen only among US-regulated books; consensus still uses every book.
+        The public board keeps the default (any book).
 
         Reuses the shadow-pricing policy and the virtual-bankroll math verbatim;
         the read layer only adapts persisted rows into plain pricing inputs. It
@@ -295,6 +302,12 @@ class ReadService:
         ready_floor = self.settings.opportunity_qualified_readiness
         extreme_threshold = self.settings.opportunity_extreme_disagreement_threshold
         injury_feed_status = read_availability_feed_status(self.settings, self.session)
+        execution_filter = None
+        if execution_only:
+            from app.services.execution_books import is_execution_book
+
+            def execution_filter(quote: BookQuote) -> bool:
+                return is_execution_book(quote.sportsbook_key or quote.book, self.settings)
 
         candidates_by_game: dict[str, list[Candidate]] = {}
         meta_by_game: dict[str, dict[str, Any]] = {}
@@ -339,6 +352,7 @@ class ReadService:
                     candidate := build_market_candidate(
                         market, readiness_ok=readiness_ok, critical_inputs_ok=full_game_ok,
                         config=config, now=now, extreme_threshold=extreme_threshold,
+                        execution_filter=execution_filter,
                     )
                 )
                 is not None
@@ -778,6 +792,7 @@ class ReadService:
                         side_american=int(snapshot.american_odds),
                         opposite_american=int(opp_snapshot.american_odds),
                         observed_at=_aware(snapshot.observed_at),
+                        sportsbook_key=book.key,
                     ))
             side_inputs = [
                 SideInput(

@@ -523,6 +523,19 @@ class Settings(BaseSettings):
     #: owner_funding_restrictions mechanism as the MLB 2026 record-only scope.
     #: Never backdate over old decisions; existing positions are never rewritten.
     nba_paper_funding_record_only_effective_from: datetime | None = None
+    #: CFB paper funding RECORD-ONLY (owner decision 2026-10-25). Same mechanism
+    #: and semantics as NBA above: unset (default) = CFB funds exactly as today;
+    #: set to the ACTUAL release UTC clock and every CFB decision made at or after
+    #: it keeps its value/quote evidence, is recorded RECORD_ONLY
+    #: (OWNER_CFB_PAPER_FUNDING_RECORD_ONLY), and takes no position and no
+    #: allowance. Never backdate; existing positions are never rewritten.
+    cfb_paper_funding_record_only_effective_from: datetime | None = None
+    #: AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1 (owner decision 2026-10-25): every
+    #: paper decision path executes only at a US-regulated sportsbook
+    #: (app/services/execution_books.py); offshore and unknown books still feed
+    #: consensus/no-vig/market probability but are never the execution price.
+    #: ON by default (owner-approved); false exists only for rollback.
+    execution_us_regulated_only: bool = True
     # Exact already-approved NFL week7 funding gate; actual release clock only.
     owner_nfl_qb_out_record_only_effective_from: datetime | None = None
     owner_nfl_qb_out_admissions_root: str | None = None

@@ -589,3 +589,11 @@ def test_reservation_ignores_another_occurrences_qualified_decision(session, set
     moment = SUNDAY_START - timedelta(minutes=10)                          # after the makeup's cutoff
     assert _mlb_pending(session, settings, games, moment) == []            # Friday's QUALIFIED holds nothing
     assert session.scalar(select(func.count()).select_from(ShadowExperimentDecision)) == 1
+
+
+@pytest.fixture
+def settings(settings):
+    """These MLB fixtures price synthetic books (demo_alpha/testbook...) that are not US-regulated,
+    so the owner's execution-book rule (default ON, fail closed) would refuse every position here.
+    That rule has its own tests (tests/test_monday_policy_20261026.py); this module tests the rest."""
+    return settings.model_copy(update={"execution_us_regulated_only": False})

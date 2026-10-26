@@ -54,6 +54,7 @@ from app.models import (
     PositionStatus,
     ShadowExperiment,
     ShadowExperimentDecision,
+    Sportsbook,
 )
 from app.services.league_scope import MLB, LeagueMismatchError, require_league
 
@@ -456,7 +457,9 @@ class ShadowExperimentService:
         # era there is no fallback: a game without a valid V18 forecast is an
         # explicit skip, never a Gen1 decision wearing a V18 label.
         forecasts, era_skips = self._controlling_forecasts(experiment, games, now)
-        opportunities, _ = read._daily_opportunities(games, cards, forecasts)
+        # Owner 2026-10-25 (AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1): the paper
+        # decision's price is the best US-regulated book's; consensus keeps every book.
+        opportunities, _ = read._daily_opportunities(games, cards, forecasts, execution_only=True)
         opportunity_by_game = {item.game_id: item for item in opportunities}
         is_v2 = experiment.decision_policy == V2_DECISION_POLICY
 
@@ -516,6 +519,7 @@ class ShadowExperimentService:
             if now <= cutoff:
                 frozen += int(self._append_decision(
                     experiment, game, forecast, phase, opportunity, now, v2=v2,
+                    execution=self._moneyline_execution_books(read, game),
                 ) is not None)
             if (
                 phase == ExperimentDecisionPhase.FINAL_PREGAME
@@ -703,8 +707,35 @@ class ShadowExperimentService:
             return False
         return True
 
+    def _moneyline_execution_books(self, read: Any, game: Game) -> dict[str, Any] | None:
+        """Which books hold a complete two-sided MLB moneyline, split by execution eligibility.
+
+        Owner rule AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1. Read-only; the
+        decision path uses it to name a NO_US_REGULATED_PRICE pass honestly.
+        """
+
+        from app.services import execution_books
+
+        if not execution_books.enabled(self.settings):
+            return None
+        try:
+            rows = read._latest_market_snapshots(game.id)
+        except Exception:  # an evidence read never blocks the decision itself
+            return None
+        sides: dict[Any, set] = {}
+        for market, outcome, snapshot, book in rows:
+            if str(getattr(market.market_type, "value", market.market_type)).upper() != "MONEYLINE":
+                continue
+            if snapshot.american_odds is None:
+                continue
+            sides.setdefault(book.key, set()).add(outcome.id)
+        complete = [key for key, outcomes in sides.items() if len(outcomes) == 2]
+        executable, excluded = execution_books.partition(complete, self.settings, book=lambda key: key)
+        return {"executable": sorted(executable), "excluded": sorted(excluded),
+                "receipt": execution_books.receipt(excluded, self.settings, book=lambda key: key)}
+
     def _append_decision(
-        self, experiment, game, forecast, phase, opportunity, now, *, v2=None,
+        self, experiment, game, forecast, phase, opportunity, now, *, v2=None, execution=None,
     ) -> ShadowExperimentDecision | None:
         if not self._is_mlb_game(game, "MLB experiment decision"):
             return None
@@ -717,6 +748,14 @@ class ShadowExperimentService:
         else:
             state = bet.recommendation if bet is not None else "NO_BET"
             reason, reasons = self._selection_evidence(opportunity, bet, forecast)
+        if bet is None and execution and execution["excluded"] and not execution["executable"]:
+            # Prices exist, but only at books AISP may not execute at: a value pass,
+            # not a missing price (owner rule AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1).
+            from app.services.execution_books import NO_US_REGULATED_PRICE, no_us_regulated_detail
+
+            state = "NO_BET"
+            reason = no_us_regulated_detail("MLB", execution["excluded"])
+            reasons = [NO_US_REGULATED_PRICE]
         version = f"{forecast.lifecycle.value.upper()} · v{forecast.version}" if forecast else None
         # A producer forecast has no row in `forecasts`; it is identified by its
         # `shadow_forecasts` row instead. Exactly one of the two is ever set, so
@@ -777,11 +816,24 @@ class ShadowExperimentService:
             qualification_reasons=reasons,
             evidence_fingerprint=fingerprint,
             source_mode=game.source_mode,
-            evidence=self._decision_evidence(forecast, v2),
+            evidence=self._with_execution_receipt(self._decision_evidence(forecast, v2), execution),
         )
         self.session.add(decision)
         self.session.flush()
         return decision
+
+    @staticmethod
+    def _with_execution_receipt(evidence: dict[str, Any] | None,
+                                execution: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Add the execution-book receipt to an EXISTING evidence block only.
+
+        A V1 decision's evidence is None, and None is what selects V1 staking in
+        ``compute_position_stake``; it is never turned into a dict here.
+        """
+
+        if evidence is None or not execution:
+            return evidence
+        return {**evidence, "execution_books": execution["receipt"]}
 
     @staticmethod
     def _decision_evidence(forecast: Any, v2: Any) -> dict[str, Any] | None:
@@ -987,6 +1039,22 @@ class ShadowExperimentService:
         ):
             return POSITION_INELIGIBLE
 
+        # Owner 2026-10-25: a position is taken only at a US-regulated book
+        # (AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1). The decision path already
+        # chooses among those books; this refuses any decision recorded otherwise.
+        from app.services import execution_books
+
+        book = self.session.get(Sportsbook, snapshot.sportsbook_id) if snapshot.sportsbook_id else None
+        book_key = book.key if book is not None else decision.sportsbook
+        if not execution_books.is_execution_book(book_key, self.settings):
+            self._record_funding(
+                experiment, game, decision, now, disposition=POSITION_NOT_FUNDED,
+                reason=execution_books.NO_US_REGULATED_PRICE, stake=0.0,
+                limits={"execution_books": execution_books.receipt([book_key], self.settings,
+                                                                   book=lambda key: key)}, shared=None,
+            )
+            return POSITION_NOT_FUNDED
+
         # Oct19 owner funding-only restrictions. All original occurrence,
         # quote/forecast integrity and duplicate guards above remain binding.
         # Retain the decision and append the existing immutable funding receipt.
@@ -1075,6 +1143,16 @@ class ShadowExperimentService:
             self._record_funding(experiment, game, decision, now, disposition=POSITION_NOT_FUNDED,
                                  reason=zero_room_reason(shared) if shared_alone else "STAKING_OR_EXPOSURE_CAP",
                                  stake=0.0, limits=limits, shared=shared)
+            return POSITION_NOT_FUNDED
+        # Owner rule (72a0198, now MLB too): no paper bet under $1.00. The sized
+        # stake is recorded; no position, no allowance charge.
+        from app.services.research_paper_policy import MIN_STAKE_USD, STAKE_BELOW_MINIMUM
+
+        if stake < MIN_STAKE_USD:
+            self._record_funding(experiment, game, decision, now, disposition=POSITION_NOT_FUNDED,
+                                 reason=STAKE_BELOW_MINIMUM, stake=0.0,
+                                 limits={**limits, "sized_stake": stake, "minimum_stake_usd": MIN_STAKE_USD},
+                                 shared=shared)
             return POSITION_NOT_FUNDED
 
         position = OfficialAspPosition(

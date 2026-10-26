@@ -582,3 +582,11 @@ def test_a_reservation_defect_fails_open_to_the_plain_shared_rule_and_keeps_the_
     assert out["priority_policy"]["state"] == "ERROR:RuntimeError"
     assert out["reserved_usd"] == 0.0 and out["room_usd"] == 50.0                # never more than $100 - entered
     assert sda.entered_on(session, SAT) == 50.0                                  # the session still works
+
+
+@pytest.fixture
+def settings(settings):
+    """These MLB fixtures price synthetic books (demo_alpha/testbook...) that are not US-regulated,
+    so the owner's execution-book rule (default ON, fail closed) would refuse every position here.
+    That rule has its own tests (tests/test_monday_policy_20261026.py); this module tests the rest."""
+    return settings.model_copy(update={"execution_us_regulated_only": False})

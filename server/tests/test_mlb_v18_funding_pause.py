@@ -536,7 +536,7 @@ def _freeze_world(session, settings, monkeypatch):
     experiment, game, decision = _v18_world(session, settings)
     monkeypatch.setattr(ReadService, "_live_games_for_date", lambda self, d, league: [game])
     monkeypatch.setattr(ReadService, "game_card", lambda self, g: object())
-    monkeypatch.setattr(ReadService, "_daily_opportunities", lambda self, g, c, f: ([], None))
+    monkeypatch.setattr(ReadService, "_daily_opportunities", lambda self, g, c, f, **_execution: ([], None))
     monkeypatch.setattr(ShadowExperimentService, "_controlling_forecasts",
                         lambda self, e, games, now: ([None for _ in games], []))
     # Past the cutoff the freeze only binds the persisted decision; the
@@ -897,3 +897,11 @@ def test_read_surface_exposes_the_pause_by_decision(session, settings):
     source = Path(inspect.getsourcefile(__import__("app.services.command_center",
                                                    fromlist=["x"]))).read_text(encoding="utf-8")
     assert '"funding_pause": pauses.get(str(did))' in source
+
+
+@pytest.fixture
+def settings(settings):
+    """These MLB fixtures price synthetic books (demo_alpha/testbook...) that are not US-regulated,
+    so the owner's execution-book rule (default ON, fail closed) would refuse every position here.
+    That rule has its own tests (tests/test_monday_policy_20261026.py); this module tests the rest."""
+    return settings.model_copy(update={"execution_us_regulated_only": False})

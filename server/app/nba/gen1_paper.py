@@ -340,6 +340,15 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
                                "observed_at": pair[f"{side.lower()}_observed_at"],
                                "pair_observed_at": pair["pair_observed_at"], "older_leg": pair["older_leg"],
                                "pair_age_minutes": pair["pair_age_minutes"], "event_clock": pair.get("event_clock"), "terms": terms})
+    # Owner 2026-10-25 (AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1): US-regulated execution books only.
+    from app.services import execution_books
+
+    candidates, offshore = execution_books.partition(candidates, settings)
+    base["execution_books"] = execution_books.receipt(offshore, settings)
+    declined = execution_books.decline_without_us_price(base, sport="NBA", executable=candidates,
+                                                        excluded=offshore, bankroll=bankroll)
+    if declined is not None:
+        return declined
     qualifying = [c for c in candidates if c["terms"]["qualifies"]]
     best = max(qualifying or candidates, key=lambda c: c["terms"]["expected_return_per_dollar"])
     if not qualifying:

@@ -18,6 +18,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from statistics import fmean
+from typing import Callable
 
 from app.bankroll.service import StakePolicy, calculate_stake
 from app.forecast_exchange.pricing import (
@@ -80,6 +81,9 @@ class BookQuote:
     sportsbook_id: str | None = None
     market_outcome_id: str | None = None
     odds_snapshot_id: str | None = None
+    #: The stored ``Sportsbook.key`` (``book`` is the display name). Used only to
+    #: decide whether this book may be an EXECUTION price (app/services/execution_books.py).
+    sportsbook_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -174,6 +178,7 @@ def price_side(
     now: datetime,
     extreme_threshold: float = 1.0,
     max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
+    execution_filter: Callable[[BookQuote], bool] | None = None,
 ) -> Candidate | None:
     """Price one selection against its best real two-sided quote.
 
@@ -191,7 +196,16 @@ def price_side(
 
     # The best book for this side maximizes the bettor's decimal return; its own
     # paired opposite forms the complete two-sided quote the policy prices from.
-    best = max(side.quotes, key=lambda quote: american_to_decimal(quote.side_american))
+    #
+    # ``execution_filter`` (the paper decision path only; owner rule
+    # AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1) limits which books may BE that
+    # best price. Consensus below still averages every book's quote.
+    executable = side.quotes
+    if execution_filter is not None:
+        executable = tuple(quote for quote in side.quotes if execution_filter(quote))
+        if not executable:
+            return None
+    best = max(executable, key=lambda quote: american_to_decimal(quote.side_american))
     conservative = (
         side.conservative_probability
         if side.conservative_probability is not None
@@ -264,6 +278,7 @@ def build_market_candidate(
     now: datetime,
     extreme_threshold: float = 1.0,
     max_staleness_minutes: int = MAX_QUOTE_STALENESS_MINUTES,
+    execution_filter: Callable[[BookQuote], bool] | None = None,
 ) -> Candidate | None:
     """Return the single better side of a market (the exact recommended bet)."""
 
@@ -281,6 +296,7 @@ def build_market_candidate(
                 now=now,
                 extreme_threshold=extreme_threshold,
                 max_staleness_minutes=max_staleness_minutes,
+                execution_filter=execution_filter,
             )
         )
         is not None

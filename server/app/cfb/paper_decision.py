@@ -596,6 +596,17 @@ def decide(session: Session, settings: Any, era: ShadowExperiment, game: dict[st
                                **({"retained_kickoff": pair["retained_kickoff"],
                                    "quote_clock_source": pair[f"{side.lower()}_quote_clock_source"]}
                                   if "retained_kickoff" in pair else {})})
+    # Owner 2026-10-25 (AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1): only a US-regulated
+    # book may be the execution price; offshore/unknown books never execute (each
+    # candidate's no-vig is its own book's pair, so nothing else changes).
+    from app.services import execution_books
+
+    candidates, offshore = execution_books.partition(candidates, settings)
+    base["execution_books"] = execution_books.receipt(offshore, settings)
+    declined = execution_books.decline_without_us_price(base, sport="CFB", executable=candidates,
+                                                        excluded=offshore, bankroll=bankroll)
+    if declined is not None:
+        return declined
     qualifying = [c for c in candidates if c["terms"]["qualifies"]]
     best = max(qualifying or candidates, key=lambda c: c["terms"]["expected_return_per_dollar"])
     if not qualifying:

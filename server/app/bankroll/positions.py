@@ -47,7 +47,7 @@ def publish_official_positions(session: Session, settings: Settings, games: list
         ).order_by(Forecast.version.desc()).limit(1))
         if not forecast:
             continue
-        candidates = _moneyline_candidates(session, game.id)
+        candidates = _moneyline_candidates(session, game.id, settings)
         for candidate in candidates:
             probability = forecast.home_win_probability if candidate["is_home"] else forecast.away_win_probability
             edge = probability - candidate["no_vig_probability"]
@@ -73,7 +73,10 @@ def publish_official_positions(session: Session, settings: Settings, games: list
             shared = shared_room(session, settings, day=eastern_date(game.starts_at), moment=datetime.now(UTC))
             if shared is not None:
                 stake = round(min(stake, shared["room_usd"]), 2)
-            if stake <= 0:
+            # Owner rule: no paper bet under $1.00 (research_paper_policy.MIN_STAKE_USD).
+            from app.services.research_paper_policy import MIN_STAKE_USD
+
+            if stake <= 0 or stake < MIN_STAKE_USD:
                 continue
             position = OfficialAspPosition(
                 forecast_id=forecast.id,
@@ -101,7 +104,7 @@ from app.data_sources.provider_registry import (
 )
 
 
-def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]]:
+def _moneyline_candidates(session: Session, game_id: Any, settings: Any = None) -> list[dict[str, Any]]:
     rows = list(session.execute(
         select(MarketOutcome, OddsSnapshot, Sportsbook)
         .join(Market, Market.id == MarketOutcome.market_id)
@@ -147,7 +150,14 @@ def _moneyline_candidates(session: Session, game_id: Any) -> list[dict[str, Any]
         probabilities = no_vig.get(str(outcome_id))
         if not probabilities:
             continue
-        best = max(outcome_rows, key=lambda row: row[1].decimal_odds)
+        # Owner rule AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1: the execution price is
+        # the best US-regulated book's; every book above still feeds the no-vig consensus.
+        from app.services.execution_books import is_execution_book
+
+        executable = [row for row in outcome_rows if is_execution_book(row[2].key, settings)]
+        if not executable:
+            continue
+        best = max(executable, key=lambda row: row[1].decimal_odds)
         from app.models import GameTeam
         side = session.scalar(select(GameTeam).where(GameTeam.game_id == game_id, GameTeam.team_id == best[0].participant_team_id))
         if not side:
