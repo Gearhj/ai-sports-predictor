@@ -157,3 +157,71 @@
 .nh-jumbo > em { font-style: normal; font-size: 11px; font-weight: 900; color: #34d399; padding: 2px 8px; border-radius: 999px; background: rgba(52, 211, 153, .12); }
 .nh-jumbo > i { position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 9.5px; font-weight: 900; letter-spacing: .08em; color: #cbd5e1; }
 @media (max-width: 760px) { .nh-jumbo { padding: 2px 8px 12px; gap: 6px; } .nh-jumbo img { display: none; } .nh-jumbo b { font-size: 16px; } }
+
+/* fights on the ice */
+.nh-glove { fill: #f8fafc; stroke: #0b1526; stroke-width: 1; }
+.nh-fightring { fill: rgba(239, 68, 68, .12); stroke: #ef4444; stroke-width: 2.5; stroke-dasharray: 5 4; }
+.nh-callout--fight { font-size: 28px; }
+.nh-pow { font-size: 13px; font-weight: 900; fill: #fde047; paint-order: stroke; stroke: #7f1d1d; stroke-width: 3px; font-style: italic; }
+.nh-moments li { grid-template-columns: 64px minmax(0, 1fr) 40px 42px; }
+.nh-moments li.is-fight { grid-template-columns: 74px minmax(0, 1fr) 40px 42px; background: linear-gradient(120deg, rgba(127, 29, 29, .55), #0b1526 70%); border-color: rgba(248, 113, 113, .6); }
+.nh-moments__fighters { display: flex; } .nh-moments__fighters img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; background: #1f2937; border: 2px solid #f87171; } .nh-moments__fighters img + img { margin-left: -12px; }
+.nh-moments__horn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .2); background: rgba(7, 13, 26, .8); font-size: 16px; cursor: pointer; transition: transform .15s; } .nh-moments__horn:hover { transform: scale(1.15) rotate(-10deg); }
+
+/* right now */
+.nh-now { border-left: 4px solid #5eead4; }
+.nh-now small { font-size: 10.5px; font-weight: 900; letter-spacing: .1em; color: #a9b4c4; }
+.nh-now__str { display: flex; align-items: baseline; gap: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(7, 13, 26, .65); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); }
+.nh-now__str b { font-size: 26px; font-weight: 900; color: var(--c); } .nh-now__str span { font-size: 13.5px; color: #dfe7f2; } .nh-now__str em { font-style: normal; font-weight: 900; color: var(--c); }
+.nh-now__str.is-pp { animation: nh-pp 1.2s ease-in-out infinite; } @keyframes nh-pp { 50% { box-shadow: 0 0 24px color-mix(in srgb, var(--c) 60%, transparent); } }
+.nh-now__box { display: grid; gap: 6px; margin-top: 10px; }
+.nh-now__pen { position: relative; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; background: rgba(127, 29, 29, .25); border: 1px solid rgba(248, 113, 113, .35); overflow: hidden; }
+.nh-now__pen img, .nh-now__pen > i { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #1f2937; border: 2px solid var(--c); display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 900; }
+.nh-now__pen span { display: grid; min-width: 0; } .nh-now__pen b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .nh-now__pen span small { letter-spacing: 0; font-weight: 700; }
+.nh-now__pen em { font-style: normal; font-size: 18px; font-weight: 900; color: #fca5a5; font-variant-numeric: tabular-nums; }
+.nh-now__pen u { position: absolute; left: 0; bottom: 0; height: 3px; background: #f87171; transition: width 1s linear; }
+.nh-now__empty { margin: 0; font-size: 12.5px; color: #a9b4c4; }
+.nh-now__press { margin-top: 10px; }
+.nh-now__goal { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.nh-now__goal img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #1f2937; border: 2px solid var(--c); } .nh-now__goal span { display: grid; } .nh-now__goal b { font-size: 14px; }
+.nh-now__tip { margin: 10px 0 0; padding: 9px 12px; border-radius: 10px; background: rgba(94, 234, 212, .08); border: 1px solid rgba(94, 234, 212, .25); font-size: 13.5px; line-height: 1.45; color: #e6edf6; }
+
+/* the goal horn: full screen */
+.nh-horn { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; overflow: hidden; cursor: pointer; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c) 60%, #000) 0, rgba(3, 7, 15, .92) 70%); animation: nh-hornin 4.8s ease-out both; }
+@keyframes nh-hornin { 0% { opacity: 0; } 6% { opacity: 1; } 88% { opacity: 1; } 100% { opacity: 0; } }
+.nh-horn__sweep { position: absolute; inset: -50%; background: conic-gradient(from 0deg, transparent 0 20%, color-mix(in srgb, var(--c) 55%, transparent) 25%, transparent 30% 70%, color-mix(in srgb, var(--c) 55%, transparent) 75%, transparent 80%); animation: nh-spin 1.6s linear infinite; }
+@keyframes nh-spin { to { transform: rotate(360deg); } }
+.nh-horn__siren { position: absolute; top: 4%; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle, #fecaca 0, #ef4444 40%, transparent 70%); animation: nh-siren .35s ease-in-out infinite alternate; }
+.nh-horn__siren.is-l { left: 6%; } .nh-horn__siren.is-r { right: 6%; animation-delay: .17s; }
+@keyframes nh-siren { from { opacity: .25; transform: scale(.8); } to { opacity: 1; transform: scale(1.15); } }
+.nh-horn__logo { position: absolute; width: min(60vw, 560px); opacity: .18; animation: nh-logozoom 4.8s ease-out both; }
+@keyframes nh-logozoom { from { transform: scale(.4) rotate(-12deg); } to { transform: scale(1.1) rotate(0); } }
+.nh-horn__body { position: relative; display: grid; justify-items: center; gap: 14px; text-align: center; color: #fff; }
+.nh-horn__word { font-size: clamp(80px, 16vw, 210px); line-height: .9; font-weight: 900; font-style: italic; letter-spacing: .04em; text-shadow: 0 8px 0 color-mix(in srgb, var(--c) 70%, #000), 0 0 60px var(--c); animation: nh-slam .7s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes nh-slam { from { transform: scale(3); opacity: 0; } }
+.nh-horn__who { display: flex; align-items: center; gap: 16px; padding: 10px 24px 10px 10px; border-radius: 999px; background: rgba(7, 13, 26, .85); border: 3px solid var(--c); animation: heat-rise .5s ease-out .5s both; }
+.nh-horn__who img { width: 110px; height: 110px; border-radius: 50%; object-fit: cover; background: #1f2937; border: 4px solid var(--c); }
+.nh-horn__who span { display: grid; text-align: left; } .nh-horn__who em { font-style: normal; font-size: 30px; font-weight: 900; } .nh-horn__who small { font-size: 14px; color: #cbd5e1; }
+.nh-horn__score { display: flex; align-items: center; gap: 20px; font-size: 64px; font-weight: 900; animation: heat-rise .5s ease-out .7s both; }
+.nh-horn__score span { display: flex; align-items: center; gap: 14px; } .nh-horn__score img { width: 64px; height: 64px; object-fit: contain; }
+.nh-horn__score b { display: inline-block; min-width: 1.2ch; } .nh-horn__score b.is-flip { color: #fde047; animation: nh-flip .6s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes nh-flip { from { transform: rotateX(90deg) scale(1.6); } }
+.nh-horn__when { font-size: 13px; color: #cbd5e1; }
+.nh-horn .heat-confetti i { animation-duration: 2.6s; }
+
+/* the fight card: full screen */
+.nh-fight { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; align-content: center; gap: 18px; cursor: pointer; color: #fff; background: radial-gradient(circle at 50% 50%, rgba(127, 29, 29, .9), rgba(3, 7, 15, .95) 70%); animation: nh-hornin 4.6s ease-out both; }
+.nh-fight__flash { position: absolute; inset: 0; background: #fff; animation: nh-flash2 .5s ease-out both; pointer-events: none; }
+@keyframes nh-flash2 { from { opacity: .8; } to { opacity: 0; } }
+.nh-fight__word { position: relative; font-size: clamp(48px, 9vw, 120px); font-weight: 900; font-style: italic; letter-spacing: .03em; color: #fde047; text-shadow: 0 6px 0 #7f1d1d, 0 0 40px #ef4444; animation: nh-slam .6s cubic-bezier(.2, 1.6, .4, 1) both; }
+.nh-fight__ring { position: relative; display: flex; align-items: center; gap: clamp(16px, 5vw, 70px); }
+.nh-fight__side { display: grid; justify-items: center; gap: 6px; text-align: center; }
+.nh-fight__side > img { width: clamp(120px, 18vw, 220px); height: clamp(120px, 18vw, 220px); border-radius: 50%; object-fit: cover; background: #1f2937; border: 6px solid var(--c); box-shadow: 0 0 40px color-mix(in srgb, var(--c) 70%, transparent); }
+.nh-fight__side.is-l > img { animation: nh-jab-l .5s ease-in-out .6s 5 alternate; } .nh-fight__side.is-r > img { animation: nh-jab-r .5s ease-in-out .85s 5 alternate; }
+@keyframes nh-jab-l { to { transform: translateX(26px) rotate(6deg); } }
+@keyframes nh-jab-r { to { transform: translateX(-26px) rotate(-6deg); } }
+.nh-fight__side b { font-size: 24px; font-weight: 900; } .nh-fight__side small { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #cbd5e1; } .nh-fight__side small img { width: 22px; height: 22px; object-fit: contain; }
+.nh-fight__vs { font-size: 56px; font-weight: 900; font-style: italic; color: #fff; text-shadow: 0 0 20px #ef4444; animation: nh-siren .4s ease-in-out infinite alternate; }
+.nh-fight__note { position: relative; max-width: 720px; text-align: center; font-size: 13px; color: #fecaca; padding: 0 20px; }
+@media (max-width: 760px) { .nh-horn__who img { width: 70px; height: 70px; } .nh-horn__who em { font-size: 20px; } .nh-horn__score { font-size: 40px; } .nh-horn__score img { width: 40px; height: 40px; } .nh-horn__siren { width: 70px; height: 70px; } }
+@media (prefers-reduced-motion: reduce) { .nh-horn, .nh-horn *, .nh-fight, .nh-fight * { animation: none !important; } }

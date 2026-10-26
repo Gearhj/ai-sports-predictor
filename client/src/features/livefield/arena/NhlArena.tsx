@@ -16,6 +16,7 @@ import { periodName, teamPair, type ArenaAthlete, type ArenaFeed, type ArenaTeam
 import { goalSequence, isAttempt, rinkEvents, winSeries, type RinkEvent, type WinPoint } from './nhlModel'
 import { HeatSpotlight, Takeover } from '../heat/Heat'
 import { hotIds, nhlHeat } from '../heat/rules'
+import { FightCard, GoalHorn, RinkSide, isFight } from './NhlShow'
 import './nhl.css'
 
 const RX = (x: number) => (x + 100) * 4
@@ -26,7 +27,7 @@ const reduced = () => typeof window !== 'undefined' && !!window.matchMedia?.('(p
 const CALL: Record<RinkEvent['kind'], string> = { goal: 'GOAL!', shot: 'SAVE', miss: 'WIDE', block: 'BLOCKED', hit: 'HIT', faceoff: 'FACEOFF', give: 'GIVEAWAY', take: 'TAKEAWAY', penalty: 'PENALTY' }
 const ORD = ['1st', '2nd', '3rd']
 
-interface Ctx { feed: ArenaFeed; events: RinkEvent[]; col: Record<string, string>; teamOf: (id: string | null | undefined) => ArenaTeam; openPlayer: (id: string) => void; hot: Set<string> }
+interface Ctx { feed: ArenaFeed; events: RinkEvent[]; col: Record<string, string>; teamOf: (id: string | null | undefined) => ArenaTeam; openPlayer: (id: string) => void; hot: Set<string>; horn: (e: RinkEvent) => void; fight: (e: RinkEvent) => void }
 
 export function NhlArena({ feed, prior, priorSource, bet, children }: { feed: ArenaFeed; prior: number | null; priorSource: string; bet: string | null; children?: ReactNode }) {
   const { home, away } = feed.teams
@@ -36,7 +37,9 @@ export function NhlArena({ feed, prior, priorSource, bet, children }: { feed: Ar
   const [player, setPlayer] = useState<string | null>(null)
   const [replay, setReplay] = useState<{ goal: RinkEvent; n: number } | null>(null)
   const heat = useMemo(() => nhlHeat(feed, events, col), [feed, events, col])
-  const ctx: Ctx = { feed, events, col, teamOf: (id) => (id === home.id ? home : away), openPlayer: setPlayer, hot: hotIds(heat) }
+  const [horn, setHorn] = useState<RinkEvent | null>(null)
+  const [fight, setFight] = useState<RinkEvent | null>(null)
+  const ctx: Ctx = { feed, events, col, teamOf: (id) => (id === home.id ? home : away), openPlayer: setPlayer, hot: hotIds(heat), horn: setHorn, fight: setFight }
   const p0 = prior ?? 0.5
   const series = useMemo(() => winSeries(feed, events, p0), [feed, events, p0])
   return (
@@ -46,6 +49,7 @@ export function NhlArena({ feed, prior, priorSource, bet, children }: { feed: Ar
       <div className="nh-top">
         <LivingRink ctx={ctx} replay={replay} />
         <div className="nh-side">
+          <RinkSide feed={feed} events={events} col={col} teamOf={ctx.teamOf} />
           <WinGauge ctx={ctx} series={series} prior={p0} priorSource={prior == null ? 'no pregame price, so a 50/50 start' : priorSource} />
           <GoalieDuel ctx={ctx} />
         </div>
@@ -61,6 +65,8 @@ export function NhlArena({ feed, prior, priorSource, bet, children }: { feed: Ar
       </div>
       {children}
       {player ? <PlayerDrawer ctx={ctx} id={player} onClose={() => setPlayer(null)} /> : null}
+      {horn ? <GoalHorn e={horn} feed={feed} col={col} teamOf={ctx.teamOf} onDone={() => setHorn(null)} /> : null}
+      {fight ? <FightCard e={fight} feed={feed} col={col} onDone={() => setFight(null)} /> : null}
     </div>
   )
 }
@@ -267,6 +273,7 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
       return svg.transition('cam').duration(ms).ease(d3.easeCubicInOut).attrTween('viewBox', () => (t: number) => start.map((s, i) => (s + (target[i] - s) * t).toFixed(1)).join(' ')).end().catch(() => undefined)
     }
     const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms))
+    let lastFight: string | null = null
     const play = async (e: RinkEvent) => {
       const at = { x: RX(e.nx), y: RY(e.ny) }
       const actor = e.players[0]?.id ?? null; const other = e.players[1]?.id ?? null
@@ -290,7 +297,8 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
         if (e.kind === 'goal') {
           explode(fx, net.x, net.y, c, e.players[0]?.headshot ?? null, big)
           tag(net, 'GOAL!', c, 'nh-callout nh-callout--goal')
-          if (big) { setCall(e); window.setTimeout(() => setCall(null), 3300); setShake(true); window.setTimeout(() => setShake(false), 520); await sleep(2700) } else await sleep(900)
+          if (run.mode === 'new') ctxRef.current.horn(e)
+          if (big) { if (run.mode !== 'new') { setCall(e); window.setTimeout(() => setCall(null), 3300) } setShake(true); window.setTimeout(() => setShake(false), 520); await sleep(2700) } else await sleep(900)
         } else if (e.kind === 'shot') {
           const defTeam = team === H0 ? A0 : H0; const gk = goalie[defTeam]; const gp = gk ? posOf.get(gk) : null
           if (gp) { fx.append('circle').attr('cx', gp.x).attr('cy', gp.y).attr('r', 18).attr('class', 'nh-save').transition().duration(700).attr('r', 34).style('opacity', 0).remove(); tag(gp, 'SAVE!', colRef.current[defTeam] ?? '#fff') }
@@ -307,6 +315,31 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
       if (e.kind === 'block') { const bt = colRef.current[(other && info.get(other)?.team) || ''] ?? '#fff'; await moveTo(other, { x: at.x + (team === H0 ? 16 : -16), y: at.y }, 260); spray(at); tag(at, 'BLOCKED!', bt); return }
       if (e.kind === 'give') { tag(at, 'GIVEAWAY', c); return }
       if (e.kind === 'take') { tag(at, 'TAKEAWAY!', c); return }
+      if (e.kind === 'penalty' && isFight(e)) {
+        if (lastFight === e.clock) return
+        lastFight = e.clock
+        const ring = [...ice[H0], ...ice[A0]].filter((id) => id !== actor && id !== other)
+        await Promise.all([moveTo(actor, { x: at.x - 13, y: at.y }, 420), moveTo(other, { x: at.x + 13, y: at.y }, 420),
+          ...ring.map((id, k) => moveTo(id, { x: at.x + Math.cos((k / ring.length) * Math.PI * 2) * 70, y: at.y + Math.sin((k / ring.length) * Math.PI * 2) * 50 }, 600))])
+        if (dead) return
+        for (const dx of [-11, 11]) fx.append('rect').attr('x', at.x + dx - 4).attr('y', at.y - 14).attr('width', 8).attr('height', 6).attr('rx', 2).attr('class', 'nh-glove')
+          .transition().duration(500).ease(d3.easeBounceOut).attr('y', at.y + 18).transition().delay(2200).duration(500).style('opacity', 0).remove()
+        fx.append('circle').attr('cx', at.x).attr('cy', at.y).attr('r', 30).attr('class', 'nh-fightring').transition().duration(2400).attr('r', 44).style('opacity', 0).remove()
+        tag(at, 'FIGHT!', '#f87171', 'nh-callout nh-callout--fight')
+        if (run.mode === 'new') ctxRef.current.fight(e)
+        setShake(true)
+        for (let k = 0; k < 6; k++) {
+          if (dead) return
+          const hitter = k % 2 ? other : actor; const hp = posOf.get(hitter ?? '')
+          if (hp) { await moveTo(hitter, { x: hp.x + (k % 2 ? -7 : 7), y: hp.y - 2 }, 110); await moveTo(hitter, hp, 110) }
+          fx.append('text').attr('x', at.x + (k % 2 ? -18 : 18)).attr('y', at.y - 10).attr('class', 'nh-pow').attr('text-anchor', 'middle').text(['POW!', 'WHAM!', 'BAM!'][k % 3]).transition().duration(500).attr('y', at.y - 34).style('opacity', 0).remove()
+        }
+        setShake(false)
+        await Promise.all([moveTo(actor, { x: RX(info.get(actor ?? '')?.team === H0 ? -7 : 7), y: 312 }, 900), moveTo(other, { x: RX(info.get(other ?? '')?.team === H0 ? -7 : 7), y: 312 }, 900)])
+        tag({ x: RX(0), y: 312 }, '5 MIN MAJOR · BOTH', '#fca5a5')
+        await sleep(600)
+        return
+      }
       if (e.kind === 'penalty') tag(at, 'PENALTY', '#fca5a5')
     }
     ;(async () => {
@@ -422,19 +455,31 @@ function GoalTakeover({ e, ctx }: { e: RinkEvent; ctx: Ctx }) {
 // --------------------------------------------------------- goal moments --
 
 function GoalMoments({ ctx, onReplay }: { ctx: Ctx; onReplay: (g: RinkEvent) => void }) {
-  const goals = ctx.events.filter((e) => e.kind === 'goal')
+  const goals = ctx.events.filter((e) => e.kind === 'goal' || (isFight(e) && !ctx.events.some((x) => x !== e && isFight(x) && x.clock === e.clock && x.period === e.period && x.i < e.i)))
   if (!goals.length) return null
   return (
     <section className="nh-card nh-moments" aria-label="Goal moments">
-      <header><h2>Goal Moments <small>tap ▶ to watch the puck go from the faceoff to the net</small></h2></header>
+      <header><h2>Goal Moments <small>▶ watch it on the rink · 📯 relive the goal horn · 🥊 the fight card</small></h2></header>
       <ol>
         {goals.map((g, k) => {
           const who = g.players.find((p) => p.role === 'scorer') ?? g.players[0]
           const t = ctx.teamOf(g.shooter)
+          if (isFight(g)) {
+            const foe = g.players[1]
+            return (
+              <li key={g.id} className="is-fight" style={{ ['--c' as string]: '#f87171', animationDelay: `${k * 120}ms` } as CSSProperties}>
+                <span className="nh-moments__fighters">{who?.headshot ? <img src={who.headshot} alt="" /> : null}{foe?.headshot ? <img src={foe.headshot} alt="" /> : null}</span>
+                <span className="nh-moments__txt"><b>🥊 FIGHT</b><small>{who?.name ?? ''} vs {foe?.name ?? ''}</small><small>{periodName('nhl', g.period)} {g.clock} · 5 min each</small></span>
+                <button type="button" className="nh-moments__horn" onClick={() => ctx.fight(g)} aria-label="Fight card" title="Fight card">🥊</button>
+                <button type="button" className="nh-moments__play" onClick={() => onReplay(g)} aria-label={`Replay the fight between ${who?.name ?? ''} and ${foe?.name ?? ''}`}>▶</button>
+              </li>
+            )
+          }
           return (
             <li key={g.id} style={{ ['--c' as string]: ctx.col[g.shooter ?? ''] ?? '#94a3b8', animationDelay: `${k * 120}ms` } as CSSProperties}>
               <button type="button" className="nh-moments__face" onClick={() => { if (who) ctx.openPlayer(who.id) }} aria-label={`${who?.name ?? 'Scorer'} profile`}>{who?.headshot ? <img src={who.headshot} alt="" /> : <i>★</i>}</button>
               <span className="nh-moments__txt"><b>{who?.name ?? t.short}</b><small>{t.abbr} · {periodName('nhl', g.period)} {g.clock}{g.strength && g.strength !== 'Even Strength' ? ` · ${g.strength}` : ''}</small><small>{ctx.feed.teams.away.abbr} {g.away ?? '–'} – {g.home ?? '–'} {ctx.feed.teams.home.abbr}</small></span>
+              <button type="button" className="nh-moments__horn" onClick={() => ctx.horn(g)} aria-label={`Goal horn for ${who?.name ?? t.short}`} title="Relive the goal horn">📯</button>
               <button type="button" className="nh-moments__play" onClick={() => onReplay(g)} aria-label={`Replay the goal by ${who?.name ?? t.short}`}>▶</button>
             </li>
           )
