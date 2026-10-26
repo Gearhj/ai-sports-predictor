@@ -296,6 +296,25 @@ def lanes_with_cfb(monthly_credits: int, daily_credits: int,
     )
 
 
+def lanes_with_nfl(monthly_credits: int | None, daily_credits: int | None,
+                   lanes: tuple[LaneSpec, ...] = DEFAULT_LANES) -> tuple[LaneSpec, ...]:
+    """``lanes`` with the NFL lane resized from explicit settings; ``None`` keeps the default.
+
+    The near-close captures (owner decision 2026-10-25) add up to three credits per NFL
+    kickoff cluster, which the default 60/6 lane cannot hold on a Sunday.
+    """
+
+    from dataclasses import replace
+
+    return tuple(
+        replace(lane,
+                monthly_allocation=lane.monthly_allocation if monthly_credits is None else max(0, int(monthly_credits)),
+                daily_cap=lane.daily_cap if daily_credits is None else max(0, int(daily_credits)))
+        if lane.key == LANE_NFL_RESEARCH else lane
+        for lane in lanes
+    )
+
+
 def lanes_with_nhl(monthly_credits: int, daily_credits: int,
                    lanes: tuple[LaneSpec, ...] = DEFAULT_LANES, *,
                    yields_to_cfb: bool = True) -> tuple[LaneSpec, ...]:

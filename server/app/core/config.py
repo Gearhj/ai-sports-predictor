@@ -619,6 +619,10 @@ class Settings(BaseSettings):
     # Existing included OddsAPI route, prospective owner NBA repair Oct20. OFF until qualified release.
     nba_odds_api_enabled: bool = False
     odds_nba_lane_monthly_credits: int = Field(default=0, ge=0, le=500)
+    #: NFL research lane resize (``lanes_with_nfl``); unset keeps the 60/6 default. Sized
+    #: for the near-close captures (owner decision 2026-10-25).
+    odds_nfl_lane_monthly_credits: int | None = Field(default=None, ge=0, le=1000)
+    odds_nfl_lane_daily_credits: int | None = Field(default=None, ge=0, le=60)
     odds_nba_lane_daily_credits: int = Field(default=0, ge=0, le=48)
     nba_odds_api_source_effective_from: datetime | None = None
     nba_sgo_lane_enabled: bool = False

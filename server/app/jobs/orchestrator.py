@@ -3878,7 +3878,7 @@ class JobOrchestrator:
         """
 
         from app.services.odds_budget_lanes import (
-            DEFAULT_LANES, LANES, lane_budget, lanes_in_play_today, lanes_with_cfb, lanes_with_nhl, lanes_with_nba,
+            DEFAULT_LANES, LANES, lane_budget, lanes_in_play_today, lanes_with_cfb, lanes_with_nhl, lanes_with_nba, lanes_with_nfl,
         )
 
         spec = LANES.get(yielding_lane or "")
@@ -3896,7 +3896,10 @@ class JobOrchestrator:
             lanes=lanes_with_nba(self.settings.odds_nba_lane_monthly_credits, self.settings.odds_nba_lane_daily_credits, lanes=lanes_with_nhl(self.settings.odds_nhl_lane_monthly_credits,
                                  self.settings.odds_nhl_lane_daily_credits,
                                  lanes_with_cfb(self.settings.odds_cfb_lane_monthly_credits,
-                                                self.settings.odds_cfb_lane_daily_credits, DEFAULT_LANES),
+                                                self.settings.odds_cfb_lane_daily_credits,
+                                                lanes_with_nfl(getattr(self.settings, "odds_nfl_lane_monthly_credits", None),
+                                                               getattr(self.settings, "odds_nfl_lane_daily_credits", None),
+                                                               DEFAULT_LANES)),
                                  yields_to_cfb=bool(getattr(self.settings, "odds_nhl_yields_to_cfb", False)))),
             in_play_today=in_play,
         )
