@@ -212,8 +212,19 @@ def _record(session: Session, *, sha: str, raw: bytes, doc: dict[str, Any], sche
         predecessor_sha256=predecessor, release_sha256=release, handoff_sha256=verdict.detail.get("handoff_sha256"),
         packages_listed=len(doc.get("packages") or []), lease_semantics=lease_semantics,
         dispositions=_dispositions(doc), first_verified_at=now)
-    session.add(record)
-    session.flush()
+    # The exchange consumer and the NBA checkpoint's discovery refresh can both meet a new
+    # manifest on the same tick. The check above is a read, so the loser of that race hit
+    # uq_nba_discovery_manifest_sha and failed its whole run (5 checkpoint runs, 2026-10-25/26).
+    # Insert under a savepoint and, if the other writer got there first, use its row.
+    try:
+        with session.begin_nested():
+            session.add(record)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(select(NbaDiscoveryManifest).where(NbaDiscoveryManifest.manifest_sha256 == sha))
+        if existing is None:
+            raise
+        return existing, False
     return record, True
 
 
