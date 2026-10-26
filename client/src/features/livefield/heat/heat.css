@@ -1,0 +1,55 @@
+/* THE HEAT: spotlight cards, flames / ice aura, 2K takeover, confetti. Shared by every Live View. */
+.heat { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.heat__card { position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 16px; overflow: hidden; color: #eef2f7;
+  background: linear-gradient(110deg, color-mix(in srgb, var(--c) 30%, #0b1526), #0b1526 70%); border: 1px solid color-mix(in srgb, var(--c) 60%, transparent); animation: heat-rise .5s ease-out both; }
+.heat__card.is-fire { background: linear-gradient(110deg, #7c2d12, #431407 45%, #0b1526); border-color: #fb923c; box-shadow: 0 0 30px rgba(249, 115, 22, .35); }
+.heat__card.is-ice { background: linear-gradient(110deg, #0c4a6e, #082f49 45%, #0b1526); border-color: #38bdf8; box-shadow: 0 0 30px rgba(56, 189, 248, .3); }
+.heat__card.is-flash { animation: heat-flash .6s ease-in-out 6; }
+@keyframes heat-rise { from { opacity: 0; transform: translateY(10px); } }
+@keyframes heat-flash { 50% { box-shadow: 0 0 60px rgba(253, 224, 71, .9); transform: scale(1.02); } }
+.heat__face { position: relative; width: 80px; height: 80px; flex: none; }
+.heat__face img, .heat__face > b { position: relative; z-index: 2; display: grid; place-items: center; width: 80px; height: 80px; border-radius: 50%; object-fit: cover; background: #1f2937; border: 3px solid var(--c); font-size: 30px; font-weight: 900; }
+.heat__card.is-fire .heat__face img { border-color: #fde047; } .heat__card.is-ice .heat__face img { border-color: #7dd3fc; }
+.heat__txt { display: grid; gap: 2px; min-width: 0; }
+.heat__txt b { font-size: 19px; font-weight: 900; font-style: italic; letter-spacing: .06em; color: #fdba74; }
+.heat__card.is-fire .heat__txt b { color: #fde047; text-shadow: 0 0 12px rgba(249, 115, 22, .8); }
+.heat__card.is-ice .heat__txt b { color: #bae6fd; text-shadow: 0 0 12px rgba(56, 189, 248, .8); }
+.heat__txt em { font-style: normal; font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .heat__txt small { font-size: 12px; color: #cbd5e1; }
+.heat__logo { position: absolute; right: 10px; top: 8px; width: 30px; height: 30px; object-fit: contain; opacity: .55; }
+
+/* flames (and the ice aura) */
+.heat-flames { position: absolute; inset: -18px -8px 6px; z-index: 1; display: block; pointer-events: none; }
+.heat-flames i { position: absolute; bottom: 0; left: 50%; width: 60px; height: 90px; margin-left: -30px; border-radius: 50% 50% 35% 35%; background: radial-gradient(ellipse at 50% 85%, #fde047 0 18%, #f97316 40%, rgba(220, 38, 38, .8) 62%, transparent 72%); filter: blur(2px); animation: heat-flame .9s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+.heat-flames i:nth-child(2) { width: 46px; margin-left: -48px; animation-delay: .2s; animation-duration: .7s; }
+.heat-flames i:nth-child(3) { width: 46px; margin-left: 2px; animation-delay: .4s; animation-duration: .8s; }
+.heat-flames.is-ice i { background: radial-gradient(ellipse at 50% 85%, #f0f9ff 0 18%, #7dd3fc 40%, rgba(14, 165, 233, .75) 62%, transparent 72%); }
+@keyframes heat-flame { from { transform: scaleY(.85) skewX(-4deg); opacity: .85; } to { transform: scaleY(1.12) skewX(5deg); opacity: 1; } }
+/* an aura ring for any face on a field/rink/diamond */
+.heat-aura { border-radius: 50%; box-shadow: 0 0 0 3px #fde047, 0 0 18px 6px rgba(249, 115, 22, .85); animation: heat-aura 0.7s ease-in-out infinite alternate; }
+.heat-aura.is-ice { box-shadow: 0 0 0 3px #bae6fd, 0 0 18px 6px rgba(56, 189, 248, .85); }
+@keyframes heat-aura { to { box-shadow: 0 0 0 3px #fde047, 0 0 28px 10px rgba(249, 115, 22, 1); } }
+
+/* 2K takeover */
+.heat-take { position: absolute; z-index: 20; left: 0; right: 0; top: 50%; display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 190px; pointer-events: none; color: #fff;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--c) 92%, #000) 0 38%, rgba(7, 13, 26, .95) 38%); clip-path: polygon(0 12%, 100% 0, 100% 88%, 0 100%); animation: heat-take 3.2s cubic-bezier(.2, .9, .3, 1) both; }
+.heat-take.is-fire { background: linear-gradient(100deg, #c2410c 0, #f97316 22%, #7c2d12 38%, rgba(7, 13, 26, .95) 38%); }
+@keyframes heat-take { 0% { transform: translate(-110%, -50%) skewX(-8deg); } 12% { transform: translate(0, -50%) skewX(-8deg); } 84% { transform: translate(0, -50%) skewX(-8deg); opacity: 1; } 100% { transform: translate(40%, -50%) skewX(-8deg); opacity: 0; } }
+.heat-take__slab { position: relative; display: grid; place-items: end center; }
+.heat-take__face { position: relative; z-index: 2; width: 210px; height: 154px; object-fit: cover; object-position: top; filter: drop-shadow(0 10px 20px rgba(0, 0, 0, .6)); transform: skewX(8deg); }
+.heat-take__logo { position: absolute; left: 10px; top: 24px; width: 70px; height: 70px; object-fit: contain; opacity: .35; }
+.heat-take__slab .heat-flames { inset: auto 20px -10px; height: 160px; }
+.heat-take__txt { display: grid; align-content: center; gap: 4px; padding: 0 28px; transform: skewX(8deg); min-width: 0; }
+.heat-take__txt b { font-size: 64px; line-height: .95; font-weight: 900; font-style: italic; letter-spacing: .02em; text-shadow: 0 4px 0 color-mix(in srgb, var(--c) 70%, #000), 0 0 30px color-mix(in srgb, var(--c) 60%, transparent); white-space: nowrap; }
+.heat-take.is-fire .heat-take__txt b { background: linear-gradient(180deg, #fef08a, #f97316 60%, #dc2626); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 3px 0 #7c2d12); }
+.heat-take__txt em { font-style: normal; font-size: 24px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heat-take__txt span { display: flex; gap: 18px; flex-wrap: wrap; } .heat-take__txt span i { font-style: normal; font-size: 26px; font-weight: 900; color: #fde68a; display: grid; line-height: 1; } .heat-take__txt span small { font-size: 10px; letter-spacing: .14em; color: #cbd5e1; }
+.heat-confetti { position: absolute; left: 50%; top: 50%; width: 0; height: 0; z-index: 3; }
+.heat-confetti i { position: absolute; width: 8px; height: 4px; border-radius: 1px; animation: heat-confetti 1.8s cubic-bezier(.15, .7, .4, 1) both; }
+@keyframes heat-confetti { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 60% { opacity: 1; } 100% { transform: translate(var(--x), calc(var(--y) + 420px)) rotate(var(--r)); opacity: 0; } }
+
+@media (max-width: 760px) {
+  .heat-take { grid-template-columns: 120px minmax(0, 1fr); height: 130px; } .heat-take__face { width: 118px; height: 100px; }
+  .heat-take__txt b { font-size: 34px; } .heat-take__txt em { font-size: 15px; } .heat-take__txt span i { font-size: 16px; }
+  .heat__face, .heat__face img, .heat__face > b { width: 64px; height: 64px; }
+}
+@media (prefers-reduced-motion: reduce) { .heat *, .heat-take, .heat-take *, .heat-aura { animation: none !important; } }

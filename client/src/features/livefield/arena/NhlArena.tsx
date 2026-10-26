@@ -14,6 +14,8 @@ import * as d3 from 'd3'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { periodName, teamPair, type ArenaAthlete, type ArenaFeed, type ArenaTeam } from './arenaData'
 import { goalSequence, isAttempt, rinkEvents, winSeries, type RinkEvent, type WinPoint } from './nhlModel'
+import { HeatSpotlight, Takeover } from '../heat/Heat'
+import { hotIds, nhlHeat } from '../heat/rules'
 import './nhl.css'
 
 const RX = (x: number) => (x + 100) * 4
@@ -24,7 +26,7 @@ const reduced = () => typeof window !== 'undefined' && !!window.matchMedia?.('(p
 const CALL: Record<RinkEvent['kind'], string> = { goal: 'GOAL!', shot: 'SAVE', miss: 'WIDE', block: 'BLOCKED', hit: 'HIT', faceoff: 'FACEOFF', give: 'GIVEAWAY', take: 'TAKEAWAY', penalty: 'PENALTY' }
 const ORD = ['1st', '2nd', '3rd']
 
-interface Ctx { feed: ArenaFeed; events: RinkEvent[]; col: Record<string, string>; teamOf: (id: string | null | undefined) => ArenaTeam; openPlayer: (id: string) => void }
+interface Ctx { feed: ArenaFeed; events: RinkEvent[]; col: Record<string, string>; teamOf: (id: string | null | undefined) => ArenaTeam; openPlayer: (id: string) => void; hot: Set<string> }
 
 export function NhlArena({ feed, prior, priorSource, bet, children }: { feed: ArenaFeed; prior: number | null; priorSource: string; bet: string | null; children?: ReactNode }) {
   const { home, away } = feed.teams
@@ -33,12 +35,14 @@ export function NhlArena({ feed, prior, priorSource, bet, children }: { feed: Ar
   const events = useMemo(() => rinkEvents(feed), [feed])
   const [player, setPlayer] = useState<string | null>(null)
   const [replay, setReplay] = useState<{ goal: RinkEvent; n: number } | null>(null)
-  const ctx: Ctx = { feed, events, col, teamOf: (id) => (id === home.id ? home : away), openPlayer: setPlayer }
+  const heat = useMemo(() => nhlHeat(feed, events, col), [feed, events, col])
+  const ctx: Ctx = { feed, events, col, teamOf: (id) => (id === home.id ? home : away), openPlayer: setPlayer, hot: hotIds(heat) }
   const p0 = prior ?? 0.5
   const series = useMemo(() => winSeries(feed, events, p0), [feed, events, p0])
   return (
     <div className="nh">
       <Story ctx={ctx} wp={series[series.length - 1]?.p ?? p0} bet={bet} />
+      <HeatSpotlight items={heat} />
       <div className="nh-top">
         <LivingRink ctx={ctx} replay={replay} />
         <div className="nh-side">
@@ -163,46 +167,158 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
   const eventsRef = useRef(events); eventsRef.current = events
   const colRef = useRef(col); colRef.current = col
   const replayRef = useRef(replay); replayRef.current = replay
+  const feedRef = useRef(feed); feedRef.current = feed
+  const hotRef = useRef(ctx.hot); hotRef.current = ctx.hot
+  const ctxRef = useRef(ctx); ctxRef.current = ctx
+  const svgRef = useRef<SVGSVGElement | null>(null); const tokRef = useRef<SVGGElement | null>(null)
+  const [shake, setShake] = useState(false)
   useEffect(() => {
-    const el = puckRef.current
-    const evs = eventsRef.current
-    const seq = run.mode === 'replay' && replayRef.current ? goalSequence(evs, replayRef.current.goal) : evs.slice(-8)
-    if (!el || !seq.length) return undefined
-    const g = d3.select(el)
-    g.selectAll('*').interrupt(); g.selectAll('*').remove()
+    const fxEl = puckRef.current; const tokEl = tokRef.current; const svgEl = svgRef.current
+    const evs = eventsRef.current; const F = feedRef.current; const hot = hotRef.current
+    const seq = run.mode === 'replay' && replayRef.current ? goalSequence(evs, replayRef.current.goal) : run.mode === 'new' ? evs.slice(-3) : evs.slice(-9)
+    if (!fxEl || !tokEl || !svgEl || !seq.length) return undefined
+    const fx = d3.select(fxEl); const tok = d3.select(tokEl); const svg = d3.select(svgEl)
+    fx.selectAll('*').interrupt(); fx.selectAll('*').remove()
     if (reduced()) { setCaption(seq[seq.length - 1]); return undefined }
-    const pts = seq.map((e) => ({ e, x: RX(e.nx), y: RY(e.ny) }))
-    const timers: number[] = []
-    const trail = g.append('g')
-    const puck = g.append('g').attr('class', 'nh-puck').attr('transform', `translate(${pts[0].x},${pts[0].y})`)
-    puck.append('circle').attr('r', 14).attr('class', 'nh-puck__glow')
-    puck.append('circle').attr('r', 6.5).attr('class', 'nh-puck__disc')
+    let dead = false
     const big = run.mode !== 'recent'
-    const ping = (p: (typeof pts)[number]) => {
-      const c = colRef.current[p.e.shooter ?? p.e.team ?? ''] ?? '#e2e8f0'
-      setCaption(p.e)
-      g.append('circle').attr('cx', p.x).attr('cy', p.y).attr('r', 4).attr('fill', 'none').attr('stroke', c).attr('stroke-width', 3)
-        .transition().duration(900).ease(d3.easeCubicOut).attr('r', 26).style('opacity', 0).remove()
-      g.append('text').attr('x', p.x).attr('y', p.y - 14).attr('text-anchor', 'middle').attr('class', `nh-callout nh-callout--${p.e.kind}`).style('fill', c).text(CALL[p.e.kind])
-        .transition().duration(1400).ease(d3.easeCubicOut).attr('y', p.y - 36).style('opacity', 0).remove()
-      if (p.e.kind === 'goal') explode(g, p.x, p.y, c, p.e.players[0]?.headshot ?? null, big)
-      if (p.e.kind === 'goal' && big) { setCall(p.e); timers.push(window.setTimeout(() => setCall(null), 5200)) }
+    const H0 = F.teams.home.id; const A0 = F.teams.away.id
+    const shortName = (s: string | null | undefined) => (s ?? '').replace(/^\w\. /, '')
+    // who is who: the box score, the on-ice list and every play's players
+    const info = new Map<string, { team: string | null; face: string | null; short: string; pos: string | null }>()
+    for (const a of F.athletes) info.set(a.id, { team: a.team, face: a.headshot, short: shortName(a.short ?? a.name), pos: a.group === 'goalies' ? 'G' : a.pos })
+    for (const p of F.on_ice) if (!info.has(p.id)) info.set(p.id, { team: p.team, face: p.headshot, short: shortName(p.short ?? p.name), pos: p.pos })
+    const pts = (id: string) => { const a = F.athletes.find((x) => x.id === id); return a ? Number(a.stats.goals ?? 0) + Number(a.stats.assists ?? 0) : 0 }
+    const ice: Record<string, string[]> = { [H0]: [], [A0]: [] }
+    const goalie: Record<string, string | null> = { [H0]: null, [A0]: null }
+    for (const p of F.on_ice) { if (!p.team || !ice[p.team]) continue; if (p.pos === 'G') goalie[p.team] = p.id; else ice[p.team].push(p.id) }
+    for (const t of [H0, A0]) if (!goalie[t]) goalie[t] = F.athletes.filter((a) => a.team === t && a.group === 'goalies').sort((a, b) => Number(b.stats.shotsAgainst ?? 0) - Number(a.stats.shotsAgainst ?? 0))[0]?.id ?? null
+    const lastUse = new Map<string, number>()
+    const putOn = (id: string, k: number) => {
+      const t = info.get(id)?.team; if (!t || !ice[t]) return
+      lastUse.set(id, k)
+      if (info.get(id)?.pos === 'G') { goalie[t] = id; return }
+      if (ice[t].includes(id)) return
+      const L = [...ice[t]]; if (L.length >= 5) { L.sort((a, b) => (lastUse.get(a) ?? -1) - (lastUse.get(b) ?? -1)); L.shift() }
+      L.push(id); ice[t] = L
     }
-    let i = 0
-    const step = () => {
-      i++
-      if (i >= pts.length) { if (run.mode !== 'recent') timers.push(window.setTimeout(() => setRun((r) => ({ mode: 'recent', n: r.n })), 1500)); return }
-      const a = pts[i - 1]; const b = pts[i]
-      const dur = Math.min(1100, 280 + Math.hypot(b.x - a.x, b.y - a.y) * 2.1)
-      trail.append('line').attr('x1', a.x).attr('y1', a.y).attr('x2', a.x).attr('y2', a.y).attr('class', 'nh-trail')
-        .transition().duration(dur).ease(d3.easeQuadInOut).attr('x2', b.x).attr('y2', b.y)
-        .transition().duration(3200).style('opacity', 0).remove()
-      puck.transition().duration(dur).ease(d3.easeQuadInOut).attr('transform', `translate(${b.x},${b.y})`)
-        .on('end', () => { ping(b); timers.push(window.setTimeout(step, b.e.kind === 'goal' ? 2400 : 420)) })
+    seq.forEach((e, k) => e.players.forEach((p) => { if (!info.has(p.id)) info.set(p.id, { team: null, face: p.headshot, short: shortName(p.short ?? p.name), pos: null }); putOn(p.id, k - 100) }))
+    const posOf = new Map<string, { x: number; y: number }>()
+    tok.selectAll<SVGGElement, string>('g.nh-tok').each(function (id) { const m = /translate\(([-\d.]+)[ ,]([-\d.]+)\)/.exec(d3.select(this).attr('transform') ?? ''); if (m) posOf.set(id, { x: +m[1], y: +m[2] }) })
+    const draw = () => {
+      const ids = [...ice[H0], ...ice[A0], goalie[H0], goalie[A0]].filter((x): x is string => !!x)
+      const sel = tok.selectAll<SVGGElement, string>('g.nh-tok').data(ids, (d) => d)
+      sel.exit().transition().duration(350).style('opacity', 0).remove()
+      const en = sel.enter().append('g').attr('class', 'nh-tok').style('cursor', 'pointer')
+        .attr('transform', (d) => { const p = posOf.get(d) ?? { x: 400, y: 360 }; posOf.set(d, p); return `translate(${p.x},${p.y})` })
+        .on('click', (_e, d) => ctxRef.current.openPlayer(d))
+      en.append('circle').attr('r', 17).attr('class', 'nh-tok__ring')
+      en.append('clipPath').attr('id', (d) => `nh-tc-${d}`).append('circle').attr('r', 14)
+      en.append('circle').attr('r', 14).attr('class', 'nh-tok__bg')
+      en.append('image').attr('x', -14).attr('y', -14).attr('width', 28).attr('height', 28).attr('clip-path', (d) => `url(#nh-tc-${d})`).attr('preserveAspectRatio', 'xMidYMin slice')
+      en.append('rect').attr('class', 'nh-tok__tag').attr('x', -24).attr('y', 17).attr('width', 48).attr('height', 12).attr('rx', 6)
+      en.append('text').attr('class', 'nh-tok__name').attr('y', 26).attr('text-anchor', 'middle')
+      en.append('circle').attr('class', 'nh-tok__chip').attr('cx', 13).attr('cy', -13).attr('r', 7.5)
+      en.append('text').attr('class', 'nh-tok__pts').attr('x', 13).attr('y', -10.3).attr('text-anchor', 'middle')
+      en.merge(sel).each(function (d) {
+        const inf = info.get(d); const c = colRef.current[inf?.team ?? ''] ?? '#94a3b8'; const g = d3.select(this)
+        g.classed('is-fire', hot.has(d)).classed('is-goalie', inf?.pos === 'G')
+        g.select('.nh-tok__ring').attr('fill', c); g.select('.nh-tok__chip').attr('fill', c)
+        g.select('image').attr('href', inf?.face ?? '')
+        g.select('.nh-tok__name').text((inf?.short ?? '').slice(0, 10))
+        g.select('.nh-tok__pts').text(inf?.pos === 'G' ? 'G' : String(pts(d)))
+      })
     }
-    timers.push(window.setTimeout(() => { ping(pts[0]); timers.push(window.setTimeout(step, 420)) }, 300))
-    return () => { timers.forEach((t) => window.clearTimeout(t)); g.selectAll('*').interrupt(); g.selectAll('*').remove() }
+    const clamp = (p: { x: number; y: number }) => ({ x: Math.max(30, Math.min(770, p.x)), y: Math.max(26, Math.min(314, p.y)) })
+    const moveTo = (id: string | null | undefined, p: { x: number; y: number }, ms: number) => {
+      if (!id) return Promise.resolve(); const q = clamp(p); posOf.set(id, q)
+      return tok.selectAll<SVGGElement, string>('g.nh-tok').filter((d) => d === id).transition().duration(ms).ease(d3.easeCubicInOut).attr('transform', `translate(${q.x},${q.y})`).end().catch(() => undefined)
+    }
+    const shape = (pk: { x: number; y: number }, attack: string, holder: string | null, ms: number) => {
+      const dir = attack === H0 ? 1 : -1; const def = attack === H0 ? A0 : H0
+      const jobs: Array<Promise<unknown>> = []
+      const offs = [[60, -70], [60, 70], [-70, -50], [-70, 50], [10, 0]]
+      ice[attack].filter((id) => id !== holder).forEach((id, k) => jobs.push(moveTo(id, { x: pk.x + offs[k % 5][0] * dir, y: pk.y + offs[k % 5][1] }, ms)))
+      const dfs = [[45, -34], [45, 34], [110, -80], [110, 80], [150, 0]]
+      ice[def].forEach((id, k) => jobs.push(moveTo(id, { x: pk.x + dfs[k % 5][0] * dir, y: pk.y + dfs[k % 5][1] }, ms)))
+      for (const t of [H0, A0]) { const gx = t === H0 ? RX(-85) : RX(85); jobs.push(moveTo(goalie[t], { x: gx, y: RY(0) + Math.max(-30, Math.min(30, (pk.y - RY(0)) * 0.25)) }, ms)) }
+      return Promise.all(jobs)
+    }
+    const puck = fx.append('g').attr('class', 'nh-puck').style('opacity', 0)
+    puck.append('circle').attr('r', 12).attr('class', 'nh-puck__glow'); puck.append('circle').attr('r', 5.5).attr('class', 'nh-puck__disc')
+    let pxy = { x: RX(0), y: RY(0) }
+    const puckTo = async (p: { x: number; y: number }, ms: number, fire = false) => {
+      const a = pxy; puck.style('opacity', 1).classed('is-fire', fire)
+      fx.append('line').attr('x1', a.x).attr('y1', a.y).attr('x2', a.x).attr('y2', a.y).attr('class', fire ? 'nh-trail is-hot' : 'nh-trail')
+        .transition().duration(ms).ease(d3.easeQuadInOut).attr('x2', p.x).attr('y2', p.y).transition().duration(2600).style('opacity', 0).remove()
+      await puck.transition().duration(ms).ease(d3.easeQuadInOut).attr('transform', `translate(${p.x},${p.y})`).end().catch(() => undefined); pxy = p
+    }
+    const tag = (p: { x: number; y: number }, text: string, c: string, cls = 'nh-callout') => fx.append('text').attr('x', p.x).attr('y', p.y - 22).attr('text-anchor', 'middle').attr('class', cls).style('fill', c).text(text)
+      .transition().duration(1400).ease(d3.easeCubicOut).attr('y', p.y - 48).style('opacity', 0).remove()
+    const spray = (p: { x: number; y: number }) => {
+      for (let k = 0; k < 14; k++) {
+        const a = Math.random() * Math.PI * 2; const r = 14 + Math.random() * 26
+        fx.append('circle').attr('cx', p.x).attr('cy', p.y).attr('r', 1.5 + Math.random() * 2).attr('class', 'nh-spray').transition().duration(650).ease(d3.easeCubicOut).attr('cx', p.x + Math.cos(a) * r).attr('cy', p.y + Math.sin(a) * r).style('opacity', 0).remove()
+      }
+    }
+    let view = [0, 0, 800, 340]
+    const camera = (cx: number, cy: number, w: number, ms: number) => {
+      const h = (w * 340) / 800; const target = [Math.max(0, Math.min(800 - w, cx - w / 2)), Math.max(0, Math.min(340 - h, cy - h / 2)), w, h]; const start = view; view = target
+      return svg.transition('cam').duration(ms).ease(d3.easeCubicInOut).attrTween('viewBox', () => (t: number) => start.map((s, i) => (s + (target[i] - s) * t).toFixed(1)).join(' ')).end().catch(() => undefined)
+    }
+    const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms))
+    const play = async (e: RinkEvent) => {
+      const at = { x: RX(e.nx), y: RY(e.ny) }
+      const actor = e.players[0]?.id ?? null; const other = e.players[1]?.id ?? null
+      const team = (actor && info.get(actor)?.team) || e.shooter || e.team || H0
+      const c = colRef.current[team] ?? '#e2e8f0'; const fire = !!actor && hot.has(actor)
+      draw()
+      setCaption(e)
+      if (e.kind === 'faceoff') {
+        await Promise.all([moveTo(actor, { x: at.x - 12, y: at.y }, 500), moveTo(other, { x: at.x + 12, y: at.y }, 500), shape(at, team, actor, 500)])
+        puck.style('opacity', 1).attr('transform', `translate(${at.x},${at.y - 30})`); pxy = { x: at.x, y: at.y - 30 }
+        await puckTo(at, 260); tag(at, 'FACEOFF', c); return
+      }
+      await Promise.all([moveTo(actor, at, 520), shape(at, team, actor, 560), puckTo({ x: at.x + 8, y: at.y + 6 }, 520, fire)])
+      if (dead) return
+      const net = { x: team === H0 ? RX(89) : RX(-89), y: RY(0) }
+      if (e.kind === 'shot' || e.kind === 'goal' || e.kind === 'miss') {
+        if (big) await camera((at.x + net.x) / 2, (at.y + net.y) / 2, Math.max(300, Math.min(560, Math.abs(net.x - at.x) * 2.4)), 450)
+        const end = e.kind === 'miss' ? { x: net.x + (team === H0 ? 14 : -14), y: net.y + (Math.random() < 0.5 ? -38 : 38) } : net
+        await puckTo(end, Math.min(520, 180 + Math.hypot(end.x - at.x, end.y - at.y)), fire)
+        if (dead) return
+        if (e.kind === 'goal') {
+          explode(fx, net.x, net.y, c, e.players[0]?.headshot ?? null, big)
+          tag(net, 'GOAL!', c, 'nh-callout nh-callout--goal')
+          if (big) { setCall(e); window.setTimeout(() => setCall(null), 3300); setShake(true); window.setTimeout(() => setShake(false), 520); await sleep(2700) } else await sleep(900)
+        } else if (e.kind === 'shot') {
+          const defTeam = team === H0 ? A0 : H0; const gk = goalie[defTeam]; const gp = gk ? posOf.get(gk) : null
+          if (gp) { fx.append('circle').attr('cx', gp.x).attr('cy', gp.y).attr('r', 18).attr('class', 'nh-save').transition().duration(700).attr('r', 34).style('opacity', 0).remove(); tag(gp, 'SAVE!', colRef.current[defTeam] ?? '#fff') }
+          await puckTo({ x: net.x - (team === H0 ? 40 : -40), y: net.y + (Math.random() - 0.5) * 120 }, 380)
+        } else tag(end, 'WIDE', '#cbd5e1')
+        if (big) await camera(400, 170, 800, 500)
+        return
+      }
+      if (e.kind === 'hit') {
+        const op = posOf.get(other ?? ''); spray(at); tag(at, 'HIT!', c, 'nh-callout nh-callout--hit')
+        if (op) await moveTo(other, { x: op.x + (team === H0 ? 26 : -26), y: op.y + 10 }, 220)
+        setShake(true); window.setTimeout(() => setShake(false), 350); return
+      }
+      if (e.kind === 'block') { const bt = colRef.current[(other && info.get(other)?.team) || ''] ?? '#fff'; await moveTo(other, { x: at.x + (team === H0 ? 16 : -16), y: at.y }, 260); spray(at); tag(at, 'BLOCKED!', bt); return }
+      if (e.kind === 'give') { tag(at, 'GIVEAWAY', c); return }
+      if (e.kind === 'take') { tag(at, 'TAKEAWAY!', c); return }
+      if (e.kind === 'penalty') tag(at, 'PENALTY', '#fca5a5')
+    }
+    ;(async () => {
+      draw()
+      const first = seq[0]; const t0 = (first.players[0] && info.get(first.players[0].id)?.team) || first.shooter || H0
+      await shape({ x: RX(first.nx), y: RY(first.ny) }, t0, null, 700)
+      for (const e of seq) { if (dead) return; await play(e); await sleep(big ? 380 : 260) }
+      if (!dead && run.mode !== 'recent') window.setTimeout(() => { if (!dead) setRun((r) => ({ mode: 'recent', n: r.n })) }, 1800)
+    })()
+    return () => { dead = true; svg.interrupt('cam'); svg.attr('viewBox', '0 0 800 340'); fx.selectAll('*').interrupt(); fx.selectAll('*').remove(); tok.selectAll('*').interrupt() }
   }, [run])
+
   const attempts = events.filter((e) => isAttempt(e.kind) && (team === 'all' || e.shooter === team))
   const goals = events.filter((e) => e.kind === 'goal')
   const heat = useMemo(() => {
@@ -222,8 +338,14 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
         <span className="ar-seg">{([['flow', 'Puck + shots'], ['heat', '🔥 Heat map'], ['shots', 'Every attempt']] as const).map(([k, l]) => <button key={k} type="button" className={lens === k ? 'is-on' : ''} onClick={() => setLens(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[['all', 'Both'], [away.id, away.abbr], [home.id, home.abbr]].map(([k, l]) => <button key={k} type="button" className={team === k ? 'is-on' : ''} onClick={() => setTeam(k)}>{l}</button>)}</span>
       </header>
-      <div className="ar-rink__wrap">
-        <svg viewBox="0 0 800 340" role="img" aria-label="Rink with the moving puck, every attempt and every goal">
+      <div className={`ar-rink__wrap${shake ? ' is-shake' : ''}`}>
+        <div className="nh-jumbo" aria-label="Scoreboard">
+          <span style={{ color: col[away.id] }}>{away.logo ? <img src={away.logo} alt="" /> : null}{away.abbr} <b key={`a${away.score}`}>{away.score}</b></span>
+          <em>{feed.status.state === 'in' ? `${periodName('nhl', feed.status.period)} ${feed.status.clock ?? ''}` : feed.status.short}</em>
+          <span style={{ color: col[home.id] }}><b key={`h${home.score}`}>{home.score}</b> {home.abbr}{home.logo ? <img src={home.logo} alt="" /> : null}</span>
+          <i>SOG {events.filter((e) => e.shooter === away.id && (e.kind === 'shot' || e.kind === 'goal')).length}–{events.filter((e) => e.shooter === home.id && (e.kind === 'shot' || e.kind === 'goal')).length}{latest?.strength === 'Power Play' ? ` · ⚡ ${teamOf(latest.shooter ?? latest.team).abbr} POWER PLAY` : ''}</i>
+        </div>
+        <svg ref={svgRef} viewBox="0 0 800 340" role="img" aria-label="Rink with the players, the moving puck, every attempt and every goal">
           <defs>{goals.map((e) => <clipPath key={e.id} id={`nh-face-${e.id}`}><circle cx={RX(e.nx)} cy={RY(e.ny)} r="15" /></clipPath>)}</defs>
           <RinkLines ctx={ctx} />
           {lens === 'heat' ? heat.map((h) => <g key={h.team.id} className="nh-heat">{h.dens.map((d, k) => <path key={k} d={geo(d) ?? ''} fill={col[h.team.id]} fillOpacity={0.06 + 0.5 * (d.value / h.max)} stroke={col[h.team.id]} strokeOpacity={0.3} style={{ animationDelay: `${k * 90}ms` }} />)}</g>) : null}
@@ -238,7 +360,7 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
           {goals.filter((e) => team === 'all' || e.shooter === team).map((e) => {
             const c = col[e.shooter ?? ''] ?? '#ef4444'; const x = RX(e.nx); const y = RY(e.ny); const face = e.players[0]?.headshot
             return (
-              <g key={e.id} className="nh-goalface" onClick={() => { if (e.players[0]) ctx.openPlayer(e.players[0].id) }}>
+              <g key={e.id} className={`nh-goalface${ctx.hot.has(e.players[0]?.id ?? '') ? ' is-hot' : ''}`} onClick={() => { if (e.players[0]) ctx.openPlayer(e.players[0].id) }}>
                 <circle cx={x} cy={y} r="19" className="ar-goal__ring" style={{ stroke: c }} />
                 <circle cx={x} cy={y} r="16.5" fill="#0b1526" stroke={c} strokeWidth="3" />
                 {face ? <image href={face} x={x - 15} y={y - 15} width="30" height="30" clipPath={`url(#nh-face-${e.id})`} preserveAspectRatio="xMidYMin slice" /> : <text x={x} y={y + 5} textAnchor="middle" fill="#fff" fontWeight="900">★</text>}
@@ -246,9 +368,10 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
               </g>
             )
           })}
+          <g ref={tokRef} />
           <g ref={puckRef} />
         </svg>
-        {call ? <GoalBurst e={call} color={col[call.shooter ?? ''] ?? '#ef4444'} team={teamOf(call.shooter)} /> : null}
+        {call ? <GoalTakeover e={call} ctx={ctx} /> : null}
       </div>
       <div className="nh-caption" style={{ ['--c' as string]: caption ? col[caption.shooter ?? caption.team ?? ''] ?? '#94a3b8' : '#94a3b8' } as CSSProperties} aria-live="polite">
         {caption ? (<>
@@ -256,7 +379,7 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
           <span><b>{CALL[caption.kind]}</b> <small>{periodName('nhl', caption.period)} {caption.clock}{caption.strength && caption.strength !== 'Even Strength' ? ` · ${caption.strength}` : ''}</small><br />{caption.text}</span>
         </>) : <span>Waiting for the first play…</span>}
       </div>
-      <div className="ar-rink__key"><span>● shot on goal</span><span>○ missed the net</span><span>□ blocked</span><span>bigger dot = closer to the net</span><span>faces = goal scorers (tap one)</span>{lens === 'heat' ? <span className="is-slot">heat = where each team shoots from</span> : null}</div>
+      <div className="ar-rink__key"><span>● shot on goal</span><span>○ missed the net</span><span>□ blocked</span><span>bigger dot = closer to the net</span><span>faces on the ice = the skaters and goalies (tap one) · number = points tonight</span>{lens === 'heat' ? <span className="is-slot">heat = where each team shoots from</span> : null}</div>
     </section>
   )
 }
@@ -287,20 +410,13 @@ function explode(g: d3.Selection<SVGGElement, unknown, null, undefined>, x: numb
   }
 }
 
-function GoalBurst({ e, color, team }: { e: RinkEvent; color: string; team: ArenaTeam }) {
+function GoalTakeover({ e, ctx }: { e: RinkEvent; ctx: Ctx }) {
   const who = e.players.find((p) => p.role === 'scorer') ?? e.players[0]
-  const helpers = e.players.filter((p) => p.role === 'assister')
-  return (
-    <div className="nh-burst" style={{ ['--c' as string]: color } as CSSProperties}>
-      <i className="ar-goalcall__light" />
-      <b>GOAL!</b>
-      <span className="nh-burst__who">
-        {who?.headshot ? <img src={who.headshot} alt="" className="nh-burst__face" /> : null}
-        <span><em>{who?.name ?? team.short}</em><small>{team.logo ? <img src={team.logo} alt="" /> : null}{team.short} · {periodName('nhl', e.period)} {e.clock}{e.strength && e.strength !== 'Even Strength' ? ` · ${e.strength}` : ''}</small>
-          <small>{helpers.length ? `Assists: ${helpers.map((h) => h.short ?? h.name).join(', ')}` : 'Unassisted'}</small></span>
-      </span>
-    </div>
-  )
+  const a = ctx.feed.athletes.find((x) => x.id === who?.id)
+  const t = ctx.teamOf(e.shooter); const g = Number(a?.stats.goals ?? 0)
+  const helpers = e.players.filter((p) => p.role === 'assister').map((h) => (h.short ?? h.name ?? '').replace(/^\w\. /, ''))
+  return <Takeover word={g >= 3 ? 'HAT TRICK!' : 'GOAL!'} name={who?.name ?? t.short} face={who?.headshot ?? null} logo={t.logo} color={ctx.col[e.shooter ?? ''] ?? '#ef4444'} fire={g >= 2 || ctx.hot.has(who?.id ?? '')}
+    stats={[[String(a?.stats.goals ?? '—'), 'G'], [String(a?.stats.assists ?? '—'), 'A'], [String(a?.stats.shotsTotal ?? '—'), 'SHOTS'], [`${periodName('nhl', e.period)} ${e.clock ?? ''}`, e.strength && e.strength !== 'Even Strength' ? e.strength.toUpperCase() : 'EVEN'], ...(helpers.length ? [[helpers.join(', '), 'ASSISTS'] as [string, string]] : [])]} />
 }
 
 // --------------------------------------------------------- goal moments --

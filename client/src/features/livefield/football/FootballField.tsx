@@ -46,6 +46,8 @@ function Football() {
 }
 
 interface Props {
+  /** Player ids on fire tonight: their cards burn and the ball catches fire in their hands. */
+  hot?: Set<string>
   view: 'qb' | 'side'
   fb: FbLive
   play: FbPlay | null
@@ -60,7 +62,7 @@ interface Props {
   wpCard?: WpCard | null
 }
 
-export function FootballField({ view, fb, play, nonce, slow, ghosts = [], actualCls = null, burst = false, impact = null, sound = false, projected = null, wpCard = null }: Props) {
+export function FootballField({ hot, view, fb, play, nonce, slow, ghosts = [], actualCls = null, burst = false, impact = null, sound = false, projected = null, wpCard = null }: Props) {
   const teams = fb.teams!
   const FH = view === 'side' ? VB_H_SIDE : VB_H
   // The live feed hands back a fresh copy of the same play on every refresh: key everything on the play's
@@ -90,6 +92,7 @@ export function FootballField({ view, fb, play, nonce, slow, ghosts = [], actual
   const qbLeader = fb.leaders?.find((l) => l.team === off.id && l.cat === 'passingYards')
   const qbPlayer: RosterPlayer | null = picks?.pass ?? offS.starters.QB ?? null
   const uid = `fa${off.id}`
+  const ballFire = !!hot && [picks?.pass?.id, picks?.tgt?.id, picks?.rsh?.id].some((id) => id && hot.has(id))
 
   const frameRef = useRef<HTMLDivElement | null>(null)
   const actorEls = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -265,7 +268,7 @@ export function FootballField({ view, fb, play, nonce, slow, ghosts = [], actual
               const p = photoFor(a.role, a.side, a.key)
               const color = a.side === 'off' ? offColor : defColor
               return (
-                <div key={`${nonce}-${a.id}`} ref={(el) => { if (el) actorEls.current.set(a.id, el); else actorEls.current.delete(a.id) }} className={`fb-actor fb-actor--${a.side}${a.key ? ' is-key' : ''}${/^(OL|DL)/.test(a.role) ? ' is-line' : ''}${a.role === 'QB' ? ' is-qb' : ''}`} style={{ ['--fb-c' as string]: color }} title={p ? `${p.first} ${p.last}` : a.role}>
+                <div key={`${nonce}-${a.id}`} ref={(el) => { if (el) actorEls.current.set(a.id, el); else actorEls.current.delete(a.id) }} className={`fb-actor fb-actor--${a.side}${p && hot?.has(p.id) ? ' is-hot' : ''}${a.key ? ' is-key' : ''}${/^(OL|DL)/.test(a.role) ? ' is-line' : ''}${a.role === 'QB' ? ' is-qb' : ''}`} style={{ ['--fb-c' as string]: color }} title={p ? `${p.first} ${p.last}` : a.role}>
                   <span className="fb-actor__face">{p ? <img src={p.headshot} alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} /> : null}<i>{a.label}</i></span>
                   <b className="fb-actor__pos">{a.label}{a.key && p ? ` · ${p.last}` : ''}</b>
                   <div className="fb-actor__card" role="tooltip">
@@ -276,7 +279,7 @@ export function FootballField({ view, fb, play, nonce, slow, ghosts = [], actual
                 </div>
               )
             })}
-            <div className="fb-ball" ref={ballEl} aria-hidden="true"><Football /></div>
+            <div className={`fb-ball${ballFire ? ' is-fire' : ''}`} ref={ballEl} aria-hidden="true"><Football /></div>
             {burst && scene.markers.length ? (
               <div className="fb-burst" aria-hidden="true" style={{ left: `${(endQ.px / VB_W) * 100}%`, top: `${(endQ.py / FH) * 100}%`, animationDelay: `${delayS}s` }}>
                 {Array.from({ length: 28 }, (_, i) => <i key={i} style={{ ['--a' as string]: `${(i / 28) * 360}deg`, ['--r' as string]: `${70 + (i % 5) * 26}px`, ['--c' as string]: ['#ffd76a', '#3fd8c4', '#ff7a83', '#fff', '#4bd996'][i % 5], animationDelay: `${delayS}s` }} />)}
@@ -290,7 +293,7 @@ export function FootballField({ view, fb, play, nonce, slow, ghosts = [], actual
         ) : null}
         <svg className="fb-trails" viewBox={`0 0 ${VB_W} ${FH}`} preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <polyline ref={routeTrail} className="fb-trail fb-trail--route" fill="none" />
-          <polyline ref={ballTrail} className="fb-trail fb-trail--ball" fill="none" />
+          <polyline ref={ballTrail} className={`fb-trail fb-trail--ball${ballFire ? ' is-fire' : ''}`} fill="none" />
         </svg>
       </div>
       {impact && scene ? (

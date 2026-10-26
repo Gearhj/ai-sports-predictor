@@ -15,6 +15,8 @@ import { useNow } from '../../components/activeWagers/useActiveWagers'
 import { useScoreboard } from '../../hooks/useScoreboard'
 import { etToday } from '../gamenight/gameNightData'
 import { Booth } from './Booth'
+import { HeatSpotlight } from './heat/Heat'
+import { mlbHeat } from './heat/rules'
 import { UmpireView } from './UmpireView'
 import { FootballField } from './football/FootballField'
 import { LeadersCard, PlayList, StatsCard, TendenciesCard } from './football/FootballPanels'
@@ -352,6 +354,7 @@ export function LiveField() {
               </div>
             </section>
 
+            {isMlb && live ? <HeatSpotlight items={mlbHeat(live, (side) => (side === 'home' ? '#f87171' : '#60a5fa'))} /> : null}
             <div className="lf-grid">
               <div className="lf-col lf-col--field">
                 {isMlb ? (

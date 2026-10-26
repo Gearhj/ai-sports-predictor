@@ -564,3 +564,9 @@
 .lf--mlb .lf-score__team { display: flex; flex-direction: row; align-items: center; gap: 12px; }
 .lf--mlb .lf-score__team--home { flex-direction: row-reverse; }
 .lf--mlb .lf-score__team .team-logo { flex: none; padding: 6px; box-sizing: content-box; border-radius: 50%; background: radial-gradient(circle, rgba(205, 213, 224, .9) 0 56%, rgba(205, 213, 224, .4) 64%, transparent 72%) !important; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .55)); }
+/* heat on the football field */
+.lv-field { position: relative; }
+.lv-field__take { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+.fb-actor.is-hot .fb-actor__face { box-shadow: 0 0 0 3px #fde047, 0 0 16px 6px rgba(249, 115, 22, .9); animation: heat-aura .7s ease-in-out infinite alternate; }
+.fb-ball.is-fire { filter: drop-shadow(0 0 6px #f97316) drop-shadow(0 0 14px rgba(249, 115, 22, .9)) drop-shadow(0 0 3px #fde047); }
+.fb-trail--ball.is-fire { stroke: #f97316 !important; stroke-width: 5 !important; filter: drop-shadow(0 0 6px #f97316); }

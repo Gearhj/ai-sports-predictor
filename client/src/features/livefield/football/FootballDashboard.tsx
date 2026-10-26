@@ -6,6 +6,9 @@
  * Research and paper only; nothing here places or suggests a wager.
  */
 import { useMemo, useState, type ReactNode } from 'react'
+import { HeatSpotlight, Takeover, useNewKey, useTakeover } from '../heat/Heat'
+import { footballHeat } from '../heat/rules'
+import { findPlayer } from './playParser'
 import type { MissionGame } from '../../mission/missionData'
 import { AttackMap, ROW_ZONES } from './AttackMap'
 import { CoachView } from './CoachView'
@@ -108,6 +111,20 @@ export function FootballDashboard(p: DashProps) {
   const formation = parsed?.formation ? parsed.formation.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : null
   const personnel = parsed && ['pass', 'incomplete', 'interception', 'sack', 'rush'].includes(parsed.kind) ? '1 RB | 1 TE | 3 WR' : parsed?.kind === 'fieldgoal' || parsed?.kind === 'punt' ? 'Special teams' : null
   const reviewing = Boolean(p.pickedId && p.shownPlay)
+  const heat = useMemo(() => footballHeat(fb, (id) => visibleColor(id === home.id ? home : away, '#3fd8c4')), [fb, home, away])
+  const hot = useMemo(() => new Set(heat.filter((h) => h.level === 'fire').map((h) => h.id)), [heat])
+  // TOUCHDOWN and PICK takeovers, only for plays that land while the page is open
+  const [take, showTake] = useTakeover(3300)
+  const lastTd = [...(fb.scoring ?? [])].reverse().find((x) => x.type === 'TD' || /touchdown/i.test(x.type ?? '') || /\d+ Yd .*(pass|run|return)/i.test(x.text ?? ''))
+  useNewKey(lastTd?.id, () => {
+    if (!lastTd) return
+    const who = /^(.+?) \d+ Yd/.exec(lastTd.text ?? '')?.[1] ?? null
+    const pl = findPlayer(who, fb.players, lastTd.team_id)
+    const team = lastTd.team_id === home.id ? home : away
+    const st = pl?.stats ?? {}
+    const line: Array<[string, string]> = st.receiving ? [[st.receiving.REC ?? '—', 'REC'], [st.receiving.YDS ?? '—', 'YDS'], [st.receiving.TD ?? '—', 'TD']] : st.rushing ? [[st.rushing.CAR ?? '—', 'CAR'], [st.rushing.YDS ?? '—', 'YDS'], [st.rushing.TD ?? '—', 'TD']] : []
+    showTake({ word: 'TOUCHDOWN!', name: pl ? `${pl.first} ${pl.last}` : who ?? team.name, face: pl?.headshot ?? null, logo: team.logo, color: visibleColor(team, '#3fd8c4'), fire: !!pl && hot.has(pl.id), stats: [...line, [`${away.abbr} ${lastTd.away ?? ''}–${lastTd.home ?? ''} ${home.abbr}`, `Q${lastTd.period ?? ''} ${lastTd.clock ?? ''}`]] })
+  })
   const wpPill = off && wpCard ? { team: off.abbr, pct: wpCard.pct, color: visibleColor(off, '#3fd8c4') } : null
 
   const drivesCard = (
@@ -178,6 +195,7 @@ export function FootballDashboard(p: DashProps) {
         <div className="lv__top">
           <div className="lv__left">
             <Scoreboard fb={fb} situation={sit} spot={spot} offenseId={offenseId} tab={tab} onTab={setTab} reviewing={reviewing} />
+            <HeatSpotlight items={heat} />
             <section className="lv-field" aria-label="Live play view">
               <header className="lv-field__head">
                 <h3>LIVE PLAY VIEW</h3>
@@ -192,7 +210,8 @@ export function FootballDashboard(p: DashProps) {
                   <button type="button" className={p.sound ? 'is-on' : ''} onClick={p.onSound} title="Stadium sound">{p.sound ? '🔊' : '🔈'}</button>
                 </span>
               </header>
-              <FootballField view={p.view} fb={fb} play={p.shownPlay} nonce={p.nonce} slow={p.slow} ghosts={p.ghosts} actualCls={p.actual.cls} burst={p.burst} impact={p.impact} sound={p.sound} projected={p.projected} wpCard={wpCard} />
+              {take ? <div className="lv-field__take"><Takeover {...take} /></div> : null}
+              <FootballField hot={hot} view={p.view} fb={fb} play={p.shownPlay} nonce={p.nonce} slow={p.slow} ghosts={p.ghosts} actualCls={p.actual.cls} burst={p.burst} impact={p.impact} sound={p.sound} projected={p.projected} wpCard={wpCard} />
               <footer className="lv-field__foot">
                 {reviewing && p.shownPlay ? <button type="button" className="lf-chipbtn fb-review" onClick={() => p.onPick(null)}>Reviewing Q{p.shownPlay.period} {p.shownPlay.clock} · Return to live</button> : <span>{live ? 'Following the latest play' : strip.status}{p.lastPlayAge != null ? ` · last play logged ${p.lastPlayAge < 90 ? `${p.lastPlayAge} s` : `${Math.round(p.lastPlayAge / 60)} min`} ago` : ''}{live && p.lastPlayAge != null && p.lastPlayAge > 240 ? (half ? ` · ${st?.detail}` : ' · feed may be delayed or play stopped') : ''}</span>}
                 <span>{p.shownPlay?.text}</span>

@@ -130,3 +130,30 @@
   .nh-callout { font-size: 20px; } .nh-callout--goal { font-size: 34px; }
 }
 @media (prefers-reduced-motion: reduce) { .nh *, .nh *::before { animation: none !important; transition: none !important; } .nh-wp__line { stroke-dashoffset: 0; } }
+/* heat on the rink */
+.nh-trail.is-hot { stroke: #f97316; stroke-width: 4; filter: drop-shadow(0 0 6px #f97316) drop-shadow(0 0 2px #fde047); }
+.nh-goalface.is-hot > circle:nth-child(2) { stroke: #fde047 !important; stroke-width: 4; filter: drop-shadow(0 0 8px #f97316); animation: nh-burn .7s ease-in-out infinite alternate; }
+@keyframes nh-burn { to { opacity: .75; } }
+/* 2K ice: skaters, goalies, puck, calls, jumbotron */
+.ar-rink__wrap.is-shake { animation: nh-shake2 .4s ease-in-out; }
+@keyframes nh-shake2 { 25% { transform: translate(-5px, 3px); } 50% { transform: translate(5px, -3px); } 75% { transform: translate(-3px, 1px); } }
+.nh-tok { transition: filter .2s; } .nh-tok:hover { filter: brightness(1.15) drop-shadow(0 0 8px rgba(255, 255, 255, .5)); }
+.nh-tok__ring { stroke: #0b1526; stroke-width: 2; filter: drop-shadow(0 3px 5px rgba(0, 0, 0, .6)); }
+.nh-tok__bg { fill: #1f2937; } .nh-tok__tag { fill: rgba(7, 13, 26, .88); }
+.nh-tok__name { font-size: 8.5px; font-weight: 900; fill: #fff; }
+.nh-tok__chip { stroke: #0b1526; stroke-width: 1.2; } .nh-tok__pts { font-size: 8.5px; font-weight: 900; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .55); stroke-width: 2px; }
+.nh-tok.is-goalie .nh-tok__ring { stroke: #e2e8f0; stroke-width: 2.5; }
+.nh-tok.is-fire .nh-tok__ring { fill: #f97316 !important; stroke: #fde047; stroke-width: 3; animation: nh-tokfire .6s ease-in-out infinite alternate; }
+@keyframes nh-tokfire { to { filter: drop-shadow(0 0 10px #f97316) drop-shadow(0 0 4px #fde047); } }
+.nh-puck.is-fire .nh-puck__glow { fill: rgba(249, 115, 22, .55); } .nh-puck.is-fire .nh-puck__disc { stroke: #fde047; }
+.nh-spray { fill: #f0f9ff; }
+.nh-save { fill: none; stroke: #e0f2fe; stroke-width: 3; }
+.nh-callout--hit { font-size: 22px; } 
+.nh-jumbo { position: absolute; z-index: 3; left: 50%; top: 6px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 5px 14px 14px; border-radius: 12px; background: linear-gradient(180deg, rgba(7, 13, 26, .95), rgba(15, 23, 42, .88)); border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 10px 30px rgba(0, 0, 0, .55); pointer-events: none; }
+.nh-jumbo > span { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 900; }
+.nh-jumbo img { width: 22px; height: 22px; object-fit: contain; }
+.nh-jumbo b { font-size: 22px; color: #fff; display: inline-block; animation: nh-pop .6s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes nh-pop { 40% { transform: scale(1.4); color: #fde047; } }
+.nh-jumbo > em { font-style: normal; font-size: 11px; font-weight: 900; color: #34d399; padding: 2px 8px; border-radius: 999px; background: rgba(52, 211, 153, .12); }
+.nh-jumbo > i { position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 9.5px; font-weight: 900; letter-spacing: .08em; color: #cbd5e1; }
+@media (max-width: 760px) { .nh-jumbo { padding: 2px 8px 12px; gap: 6px; } .nh-jumbo img { display: none; } .nh-jumbo b { font-size: 16px; } }

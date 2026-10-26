@@ -8,6 +8,7 @@
  * ride the footer. Display only; every number names its source.
  */
 import { useEffect, useRef, useState } from 'react'
+import { Takeover } from './heat/Heat'
 import { hitFlight, hitSlot, paOutcomes, ratePct, trajectoryWord, type Base, type DefenseSlot, type HitEvent, type MlbLive, type Person, type RegularBatting } from './liveFieldData'
 
 const VB_W = 1000
@@ -175,6 +176,7 @@ export function Diamond({ field, homeAbbr, awayAbbr }: { field: MlbLive | null; 
     setShown(null)
     window.setTimeout(() => show(hitKey), 60)
   }
+  const isHr = !!hit && /home run/i.test(hit.event ?? '')
   const aura = shown && slot && hit ? { out: hit.is_out, delay: flight?.dur ?? 1 } : null
   const ih = live?.offense?.in_hole ?? null
   const odReg = live?.regular?.on_deck ?? null
@@ -240,14 +242,20 @@ export function Diamond({ field, homeAbbr, awayAbbr }: { field: MlbLive | null; 
             {shown && flight && hit ? (
               <svg className="lf-ball-layer" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                 <g key={shown}>
-                  <path d={flight.d} className="lf-ball__trail" pathLength={1} style={{ animationDuration: `${flight.dur}s` }} />
-                  <circle r="8" className="lf-ball">
+                  <path d={flight.d} className={`lf-ball__trail${isHr ? ' is-fire' : ''}`} pathLength={1} style={{ animationDuration: `${flight.dur}s` }} />
+                  <circle r="8" className={`lf-ball${isHr ? ' is-fire' : ''}`}>
                     <animateMotion dur={`${flight.dur}s`} fill="freeze" path={flight.d} calcMode="spline" keyTimes="0;1" keySplines="0.25 0.5 0.5 1" />
                     {flight.peak > 0 ? <animate attributeName="r" values="7;13;7" dur={`${flight.dur}s`} fill="freeze" /> : null}
                   </circle>
                   <circle cx={flight.end.x} cy={flight.end.y} r="10" className={`lf-land${hit.is_out ? ' is-out' : ''}`} style={{ animationDelay: `${flight.dur}s` }} />
                 </g>
               </svg>
+            ) : null}
+            {shown && hit && isHr ? (
+              <div className="lf-take" key={`hr-${shown}`} style={{ ['--d' as string]: `${flight?.dur ?? 1}s` }}>
+                <Takeover word="HOME RUN!" name={hit.batter ?? 'Home run'} face={offense?.batter && offense.batter.name === hit.batter ? offense.batter.headshot : null} color="#f97316" fire
+                  stats={[[hit.distance ? `${hit.distance} ft` : '—', 'DISTANCE'], [hit.speed ? `${hit.speed} mph` : '—', 'EXIT VELO'], [hit.angle != null ? `${hit.angle}°` : '—', 'LAUNCH']]} />
+              </div>
             ) : null}
             {shown && hit ? (
               <div className={`lf-toast${hit.is_out ? ' is-out' : ''}`} key={`t-${shown}`} style={{ animationDelay: `${flight?.dur ?? 1}s` }}>
