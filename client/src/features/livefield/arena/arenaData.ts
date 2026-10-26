@@ -39,13 +39,17 @@ export function useArenaLive(league: 'nba' | 'nhl', date: string, home: string, 
 }
 
 export const hex = (c: string | null | undefined, fb = '#94a3b8') => (c ? `#${c.replace('#', '')}` : fb)
-/** A team colour that reads on navy: if the primary is too dark, use the alternate (or lift it). */
+/** A team colour that reads on navy (relative luminance >= 0.11, about 3:1): the primary, else the alternate, else the primary lifted toward white. */
 export function onNavy(primary: string | null | undefined, alt: string | null | undefined): string {
-  const lum = (h: string) => { const v = h.replace('#', ''); if (v.length !== 6) return 0.5; const c = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16) / 255); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] }
+  const rgb = (h: string) => { const v = h.replace('#', ''); return v.length === 6 ? [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16)) : [148, 163, 184] }
+  const lum = (c: number[]) => { const l = c.map((x) => { const s = x / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2] }
+  const toHex = (c: number[]) => `#${c.map((x) => Math.round(x).toString(16).padStart(2, '0')).join('')}`
   const p = hex(primary); const a = hex(alt, '#cbd5e1')
-  if (lum(p) >= 0.18) return p
-  if (lum(a) >= 0.18 && lum(a) < 0.92) return a
-  return `color-mix(in srgb, ${p} 55%, #ffffff)`
+  const ok = (h: string) => { const L = lum(rgb(h)); return L >= 0.11 && L < 0.85 }
+  if (ok(p)) return p
+  if (ok(a)) return a
+  for (let w = 0.2; w <= 0.8; w += 0.1) { const m = rgb(p).map((x) => x + (255 - x) * w); if (lum(m) >= 0.11) return toHex(m) }
+  return '#cbd5e1'
 }
 
 /** Seconds elapsed in the game at a play (NBA 12-min quarters / 5-min OT; NHL 20-min periods / 5-min OT). */

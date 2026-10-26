@@ -18,7 +18,7 @@ import type { MissionGame } from '../../mission/missionData'
 import { stageOf } from '../../mission/missionData'
 import { LiveShell, useFavorites, type StripInfo } from '../football/LiveShell'
 import { elapsedAt, onNavy, periodName, teamPair, useArenaLive, type ArenaFeed, type ArenaPlay, type ArenaTeam } from './arenaData'
-import { NbaPlayers, NbaStory } from './NbaExtras'
+import { NbaArena } from './NbaArena'
 import { NhlArena } from './NhlArena'
 import './arena.css'
 
@@ -129,185 +129,17 @@ function NhlLive({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
 
 // ---------------------------------------------------------------- NBA --
 
-type Zone = 'ra' | 'paint' | 'mid' | 'c3' | 'ab3'
-const ZONE_NAME: Record<Zone, string> = { ra: 'At the rim', paint: 'Paint', mid: 'Mid-range', c3: 'Corner 3', ab3: 'Above-break 3' }
-const LEAGUE_FG: Record<Zone, number> = { ra: 0.64, paint: 0.43, mid: 0.41, c3: 0.385, ab3: 0.355 }
-const isFT = (p: ArenaPlay) => /free throw/i.test(p.type ?? '') || p.attempted === 1
-function zoneOf(p: ArenaPlay): Zone {
-  const { x, y } = p.coord!
-  const d = Math.hypot(x - 25, y)
-  if (p.attempted === 3) return y + 5.25 < 14 ? 'c3' : 'ab3'
-  if (d < 4) return 'ra'
-  if (Math.abs(x - 25) < 8 && y + 5.25 < 19) return 'paint'
-  return 'mid'
-}
-const cx = (x: number) => x * 10
-const cy = (y: number) => Math.min(46.5, y + 5.25) * 10
-
-/** The NBA view: the plain-English story on top, then the court, flow and runs, then players of the night. */
+/** The NBA view: the story, the arena, who wins, big moments, players; the run detector sits beside the court. */
 function NbaLive({ game, feed }: { game: MissionGame; feed: ArenaFeed }) {
   const b = stageOf(game, 'bet')
   return (
-    <>
-      <NbaStory feed={feed} bet={b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : null} />
-      <NbaView feed={feed} extras={<NbaPlayers feed={feed} />} />
-    </>
-  )
-}
-
-function NbaView({ feed, extras }: { feed: ArenaFeed; extras?: React.ReactNode }) {
-  const { home, away } = feed.teams
-  const pair = teamPair(home, away)
-  const col = { [home.id]: pair.home, [away.id]: pair.away }
-  const [team, setTeam] = useState<'all' | string>('all')
-  const [period, setPeriod] = useState<number | 0>(0)
-  const [lens, setLens] = useState<'shots' | 'zones'>('shots')
-  const shots = useMemo(() => feed.plays.filter((p) => p.shooting && p.coord && !isFT(p)), [feed.plays])
-  const shown = shots.filter((p) => (team === 'all' || p.team === team) && (!period || p.period === period))
-  const latest = shots[shots.length - 1] ?? null
-  const periods = Array.from(new Set(shots.map((p) => p.period ?? 0))).filter(Boolean).sort()
-  const zones = useMemo(() => {
-    const out: Record<string, Record<Zone, { m: number; a: number }>> = {}
-    for (const t of [home.id, away.id]) out[t] = { ra: { m: 0, a: 0 }, paint: { m: 0, a: 0 }, mid: { m: 0, a: 0 }, c3: { m: 0, a: 0 }, ab3: { m: 0, a: 0 } }
-    shown.forEach((p) => { if (!p.team || !out[p.team]) return; const z = zoneOf(p); out[p.team][z].a += 1; if (p.scoring) out[p.team][z].m += 1 })
-    return out
-  }, [shown, home.id, away.id])
-  const zoneTeam = team === 'all' ? null : team
-  const zoneAgg = (z: Zone) => { const ids = zoneTeam ? [zoneTeam] : [home.id, away.id]; return ids.reduce((s, id) => ({ m: s.m + zones[id][z].m, a: s.a + zones[id][z].a }), { m: 0, a: 0 }) }
-  const zoneFill = (z: Zone) => { const { m, a } = zoneAgg(z); if (!a) return 'rgba(148,163,184,.08)'; const d = m / a - LEAGUE_FG[z]; const k = Math.min(1, Math.abs(d) / 0.2); return d >= 0 ? `rgba(248,113,113,${0.18 + 0.55 * k})` : `rgba(96,165,250,${0.18 + 0.55 * k})` }
-  return (
-    <div className="ar-grid">
-      <section className="ar-card ar-court" aria-label="Shot chart">
-        <header>
-          <h2>The Court <small>{shown.length} shots · made ● missed ○</small></h2>
-          <span className="ar-seg">{(['shots', 'zones'] as const).map((k) => <button key={k} type="button" className={lens === k ? 'is-on' : ''} onClick={() => setLens(k)}>{k === 'shots' ? 'Every shot' : '🔥 Hot zones'}</button>)}</span>
-          <span className="ar-seg">{[['all', 'Both'], [away.id, away.abbr], [home.id, home.abbr]].map(([k, l]) => <button key={k} type="button" className={team === k ? 'is-on' : ''} onClick={() => setTeam(k)}>{l}</button>)}</span>
-          <span className="ar-seg">{[0, ...periods].map((k) => <button key={k} type="button" className={period === k ? 'is-on' : ''} onClick={() => setPeriod(k)}>{k ? periodName('nba', k) : 'All'}</button>)}</span>
-        </header>
-        <div className="ar-court__wrap">
-          <svg viewBox="0 0 500 470" role="img" aria-label="Half court shot chart">
-            <defs><radialGradient id="ar-floor" cx="50%" cy="10%" r="90%"><stop offset="0" stopColor="#2a2016" /><stop offset="1" stopColor="#140f0a" /></radialGradient></defs>
-            <rect x="0" y="0" width="500" height="470" fill="url(#ar-floor)" />
-            {lens === 'zones' ? <ZoneShapes fill={zoneFill} /> : null}
-            <g className="ar-lines">
-              <rect x="170" y="0" width="160" height="190" /><circle cx="250" cy="190" r="60" /><path d="M210 52.5 A40 40 0 0 0 290 52.5" />
-              <line x1="30" y1="0" x2="30" y2="140" /><line x1="470" y1="0" x2="470" y2="140" /><path d="M30 140 A237.5 237.5 0 0 0 470 140" />
-              <line x1="220" y1="40" x2="280" y2="40" className="ar-board" /><circle cx="250" cy="52.5" r="7.5" className="ar-rim" />
-              <path d="M190 470 A60 60 0 0 1 310 470" /><line x1="0" y1="469" x2="500" y2="469" />
-            </g>
-            {lens === 'shots' ? shown.map((p) => {
-              const c = col[p.team ?? ''] ?? '#cbd5e1'; const three = p.attempted === 3
-              return p.scoring
-                ? <circle key={p.id} cx={cx(p.coord!.x)} cy={cy(p.coord!.y)} r={three ? 7.5 : 6} fill={c} stroke="#fff" strokeWidth={three ? 1.6 : 0.8} className="ar-shot"><title>{p.text}</title></circle>
-                : <circle key={p.id} cx={cx(p.coord!.x)} cy={cy(p.coord!.y)} r={5.5} fill="none" stroke={c} strokeWidth={2} opacity={0.75} className="ar-shot"><title>{p.text}</title></circle>
-            }) : <ZoneLabels agg={zoneAgg} />}
-            {latest && lens === 'shots' ? <ShotFlight key={latest.id} p={latest} color={col[latest.team ?? ''] ?? '#fff'} /> : null}
-          </svg>
-          {latest ? <ShotCall key={latest.id} p={latest} color={col[latest.team ?? ''] ?? '#fff'} /> : null}
-        </div>
-        {lens === 'zones' ? <p className="ar-small">Red: shooting better than a typical NBA team from that zone; blue: worse. {zoneTeam ? '' : 'Both teams combined; pick a team to split.'}</p> : null}
-        <ZoneTable zones={zones} home={home} away={away} />
-      </section>
-      <div className="ar-col">
-        <GameFlow feed={feed} />
-        <Runs feed={feed} />
-        <Leaders feed={feed} />
-      </div>
-      {extras}
+    <NbaArena feed={feed} bet={b.state === 'DONE' ? (b.label ?? '').replace(/Â·/g, '·') : null} side={<Runs feed={feed} />}>
       <BoxScore feed={feed} />
       <PlayFeed feed={feed} league="nba" />
-    </div>
+    </NbaArena>
   )
 }
 
-function ZoneShapes({ fill }: { fill: (z: Zone) => string }) {
-  return (
-    <g className="ar-zones">
-      <path d="M0 0 H30 V140 A237.5 237.5 0 0 0 470 140 V0 H500 V470 H0 Z" fill={fill('ab3')} />
-      <rect x="0" y="0" width="30" height="140" fill={fill('c3')} /><rect x="470" y="0" width="30" height="140" fill={fill('c3')} />
-      <path d="M30 0 H470 V140 A237.5 237.5 0 0 1 30 140 Z" fill={fill('mid')} />
-      <rect x="170" y="0" width="160" height="190" fill={fill('paint')} />
-      <circle cx="250" cy="52.5" r="40" fill={fill('ra')} />
-    </g>
-  )
-}
-function ZoneLabels({ agg }: { agg: (z: Zone) => { m: number; a: number } }) {
-  const at: Record<Zone, [number, number]> = { ra: [250, 62], paint: [250, 150], mid: [250, 235], c3: [28, 96], ab3: [250, 360] }
-  return <g className="ar-zlabels">{(Object.keys(at) as Zone[]).map((z) => { const { m, a } = agg(z); return <g key={z} transform={`translate(${at[z][0]} ${at[z][1]})`}><text textAnchor="middle" className="ar-zl__pct">{a ? `${Math.round((m / a) * 100)}%` : '—'}</text><text textAnchor="middle" y="16" className="ar-zl__n">{m}/{a} · NBA {Math.round(LEAGUE_FG[z] * 100)}%</text></g> })}</g>
-}
-
-function ShotFlight({ p, color }: { p: ArenaPlay; color: string }) {
-  const ref = useRef<SVGAnimateMotionElement | null>(null)
-  useEffect(() => { try { ref.current?.beginElement() } catch { /* SMIL unsupported */ } }, [])
-  const x0 = cx(p.coord!.x); const y0 = cy(p.coord!.y); const x1 = 250; const y1 = 52.5
-  const peak = Math.min(y0, y1) - 60 - Math.hypot(x1 - x0, y1 - y0) * 0.25
-  const path = `M${x0},${y0} Q${(x0 + x1) / 2},${peak} ${x1},${y1}`
-  return (
-    <g className="ar-flight" pointerEvents="none">
-      <path d={path} className="ar-flight__trail" style={{ stroke: color }} />
-      <circle r="7" fill="#f97316" stroke="#7c2d12" strokeWidth="1.5"><animateMotion ref={ref} dur="1.1s" begin="indefinite" fill="freeze" path={path} /></circle>
-      <circle cx={x0} cy={y0} r="12" className="ar-flight__spot" style={{ stroke: color }} />
-    </g>
-  )
-}
-function ShotCall({ p, color }: { p: ArenaPlay; color: string }) {
-  if (!p.scoring) return null
-  const dunk = /dunk|alley/i.test(p.type ?? '')
-  const word = dunk ? 'SLAM!' : p.attempted === 3 ? 'SPLASH!' : null
-  if (!word) return null
-  const who = p.players[0]
-  return <div className="ar-call" style={{ ['--c' as string]: color } as CSSProperties}><b>{word}</b>{who?.name ? <span>{who.headshot ? <img src={who.headshot} alt="" /> : null}{who.name}</span> : null}</div>
-}
-
-function ZoneTable({ zones, home, away }: { zones: Record<string, Record<Zone, { m: number; a: number }>>; home: ArenaTeam; away: ArenaTeam }) {
-  return (
-    <table className="ar-ztable"><thead><tr><th>Zone</th><th>{away.abbr}</th><th>{home.abbr}</th><th>NBA</th></tr></thead>
-      <tbody>{(Object.keys(ZONE_NAME) as Zone[]).map((z) => <tr key={z}><th>{ZONE_NAME[z]}</th>{[away.id, home.id].map((id) => { const { m, a } = zones[id][z]; return <td key={id} className={a && m / a > LEAGUE_FG[z] ? 'is-hot' : a ? 'is-cold' : ''}>{a ? `${m}/${a} · ${Math.round((m / a) * 100)}%` : '—'}</td> })}<td>{Math.round(LEAGUE_FG[z] * 100)}%</td></tr>)}</tbody></table>
-  )
-}
-
-/** Score margin (home minus away) across the game, with ESPN's live home win probability. */
-function GameFlow({ feed }: { feed: ArenaFeed }) {
-  const league = feed.league
-  const { home, away } = feed.teams
-  const W = 640; const H = 190; const pad = 26
-  const total = league === 'nba' ? Math.max(2880, elapsedAt('nba', feed.status.period, '0:00')) : Math.max(3600, elapsedAt('nhl', feed.status.period, '0:00'))
-  const pts = useMemo(() => {
-    const out: Array<{ t: number; m: number; id: string }> = [{ t: 0, m: 0, id: 'start' }]
-    feed.plays.forEach((p) => { if (p.home != null && p.away != null) out.push({ t: elapsedAt(league, p.period, p.clock), m: p.home - p.away, id: p.id }) })
-    return out
-  }, [feed.plays, league])
-  const maxM = Math.max(8, ...pts.map((p) => Math.abs(p.m)))
-  const X = (t: number) => pad + (t / total) * (W - pad * 2)
-  const Y = (m: number) => H / 2 - (m / maxM) * (H / 2 - 16)
-  const line = pts.map((p) => `${X(p.t).toFixed(1)},${Y(p.m).toFixed(1)}`).join(' ')
-  const wpIdx = new Map(feed.win_probability.map((w) => [w.play, w.home]))
-  const wpLine = feed.plays.filter((p) => wpIdx.has(p.id)).map((p) => `${X(elapsedAt(league, p.period, p.clock)).toFixed(1)},${(16 + (1 - wpIdx.get(p.id)!) * (H - 32)).toFixed(1)}`).join(' ')
-  const { home: hc, away: ac } = teamPair(home, away)
-  const per = league === 'nba' ? 720 : 1200
-  const last = pts[pts.length - 1]
-  return (
-    <section className="ar-card ar-flow" aria-label="Game flow">
-      <header><h2>Game Flow <small>score margin{wpLine ? ' · dashed = live win probability' : ''}</small></h2><b className="ar-flow__now" style={{ color: last.m > 0 ? hc : last.m < 0 ? ac : '#e2e8f0' }}>{last.m === 0 ? 'Tied' : `${last.m > 0 ? home.abbr : away.abbr} +${Math.abs(last.m)}`}</b></header>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Score margin over time">
-        <defs>
-          <clipPath id="ar-above"><rect x="0" y="0" width={W} height={H / 2} /></clipPath>
-          <clipPath id="ar-below"><rect x="0" y={H / 2} width={W} height={H / 2} /></clipPath>
-        </defs>
-        {Array.from({ length: Math.ceil(total / per) + 1 }, (_, i) => <g key={i}><line x1={X(i * per)} x2={X(i * per)} y1={8} y2={H - 8} className="ar-flow__grid" /><text x={X(i * per) + 4} y={H - 4} className="ar-flow__tick">{i < Math.ceil(total / per) ? periodName(league, i + 1) : ''}</text></g>)}
-        <line x1={pad} x2={W - pad} y1={H / 2} y2={H / 2} className="ar-flow__zero" />
-        <polygon points={`${X(0)},${H / 2} ${line} ${X(last.t)},${H / 2}`} fill={hc} opacity="0.35" clipPath="url(#ar-above)" />
-        <polygon points={`${X(0)},${H / 2} ${line} ${X(last.t)},${H / 2}`} fill={ac} opacity="0.35" clipPath="url(#ar-below)" />
-        <polyline points={line} className="ar-flow__line" />
-        {wpLine ? <polyline points={wpLine} className="ar-flow__wp" /> : null}
-        <text x={W - pad} y={16} textAnchor="end" className="ar-flow__lab" fill={hc}>{home.abbr} ahead ↑</text>
-        <text x={W - pad} y={H - 18} textAnchor="end" className="ar-flow__lab" fill={ac}>{away.abbr} ahead ↓</text>
-      </svg>
-    </section>
-  )
-}
-
-/** Unanswered scoring runs: the biggest for each team, and the one happening right now. */
 function Runs({ feed }: { feed: ArenaFeed }) {
   const { home, away } = feed.teams
   const runs = useMemo(() => {
@@ -340,24 +172,6 @@ function Runs({ feed }: { feed: ArenaFeed }) {
 // ---------------------------------------------------------------- NHL --
 
 // ------------------------------------------------------------- shared --
-
-function Leaders({ feed }: { feed: ArenaFeed }) {
-  const { home, away } = feed.teams
-  if (!feed.leaders.length) return null
-  return (
-    <section className="ar-card ar-leaders" aria-label="Leaders">
-      <h2>Leaders</h2>
-      <div className="ar-leaders__grid">
-        {[away, home].map((t) => (
-          <div key={t.id} style={{ ['--c' as string]: onNavy(t.color, t.alt) } as CSSProperties}>
-            <b className="ar-leaders__team">{t.abbr}</b>
-            {feed.leaders.filter((l) => l.team === t.id).slice(0, 3).map((l) => <span key={`${l.category}-${l.id}`} className="ar-leader">{l.headshot ? <img src={l.headshot} alt="" /> : <i />}<span><small>{l.category}</small><b>{l.name}</b><em>{l.value}</em></span></span>)}
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
 
 function BoxScore({ feed }: { feed: ArenaFeed }) {
   const { home, away } = feed.teams
