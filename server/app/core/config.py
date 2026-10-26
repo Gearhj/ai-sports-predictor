@@ -300,6 +300,35 @@ class Settings(BaseSettings):
     #: Fallback requests per operational (display-timezone) day. The existing
     #: Odds API daily request budget, credit lanes and reserve still apply.
     nfl_odds_api_fallback_daily_request_cap: int = Field(default=20, ge=0, le=100)
+    #: OWNER DECISION A (James, 2026-10-25): extra Odds API h2h captures near the close.
+    #: For every sport with an Odds API lane (MLB, NFL, CFB, NBA, NHL), one capture per
+    #: start-time cluster at T-30 and at T-15, plus one near-close capture in [T-5, T-2]
+    #: (``collect-odds-close-captures``, app/services/odds_close_captures.py). Each goes
+    #: through the provider ledger, every existing Odds API guard and the sport's own credit
+    #: lane; a refusal is recorded with its reason. Default ON by owner decision.
+    odds_close_captures_enabled: bool = True
+    #: Minutes before start of the T-30 and T-15 capture points; each stays due for
+    #: ``odds_close_capture_point_window_minutes`` (so T-30 is due in (T-24, T-30]).
+    odds_close_capture_t30_minutes: int = Field(default=30, ge=6, le=120)
+    odds_close_capture_t15_minutes: int = Field(default=15, ge=3, le=60)
+    odds_close_capture_point_window_minutes: int = Field(default=6, ge=1, le=15)
+    #: The near-close capture is due in [T-latest, T-earliest] (default [T-5, T-2]).
+    odds_close_capture_close_earliest_minutes: int = Field(default=5, ge=1, le=15)
+    odds_close_capture_close_latest_minutes: int = Field(default=2, ge=0, le=14)
+    #: Capture requests per sport per operational day (the lane caps still apply).
+    odds_close_capture_daily_request_cap_per_sport: int = Field(default=15, ge=0, le=60)
+    #: A capture must leave today's still-to-come decision buys whole: one credit per later
+    #: start cluster, in the sport's lane and in the shared daily credit/request budgets.
+    odds_close_capture_yield_to_buys: bool = True
+    #: A capture never takes a lane below this share of its monthly allocation; the rest
+    #: of the month's decision buys keep it.
+    odds_close_capture_lane_monthly_floor_pct: int = Field(default=25, ge=0, le=100)
+    #: OWNER DECISION B (James, 2026-10-25): one guaranteed checkpoint evaluation per start
+    #: cluster at T-16, inside the T-30..T-15 window, for every sport whose checkpoint is on
+    #: (``run-last-chance-checkpoints``, app/services/last_chance_checkpoint.py). Skipped when
+    #: every game of the cluster already holds a non-BLOCKED FINAL_PREGAME decision.
+    last_chance_checkpoint_enabled: bool = True
+    last_chance_checkpoint_minutes_before_start: int = Field(default=16, ge=16, le=29)
     # ------------------------------------------------------------------
     # THE NFL FINAL READINESS GATE, AND WHY IT SHIPS OFF.
     #

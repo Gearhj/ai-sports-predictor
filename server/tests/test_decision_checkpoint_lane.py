@@ -85,7 +85,10 @@ def test_only_the_decision_checkpoints_are_registered_on_the_lane(settings):
 
     assert by_lane[lanes.DECISION_CHECKPOINT_LANE] == {
         "asp-dc-nfl-paper-checkpoint", "asp-dc-cfb-paper-checkpoint",
-        "asp-dc-shadow-experiment-freeze"}
+        "asp-dc-shadow-experiment-freeze",
+        # The T-16 last-chance tick (owner decision 2026-10-25): it runs only those
+        # checkpoints, so it belongs on their lane, serial with them.
+        "asp-dc-last-chance-checkpoint"}
     # `asp-nfl-shadow-producer-final` runs `generate-nfl-final-pregame-forecasts`
     # -- the 799-second job of 2026-09-20. It stays exactly where it was; what
     # changed is that the checkpoint no longer queues behind it.

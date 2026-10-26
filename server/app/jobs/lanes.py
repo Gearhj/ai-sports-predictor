@@ -173,6 +173,17 @@ LIVE_SCOREBOARD_JOB_PREFIX = "asp-ls-"
 NFL_SHADOW_IMPORT_LANE = "nfl-shadow-import"
 NFL_SHADOW_IMPORT_JOB_PREFIX = "asp-ns-"
 
+#: The near-close Odds API captures (``asp-oc-odds-close-captures``, owner decision
+#: 2026-10-25), and nothing else. Their points are minutes wide -- T-30 and T-15 stay
+#: due for six minutes, the near-close one only [T-5, T-2] -- and on 2026-10-25 the
+#: in-slot NFL collector ticks never ran because the thread they needed was busy. So
+#: they get their own single worker: never ``core`` (a 2,000-second core job would
+#: step over every point), never ``decision-checkpoints`` (they call a provider).
+#: WHERE they run is all this decides; every guard, the claim and the ledger still
+#: decide WHETHER they spend.
+ODDS_CLOSE_CAPTURE_LANE = "odds-close-captures"
+ODDS_CLOSE_CAPTURE_JOB_PREFIX = "asp-oc-"
+
 #: Scheduler-id prefix -> lane. Anything unlisted stays on the core lane.
 _LANE_PREFIXES: tuple[tuple[str, str], ...] = (
     (PREDICTION_MARKET_JOB_PREFIX, PREDICTION_MARKET_LANE),
@@ -183,6 +194,7 @@ _LANE_PREFIXES: tuple[tuple[str, str], ...] = (
     (NFL_PREGAME_COLLECTOR_JOB_PREFIX, NFL_PREGAME_COLLECTOR_LANE),
     (LIVE_SCOREBOARD_JOB_PREFIX, LIVE_SCOREBOARD_LANE),
     (NFL_SHADOW_IMPORT_JOB_PREFIX, NFL_SHADOW_IMPORT_LANE),
+    (ODDS_CLOSE_CAPTURE_JOB_PREFIX, ODDS_CLOSE_CAPTURE_LANE),
 )
 
 _EXECUTORS: dict[str, ThreadPoolExecutor] = {}
@@ -292,5 +304,6 @@ __all__ = [
     "NFL_FINAL_IMPORT_LANE", "NFL_FINAL_IMPORT_JOB_PREFIX",
     "NFL_PREGAME_COLLECTOR_LANE", "NFL_PREGAME_COLLECTOR_JOB_PREFIX",
     "NFL_SHADOW_IMPORT_LANE", "NFL_SHADOW_IMPORT_JOB_PREFIX",
+    "ODDS_CLOSE_CAPTURE_LANE", "ODDS_CLOSE_CAPTURE_JOB_PREFIX",
     "decision_checkpoint_guard", "executor", "lane_for", "run_with_meta",
 ]

@@ -71,11 +71,14 @@ def test_only_prediction_market_jobs_leave_the_core_lane(settings):
     seen = {lane: set() for lane in (
         lanes.CORE_LANE, lanes.PREDICTION_MARKET_LANE, lanes.RESEARCH_EXPORT_LANE,
         lanes.DECISION_CHECKPOINT_LANE, lanes.IMPORT_LANE, lanes.NFL_FINAL_IMPORT_LANE,
-        lanes.NFL_PREGAME_COLLECTOR_LANE, lanes.LIVE_SCOREBOARD_LANE, lanes.NFL_SHADOW_IMPORT_LANE)}
+        lanes.NFL_PREGAME_COLLECTOR_LANE, lanes.LIVE_SCOREBOARD_LANE, lanes.NFL_SHADOW_IMPORT_LANE,
+        lanes.ODDS_CLOSE_CAPTURE_LANE)}
     for job in scheduler.get_jobs():
         if inspect.iscoroutinefunction(job.func):
             seen[getattr(job.func, "__aisp_job_lane__")].add(job.id)
     assert seen[lanes.LIVE_SCOREBOARD_LANE] <= {"asp-ls-nfl-live-scores-espn"}
+    # The near-close Odds API captures alone occupy their lane (owner decision 2026-10-25).
+    assert seen[lanes.ODDS_CLOSE_CAPTURE_LANE] == {"asp-oc-odds-close-captures"}
     assert seen[lanes.PREDICTION_MARKET_LANE] == {
         "asp-pm-discover", "asp-pm-refresh", "asp-pm-consensus", "asp-pm-alerts", "asp-pm-finalize-pregame"}
     assert seen[lanes.RESEARCH_EXPORT_LANE] == set()

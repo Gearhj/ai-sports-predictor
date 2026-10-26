@@ -129,6 +129,8 @@ AVAILABLE_JOBS = {
     "generate-nhl-forecasts": "Generate NHL Gen1 Forecasts In-Process From the Public Schedule (frozen model; off by default)",
     "evaluate-nhl-paper-checkpoint": "Evaluate the NHL Paper Checkpoint and Settle NHL Positions",
     "collect-nhl-odds-api": "Collect NHL Moneylines From The Odds API (h2h, one request per start-time cluster; off by default)",
+    "collect-odds-close-captures": "Collect Odds API h2h Captures at T-30, T-15 and Near the Close (every Odds API sport; guarded)",
+    "run-last-chance-checkpoints": "Run Each Sport's Paper Checkpoint Once at T-16 (last chance inside the decision window)",
     "ingest-nhl-finals-espn": "Ingest NHL Finals From ESPN's Free Public Scoreboard (results for NHL settlement; off by default)",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
@@ -321,6 +323,8 @@ class JobOrchestrator:
             "generate-nhl-forecasts": self.generate_nhl_forecasts,
             "evaluate-nhl-paper-checkpoint": self.evaluate_nhl_paper_checkpoint,
             "collect-nhl-odds-api": self.collect_nhl_odds_api,
+            "collect-odds-close-captures": self.collect_odds_close_captures,
+            "run-last-chance-checkpoints": self.run_last_chance_checkpoints,
             "ingest-nhl-finals-espn": self.ingest_nhl_finals_espn,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
@@ -2520,6 +2524,314 @@ class JobOrchestrator:
         finally:
             emit(stage="nba_odds_collection_completed")
 
+    async def collect_odds_close_captures(self, event_date: date, *, now: datetime | None = None) -> dict[str, Any]:
+        """Owner decision A (2026-10-25): Odds API h2h captures at T-30, T-15 and in [T-5, T-2].
+
+        ``app/services/odds_close_captures.py`` plans from persisted rows and the
+        clock; this spends. Per sport, ONE request covers every (start cluster,
+        capture point) due on this tick, after every existing Odds API guard, the
+        sport's credit lane, the yield to today's still-to-come decision buys and
+        the atomic per-(sport, point, cluster) claim. Every refusal is logged and
+        returned with its reason; a failed request is ledgered FAILED and never
+        stops the other sports.
+        """
+
+        from app.services import odds_close_captures as captures
+
+        if not getattr(self.settings, "odds_close_captures_enabled", False):
+            return {"records": 0, "status": captures.DISABLED, "provider_called": False}
+        moment = now or datetime.now(UTC)
+        sports: dict[str, Any] = {}
+        refusals: list[dict[str, Any]] = []
+        records = 0
+        for spec in captures.SPORTS:
+            try:
+                outcome = await self._close_capture_sport(spec, moment)
+            except Exception as exc:  # one sport's defect never costs the others their capture
+                self.session.rollback()
+                outcome = {"records": 0, "provider_called": False, "status": "ERROR",
+                           "error_type": type(exc).__name__, "detail": str(exc)[:500]}
+                logger.error("odds_close_capture_error", sport=spec.sport, error=str(exc))
+            sports[spec.sport] = outcome
+            records += int(outcome.get("records") or 0)
+            if outcome.get("refused"):
+                refusal = {"sport": spec.sport, "reason": outcome["reason"], "detail": outcome.get("detail"),
+                           "points": outcome.get("points")}
+                refusals.append(refusal)
+                logger.warning("odds_close_capture_refused", **refusal)
+        return {"records": records,
+                "provider_called": any(bool(o.get("provider_called")) for o in sports.values()),
+                "refusals": refusals, "sports": sports, "evaluated_at": moment.isoformat()}
+
+    async def _close_capture_sport(self, spec: Any, moment: datetime) -> dict[str, Any]:
+        """One sport's captures for this tick: plan, guards in order of cost, claim, ONE request."""
+
+        from app.services import odds_close_captures as captures
+        from app.services.odds_budget_lanes import lane_for_request
+
+        due = captures.due_points(self.session, self.settings, spec, now=moment)
+        if not due:
+            return {"records": 0, "status": captures.NOT_DUE, "provider_called": False}
+
+        def brief(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [{k: e[k] for k in ("point", "phase", "cluster_start", "minutes_to_start")} for e in entries]
+
+        points = brief(due)
+
+        def refuse(reason: str, detail: str | None = None) -> dict[str, Any]:
+            self.session.rollback()
+            return {"records": 0, "provider_called": False, "status": "REFUSED", "refused": True,
+                    "reason": reason, "detail": detail, "points": points}
+
+        if not captures.sport_enabled(self.settings, spec.sport):
+            return refuse(captures.SPORT_ODDS_API_LANE_DISABLED,
+                          f"{spec.sport} has no switched-on Odds API price lane")
+        if not self.settings.owns_odds_collection:
+            return refuse(captures.NOT_THE_ODDS_COLLECTION_OWNER)
+        if not self.settings.the_odds_api_key:
+            return refuse(captures.THE_ODDS_API_KEY_NOT_CONFIGURED)
+        timezone_name = self.settings.display_timezone
+        cap = int(self.settings.odds_close_capture_daily_request_cap_per_sport)
+        used = captures.requests_today(self.session, spec, now=moment, display_timezone=timezone_name)
+        if used >= cap:
+            return refuse(captures.CAPTURE_DAILY_CAP_REACHED, f"{used}/{cap} {spec.sport} capture requests today")
+        market_list = list(captures.MARKETS)
+        regions = self.settings.odds_regions
+        cost = len(market_list) * max(1, len(regions.split(",")))
+
+        def shape(entries: list[dict[str, Any]]) -> dict[str, Any]:
+            return {"sport_key": spec.sport_key, "regions": regions, "markets": sorted(market_list),
+                    "trigger": "CLOSE_CAPTURE",
+                    "capture_points": [{"cluster_start": e["cluster_start"], "point": e["point"],
+                                        "phase": e["phase"]} for e in entries],
+                    "games": sorted({g for e in entries for g in e["game_ids"]})}
+
+        # 1. Every existing Odds API guard (daily request budget, monthly cap and reserve,
+        #    provider floor and latch, this endpoint's own cooldown) and the sport's lane.
+        lane = lane_for_request(league_code=spec.league_code, markets=market_list)
+        hold = self._odds_lane_yield(lane)
+        try:
+            self._enforce_odds_quota_policy(
+                cost, request_holdback=hold["daily"],
+                holdback_for=", ".join(h["label"] for h in hold["lanes"] if h["today"]),
+                cooldown_endpoint_key=spec.endpoint_key)
+        except SourceError as exc:
+            return refuse(captures.ODDS_QUOTA_POLICY_REFUSED, str(exc))
+        try:
+            self._enforce_lane_budget(spec.endpoint_key, shape(due))
+        except SourceError as exc:
+            return refuse(captures.ODDS_LANE_BUDGET_REFUSED, str(exc))
+        # 2. A capture never takes what today's still-to-come decision buys need, nor the
+        #    last share of the lane's month.
+        budget = self._odds_lane_budget(yielding_lane=lane)
+        state = budget.lanes.get(lane)
+        if state is not None:
+            floor = captures.monthly_floor(state.spec.monthly_allocation,
+                                           int(self.settings.odds_close_capture_lane_monthly_floor_pct))
+            if state.remaining - cost < floor:
+                return refuse(captures.CAPTURE_LANE_MONTHLY_FLOOR,
+                              f"{state.spec.label}: {state.remaining} monthly credits left; captures stop at "
+                              f"{floor} so the month's decision buys keep them")
+        if self.settings.odds_close_capture_yield_to_buys:
+            pending = captures.pending_buy_clusters(self.session, spec, now=moment, display_timezone=timezone_name)
+            pending_all = sum(captures.pending_buy_clusters(self.session, other, now=moment,
+                                                            display_timezone=timezone_name)
+                              for other in captures.SPORTS if captures.sport_enabled(self.settings, other.sport))
+            if state is not None and state.remaining_today - cost < pending:
+                return refuse(captures.CAPTURE_YIELDS_TO_PENDING_BUYS,
+                              f"{state.spec.label}: {state.remaining_today} daily credits left and {pending} "
+                              f"{spec.sport} start cluster(s) still to buy today")
+            if budget.base.daily_remaining - cost < pending_all:
+                return refuse(captures.CAPTURE_YIELDS_TO_PENDING_BUYS,
+                              f"shared daily credit budget: {budget.base.daily_remaining} left and {pending_all} "
+                              "start cluster(s) still to buy today")
+            shared = captures.shared_requests_today(self.session, now=moment, display_timezone=timezone_name)
+            if shared + 1 + pending_all > int(self.settings.odds_daily_request_budget):
+                return refuse(captures.CAPTURE_YIELDS_TO_PENDING_BUYS,
+                              f"shared daily request budget: {shared}/{self.settings.odds_daily_request_budget} "
+                              f"used and {pending_all} start cluster(s) still to buy today")
+        self.session.rollback()            # nothing above wrote; end the read transaction before claiming
+
+        # 3. THE ATOMIC CLAIMS, one per (sport, point, cluster, phase), committed first.
+        invocation_path = "ADMIN" if self._requested_by_user_id is not None else "SCHEDULED"
+        claimed = []
+        for entry in due:
+            row = captures.claim(self.session, spec, entry, invocation_id=str(self._active_job_run_id or "no-job-run"),
+                                 invocation_path=invocation_path, now=moment)
+            if row is not None:
+                claimed.append((entry, row))
+        if not claimed:
+            return {"records": 0, "provider_called": False, "status": captures.ALREADY_CLAIMED, "points": points}
+        entries = [entry for entry, _row in claimed]
+        captured_points = brief(entries)
+        request_shape = shape(entries)
+        try:
+            ledger = self._reserve_provider_request(captures.PROVIDER, spec.endpoint_key,
+                                                    controlled_live_request=False, request_shape=request_shape)
+        except SourceError as exc:
+            # The claims stay spent (no request was made, so no retry is owed): as for the NFL fallback.
+            return {**refuse(captures.ODDS_LANE_BUDGET_REFUSED, str(exc)), "points": captured_points}
+        for _entry, row in claimed:
+            row.reservation_id = ledger.id
+        self.session.commit()
+
+        # 4. ONE request, archived, bound and persisted by the sport's own reviewed code.
+        scope = {g for e in entries for g in e["game_ids"]}
+        clusters = [datetime.fromisoformat(e["cluster_start"]) for e in entries]
+        response_received = False
+        try:
+            response = await TheOddsAPIAdapter(self.settings.the_odds_api_key, market_list, regions,
+                                               sport_key=spec.sport_key).get_market_snapshot()
+            response_received = True
+            archive = self.archive.write(response.envelope.source, response.raw_payload)
+            events = [OddsEventDTO.model_validate(item) for item in response.envelope.data]
+            written = self._close_capture_bind(spec, events, envelope=response.envelope, ledger=ledger,
+                                               archive=archive, scope=scope, clusters=clusters)
+            metadata = response.envelope.metadata or {}
+            summary = {"sport_key": spec.sport_key, "archive_path": str(archive.raw_file_reference),
+                       "archive_payload_sha256": archive.payload_checksum,
+                       "clock_refusals": list(metadata.get("clock_refusals") or []), **written}
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=_int_or_none(metadata.get("requests_last")),
+                quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                records_received=len(events), controlled_live_request=False,
+                source_mode="LIVE", job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                response_metadata={"request_shape": request_shape,
+                                   "requests_used": _int_or_none(metadata.get("requests_used")),
+                                   "response_received": True, **_jsonable_summary(summary)},
+            ))
+            self._ingestion_run(response.envelope, archive.raw_file_reference, int(written.get("created") or 0),
+                                "collect-odds-close-captures")
+            self.session.commit()
+            logger.info("odds_close_capture_collected", sport=spec.sport, points=captured_points,
+                        created=written.get("created"), reservation_id=str(ledger.id))
+            return {"records": int(written.get("created") or 0), "provider_called": True,
+                    "status": captures.CAPTURED, "reservation_id": str(ledger.id), "points": captured_points,
+                    "quota": metadata, **_jsonable_summary(summary)}
+        except Exception as exc:
+            from app.services.nfl_odds_api_fallback import zero_charge_proven
+
+            self.session.rollback()
+            self.session.add(ProviderRequestLedger(
+                provider=ledger.provider, endpoint_key=ledger.endpoint_key,
+                requested_at=ledger.requested_at, completed_at=datetime.now(UTC),
+                status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                quota_cost=None, quota_remaining=None, records_received=None,
+                controlled_live_request=False, source_mode="LIVE",
+                job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                error_type=type(exc).__name__,
+                response_metadata={"request_shape": request_shape, "sport_key": spec.sport_key,
+                                   "response_received": response_received,
+                                   "zero_charge_proven": (not response_received) and zero_charge_proven(exc)},
+            ))
+            self.session.commit()
+            logger.error("odds_close_capture_failed", sport=spec.sport, points=captured_points,
+                         error_type=type(exc).__name__, error=str(exc)[:500])
+            return {"records": 0, "provider_called": True, "status": captures.REQUEST_FAILED,
+                    "error_type": type(exc).__name__, "response_received": response_received,
+                    "reservation_id": str(ledger.id), "points": captured_points}
+
+    def _close_capture_bind(self, spec: Any, events: list[OddsEventDTO], *, envelope: SourceEnvelope,
+                            ledger: ProviderRequestLedger, archive: Any, scope: set[str],
+                            clusters: list[datetime]) -> dict[str, Any]:
+        """Bind and persist with the sport's OWN reviewed code, writing only the captured clusters' games."""
+
+        received_at = envelope.fetched_at
+        response = {"archive_path": str(archive.raw_file_reference),
+                    "archive_payload_sha256": archive.payload_checksum,
+                    "ledger_reservation_id": str(ledger.id)}
+        if spec.sport in ("NHL", "NBA", "CFB"):
+            if spec.sport == "NHL":
+                from app.nhl import odds_api_price as module
+            elif spec.sport == "NBA":
+                from app.nba import odds_api_price as module
+
+                response = {**response, "archive_file_sha256": archive.file_checksum,
+                            "archive_bytes": archive.bytes_written}
+            else:
+                from app.cfb import odds_api_price as module
+            bound, event_receipts = module.bind_events(self.session, events, received_at=received_at)
+            in_scope = [(event, game_id) for event, game_id in bound if str(game_id) in scope]
+            written = module.persist(self.session, in_scope, requested_at=ledger.requested_at,
+                                     received_at=received_at, response=response)
+            return {"events": len(events), "bound": len(bound), "bound_in_scope": len(in_scope),
+                    "created": written["created"], "existing": written["existing"],
+                    "event_receipts": event_receipts, "quote_receipts": written["quote_receipts"]}
+        if spec.sport == "NFL":
+            from app.services.nfl_shadow_odds_service import NFLShadowOddsService
+
+            result = NFLShadowOddsService(self.session).ingest(events, available_as_of=received_at,
+                                                               game_ids=set(scope))
+            return {"events": len(events), **result, "created": int(result.get("quotes") or 0)}
+        # MLB: the MLB odds lane's own ingest, fed only the events at a captured cluster's start.
+        window = timedelta(minutes=20)
+        near = [event for event in events
+                if any(abs(_aware(event.commence_time) - _aware(cluster)) <= window for cluster in clusters)]
+        count = self.normalizer.ingest_odds(
+            near, envelope.source, received_at, league_code=MLB,
+            provider_league=(envelope.metadata or {}).get("sport_key") or spec.sport_key,
+            source_mode=envelope.source_mode.upper(),
+            event_date=local_today(self.settings.display_timezone, min(clusters)))
+        return {"events": len(events), "events_in_scope": len(near), "created": int(count),
+                "unbound_events": list(self.normalizer.odds_receipts)}
+
+    async def run_last_chance_checkpoints(self, event_date: date, *, now: datetime | None = None) -> dict[str, Any]:
+        """Owner decision B (2026-10-25): each sport's checkpoint once per start cluster at T-16.
+
+        ``app/services/last_chance_checkpoint.py`` plans; this runs the sport's own
+        checkpoint job through the orchestrator (its own ``job_runs`` row). One
+        claim per (sport, cluster); a cluster whose games all hold a non-BLOCKED
+        FINAL_PREGAME decision is skipped by name; a checkpoint that declines
+        because another instance holds its slot hands the claim back so the next
+        tick may run it while the window is still open.
+        """
+
+        from app.services import last_chance_checkpoint as last_chance
+
+        if not getattr(self.settings, "last_chance_checkpoint_enabled", False):
+            return {"records": 0, "status": last_chance.DISABLED}
+        moment = now or datetime.now(UTC)
+        planned = last_chance.plan(self.session, self.settings, now=moment)
+        self.session.rollback()            # end the read transaction before claiming
+        runs: list[dict[str, Any]] = []
+        for entry in planned["due"]:
+            row = last_chance.claim(
+                self.session, entry, invocation_id=str(self._active_job_run_id or "no-job-run"), now=moment,
+                invocation_path="ADMIN" if self._requested_by_user_id is not None else "SCHEDULED")
+            if row is None:
+                runs.append({**entry, "state": last_chance.ALREADY_CLAIMED})
+                continue
+            slate = local_today(self.settings.display_timezone, datetime.fromisoformat(entry["cluster_start"]))
+            try:
+                run = await JobOrchestrator(self.session, self.settings).run(entry["job_name"], event_date=slate)
+            except Exception as exc:      # the claim stays spent: the checkpoint ran and failed
+                logger.error("last_chance_checkpoint_failed", sport=entry["sport"], job=entry["job_name"],
+                             cluster_start=entry["cluster_start"], error=str(exc)[:500])
+                runs.append({**entry, "state": last_chance.CHECKPOINT_FAILED, "error_type": type(exc).__name__})
+                continue
+            result = run.result or {}
+            if result.get("reason") == "CHECKPOINT_ALREADY_RUNNING":
+                last_chance.release(self.session, row)
+                logger.warning("last_chance_checkpoint_deferred", sport=entry["sport"], job=entry["job_name"],
+                               cluster_start=entry["cluster_start"], reason="CHECKPOINT_ALREADY_RUNNING")
+                runs.append({**entry, "state": last_chance.DEFERRED_CHECKPOINT_ALREADY_RUNNING,
+                             "job_run_id": str(run.id)})
+                continue
+            logger.info("last_chance_checkpoint_ran", sport=entry["sport"], job=entry["job_name"],
+                        cluster_start=entry["cluster_start"], job_run_id=str(run.id))
+            runs.append({**entry, "state": last_chance.RAN, "job_run_id": str(run.id),
+                         "checkpoint_records": result.get("records")})
+        skipped = [e for e in planned["entries"] if e["state"] != last_chance.DUE]
+        for entry in skipped:
+            if entry["state"] == last_chance.CHECKPOINT_DISABLED and entry["undecided_games"]:
+                logger.warning("last_chance_checkpoint_skipped", sport=entry["sport"],
+                               cluster_start=entry["cluster_start"], reason=entry["state"])
+        return {"records": sum(1 for r in runs if r["state"] == last_chance.RAN), "runs": runs,
+                "skipped": skipped, "evaluated_at": planned["evaluated_at"]}
+
     async def evaluate_nba_paper_checkpoint(self, event_date: date) -> dict[str, Any]:
         """AISP_NBA_PAPER_POLICY_V1 at T-30..T-15. Records a reason per game; positions stay off.
 
@@ -2529,9 +2841,16 @@ class JobOrchestrator:
 
         from app.services.runtime_source_proof import emit
         try:
+            from app.jobs.lanes import decision_checkpoint_guard
             from app.nba.gen1_paper import evaluate
 
-            return evaluate(self.session, self.settings)
+            # The same one-execution slot every other checkpoint holds (2026-10-26): the
+            # T-16 last-chance tick runs this on the decision lane while the scheduled NBA
+            # tick runs on core, and the owner writes by reading first.
+            with decision_checkpoint_guard("evaluate-nba-paper-checkpoint") as mine:
+                if not mine:
+                    return _checkpoint_already_running("evaluate-nba-paper-checkpoint")
+                return evaluate(self.session, self.settings)
         finally:
             emit(stage="nba_paper_checkpoint_completed")
 
@@ -4167,6 +4486,12 @@ def _job_key(value: str) -> str:
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _jsonable_summary(value: Any) -> Any:
+    """A capture summary made JSON-safe for ``response_metadata`` (uuids/datetimes as text)."""
+
+    return json.loads(json.dumps(value, default=str))
 
 
 def _int_or_none(value: Any) -> int | None:

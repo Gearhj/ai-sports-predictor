@@ -946,6 +946,31 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
         kwargs={"job_name": "evaluate-nfl-paper-checkpoint", "settings": settings},
         **common,
     )
+    # OWNER DECISION B (2026-10-25): the T-16 last-chance tick. Every minute it asks
+    # which start clusters are at T-16 with a game still undecided, and runs that
+    # sport's OWN checkpoint once (claimed per sport and cluster). On the
+    # `decision-checkpoints` lane, so it is serial with the scheduled checkpoints and
+    # can never interleave with one; each checkpoint body also holds its slot guard.
+    if getattr(settings, "last_chance_checkpoint_enabled", False):
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=1, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=1),
+            id="asp-dc-last-chance-checkpoint",
+            kwargs={"job_name": "run-last-chance-checkpoints", "settings": settings},
+            **common,
+        )
+    # OWNER DECISION A (2026-10-25): Odds API h2h captures at T-30, T-15 and in
+    # [T-5, T-2] per start cluster for every Odds API sport. The tick is free when
+    # nothing is due; each due point is claimed once and bought through every
+    # existing guard and the sport's lane. Its own `odds-close-captures` lane.
+    if getattr(settings, "odds_close_captures_enabled", False):
+        scheduler.add_job(
+            execute_scheduled_job, "interval", minutes=1, jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=1),
+            id="asp-oc-odds-close-captures",
+            kwargs={"job_name": "collect-odds-close-captures", "settings": settings},
+            **common,
+        )
     # The NHL paper checkpoint (AISP_NHL_PAPER_POLICY_V1): decisions for games in
     # T-30..T-15, then settlement from source-backed NHL results. Same cadence and
     # lane as CFB. Registered only when NHL_PAPER_CHECKPOINT_ENABLED; positions also
