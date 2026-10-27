@@ -685,20 +685,27 @@ def _odds_pair(session, game, *, home, away, observed, kickoff=None, book="draft
         market = Market(game_id=game.id, market_type=MarketType.MONEYLINE, period="full_game")
         session.add(market)
         session.flush()
+    # A real Odds API leg as the CFB engine's rule reads it (kickoff_bound_pairs): oriented to the game's own
+    # teams, the provider's americanfootball_ncaaf h2h record for that side, one provider event id.
+    teams = {t.is_home: t.team_id for t in session.scalars(select(GameTeam).where(GameTeam.game_id == game.id))}
+    event = f"odds-api-{game.id}"
     for key, american in (("HOME:None", home), ("AWAY:None", away)):
+        side = key.split(":")[0]
         outcome = session.scalar(select(MarketOutcome).where(MarketOutcome.market_id == market.id,
                                                              MarketOutcome.outcome_key == key))
         if outcome is None:
-            outcome = MarketOutcome(market_id=market.id, outcome_key=key, label=key.split(":")[0])
+            outcome = MarketOutcome(market_id=market.id, outcome_key=key, label=side,
+                                    participant_team_id=teams.get(side == "HOME"))
             session.add(outcome)
             session.flush()
         decimal_odds = 1 + (american / 100 if american > 0 else 100 / abs(american))
         session.add(OddsSnapshot(
             market_outcome_id=outcome.id, sportsbook_id=sportsbook.id, observed_at=observed,
             available_as_of=observed + timedelta(seconds=30), american_odds=american, decimal_odds=decimal_odds,
-            source="THE_ODDS_API", source_mode="LIVE",
+            source="THE_ODDS_API", source_mode="LIVE", source_event_id=event,
             raw_payload={"event_commence_time": (kickoff or game.starts_at).isoformat().replace("+00:00", "Z"),
-                         "quote_clock_source": "MARKET_LAST_UPDATE"}))
+                         "quote_clock_source": "MARKET_LAST_UPDATE", "side": side,
+                         "sport_key": "americanfootball_ncaaf", "market": "h2h", "provider_event_id": event}))
     session.flush()
 
 
@@ -736,7 +743,7 @@ def test_cfb_bulk_pairs_match_the_decision_engine_rule(session, settings, world)
                book="betmgm")
     ctx = mc._Ctx(session, settings, DAY, ET_NOON)
     bulk = mc._cfb_bound_pairs(ctx, [mc._Game(game.id, "CFB", starts, "scheduled", "RESEARCH_SHADOW")])[str(game.id)]
-    engine = kickoff_bound_pairs(session, game.id, starts)
+    engine = kickoff_bound_pairs(session, game.id, starts, moment=ET_NOON)          # the same clock MC judges at
     keys = ("sportsbook", "source", "home_american", "away_american", "pair_observed_at", "home_observed_at",
             "away_observed_at")
     assert [{k: p[k] for k in keys} for p in bulk] == [{k: p[k] for k in keys} for p in engine]

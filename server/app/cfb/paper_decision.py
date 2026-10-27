@@ -199,9 +199,7 @@ def kickoff_bound_pairs(session: Session, game_id: Any, kickoff: datetime | None
     """Both retained legs of one exact current event, held at the actual read/decision clock."""
     from app.models import GameTeam, Market, MarketOutcome, OddsSnapshot, Sportsbook
     if kickoff is None: return []
-    from app.services.event_time_reconciliation import legacy_clock_tolerance
     moment = utc_instant(moment or datetime.now(UTC))
-    legacy_tolerance = legacy_clock_tolerance("CFB")     # legacy legs: identity exact, clock cushioned (HIGH-4)
     sides = {s.is_home: s.team_id for s in session.scalars(select(GameTeam).where(GameTeam.game_id == game_id))}
     rows = session.execute(select(Market.id, Sportsbook.key, OddsSnapshot.source, MarketOutcome.outcome_key,
         OddsSnapshot.observed_at, OddsSnapshot.american_odds, MarketOutcome.id, OddsSnapshot.id,
@@ -213,6 +211,19 @@ def kickoff_bound_pairs(session: Session, game_id: Any, kickoff: datetime | None
         .where(Market.game_id == game_id, Market.market_type == "MONEYLINE", Market.period == "full_game",
                OddsSnapshot.source.in_(sorted(KICKOFF_BOUND_SOURCES)))
         .order_by(OddsSnapshot.observed_at.desc(), OddsSnapshot.available_as_of.desc())).all()
+    return pairs_from_rows(game_id, kickoff, sides, rows, moment=moment, close_before=close_before)
+
+
+def pairs_from_rows(game_id: Any, kickoff: datetime, sides: dict[bool, Any], rows: Any, *, moment: datetime,
+                    close_before: timedelta | None = None) -> list[dict[str, Any]]:
+    """``kickoff_bound_pairs``'s rule over rows already read (Mission Control bulk-loads them for every game).
+
+    ``rows``: (market_id, book, source, outcome_key, observed_at, american, outcome_id, snapshot_id, raw_payload,
+    available_as_of, source_event_id, participant_team_id), newest first, full-game moneyline, kickoff-bound sources.
+    """
+    from app.services.event_time_reconciliation import legacy_clock_tolerance
+    moment = utc_instant(moment)
+    legacy_tolerance = legacy_clock_tolerance("CFB")     # legacy legs: identity exact, clock cushioned (HIGH-4)
     groups = {}
     for mid,book,source,key,observed,american,oid,sid,raw,available,event_id,team_id in rows:
         side = str(key).split(":")[0].upper()

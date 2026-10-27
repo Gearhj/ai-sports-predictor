@@ -1950,56 +1950,42 @@ LEASE_LABELS = {"EXPIRED_LEASE": "Lease expired", "HISTORICAL": "Not in current 
 
 
 def _cfb_bound_pairs(ctx: _Ctx, games: list[_Game]) -> dict[str, list[dict[str, Any]]]:
-    """``cfb.paper_decision.kickoff_bound_pairs`` for every game in ONE statement (same rule, same order).
+    """``cfb.paper_decision.kickoff_bound_pairs`` for every game: rows bulk-read in ONE statement, then the
+    decision engine's own ``pairs_from_rows`` (identity, provider event, clock binding, newest passing pair).
 
-    Odds API moneyline pairs whose BOTH legs retained exactly the game's current kickoff; one provider, one
-    book, one market row; newest snapshot per side; the older leg governs. Only the two raw fields the rule
-    reads are selected (the full raw payloads are what made the per-game reads slow).
+    Only the raw keys the rule reads are selected (the full raw payloads are what made the per-game reads slow).
+    Until 10-26 this re-implemented an older kickoff-only rule and could show pairs the engine refuses.
     """
 
-    from app.cfb.paper_decision import KICKOFF_BOUND_SOURCES, utc_instant
-    from app.models import Market, MarketOutcome, OddsSnapshot, Sportsbook
+    from app.cfb.paper_decision import KICKOFF_BOUND_SOURCES, pairs_from_rows
+    from app.models import GameTeam, Market, MarketOutcome, OddsSnapshot, Sportsbook
 
     kickoffs = {g.uuid: g.start for g in games}
+    sides: dict[Any, dict[bool, Any]] = defaultdict(dict)
+    for game_id, is_home, team_id in ctx.session.execute(
+            select(GameTeam.game_id, GameTeam.is_home, GameTeam.team_id).where(GameTeam.game_id.in_(list(kickoffs)))).all():
+        sides[game_id][is_home] = team_id
+    raw = OddsSnapshot.raw_payload
+    keys = ("side", "sport_key", "market", "provider_event_id", "event_commence_time", "response_received_at",
+            "quote_clock_source")
     rows = ctx.session.execute(
         select(Market.game_id, Market.id, Sportsbook.key, OddsSnapshot.source, MarketOutcome.outcome_key,
-               OddsSnapshot.observed_at, OddsSnapshot.american_odds,
-               OddsSnapshot.raw_payload["event_commence_time"].as_string())
+               OddsSnapshot.observed_at, OddsSnapshot.american_odds, MarketOutcome.id, OddsSnapshot.id,
+               OddsSnapshot.available_as_of, OddsSnapshot.source_event_id, MarketOutcome.participant_team_id,
+               *[raw[k].as_string() for k in keys], raw["event_clock_binding"], raw["identity_mapping"])
         .join(MarketOutcome, MarketOutcome.id == OddsSnapshot.market_outcome_id)
         .join(Market, Market.id == MarketOutcome.market_id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
-        .where(Market.game_id.in_(list(kickoffs)), Market.market_type == "MONEYLINE",
+        .where(Market.game_id.in_(list(kickoffs)), Market.market_type == "MONEYLINE", Market.period == "full_game",
                OddsSnapshot.source.in_(sorted(KICKOFF_BOUND_SOURCES)))
         .order_by(OddsSnapshot.observed_at.desc(), OddsSnapshot.available_as_of.desc())).all()
-    latest: dict[Any, dict[tuple, dict[str, Any]]] = defaultdict(dict)
-    for game_id, market_id, book, source, outcome_key, observed_at, american, commence in rows:
-        if utc_instant(commence) != kickoffs.get(game_id):
-            continue
-        side = str(outcome_key).split(":")[0].upper()
-        if side not in ("HOME", "AWAY") or american is None:
-            continue
-        key = (market_id, book, source, side)
-        if key not in latest[game_id]:
-            latest[game_id][key] = {"observed_at": utc_instant(observed_at), "american_odds": int(american)}
-    out: dict[str, list[dict[str, Any]]] = {}
-    for game_id, legs in latest.items():
-        pairs, seen = [], set()
-        for market_id, book, source, _side in legs:
-            if (market_id, book, source) in seen:
-                continue
-            seen.add((market_id, book, source))
-            away, home = legs.get((market_id, book, source, "AWAY")), legs.get((market_id, book, source, "HOME"))
-            if away is None or home is None:
-                continue
-            older = min(away["observed_at"], home["observed_at"])
-            pairs.append({"market_id": str(market_id), "sportsbook": book, "source": source,
-                          "away_american": away["american_odds"], "home_american": home["american_odds"],
-                          "away_observed_at": away["observed_at"].isoformat(),
-                          "home_observed_at": home["observed_at"].isoformat(),
-                          "pair_observed_at": older.isoformat()})
-        pairs.sort(key=lambda pair: pair["pair_observed_at"], reverse=True)
-        out[str(game_id)] = pairs
-    return out
+    by_game: dict[Any, list[tuple]] = defaultdict(list)
+    for r in rows:
+        (game_id, mid, book, source, key, observed, american, oid, sid, available, event_id, team_id), rest = r[:12], r[12:]
+        payload = {k: v for k, v in zip(keys + ("event_clock_binding", "identity_mapping"), rest) if v is not None}
+        by_game[game_id].append((mid, book, source, key, observed, american, oid, sid, payload, available, event_id, team_id))
+    return {str(g): pairs_from_rows(g, kickoffs[g], dict(sides.get(g, {})), by_game[g], moment=ctx.now)
+            for g in kickoffs if by_game.get(g)}
 
 
 def _eligibility_records(ctx: _Ctx, policy: Any) -> tuple[Any, dict[str, datetime | None]]:
@@ -2169,7 +2155,10 @@ def _nhl_held_quotes(ctx: _Ctx, games: list[_Game]) -> dict[str, dict[str, Any]]
     """``nhl.paper._held_quotes`` for every game in ONE pass, in the exact shape ``native_pairs(held=...)`` reads.
 
     Rows carry only the attributes ``_leg_refusal`` / ``native_pairs`` read; the raw payload is reduced to the
-    five keys the leg rule checks. The NHL lifecycle's own pairing and refusal rules then decide.
+    keys the leg rule and ``pair_clock_verdict`` check -- including ``event_clock_binding``,
+    ``response_received_at`` and ``identity_mapping``: without them every pair whose provider start differs from the canonical start was
+    refused MISSING_OR_CONFLICTING_BINDING here (0 books on Mission Control while the checkpoint priced 11,
+    10-26). The NHL lifecycle's own pairing and refusal rules then decide.
     """
 
     from types import SimpleNamespace
@@ -2187,7 +2176,8 @@ def _nhl_held_quotes(ctx: _Ctx, games: list[_Game]) -> dict[str, dict[str, Any]]
                MarketOutcome.participant_team_id, OddsSnapshot.id, OddsSnapshot.source, OddsSnapshot.source_event_id,
                OddsSnapshot.observed_at, OddsSnapshot.available_as_of, OddsSnapshot.american_odds,
                raw["event_commence_time"].as_string(), raw["market"].as_string(), raw["sport_key"].as_string(),
-               raw["side"].as_string(), raw["provider_event_id"].as_string(), Sportsbook.key)
+               raw["side"].as_string(), raw["provider_event_id"].as_string(), raw["event_clock_binding"],
+               raw["identity_mapping"], raw["response_received_at"].as_string(), Sportsbook.key)
         .join(MarketOutcome, MarketOutcome.market_id == Market.id)
         .join(OddsSnapshot, OddsSnapshot.market_outcome_id == MarketOutcome.id)
         .join(Sportsbook, Sportsbook.id == OddsSnapshot.sportsbook_id)
@@ -2201,10 +2191,12 @@ def _nhl_held_quotes(ctx: _Ctx, games: list[_Game]) -> dict[str, dict[str, Any]]
     out: dict[str, dict[str, Any]] = {str(g.uuid): {"sides": dict(sides.get(g.uuid, {})), "rows": [],
                                                    "keys_by_market": {}} for g in games}
     for (game_id, market_id, period, outcome_id, outcome_key, participant, snap_id, source, event, observed,
-         available, american, commence, provider_market, sport_key, side, provider_event, book) in rows:
+         available, american, commence, provider_market, sport_key, side, provider_event, binding, mapping, received, book) in rows:
         payload = {k: v for k, v in (("event_commence_time", commence), ("market", provider_market),
                                      ("sport_key", sport_key), ("side", side),
-                                     ("provider_event_id", provider_event)) if v is not None}
+                                     ("provider_event_id", provider_event), ("event_clock_binding", binding),
+                                     ("identity_mapping", mapping), ("response_received_at", received))
+                   if v is not None}
         entry = out[str(game_id)]
         entry["rows"].append((SimpleNamespace(id=market_id, period=period),
                               SimpleNamespace(id=outcome_id, outcome_key=outcome_key, participant_team_id=participant),
