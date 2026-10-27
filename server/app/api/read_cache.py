@@ -58,7 +58,7 @@ ALLOWLIST: tuple[str, ...] = (
     "/sports/readiness", "/sports/registry", "/markets/board", "/markets/rff", "/mlb/totals",
     "/bankroll", "/command-center/", "/slate-status", "/coverage/price-funnel",
     "/research/model-era", "/research/model-performance", "/research/wager-results", "/research/nfl-scorecard", "/show-board", "/cfb/research", "/price-coverage", "/public/config",
-    "/mission-control",
+    "/mission-control", "/availability",
 )
 
 

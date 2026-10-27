@@ -912,6 +912,17 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "collect-nba-availability", "settings": settings},
             **common,
         )
+        # Every sport's injury lists and key players (owner 2026-10-27), same switch, its own job id.
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=10,
+            jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=3),
+            id="asp-ls-availability",
+            kwargs={"job_name": "collect-availability", "settings": settings},
+            **common,
+        )
     # NFL pregame odds: one object, spent close to a game's decision
     # checkpoint so the quote is still inside the 240-minute freshness window
     # when the policy evaluates it. Every cycle outside a game's 75-minute

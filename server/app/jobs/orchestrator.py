@@ -133,6 +133,7 @@ AVAILABLE_JOBS = {
     "run-last-chance-checkpoints": "Run Each Sport's Paper Checkpoint Once at T-16 (last chance inside the decision window)",
     "ingest-nhl-finals-espn": "Ingest NHL Finals From ESPN's Free Public Scoreboard (results for NHL settlement; off by default)",
     "collect-nba-availability": "Collect NBA Injury Lists and Box-Score Minutes From ESPN's Free Public Feeds (star-out gate; off by default)",
+    "collect-availability": "Collect Injury Lists and Key-Player Inputs for Every Sport From ESPN's Free Public Feeds ($0)",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
@@ -328,6 +329,7 @@ class JobOrchestrator:
             "run-last-chance-checkpoints": self.run_last_chance_checkpoints,
             "ingest-nhl-finals-espn": self.ingest_nhl_finals_espn,
             "collect-nba-availability": self.collect_nba_availability,
+            "collect-availability": self.collect_availability,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
@@ -781,6 +783,13 @@ class JobOrchestrator:
         """ESPN injury snapshots and box-score minutes for the NBA star-out gate; files only, $0, off by default."""
 
         from app.nba.availability import collect
+
+        return collect(self.session, self.settings)
+
+    async def collect_availability(self, event_date: date) -> dict[str, Any]:
+        """Injury lists and key-player inputs for NBA, NHL, NFL, CFB and MLB (ESPN public feeds); files only, $0."""
+
+        from app.services.availability_board import collect
 
         return collect(self.session, self.settings)
 

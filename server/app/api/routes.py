@@ -1992,6 +1992,19 @@ def command_center_assessments(
     return daily_assessments(session, settings, event_date or local_today("America/New_York"))
 
 
+@router.get("/availability", tags=["operations"])
+def availability_endpoint(settings: AppSettings, event_date: date | None = Query(None, alias="date")) -> dict:
+    """Injury lists and key-player availability for every sport on one Eastern date (ESPN public feeds, $0).
+
+    Reads only the files the availability collector already wrote; no request, no write.
+    """
+
+    from app.services.availability_board import board
+
+    day = _today(event_date, settings)
+    return board(settings, day.isoformat())
+
+
 @router.get("/mission-control", tags=["operations"])
 def mission_control_endpoint(session: DatabaseSession, settings: AppSettings,
                              event_date: date | None = Query(None, alias="date")) -> dict:
