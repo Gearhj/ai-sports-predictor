@@ -1427,7 +1427,9 @@ def _prices_from_decision(game: _Game, item: dict[str, Any] | None, decision: di
         return prices
     klass = decision.get("class")
     integrity = item.get("market_integrity") or {}
-    if klass in ("BET", "PASS", "NOT_ACTIVATED") and item.get("american") is not None:
+    # RECORD_ONLY too (owner funding rules, 10-25): the decision priced the game and kept its prices; judging the
+    # quote's age at "now" showed NO_TWO_SIDED_QUOTE on every decided NBA game once its window had passed.
+    if klass in ("BET", "PASS", "NOT_ACTIVATED", "RECORD_ONLY") and item.get("american") is not None:
         age = integrity.get("older_leg_age_minutes_at_decision")
         side = str(item.get("selection") or "")
         return {**prices, "state": DONE, "code": "PRICED_AT_DECISION",

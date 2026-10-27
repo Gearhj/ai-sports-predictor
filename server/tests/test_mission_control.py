@@ -1155,3 +1155,13 @@ def test_route_contract_range_default_and_read_only(client, session, settings, w
     assert client.get(f"/api/v1/mission-control?date={(today + timedelta(days=4)).isoformat()}").status_code == 400
     assert client.get(f"/api/v1/mission-control?date={(today - timedelta(days=2)).isoformat()}").status_code == 400
     assert client.post("/api/v1/mission-control").status_code == 405
+
+
+def test_a_record_only_decision_reports_the_price_it_was_decided_at_after_the_window():
+    game = SimpleNamespace(closes=ET_NOON - timedelta(minutes=5))
+    item = {"american": -150, "sportsbook": "FanDuel", "selection": "HOME", "recommended_at": ET_NOON - timedelta(minutes=20),
+            "market_integrity": {"older_leg_age_minutes_at_decision": 12}}
+    stale = {"state": "BLOCKED", "code": "NO_TWO_SIDED_QUOTE"}
+    out = mc._prices_from_decision(game, item, {"class": "RECORD_ONLY"}, stale, ET_NOON)
+    assert (out["state"], out["code"]) == ("DONE", "PRICED_AT_DECISION")
+    assert mc._prices_from_decision(game, item, {"class": "RECORD_ONLY"}, stale, ET_NOON - timedelta(minutes=10)) is stale
