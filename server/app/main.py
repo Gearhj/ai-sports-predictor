@@ -135,12 +135,14 @@ async def lifespan(application: FastAPI):
     if settings.app_env != "test":
         import asyncio
 
-        from app.api.read_cache import warm_forever
+        from app.api.read_cache import warm_forever, warm_mission_control_forever
 
         warmer = asyncio.create_task(warm_forever(settings.api_v1_prefix))
+        mission_warmer = asyncio.create_task(warm_mission_control_forever(settings.api_v1_prefix))
     yield
     if warmer:
         warmer.cancel()
+        mission_warmer.cancel()
     if scheduler:
         mark_scheduler_stopped()
         scheduler.shutdown(wait=False)

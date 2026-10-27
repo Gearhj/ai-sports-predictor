@@ -136,6 +136,32 @@ async def warm_forever(prefix: str = "/api/v1") -> None:
         await asyncio.sleep(WARM_EVERY_SECONDS)
 
 
+#: Mission Control recomputes in 7-12 s cold and may be served stale for only 90 s, so the 5-minute warmer above
+#: left most page loads waiting on a cold recompute (owner 10-26: "the page loading time is still very long").
+#: Its own loop keeps yesterday, today and tomorrow (the days it serves) younger than its stale window.
+MISSION_WARM_EVERY_SECONDS = 60.0
+
+
+async def warm_mission_control_forever(prefix: str = "/api/v1") -> None:
+    """Keep Mission Control's three served days computed. Reads stored state only; never a provider."""
+
+    from datetime import timedelta
+
+    from app.core.time import local_today
+
+    await asyncio.sleep(30)
+    while True:
+        cache = ACTIVE
+        if cache is not None:
+            today = local_today("America/New_York")
+            for day in (today, today - timedelta(days=1), today + timedelta(days=1)):
+                try:
+                    await cache.warm(f"{prefix}/mission-control?date={day.isoformat()}")
+                except Exception:  # noqa: BLE001 - warming is best effort
+                    continue
+        await asyncio.sleep(MISSION_WARM_EVERY_SECONDS)
+
+
 def _key(scope: dict[str, Any]) -> str:
     return f"{scope.get('path')}?{scope.get('query_string', b'').decode('latin-1')}"
 
