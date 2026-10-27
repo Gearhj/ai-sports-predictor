@@ -36,13 +36,18 @@ def _season(tmp_path, team, games):
     _write(tmp_path / "schedules" / team / "20261027-4.json", {"team": team, "events": events})
 
 
-def _snapshot(tmp_path, *, observed=None, home_inj=(), away_inj=(), section=True):
+def _snapshot(tmp_path, *, observed=None, home_inj=(), away_inj=(), section=True, held_at_t90=True, drop_team=None):
+    """One snapshot; by default also the same list held at T-95, as the 10-minute collector would have."""
+    if observed is None and held_at_t90:
+        _snapshot(tmp_path, observed=TIP - timedelta(minutes=95), home_inj=home_inj, away_inj=away_inj, section=section, drop_team=drop_team)
     observed = observed or DECIDE - timedelta(minutes=5)
     doc = {"schema": av.SCHEMA_SNAPSHOT, "espn_game_id": "401", "observed_at_utc": observed.isoformat(),
            "teams": {"home": {"espn_team_id": HOME, "abbreviation": "BOS"}, "away": {"espn_team_id": AWAY, "abbreviation": "BKN"}},
            "injuries": {HOME: [{"espn_athlete_id": a, "name": f"P{a}", "raw_status": s, "status": av.normalize_status(s), "listed_at": None} for a, s in home_inj],
                         AWAY: [{"espn_athlete_id": a, "name": f"P{a}", "raw_status": s, "status": av.normalize_status(s), "listed_at": None} for a, s in away_inj]},
            "injury_section_present": section}
+    if drop_team:
+        doc["injuries"].pop(drop_team)
     _write(tmp_path / "snapshots" / "401" / f"{observed.strftime('%Y%m%dT%H%M%SZ')}_x.json", doc)
 
 
@@ -159,3 +164,39 @@ def test_collect_writes_snapshots_schedules_and_boxes(tmp_path, monkeypatch):
     again = av.collect(None, _settings(tmp_path), now=now, fetch=fetch)
     assert again["box_scores_added"] == 0                       # boxes and today's schedule are cached
     assert av.collect(None, SimpleNamespace(nba_availability_collector_enabled=False), now=now)["status"] == "DISABLED"
+
+
+# ---- Codex consumer-correctness patch (10-27) + the T-90 hold guard -------------------------------------------
+def test_a_listing_first_seen_after_t90_does_not_change_the_frozen_roles(tmp_path):
+    # s was a star early, then missed the last 5 (injured). Listed only AFTER T-90: the role list is frozen without him.
+    games = [{"s": 39, "a": 30, "b": 28}] * 3 + [{"a": 30, "b": 28}] * 5
+    _season(tmp_path, HOME, games)
+    _season(tmp_path, AWAY, [{"x": 38, "y": 33}] * 3)
+    _snapshot(tmp_path, observed=TIP - timedelta(minutes=95))               # held at T-90: nobody listed
+    _snapshot(tmp_path, observed=DECIDE - timedelta(minutes=5), home_inj=[("s", "Out")], held_at_t90=False)
+    r = av.assess(GAME, DECIDE, _settings(tmp_path))
+    assert [x["espn_athlete_id"] for x in r["teams"]["home"]["stars"]] == ["a", "b"]
+    assert r["state"] == "CLEAR"
+
+
+def test_a_listing_held_by_t90_keeps_the_injured_star(tmp_path):
+    games = [{"s": 39, "a": 30, "b": 28}] * 3 + [{"a": 30, "b": 28}] * 5
+    _season(tmp_path, HOME, games)
+    _season(tmp_path, AWAY, [{"x": 38, "y": 33}] * 3)
+    _snapshot(tmp_path, home_inj=[("s", "Out")])                             # held at T-95 and at decision
+    r = av.assess(GAME, DECIDE, _settings(tmp_path))
+    assert r["teams"]["home"]["stars"][0]["espn_athlete_id"] == "s" and r["state"] == "STAR_OUT"
+
+
+def test_a_missing_team_injury_block_is_unknown_not_all_clear(season):
+    _snapshot(season, drop_team=AWAY)
+    r = av.assess(GAME, DECIDE, _settings(season))
+    assert r["state"] == "UNKNOWN" and r["reason"] == "AWAY_TEAM_INJURY_LIST_NOT_PRESENT"
+    assert r["teams"]["away"]["team_injury_list_present"] is False
+    assert all(s["status"] == "UNKNOWN" for s in r["teams"]["away"]["stars"])
+
+
+def test_no_list_held_by_t90_fails_closed(season):
+    _snapshot(season, held_at_t90=False)                                     # only a post-T-90 snapshot exists
+    r = av.assess(GAME, DECIDE, _settings(season))
+    assert r["state"] == "UNKNOWN" and r["reason"] == "NO_INJURY_LIST_HELD_BY_T90"

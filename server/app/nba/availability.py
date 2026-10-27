@@ -319,23 +319,33 @@ def assess(game: dict[str, Any], moment: datetime, settings: Any) -> dict[str, A
         return {**receipt, "state": "UNKNOWN", "reason": "NO_INJURY_SECTION_IN_SOURCE"}
     starts = _aware(game["starts_at"]) if isinstance(game.get("starts_at"), datetime) else _when(game.get("starts_at"))
     freeze = (starts or moment) - ROLE_FREEZE
+    # Role eligibility is frozen using only injury identities held by T-90.
+    role_snap = _latest_snapshot(out, str(game.get("espn_game_id")), min(moment, freeze))
+    if role_snap is None:
+        # No injury list held by T-90 (collector down earlier): roles cannot be frozen with what was known, fail closed.
+        return {**receipt, "state": "UNKNOWN", "reason": "NO_INJURY_LIST_HELD_BY_T90"}
     teams_out: dict[str, Any] = {}
     state = "CLEAR"
     reason = "NO_STAR_LISTED"
     for side in ("away", "home"):
         team = (snap.get("teams") or {}).get(side) or {}
         tid = team.get("espn_team_id")
+        team_list_present = str(tid) in (snap.get("injuries") or {})
         listed = {i["espn_athlete_id"]: i for i in (snap.get("injuries") or {}).get(str(tid), [])}
-        roles = _team_roles(out, str(tid), freeze, set(listed)) if tid else {"state": "ROLE_UNKNOWN", "reason": "NO_TEAM_IN_SNAPSHOT"}
+        role_listed = {i["espn_athlete_id"] for i in ((role_snap or {}).get("injuries") or {}).get(str(tid), [])}
+        roles = _team_roles(out, str(tid), min(moment, freeze), role_listed) if tid else {"state": "ROLE_UNKNOWN", "reason": "NO_TEAM_IN_SNAPSHOT"}
         entry = {"abbreviation": team.get("abbreviation"), "espn_team_id": tid, "role_state": roles["state"],
-                 "role_detail": {k: v for k, v in roles.items() if k not in ("stars", "state")}, "stars": []}
+                 "role_detail": {k: v for k, v in roles.items() if k not in ("stars", "state")},
+                 "team_injury_list_present": team_list_present, "stars": []}
+        if not team_list_present and state != "STAR_OUT":
+            state, reason = "UNKNOWN", f"{side.upper()}_TEAM_INJURY_LIST_NOT_PRESENT"
         if roles["state"] != "KNOWN":
             if state != "STAR_OUT":
                 state, reason = "UNKNOWN", f"{side.upper()}_{roles.get('reason', 'ROLE_UNKNOWN')}"
         else:
             for star in roles["stars"]:
                 row = listed.get(star["espn_athlete_id"])
-                status = row["status"] if row else "AVAILABLE"
+                status = row["status"] if row else ("AVAILABLE" if team_list_present else "UNKNOWN")
                 entry["stars"].append({**star, "status": status, "raw_status": row["raw_status"] if row else None,
                                        "listed_at": row["listed_at"] if row else None})
                 if status in TRIGGER:
