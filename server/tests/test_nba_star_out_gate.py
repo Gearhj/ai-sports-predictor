@@ -200,3 +200,24 @@ def test_no_list_held_by_t90_fails_closed(season):
     _snapshot(season, held_at_t90=False)                                     # only a post-T-90 snapshot exists
     r = av.assess(GAME, DECIDE, _settings(season))
     assert r["state"] == "UNKNOWN" and r["reason"] == "NO_INJURY_LIST_HELD_BY_T90"
+
+
+# ---- Codex producer features as a nonfunding research receipt (10-27) -----------------------------------------
+def test_every_decision_carries_the_research_receipt_and_it_never_changes_the_outcome(season):
+    _snapshot(season)
+    d = {"outcome": "QUALIFIED", "reason": "EDGE", "selection": {"sportsbook": "dk", "odds_snapshot_id": 1}}
+    s = _settings(season, nba_star_out_gate_effective_from=(TIP - timedelta(days=1)).isoformat())
+    r = av.apply(d, GAME, DECIDE, s)
+    feats = r["injury_features"]
+    assert feats["funding_authority"] is False
+    assert feats["schema"] == "AISP_NBA_INJURY_RESEARCH_RECEIPT_V1"
+    assert r["outcome"] == "QUALIFIED"                      # CLEAR gate: the receipt changes nothing
+
+
+def test_a_broken_producer_copy_is_unknown_not_a_failed_decision(season, monkeypatch):
+    from app.nba import injury_research
+    monkeypatch.setattr(injury_research, "PRODUCER_SHA256", "0" * 64)
+    _snapshot(season)
+    r = av.apply({"outcome": "PASS", "reason": "NO_EDGE"}, GAME, DECIDE, _settings(season))
+    assert r["injury_features"]["state"] == "UNKNOWN" and r["injury_features"]["reason"] == "PRODUCER_HASH_MISMATCH"
+    assert r["outcome"] == "PASS"

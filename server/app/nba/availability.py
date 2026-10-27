@@ -225,7 +225,8 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
                 sched = json.loads(sched_path.read_bytes())
             else:
                 sched = json.loads(get(f"{BASE}/teams/{tid}/schedule?seasontype=2")); requests += 1
-                compact = {"team": tid, "season": (sched.get("season") or {}).get("year"),
+                compact = {"team": tid, "season": (sched.get("season") or {}).get("year"), "season_type": 2,
+                           "held_at_utc": datetime.now(UTC).isoformat(),
                            "events": [{"id": str(e.get("id")), "date": e.get("date"),
                                        "completed": bool((((e.get("competitions") or [{}])[0].get("status") or {}).get("type") or {}).get("completed"))}
                                       for e in sched.get("events") or []]}
@@ -239,6 +240,7 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
                     continue
                 box = parse_box(json.loads(get(f"{BASE}/summary?event={e['id']}")), espn_event_id=e["id"]); requests += 1
                 if box["completed"]:
+                    box["held_at_utc"] = datetime.now(UTC).isoformat()
                     _write_once(box_path, _dump(box)); boxes += 1
         except Exception as error:  # noqa: BLE001
             failures.append(f"team {tid}: {type(error).__name__}")
@@ -370,6 +372,11 @@ def apply(decision: dict[str, Any], game: dict[str, Any], moment: datetime, sett
     except Exception as error:  # noqa: BLE001 - an unreadable source is UNKNOWN, never healthy
         receipt = {"rule": RULE, "state": "UNKNOWN", "reason": f"ASSESSMENT_FAILED:{type(error).__name__}"}
     result = {**decision, "availability": receipt}
+    try:
+        from app.nba.injury_research import features
+        result["injury_features"] = features(game, _aware(moment), root(settings))  # nonfunding research receipt
+    except Exception as error:  # noqa: BLE001
+        result["injury_features"] = {"state": "UNKNOWN", "reason": f"FEATURES_FAILED:{type(error).__name__}", "funding_authority": False}
     if decision.get("outcome") != "QUALIFIED" or not gate_active(settings, moment) or receipt.get("state") == "CLEAR":
         return result
     reason = REASON_OUT if receipt.get("state") == "STAR_OUT" else REASON_UNKNOWN
