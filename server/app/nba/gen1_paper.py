@@ -555,7 +555,11 @@ def record(session: Session, era: ShadowExperiment, game: dict[str, Any], decisi
             return _jsonable({**decision, "persisted": "REUSED_EXISTING_DECISION", "decision_id": prior.id,
                               "position_id": position.id if position else None})
     selection = decision.get("selection") or decision.get("best") or {}
+    from app.nba.availability import apply as apply_star_out
     from app.services.owner_funding_restrictions import apply_to_decision
+    # The star-out gate first (owner 2026-10-27): its receipt rides on every NBA decision, and a star listed out
+    # (or unprovable availability) records the decision with no stake before the sport-wide switches are read.
+    decision = apply_star_out(decision, game, moment, settings)
     decision = apply_to_decision(decision, "NBA", moment, settings)
     qualified = decision["outcome"] == "QUALIFIED"
     american = selection.get("american_odds")

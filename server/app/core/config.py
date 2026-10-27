@@ -523,6 +523,14 @@ class Settings(BaseSettings):
     #: owner_funding_restrictions mechanism as the MLB 2026 record-only scope.
     #: Never backdate over old decisions; existing positions are never rewritten.
     nba_paper_funding_record_only_effective_from: datetime | None = None
+    #: NBA star-out gate (owner 2026-10-27, app/nba/availability.py). The collector asks ESPN's free public
+    #: game summary / schedule / box scores ($0, keyless) for NBA games in the next 8 hours and writes
+    #: immutable files under NBA_AVAILABILITY_ROOT (default <repo>/.runtime/nba-availability). The gate
+    #: clock, once set, records a qualifying NBA decision with no stake when a top-2-minutes player of either
+    #: team is OUT / DOUBTFUL / QUESTIONABLE or availability cannot be proved. Unset = receipts only.
+    nba_availability_collector_enabled: bool = False
+    nba_availability_root: str | None = None
+    nba_star_out_gate_effective_from: datetime | None = None
     #: CFB paper funding RECORD-ONLY (owner decision 2026-10-25). Same mechanism
     #: and semantics as NBA above: unset (default) = CFB funds exactly as today;
     #: set to the ACTUAL release UTC clock and every CFB decision made at or after

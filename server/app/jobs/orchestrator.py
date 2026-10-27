@@ -132,6 +132,7 @@ AVAILABLE_JOBS = {
     "collect-odds-close-captures": "Collect Odds API h2h Captures at T-30, T-15 and Near the Close (every Odds API sport; guarded)",
     "run-last-chance-checkpoints": "Run Each Sport's Paper Checkpoint Once at T-16 (last chance inside the decision window)",
     "ingest-nhl-finals-espn": "Ingest NHL Finals From ESPN's Free Public Scoreboard (results for NHL settlement; off by default)",
+    "collect-nba-availability": "Collect NBA Injury Lists and Box-Score Minutes From ESPN's Free Public Feeds (star-out gate; off by default)",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
@@ -326,6 +327,7 @@ class JobOrchestrator:
             "collect-odds-close-captures": self.collect_odds_close_captures,
             "run-last-chance-checkpoints": self.run_last_chance_checkpoints,
             "ingest-nhl-finals-espn": self.ingest_nhl_finals_espn,
+            "collect-nba-availability": self.collect_nba_availability,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
@@ -774,6 +776,13 @@ class JobOrchestrator:
             if not mine:
                 return _checkpoint_already_running("evaluate-nhl-paper-checkpoint")
             return run_checkpoint(self.session, self.settings)
+
+    async def collect_nba_availability(self, event_date: date) -> dict[str, Any]:
+        """ESPN injury snapshots and box-score minutes for the NBA star-out gate; files only, $0, off by default."""
+
+        from app.nba.availability import collect
+
+        return collect(self.session, self.settings)
 
     async def ingest_nhl_finals_espn(self, event_date: date) -> dict[str, Any]:
         """NHL finals from ESPN's free public scoreboard into ``nhl_game_results``; $0, OFF by default.

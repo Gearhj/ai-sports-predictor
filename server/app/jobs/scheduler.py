@@ -899,6 +899,19 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "collect-nfl-live-scores-espn", "settings": settings},
             **common,
         )
+    # NBA star-out gate inputs (owner 2026-10-27): ESPN injury lists every 10 minutes for games in the next
+    # 8 hours, plus any missing box score. Its own asp-ls- lane; no NBA game ahead = no request.
+    if getattr(settings, "nba_availability_collector_enabled", False):
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=10,
+            jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+            id="asp-ls-nba-availability",
+            kwargs={"job_name": "collect-nba-availability", "settings": settings},
+            **common,
+        )
     # NFL pregame odds: one object, spent close to a game's decision
     # checkpoint so the quote is still inside the 240-minute freshness window
     # when the policy evaluates it. Every cycle outside a game's 75-minute
