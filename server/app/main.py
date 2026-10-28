@@ -187,6 +187,9 @@ def create_app(settings=None) -> FastAPI:
     )
     application.include_router(router, prefix=settings.api_v1_prefix)
     application.include_router(house_divided_router, prefix=settings.api_v1_prefix)
+    from app.api.feedback_routes import router as feedback_router
+
+    application.include_router(feedback_router, prefix=settings.api_v1_prefix)
     # The redesigned site's live feeds (Live View, scores, logos, insights, the Booth): reads only, 2026-10-25.
     from app.api.preview_feeds_routes import router as preview_feeds_router
 
