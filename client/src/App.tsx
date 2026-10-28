@@ -9,6 +9,7 @@ import { SportSelectionProvider, legacySportHref, sportHref } from './hooks/useS
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 import { BuildRefresh } from './components/BuildRefresh'
 
+const UnderdogPage = lazy(() => import('./features/underdogs/UnderdogPage').then((module) => ({ default: module.UnderdogPage })))
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
 const LabsPage = lazy(() => import('./pages/LabsPage').then((module) => ({ default: module.LabsPage })))
 const MultiSportTodayPage = lazy(() => import('./pages/MultiSportTodayPage').then((module) => ({ default: module.MultiSportTodayPage })))
@@ -121,6 +122,7 @@ export default function App() {
                 {/* UFC Fight Night (2026-10-25): historical archive, orientation-corrected, test mode. */}
                 <Route path="mma" element={<MmaPage />} />
                 <Route path="start" element={<StartPage />} />
+                <Route path="underdogs" element={<UnderdogPage />} />
                 <Route path="mmqb" element={<MmqbPage />} />
                 {/* Model Lab withdrawn 2026-10-25 (owner: real model-building tools or none); the code stays for the rebuild. */}
                 <Route path="model-lab" element={<Navigate to="/performance" replace />} />

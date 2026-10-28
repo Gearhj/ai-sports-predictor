@@ -126,7 +126,8 @@ async def insights(kind: str, days: int = 0) -> JSONResponse:
 
     days = max(1, min(120, days)) if days else 0
     calls = {"closing": lambda: insights_db.beat_the_close(days or 75), "movers": insights_db.movers,
-             "lab": lambda: insights_db.lab(days or 75), "closes": lambda: insights_db.closes(days or 21)}
+             "lab": lambda: insights_db.lab(days or 75), "closes": lambda: insights_db.closes(days or 21),
+             "underdogs": lambda: insights_db.underdogs(days or 120)}
     if kind not in calls:
         return _json({"error": "unknown insights endpoint"}, 404)
     try:

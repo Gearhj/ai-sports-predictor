@@ -8,6 +8,7 @@ import statistics
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 SERVER = r"C:\Users\james\ai-sports-predictor\server"
 if SERVER not in sys.path:
@@ -211,6 +212,83 @@ def lab(days: int = 75):
         rows.sort(key=lambda r: r["date"])
         return {"rows": rows, "days": days, "method": "AISP model probability from the latest FINAL_PREGAME (else latest) moneyline decision per game; market = closing no-vig consensus; best closing price across books"}
     return _cached(f"lab{days}", 600, run)
+
+
+def _closing_lines_team_keyed(days: int):
+    """MLB stores moneyline sides by full team name ("tampa bay rays:None"), not HOME/AWAY; map them through the
+    game's own teams. Same closing rule as _closing_lines."""
+    return _rows("""
+      with ml as (
+        select m.game_id, mo.id as mo_id, case when gt.is_home then 'HOME' else 'AWAY' end as side
+        from markets m join market_outcomes mo on mo.market_id = m.id
+        join game_teams gt on gt.game_id = m.game_id join teams t on t.id = gt.team_id
+        where m.market_type = 'MONEYLINE' and lower(t.name) = split_part(mo.outcome_key, ':', 1))
+      select distinct on (s.sportsbook_id, s.market_outcome_id)
+             ml.game_id, ml.side, s.sportsbook_id, b.name as book, s.decimal_odds, s.american_odds, s.observed_at
+      from odds_snapshots s
+      join ml on ml.mo_id = s.market_outcome_id
+      join games g on g.id = ml.game_id
+      join sportsbooks b on b.id = s.sportsbook_id
+      where g.starts_at > now() - make_interval(days => :days) and s.observed_at <= g.starts_at and s.decimal_odds > 1
+      order by s.sportsbook_id, s.market_outcome_id, s.observed_at desc
+    """, {"days": days})
+
+
+def _us_book(key) -> bool:
+    from app.services.execution_books import US_REGULATED, classify
+    return classify(key) == US_REGULATED
+
+
+def underdogs(days: int = 120):
+    """THE UNDERDOG REPORT (Scotty, 10-28: "how many times did the underdog win?"). Every finished, untied game in
+    the last `days` with a two-sided closing market: the underdog is the side the closing no-vig consensus priced
+    under 50%; its best closing price across books; who won; and AISP's paper position on the game, if any."""
+    def run():
+        cons = _consensus(_closing_lines(days) + _closing_lines_team_keyed(days))
+        games = _rows(f"""
+          select g.id as game_id, {_league_of_game_sql()} as league, g.starts_at, g.home_score, g.away_score,
+                 (select case when t.abbreviation like 'CFBD%' then t.name else t.abbreviation end from game_teams gt join teams t on t.id = gt.team_id where gt.game_id = g.id and gt.is_home) as home,
+                 (select case when t.abbreviation like 'CFBD%' then t.name else t.abbreviation end from game_teams gt join teams t on t.id = gt.team_id where gt.game_id = g.id and not gt.is_home) as away
+          from games g
+          where g.status = 'FINAL' and g.home_score is not null and g.away_score is not null and g.home_score <> g.away_score
+            and g.starts_at > now() - make_interval(days => :days) and g.source_mode <> 'DEMO'
+        """, {"days": days})
+        pos = _rows("""
+          select m.game_id, p.result, p.stake, p.payout, p.decimal_odds,
+                 -- MLB keys sides by full team name ("tampa bay rays:None"); map those through the game's own teams.
+                 coalesce(case when upper(split_part(mo.outcome_key, ':', 1)) in ('HOME', 'AWAY') then upper(split_part(mo.outcome_key, ':', 1)) end,
+                          (select case when gt.is_home then 'HOME' else 'AWAY' end from game_teams gt join teams t on t.id = gt.team_id
+                           where gt.game_id = m.game_id and lower(t.name) = split_part(mo.outcome_key, ':', 1) limit 1)) as side
+          from official_asp_positions p join market_outcomes mo on mo.id = p.market_outcome_id join markets m on m.id = mo.market_id
+          where m.market_type = 'MONEYLINE' and p.status <> 'VOID'
+        """)
+        by_pos = {}
+        for r in pos:
+            by_pos.setdefault(r["game_id"], r)
+        rows = []
+        for g in games:
+            c = cons.get(g["game_id"])
+            if not c or c["home"] is None or c["books"] < 2 or abs(c["home"] - 0.5) < 1e-9:
+                continue
+            dog = "HOME" if c["home"] < 0.5 else "AWAY"
+            dog_p = c["home"] if dog == "HOME" else 1 - c["home"]
+            # Owner rule AISP_OWNER_US_REGULATED_EXECUTION_ONLY_V1: offshore books feed the consensus, never the price.
+            best = max((float(v[dog]["decimal_odds"]) for k, v in c["prices"].items() if dog in v and _us_book(k)), default=None)
+            home_won = g["home_score"] > g["away_score"]
+            ap = by_pos.get(g["game_id"])
+            rows.append({
+                "sport": SPORT.get(g["league"], g["league"]), "date": g["starts_at"].astimezone(ZoneInfo("America/New_York")).date().isoformat(),
+                "home": g["home"], "away": g["away"], "dog": dog, "dog_team": g["home"] if dog == "HOME" else g["away"],
+                "fav_team": g["away"] if dog == "HOME" else g["home"], "dog_p": round(dog_p, 4), "books": c["books"],
+                "dog_best_decimal": best, "dog_won": home_won == (dog == "HOME"),
+                "score": f"{g['away']} {g['away_score']} - {g['home_score']} {g['home']}",
+                "aisp": None if not ap else {"side": ap["side"], "on_dog": ap["side"] == dog, "result": ap["result"],
+                                               "stake": float(ap["stake"] or 0), "payout": float(ap["payout"] or 0)},
+            })
+        rows.sort(key=lambda r: r["date"])
+        return {"rows": rows, "days": days,
+                "method": "Underdog = the side the closing no-vig consensus (median across books quoting both sides at or before the start) priced under 50%. Finished, untied games with at least two books. Price = best closing decimal at a US-regulated book."}
+    return _cached(f"dogs{days}", 600, run)
 
 
 def closes(days: int = 21):

@@ -38,3 +38,14 @@ def test_lite_football_thins_the_win_probability(monkeypatch):
     monkeypatch.setattr(feeds, "football_live", lambda *a: {"found": True, "teams": [], "win_probability": list(range(400)), "plays": [1, 2]})
     body = _client().get("/preview-api/football/live?league=nfl&date=20261025&lite=1").json()
     assert "plays" not in body and len(body["win_probability"]) <= 82 and body["win_probability"][-1] == 399
+
+
+def test_underdogs_insight_is_served_and_days_are_clamped(monkeypatch):
+    from app.preview_feeds import insights_db
+
+    seen = []
+    monkeypatch.setattr(insights_db, "underdogs", lambda days=120: seen.append(days) or {"rows": [], "days": days})
+    c = _client()
+    assert c.get("/preview-api/insights/underdogs").json() == {"rows": [], "days": 120}
+    assert c.get("/preview-api/insights/underdogs?days=9999").status_code == 200
+    assert seen == [120, 120]

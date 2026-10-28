@@ -35,7 +35,8 @@ export const AISP_NAV: Array<{ title: string; items: NavItem[] }> = [
   ] },
   { title: 'DIG DEEPER', items: [
     { to: '/markets', label: 'Markets & Crowd', icon: '◇', ask: 'Best price, value plays, line moves and the prediction markets.', next: '/labs' },
-    { to: '/labs', label: 'Game Simulator', icon: '⚗', ask: 'Play any game thousands of times and see every outcome.', next: '/research/history' },
+    { to: '/labs', label: 'Game Simulator', icon: '⚗', ask: 'Play any game thousands of times and see every outcome.', next: '/underdogs' },
+    { to: '/underdogs', label: 'Underdog Report', icon: '🐶', ask: 'How often the underdog really won, by sport, against what the market expected.', next: '/research/history' },
     { to: '/research/history', label: 'Historical Research', icon: '⌛', ask: 'Past seasons and past games, for your own digging.', next: '/methodology' },
     { to: '/methodology', label: 'Methodology', icon: '?', ask: 'How AISP builds its numbers, in plain English.', next: '/start' },
   ] },
