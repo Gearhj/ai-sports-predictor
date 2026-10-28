@@ -207,6 +207,7 @@ def test_forecast_freshness_bands_are_measured_at_the_start_once_started():
     ({"recommendation": "DECLINED"}, "SHARED_ALLOWANCE_EXHAUSTED", "PASS"),
     ({"recommendation": "DECLINED"}, "SHARED_ROOM_RESERVED_FOR_PRIORITY_SPORTS", "PASS"),   # MLB/NHL first
     ({"recommendation": "DECLINED"}, "STAKE_BELOW_MINIMUM", "PASS"),          # the owner's $1 floor (MEM@UTA 10-26)
+    ({"recommendation": "DECLINED"}, "NO_US_REGULATED_PRICE", "PASS"),        # US books only (MTL@STL 10-27)
     ({"recommendation": "DECLINED"}, "NO_TWO_SIDED_QUOTE", "NO_PRICE"),
     ({"recommendation": "DECLINED"}, "ACTIVATION_CONTROL_OFF", "NOT_ACTIVATED"),
     ({"recommendation": "BLOCKED"}, "SCHEDULE_DRIFT", "BLOCKED"),

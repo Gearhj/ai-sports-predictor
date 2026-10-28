@@ -123,10 +123,11 @@ BLOCKING_REASONS = frozenset({
 #: Recorded reasons that are a priced decline (a real pass): CFB/NHL's NO_QUALIFYING_EDGE, NFL's
 #: NO_QUALIFYING_VALUE (nfl_paper_decision: no side of a fresh permitted pair cleared the minimum), and the
 #: allowance/one-position refusals, and STAKE_BELOW_MINIMUM (the owner's $1 floor, 10-25): a priced decision
-#: whose quarter-Kelly stake rounds under $1 is a pass, not a missing decision.
+#: whose quarter-Kelly stake rounds under $1 is a pass, not a missing decision. NO_US_REGULATED_PRICE (the owner's
+#: US-books-only rule, 10-25): only an offshore book offered a qualifying price -- a value pass, not a missing one.
 PASS_REASONS = frozenset({"NO_QUALIFYING_EDGE", "NO_QUALIFYING_VALUE", "SHARED_ALLOWANCE_EXHAUSTED",
                           "SHARED_ROOM_RESERVED_FOR_PRIORITY_SPORTS", "GAME_ALREADY_HOLDS_A_POSITION",
-                          "STAKE_BELOW_MINIMUM"})
+                          "STAKE_BELOW_MINIMUM", "NO_US_REGULATED_PRICE"})
 #: The budget declines inside PASS_REASONS (AISP_SHARED_100_PRIORITY_MLB_NHL_V1): evaluated at a usable price
 #: and the value qualified, but the shared $100 had no room -- fully entered, or its rest held for MLB/NHL games
 #: still to decide. Declined for budget, never a no-bet. Only the held room can free up (each sport's checkpoint
@@ -140,6 +141,7 @@ REASON_TEXT = {
     "SHARED_ROOM_RESERVED_FOR_PRIORITY_SPORTS": "the rest of the shared $100 was held for MLB and NHL games still to decide",
     "GAME_ALREADY_HOLDS_A_POSITION": "this game already holds a position",
     "STAKE_BELOW_MINIMUM": "the stake would have been under the $1 minimum",
+    "NO_US_REGULATED_PRICE": "only an offshore book offered a qualifying price (US-regulated books only)",
     "AFTER_DECISION_CUTOFF": "the decision clock was after T-15",
     "BEFORE_DECISION_WINDOW": "the decision clock was before T-30",
     "SCHEDULE_DRIFT": "the game moved after its forecast was made",
