@@ -7,6 +7,7 @@
  * of the official forecast's own simulation, or from an observed market quote
  * that names its source. Nothing is generated in the browser.
  */
+import { esc } from '../charts/escapeHtml'
 import ReactECharts from 'echarts-for-react'
 import { ArrowLeft, ChevronRight, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -641,7 +642,7 @@ function ScoreHeatmap({
     },
     tooltip: {
       formatter: (p: { data: [number, number, number] }) =>
-        `${awayTeam} ${joint.away_labels[p.data[0]]} — ${homeTeam} ${joint.home_labels[p.data[1]]}<br/>`
+        `${esc(awayTeam)} ${esc(joint.away_labels[p.data[0]])} — ${esc(homeTeam)} ${esc(joint.home_labels[p.data[1]])}<br/>`
         + `${(p.data[2] * 100).toFixed(2)}% of simulations`,
     },
     series: [{ type: 'heatmap', data: cells, progressive: 0, itemStyle: { borderColor: '#ffffff', borderWidth: 0.5 } }],

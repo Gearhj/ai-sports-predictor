@@ -56,6 +56,24 @@ class Settings(BaseSettings):
     auth_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
     admin_rate_limit_per_minute: int = Field(default=60, ge=1, le=5000)
     rate_limit_trust_forwarded_for: bool = False
+    #: Behind Cloudflare Tunnel every visitor reaches uvicorn as 127.0.0.1; trust Cloudflare's CF-Connecting-IP header,
+    #: but only when the connection itself comes from this machine (the tunnel), never from a remote client.
+    rate_limit_trust_cf_connecting_ip: bool = False
+    #: Per-account login lockout (security review 10-27): this many failed passwords for one email inside the window
+    #: lock that email out for the rest of the window, whatever IP the attempts come from.
+    login_failure_limit: int = Field(default=5, ge=1, le=100)
+    login_failure_window_seconds: int = Field(default=900, ge=60, le=86_400)
+    #: Who may create an account. "invite" (default): only an email on REGISTRATION_ALLOWLIST; "closed": nobody
+    #: (the admin creates accounts); "open": anyone (never for a shared deployment).
+    registration_mode: Literal["invite", "closed", "open"] = "invite"
+    registration_allowlist: str = ""
+    #: Host names this backend answers to (TrustedHostMiddleware). The public tunnel name is added at deploy time.
+    trusted_hosts: str = "127.0.0.1,localhost,aisportspredictor.app"
+    #: The Booth (paid language-model answers): signed-in users only, a per-user cap and a whole-site daily cap.
+    #: Per-visitor brake on the CPU-heavy research calculators (scenario re-forecast, probability evaluate).
+    compute_rate_limit_per_minute: int = Field(default=30, ge=1, le=10_000)
+    booth_per_user_per_day: int = Field(default=20, ge=0, le=1000)
+    booth_site_per_day: int = Field(default=200, ge=0, le=100_000)
 
     the_odds_api_key: str = ""
     odds_polling_enabled: bool = False
@@ -879,6 +897,14 @@ class Settings(BaseSettings):
                 if not origin.startswith("https://"):
                     raise ValueError("Production CORS_ORIGINS entries must be explicit https:// origins")
         return self
+
+    @property
+    def registration_allowlist_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.registration_allowlist.split(",") if e.strip()}
+
+    @property
+    def trusted_host_list(self) -> list[str]:
+        return [h.strip() for h in self.trusted_hosts.split(",") if h.strip()]
 
     @property
     def owns_odds_collection(self) -> bool:

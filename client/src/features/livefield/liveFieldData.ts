@@ -16,6 +16,7 @@
  * endpoints exist only on the test-mode server; a production build shows the
  * AISP layer and says the field feed is not wired.
  */
+import { boothAuth } from '../../services/boothAuth'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useApiResource } from '../../hooks/useApiResource'
 import { apiRequest } from '../../services/api'
@@ -166,7 +167,7 @@ export function useBooth(contextRef: { current: unknown }) {
     setTurns((prev) => [{ id, question: q, answer: null, error: null, at: Date.now() }, ...prev].slice(0, 6))
     try {
       const res = await fetch('/preview-api/booth', {
-        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
+        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', ...boothAuth() },
         body: JSON.stringify({ question: q, context: contextRef.current }),
       })
       const type = res.headers.get('content-type') ?? ''

@@ -9,6 +9,12 @@ REPORT_FRAME_HEADER = "X-AISP-Frame-Policy"
 #: Static HTML report pages: inline styles and same-origin images only; no script, no form, framed only by this origin.
 REPORT_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; "
                    "form-action 'none'; frame-ancestors 'self'")
+#: The single-page app (security review 10-27): scripts only from this origin, so an injected script tag or a
+#: compromised third party cannot run; images from team-logo CDNs; data only from this origin.
+APP_PAGE_CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self'; "
+                "worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
+                "frame-ancestors 'none'")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -36,6 +42,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Content-Security-Policy"] = REPORT_PAGE_CSP
         elif request.url.path.startswith("/api/"):
             response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        elif (response.headers.get("content-type") or "").startswith("text/html"):
+            response.headers["Content-Security-Policy"] = APP_PAGE_CSP
         if self.hsts:
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return response

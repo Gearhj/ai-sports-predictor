@@ -57,6 +57,25 @@ class InMemoryRateLimiter:
             bucket.append(now)
             return None
 
+    def count(self, key: str, window_seconds: float) -> int:
+        """How many hits ``key`` has inside the window (does not register one)."""
+        cutoff = self._clock() - window_seconds
+        with self._lock:
+            bucket = self._hits.get(key)
+            if not bucket:
+                return 0
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+            return len(bucket)
+
+    def record(self, key: str) -> None:
+        with self._lock:
+            self._hits.setdefault(key, deque()).append(self._clock())
+
+    def clear(self, key: str) -> None:
+        with self._lock:
+            self._hits.pop(key, None)
+
     def reset(self) -> None:
         with self._lock:
             self._hits.clear()
@@ -70,6 +89,12 @@ def get_rate_limiter() -> InMemoryRateLimiter:
 
 
 def _client_key(request: Request, settings) -> str:
+    client = request.client
+    local = client is not None and client.host in ("127.0.0.1", "::1")
+    if getattr(settings, "rate_limit_trust_cf_connecting_ip", False) and local:
+        cf = (request.headers.get("cf-connecting-ip") or "").strip()
+        if cf:
+            return cf
     if settings.rate_limit_trust_forwarded_for:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
@@ -85,6 +110,8 @@ def _limit_for(settings, category: str) -> int:
         return settings.auth_rate_limit_per_minute
     if category == "admin":
         return settings.admin_rate_limit_per_minute
+    if category == "compute":
+        return getattr(settings, "compute_rate_limit_per_minute", 30)
     return 0
 
 

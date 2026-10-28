@@ -7,6 +7,7 @@
  * Source: the command-center ledger (AISP_COMMAND_CENTER_LEDGER_V1) and the day's games for live state. This
  * is the $5,000 paper experiment: nothing here places, suggests or sizes a real-money wager.
  */
+import { boothAuth } from '../../services/boothAuth'
 import { BeatTheClose } from '../edge/BeatTheClose'
 import { MoneyRiver } from './MoneyRiver'
 import { AispSide } from '../flow/AispSide'
@@ -353,7 +354,7 @@ function CoachMe({ stats: s }: { stats: Record<string, unknown> }) {
   const ask = async () => {
     setState({ busy: true, answer: null, error: null })
     try {
-      const res = await fetch('/preview-api/booth', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: 'Read this paper betting record back to me like a coach: where is it strongest, where is it struggling, and what does the data say about stake sizing? Do not tell me to place any bet.', context: { page: 'AISP Record (paper experiment, no real money)', ...s } }) })
+      const res = await fetch('/preview-api/booth', { method: 'POST', headers: { 'content-type': 'application/json', ...boothAuth() }, body: JSON.stringify({ question: 'Read this paper betting record back to me like a coach: where is it strongest, where is it struggling, and what does the data say about stake sizing? Do not tell me to place any bet.', context: { page: 'AISP Record (paper experiment, no real money)', ...s } }) })
       const type = res.headers.get('content-type') ?? ''
       if (!type.includes('json')) throw new Error('The coach is not available right now.')
       const body = (await res.json()) as { answer?: string; error?: string }

@@ -52,8 +52,7 @@ def default_dist() -> Path:
 def build_identity(dist: Path) -> dict[str, Any]:
     index = dist / "index.html"
     if not index.is_file():
-        return {"present": False, "dist": str(dist),
-                "detail": "No production build is present; run the frontend build."}
+        return {"present": False, "detail": "No production build is present; run the frontend build."}
     identity_file = dist / "build-identity.json"
     identity: dict[str, Any] = {}
     if identity_file.is_file():
@@ -63,7 +62,6 @@ def build_identity(dist: Path) -> dict[str, Any]:
             identity = {"unreadable": True}
     return {
         "present": True,
-        "dist": str(dist),
         "index_sha256": hashlib.sha256(index.read_bytes()).hexdigest(),
         "assets": len(list((dist / "assets").glob("*"))) if (dist / "assets").is_dir() else 0,
         "build": identity,

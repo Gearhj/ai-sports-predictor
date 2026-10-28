@@ -35,11 +35,20 @@ def public_user(user: User) -> AuthUser:
     )
 
 
+class RegistrationClosedError(Exception):
+    pass
+
+
 def register_user(session: Session, settings: Settings, email: str, password: str, display_name: str) -> AuthResponse:
     normalized_email = email.strip().lower()
+    mode = getattr(settings, "registration_mode", "invite")
+    # Security review 10-27: a shared deployment never lets strangers in. "invite" admits only an email the owner
+    # listed; one account per email makes each invitation single-use.
+    if mode == "closed" or (mode == "invite" and normalized_email not in settings.registration_allowlist_set):
+        raise RegistrationClosedError("Registration is by invitation. Ask the owner to add your email.")
     existing = session.scalar(select(User).where(func.lower(User.email) == normalized_email))
     if existing:
-        raise DuplicateEmailError("An account with this email already exists")
+        raise DuplicateEmailError("This invitation has already been used. Sign in instead.")
     user = User(
         email=normalized_email,
         password_hash=hash_password(password),

@@ -63,6 +63,9 @@ def settings(artifact_root: Path) -> Settings:
         show_preview_enabled=False,
         show_preview_provider_collection_enabled=False,
         show_preview_auto_freeze_enabled=False,
+        # Most tests register throwaway members; invite-only registration has its own tests
+        # (test_security_hardening_20261027.py), which set the mode they need.
+        registration_mode="open",
     )
 
 

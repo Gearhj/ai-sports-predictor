@@ -66,7 +66,7 @@ def test_development_localhost_origins_still_allowed() -> None:
 
 
 def test_production_disables_docs() -> None:
-    prod_app = create_app(_prod_settings(cors_origins="https://app.example.com"))
+    prod_app = create_app(_prod_settings(cors_origins="https://app.example.com", trusted_hosts="testserver"))
     assert prod_app.docs_url is None
     assert prod_app.redoc_url is None
     assert prod_app.openapi_url is None
@@ -201,3 +201,11 @@ def test_issued_token_carries_jti_and_version(client, settings) -> None:
     assert payload["jti"]
     assert payload["ver"] == 0
     assert payload["type"] == "access"
+
+
+def test_production_refuses_unknown_host_names() -> None:
+    """TrustedHostMiddleware (security review 10-27): a request naming another host is refused."""
+    prod_app = create_app(_prod_settings(cors_origins="https://app.example.com", trusted_hosts="testserver"))
+    with TestClient(prod_app) as prod_client:
+        assert prod_client.get("/healthz").status_code == 200
+        assert prod_client.get("/healthz", headers={"Host": "evil.example"}).status_code == 400

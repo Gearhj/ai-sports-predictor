@@ -1,3 +1,4 @@
+import { esc } from '../charts/escapeHtml'
 import { useEffect, useMemo, useState } from 'react'
 import { AnalyticsChart, chartTheme } from '../charts/AnalyticsChart'
 import { Panel, TableScroll } from './ui'
@@ -132,7 +133,7 @@ export function MarketProbabilityComparison({ rows }: { rows: MarketPulseRow[] }
       formatter: (p: { seriesName: string; data?: { name?: string; detail?: string; value?: number[] } }) => {
         const d = p.data
         if (!d || !d.value) return ''
-        return `<b>${d.name ?? ''}</b> · ${p.seriesName}<br/>${(d.value[0]).toFixed(1)}% home win<br/>${(d.detail ?? '').replace(/\n/g, '<br/>')}`
+        return `<b>${esc(d.name)}</b> · ${esc(p.seriesName)}<br/>${(d.value[0]).toFixed(1)}% home win<br/>${esc(d.detail).replace(/\n/g, '<br/>')}`
       },
     },
     xAxis: { type: 'value', min: 0, max: 100, axisLabel: { formatter: '{value}%', color: chartTheme.muted }, splitLine: { lineStyle: { color: chartTheme.grid } } },

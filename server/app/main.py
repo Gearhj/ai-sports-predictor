@@ -172,6 +172,12 @@ def create_app(settings=None) -> FastAPI:
 
         application.add_middleware(ReadCacheMiddleware, prefix=settings.api_v1_prefix)
     application.add_middleware(SecurityHeadersMiddleware, hsts=is_production)
+    if settings.app_env != "test":
+        # Answer only to this machine's names and the public tunnel name (security review 10-27: Host-header and
+        # DNS-rebinding attacks).
+        from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+        application.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_host_list)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -228,7 +234,8 @@ def create_app(settings=None) -> FastAPI:
     async def source_error_handler(request: Request, exc: SourceError) -> JSONResponse:
         return JSONResponse(
             status_code=503 if exc.retryable else 424,
-            content={"detail": str(exc), "source": exc.source, "retryable": exc.retryable},
+            # The source name and whether to retry, never the exception text (paths, URLs, provider detail).
+            content={"detail": "An upstream data source is unavailable.", "source": exc.source, "retryable": exc.retryable},
         )
 
     # Last, so the SPA fallback can never answer an API, probe or docs path.

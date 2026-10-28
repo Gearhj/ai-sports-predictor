@@ -26,6 +26,7 @@
  * is only a fallback for older payloads that omit it, and it is the running
  * maximum by definition rather than a re-derivation of anything.
  */
+import { esc } from './escapeHtml'
 import { useMemo } from 'react'
 import { AnalyticsChart, chartTheme } from './AnalyticsChart'
 import type { EquityCurvePoint } from '../types/domain'
@@ -103,14 +104,14 @@ export function EquityCurveChart({
           if (!point || index == null) return ''
           const opening = point.sequence === 0 || point.sequence == null
           const head = opening
-            ? `<strong>Opening bankroll</strong> · ${point.date}`
-            : `<strong>Settlement #${point.sequence}</strong> · ${point.date}`
+            ? `<strong>Opening bankroll</strong> · ${esc(point.date)}`
+            : `<strong>Settlement #${esc(point.sequence)}</strong> · ${esc(point.date)}`
           const rows = [head]
           if (!opening && point.selection) {
             const colour = point.result ? RESULT_COLOUR[point.result] ?? chartTheme.muted : chartTheme.muted
             rows.push(
-              `${point.selection}` +
-              (point.result ? ` · <span style="color:${colour};font-weight:700">${point.result}</span>` : ''),
+              `${esc(point.selection)}` +
+              (point.result ? ` · <span style="color:${esc(colour)};font-weight:700">${esc(point.result)}</span>` : ''),
             )
           }
           rows.push(`Bankroll ${formatCurrency(point.bankroll)}`)

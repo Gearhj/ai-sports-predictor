@@ -389,7 +389,8 @@ class ScenarioRequest(BaseModel):
     overrides: dict[str, float] = Field(default_factory=dict)
 
 
-@router.post("/games/{game_id}/simulation/scenario", tags=["forecasts"])
+@router.post("/games/{game_id}/simulation/scenario", tags=["forecasts"],
+             dependencies=[Depends(rate_limit("compute:scenario", category="compute"))])
 def game_scenario(
     game_id: UUID,
     request: ScenarioRequest,
@@ -1274,8 +1275,12 @@ def application_health(session: DatabaseSession, user: AdminUser) -> dict:
     dependencies=[Depends(rate_limit("auth:register", category="auth"))],
 )
 def register(body: RegisterRequest, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
+    from app.services.auth_service import RegistrationClosedError
+
     try:
         return register_user(session, settings, body.email, body.password, body.display_name)
+    except RegistrationClosedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except DuplicateEmailError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -1287,10 +1292,23 @@ def register(body: RegisterRequest, session: DatabaseSession, settings: AppSetti
     dependencies=[Depends(rate_limit("auth:login", category="auth"))],
 )
 def login(body: LoginRequest, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
+    # Per-account lockout (security review 10-27): failures are counted per email, so rotating IPs cannot keep
+    # guessing one account's password. A success clears the count.
+    from app.core.rate_limit import get_rate_limiter
+
+    account = f"login-fail:{body.email.strip().lower()}"
+    limiter = get_rate_limiter()
+    if settings.rate_limit_enabled and limiter.count(account, settings.login_failure_window_seconds) >= settings.login_failure_limit:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="Too many failed sign-ins for this account. Try again in 15 minutes.")
     try:
-        return authenticate_user(session, settings, body.email, body.password)
+        response = authenticate_user(session, settings, body.email, body.password)
     except AuthenticationError as exc:
+        if settings.rate_limit_enabled:
+            limiter.record(account)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    limiter.clear(account)
+    return response
 
 
 @router.get("/auth/me", response_model=AuthUser, tags=["authentication"])
@@ -2058,13 +2076,19 @@ def probability_game_story(game_id: str, session: DatabaseSession, settings: App
         raise _probability_error(exc) from exc
 
 
-@router.post("/probability/evaluate", tags=["forecasts"])
+@router.post("/probability/evaluate", tags=["forecasts"],
+             dependencies=[Depends(rate_limit("compute:evaluate", category="compute"))])
 def probability_evaluate(session: DatabaseSession, settings: AppSettings, body: dict = Body(...)) -> dict:
     """One market or a same-game paired-draw intersection over one exact,
     re-verified population. Research only; creates no decision or position."""
 
     from app.probability.adapter import ProbabilityUnavailable
     from app.probability.evaluate import evaluate_request
+
+    import json as _json
+
+    if len(_json.dumps(body, default=str)) > 65_536:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Request too large.")
 
     try:
         return evaluate_request(session, settings, body)

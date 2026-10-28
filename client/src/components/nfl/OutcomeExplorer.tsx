@@ -9,6 +9,7 @@
  * The scoreboard shows a SAMPLED final outcome — a draw from the model's own
  * distribution, labelled as such, because there is no sequential path here.
  */
+import { esc } from '../../charts/escapeHtml'
 import ReactECharts from 'echarts-for-react'
 import { Dices, Info } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -163,7 +164,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
       grid: { left: 44, right: 16, top: 12, bottom: 40 },
       tooltip: {
         formatter: (p: { value: [number, number, number] }) =>
-          `${homeTeam} ${p.value[1]} – ${awayTeam} ${p.value[0]}<br/>${pct(p.value[2], 3)} · click to select`,
+          `${esc(homeTeam)} ${p.value[1]} – ${esc(awayTeam)} ${p.value[0]}<br/>${pct(p.value[2], 3)} · click to select`,
       },
       xAxis: { type: 'category', name: `${awayTeam} points`, nameLocation: 'middle', nameGap: 26, data: Array.from({ length: cap + 1 }, (_, i) => i), axisLabel: { ...AXIS, interval: 6 } },
       yAxis: { type: 'category', name: `${homeTeam} points`, nameLocation: 'middle', nameGap: 30, data: Array.from({ length: cap + 1 }, (_, i) => i), axisLabel: { ...AXIS, interval: 6 } },
@@ -184,7 +185,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
   const marginChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
     animation: false,
-    tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `${homeTeam} by ${p.name}: ${pct(p.value, 3)}` },
+    tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `${esc(homeTeam)} by ${esc(p.name)}: ${pct(p.value, 3)}` },
     xAxis: { type: 'category', data: explorer.margin_distribution.map((m) => m.margin), axisLabel: { ...AXIS, interval: 4 }, name: `${homeTeam} minus ${awayTeam}`, nameLocation: 'middle', nameGap: 24 },
     yAxis: { type: 'value', axisLabel: { ...AXIS, formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
     series: [{
@@ -207,7 +208,7 @@ export function OutcomeExplorer({ explorer, homeTeam, awayTeam, engineLabel, mar
   const totalChart = useMemo(() => ({
     grid: { left: 40, right: 12, top: 12, bottom: 36 },
     animation: false,
-    tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `Total ${p.name}: ${pct(p.value, 3)}` },
+    tooltip: { triggerOn: 'mousemove|click', formatter: (p: { value: number; name: string }) => `Total ${esc(p.name)}: ${pct(p.value, 3)}` },
     xAxis: { type: 'category', data: explorer.total_distribution.map((m) => m.total), axisLabel: { ...AXIS, interval: 4 }, name: 'Combined points', nameLocation: 'middle', nameGap: 24 },
     yAxis: { type: 'value', axisLabel: { ...AXIS, formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
     series: [{

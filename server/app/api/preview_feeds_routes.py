@@ -7,13 +7,35 @@ feeds with short caches, AISP read-only queries (SET TRANSACTION READ ONLY), loc
 """
 from __future__ import annotations
 
+import re
+import threading
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from app.api.dependencies import AppSettings, CurrentUser
+
 router = APIRouter(prefix="/preview-api", include_in_schema=False)
+
+# Security review 10-27: values that reach provider URLs are validated (a date, a team code or name), and the
+# research window is clamped, so a query string cannot reshape an outbound request or force a huge scan.
+_DATE = re.compile(r"^(\d{8}|\d{4}-\d{2}-\d{2})$")
+_TEAM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .&'()-]{0,39}$")
+
+
+def _bad(**values: str) -> str | None:
+    for key, value in values.items():
+        if not value:
+            continue
+        if key == "date" and not _DATE.match(value):
+            return "date must be YYYYMMDD or YYYY-MM-DD"
+        if key != "date" and not _TEAM.match(value):
+            return f"{key} must be a team code or name"
+    return None
 
 
 def _json(obj: Any, status: int = 200) -> JSONResponse:
@@ -26,6 +48,8 @@ async def mlb_live(date: str = "", home: str = "", away: str = "") -> JSONRespon
 
     if not (date and home and away):
         return _json({"error": "date, home and away are required"}, 400)
+    if (why := _bad(date=date, home=home, away=away)):
+        return _json({"error": why}, 400)
     try:
         return _json(await run_in_threadpool(feeds.mlb_live, date, home, away))
     except Exception as exc:  # the provider being down is a 502, never a crash
@@ -40,6 +64,8 @@ async def football_live(date: str = "", league: str = "nfl", home: str = "", hom
 
     if league not in ("nfl", "college-football") or not date:
         return _json({"error": "league (nfl|college-football) and date (YYYYMMDD) are required"}, 400)
+    if (why := _bad(date=date, home=home, home_name=home_name, away=away, away_name=away_name)):
+        return _json({"error": why}, 400)
     try:
         data = await run_in_threadpool(feeds.football_live, league, date, home, home_name, away, away_name)
     except Exception as exc:
@@ -86,6 +112,8 @@ async def scores(league: str = "", date: str = "") -> JSONResponse:
 
     if league not in ("nfl", "cfb", "nba", "nhl", "mlb") or not date:
         return _json({"error": "league (nfl|cfb|nba|nhl|mlb) and date (YYYYMMDD) are required"}, 400)
+    if (why := _bad(date=date)):
+        return _json({"error": why}, 400)
     try:
         return _json(await run_in_threadpool(court_live.scores, league, date))
     except Exception as exc:
@@ -96,6 +124,7 @@ async def scores(league: str = "", date: str = "") -> JSONResponse:
 async def insights(kind: str, days: int = 0) -> JSONResponse:
     from app.preview_feeds import insights_db
 
+    days = max(1, min(120, days)) if days else 0
     calls = {"closing": lambda: insights_db.beat_the_close(days or 75), "movers": insights_db.movers,
              "lab": lambda: insights_db.lab(days or 75), "closes": lambda: insights_db.closes(days or 21)}
     if kind not in calls:
@@ -112,6 +141,8 @@ async def arena_live(league: str = "", date: str = "", home: str = "", away: str
 
     if league not in ("nba", "nhl") or not date or not home or not away:
         return _json({"error": "league (nba|nhl), date (YYYYMMDD), home and away are required"}, 400)
+    if (why := _bad(date=date, home=home, away=away)):
+        return _json({"error": why}, 400)
     try:
         return _json(await run_in_threadpool(court_live.court_live, league, date, home, away))
     except Exception as exc:
@@ -132,17 +163,47 @@ async def ufc_archive() -> JSONResponse:
 async def health() -> JSONResponse:
     from app.preview_feeds import feeds
 
-    return _json({"ok": True, "booth_key": bool(feeds._anthropic_key()), "booth_model": feeds.BOOTH_MODEL})
+    return _json({"ok": True})
+
+
+_BOOTH_LOCK = threading.Lock()
+_BOOTH_DAY: dict[str, Any] = {"day": None, "site": 0, "users": {}}
+
+
+def _booth_allow(user_id: str, per_user: int, per_site: int) -> str | None:
+    """Count one question against today's caps (ET day); the reason it is refused, else None."""
+    day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    with _BOOTH_LOCK:
+        if _BOOTH_DAY["day"] != day:
+            _BOOTH_DAY.update(day=day, site=0, users={})
+        used = _BOOTH_DAY["users"].get(user_id, 0)
+        if used >= per_user:
+            return f"You have used today's {per_user} Booth questions. They reset at midnight ET."
+        if _BOOTH_DAY["site"] >= per_site:
+            return "The Booth has answered its daily limit for the whole site. It resets at midnight ET."
+        _BOOTH_DAY["users"][user_id] = used + 1
+        _BOOTH_DAY["site"] += 1
+    return None
 
 
 @router.post("/booth")
-async def booth(request: Request) -> JSONResponse:
+async def booth(request: Request, user: CurrentUser, settings: AppSettings) -> JSONResponse:
+    """Paid language-model answers (security review 10-27): signed-in users only, a per-user and a whole-site
+    daily cap, and a bounded request."""
     from app.preview_feeds import feeds
 
+    body = await request.body()
+    if len(body) > 65_536:
+        return _json({"error": "request too large"}, 413)
     try:
-        payload = await request.json()
+        import json as _jsonlib
+
+        payload = _jsonlib.loads(body or b"{}")
     except Exception:
         return _json({"error": "bad JSON"}, 400)
+    refused = _booth_allow(str(user.id), settings.booth_per_user_per_day, settings.booth_site_per_day)
+    if refused:
+        return _json({"error": refused}, 429)
     out = await run_in_threadpool(feeds.booth, payload if isinstance(payload, dict) else {})
     status = 200 if "answer" in out else (429 if "breath" in str(out.get("error")) else 502)
     return _json(out, status)
