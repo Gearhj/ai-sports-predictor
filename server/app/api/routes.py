@@ -20,6 +20,7 @@ from app.models import (
     JobRun,
     OddsSnapshot,
     OfficialAspPosition,
+    UserRole,
 )
 from app.schemas.experiment_accounts import ExperimentAccountsData
 from app.schemas.parlay import RecordParlayTicketRequest
@@ -1673,6 +1674,7 @@ def record_mlb_parlay_ticket(
     payload: RecordParlayTicketRequest,
     session: DatabaseSession,
     settings: AppSettings,
+    user: CurrentUser,
 ) -> dict:
     """Freeze one virtual ticket from stored evidence.
 
@@ -1686,6 +1688,10 @@ def record_mlb_parlay_ticket(
 
     from app.parlay.recording import RecordingError, record_from_request
 
+    # Security review 10-27: only a signed-in user records a ticket, and only an admin may fund one from the
+    # AISP season bankroll (an anonymous funded ticket could reserve the $1,000 MLB paper bankroll).
+    if getattr(payload, "funded", False) and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin can fund a ticket.")
     try:
         return record_from_request(session, settings, payload)
     except RecordingError as exc:
