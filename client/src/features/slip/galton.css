@@ -1,0 +1,18 @@
+/* THE GALTON BOARD — your slip as a bean machine. Gold balls, green bins when that many wins means profit. */
+.gb { display: grid; gap: 10px; }
+.gb__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.gb__head h2 { margin: 0; font: 900 17px/1 system-ui; letter-spacing: .04em; }
+.gb__sub { font: 700 12px ui-monospace, monospace; color: #94a3b8; }
+.gb__tabs { margin-left: auto; display: inline-flex; gap: 4px; }
+.gb__tabs button { border: 1px solid #334155; background: #0b1220; color: #cbd5e1; border-radius: 8px; padding: 5px 10px; font: 700 12px system-ui; cursor: pointer; }
+.gb__tabs button.is-on { background: #fbbf24; color: #1a1405; border-color: #fbbf24; }
+.gb__tabs button:disabled { opacity: .4; cursor: not-allowed; }
+.gb__body { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr); gap: 14px; align-items: stretch; }
+.gb__canvas { width: 100%; height: 340px; display: block; border-radius: 10px; background: radial-gradient(120% 90% at 50% 0%, #142037, #070d18); }
+.gb__bins { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; align-content: start; max-height: 340px; overflow: auto; }
+.gb__bins li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: #0b1220; font-size: 13px; border-left: 3px solid #fb7185; }
+.gb__bins li.is-up { border-left-color: #34d399; }
+.gb__bins b { font: 800 13px system-ui; } .gb__bins span { color: #94a3b8; font: 600 12px ui-monospace, monospace; }
+.gb__bins em { font: 800 13px ui-monospace, monospace; font-style: normal; } .gb__bins li.is-up em { color: #34d399; } .gb__bins li.is-down em { color: #fb7185; }
+.gb__fine { margin: 0; font-size: 11.5px; color: #94a3b8; }
+@media (max-width: 900px) { .gb__body { grid-template-columns: 1fr; } .gb__canvas { height: 280px; } }

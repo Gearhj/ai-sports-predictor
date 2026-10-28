@@ -21,6 +21,7 @@ import { GamePlanBar } from '../flow/GamePlanBar'
 import { addToSlip } from '../flow/slip'
 import { removePick, usePreviewPicks } from '../../services/previewPicks'
 import '../slate/slate.css'
+import { TheDrop } from '../drop/TheDrop'
 import './home.css'
 
 type Sport = 'ALL' | SportCode
@@ -158,6 +159,7 @@ export function HqHome() {
               </nav>
             </section>
 
+            {day === today ? <TheDrop games={pulse.games.filter((g) => g.day === today)} day={today} /> : null}
             <section className="sl-card hm-games" aria-label="Today's games">
               <header className="sl-card__head">
                 <h2>Today&apos;s Games</h2>

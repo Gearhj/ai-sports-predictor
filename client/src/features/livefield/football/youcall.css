@@ -1,0 +1,41 @@
+/* YOU CALL IT — the call strip under the live field. YOU = emerald; the model's odds appear only after you lock. */
+.yc { position: relative; display: grid; gap: 8px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(180deg, rgba(52,211,153,.10), rgba(13,22,38,.95)); border: 1px solid rgba(52,211,153,.35); }
+.yc.is-right { animation: yc-glow .9s ease; } .yc.is-wrong { animation: yc-shake .45s ease; }
+@keyframes yc-glow { 30% { box-shadow: 0 0 0 3px #34d399, 0 0 40px rgba(52,211,153,.6) } }
+@keyframes yc-shake { 20%,60% { transform: translateX(-5px) } 40%,80% { transform: translateX(5px) } }
+.yc__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.yc__head > b { font: 900 14px/1 system-ui; letter-spacing: .16em; color: #6ee7b7; }
+.yc__tabs { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: #0b1220; }
+.yc__tabs button { border: 0; border-radius: 999px; padding: 4px 11px; background: none; color: #94a3b8; font: 700 12px system-ui; cursor: pointer; }
+.yc__tabs button.is-on { background: #34d399; color: #052e16; }
+.yc__tabs button:disabled { opacity: .45; cursor: not-allowed; }
+.yc__score { margin-left: auto; font: 800 12px ui-monospace, monospace; color: #cbd5e1; }
+.yc__score em { font-style: normal; color: #fbbf24; }
+.yc__body { display: grid; gap: 8px; }
+.yc__sit { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 14px; color: #e2e8f0; }
+.yc__sit b { font: 800 11px ui-monospace; letter-spacing: .14em; color: #94a3b8; }
+.yc__opts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.yc__opt { position: relative; display: grid; gap: 2px; justify-items: start; padding: 10px 12px; border-radius: 10px; cursor: pointer; overflow: hidden; text-align: left; color: #f8fafc;
+  background: linear-gradient(180deg, #1e293b, #111a2a); border: 1px solid #334155; transition: transform .12s, border-color .2s, box-shadow .2s; }
+.yc__opt:not(:disabled):hover { transform: translateY(-2px); border-color: #34d399; box-shadow: 0 6px 18px rgba(52,211,153,.25); }
+.yc__opt:disabled { cursor: default; }
+.yc__opt b { font: 900 16px/1.1 system-ui; position: relative; z-index: 1; }
+.yc__opt small { font: 700 11px ui-monospace; color: #94a3b8; position: relative; z-index: 1; }
+.yc__opt i { position: absolute; left: 0; bottom: 0; height: 4px; background: #64748b; transition: width .8s cubic-bezier(.2,.8,.2,1); }
+.yc__opt.is-pick { border-color: #34d399; box-shadow: 0 0 0 2px rgba(52,211,153,.5); }
+.yc__opt.is-hit { background: linear-gradient(180deg, rgba(52,211,153,.35), #0f2a22); border-color: #34d399; }
+.yc__opt.is-hit i { background: #34d399; }
+.yc__opt.is-miss { background: linear-gradient(180deg, rgba(244,63,94,.28), #2a1220); border-color: #f43f5e; }
+.yc__out { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: #cbd5e1; min-height: 20px; }
+.yc__out > b { font: 900 15px system-ui; } .yc__out .is-up { color: #34d399; } .yc__out .is-down { color: #fb7185; }
+.yc__nav { display: inline-flex; gap: 8px; margin-left: auto; }
+.yc__nav button { border: 1px solid #34d399; background: rgba(52,211,153,.12); color: #a7f3d0; border-radius: 8px; padding: 5px 10px; font: 700 12px system-ui; cursor: pointer; }
+.yc__muted { color: #94a3b8; font-size: 13px; margin: 0; }
+.yc__flash { position: absolute; inset: 0; display: grid; place-content: center; pointer-events: none; font: 900 italic clamp(28px, 4vw, 46px)/1 system-ui; letter-spacing: .04em; animation: yc-flash 2.6s ease both; }
+.yc__flash.is-right { color: #34d399; text-shadow: 0 0 24px rgba(52,211,153,.8), 0 3px 0 #064e3b; background: radial-gradient(circle, rgba(52,211,153,.25), transparent 70%); }
+.yc__flash.is-wrong { color: #fb7185; text-shadow: 0 3px 0 #4c0519; background: radial-gradient(circle, rgba(244,63,94,.18), transparent 70%); }
+@keyframes yc-flash { 0% { transform: scale(2); opacity: 0 } 15% { transform: scale(1); opacity: 1 } 75% { opacity: 1 } 100% { opacity: 0 } }
+@media (max-width: 720px) { .yc__opts { grid-template-columns: 1fr 1fr; } .yc__score { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .yc, .yc__flash, .yc__opt i { animation: none !important; transition: none !important; } }
+.yc__last { font-size: 13px; color: #cbd5e1; } .yc__last.is-up b { color: #34d399; } .yc__last.is-down b { color: #fb7185; } .yc__last i { color: #6ee7b7; font-style: normal; font-weight: 700; }

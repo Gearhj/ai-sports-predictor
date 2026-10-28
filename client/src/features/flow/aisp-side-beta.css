@@ -1,0 +1,3 @@
+.as-beta { display: flex; gap: 8px; align-items: center; margin: 6px 12px 0; padding: 6px 10px; border-radius: 10px; text-decoration: none; color: #fde68a; border: 1px dashed rgba(251, 191, 36, .55); font: 700 12px system-ui; }
+.as-beta b { font: 900 10px system-ui; letter-spacing: .14em; padding: 2px 6px; border-radius: 6px; color: #1c1300; background: #fbbf24; }
+.as-beta:hover, .as-beta.is-on { background: rgba(251, 191, 36, .1); } .as-beta:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }

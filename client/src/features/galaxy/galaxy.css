@@ -1,0 +1,43 @@
+/* THE CALIBRATION GALAXY — steel frame, deep-space well; AISP gold, market slate-blue. */
+.gx { display: grid; gap: 10px; padding: 14px 16px; margin: 0 0 14px; border-radius: 14px; background: var(--tt-frame, linear-gradient(180deg, #2a3442, #1b2330)); border: 1px solid var(--tt-steel-line, #4d586a); border-top: 3px solid #fbbf24; color: #e2e8f0; }
+.gx__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.gx__head h2 { margin: 0; font: 900 17px/1 system-ui; letter-spacing: .18em; color: #fde68a; }
+.gx__head span { font-size: 13.5px; color: #cbd5e1; }
+.gx__fold { margin-left: auto; font: 800 12px system-ui; color: #fde68a; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.55); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.gx__muted { margin: 0; font-size: 12.5px; color: #94a3b8; }
+.gx__controls { display: flex; gap: 10px 18px; flex-wrap: wrap; }
+.gx__chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.gx__chips button { font: 800 12px system-ui; padding: 6px 11px; border-radius: 999px; border: 1px solid #334155; background: #0b1220; color: #cbd5e1; cursor: pointer; }
+.gx__chips button[aria-pressed='true'] { background: #1e293b; border-color: #fbbf24; color: #fde68a; }
+.gx__chips .gx__mode--market[aria-pressed='true'] { border-color: #93c5fd; color: #bfdbfe; }
+.gx__verdict { margin: 0; font-size: 14px; line-height: 1.5; color: #cbd5e1; }
+.gx__verdict b { color: #f8fafc; } .gx__verdict .is-overconfident { color: #fb7185; } .gx__verdict .is-underconfident { color: #67e8f9; } .gx__verdict .is-honest { color: #34d399; }
+.gx__svg { width: 100%; height: auto; display: block; border-radius: 12px; background: radial-gradient(ellipse at 60% 40%, #13213a 0%, #070d18 70%); }
+.gx-dust { fill: rgba(226,232,240,.18); }
+.gx-zone--over { fill: rgba(244,63,94,.06); }
+.gx-zone-label { fill: rgba(251,113,133,.6); font: 800 11px system-ui; letter-spacing: .08em; }
+.gx-zone-label--under { fill: rgba(103,232,249,.55); }
+.gx-truth { stroke: rgba(52,211,153,.75); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.gx-truth-label { fill: #34d399; font: 900 11px system-ui; letter-spacing: .2em; }
+.gx-ax text { fill: #64748b; font: 10.5px ui-monospace, monospace; } .gx-ax path, .gx-ax line { stroke: rgba(148,163,184,.22); }
+.gx-cap { fill: #94a3b8; font: 700 11px system-ui; letter-spacing: .1em; }
+.gx-miss { stroke-width: 1.5; stroke-dasharray: 3 3; } .gx-miss.is-over { stroke: #fb7185; } .gx-miss.is-under { stroke: #67e8f9; }
+.gx-core-label { fill: #fef3c7; font: 900 12px ui-monospace, monospace; paint-order: stroke; stroke: #070d18; stroke-width: 3px; pointer-events: none; }
+.gx-star { mix-blend-mode: screen; }
+.gx__focus { margin: 0; font-size: 13px; color: #cbd5e1; min-height: 20px; } .gx__focus b { color: #fde68a; }
+@media (max-width: 640px) { .gx__head span { font-size: 12.5px; } }
+/* THE UPSET ATLAS */
+.ua__grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; align-items: start; }
+.ua__side { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: #0b1220; }
+.ua__side h3 { margin: 4px 0 0; font: 900 12.5px system-ui; letter-spacing: .12em; color: #fde68a; } .ua__side h3 small { display: block; font: 600 11px system-ui; letter-spacing: 0; color: #94a3b8; }
+.ua__side ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.ua__side li { display: flex; align-items: center; gap: 7px; font: 800 13px system-ui; color: #e2e8f0; }
+.ua__side li i { width: 8px; height: 8px; border-radius: 50%; flex: none; } .ua__side li small { font: 600 10.5px ui-monospace; color: #64748b; } .ua__side li b { margin-left: auto; font: 900 14px ui-monospace; color: #fde68a; }
+.ua__rates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ua__rate { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: #0b1220; border-top: 3px solid #fb7185; }
+.ua__rate small { font: 800 10.5px ui-monospace; letter-spacing: .1em; color: #94a3b8; } .ua__rate b { font: 900 26px/1 ui-monospace, monospace; color: #fecdd3; } .ua__rate span { font-size: 12px; color: #94a3b8; }
+.ua-bub circle { transition: opacity .2s; } .ua-bub:hover circle { stroke: #fff; stroke-width: 2.5; }
+.ua-wave { fill: none; stroke-width: 1.5; animation: ua-wave 2.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes ua-wave { from { opacity: .8; transform: scale(1); } to { opacity: 0; transform: scale(2.4); } }
+@media (prefers-reduced-motion: reduce) { .ua-wave { animation: none; opacity: 0; } }
+@media (max-width: 900px) { .ua__grid, .ua__rates { grid-template-columns: 1fr; } }

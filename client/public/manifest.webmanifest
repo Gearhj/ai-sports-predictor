@@ -1,0 +1,24 @@
+{
+  "name": "AISP · AI Sports Predictor",
+  "short_name": "AISP",
+  "description": "Your games, your picks and AISP's calls tonight. Paper money and research only.",
+  "id": "/",
+  "start_url": "/?view=focus&source=app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07101f",
+  "theme_color": "#0b1729",
+  "categories": ["sports"],
+  "icons": [
+    { "src": "/icons/aisp-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/aisp-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/aisp-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/aisp.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Tonight", "url": "/?view=focus&source=app" },
+    { "name": "Game Night", "url": "/game-night?view=full" },
+    { "name": "Mission Control", "url": "/control?view=full" }
+  ]
+}

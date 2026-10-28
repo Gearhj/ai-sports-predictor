@@ -136,3 +136,8 @@
 .as-skip { position: absolute; left: 8px; top: -60px; z-index: 100; padding: 10px 14px; border-radius: 8px; font-weight: 900; color: #062a26; background: #2dd4bf; text-decoration: none; }
 .as-skip:focus { top: 8px; }
 .hq .hq-side { position: sticky; }
+
+/* Numbered steps in the menu (owner 10-26): a numbered disc instead of the icon for the nightly routine. */
+.hq-nav a.as-step { gap: 9px; }
+.as-num { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px; font: 900 11px/1 ui-monospace, monospace; color: #062a26; background: linear-gradient(180deg, #5eead4, #14b8a6); box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
+.hq-nav a.is-on .as-num { background: #fde68a; color: #451a03; }

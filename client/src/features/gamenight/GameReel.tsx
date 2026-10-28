@@ -80,6 +80,27 @@ export function GameReel({ targets, focusId, onFocus, now, board }: { targets: F
       </label>
     )
   }
+  // Owner 10-27 ("Game Night looks like complete shit"): on a page every game is one card on a single rail --
+  // live first, then upcoming by start, then finals -- instead of chip clouds and a folded "More games".
+  const order = (t: FocusTarget) => { const st = reelState(t, now); return st === 'LIVE' ? 0 : st === 'FINAL' ? 2 : 1 }
+  const rail = [...targets].filter((t) => t.held || t.hasForecast)
+    .sort((a, b) => order(a) - order(b) || (order(a) === 2 ? finishedAt(b) - finishedAt(a) : Date.parse(a.startsAt ?? '') - Date.parse(b.startsAt ?? '')))
+  if (rail.length) {
+    return (
+      <div className="gn-cards" role="group" aria-label="Choose the game in focus">
+        {rail.map((t) => {
+          const st = reelState(t, now)
+          return (
+            <button key={t.gameId} type="button" aria-pressed={t.gameId === focusId} className={`gn-card gn-card--${t.sport.toLowerCase()}${t.gameId === focusId ? ' is-on' : ''}${st === 'LIVE' ? ' is-live' : ''}`} onClick={() => onFocus(t.gameId)}>
+              <span className="gn-card__top"><i>{t.sport}</i>{t.held ? <b className="gn-card__bet" title="AISP holds a bet">$ AISP BET</b> : null}</span>
+              <span className="gn-card__teams"><Crest sport={t.sport} abbr={t.away.abbr} size={26} /><b>{t.away.abbr}</b><em>@</em><b>{t.home.abbr}</b><Crest sport={t.sport} abbr={t.home.abbr} size={26} /></span>
+              <span className={`gn-card__state gn-card__state--${st.toLowerCase()}`}>{st === 'LIVE' && <i className="gn-live-dot" aria-hidden="true" />}{st === 'UPCOMING' && t.startsAt ? new Date(t.startsAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : STATE_WORD[st]}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
   // Bets still in play, then the most recent finals; older finals fold into "More games".
   const inPlay = held.filter((t) => reelState(t, now) !== 'FINAL')
   const finals = held.filter((t) => reelState(t, now) === 'FINAL').sort((a, b) => finishedAt(b) - finishedAt(a))

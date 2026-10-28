@@ -171,3 +171,31 @@ button.sl-kpi { cursor: pointer; } button.sl-kpi:hover { border-color: var(--t);
 .sl-ready__i.is-done { color: #6ee7b7; border-color: rgba(52, 211, 153, .35); } .sl-ready__i.is-blocked { color: #fca5a5; border-color: rgba(248, 113, 113, .45); background: rgba(248, 113, 113, .08); } .sl-ready__i.is-waiting { color: #93c5fd; border-color: rgba(96, 165, 250, .35); }
 .sl-ready__mc { margin-left: auto; font-size: 13px; font-weight: 800; color: #93c5fd; text-decoration: none; }
 .sl-logo { display: inline-block; object-fit: contain; flex: none; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .5)); }
+
+/* ---- 2026-10-26 (owner): each sport its own colour; YOUR picks vs AISP's bets in the rail ---- */
+.sl-sport { padding: 8px; border-radius: 16px; background: linear-gradient(180deg, color-mix(in srgb, var(--sc) 14%, var(--sl-navy)), color-mix(in srgb, var(--sc) 4%, var(--sl-navy)) 60%); border: 1px solid color-mix(in srgb, var(--sc) 30%, transparent); }
+.sl-sport__head { border-left-width: 6px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 3px), linear-gradient(90deg, color-mix(in srgb, var(--sc) 30%, var(--sl-steel-hi)), var(--sl-steel) 45%, var(--sl-steel-lo)); }
+.sl-sport__head i { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: color-mix(in srgb, var(--sc) 28%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sc) 60%, transparent); }
+.sl-sport__head h2 { color: color-mix(in srgb, var(--sc) 70%, #fff); letter-spacing: .02em; }
+.sl-sport__head button { color: color-mix(in srgb, var(--sc) 75%, #fff); }
+.sl-sport .sl-row::before { background: var(--sc); }
+.sl-sport .sl-row:hover { border-color: color-mix(in srgb, var(--sc) 55%, transparent); }
+.sl-sport .sl-more { color: color-mix(in srgb, var(--sc) 75%, #fff); border-color: color-mix(in srgb, var(--sc) 35%, transparent); }
+.hq-nav--sports button[style] i { color: var(--sc); }
+.hq-nav--sports button[style].is-on { box-shadow: inset 3px 0 0 var(--sc); background: color-mix(in srgb, var(--sc) 16%, transparent); }
+
+.sl-badge { font-size: 11px; font-weight: 900; letter-spacing: .12em; padding: 3px 7px; border-radius: 6px; }
+.sl-card__note { margin: -4px 0 0; font-size: 13px; color: var(--sl-muted); }
+.sl-card__foot { font-size: 12.5px; color: #a7f3d0; }
+/* YOUR picks: emerald glass */
+.sl-card--you { background: linear-gradient(160deg, #064e3b, #053b30 55%, #04261f); border: 1px solid #10b981; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 0 0 1px rgba(16, 185, 129, .25), 0 12px 28px rgba(0, 0, 0, .4); }
+.sl-card--you .sl-card__head h2 { color: #d1fae5; } .sl-card--you .sl-card__head a { color: #6ee7b7; }
+.sl-badge--you { color: #022c22; background: #34d399; }
+.sl-card--you .sl-mini span, .sl-card--you .sl-wagers button { background: rgba(2, 44, 34, .65); border-color: rgba(52, 211, 153, .18); }
+.sl-empty--you { font-size: 13.5px; color: #a7f3d0; padding: 6px 2px; } .sl-empty--you b { color: #fff; }
+/* AISP's bets: brushed gold */
+.sl-card--aisp { background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .03) 0 1px, transparent 1px 3px), linear-gradient(160deg, #5a4314, #3d2e0f 50%, #2a200b); border: 1px solid #c9a13b; box-shadow: inset 0 1px 0 rgba(255, 236, 170, .18), 0 12px 28px rgba(0, 0, 0, .4); }
+.sl-card--aisp .sl-card__head h2 { color: #fde68a; } .sl-card--aisp .sl-card__head a { color: #fcd34d; } .sl-card--aisp .sl-card__note { color: #e7d3a0; }
+.sl-badge--aisp { color: #2a200b; background: linear-gradient(180deg, #fde68a, #d4a017); }
+.sl-card--aisp .sl-mini span, .sl-card--aisp .sl-wagers button { background: rgba(30, 22, 6, .6); border-color: rgba(253, 230, 138, .14); }
+.sl-card--aisp .sl-wtabs { background: rgba(30, 22, 6, .6); } .sl-card--aisp .sl-wtabs button.is-on { background: #b8860b; color: #1c1405; }

@@ -1,0 +1,204 @@
+/* Game Night inside the site shell (owner 10-26: "not formatted like the other pages, all dark blue, nothing looks
+   important"). Same two-tone rule as every page: STEEL frames the panels, NAVY stays for the chart wells. Each act
+   gets its own accent so the eye knows where to go. TV mode (.gn--tvlayout) keeps its broadcast look. */
+.hq .gn:not(.gn--tvlayout) { background: radial-gradient(120% 60% at 50% 0%, #142338, #0a1220 60%); }
+
+/* full width like the other pages */
+.hq .gn:not(.gn--tvlayout) .gn-main, .hq .gn:not(.gn--tvlayout) .gn-headline { width: 100%; max-width: none; }
+
+/* the top bar reads as the page header */
+.hq .gn:not(.gn--tvlayout) .gn-bar { background: var(--tt-frame-flat); border-bottom: 1px solid var(--tt-steel-line); }
+
+/* headline facts become chips, the bankroll leads */
+.hq .gn:not(.gn--tvlayout) .gn-headline { gap: 8px; padding-top: 12px; }
+.hq .gn:not(.gn--tvlayout) .gn-headline > span { padding: 6px 12px; border-radius: 999px; background: var(--tt-frame-flat); border: 1px solid var(--tt-steel-line); color: #e2e8f0; font-weight: 700; }
+.hq .gn:not(.gn--tvlayout) .gn-headline > span:first-child { background: linear-gradient(180deg, rgba(45,212,191,.25), rgba(45,212,191,.08)); border-color: rgba(45,212,191,.55); }
+.hq .gn:not(.gn--tvlayout) .gn-headline b { color: #fff; }
+
+/* steel frames for every act, each with its own accent */
+.hq .gn:not(.gn--tvlayout) .gn-storm,
+.hq .gn:not(.gn--tvlayout) .gn-sweat,
+.hq .gn:not(.gn--tvlayout) .gn-heart,
+.hq .gn:not(.gn--tvlayout) .gn-gap,
+.hq .gn:not(.gn--tvlayout) .sw {
+  background: var(--tt-frame); border: 1px solid var(--tt-steel-line); box-shadow: 0 10px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.07);
+}
+.hq .gn:not(.gn--tvlayout) .gn-storm { border-top: 3px solid #2dd4bf; }
+.hq .gn:not(.gn--tvlayout) .gn-heart { border-top: 3px solid #fbbf24; }
+.hq .gn:not(.gn--tvlayout) .gn-gap { border-top: 3px solid #a78bfa; }
+.hq .gn:not(.gn--tvlayout) .sw { border-top: 3px solid #fb7185; }
+.hq .gn:not(.gn--tvlayout) .gn-sweat { border-top: 3px solid #fbbf24; box-shadow: 0 10px 28px rgba(0,0,0,.35), 0 0 26px rgba(251,191,36,.18); }
+
+/* the act labels are the signposts: bigger and coloured */
+.hq .gn:not(.gn--tvlayout) .gn-kicker { font-size: 12.5px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; }
+.hq .gn:not(.gn--tvlayout) .gn-storm .gn-kicker { color: #5eead4; }
+.hq .gn:not(.gn--tvlayout) .gn-heart .gn-kicker { color: #fde68a; }
+.hq .gn:not(.gn--tvlayout) .gn-gap .gn-kicker { color: #c4b5fd; }
+.hq .gn:not(.gn--tvlayout) .gn-sweat__head h2 { font-size: 17px; font-weight: 900; color: #fde68a; letter-spacing: .04em; }
+
+/* bet cards in the rail lift off the steel */
+.hq .gn:not(.gn--tvlayout) .gn-bugcard { background: var(--tt-well); border-color: var(--tt-well-line); }
+.hq .gn:not(.gn--tvlayout) .gn-bugcard:hover { background: #0e1a30; }
+
+/* chart wells stay navy so the data pops against the steel */
+.hq .gn:not(.gn--tvlayout) .gn-heart svg, .hq .gn:not(.gn--tvlayout) .gn-storm svg { background: var(--tt-well); border-radius: 10px; }
+
+/* ===== Game Night redesign (owner 10-27): clear hierarchy -- band, card rail, stage, model, rail ===== */
+.gn-band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 4px 0 14px; }
+.gn-band > span { display: grid; gap: 2px; padding: 14px 16px; border-radius: 16px; background: linear-gradient(180deg, #1c2534, #0e1626); border: 1px solid rgba(148, 163, 184, .22); box-shadow: 0 8px 22px rgba(0, 0, 0, .25); }
+.gn-band small { font: 900 11px system-ui; letter-spacing: .16em; text-transform: uppercase; color: #94a3b8; }
+.gn-band b { font: 900 30px/1.1 ui-monospace, monospace; color: #f8fafc; } .gn-band b.is-up { color: #34d399; } .gn-band b.is-down { color: #fb7185; }
+.gn-band em { font-style: normal; font-size: 12.5px; color: #94a3b8; }
+.gn-headline--page > span:not(.gn-headline__note), .gn-headline--page > button { display: none; }
+.gn-headline--page:not(:has(.gn-headline__note)) { display: none; }
+.gn-cards { display: grid; grid-auto-flow: column; grid-auto-columns: 190px; gap: 10px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 8px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.gn-card { scroll-snap-align: start; display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(148, 163, 184, .22); background: linear-gradient(180deg, #172238, #0b1220); color: #e2e8f0; text-align: left; cursor: pointer; border-top: 3px solid var(--gc, #94a3b8); transition: transform .15s, box-shadow .2s; font: inherit; }
+.gn-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0, 0, 0, .35); }
+.gn-card.is-on { border-color: var(--gc); box-shadow: 0 0 0 1px var(--gc), 0 0 22px color-mix(in srgb, var(--gc) 45%, transparent); background: linear-gradient(180deg, #1d2c47, #0e1729); }
+.gn-card--nfl { --gc: #34d399; } .gn-card--cfb { --gc: #c084fc; } .gn-card--nba { --gc: #ff9f43; } .gn-card--nhl { --gc: #67e8f9; } .gn-card--mlb { --gc: #ff6b6b; }
+.gn-card__top { display: flex; align-items: center; justify-content: space-between; } .gn-card__top i { font: 900 10.5px system-ui; font-style: normal; letter-spacing: .16em; color: var(--gc); }
+.gn-card__bet { font: 900 9.5px system-ui; letter-spacing: .1em; color: #1c1300; background: linear-gradient(180deg, #fde68a, #f59e0b); border-radius: 999px; padding: 2px 7px; }
+.gn-card__teams { display: flex; align-items: center; gap: 6px; } .gn-card__teams b { font: 900 16px system-ui; color: #f8fafc; } .gn-card__teams em { font-style: normal; color: #64748b; font-size: 12px; }
+.gn-card__state { display: flex; align-items: center; gap: 6px; font: 800 12.5px ui-monospace, monospace; color: #cbd5e1; }
+.gn-card__state--live { color: #fb7185; } .gn-card__state--final { color: #64748b; }
+.gn-card.is-live { box-shadow: 0 0 0 1px rgba(251, 113, 133, .35); }
+.gn:not(.gn--tvlayout) .gn-ticker { display: none; }
+.gn:not(.gn--tvlayout) .gn-storm__head h2 { font-size: 34px; }
+.gn:not(.gn--tvlayout) .gn-storm__side { font-size: 15px; }
+.gn:not(.gn--tvlayout) .gn-storm__side b { font-size: 1.05em; }
+.sw.sw--idle { padding: 12px 16px; } .sw.sw--idle .sw__fine { display: none; } .sw.sw--idle .sw__empty { margin: 0; }
+.gn-card__teams { min-width: 0; } .gn-card__teams b { min-width: 0; max-width: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 10-27 page layout: reel full width, stage (8) + rail (4) level, Build Your Model full width */
+.gn-reelrow, .gn-labrow { grid-column: 1 / -1; min-width: 0; }
+
+/* 10-27: on a page the grid column fits the square; the side panel takes the rest (replay facts + the matchup) */
+@media (min-width: 1100px) {
+  .gn:not(.gn--tvlayout) .gn-storm__body { grid-template-columns: minmax(340px, 470px) minmax(0, 1fr); }
+}
+.mu { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, rgba(56, 189, 248, .10), rgba(8, 14, 26, .78)); border: 1px solid rgba(103, 232, 249, .32); }
+.mu__head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; } .mu__head b { font: 900 12px system-ui; letter-spacing: .16em; color: #67e8f9; } .mu__head small { color: #cbd5e1; font-size: 12px; }
+.mu__sides { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: start; }
+.mu__vs { align-self: center; color: #64748b; font: 900 16px system-ui; }
+.mu__side { display: grid; gap: 4px; min-width: 0; } .mu__side--home { text-align: right; }
+.mu__team { font: 800 14px/1.2 system-ui; color: #f1f5f9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mu__team small { margin-left: 6px; font: 600 10.5px system-ui; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; }
+.mu__nums b { display: block; font: 900 30px/1 system-ui; color: #fff; } .mu__nums em { font-style: normal; font-size: 12px; color: #6ee7b7; }
+.mu__price { font-size: 11.5px; color: #94a3b8; } .mu__price b { color: #fde68a; }
+.mu__players { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 3px; }
+.mu__players li { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: #e2e8f0; min-width: 0; } .mu__side--home .mu__players li { flex-direction: row-reverse; }
+.mu__players li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .mu__players li small { color: #64748b; font-size: 10.5px; white-space: nowrap; }
+.mu__st { font: 800 9.5px system-ui; font-style: normal; padding: 1px 5px; border-radius: 4px; } .mu__st--ok { background: rgba(52, 211, 153, .18); color: #6ee7b7; } .mu__st--q { background: rgba(251, 191, 36, .2); color: #fde68a; } .mu__st--out { background: rgba(244, 63, 94, .25); color: #fecdd3; }
+.mu__muted { color: #64748b !important; font-style: italic; }
+.mu__foot { margin: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: center; font-size: 12px; color: #cbd5e1; }
+.mu__foot b.is-warn { color: #fb7185; }
+.mu__go { all: unset; cursor: pointer; padding: 5px 10px; border-radius: 999px; font: 800 11.5px system-ui; color: #052e22; background: linear-gradient(90deg, #5eead4, #34d399); }
+.mu__go:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* 10-27 v3: narrower rail; the stage is grid | your read | facts + matchup */
+@media (min-width: 1100px) {
+  .gn:not(.gn--tvlayout) .gn-main { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
+  .gn:not(.gn--tvlayout) .gn-act1, .gn:not(.gn--tvlayout) .gn-rail { grid-column: auto; }
+  .gn:not(.gn--tvlayout) .gn-reelrow, .gn:not(.gn--tvlayout) .gn-labrow { grid-column: 1 / -1; }
+  .gn:not(.gn--tvlayout) .gn-storm__body:has(.gn-storm__picker) { grid-template-columns: minmax(300px, 420px) minmax(220px, 250px) minmax(0, 1fr); gap: 14px; }
+}
+.qr { display: grid; gap: 7px; padding: 10px; border-radius: 14px; background: linear-gradient(180deg, rgba(52, 211, 153, .12), rgba(8, 14, 26, .82)); border: 1px solid rgba(52, 211, 153, .4); }
+.qr__head { display: grid; gap: 1px; } .qr__head b { font: 900 12px system-ui; letter-spacing: .16em; color: #6ee7b7; } .qr__head small { font-size: 11px; color: #94a3b8; }
+.qr__row { display: grid; gap: 1px; padding: 5px 6px; border-radius: 8px; background: rgba(15, 23, 42, .6); border: 1px solid transparent; cursor: pointer; }
+.qr__row.is-set { border-color: rgba(52, 211, 153, .5); }
+.qr__row > span { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; } .qr__row b { font-size: 11.5px; color: #f1f5f9; } .qr__row em { font: 800 11px ui-monospace, monospace; color: #fde68a; font-style: normal; white-space: nowrap; }
+.qr__row input { width: 100%; margin: 2px 0 0; accent-color: #34d399; }
+.qr__row > small { display: flex; justify-content: space-between; font-size: 9.5px; color: #64748b; } .qr__row > small i { font-style: normal; }
+.qr__out { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 10px; background: rgba(2, 6, 23, .7); }
+.qr__out span { display: grid; } .qr__out small { font: 800 9.5px system-ui; letter-spacing: .1em; color: #94a3b8; } .qr__out b { font: 900 17px ui-monospace, monospace; color: #fbbf24; }
+.qr__out .is-you b { color: #34d399; } .qr__out em { margin-left: auto; font-size: 10.5px; color: #94a3b8; font-style: normal; } .qr__arrow { color: #64748b; }
+.qr__btns { display: flex; gap: 6px; } .qr__btns button { all: unset; cursor: pointer; flex: 1; text-align: center; padding: 5px 6px; border-radius: 999px; font: 800 11px system-ui; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, .35); }
+.qr__btns button:last-child { color: #052e22; background: linear-gradient(90deg, #5eead4, #34d399); border-color: transparent; }
+.qr__btns button:disabled { opacity: .4; cursor: default; } .qr__btns button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.mu__head b i { font: 700 10.5px system-ui; letter-spacing: .04em; color: #94a3b8; margin-left: 6px; font-style: normal; }
+
+/* ===== 10-27 v4 (owner: "the visualization and the controls larger than the section on the right ... this page is
+   all dark, nothing feels important"). Grid biggest, controls next, facts narrow. And one rule for the eye:
+   THINGS YOU TOUCH ARE LIGHT (the control deck), data sits in navy wells, steel frames hold them. ===== */
+@media (min-width: 1100px) {
+  .gn:not(.gn--tvlayout) .gn-main { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); }
+  .gn:not(.gn--tvlayout) .gn-storm__body:has(.gn-storm__picker) { grid-template-columns: minmax(360px, 640px) minmax(270px, 310px) minmax(0, 1fr); gap: 16px; }
+}
+@media (min-width: 1100px) and (max-width: 1499px) {
+  .gn:not(.gn--tvlayout) .gn-storm__body:has(.gn-storm__picker) { grid-template-columns: minmax(340px, 1fr) minmax(260px, 300px); }
+  .gn:not(.gn--tvlayout) .gn-storm__body:has(.gn-storm__picker) > .gn-storm__side { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+@media (min-width: 1500px) { .gn:not(.gn--tvlayout) .gn-storm__side { font-size: 13.5px; } }
+
+/* the control deck */
+.qr { background: linear-gradient(180deg, #f8fafc, #e2e8f0); border: 1px solid #cbd5e1; border-top: 4px solid #10b981; color: #0f172a;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .45), 0 0 0 1px rgba(16, 185, 129, .25); padding: 12px; gap: 8px; }
+.qr__head b { color: #047857; font-size: 13px; } .qr__head small { color: #475569; font-size: 11.5px; }
+.qr__row { background: #fff; border: 1px solid #e2e8f0; padding: 7px 8px; }
+.qr__row.is-set { border-color: #10b981; box-shadow: inset 3px 0 0 #10b981; }
+.qr__row b { color: #0f172a; font-size: 12.5px; } .qr__row em { color: #b45309; font-size: 11.5px; }
+.qr__row input { accent-color: #059669; height: 18px; } .qr__row > small { color: #64748b; font-weight: 700; }
+.qr__out { background: #0b1220; padding: 9px 10px; } .qr__out b { font-size: 20px; }
+.qr__btns button { color: #0f172a; border-color: #94a3b8; background: #fff; } .qr__btns button:last-child { color: #052e22; }
+
+/* the grid well reads as the hero: a brighter frame and a glow around the square */
+.hq .gn:not(.gn--tvlayout) .gn-storm { border-top: 4px solid #2dd4bf; box-shadow: 0 16px 40px rgba(0, 0, 0, .45), 0 0 0 1px rgba(45, 212, 191, .18), inset 0 1px 0 rgba(255, 255, 255, .08); }
+.gn:not(.gn--tvlayout) .gn-storm__canvas { box-shadow: 0 0 0 1px rgba(45, 212, 191, .35), 0 0 34px rgba(45, 212, 191, .16); border-radius: 8px; }
+.gn:not(.gn--tvlayout) .gn-storm__side .gn-facts, .gn:not(.gn--tvlayout) .gn-storm__side .gn-meter { opacity: .95; }
+
+/* the rail is supporting cast: a quieter frame so the stage leads */
+.hq .gn:not(.gn--tvlayout) .gn-rail .gn-sweat { box-shadow: 0 8px 20px rgba(0, 0, 0, .3); }
+
+/* matchup strip under the stage: one row across */
+.gn-cut > .mu { margin-top: 12px; }
+.gn-cut > .mu .mu__players { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.gn-cut > .mu .mu__side--home .mu__players { justify-content: flex-end; }
+.mu__score { display: grid; justify-items: center; align-self: center; gap: 2px; padding: 8px 18px; border-radius: 14px; background: #08101f; border: 1px solid rgba(103, 232, 249, .3); min-width: 170px; }
+.mu__score small { font: 800 10px system-ui; letter-spacing: .14em; color: #67e8f9; } .mu__score small:last-child { letter-spacing: .02em; color: #94a3b8; font-weight: 600; }
+.mu__score b { display: flex; gap: 10px; font: 900 38px/1 ui-monospace, monospace; color: #fff; } .mu__score b em { color: #475569; font-style: normal; }
+.mu__nums b { font-size: 26px; color: #6ee7b7; }
+/* 10-27 v5 (owner: "still a lot of blank space"): the matchup scoreboard sits in the facts column under the replay
+   facts, stacked (score on top, the two sides below), so that column runs as tall as the grid */
+.gn-storm__side .mu .mu__sides { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
+.gn-storm__side .mu .mu__score { grid-column: 1 / -1; order: -1; justify-self: stretch; min-width: 0; }
+.gn-storm__side .mu .mu__score b { font-size: 34px; }
+.gn-storm__side .mu .mu__nums b { font-size: 22px; }
+.gn-storm__side .mu .mu__foot { flex-direction: column; align-items: stretch; } .gn-storm__side .mu .mu__go { text-align: center; }
+.gn-storm__side .mu .mu__players { display: grid; }
+/* the facts column keeps at least 280px; on narrower screens the grid gives way, not the facts */
+@media (min-width: 1500px) {
+  .gn:not(.gn--tvlayout) .gn-storm__body:has(.gn-storm__picker) { grid-template-columns: minmax(360px, 640px) minmax(260px, 300px) minmax(280px, 1fr); }
+}
+/* the control deck runs the grid's full height; its AISP -> YOU readout sits at the bottom, level with the grid */
+@media (min-width: 1100px) {
+  .gn:not(.gn--tvlayout) .gn-storm__picker { align-self: stretch; display: flex; }
+  .gn:not(.gn--tvlayout) .gn-storm__picker > .qr { flex: 1; display: flex; flex-direction: column; }
+  .gn:not(.gn--tvlayout) .gn-storm__picker .qr__out { margin-top: auto; }
+}
+/* the deck's height is shared by its slider cards (no single hole above the readout) */
+@media (min-width: 1100px) {
+  .gn:not(.gn--tvlayout) .gn-storm__picker .qr__out { margin-top: 0; }
+  .gn:not(.gn--tvlayout) .gn-storm__picker .qr__row { flex: 1 1 auto; align-content: center; max-height: 110px; }
+}
+/* 10-27 v6 (owner drew the line): the stage ends about three quarters across and the rail takes the last quarter;
+   inside the stage the grid gets more of the width than the facts. Proportional, so it holds on wide screens too. */
+@media (min-width: 1100px) {
+  .gn:not(.gn--tvlayout) .gn-main { grid-template-columns: minmax(0, 3fr) minmax(300px, 1fr); }
+}
+@media (min-width: 1500px) {
+  .gn:not(.gn--tvlayout) .gn-storm__body:has(.gn-storm__picker) { grid-template-columns: minmax(360px, 1.6fr) minmax(260px, 300px) minmax(280px, 1fr); }
+}
+/* 10-27 v7 (owner: "no button or instructions on implementing their selections"): draft -> RUN -> the grid */
+.qr__head small { display: block; line-height: 1.45; } .qr__head small i { display: inline-grid; place-items: center; width: 16px; height: 16px; margin: 0 3px 0 0; border-radius: 50%; background: #10b981; color: #fff; font: 900 10px system-ui; font-style: normal; }
+.qr__head small em { font-style: normal; font-weight: 800; color: #047857; }
+.qr__row.is-changed { border-color: #f59e0b; box-shadow: inset 3px 0 0 #f59e0b; }
+.qr__run { all: unset; box-sizing: border-box; cursor: pointer; text-align: center; padding: 11px 10px; border-radius: 12px; font: 900 14px system-ui; letter-spacing: .02em;
+  color: #052e16; background: linear-gradient(180deg, #6ee7b7, #10b981); box-shadow: 0 8px 20px rgba(16, 185, 129, .35); }
+.qr.is-dirty .qr__run { color: #1c1300; background: linear-gradient(180deg, #fde68a, #f59e0b); box-shadow: 0 0 0 3px rgba(245, 158, 11, .35), 0 8px 22px rgba(245, 158, 11, .4); animation: qr-pulse 1.4s ease-in-out infinite; }
+.qr__run:disabled { cursor: default; background: #d1fae5; color: #047857; box-shadow: none; animation: none; }
+.qr__run:focus-visible { outline: 3px solid #0f172a; outline-offset: 2px; }
+@keyframes qr-pulse { 50% { box-shadow: 0 0 0 7px rgba(245, 158, 11, .12), 0 8px 22px rgba(245, 158, 11, .4); } }
+.qr__status { margin: 0; font-size: 11.5px; color: #475569; line-height: 1.35; } .qr__status.is-ran { color: #047857; font-weight: 800; }
+@media (prefers-reduced-motion: reduce) { .qr.is-dirty .qr__run { animation: none; } }
+/* the grid says loudly whose 10,000 it is */
+.gn-yours { display: inline-block; padding: 3px 10px; border-radius: 999px; color: #052e16 !important; background: linear-gradient(180deg, #6ee7b7, #10b981); letter-spacing: .12em; box-shadow: 0 0 18px rgba(16, 185, 129, .55); }
+.gn-storm:has(.gn-yours) { border-top-color: #34d399 !important; box-shadow: 0 16px 40px rgba(0, 0, 0, .45), 0 0 0 2px rgba(52, 211, 153, .5), 0 0 34px rgba(52, 211, 153, .22) !important; }

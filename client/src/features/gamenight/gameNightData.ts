@@ -615,3 +615,17 @@ export type GameNightModel = ReturnType<typeof useGameNight>
 
 /** Today's ET date. */
 export const etToday = (now: number) => operationalToday(new Date(now))
+
+/** The Experiment Lab's own 10,000 (the user's model) as a storm source, so the score grid can replay it. */
+export function stormFromUser(gameId: string, sport: string, away: { abbr: string; name: string }, home: { abbr: string; name: string },
+  cells: TallyCell[], pHome: number): StormSource {
+  const drawCount = totalCount(cells)
+  return {
+    gameId, sport, away, home,
+    population: drawCount > 0 ? { mode: 'exact', drawCount, window: axisRange(cells), draw: (seed) => ({ order: expandShuffle(cells, seed), cells }), nhl: null } : null,
+    unavailableReason: drawCount > 0 ? null : 'Your model produced no draws.',
+    split: { away: 1 - pHome, tie: 0, home: pHome }, splitBasis: 'your model (Experiment Lab)', regulation: null,
+    modelLabel: 'YOUR MODEL · Experiment Lab', forecastAt: null, startsAt: null, hoursBeforeStart: null,
+    development: false, prospective: false, final: null, strikeCell: null, cap: null,
+  }
+}

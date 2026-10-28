@@ -1067,3 +1067,10 @@
 .mpo__h4 { margin: 12px 0 4px; font-size: 13px; color: var(--bx-muted); }
 .mpo__statements { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; line-height: 1.45; color: var(--bx-text); }
 .mpo__unsupported { margin: 6px 0; padding: 8px 12px; border-radius: 10px; background: var(--bx-warn-soft); font-size: 12.5px; line-height: 1.45; }
+
+/* 10-27: Today's market reads as a section of Markets & Crowd, not a new page */
+.cc-mpulse--section { padding: 14px 18px 10px; gap: 8px; }
+.cc-mpulse--section .cc-mpulse__head h2 { margin: 2px 0 4px; font-size: clamp(19px, 1.8vw, 24px); line-height: 1.15; color: var(--bx-text); }
+.cc-mpulse__line { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--bx-muted, #94a3b8); }
+.cc-mpulse__line b { color: var(--bx-text, #e2e8f0); } .cc-mpulse__line b.is-up { color: #34d399; } .cc-mpulse__line b.is-down { color: #fb7185; } .cc-mpulse__line b.is-gold { color: #fbbf24; }
+.cc-mpulse__line .cc-mpulse__asof { margin-left: auto; }

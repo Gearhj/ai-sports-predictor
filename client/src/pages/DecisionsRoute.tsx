@@ -7,6 +7,7 @@ import { lazy } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CommandDecisions } from '../components/command/CommandDecisions'
 import { DecisionsGuide } from '../components/command/DecisionsGuide'
+import { DecisionMachine } from '../features/machine/DecisionMachine'
 import { LazyDetails } from '../components/command/LazyDetails'
 import { RegionBoundary } from '../components/command/RegionBoundary'
 import { useBroadcastTheme } from '../components/broadcast/primitives'
@@ -26,6 +27,7 @@ export function DecisionsRoute() {
     <div className="bx bx-decisions">
       <div className="bx__inner">
         <DecisionsGuide />
+        <RegionBoundary label="decision machine"><DecisionMachine /></RegionBoundary>
         <RegionBoundary label="decision command center">
           {/* Keyed so the global sport selector filters the page, not just the URL. */}
           <CommandDecisions key={initialSport ?? 'ALL'} day={resolveOperationalDate(params.get('date'))} initialSport={initialSport} />

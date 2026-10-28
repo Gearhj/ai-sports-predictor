@@ -21,6 +21,8 @@ import { allPositions, american, etClock, resultOf, usd, usePulse, type PulseGam
 import { GamePlanBar } from '../flow/GamePlanBar'
 import '../slate/slate.css'
 import './record.css'
+import { TimeMachine } from './TimeMachine'
+import { ModelRecordCard } from '../lab/ModelRecord'
 
 type Sport = 'ALL' | SportCode
 type Range = '7' | '30' | '90' | 'season' | 'all'
@@ -149,6 +151,9 @@ export function RecordPage() {
               <Tile tone={streak >= 0 ? 'green' : 'red'} icon="🔥" label="Current Streak" big={streak ? `${Math.abs(streak)} ${streak > 0 ? 'Win' : 'Loss'}${Math.abs(streak) > 1 ? (streak > 0 ? 's' : 'es') : ''}` : '—'} sub={<span className="rc-dots">{last5.map((r, i) => <i key={i} className={`is-${r.toLowerCase()}`}>{r[0]}</i>)}</span>} />
             </section>
 
+            <TimeMachine start={starting} bets={all.filter((p) => p.settled_at && p.profit_loss != null && ['WIN', 'LOSS', 'PUSH'].includes(resultOf(p)) && (sport === 'ALL' || p.sport === sport))
+              .map((p) => ({ at: p.settled_at!, sport: p.sport, stake: p.stake ?? 0, profit: p.profit_loss ?? 0, label: `${p.sport} ${p.matchup ?? ''} · ${p.selection ?? ''} · ${resultOf(p)} ${usd(p.profit_loss ?? 0, true)}` }))} />
+            <ModelRecordCard />
             <div className="rc-row">
               <section className="sl-card rc-chart" aria-label="Bankroll performance">
                 <header className="sl-card__head"><h2>Bankroll Performance</h2>
@@ -238,14 +243,20 @@ function Tile({ tone, icon, label, big, sub, bigCls = '' }: { tone: string; icon
 
 function BankChart({ series, base, posById }: { series: BankrollPoint[]; base: number; posById: Map<string, Pos> }) {
   const [hv, setHv] = useState<number | null>(null)
+  // "By bet" (default, owner 10-26): every settled bet gets its own slot, so a day with ten bets no longer stacks
+  // them on one x position; "By date" keeps calendar time.
+  const [mode, setMode] = useState<'bet' | 'date'>(() => { try { return (localStorage.getItem('aisp-rc-xmode') as 'bet' | 'date') || 'bet' } catch { return 'bet' } })
+  const pick = (m: 'bet' | 'date') => { setMode(m); try { localStorage.setItem('aisp-rc-xmode', m) } catch { /* private window */ } }
   const W = 900; const H = 300; const L = 58; const R = 14; const T = 14; const B = 30
   if (series.length < 2) return <p className="sl-empty">Not enough settled bets in this range to draw the line.</p>
   const t0 = Date.parse(series[0].at!); const t1 = Date.parse(series[series.length - 1].at!)
   const vals = series.map((p) => p.bankroll)
   const lo = Math.min(base, ...vals); const hi = Math.max(base, ...vals); const pad = Math.max(5, (hi - lo) * 0.08)
-  const X = (t: number) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R)
+  const XT = (t: number) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R)
+  const XI = (i: number) => L + (i / Math.max(1, series.length - 1)) * (W - L - R)
   const Y = (v: number) => T + (1 - (v - (lo - pad)) / (hi - lo + 2 * pad)) * (H - T - B)
-  const pts = series.map((p) => ({ x: X(Date.parse(p.at!)), y: Y(p.bankroll), p }))
+  const pts = series.map((p, i) => ({ x: mode === 'bet' ? XI(i) : XT(Date.parse(p.at!)), y: Y(p.bankroll), p }))
+  const dayOf = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(iso))
   const line = pts.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' ')
   const area = `${line} L${pts[pts.length - 1].x.toFixed(1)},${Y(base).toFixed(1)} L${pts[0].x.toFixed(1)},${Y(base).toFixed(1)} Z`
   // drawdown: the gap between the running peak and the bankroll
@@ -255,13 +266,20 @@ function BankChart({ series, base, posById }: { series: BankrollPoint[]; base: n
   const ticks = Array.from({ length: 5 }, (_, i) => lo - pad + ((hi - lo + 2 * pad) * i) / 4)
   const days = Math.max(1, Math.round((t1 - t0) / 86_400_000))
   const step = days > 60 ? 14 : days > 21 ? 7 : days > 7 ? 2 : 1
-  const xt: number[] = []
-  for (let t = t0; t <= t1; t += step * 86_400_000) xt.push(t)
+  const xt: Array<{ x: number; t: number }> = []
+  if (mode === 'date') { for (let t = t0; t <= t1; t += step * 86_400_000) xt.push({ x: XT(t), t }) }
+  else {
+    // label the first bet of a day, thinned to about ten labels
+    const firsts = series.map((p, i) => ({ i, d: dayOf(p.at!) })).filter((v, k, arr) => k === 0 || v.d !== arr[k - 1].d)
+    const every = Math.max(1, Math.ceil(firsts.length / 10))
+    firsts.filter((_, k) => k % every === 0).forEach((f) => { const x = XI(f.i); if (!xt.length || x - xt[xt.length - 1].x >= 56) xt.push({ x, t: Date.parse(series[f.i].at!) }) })
+  }
   const onMove = (e: MouseEvent<SVGSVGElement>) => { const r = e.currentTarget.getBoundingClientRect(); const x = ((e.clientX - r.left) * W) / r.width; let best = 0; let bd = Infinity; pts.forEach((q, i) => { const d = Math.abs(q.x - x); if (d < bd) { bd = d; best = i } }); setHv(best) }
   const h = hv != null ? pts[hv] : null
   const hp = h?.p.position_id ? posById.get(h.p.position_id) : null
   return (
     <div className="rc-chartwrap">
+      <span className="rc-xmode" role="tablist" aria-label="Horizontal axis"><button type="button" role="tab" aria-selected={mode === 'bet'} className={mode === 'bet' ? 'is-on' : ''} onClick={() => pick('bet')}>By bet</button><button type="button" role="tab" aria-selected={mode === 'date'} className={mode === 'date' ? 'is-on' : ''} onClick={() => pick('date')}>By date</button></span>
       <svg viewBox={`0 0 ${W} ${H}`} className="rc-svg" onMouseMove={onMove} onMouseLeave={() => setHv(null)} role="img" aria-label="Bankroll over time">
         <defs>
           <clipPath id="rc-above"><rect x="0" y="0" width={W} height={Y(base)} /></clipPath>
@@ -270,14 +288,14 @@ function BankChart({ series, base, posById }: { series: BankrollPoint[]; base: n
           <linearGradient id="rc-r" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stopColor="#f87171" stopOpacity=".45" /><stop offset="1" stopColor="#f87171" stopOpacity="0" /></linearGradient>
         </defs>
         {ticks.map((v) => <g key={v}><line x1={L} x2={W - R} y1={Y(v)} y2={Y(v)} stroke="rgba(255,255,255,.07)" /><text x={L - 8} y={Y(v) + 4} textAnchor="end" className="rc-ax">{usd(Math.round(v))}</text></g>)}
-        {xt.map((t) => <text key={t} x={X(t)} y={H - 8} textAnchor="middle" className="rc-ax">{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }).format(new Date(t))}</text>)}
+        {xt.map(({ x, t }) => <g key={`${x}-${t}`}>{mode === 'bet' ? <line x1={x} x2={x} y1={T} y2={H - B} stroke="rgba(255,255,255,.05)" /> : null}<text x={x} y={H - 8} textAnchor="middle" className="rc-ax">{new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }).format(new Date(t))}</text></g>)}
         <path d={area} fill="url(#rc-g)" clipPath="url(#rc-above)" />
         <path d={area} fill="url(#rc-r)" clipPath="url(#rc-below)" />
         <path d={dd} fill="rgba(248,113,113,.14)" />
         <line x1={L} x2={W - R} y1={Y(base)} y2={Y(base)} stroke="rgba(255,255,255,.55)" strokeDasharray="5 5" />
         <path d={line} fill="none" stroke="#34d399" strokeWidth="2.2" clipPath="url(#rc-above)" />
         <path d={line} fill="none" stroke="#f87171" strokeWidth="2.2" clipPath="url(#rc-below)" />
-        {pts.map((q, i) => (q.p.kind === 'SETTLEMENT' && pts.length < 400 ? <circle key={i} cx={q.x} cy={q.y} r="2.6" fill={(q.p.change ?? 0) > 0 ? '#34d399' : (q.p.change ?? 0) < 0 ? '#f87171' : '#cbd5e1'} /> : null))}
+        {pts.map((q, i) => (q.p.kind === 'SETTLEMENT' && pts.length < 600 ? <circle key={i} cx={q.x} cy={q.y} r={mode === 'bet' ? 3.2 : 2.6} fill={(q.p.change ?? 0) > 0 ? '#34d399' : (q.p.change ?? 0) < 0 ? '#f87171' : '#cbd5e1'} /> : null))}
         {h ? <g><line x1={h.x} x2={h.x} y1={T} y2={H - B} stroke="rgba(255,255,255,.4)" /><circle cx={h.x} cy={h.y} r="6" fill="#fff" stroke="#0b1526" strokeWidth="2" /></g> : null}
         <text x={pts[pts.length - 1].x - 4} y={pts[pts.length - 1].y - 10} textAnchor="end" className="rc-last">{usd(pts[pts.length - 1].p.bankroll)}</text>
       </svg>

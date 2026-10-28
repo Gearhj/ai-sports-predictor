@@ -225,3 +225,78 @@
 .nh-fight__note { position: relative; max-width: 720px; text-align: center; font-size: 13px; color: #fecaca; padding: 0 20px; }
 @media (max-width: 760px) { .nh-horn__who img { width: 70px; height: 70px; } .nh-horn__who em { font-size: 20px; } .nh-horn__score { font-size: 40px; } .nh-horn__score img { width: 40px; height: 40px; } .nh-horn__siren { width: 70px; height: 70px; } }
 @media (prefers-reduced-motion: reduce) { .nh-horn, .nh-horn *, .nh-fight, .nh-fight * { animation: none !important; } }
+
+/* ---- colour: steel frames, navy wells, a different accent on every panel, team washes (owner 10-25 22:41) ---- */
+.ar-sb { background: linear-gradient(100deg, color-mix(in srgb, var(--ac, #334155) 42%, #0b1526) 0%, #0b1526 34%, #0b1526 66%, color-mix(in srgb, var(--hc, #334155) 42%, #0b1526) 100%) !important; border-color: rgba(255, 255, 255, .14) !important; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 12px 30px rgba(0, 0, 0, .4); }
+.nh { --steel-1: #56606f; --steel-2: #3a424f; --steel-3: #262c36; }
+.nh-card { --acc: #5eead4; position: relative; overflow: hidden; border: 1px solid #5b6576;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .03) 0 1px, transparent 1px 3px), linear-gradient(165deg, color-mix(in srgb, var(--acc) 16%, var(--steel-1)) 0%, var(--steel-2) 38%, var(--steel-3) 100%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 0 1px rgba(0, 0, 0, .25), 0 12px 28px rgba(0, 0, 0, .38); }
+.nh-card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--acc), color-mix(in srgb, var(--acc) 30%, transparent)); }
+.nh-card > header h2 { color: #fff; } .nh-card > header h2::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 8px; background: var(--acc); box-shadow: 0 0 10px var(--acc); vertical-align: 2px; }
+.nh-story { --acc: #2dd4bf; } .nh-pulse { --acc: #f472b6; } .nh-rink { --acc: #7dd3fc; } .nh-now { --acc: #34d399; } .nh-wp { --acc: #fbbf24; }
+.nh-duel { --acc: #93c5fd; } .nh-moments { --acc: #f87171; } .nh-wall { --acc: #fb923c; } .nh-tug { --acc: #a78bfa; } .nh-stars { --acc: #facc15; } .nh .ar-flow { --acc: #4ade80; } .nh .ar-box { --acc: #94a3b8; } .nh .ar-feed { --acc: #60a5fa; }
+/* the story: team colours meet in the middle */
+.nh-story { background: linear-gradient(100deg, color-mix(in srgb, var(--ac) 30%, #16213a), #15233a 45%, #15233a 55%, color-mix(in srgb, var(--hc) 30%, #16213a)) !important; border-left: 0 !important; }
+/* navy wells inside the steel frames */
+.nh-wp__river, .nh .ar-flow svg, .nh-pulse__svg { background: #070d1a; border-radius: 10px; border: 1px solid rgba(120, 160, 220, .14); }
+.nh-now__str, .nh-now__tip { background: rgba(7, 13, 26, .72); }
+/* frosted night ice */
+.nh-rink .ar-ice { fill: url(#nh-icefill); }
+.nh-rink svg { filter: drop-shadow(0 10px 26px rgba(0, 0, 0, .45)); }
+.nh .ar-circle { opacity: .6; } .nh .ar-red { opacity: .9; } .nh .ar-blue { opacity: .9; }
+
+/* game pulse */
+.nh-pulse__bpm { display: grid; justify-items: center; margin-left: 10px; line-height: 1; } .nh-pulse__bpm b { font-size: 24px; font-weight: 900; } .nh-pulse__bpm small { font-size: 9.5px; color: #cbd5e1; letter-spacing: .06em; }
+.nh-pulse__bpm:first-of-type { margin-left: auto; }
+.nh-pulse__svg { display: block; width: 100%; height: auto; }
+.nh-pulse__base { stroke: rgba(255, 255, 255, .18); stroke-dasharray: 3 5; }
+.nh-pulse__per { stroke: rgba(148, 163, 184, .18); } .nh-pulse__tick { font-size: 11px; font-weight: 900; fill: #7f8b9d; }
+.nh-pulse__line { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: nh-draw 2.4s ease-out forwards; }
+.nh-pulse__goal { animation: heat-rise .5s ease-out both; cursor: default; }
+.nh-pulse__now { fill: rgba(244, 114, 182, .35); animation: nh-beat 1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes nh-beat { 0%, 100% { transform: scale(.7); opacity: .9; } 15% { transform: scale(1.5); opacity: .4; } 30% { transform: scale(.9); } 45% { transform: scale(1.3); opacity: .5; } }
+.nh-pulse.is-thump { animation: nh-thump .6s ease-out; } @keyframes nh-thump { 20% { transform: scale(1.012); box-shadow: 0 0 40px rgba(244, 114, 182, .5); } }
+
+/* heat wall */
+.nh-wall__grid { position: relative; }
+.nh-wall__tile { position: absolute; display: grid; justify-items: center; gap: 3px; padding: 4px 2px; border: 0; background: none; color: #e2e8f0; font: inherit; cursor: pointer; transition: left .9s cubic-bezier(.2, .9, .3, 1), top .9s cubic-bezier(.2, .9, .3, 1); }
+.nh-wall__face { position: relative; width: calc(46px + var(--h) * 26px); height: calc(46px + var(--h) * 26px); }
+.nh-wall__face img, .nh-wall__face > i { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #1f2937; display: grid; place-items: center; font-style: normal; font-weight: 900;
+  border: 3px solid var(--c); filter: saturate(calc(.35 + var(--h))) brightness(calc(.6 + var(--h) * .55)); box-shadow: 0 0 calc(var(--h) * 26px) calc(var(--h) * 6px) color-mix(in srgb, var(--c) 70%, transparent); transition: all .6s; }
+.nh-wall__face em { position: absolute; right: -4px; top: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--c); color: #0b1526; font-style: normal; font-size: 11px; font-weight: 900; display: grid; place-items: center; border: 2px solid #0b1526; }
+.nh-wall__tile small { font-size: 10.5px; font-weight: 800; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: calc(.5 + var(--h) * .5); }
+.nh-wall__tile:hover .nh-wall__face img { transform: scale(1.12); filter: none; }
+.nh-wall__tile.is-fire .nh-wall__face img { border-color: #fde047; animation: heat-aura .7s ease-in-out infinite alternate; filter: none; }
+@media (max-width: 760px) { .nh-wall__face { width: calc(30px + var(--h) * 14px); height: calc(30px + var(--h) * 14px); } .nh-wall__tile small { font-size: 8.5px; } }
+
+/* ---- the penalty box (owner 10-25 22:5x: "a cool animation for the penalty box") ---- */
+.nh-booth__glass { fill: rgba(186, 230, 253, .10); stroke: rgba(226, 232, 240, .55); stroke-width: 1.5; }
+.nh-booth.is-busy .nh-booth__glass { fill: rgba(239, 68, 68, .16); stroke: #fca5a5; }
+.nh-booth__door { stroke: rgba(226, 232, 240, .7); stroke-width: 2.5; }
+.nh-booth__light { fill: #475569; } .nh-booth.is-busy .nh-booth__light { fill: #ef4444; animation: nh-siren .4s ease-in-out infinite alternate; filter: drop-shadow(0 0 5px #ef4444); }
+.nh-booth__lab { font-size: 7.5px; font-weight: 900; letter-spacing: .12em; fill: rgba(255, 255, 255, .45); }
+.nh-booth__track { fill: #0b1526; stroke: rgba(255, 255, 255, .15); stroke-width: 3; }
+.nh-booth__ring { fill: none; stroke: #f87171; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.nh-booth__who.is-soon .nh-booth__ring { stroke: #4ade80; animation: nh-siren .5s ease-in-out infinite alternate; }
+.nh-booth__time { font-size: 8.5px; font-weight: 900; fill: #fde047; paint-order: stroke; stroke: #0b1526; stroke-width: 2.5px; }
+.nh-whistle { font-size: 14px; font-weight: 900; font-style: italic; fill: #f8fafc; paint-order: stroke; stroke: #0b1526; stroke-width: 3px; }
+.nh-pen-ring { fill: none; stroke: #f87171; stroke-width: 3; }
+.nh-callout--pen { font-size: 19px; } .nh-callout--clock { font-size: 16px; }
+.nh-door-slam { stroke: #fde047; stroke-width: 4; stroke-linecap: round; }
+.nh-booth-flash { fill: #ef4444; opacity: 0; }
+
+/* the Right Now penalty box */
+.nh-now__pen { grid-template-columns: 48px minmax(0, 1fr) auto; animation: nh-penin .55s cubic-bezier(.2, 1.3, .4, 1) both; }
+@keyframes nh-penin { from { transform: translateX(40px) scale(.9); opacity: 0; } }
+.nh-now__penface { position: relative; width: 48px; height: 48px; }
+.nh-now__penface svg { position: absolute; inset: 0; width: 48px; height: 48px; }
+.nh-now__penface img, .nh-now__penface > i { position: absolute; left: 7px; top: 7px; width: 34px !important; height: 34px !important; border: 0 !important; }
+.nh-now__pentrack { fill: none; stroke: rgba(255, 255, 255, .12); stroke-width: 4; }
+.nh-now__penring { fill: none; stroke: #f87171; stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.nh-now__bars { position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(90deg, transparent 0 22px, rgba(203, 213, 225, .55) 22px 26px); animation: nh-bars .5s cubic-bezier(.5, 0, .6, 1.6) both .15s, nh-barsfade .6s ease-out 1.4s forwards; transform-origin: top; }
+@keyframes nh-bars { from { transform: translateY(-105%); } }
+@keyframes nh-barsfade { to { opacity: .18; } }
+.nh-now__pen.is-soon { border-color: #4ade80; animation: nh-soon .8s ease-in-out infinite; } .nh-now__pen.is-soon em { color: #86efac; } .nh-now__pen.is-soon .nh-now__penring { stroke: #4ade80; }
+@keyframes nh-soon { 50% { box-shadow: 0 0 18px rgba(74, 222, 128, .55); } }
+.nh-now__pen.is-out { background: rgba(22, 101, 52, .35); border-color: #4ade80; animation: nh-free 3.5s ease-out both; } .nh-now__pen.is-out small { color: #86efac; font-weight: 900; letter-spacing: .08em; } .nh-now__pen.is-out em { color: #4ade80; }
+@keyframes nh-free { 0% { transform: scale(1.06); box-shadow: 0 0 30px rgba(74, 222, 128, .8); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-30px); } }

@@ -281,8 +281,10 @@ export function countdown(iso: string, now: number) {
 }
 
 /** Result of a settled position in plain words. */
-export function resultOf(p: LedgerPosition): 'WIN' | 'LOSS' | 'PUSH' | 'OPEN' {
+export function resultOf(p: LedgerPosition): 'WIN' | 'LOSS' | 'PUSH' | 'VOID' | 'OPEN' {
   const r = (p.result ?? '').toUpperCase()
   if (r === 'WIN' || r === 'LOSS' || r === 'PUSH') return r
+  // a voided or canceled position is closed with no action, never still open
+  if (r === 'VOID' || r === 'CANCELED' || r === 'CANCELLED') return 'VOID'
   return 'OPEN'
 }

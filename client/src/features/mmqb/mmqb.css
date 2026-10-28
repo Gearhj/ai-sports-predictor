@@ -108,3 +108,21 @@
 @media (max-width: 1000px) { .mq-hero, .mq-two { grid-template-columns: 1fr; } .mq-season__row { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .mq-w { grid-template-columns: 120px minmax(0, 1fr) 40px; } .mq-dive dl { grid-template-columns: repeat(2, 1fr); } .mq-change { grid-template-columns: 1fr; } .mq-change::before, .mq-change > div::before { display: none; } .mq-change > div { margin-left: 0; } }
 @media (prefers-reduced-motion: reduce) { .mq-w i b, .mq-lessons li { animation: none; } }
+
+/* Yesterday in review (owner 10-26) */
+.wr { display: grid; gap: 12px; border-top: 3px solid #5eead4; }
+.wr__kicker { margin: 0; font: 900 11.5px ui-monospace, monospace; letter-spacing: .16em; color: #5eead4; }
+.wr__head h2 { margin: 2px 0 6px; font: 900 22px/1.15 system-ui; }
+.wr__lede { margin: 0; font-size: 15px; color: #cbd5e1; line-height: 1.55; max-width: 120ch; }
+.wr__lede b { color: #f8fafc; } .wr .is-up { color: #34d399 !important; } .wr .is-down { color: #fb7185 !important; }
+.wr__sports { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.wr__sport { padding: 10px 12px; border-radius: 12px; background: #0b1220; border-top: 3px solid var(--sc); }
+.wr__sport h3 { margin: 0 0 6px; font: 900 16px system-ui; color: var(--sc); } .wr__sport h3 small { font: 600 12px system-ui; color: #94a3b8; }
+.wr__sport dl { margin: 0; display: grid; gap: 4px; } .wr__sport dl div { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.wr__sport dt { color: #94a3b8; } .wr__sport dd { margin: 0; font: 800 13.5px ui-monospace, monospace; color: #f8fafc; }
+.wr__moments { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.wr__m { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: #0b1220; border-left: 4px solid #94a3b8; font-size: 13px; color: #cbd5e1; }
+.wr__m small { font: 900 11px ui-monospace; letter-spacing: .12em; text-transform: uppercase; color: #94a3b8; }
+.wr__m--good { border-left-color: #34d399; } .wr__m--bad { border-left-color: #fb7185; } .wr__m--hot { border-left-color: #fbbf24; }
+.wr__m-teams { display: flex; align-items: center; gap: 6px; } .wr__m-teams b { font: 800 14px system-ui; color: #f8fafc; }
+.wr__fine { margin: 0; font-size: 11.5px; color: #64748b; }

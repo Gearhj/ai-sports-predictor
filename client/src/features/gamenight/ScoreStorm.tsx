@@ -54,6 +54,14 @@ export interface StormContext {
   fast?: boolean
   /** Where the focused distribution came from, for the methods table. */
   onInfo?: (info: StormInfo) => void
+  /** The Experiment Lab's own 10,000 (the user's model) replayed on the same grid; null = AISP's stored draws. */
+  userSource?: StormSource | null
+  /** Changes whenever the user's inputs change, so the grid replays. */
+  userKey?: string
+  /** Page-only content for the side panel under the replay facts (the matchup card). */
+  extra?: React.ReactNode
+  /** Page-only column between the grid and the side panel (the reader's quick read). */
+  picker?: React.ReactNode
 }
 
 export interface StormInfo {
@@ -88,18 +96,20 @@ export function StormStage(props: StormContext) {
   const { target } = props
   return (
     <section className="gn-storm" aria-labelledby="gn-storm-title">
-      <StageHeader target={target} bet={props.bet} />
-      {target.sport === 'NHL'
-        ? <NhlFocus {...props} />
-        : <SimFocus {...props} />}
+      <StageHeader target={target} bet={props.bet} yours={Boolean(props.userSource)} />
+      {props.userSource
+        ? <ScoreStorm key={`yours-${props.userKey ?? ''}`} source={props.userSource} {...props} fast />
+        : target.sport === 'NHL'
+          ? <NhlFocus {...props} />
+          : <SimFocus {...props} />}
     </section>
   )
 }
 
-function StageHeader({ target, bet }: { target: FocusTarget; bet: HeldBet | null }) {
+function StageHeader({ target, bet, yours }: { target: FocusTarget; bet: HeldBet | null; yours: boolean }) {
   return (
     <header className="gn-storm__head">
-      <p className="gn-kicker"><span className={`gn-tag gn-tag--${target.sport.toLowerCase()}`}>{target.sport}</span> Act I · The 10,000</p>
+      <p className="gn-kicker"><span className={`gn-tag gn-tag--${target.sport.toLowerCase()}`}>{target.sport}</span> {yours ? <b className="gn-yours">YOUR MODEL · 10,000 games</b> : 'AISP’s model · the 10,000'}</p>
       <h2 id="gn-storm-title">
         {target.away.abbr} <em>@</em> {target.home.abbr}
         {bet
@@ -279,7 +289,7 @@ function ScoreStormImpl(props: StormProps) {
   const fullscreenEl = useFullscreenElement()
   const stageFullscreen = fullscreenEl != null && typeof document !== 'undefined' && fullscreenEl !== document.documentElement
     && stageRef.current != null && fullscreenEl.contains(stageRef.current)
-  const pageMax = stageFullscreen && typeof window !== 'undefined' ? Math.max(540, Math.min(900, window.innerHeight - 220)) : 540
+  const pageMax = stageFullscreen && typeof window !== 'undefined' ? Math.max(760, Math.min(900, window.innerHeight - 220)) : 760
   // On the wall the legend sits with the readouts, so the square can take the stage body's full height.
   const tvSide = Math.floor(Math.min(bodyBox.height, bodyBox.width * 0.6, 900))
   const size = tv
@@ -293,6 +303,7 @@ function ScoreStormImpl(props: StormProps) {
   const visible = usePageVisible()
   const onScreen = useOnScreen(stageRef)
   const [playing, setPlaying] = useState(true)
+  // 1x by default (owner 10-27); 4x and Instant are one tap away.
   const [speed, setSpeed] = useState<Speed>(props.fast ? 4 : 1)
   const [phase, setPhase] = useState<'rain' | 'done'>('rain')
   const [landed, setLanded] = useState(0)
@@ -318,7 +329,7 @@ function ScoreStormImpl(props: StormProps) {
     ctx.fillRect(r.x, r.y, r.w, r.h)
     if (count <= 0) return
     const dim = !isReachable(c, liveRef.current)
-    ctx.globalAlpha = dim ? 0.2 : 1
+    ctx.globalAlpha = dim ? 0.35 : 1
     ctx.fillStyle = cellColor(count, maxC, toneOf(c, tintSide))
     ctx.fillRect(r.x, r.y, r.w, r.h)
     ctx.globalAlpha = 1
@@ -550,7 +561,7 @@ function ScoreStormImpl(props: StormProps) {
         const u = (s.t - p.start) / p.dur
         const now = pathAt(p, u)
         const tail = pathAt(p, u - 0.16)
-        fx.globalAlpha = 0.5
+        fx.globalAlpha = 0.22
         fx.strokeStyle = '#3fd8c4'
         fx.lineWidth = head - 1.5
         fx.beginPath(); fx.moveTo(tail.x, tail.y); fx.lineTo(now.x, now.y); fx.stroke()
@@ -610,7 +621,8 @@ function ScoreStormImpl(props: StormProps) {
     + `${tintTeam} won${regulationWord} in ${n0(totalWins)} of them (${pct(share, 1)}).`
 
   const capNote = cap != null ? ` Scores above ${cap} runs are pooled by the model into one "${cap + 1}+" cell.` : ''
-  const caption = sampled && pop?.nhl
+  const caption = props.userSource ? `Your model: ${n0(total)} games simulated from the inputs in the Experiment Lab below. Every square is a final score; brighter = more of your games ended there. Reset the lab to go back to AISP's stored draws.`
+    : sampled && pop?.nhl
     ? `Replaying ${n0(total)} draws sampled from the model's stored distribution: a regulation-only grid derived from its stored expected goals (${pop.nhl.lambdaAway.toFixed(2)} for ${awayTeam} vs ${pop.nhl.lambdaHome.toFixed(2)} for ${homeTeam}). ${pct(pop.nhl.regulationTie, 1)} of the model's chances end tied after 60 minutes and go to overtime or a shootout, which it does not model as scores. The win % on the bar includes overtime. Scores above ${extent.homeMax} goals (${(pop.nhl.outside * 100).toFixed(3)}% of the grid) are counted but not drawn.`
     : `Replaying the model's ${n0(total)} stored pregame draws in a shuffled order. AISP stores how many draws landed on each score, not the order. The order is ours; the finished grid is exactly the model's.${capNote}`
 
@@ -715,6 +727,7 @@ function ScoreStormImpl(props: StormProps) {
         {!tv && table}
       </div>
 
+      {!tv && props.picker ? <div className="gn-storm__picker">{props.picker}</div> : null}
       <div className={`gn-storm__side ${done ? 'is-done' : ''}`} ref={sideRef}>
         {/* Once the rain is over the payoff leads: the real final against the model, then the market. */}
         {finalCards}
@@ -738,6 +751,7 @@ function ScoreStormImpl(props: StormProps) {
           <p className="gn-caption">Observed final {awayTeam} {props.observedFinal.away} – {props.observedFinal.home} {homeTeam}. The regulation score is not in AISP yet, so no cell is marked.</p>
         )}
         <ForecastLine source={source} />
+        {!tv && props.extra}
         {tv && table}
       </div>
       <p className="gn-sr" aria-live="polite">{announce}</p>

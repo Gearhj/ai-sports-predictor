@@ -1,0 +1,175 @@
+/* THE EXPERIMENT LAB — steel frame, navy wells; YOU emerald, AISP gold, market slate. */
+.lb { display: grid; gap: 12px; padding: 14px 16px; margin: 0 0 14px; border-radius: 14px; background: var(--tt-frame, linear-gradient(180deg, #2a3442, #1b2330)); border: 1px solid var(--tt-steel-line, #4d586a); border-top: 3px solid #34d399; color: #e2e8f0; }
+.lb__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.lb__head h2 { margin: 0; font: 900 17px/1 system-ui; letter-spacing: .18em; color: #6ee7b7; }
+.lb__head span { font-size: 13.5px; color: #cbd5e1; }
+.lb__muted { margin: 0; font-size: 12px; color: #94a3b8; }
+.lb__games { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.lb__games button { flex: none; display: flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 10px; border: 1px solid #334155; background: #0b1220; color: #cbd5e1; cursor: pointer; font: inherit; border-top: 3px solid var(--sc); }
+.lb__games button b { font: 800 12.5px system-ui; } .lb__games button small { font: 600 10.5px ui-monospace; color: #94a3b8; }
+.lb__games button.is-on { background: #12233a; border-color: #34d399; box-shadow: 0 0 0 1px #34d399; color: #fff; }
+.lb__body { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 16px; }
+.lb__inputs { display: grid; gap: 10px; align-content: start; padding: 12px; border-radius: 12px; background: #0b1220; }
+.lb__inputs h3 { margin: 0; font: 900 15px system-ui; } .lb__inputs h3 small { font: 600 12px system-ui; color: #94a3b8; }
+.lb__slider { display: grid; gap: 4px; }
+.lb__slider span { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; } .lb__slider em { font: 900 14px ui-monospace; font-style: normal; color: #6ee7b7; }
+.lb__slider input { width: 100%; accent-color: #34d399; }
+.lb__slider small { font-size: 11px; color: #64748b; }
+.lb__out { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; } .lb__out small { color: #94a3b8; } .lb__out input { accent-color: #fb7185; width: 16px; height: 16px; }
+.lb__reset { justify-self: start; font: 800 12px system-ui; color: #fde68a; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.5); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.lb__reset:disabled { opacity: .4; cursor: default; }
+.lb__out-col { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.lb__three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.lb__bar { display: grid; gap: 3px; padding: 10px 12px; border-radius: 12px; background: #0b1220; border-top: 3px solid #64748b; }
+.lb__bar small { font: 800 10.5px ui-monospace; letter-spacing: .12em; color: #94a3b8; }
+.lb__bar b { font: 900 28px/1 ui-monospace, monospace; }
+.lb__bar i { display: block; height: 8px; border-radius: 999px; background: #1e293b; overflow: hidden; } .lb__bar i em { display: block; height: 100%; background: #64748b; transition: width .45s ease; }
+.lb__bar--you { border-top-color: #34d399; } .lb__bar--you b { color: #6ee7b7; } .lb__bar--you i em { background: #34d399; }
+.lb__bar--aisp { border-top-color: #fbbf24; } .lb__bar--aisp b { color: #fde68a; } .lb__bar--aisp i em { background: #fbbf24; }
+.lb__hist { width: 100%; height: auto; display: block; background: #070d18; border-radius: 12px; }
+.lb-ax text { fill: #64748b; font: 10px ui-monospace, monospace; } .lb-ax path, .lb-ax line { stroke: rgba(148,163,184,.25); }
+.lb-cap { fill: #94a3b8; font: 600 11px system-ui; }
+.lb__price { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; color: #cbd5e1; padding: 10px 12px; border-radius: 12px; background: #0b1220; }
+.lb__price b { color: #f8fafc; } .lb__price .is-up { color: #34d399; font-weight: 800; }
+.lb__add { font: 800 12.5px system-ui; color: #052e16; background: linear-gradient(180deg, #34d399, #059669); border: 0; border-radius: 10px; padding: 7px 12px; cursor: pointer; }
+.lb__added { font: 800 12.5px system-ui; color: #6ee7b7; text-decoration: none; }
+@media (max-width: 1000px) { .lb__body { grid-template-columns: 1fr; } .lb__three { grid-template-columns: 1fr 1fr 1fr; } }
+/* Build your model (owner 10-26): compact charts, a histogram paired with box plots. */
+.lb__live { margin-left: auto; font: 900 11px system-ui; letter-spacing: .14em; color: #052e16; background: #34d399; border-radius: 999px; padding: 4px 10px; box-shadow: 0 0 14px rgba(52,211,153,.55); animation: lb-pulse 1.6s ease-in-out infinite; }
+@keyframes lb-pulse { 50% { box-shadow: 0 0 4px rgba(52,211,153,.2); } }
+.lb__charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lb__charts .lb__hist { max-height: 230px; }
+.lb__boxwrap { display: grid; gap: 4px; }
+.lb__boxbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lb__boxbar small { font-size: 11.5px; color: #94a3b8; }
+.lb__chip { font: 900 10.5px system-ui; letter-spacing: .1em; padding: 3px 9px; border-radius: 999px; border: 1px solid #334155; background: #0b1220; color: #64748b; cursor: pointer; }
+.lb__chip[aria-pressed='true'].lb__chip--you { color: #6ee7b7; border-color: #34d399; } .lb__chip[aria-pressed='true'].lb__chip--aisp { color: #fde68a; border-color: #fbbf24; } .lb__chip[aria-pressed='true'].lb__chip--mkt { color: #e2e8f0; border-color: #94a3b8; }
+.lb-zero { stroke: rgba(226,232,240,.35); stroke-dasharray: 3 3; }
+.lb-box { cursor: pointer; transition: opacity .2s; } .lb-box.is-dim { opacity: .3; }
+.lb-box__label { font: 900 11px system-ui; letter-spacing: .1em; }
+.lb--empty .lb__games button { --sc: #64748b; }
+@media (max-width: 1100px) { .lb__charts { grid-template-columns: 1fr; } }
+
+/* My Model (owner 10-27): factors, the real injury list, save / apply, the steps, and the model's board. */
+.lb__slider small { line-height: 1.35; }
+.lb__inj { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: rgba(244, 63, 94, .06); border: 1px solid rgba(251, 113, 133, .25); }
+.lb__inj > b { font: 900 12.5px system-ui; color: #fecdd3; } .lb__inj > small { font-size: 12px; color: #94a3b8; }
+.lb__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lb__save, .lb__apply { font: 900 13px system-ui; border-radius: 10px; padding: 9px 14px; cursor: pointer; border: 0; }
+.lb__save { color: #052e16; background: linear-gradient(180deg, #6ee7b7, #10b981); box-shadow: 0 6px 18px rgba(16, 185, 129, .3); }
+.lb__save:disabled { background: rgba(52, 211, 153, .15); color: #6ee7b7; box-shadow: none; cursor: default; }
+.lb__apply { color: #1c1300; background: linear-gradient(180deg, #fde68a, #f59e0b); box-shadow: 0 6px 18px rgba(245, 158, 11, .3); }
+.lb__steps { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+.lb__steps span { display: grid; gap: 1px; padding: 6px 10px; border-radius: 10px; background: #0b1220; border: 1px solid #1e293b; }
+.lb__steps small { font: 800 10px system-ui; letter-spacing: .1em; text-transform: uppercase; color: #94a3b8; } .lb__steps b { font: 900 15px ui-monospace, monospace; color: #e2e8f0; }
+.lb__steps .is-final { border-color: #34d399; box-shadow: 0 0 12px rgba(52, 211, 153, .25); } .lb__steps .is-final b { color: #6ee7b7; }
+.lb__wait { color: #fde68a; }
+.lb-board { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: #0b1220; border: 1px solid rgba(251, 191, 36, .4); animation: lb-rise .35s ease both; overflow-x: auto; }
+.lb-board header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; } .lb-board header b { font: 900 15px system-ui; color: #fde68a; } .lb-board header small { font-size: 12px; color: #94a3b8; } .lb-board header .lb__reset { margin-left: auto; }
+.lb-board table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.lb-board th { text-align: left; font: 800 10.5px system-ui; letter-spacing: .1em; text-transform: uppercase; color: #64748b; padding: 6px 8px; border-bottom: 1px solid #1e293b; }
+.lb-board td { padding: 7px 8px; border-bottom: 1px solid rgba(30, 41, 59, .6); color: #cbd5e1; } .lb-board td small { display: block; font-size: 11px; color: #64748b; }
+.lb-board td.is-you { color: #6ee7b7; font-weight: 900; } .lb-board td.is-up { color: #34d399; font-weight: 900; }
+@keyframes lb-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rp { display: grid; gap: 8px; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: linear-gradient(180deg, #1b2434, #0e1626); border: 1px solid rgba(148, 163, 184, .25); }
+.rp header { display: grid; gap: 2px; } .rp header b { font: 900 14px system-ui; letter-spacing: .06em; color: #f8fafc; } .rp header small { font-size: 11.5px; color: #94a3b8; }
+.rp--inj { border-top: 3px solid #fb7185; } .rp--model { border-top: 3px solid #34d399; }
+.rp ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.rp li { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 10px; background: #0b1220; border-left: 3px solid var(--sc); }
+.rp li b { font: 900 13px system-ui; color: #f8fafc; } .rp li small { display: block; font-size: 11px; color: #64748b; }
+.rp li em { font: 800 11.5px system-ui; font-style: normal; color: #fecdd3; text-align: right; } .rp li em.is-up { color: #6ee7b7; font-family: ui-monospace, monospace; }
+.rp__lg { font: 900 10px system-ui; letter-spacing: .12em; color: var(--sc); }
+.rp__muted { margin: 0; font-size: 12.5px; color: #94a3b8; } .rp__muted b { color: #e2e8f0; }
+.rp__open { justify-self: start; font: 800 12.5px system-ui; color: #052e16; background: linear-gradient(180deg, #6ee7b7, #10b981); border: 0; border-radius: 10px; padding: 7px 12px; cursor: pointer; }
+
+/* My model's track record */
+.mr { display: grid; gap: 8px; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: linear-gradient(180deg, #1b2434, #0e1626); border: 1px solid rgba(148, 163, 184, .25); border-top: 3px solid #a78bfa; }
+.mr header { display: grid; gap: 2px; } .mr header b { font: 900 14px system-ui; color: #f8fafc; } .mr header small { font-size: 11.5px; color: #94a3b8; }
+.mr-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.mr-cell { display: grid; gap: 1px; padding: 8px 10px; border-radius: 10px; background: #0b1220; border: 1px solid #1e293b; }
+.mr-cell small { font: 900 10px system-ui; letter-spacing: .14em; } .mr-cell b { font: 900 18px ui-monospace, monospace; color: #f8fafc; } .mr-cell em { font-style: normal; font-size: 11px; color: #94a3b8; }
+.mr-cell--you small { color: #6ee7b7; } .mr-cell--aisp small { color: #fde68a; } .mr-cell--mkt small { color: #cbd5e1; }
+.mr-cell.is-best { border-color: #a78bfa; box-shadow: 0 0 12px rgba(167, 139, 250, .35); }
+.mr-value { margin: 0; font-size: 12.5px; color: #cbd5e1; } .mr-value b { color: #f8fafc; } .mr-value .is-up { color: #34d399; } .mr-value .is-down { color: #fb7185; }
+
+/* THE MATCHUP (owner 10-27): sport-specific reads, projected score, rules folded underneath */
+.lb__inputs h3 small { display: block; margin-top: 2px; }
+.lb__read { display: grid; gap: 3px; padding: 7px 9px; margin: 0 0 6px; border-radius: 10px; background: rgba(15, 23, 42, .55); border: 1px solid rgba(148, 163, 184, .16); }
+.lb__read.is-set { border-color: rgba(52, 211, 153, .55); box-shadow: inset 3px 0 0 #34d399; }
+.lb__read > span:first-child { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.lb__read > span:first-child b { font-size: 13px; color: #f1f5f9; }
+.lb__read em { font: 800 12.5px ui-monospace, monospace; color: #6ee7b7; font-style: normal; white-space: nowrap; } .lb__read em i { font-style: normal; color: #fde68a; }
+.lb__read-row { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
+.lb__read-row small { font: 800 11px system-ui; color: #cbd5e1; white-space: nowrap; }
+.lb__read-row input { width: 100%; accent-color: #34d399; }
+.lb__read > small { font-size: 11px; color: #94a3b8; line-height: 1.35; }
+.lb__fact { display: flex; flex-wrap: wrap; gap: 4px 12px; color: #e2e8f0 !important; } .lb__fact b { color: #67e8f9; margin-right: 3px; }
+.lb__proj { display: grid; gap: 2px; padding: 9px 11px; margin: 4px 0 8px; border-radius: 12px; text-align: center;
+  background: linear-gradient(160deg, rgba(52, 211, 153, .16), rgba(15, 23, 42, .8)); border: 1px solid rgba(52, 211, 153, .45); }
+.lb__proj > small { font-size: 10.5px; letter-spacing: .12em; color: #a7f3d0; } .lb__proj > small:last-child { letter-spacing: 0; color: #94a3b8; font-size: 11.5px; }
+.lb__proj b { display: flex; justify-content: center; gap: 10px; font: 900 24px/1.15 system-ui; color: #fff; } .lb__proj b em { color: #64748b; font-style: normal; }
+.lb__rules { margin: 8px 0; border-radius: 10px; border: 1px solid rgba(251, 191, 36, .35); background: rgba(15, 23, 42, .45); padding: 0 9px; }
+.lb__rules > summary { cursor: pointer; padding: 8px 0; display: grid; gap: 2px; list-style: none; } .lb__rules > summary::-webkit-details-marker { display: none; }
+.lb__rules > summary b { color: #fde68a; font-size: 12.5px; letter-spacing: .06em; } .lb__rules > summary b::before { content: '▸ '; } .lb__rules[open] > summary b::before { content: '▾ '; }
+.lb__rules > summary small { color: #94a3b8; font-size: 11px; }
+
+.lb__charts--stack { grid-template-columns: 1fr !important; margin-top: 10px; }
+.lb__proj b { align-items: flex-end; } .lb__proj b span { display: grid; justify-items: center; min-width: 0; }
+.lb__proj b span small { font: 800 11px system-ui; color: #cbd5e1; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0; }
+/* full-width Build Your Model (10-27): the two charts sit side by side when there is room */
+.gn-labrow .lb__charts--stack { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)) !important; }
+.gn-labrow .lb__body { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); }
+/* the results follow you down the sliders, so every change is visible next to the read that made it */
+@media (min-width: 1000px) { .gn-labrow .lb__out-col { position: sticky; top: 84px; align-self: start; } }
+
+/* 10-27: the results column carries the step-by-step build and your model across tonight's board */
+.lb-wf { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(8, 14, 26, .7); border: 1px solid rgba(148, 163, 184, .18); }
+.lb-wf header { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; } .lb-wf header b { color: #f1f5f9; font-size: 13px; } .lb-wf header small { color: #94a3b8; font-size: 11.5px; }
+.lb-wf ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.lb-wf li { display: grid; grid-template-columns: 170px minmax(0, 1fr) 58px 44px; gap: 10px; align-items: center; font-size: 12.5px; color: #cbd5e1; }
+.lb-wf li > b { font: 800 12.5px ui-monospace, monospace; color: #6ee7b7; text-align: right; } .lb-wf li > small { font: 700 11px ui-monospace, monospace; color: #94a3b8; }
+.lb-wf__track { position: relative; height: 12px; border-radius: 6px; background: rgba(148, 163, 184, .12); }
+.lb-wf__bar, .lb-wf__dot, .lb-wf__mkt { position: absolute; top: 0; height: 12px; }
+.lb-wf__bar { border-radius: 4px; background: #94a3b8; } .lb-wf__bar.is-up { background: #34d399; } .lb-wf__bar.is-down { background: #fb7185; }
+.lb-wf__dot { width: 10px; margin-left: -5px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+.lb-wf__mkt { width: 0; border-left: 2px dashed #e2e8f0; opacity: .6; top: -2px; height: 16px; }
+.lb__out-col .lb-board { margin-top: 10px; }
+
+/* 10-27 v4: Build Your Model's inputs are the control deck too (light), results stay in navy wells */
+.lb__inputs { background: linear-gradient(180deg, #f8fafc, #e2e8f0); color: #0f172a; border: 1px solid #cbd5e1; border-top: 4px solid #10b981; box-shadow: 0 14px 34px rgba(0, 0, 0, .4); }
+.lb__inputs h3 { color: #047857; } .lb__inputs h3 small { color: #475569; }
+.lb__inputs .lb__read { background: #fff; border-color: #e2e8f0; }
+.lb__inputs .lb__read.is-set { border-color: #10b981; box-shadow: inset 3px 0 0 #10b981; }
+.lb__inputs .lb__read > span:first-child b { color: #0f172a; } .lb__inputs .lb__read em { color: #047857; } .lb__inputs .lb__read em i { color: #b45309; }
+.lb__inputs .lb__read-row small { color: #334155; } .lb__inputs .lb__read-row input { accent-color: #059669; }
+.lb__inputs .lb__read > small { color: #475569; } .lb__inputs .lb__fact { color: #0f172a !important; } .lb__inputs .lb__fact b { color: #0369a1; }
+.lb__inputs .lb__inj { background: #fff1f2; border-color: #fecdd3; } .lb__inputs .lb__inj > b { color: #9f1239; } .lb__inputs .lb__inj > small, .lb__inputs .lb__out { color: #334155; } .lb__inputs .lb__out small { color: #64748b; }
+.lb__inputs .lb__rules { background: #fffbeb; border-color: #fcd34d; } .lb__inputs .lb__rules > summary b { color: #92400e; } .lb__inputs .lb__rules > summary small { color: #78716c; }
+.lb__inputs .lb__slider span { color: #0f172a; } .lb__inputs .lb__slider em { color: #047857; } .lb__inputs .lb__slider small { color: #64748b; } .lb__inputs .lb__slider input { accent-color: #059669; }
+.lb__inputs .lb__reset { color: #92400e; background: #fef3c7; border-color: #f59e0b; }
+.lb__inputs .lb__proj { box-shadow: 0 8px 20px rgba(2, 6, 23, .25); }
+/* narrow rail (10-27 v4): the absences go on their own line under the matchup instead of crushing it */
+.gn-rail .rp--inj li { grid-template-columns: 38px minmax(0, 1fr); }
+.gn-rail .rp--inj li b { white-space: nowrap; }
+.gn-rail .rp--inj li em { grid-column: 2; text-align: left; }
+
+/* 10-27 v8 (owner: the lab had the same sliders as YOUR READ): what moves this game + game shape, on the light deck */
+.lb-tor { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.lb-tor li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, 1.1fr) 62px; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; background: #fff; border: 1px solid #e2e8f0; }
+.lb-tor li.is-set { border-color: #10b981; box-shadow: inset 3px 0 0 #10b981; }
+.lb-tor__lab { display: grid; min-width: 0; } .lb-tor__lab b { font-size: 12px; color: #0f172a; } .lb-tor__lab small { font-size: 10px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-tor__track { position: relative; height: 16px; border-radius: 4px; background: #f1f5f9; }
+.lb-tor__bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; background: linear-gradient(90deg, #60a5fa, #94a3b8 50%, #34d399); display: flex; justify-content: space-between; align-items: center; padding: 0 3px; overflow: hidden; }
+.lb-tor__bar em { font: 800 8.5px system-ui; font-style: normal; color: #0f172a; }
+.lb-tor__now { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: #b45309; }
+.lb-tor__now--key { position: static; display: inline-block; height: 12px; vertical-align: middle; margin: 0 4px 0 0; }
+.lb-tor__val { font: 800 12px ui-monospace, monospace; color: #047857; text-align: right; } .lb-tor__val small { font-weight: 600; color: #64748b; }
+.lb-tor__key { background: transparent !important; border: 0 !important; padding: 0 8px !important; font-size: 11px; color: #475569; }
+.lb__toread { all: unset; cursor: pointer; justify-self: start; padding: 6px 12px; border-radius: 999px; font: 800 12px system-ui; color: #052e22; background: linear-gradient(90deg, #5eead4, #34d399); }
+.lb__toread:focus-visible { outline: 2px solid #0f172a; outline-offset: 2px; }
+.lb-shape { display: grid; gap: 6px; padding: 9px 10px; border-radius: 10px; background: #0b1220; }
+.lb-shape header { display: flex; gap: 8px; align-items: baseline; } .lb-shape header b { font: 900 11px system-ui; letter-spacing: .14em; color: #c4b5fd; } .lb-shape header small { font-size: 11px; color: #94a3b8; }
+.lb-shape > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.lb-shape span { display: grid; gap: 1px; padding: 7px 8px; border-radius: 8px; background: rgba(148, 163, 184, .1); }
+.lb-shape span b { font: 900 18px ui-monospace, monospace; color: #fff; } .lb-shape span small { font-size: 10.5px; color: #cbd5e1; } .lb-shape span em { font-style: normal; font-size: 9.5px; color: #64748b; }
+.lb__inputs .lb__proj { background: linear-gradient(160deg, #064e3b, #0b1220 75%); border-color: #10b981; } .lb__inputs .lb__proj > small:last-child { color: #a7f3d0; }

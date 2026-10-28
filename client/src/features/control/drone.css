@@ -1,0 +1,24 @@
+/* THE REPAIR DRONE — the self-heal log, live. Teal = fixed, gold = dispatched/held, red = repair failed. */
+.rd { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; align-items: start; position: relative; overflow: hidden; }
+.rd__bay { position: relative; height: 110px; border-radius: 12px; background: radial-gradient(circle at 50% 70%, rgba(45,212,191,.18), #070d18 70%); border: 1px solid rgba(45,212,191,.3); }
+.rd__drone { position: absolute; left: 50%; top: 22px; font-size: 40px; transform: translateX(-50%); animation: rd-hover 3s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(45,212,191,.7)); }
+@keyframes rd-hover { 50% { transform: translate(-50%, -6px) rotate(-4deg) } }
+.rd__beam { position: absolute; left: 50%; top: 62px; width: 36px; height: 40px; transform: translateX(-50%); background: linear-gradient(180deg, rgba(45,212,191,.45), transparent); clip-path: polygon(30% 0, 70% 0, 100% 100%, 0 100%); opacity: .5; animation: rd-beam 2s ease-in-out infinite; }
+@keyframes rd-beam { 50% { opacity: .15 } }
+.rd.is-flying .rd__drone { animation: rd-fly 2.4s cubic-bezier(.5,0,.3,1); }
+@keyframes rd-fly { 0% { transform: translateX(-50%) } 35% { transform: translate(380px, -18px) rotate(14deg) scale(.8) } 60% { transform: translate(380px, -18px) rotate(-10deg) scale(.8) } 100% { transform: translateX(-50%) } }
+.rd__main { display: grid; gap: 8px; min-width: 0; }
+.rd__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.rd__head h2 { margin: 0; font: 900 16px/1 system-ui; letter-spacing: .2em; color: #5eead4; }
+.rd__status { display: inline-flex; align-items: center; gap: 6px; font: 700 12px ui-monospace, monospace; color: #cbd5e1; }
+.rd__dot { width: 8px; height: 8px; border-radius: 50%; background: #2dd4bf; box-shadow: 0 0 8px #2dd4bf; animation: rd-beam 1.4s ease-in-out infinite; }
+.rd__how { margin: 0; font-size: 12.5px; color: #94a3b8; max-width: 80ch; }
+.rd__empty { margin: 0; color: #94a3b8; font-size: 13px; }
+.rd__log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.rd__log li { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; padding: 6px 10px; border-radius: 8px; background: #0b1220; border-left: 3px solid #475569; font-size: 13px; }
+.rd__log time { font: 700 12px ui-monospace, monospace; color: #94a3b8; }
+.rd__log li.is-ok { border-left-color: #2dd4bf; } .rd__log li.is-go, .rd__log li.is-wait { border-left-color: #fbbf24; } .rd__log li.is-bad { border-left-color: #f43f5e; }
+.rd__log li.is-new { animation: rd-new 2.4s ease; }
+@keyframes rd-new { 0%, 40% { background: rgba(45,212,191,.22) } 100% { background: #0b1220 } }
+@media (max-width: 720px) { .rd { grid-template-columns: 1fr; } .rd__bay { height: 80px; } }
+@media (prefers-reduced-motion: reduce) { .rd *, .rd.is-flying .rd__drone { animation: none !important; } }

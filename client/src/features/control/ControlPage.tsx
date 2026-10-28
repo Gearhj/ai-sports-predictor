@@ -30,6 +30,7 @@ import {
 } from '../mission/missionData'
 import '../slate/slate.css'
 import './control.css'
+import { RepairDrone } from './RepairDrone'
 
 const SPORT: Record<MissionSport, { long: string; color: string; icon: string; hours: number }> = {
   MLB: { long: 'MLB', color: '#ff6b57', icon: '⚾', hours: 3 },
@@ -98,7 +99,7 @@ export function ControlPage() {
     if (tab === 'live') list = list.filter(liveNow)
     if (tab === 'bets') list = list.filter(hasBet)
     if (tab === 'final') list = list.filter(isFinal)
-    const sorted = sortRows(list)
+    const sorted = sortRows(list).map((g, i) => ({ g, i, r: readiness(g).rank })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.g)
     return [...sorted.filter(liveNow), ...sorted.filter((g) => !liveNow(g))]
   }, [games, focus, sport, tab])
 
@@ -133,15 +134,9 @@ export function ControlPage() {
 
         <div className="sl-layout">
           <main id="main-content" className="sl-content mx-content">
-            <section className="sl-kpis" aria-label="The day at a glance">
-              <Kpi tone="green" icon="▦" big={String(games.length)} label="Games Today" sub={`${live.length} live · ${pre.length} to go · ${finals.length} final`} onClick={() => { setFocus(null); setTab('all') }} />
-              <Kpi tone="gold" icon="◷" big={nextDecision ? countdownText(new Date(nextDecision.at).toISOString(), now) ?? 'now' : '—'} label="Next Decision" sub={nextDecision ? `${etClock(new Date(nextDecision.at).toISOString())} ET · ${nextDecision.games.length} game${nextDecision.games.length === 1 ? '' : 's'}` : 'No more windows today'} onClick={nextDecision ? () => showGames(`Deciding ${etClock(new Date(nextDecision.at).toISOString())}`, nextDecision.games.map((g) => g.game_id)) : undefined} />
-              <Kpi tone="violet" icon="▤" big={String(bets.length)} label="Bets Entered" sub={`${counts?.bets_open ?? 0} open · ${counts?.bets_settled ?? 0} settled`} onClick={() => { setFocus(null); setTab('bets') }} />
-              <Kpi tone="teal" icon="$" big={allowance?.entered_usd != null ? usd(allowance.entered_usd) : '—'} label={`Of the $${allowance?.limit_usd ?? 100} today`} sub={allowance?.room_usd != null ? `${usd(allowance.room_usd)} room · ${allowance.entries ?? 0} entries` : allowance?.state === 'NOT_IN_FORCE' ? 'Allowance not in force' : 'Allowance unknown'} />
-              <Kpi tone={(counts?.profit_usd ?? 0) >= 0 ? 'green' : 'red'} icon="±" big={counts ? usd(counts.profit_usd, true) : '—'} label="Today's Result" sub={counts ? `on ${usd(counts.staked_usd)} staked` : ''} />
-              <Kpi tone={health?.overall === 'OK' ? 'green' : health?.overall === 'DEGRADED' ? 'orange' : 'red'} icon="⚙" big={health ? (health.overall === 'OK' ? 'All good' : `${health.issues.length} issue${health.issues.length === 1 ? '' : 's'}`) : '—'} label="System Health" sub={`${jobs.ok}/${jobs.total} jobs healthy${jobs.failed ? ` · ${jobs.failed} failed` : ''}`} onClick={() => document.getElementById('mx-health')?.scrollIntoView({ behavior: 'smooth' })} />
-            </section>
+            <p className="mx-howto"><b>How to read this page:</b> every game walks the same gates, left to right: <i>Forecast → Approval → Price → Decision → Bet → Live → Result</i>. Green = done, yellow = waiting, red = blocked. When the first three are green the card <span className="mx-howto__ready">glows green: READY TO BET</span>. That is when AISP (and you) can act at the posted price.</p>
 
+            <RepairDrone />
             {games.length ? <SlateFlow games={games} onShow={showGames} /> : null}
             {games.length ? <NightTimeline games={games} now={now} isToday={day === today} onOpen={(g) => { setFocus(null); setTab('all'); setSport('ALL'); setOpen(g.game_id); window.setTimeout(() => document.getElementById(`mx-g-${g.game_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 40) }} /> : null}
 
@@ -495,6 +490,20 @@ function WpLine({ wp, home, away }: { wp: number[]; home: string; away: string }
   )
 }
 
+/**
+ * READINESS (owner 10-27: "sort them by readiness ... green aura fully ready, yellow waiting on one piece like a market
+ * price, red more than one missing"). The three inputs a decision needs: forecast, approval, price. Live, final and
+ * already-decided games have no aura and sort after the games still to decide.
+ */
+const NEEDS: { key: StageKey; word: string }[] = [{ key: 'forecast', word: 'forecast' }, { key: 'approval', word: 'approval' }, { key: 'prices', word: 'market price' }]
+export function readiness(g: MissionGame): { level: 'green' | 'yellow' | 'red' | 'none'; missing: { word: string; due: string | null | undefined }[]; rank: number } {
+  if (liveNow(g)) return { level: 'none', missing: [], rank: 0 }
+  if (isFinal(g)) return { level: 'none', missing: [], rank: 5 }
+  if (stageOf(g, 'decision').state === 'DONE') return { level: 'none', missing: [], rank: 4 }
+  const missing = NEEDS.filter((n) => stageOf(g, n.key).state !== 'DONE').map((n) => ({ word: n.word, due: stageOf(g, n.key).due_at }))
+  return missing.length === 0 ? { level: 'green', missing, rank: 1 } : missing.length === 1 ? { level: 'yellow', missing, rank: 2 } : { level: 'red', missing, rank: 3 }
+}
+
 function GameCard({ g, now, open, onToggle, onGo, onLive }: { g: MissionGame; now: number; open: boolean; onToggle: () => void; onGo: () => void; onLive: () => void }) {
   const f = stageOf(g, 'forecast'); const b = stageOf(g, 'bet'); const r = stageOf(g, 'result'); const lv = stageOf(g, 'live')
   const live = liveNow(g); const final = isFinal(g)
@@ -504,6 +513,11 @@ function GameCard({ g, now, open, onToggle, onGo, onLive }: { g: MissionGame; no
   const fb = useFootballLive(g, live && (g.sport === 'CFB' || g.sport === 'NFL'))
   const score = r.final ? { a: r.final.away, h: r.final.home, t: clean(r.final.label) || 'Final' } : lv.available && lv.away_score != null && lv.home_score != null ? { a: lv.away_score, h: lv.home_score, t: clean(lv.period_label) || (live ? 'Live' : '') } : fb ? { a: fb.away, h: fb.home, t: fb.status } : null
   const outcome = r.outcome ?? null
+  // READY TO BET (owner 10-26): every input the decision needs is in, before the decision has been taken.
+  const d = stageOf(g, 'decision')
+  const rd = readiness(g)
+  const ready = rd.level === 'green'
+  const decidedTag = d.state === 'DONE' && !live && !final ? (b.state === 'DONE' ? 'AISP BET PLACED' : 'AISP DECIDED: PASS') : null
   const team = (side: 'away' | 'home') => {
     const t = g[side]; const p = pHome == null ? null : side === 'home' ? pHome : 1 - pHome
     return (
@@ -516,13 +530,19 @@ function GameCard({ g, now, open, onToggle, onGo, onLive }: { g: MissionGame; no
     )
   }
   return (
-    <article id={`mx-g-${g.game_id}`} className={`mx-card${open ? ' is-open' : ''}${live ? ' is-live' : ''}${g.attention === 'BLOCKED' ? ' is-blocked' : g.attention === 'WATCH' ? ' is-watch' : ''}`} style={{ ['--sc' as string]: SPORT[g.sport].color } as CSSProperties}>
+    <article id={`mx-g-${g.game_id}`} className={`mx-card mx-aura--${rd.level}${ready ? ' is-ready' : ''}${open ? ' is-open' : ''}${live ? ' is-live' : ''}${g.attention === 'BLOCKED' ? ' is-blocked' : g.attention === 'WATCH' ? ' is-watch' : ''}`} style={{ ['--sc' as string]: SPORT[g.sport].color } as CSSProperties}>
       <button type="button" className="mx-card__main" onClick={onToggle} aria-expanded={open}>
         <span className="mx-card__top">
           <em className="mx-sport">{SPORT[g.sport].icon} {g.sport}</em>
           <span className="mx-card__when">{live ? <b className="mx-live">● LIVE{score?.t ? ` · ${score.t}` : ''}</b> : final ? <b>{score?.t ?? 'Final'}</b> : <b>{etClock(g.starts_at)} ET</b>}</span>
           {outcome ? <span className={`mx-out is-${outcome.toLowerCase()}`}>{outcome}{r.profit_usd != null ? ` ${usd(r.profit_usd, true)}` : ''}</span> : b.state === 'DONE' ? <span className="mx-out is-open">BET</span> : null}
         </span>
+        {ready ? <span className="mx-ready">✓ READY TO BET<small>forecast, approval and price are all in{d.due_at ? ` · AISP decides ${etClock(d.due_at)} ET` : ''}</small></span>
+          : decidedTag ? <span className={`mx-ready mx-ready--done${b.state === 'DONE' ? ' is-bet' : ''}`}>{decidedTag}</span>
+            : rd.level === 'yellow' || rd.level === 'red' ? (
+              <span className={`mx-ready mx-ready--${rd.level}`}>{rd.level === 'yellow' ? '⏳ WAITING ON 1' : `⚠ WAITING ON ${rd.missing.length}`}
+                <small>{rd.missing.map((m) => `${m.word}${m.due ? ` (${etClock(m.due)} ET)` : ''}`).join(' · ')}</small></span>
+            ) : null}
         {team('away')}
         {team('home')}
         {fb && fb.wp.length > 2 ? <WpLine wp={fb.wp} home={teamColor(g.sport, g.home.abbr)} away={teamColor(g.sport, g.away.abbr)} /> : null}

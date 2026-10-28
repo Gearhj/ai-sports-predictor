@@ -17,6 +17,7 @@
  * The technical diagnostics stay lazy below.
  */
 import { TruthMeter } from '../components/command/TruthMeter'
+import { CalibrationGalaxy } from '../features/galaxy/CalibrationGalaxy'
 import { lazy } from 'react'
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CommandPerformance, type View } from '../components/command/CommandPerformance'
@@ -111,6 +112,7 @@ export function PerformanceRoute() {
           {panel === 'overview' && (
             <RegionBoundary label="model performance overview">
               <TruthMeter />
+              <CalibrationGalaxy />
               <ModelPerformanceOverview wagersHref={wagersHref('NFL')} />
             </RegionBoundary>
           )}

@@ -112,11 +112,14 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
 
   return (
     <section className="cc-markets" aria-label="Markets and crowd">
-      <section className="cc-dark cc-mpulse" aria-label="Market pulse">
+      {/* Owner 10-27 ("it looks like the start of a new page"): this is the deeper research under Shop the Line --
+          AISP's number against the books, game by game, with each game's book-by-book drill-down and price history --
+          so it opens as a section heading with one line of feed facts, not a second hero. */}
+      <section className="cc-dark cc-mpulse cc-mpulse--section" aria-label="Model vs market, game by game">
         <header className="cc-mpulse__head">
           <div>
-            <span className="cc-kicker">Market pulse · sportsbook evidence</span>
-            <h1>{useSnapshot ? 'Latest available market snapshot' : 'Today’s market'}</h1>
+            <span className="cc-kicker">Deeper research · model vs market, game by game</span>
+            <h2>{useSnapshot ? 'Latest available market snapshot' : 'Where AISP and the books disagree'}</h2>
             <span className={`cc-snap ${useSnapshot ? 'cc-snap--old' : todayHasQuotes ? 'cc-snap--live' : ''}`}>
               {useSnapshot
                 ? `Snapshot from ${new Date(`${snapshotDay}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · last quote ${etTime(summary?.latest_snapshot?.observed_at, true)} · not current`
@@ -129,16 +132,14 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
             <button type="button" onClick={() => onDay(shiftDay(day, 1))} aria-label="Next day">›</button>
           </div>
         </header>
-        <dl className="cc-mpulse__stats">
-          <div><dt>Games with a current price</dt><dd className={current ? 'is-up' : ''}>{today.data ? `${current} / ${today.data.games.length}` : '—'}</dd><small>{day === todayEt() ? 'today' : day}</small></div>
-          <div><dt>Sportsbooks</dt><dd>{evSummary ? evSummary.sportsbooks.length : '—'}</dd><small>{evSummary?.providers.join(' · ') || 'none stored'}</small></div>
-          <div><dt>Freshest quote</dt><dd>{evSummary?.freshest_observed_at ? relative(evSummary.freshest_observed_at) : '—'}</dd><small>{evSummary?.freshest_observed_at ? etTime(evSummary.freshest_observed_at, true) : ''}</small></div>
-          <div><dt>Largest disagreement</dt>
-            <dd className={largest ? ((gapOf(largest) ?? 0) >= 0 ? 'is-up' : 'is-down') : ''}>{largest ? `${(gapOf(largest)! * 100 >= 0 ? '+' : '')}${(gapOf(largest)! * 100).toFixed(1)} pts` : '—'}</dd>
-            <small>{largest ? `${largest.matchup}${largest.consensus_is_current ? '' : ' · stale'}` : 'needs model + price'}</small></div>
-          <div><dt>Next collection</dt><dd className="is-gold">{summary?.next_collection_at ? etTime(summary.next_collection_at).replace(' ET', '') : '—'}</dd><small>{summary?.next_collection_at ? `in ${countdown(summary.next_collection_at, now)}` : 'none pending'}</small></div>
-        </dl>
-        <div className="cc-mpulse__asof"><AsOf resource={evidence} label="quotes" /></div>
+        <p className="cc-mpulse__line">
+          <span>{today.data ? <><b className={current ? 'is-up' : ''}>{current} of {today.data.games.length}</b> games inside AISP’s pre-game price window{day === todayEt() ? '' : ` (${day})`}</> : '…'}</span>
+          <span><b>{evSummary ? evSummary.sportsbooks.length : '—'}</b> books{evSummary?.providers.length ? ` via ${evSummary.providers.join(' · ')}` : ''}</span>
+          <span>freshest quote <b>{evSummary?.freshest_observed_at ? relative(evSummary.freshest_observed_at) : '—'}</b></span>
+          {largest && <span>biggest gap <b className={(gapOf(largest) ?? 0) >= 0 ? 'is-up' : 'is-down'}>{(gapOf(largest)! * 100 >= 0 ? '+' : '')}{(gapOf(largest)! * 100).toFixed(1)} pts</b> {largest.matchup}{largest.consensus_is_current ? '' : ' (stale)'}</span>}
+          <span>next collection <b className="is-gold">{summary?.next_collection_at ? etTime(summary.next_collection_at) : 'none pending'}</b></span>
+          <span className="cc-mpulse__asof"><AsOf resource={evidence} label="quotes" /></span>
+        </p>
       </section>
 
       {useSnapshot && (

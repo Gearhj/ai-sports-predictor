@@ -7,6 +7,7 @@
  * "What changed because of it" timeline is the only hand-kept part; each entry that is a live rule is checked
  * against the rules Mission Control reports as in force right now, so the page never claims a change that is off.
  */
+import { FilmRoom } from '../film/FilmRoom'
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import * as d3 from 'd3'
@@ -19,6 +20,7 @@ import { american, usd } from '../pulse/pulseData'
 import { fixText, gapBand, useMmqbIndex, useMmqbReport, type MmqbBet, type MmqbReport } from './mmqbData'
 import '../slate/slate.css'
 import './mmqb.css'
+import { WeekendReview } from './WeekendReview'
 
 const pct = (p: number | null | undefined) => (p == null ? '—' : `${Math.round(p * 100)}%`)
 const pts = (x: number | null | undefined) => (x == null ? '—' : `${x > 0 ? '+' : ''}${x.toFixed(1)} pts`)
@@ -86,6 +88,8 @@ export function MmqbPage() {
           </label>
         </header>
         <main id="main-content" className="mq-body">
+          <WeekendReview />
+          <FilmRoom />
           {!r ? <p className="sl-empty">{report.error ? `The report could not be read: ${report.error}` : 'Building the report from one read-only snapshot…'}</p> : <Report r={r} rules={rules} rulesKnown={Boolean(mission.data)} />}
         </main>
         <footer className="hq-foot">Research and paper only. Built from a read-only database snapshot; it changes no record, rule or stake. {r ? fixText(r.data_cutoff.statement) : ''}</footer>

@@ -39,3 +39,6 @@
 @media (max-width: 1300px) { .stl { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .stl__ladders li { grid-template-columns: minmax(0, 1fr) 90px; } .stl__rail { grid-column: 1 / -1; grid-row: 2; } .stl__hero { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .stl__rail i, .stl__bar i { animation: none; } }
+.stl__toggle { display: inline-flex; gap: 4px; margin-left: auto; }
+.stl__toggle button { font: 800 11.5px system-ui; padding: 5px 10px; border-radius: 999px; border: 1px solid #334155; background: #0b1220; color: #94a3b8; cursor: pointer; }
+.stl__toggle button[aria-pressed='true'] { border-color: #fbbf24; color: #fde68a; }

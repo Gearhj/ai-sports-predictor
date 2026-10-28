@@ -1,0 +1,17 @@
+/* THE SEASON TIME MACHINE — scrub the paper season; the bankroll redraws and every bet lands as a dot. */
+.tm { display: grid; gap: 8px; }
+.tm__head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.tm__head h2 { margin: 0; font: 900 17px/1 system-ui; }
+.tm__date { font: 900 15px ui-monospace, monospace; color: #fde68a; min-width: 110px; }
+.tm__stat { font: 600 12px system-ui; color: #94a3b8; } .tm__stat b { font: 900 16px ui-monospace, monospace; color: #f8fafc; margin-right: 4px; }
+.tm__stat b.is-up { color: #34d399; } .tm__stat b.is-down { color: #fb7185; }
+.tm__fold { margin-left: auto; font: 800 12px system-ui; color: #fde68a; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.55); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.tm__play { font: 800 13px system-ui; color: #052e16; background: linear-gradient(180deg, #34d399, #059669); border: 0; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+.tm__svg { width: 100%; height: auto; display: block; background: #070d18; border-radius: 10px; }
+.tm-axis text { fill: #64748b; font: 10px ui-monospace, monospace; } .tm-axis path, .tm-axis line { stroke: rgba(148,163,184,.25); }
+.tm-start { stroke: rgba(226,232,240,.35); stroke-dasharray: 4 4; }
+.tm-area.is-up { fill: rgba(52,211,153,.14); } .tm-area.is-down { fill: rgba(244,63,94,.14); }
+.tm-line { fill: none; stroke: #e2e8f0; stroke-width: 1.8; }
+.tm-head { fill: #fde68a; stroke: #0b1220; stroke-width: 2; filter: drop-shadow(0 0 6px #fde68a); }
+.tm__scrub { width: 100%; accent-color: #fbbf24; }
+.tm__fine { margin: 0; font-size: 11.5px; color: #94a3b8; }

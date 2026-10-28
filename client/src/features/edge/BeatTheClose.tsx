@@ -38,6 +38,11 @@ export function BeatTheClose() {
         <div><h2>Beat the Close</h2><p className="ed-muted">Did AISP get a better price than the market's final word? The most trusted test of real skill, graded on every paper bet.</p></div>
         <span className="ed-seg">{['ALL', ...sports].map((s) => <button key={s} type="button" className={sport === s ? 'is-on' : ''} onClick={() => setSport(s)}>{s === 'ALL' ? 'All' : s}</button>)}</span>
       </header>
+      <details className="ed-howto" open>
+        <summary>How to use this</summary>
+        <p><b>The closing line</b> is the last price before the game starts, when the market knows the most (injuries, line-ups, sharp money). If a bet was placed at a <b>better price than the close</b> (say +150 when it closed at +130), the bet <b>beat the close</b>: the market moved toward AISP after it bet. Over hundreds of bets, beating the close more than half the time is the most reliable sign of real skill, because it does not depend on luck in the games themselves.</p>
+        <p><b>Read it like this:</b> above 50% and a positive average = AISP is finding prices before the market does; below 50% and negative = the market is ahead of AISP (most often the case today, which is why the funded sports bet small). Each dot below is one bet: above the line beat the close, below did not.</p>
+      </details>
       <div className="ed-kpis">
         <span className={beat / shown.length >= 0.5 ? 'is-good' : 'is-bad'}><small>Beat the close</small><b>{Math.round((beat / shown.length) * 100)}%</b><em>{beat} of {shown.length} bets</em></span>
         <span className={avg >= 0 ? 'is-good' : 'is-bad'}><small>Average closing-line value</small><b>{signed(avg, 2, '%')}</b><em>price taken vs closing fair price</em></span>

@@ -21,6 +21,8 @@ import { GamePlanBar } from '../flow/GamePlanBar'
 import { addToSlip, breakEven, decimalOf, evPerDollar, pickOf, simulate, suggestStake, type SimResult } from '../flow/slip'
 import '../slate/slate.css'
 import './slip.css'
+import './galton.css'
+import { NightGrid, SeasonPaths } from './NightsViz'
 
 const NAV = [{ to: '/', label: 'Home', icon: '⌂' }, { to: '/live', label: 'Live View', icon: '◉' }, { to: '/games', label: 'Games', icon: '▦' }, { to: '/mission-control', label: 'Mission Control', icon: '◈' }, { to: '/game-night', label: 'Game Night', icon: '▣' }, { to: '/my-picks', label: 'My Picks', icon: '✓', on: true }, { to: '/experiment', label: 'Record', icon: '◎' }]
 const hueOf = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
@@ -85,6 +87,7 @@ export function SlipPage() {
             )}
 
             {simModel && simMarket ? <Nights model={simModel} market={simMarket} stake={totalStake} legs={simLegs.length} /> : picks.length ? <section className="sl-card"><p className="sl-empty">The simulator needs at least one pick with a model forecast and a price.</p></section> : null}
+            {simModel && simMarket ? <SeasonPaths model={simModel} market={simMarket} /> : null}
 
             {parlay ? (
               <section className="sl-card sp-parlay" aria-label="Parlay check">
@@ -185,24 +188,7 @@ function Nights({ model, market, stake, legs }: { model: SimResult; market: SimR
     raf.current = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf.current)
   }, [sim])
-  const lo = Math.min(model.worst, market.worst); const hi = Math.max(model.best, market.best)
-  const BINS = 44
-  const w = (hi - lo) / BINS || 1
-  const bins = useMemo(() => { const b = new Array(BINS).fill(0); for (let i = 0; i < shown; i += 1) b[Math.min(BINS - 1, Math.floor((sim.pl[i] - lo) / w))] += 1; return b }, [shown, sim, lo, w])
-  const full = useMemo(() => { const b = new Array(BINS).fill(0); for (let i = 0; i < sim.n; i += 1) b[Math.min(BINS - 1, Math.floor((sim.pl[i] - lo) / w))] += 1; return b }, [sim, lo, w])
-  const maxB = Math.max(1, ...full)
-  const W = 900; const H = 260; const L = 40; const B = 30; const T = 14
-  const X = (v: number) => L + ((v - lo) / (hi - lo || 1)) * (W - L - 10)
-  const bw = (W - L - 10) / BINS
   const live = shown < sim.n
-  // few legs -> few possible results: draw one bar per result (an outcome ladder) instead of a histogram
-  const ladder = useMemo(() => { const set = new Set<number>(); for (const r of [model, market]) { for (let i = 0; i < r.n; i += 1) { set.add(Math.round(r.pl[i] * 100) / 100); if (set.size > 24) return null } } return [...set].sort((a, b) => a - b) }, [model, market])
-  const counts = useMemo(() => { if (!ladder) return []; const idx = new Map(ladder.map((v, i) => [v, i])); const c = new Array(ladder.length).fill(0); for (let i = 0; i < shown; i += 1) c[idx.get(Math.round(sim.pl[i] * 100) / 100) ?? 0] += 1; return c }, [ladder, shown, sim])
-  const maxC = useMemo(() => { if (!ladder) return 1; const idx = new Map(ladder.map((v, i) => [v, i])); let m = 1; for (const r of [model, market]) { const c = new Array(ladder.length).fill(0); for (let i = 0; i < r.n; i += 1) c[idx.get(Math.round(r.pl[i] * 100) / 100) ?? 0] += 1; m = Math.max(m, ...c) } return m }, [ladder, model, market])
-  const cw = ladder ? (W - L - 10) / ladder.length : 0
-  const medV = ladder ? ladder.reduce((best, v) => (Math.abs(v - sim.p50) < Math.abs(best - sim.p50) ? v : best), ladder[0]) : null
-  const zi = ladder ? ladder.findIndex((v) => v >= 0) : -1
-  const zeroAt = ladder && zi > 0 ? L + zi * cw : null
   const drop = model.pProfit - market.pProfit
   return (
     <section className="sl-card sp-nights" id="nights" aria-label="Ten thousand nights">
@@ -212,31 +198,7 @@ function Nights({ model, market, stake, legs }: { model: SimResult; market: SimR
       </header>
       <div className="sp-nights__body">
         <div className="sp-nights__chart">
-          {ladder ? (
-            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Every possible result of the slip and how often it happened over ten thousand simulated nights">
-              {ladder.map((v, i) => {
-                const c = counts[i]; const h = (c / maxC) * (H - T - B - 18); const x = L + i * cw + cw * 0.12; const bwid = cw * 0.76
-                const isMed = v === medV
-                return (
-                  <g key={v}>
-                    <rect x={x} y={H - B - h} width={bwid} height={Math.max(0, h)} rx="5" fill={v >= 0 ? '#34d399' : '#f87171'} opacity={0.88} stroke={isMed && !live ? '#fbbf24' : 'none'} strokeWidth="3" />
-                    {c ? <text x={x + bwid / 2} y={H - B - h - 6} textAnchor="middle" className="sp-ax-pct">{((c / Math.max(1, shown)) * 100).toFixed(c / Math.max(1, shown) < 0.1 ? 1 : 0)}%</text> : null}
-                    <text x={x + bwid / 2} y={H - 10} textAnchor="middle" className={`rc-ax${isMed ? ' sp-ax-goldtxt' : ''}`}>{money(v)}</text>
-                  </g>
-                )
-              })}
-              {zeroAt != null ? <line x1={zeroAt} x2={zeroAt} y1={T} y2={H - B} stroke="rgba(255,255,255,.5)" strokeDasharray="4 4" /> : null}
-              {zeroAt != null ? <text x={zeroAt} y={T - 2} textAnchor="middle" className="rc-ax">break even</text> : null}
-            </svg>
-          ) : (
-            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Distribution of the slip's profit over ten thousand simulated nights">
-              <line x1={X(0)} x2={X(0)} y1={T} y2={H - B} stroke="rgba(255,255,255,.55)" strokeDasharray="4 4" />
-              <text x={X(0)} y={T - 2} textAnchor="middle" className="rc-ax">break even</text>
-              {bins.map((c, i) => { const x0 = lo + i * w; const h = (c / maxB) * (H - T - B); return <rect key={i} x={L + i * bw + 1} y={H - B - h} width={Math.max(1, bw - 2)} height={h} rx="2" fill={x0 + w / 2 >= 0 ? '#34d399' : '#f87171'} opacity={0.85} /> })}
-              {!live ? <line x1={X(sim.p50)} x2={X(sim.p50)} y1={T + 10} y2={H - B} stroke="#fbbf24" strokeWidth="2" /> : null}
-              {[lo, (lo + hi) / 2, hi].map((v) => <text key={v} x={X(v)} y={H - 10} textAnchor="middle" className="rc-ax">{money(v)}</text>)}
-            </svg>
-          )}
+          <NightGrid sim={sim} shown={shown} />
           <p className="sp-nights__counter">{live ? <>Simulating night <b>{shown.toLocaleString()}</b> of 10,000…</> : <>10,000 nights · {legs} pick{legs > 1 ? 's' : ''} · {usd(stake)} play stake · numbers {mode === 'model' ? "from AISP's model" : "from the market's no-vig prices"}</>}</p>
         </div>
         <div className="sp-nights__stats">

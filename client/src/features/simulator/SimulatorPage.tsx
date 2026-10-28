@@ -5,6 +5,8 @@ import { ScoreBar } from '../shared/ScoreBug'
 import { teamIdentity } from '../../services/teamIdentity'
 import { distribution, fairAmerican, lineOutcome, makeSampler, useSimModel, type Cell, type SimModel } from './simData'
 import { FORECAST_TIMING_SUMMARY, forecastRefreshText } from '../../services/forecastCadence'
+import { Universes, teamColor } from './Universes'
+import { DecisionPlinko } from './DecisionPlinko'
 import './simulator.css'
 
 // the field views built before the simulator redesign: NFL drive/play theater, MLB diamond theater
@@ -69,8 +71,9 @@ export function SimulatorPage() {
 }
 
 function Simulator({ m, gameId }: { m: SimModel; gameId: string }) {
-  const awayColor = teamIdentity(m.sport, m.away.abbr).primary
-  const homeColor = teamIdentity(m.sport, m.home.abbr).primary
+  // dark primaries (Green Bay's green) give way to the club's secondary so they read on the navy panels
+  const awayColor = teamColor(m.sport, m.away.abbr, teamIdentity(m.sport, m.away.abbr).primary)
+  const homeColor = teamColor(m.sport, m.home.abbr, teamIdentity(m.sport, m.home.abbr).primary)
   const colors = { away: awayColor, home: homeColor }
   const stale = m.hoursBeforeStart != null && m.hoursBeforeStart > 48
   return (
@@ -83,6 +86,10 @@ function Simulator({ m, gameId }: { m: SimModel; gameId: string }) {
         {stale && <span className="sim__flag">Early forecast · {forecastRefreshText(m.sport)}</span>}
       </p>
 
+      {/* Owner 10-27: Game Night is the live slate; the Simulator is one game taken apart -- how the 10,000 split
+          into the bets you can make (the decision tree), priced, then the lines lab and the shape of the scores. */}
+      <DecisionPlinko m={m} colors={colors} />
+
       <div className="sim__row sim__row--top">
         <WhoWins m={m} colors={colors} />
         {m.final ? <HowItPlayed m={m} /> : <LikelyScores m={m} />}
@@ -90,10 +97,9 @@ function Simulator({ m, gameId }: { m: SimModel; gameId: string }) {
 
       <LineLab m={m} colors={colors} />
 
-      <div className="sim__row">
-        <PlayItOut m={m} colors={colors} />
-        <ScoreMap m={m} />
-      </div>
+      <Universes m={m} colors={colors} />
+
+      <ScoreMap m={m} />
     </>
   )
 }
@@ -324,57 +330,6 @@ function Histogram({ dist, range, threshold, kind, sideB, colors, onPick, labels
 }
 
 // ------------------------------------------------------------- play it out --
-
-function PlayItOut({ m, colors }: { m: SimModel; colors: { away: string; home: string } }) {
-  const N = 100
-  const sampler = useMemo(() => makeSampler(m.cells), [m.cells])
-  const [games, setGames] = useState<Cell[]>([])
-  const [running, setRunning] = useState(false)
-  const [batches, setBatches] = useState<number[]>([])
-  useEffect(() => {
-    if (!running) return
-    if (games.length >= N) {
-      setRunning(false)
-      setBatches((b) => [...b.slice(-7), games.filter((g) => g.home > g.away).length])
-      return
-    }
-    const t = window.setTimeout(() => setGames((g) => [...g, sampler()]), 28)
-    return () => window.clearTimeout(t)
-  }, [running, games, sampler])
-  const start = () => { setGames([]); setRunning(true) }
-  const home = games.filter((g) => g.home > g.away).length
-  const away = games.filter((g) => g.away > g.home).length
-  const tie = games.length - home - away
-  const last = games[games.length - 1]
-  const blowout = games.reduce<Cell | null>((b, g) => (!b || Math.abs(g.home - g.away) > Math.abs(b.home - b.away) ? g : b), null)
-  return (
-    <section className="sim-card playit">
-      <p className="sim-eyebrow"><Dices size={13} /> Play it out</p>
-      <h2>Watch 100 games</h2>
-      <p className="sim-note">Each dot is one game drawn from the model's {m.draws.toLocaleString()} simulations. Run it a few times: the count wobbles even when the model doesn't change. That wobble is luck.</p>
-      <div className="playit__grid" aria-live="polite">
-        {Array.from({ length: N }, (_, i) => {
-          const g = games[i]
-          const c = !g ? undefined : g.home > g.away ? colors.home : g.away > g.home ? colors.away : '#9aa8b8'
-          return <i key={i} className={g ? 'is-on' : ''} style={c ? { background: c } : undefined} title={g ? `${m.away.abbr} ${g.away} – ${g.home} ${m.home.abbr}` : undefined} />
-        })}
-      </div>
-      <div className="playit__tally">
-        <span style={{ color: colors.away }}><b>{away}</b> {m.away.abbr}</span>
-        {tie > 0 && <span><b>{tie}</b> tie</span>}
-        <span style={{ color: colors.home }}><b>{home}</b> {m.home.abbr}</span>
-        <span className="playit__last">{last ? `Game ${games.length}: ${m.away.abbr} ${last.away} – ${last.home} ${m.home.abbr}` : 'Press play'}</span>
-      </div>
-      <div className="playit__actions">
-        <button className="btn-primary" onClick={running ? () => setRunning(false) : start}>{running ? <><Pause size={15} /> Pause</> : games.length ? <><RotateCcw size={15} /> Run 100 more</> : <><Play size={15} /> Play 100 games</>}</button>
-        {!running && games.length >= N && blowout && <span className="sim-note">Biggest blowout this run: {m.away.abbr} {blowout.away} – {blowout.home} {m.home.abbr}</span>}
-      </div>
-      {batches.length > 1 && (
-        <p className="playit__batches">{m.home.abbr} wins per run: {batches.map((b, i) => <b key={i}>{b}</b>)} <span>· model says {pct(m.win.home)}</span></p>
-      )}
-    </section>
-  )
-}
 
 // ---------------------------------------------------------------- score map --
 

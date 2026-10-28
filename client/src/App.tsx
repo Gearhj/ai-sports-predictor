@@ -1,5 +1,7 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { ModeToggle } from './features/focus/ModeToggle'
+import { FOCUS_PASSTHROUGH, useMode } from './features/focus/mode'
 import { AppShell } from './components/AppShell'
 import { RequireAdmin } from './components/RequireAdmin'
 import { AuthProvider } from './hooks/useAuth'
@@ -9,7 +11,6 @@ import { SportSelectionProvider, legacySportHref, sportHref } from './hooks/useS
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 import { BuildRefresh } from './components/BuildRefresh'
 
-const UnderdogPage = lazy(() => import('./features/underdogs/UnderdogPage').then((module) => ({ default: module.UnderdogPage })))
 const TodayPage = lazy(() => import('./pages/TodayPage').then((module) => ({ default: module.TodayPage })))
 const LabsPage = lazy(() => import('./pages/LabsPage').then((module) => ({ default: module.LabsPage })))
 const MultiSportTodayPage = lazy(() => import('./pages/MultiSportTodayPage').then((module) => ({ default: module.MultiSportTodayPage })))
@@ -49,6 +50,9 @@ const MissionControl = lazy(() => import('./features/mission/MissionControl').th
 const MmaPage = lazy(() => import('./features/mma/MmaPage').then((module) => ({ default: module.MmaPage })))
 const MmqbPage = lazy(() => import('./features/mmqb/MmqbPage').then((module) => ({ default: module.MmqbPage })))
 const StartPage = lazy(() => import('./features/start/StartPage').then((module) => ({ default: module.StartPage })))
+const UnderdogPage = lazy(() => import('./features/underdogs/UnderdogPage').then((module) => ({ default: module.UnderdogPage })))
+import { GAMES_ON, WELCOME_ON } from './features/release/flags'
+const WelcomePage = lazy(() => import('./features/start/WelcomePage').then((module) => ({ default: module.WelcomePage })))
 const ControlPage = lazy(() => import('./features/control/ControlPage').then((module) => ({ default: module.ControlPage })))
 const MyPicksPage = lazy(() => import('./pages/MyPicksPage').then((module) => ({ default: module.MyPicksPage })))
 // Encore: an unlisted page, loaded only when visited. Outside the app shell on purpose.
@@ -58,6 +62,8 @@ const LiveField = lazy(() => import('./features/livefield/LiveField').then((modu
 const HqHome = lazy(() => import('./features/hq/HqHome').then((module) => ({ default: module.HqHome })))
 const AispLayout = lazy(() => import('./features/flow/AispLayout').then((module) => ({ default: module.AispLayout })))
 const SlipPage = lazy(() => import('./features/slip/SlipPage').then((module) => ({ default: module.SlipPage })))
+const PlayerCardPage = lazy(() => import('./features/progress/PlayerCardPage').then((module) => ({ default: module.PlayerCardPage })))
+const ArenaPage = lazy(() => import('./features/arena/ArenaPage').then((module) => ({ default: module.ArenaPage })))
 const SlatePage = lazy(() => import('./features/slate/SlatePage').then((module) => ({ default: module.SlatePage })))
 const RecordPage = lazy(() => import('./features/record/RecordPage').then((module) => ({ default: module.RecordPage })))
 const GameNight = lazy(() => import('./features/gamenight/GameNight').then((module) => ({ default: module.GameNight })))
@@ -95,6 +101,18 @@ function ScrollToTop() {
   return null
 }
 
+const FocusApp = lazy(() => import('./features/focus/FocusApp').then((m) => ({ default: m.FocusApp })))
+
+/** Focus mode (owner 10-27) replaces every page but sign-in/account/admin with the four Focus screens; the
+ *  FULL / FOCUS toggle sits top-right on every page. The TV wall (?tv=1) never shows the toggle. */
+function ModeGate({ children }: { children: ReactNode }) {
+  const mode = useMode()
+  const { pathname, search } = useLocation()
+  const tv = new URLSearchParams(search).get('tv') === '1'
+  if (mode === 'focus' && !FOCUS_PASSTHROUGH.test(pathname)) return <FocusApp />
+  return <>{children}{tv ? null : <ModeToggle />}</>
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -105,6 +123,7 @@ export default function App() {
             <ScrollToTop />
             <BuildRefresh />
             <Suspense fallback={<div className="route-loading" role="status">Loading research desk…</div>}>
+              <ModeGate>
               <Routes>
                 <Route path="encore" element={<EncorePage />} />
                 <Route path="game-night" element={<GameNight />} />
@@ -117,11 +136,14 @@ export default function App() {
                 <Route path="games" element={<SlatePage />} />
                 {/* My Picks: the play-money bet slip with 10,000 Nights (2026-10-24); the old list is /my-picks/classic. */}
                 <Route path="my-picks" element={<SlipPage />} />
+                <Route path="arena" element={GAMES_ON ? <ArenaPage /> : <Navigate to="/" replace />} />
+                <Route path="player" element={GAMES_ON ? <PlayerCardPage /> : <Navigate to="/" replace />} />
                 {/* Mission Control redesign (2026-10-24): Slate Flow, The Night, gates board; the old page is /mission-control/classic. */}
                 <Route path="mission-control" element={<ControlPage />} />
                 {/* UFC Fight Night (2026-10-25): historical archive, orientation-corrected, test mode. */}
                 <Route path="mma" element={<MmaPage />} />
                 <Route path="start" element={<StartPage />} />
+                <Route path="welcome" element={WELCOME_ON ? <WelcomePage /> : <Navigate to="/" replace />} />
                 <Route path="underdogs" element={<UnderdogPage />} />
                 <Route path="mmqb" element={<MmqbPage />} />
                 {/* Model Lab withdrawn 2026-10-25 (owner: real model-building tools or none); the code stays for the rebuild. */}
@@ -187,6 +209,7 @@ export default function App() {
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
               </Routes>
+              </ModeGate>
             </Suspense>
             </SportSelectionProvider>
           </SportRegistryProvider>

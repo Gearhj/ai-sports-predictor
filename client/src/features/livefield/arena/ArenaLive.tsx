@@ -21,6 +21,7 @@ import { elapsedAt, onNavy, periodName, teamPair, useArenaLive, type ArenaFeed, 
 import { NbaArena } from './NbaArena'
 import { NhlArena } from './NhlArena'
 import './arena.css'
+import { VibeBox } from '../../crowd/VibeBox'
 
 const etDate = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso)).replace(/-/g, '')
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v * 100)}%`)
@@ -39,7 +40,7 @@ export function ArenaLive({ game, games, onPickGame, sportFilter, onSport, booth
       <div className="ar" data-league={league}>
         {!feed ? <p className="ar-note">{error ? (error.includes('preview') ? 'The live NBA/NHL feed is only wired on the test-mode preview server (127.0.0.1:5199).' : `Live feed error: ${error}`) : data && !data.found ? data.reason : 'Loading the play-by-play…'}</p> : (
           <>
-            <ScoreBug feed={feed} league={league} />
+            <div className="lf-score-row"><ScoreBug feed={feed} league={league} /><VibeBox league={league} home={{ abbr: game.home.abbr, name: game.home.name }} away={{ abbr: game.away.abbr, name: game.away.name }} /></div>
             <Pregame game={game} feed={feed} />
             {league === 'nba' ? <NbaLive game={game} feed={feed} /> : <NhlLive game={game} feed={feed} />}
           </>
@@ -62,7 +63,7 @@ function ScoreBug({ feed, league }: { feed: ArenaFeed; league: 'nba' | 'nhl' }) 
   )
   const periods = Math.max(home.linescores.length, away.linescores.length, league === 'nba' ? 4 : 3)
   return (
-    <section className="ar-sb" aria-label="Score">
+    <section className="ar-sb" aria-label="Score" style={{ ['--ac' as string]: teamPair(home, away).away, ['--hc' as string]: teamPair(home, away).home } as CSSProperties}>
       {side(away)}
       <div className="ar-sb__mid">
         <b className={feed.status.state === 'in' ? 'is-live' : ''}>{feed.status.state === 'in' ? `● ${periodName(league, feed.status.period)} ${feed.status.clock ?? ''}` : feed.status.short}</b>

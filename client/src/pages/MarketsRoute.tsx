@@ -14,6 +14,7 @@ import { RegionBoundary } from '../components/command/RegionBoundary'
 import { useBroadcastTheme } from '../components/broadcast/primitives'
 import { resolveOperationalDate } from '../services/operationalDate'
 import '../broadcast.css'
+import { VibeBox } from '../features/crowd/VibeBox'
 
 const Boards = lazy(() => import('./UnifiedMarketsPage').then((m) => ({ default: () => <m.UnifiedMarketsPage auditOnly /> })))
 
@@ -33,9 +34,14 @@ export function MarketsRoute() {
   return (
     <div className="bx bx-markets">
       <div className="bx__inner">
-        <RegionBoundary label="value finder"><ValueFinder day={day} /></RegionBoundary>
-        <RegionBoundary label="market movers"><MarketMovers day={day} /></RegionBoundary>
-        <RegionBoundary label="shop the line"><ShopTheLine day={day} /></RegionBoundary>
+        <p className="mk-howto"><b>Step 5 · shop the line.</b> This is where you find the best price for a side you like. <b>Value Finder</b> lists US-book prices that pay more than the market's own fair price; <b>+ My Picks</b> puts that exact price and book on your slip (step 7). <b>Shop the Line</b> (first) compares every book on the same side, and <b>Market Movers</b> shows how prices moved today. AISP never places the bet; you place it at that sportsbook.</p>
+        {/* Owner 10-26: Shop the Line is the critical read, so it leads, above the scroll line. */}
+        {/* Owner 10-27: THE CROWD sits beside Shop the Line, above Best price; Market Movers left, Value Finder right. */}
+        <RegionBoundary label="shop the line"><ShopTheLine day={day} side={<VibeBox inline league="nfl" />} /></RegionBoundary>
+        <div className="mk-pair">
+          <RegionBoundary label="market movers"><MarketMovers day={day} /></RegionBoundary>
+          <RegionBoundary label="value finder"><ValueFinder day={day} /></RegionBoundary>
+        </div>
         <RegionBoundary label="market command center">
           {/* Keyed so the global sport selector filters the board, not just the URL. */}
           <CommandMarkets key={initialSport ?? 'ALL'} day={day} onDay={onDay} initialSport={initialSport} />

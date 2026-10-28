@@ -1,0 +1,16 @@
+/* THE STEAM RADAR — sweep every 6 s; blips flash as the beam passes; steam pulses red. */
+.sr { margin: 0 0 12px; display: grid; grid-template-columns: minmax(220px, 340px) minmax(0, 1fr); gap: 16px; align-items: center; }
+.sr__svg { width: 100%; height: auto; display: block; }
+.sr__ring, .sr__hour { fill: rgba(167,243,208,.55); font: 700 9px ui-monospace, monospace; }
+.sr__sweep { animation: sr-spin linear infinite; }
+@keyframes sr-spin { to { transform: rotate(360deg) } }
+.sr__dot { animation: sr-flash var(--p) linear var(--d) infinite; }
+@keyframes sr-flash { 0% { opacity: 1; filter: drop-shadow(0 0 6px currentColor) brightness(1.8) } 30% { opacity: .55; filter: none } 100% { opacity: .55 } }
+.sr__blip.is-steam .sr__dot { animation-name: sr-flash-steam; }
+@keyframes sr-flash-steam { 0% { opacity: 1; r: 7 } 30% { opacity: .85 } 100% { opacity: .85 } }
+.sr__ring-steam { animation: sr-pulse 1.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes sr-pulse { from { transform: scale(.6); opacity: .9 } to { transform: scale(2.2); opacity: 0 } }
+.sr__cap { font-size: 12.5px; color: #94a3b8; line-height: 1.5; }
+.sr__cap b { color: #e2e8f0; } .sr__steamword { color: #fb7185; font-weight: 800; }
+@media (max-width: 720px) { .sr { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .sr__sweep, .sr__dot, .sr__ring-steam { animation: none !important; } }

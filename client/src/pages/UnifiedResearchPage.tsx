@@ -11,6 +11,7 @@ import type { NflProspectiveResults } from '../types/nflProspective'
 import { PerformancePage } from './PerformancePage'
 import { HistoricalResearchPage } from './HistoricalResearchPage'
 import '../components/nfl/nflProspective.css'
+import { UpsetAtlas } from '../features/galaxy/UpsetAtlas'
 
 /**
  * Prospective results sit ABOVE the development study, deliberately.
@@ -70,6 +71,7 @@ export function UnifiedResearchPage({ historical = false }: { historical?: boole
         title={historical ? 'The evidence behind the models' : 'Forecasts measured, not assumed'}
         description="Sport-specific evidence stays separate. Historical studies are not a live betting record."
       />
+      {historical && <UpsetAtlas />}
       {(sport === 'ALL' || sport === 'NFL') && <NflEvidence historical={historical} />}
       {(sport === 'ALL' || sport === 'MLB') && (
         <section aria-label="MLB research evidence">

@@ -23,3 +23,4 @@
 @keyframes al-in { from { opacity: 0; transform: translateY(14px); } }
 @media (max-width: 760px) { .al-panel { left: 12px; right: 12px; width: auto; } .al-toasts { left: 12px; width: auto; } }
 @media (prefers-reduced-motion: reduce) { .al-bell i, .al-toast { animation: none; } }
+.k-pick { border-left-color: #f5c451 !important; } .k-soon { border-left-color: #34d399 !important; }

@@ -141,16 +141,10 @@ describe('Game Night', { timeout: 20_000 }, () => {
     expect(calls.some((c) => c.path.includes(`/probability/games/${CBJ}`))).toBe(false)
   })
 
-  it('flags a gap over ten points as a model warning and labels Gap Watch exploratory', async () => {
+  it('keeps Gap Watch off the page (owner 10-26: it lives on the TV wall only)', async () => {
     renderAt()
-    expect((await screen.findAllByText('MODEL WARNING')).length).toBeGreaterThan(0)
-    expect(screen.getByText('EXPLORATORY')).toBeInTheDocument()
-    const gap = screen.getByRole('region', { name: /model-warning scoreboard/i })
-    expect(within(gap).getByText('GAP > 10 PTS')).toBeInTheDocument()
-    expect(within(gap).getByText('0–5')).toBeInTheDocument()
-    expect(within(gap).getByText('4–0')).toBeInTheDocument()
-    // The gap is never called an edge or a value; "not an edge" is the only use of the word.
-    expect((gap.textContent ?? '').replace(/not an edge/gi, '')).not.toMatch(/\bedge\b|\bvalue\b/i)
+    await screen.findAllByText(/not yet settled/)
+    expect(screen.queryByRole('region', { name: /model-warning scoreboard/i })).not.toBeInTheDocument()
   })
 
   it('under reduced motion draws the tally in one step with its table and no animation frames', async () => {
@@ -171,8 +165,6 @@ describe('Game Night', { timeout: 20_000 }, () => {
   it('only reads: GETs, no admin path, no form, no wager control', async () => {
     renderAt()
     await screen.findAllByText(/not yet settled/)
-    fireEvent.click(screen.getByRole('button', { name: /Load the season/ }))
-    await screen.findByText(/Season gap galaxy/)
     expect(calls.length).toBeGreaterThan(0)
     for (const c of calls) {
       expect(c.path.startsWith('/admin')).toBe(false)
@@ -232,7 +224,7 @@ describe('Game Night', { timeout: 20_000 }, () => {
     }
   })
 
-  it('after midnight ET keeps last night: the headline and Gap Watch still count the slate that just finished', async () => {
+  it('after midnight ET keeps last night: the headline still counts the slate that just finished', async () => {
     freshCache()
     vi.setSystemTime(new Date('2026-10-19T04:30:00Z')) // 12:30 AM ET, when a Monday-night game settles
     missionFor = (path) => (path.includes('date=2026-10-19') ? emptyMission('2026-10-19') : clone(mission))
@@ -243,11 +235,6 @@ describe('Game Night', { timeout: 20_000 }, () => {
     expect(tonight.length).toBeGreaterThan(0)
     const label = await screen.findByText('Tonight:')
     expect(label.parentElement!.textContent).toContain(`${tonight.length} settled`)
-    const gap = screen.getByRole('region', { name: /model-warning scoreboard/i })
-    expect(await within(gap).findByText('4–0')).toBeInTheDocument()
-    expect(within(gap).getByText('0–5')).toBeInTheDocument()
-    expect(within(gap).getByText(/10-18 and 10-19 slates/)).toBeInTheDocument()
-    expect(within(gap).queryByText(/No funded bet/)).not.toBeInTheDocument()
   })
 
   it('does not throw with a canvas that cannot draw (the jsdom stub)', async () => {

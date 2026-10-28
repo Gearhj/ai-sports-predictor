@@ -13,6 +13,9 @@ import { useMemo, useState, type CSSProperties } from 'react'
 import { useMarketCoverage } from '../../services/commandCenter'
 import { shiftDate } from '../../services/operationalDate'
 import { Crest } from '../flow/Crest'
+import { Link } from 'react-router-dom'
+import { addPick, usePreviewPicks } from '../../services/previewPicks'
+import { SteamRadar } from './SteamRadar'
 import { SPORT_COLOR, am, pct, signed, usePreviewJson, type MoverGame } from './insights'
 import './edge.css'
 
@@ -20,9 +23,15 @@ type Side = 'HOME' | 'AWAY'
 type Quote = { market: string; sportsbook: string; observed_at?: string | null; fresh?: boolean; sides: Partial<Record<Side, { american: number | null; decimal: number | null }>> }
 type CovGame = { game_id: string; league: string; matchup: string; home: { abbreviation: string }; away: { abbreviation: string }; starts_at: string; status?: string; consensus_no_vig_home?: number | null; consensus_is_current?: boolean; model?: { home_two_way?: number | null; home?: number | null } | null; quotes?: Quote[] }
 
+/** US-regulated books (owner rule 10-26: execution only there; offshore books are consensus only). Matched on the display name. */
+const US_BOOK = /draftkings|fanduel|betmgm|caesars|william ?hill|betrivers|espn ?bet|fanatics|hard ?rock|bally|betparx|bet365/i
+export const isUsBook = (book: string) => US_BOOK.test(book)
+
 export function ValueFinder({ day }: { day: string }) {
   const cov = useMarketCoverage(day)
   const [minEv, setMinEv] = useState(1)
+  const [usOnly, setUsOnly] = useState(true)
+  const slip = usePreviewPicks()
   const now = Date.now()
   const rows = useMemo(() => {
     const out: Array<{ g: CovGame; side: Side; book: string; american: number | null; dec: number; fair: number; ev: number; model: number | null; gap: number | null; fresh: boolean }> = []
@@ -42,27 +51,49 @@ export function ValueFinder({ day }: { day: string }) {
     }
     return out.sort((a, b) => b.ev - a.ev)
   }, [cov.data, now])
-  const shown = rows.filter((r) => r.ev >= minEv).slice(0, 14)
+  const shown = rows.filter((r) => r.ev >= minEv && (!usOnly || isUsBook(r.book))).slice(0, 14)
+  // Owner 10-27: an empty finder must say whether AISP is WAITING on lines, not look broken.
+  const upcoming = ((cov.data?.games ?? []) as unknown as CovGame[]).filter((g) => g.status !== 'FINAL' && Date.parse(g.starts_at) > now)
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+  const priced = upcoming.filter((g) => (g.quotes ?? []).some((q) => q.market === 'MONEYLINE' && q.fresh !== false && (!usOnly || isUsBook(q.sportsbook))))
+  const waiting = upcoming.find((g) => !priced.includes(g))
+  const t75 = waiting ? new Date(Date.parse(waiting.starts_at) - 75 * 60_000) : null
+  const clock = (d: Date) => d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
   return (
     <section className="ed-card ed-vf" aria-label="Value Finder">
       <header className="ed-head">
         <div><h2>Value Finder</h2><p className="ed-muted">Book prices right now that pay more than the market's own fair price (the no-vig consensus across books).</p></div>
         <span className="ed-seg">{[0.5, 1, 2, 3].map((v) => <button key={v} type="button" className={minEv === v ? 'is-on' : ''} onClick={() => setMinEv(v)}>EV ≥ {v}%</button>)}</span>
+        <span className="ed-seg"><button type="button" className={usOnly ? 'is-on' : ''} onClick={() => setUsOnly(true)} title="DraftKings, FanDuel, BetMGM, Caesars, BetRivers, ESPN Bet, Fanatics…">US books</button><button type="button" className={!usOnly ? 'is-on' : ''} onClick={() => setUsOnly(false)} title="Offshore books count toward the consensus only">All books</button></span>
       </header>
-      {!cov.data ? <p className="ed-muted">Reading today's prices…</p> : !shown.length ? <p className="ed-muted">No upcoming price beats the consensus by {minEv}% or more right now. That is normal: books copy each other fast.</p> : (
+      {!cov.data ? <p className="ed-muted">Reading today's prices…</p> : !shown.length ? (
+        !priced.length && upcoming.length ? (
+          <div className="ed-wait" role="status">
+            <b>⏳ Waiting on sportsbook lines</b>
+            <span>AISP buys fresh US-book prices about 75 minutes before each start, so this list fills in as the night gets closer. Nothing is missing.</span>
+            {waiting && t75 && <span>Next: <b>{waiting.away.abbreviation} @ {waiting.home.abbreviation}</b> starts {clock(new Date(waiting.starts_at))} ET · prices from about <b>{clock(t75)} ET</b>.</span>}
+            <small>When lines arrive, each row is a book price that pays more than the market's own fair price, with AISP's number beside it and a one-tap + My Picks.</small>
+          </div>
+        ) : <p className="ed-muted">{priced.length} game{priced.length === 1 ? '' : 's'} priced, and no price beats the consensus by {minEv}% or more right now. That is normal: books copy each other fast. Try EV ≥ 0.5%.{waiting && t75 ? ` More lines from about ${clock(t75)} ET.` : ''}</p>
+      ) : (
         <div className="ed-scroll"><table className="ed-table ed-vf__t">
-          <thead><tr><th>Game</th><th>Side</th><th>Book</th><th>Price</th><th>Fair</th><th>Expected value</th><th>AISP model</th></tr></thead>
+          <thead><tr><th>Game</th><th>Side</th><th>Book</th><th>Price</th><th>Fair</th><th>Expected value</th><th>AISP model</th><th>Your slip</th></tr></thead>
           <tbody>{shown.map((r, i) => {
             const team = r.side === 'HOME' ? r.g.home.abbreviation : r.g.away.abbreviation
             return (
               <tr key={`${r.g.game_id}-${r.side}-${r.book}-${i}`}>
                 <td><span className="ed-game"><Crest sport={r.g.league} abbr={r.g.away.abbreviation} size={20} /><Crest sport={r.g.league} abbr={r.g.home.abbreviation} size={20} /><span><b>{r.g.matchup}</b><small style={{ color: SPORT_COLOR[r.g.league] }}>{r.g.league} · {new Date(r.g.starts_at).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })}</small></span></span></td>
                 <td><b>{team}</b></td>
-                <td>{r.book}{r.fresh ? '' : <small className="ed-stale"> stale</small>}</td>
+                <td>{r.book}{isUsBook(r.book) ? '' : <small className="ed-stale"> offshore</small>}{r.fresh ? '' : <small className="ed-stale"> stale</small>}</td>
                 <td className="ed-num">{am(r.american)}</td>
                 <td className="ed-num">{pct(r.fair, 1)}</td>
                 <td><span className="ed-ev" style={{ ['--w' as string]: `${Math.min(100, r.ev * 12)}%` } as CSSProperties}><i /><b>{signed(r.ev, 1, '%')}</b></span></td>
                 <td>{r.model == null ? '—' : <span className={r.gap != null && Math.abs(r.gap) > 10 ? 'ed-warn' : r.gap != null && r.gap > 0 ? 'is-good' : ''}>{pct(r.model)}{r.gap != null && Math.abs(r.gap) > 10 ? ' · >10-pt gap, warning' : r.gap != null && r.gap > 0 ? ' · agrees' : ' · disagrees'}</span>}</td>
+                <td>{slip.some((p) => p.game_id === r.g.game_id && p.side === r.side) ? <Link to="/my-picks" className="ed-added">✓ on slip</Link>
+                  : <button type="button" className="ed-add" disabled={!isUsBook(r.book)} title={isUsBook(r.book) ? `Add ${team} ${am(r.american)} at ${r.book} to My Picks` : 'Offshore book: AISP only uses US-regulated books for picks'}
+                      onClick={() => addPick({ game_id: r.g.game_id, sport: r.g.league, matchup: r.g.matchup, away: r.g.away.abbreviation, home: r.g.home.abbreviation, side: r.side, selection: team,
+                        model_home_two_way: r.g.model?.home_two_way ?? r.g.model?.home ?? null, href: `/games/${r.g.game_id}`, price_american: r.american, price_book: r.book, price_seen_at: new Date().toISOString(),
+                        market_prob: r.fair, status: 'slip', starts_at: r.g.starts_at })}>+ My Picks</button>}</td>
               </tr>
             )
           })}</tbody>
@@ -87,6 +118,7 @@ export function MarketMovers({ day }: { day: string }) {
         <div><h2>Market Movers</h2><p className="ed-muted">How the market's fair price moved through the day. <b className="ed-steam-word">STEAM</b> = most books moved the same way, 2+ points, inside two hours: the free signal of sharp money.</p></div>
         <span className="ed-seg"><button type="button" className={!steamOnly ? 'is-on' : ''} onClick={() => setSteamOnly(false)}>Biggest moves</button><button type="button" className={steamOnly ? 'is-on' : ''} onClick={() => setSteamOnly(true)}>Steam only ({steamCount})</button></span>
       </header>
+      {data && !error ? <SteamRadar items={(data.games ?? []).filter((m) => names.has(m.game_id)).map((m) => { const g = names.get(m.game_id)!; return { m, label: g.matchup, league: g.league, mover: m.move >= 0 ? g.home.abbreviation : g.away.abbreviation } })} /> : null}
       {error ? <p className="ed-muted">Market history is only on the test-mode preview ({error}).</p> : !data ? <p className="ed-muted">Reading the price history…</p> : !list.length ? <p className="ed-muted">No market moves to show for today's board yet.</p> : (
         <div className="ed-mm__grid">
           {list.map((m) => {

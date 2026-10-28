@@ -1,0 +1,15 @@
+/* The REHEARSAL bar: a film-slate stripe so a replayed night is never mistaken for a real one. */
+.rh { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 32px); padding: 8px 12px; border-radius: 14px; color: #f8fafc;
+  background: repeating-linear-gradient(135deg, #111827 0 14px, #1f2937 14px 28px); border: 2px solid #a78bfa; box-shadow: 0 12px 34px rgba(0,0,0,.6), 0 0 26px rgba(167,139,250,.35); }
+.rh__tag { font: 900 12px/1 ui-monospace, monospace; letter-spacing: .14em; color: #ddd6fe; padding: 5px 8px; border-radius: 6px; background: #4c1d95; }
+.rh__clock { font: 700 12px ui-monospace, monospace; color: #cbd5e1; }
+.rh__clock b { color: #fde68a; }
+.rh button, .rh a, .rh select { font: 700 12px system-ui; color: #e2e8f0; background: #0b1220; border: 1px solid #475569; border-radius: 8px; padding: 5px 9px; cursor: pointer; text-decoration: none; }
+.rh button:hover, .rh a:hover { border-color: #a78bfa; }
+.rh .rh__stop { border-color: #f43f5e; color: #fecdd3; }
+.ar-rehearse { margin-left: 6px; border: 1px solid #a78bfa; background: rgba(167,139,250,.14); color: #ddd6fe; border-radius: 8px; padding: 5px 10px; font: 800 12px system-ui; cursor: pointer; }
+body:has(.rh) .hq-main { padding-bottom: 120px; }
+
+/* 10-27: while the bar is up, every page keeps room under its last panel so the bar never covers it (Sweat Meter). */
+body:has(.rh) #main-content, body:has(.rh) .bx__inner, body:has(.rh) .gn { padding-bottom: 84px; }

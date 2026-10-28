@@ -5,6 +5,8 @@
  * play, team and highlight feed every panel, so one tap lights up the same evidence everywhere.
  * Research and paper only; nothing here places or suggests a wager.
  */
+import { YouCallIt } from './YouCallIt'
+import './youcall.css'
 import { useMemo, useState, type ReactNode } from 'react'
 import { HeatSpotlight, Takeover, useNewKey, useTakeover } from '../heat/Heat'
 import { footballHeat } from '../heat/rules'
@@ -212,6 +214,8 @@ export function FootballDashboard(p: DashProps) {
               </header>
               {take ? <div className="lv-field__take"><Takeover {...take} /></div> : null}
               <FootballField hot={hot} view={p.view} fb={fb} play={p.shownPlay} nonce={p.nonce} slow={p.slow} ghosts={p.ghosts} actualCls={p.actual.cls} burst={p.burst} impact={p.impact} sound={p.sound} projected={p.projected} wpCard={wpCard} />
+              <YouCallIt event={fb.event_id ?? `${away.abbr}@${home.abbr}`} plays={fb.plays ?? []} grid={p.grid} homeId={home.id} live={live} isNfl={p.isNfl}
+                abbrOf={(id) => (id === home.id ? home.abbr : id === away.id ? away.abbr : '—')} />
               <footer className="lv-field__foot">
                 {reviewing && p.shownPlay ? <button type="button" className="lf-chipbtn fb-review" onClick={() => p.onPick(null)}>Reviewing Q{p.shownPlay.period} {p.shownPlay.clock} · Return to live</button> : <span>{live ? 'Following the latest play' : strip.status}{p.lastPlayAge != null ? ` · last play logged ${p.lastPlayAge < 90 ? `${p.lastPlayAge} s` : `${Math.round(p.lastPlayAge / 60)} min`} ago` : ''}{live && p.lastPlayAge != null && p.lastPlayAge > 240 ? (half ? ` · ${st?.detail}` : ' · feed may be delayed or play stopped') : ''}</span>}
                 <span>{p.shownPlay?.text}</span>

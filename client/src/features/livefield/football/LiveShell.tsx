@@ -5,6 +5,8 @@
  * favourites in this browser, and the search finds a game by team.
  */
 import { AispSide } from '../../flow/AispSide'
+import { GamePlanBar } from '../../flow/GamePlanBar'
+import '../../slate/slate.css'
 import '../../flow/legacy-fixups.css'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -50,37 +52,27 @@ export function LiveShell({ games, gameId, onPick, sportFilter, onSport, favs, o
   const when = game ? new Date(game.starts_at) : strip?.date ? new Date(strip.date) : new Date(now)
   const dateStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(Number.isNaN(when.getTime()) ? now : when)
   return (
-    <div className="ls">
-      <header className="ls-top">
-        <Link to="/" className="ls-logo"><b>AISP</b><small>AI SPORTS PREDICTOR</small></Link>
-        <nav className="ls-nav" aria-label="Sections">
-          <Link to="/live" className="is-on">Live View</Link>
-          <Link to="/games">Games</Link>
-          <Link to="/decisions">Models</Link>
-          <Link to="/mission-control">Insights</Link>
-          <button type="button" onClick={onBooth}>Ask the Booth</button>
-          <details className="ls-more"><summary>More ▾</summary><div><Link to="/game-night">Game Night</Link><Link to="/markets">Markets</Link><Link to="/performance">Performance</Link><Link to="/methodology">Methodology</Link></div></details>
-        </nav>
-        <label className="ls-search"><span className="lf-sr">Search games</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search games, teams, or players…" list="ls-games" /><datalist id="ls-games">{list.map((g) => <option key={g.game_id} value={`${g.away.abbr} @ ${g.home.abbr}`} />)}</datalist></label>
-        <div className="ls-icons">
-          <Link to="/mission-control" title="Alerts and health" aria-label="Alerts">🔔</Link>
-          <Link to="/account" title="Account" aria-label="Account">⚙</Link>
-          <Link to="/account" className="ls-avatar" aria-label="Account">J</Link>
-        </div>
-      </header>
-      <div className="ls-body">
-        <aside className="ls-rail" aria-label="Sports">
-          <small>ALL PAGES</small>
-          <AispSide compact />
+    <div className="hq ls">
+      {/* The same one left menu as every other page (owner 10-26); Live View's sports and favourites sit under it. */}
+      <AispSide>
+        <div className="ls-rail ls-rail--in-menu" aria-label="Sports">
           <small>LIVE</small>
           {RAIL.map((r) => {
             const n = games.filter((g) => g.sport === r.sport).length
             return <button key={r.key} type="button" disabled={!r.sport} className={sportFilter === r.sport && r.sport ? 'is-on' : ''} title={r.sport ? `${n} games tonight` : 'Not covered by AISP yet'} onClick={() => onSport(sportFilter === r.sport ? null : r.sport)}><i className={`ls-dot${n ? ' is-live' : ''}`} />{r.label}</button>
           })}
-          <button type="button" className="ls-rail__more" onClick={() => onSport(null)}>More</button>
+          <button type="button" className="ls-rail__more" onClick={() => onSport(null)}>All sports</button>
           <small>FAVORITES</small>
           {favs.length ? favs.map((abbr) => { const g = favGames.find((x) => x.away.abbr === abbr || x.home.abbr === abbr); return <button key={abbr} type="button" className={g ? 'has-game' : ''} disabled={!g} title={g ? `${g.away.abbr} @ ${g.home.abbr} ${etClock(g.starts_at)}` : 'No game tonight'} onClick={() => g && onPick(g.game_id)}>★ {abbr}</button> }) : <span className="ls-rail__hint">Star a team in the game picker</span>}
-        </aside>
+        </div>
+      </AispSide>
+      <div className="hq-main">
+        <GamePlanBar current="outcomes" />
+        <header className="ls-top ls-top--slim">
+          <label className="ls-search"><span className="lf-sr">Search games</span><input value={q} onChange={(e) => { const v = e.target.value; setQ(v); const hit = games.find((g) => `${g.away.abbr} @ ${g.home.abbr}` === v); if (hit) { onPick(hit.game_id); setQ('') } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && list.length) { onPick(list[0].game_id); setQ('') } }} placeholder="Search games, teams, or players… (Enter opens)" list="ls-games" /><datalist id="ls-games">{list.map((g) => <option key={g.game_id} value={`${g.away.abbr} @ ${g.home.abbr}`} />)}</datalist></label>
+          <button type="button" className="ls-booth" onClick={onBooth}>💬 Ask the Booth</button>
+        </header>
         <div className="ls-main">
           <div className="ls-strip">
             <span className="ls-pill ls-pill--brand">◈ AISP LIVE VIEW</span>

@@ -68,8 +68,6 @@ describe('Game Night renders captured production payloads', { timeout: 30_000 },
     )
     await screen.findAllByText(/not yet settled/)
     await screen.findByText(/Forecast made/)
-    fireEvent.click(screen.getByRole('button', { name: /Load the season/ }))
-    await screen.findByText(/Season gap galaxy/)
     const text = document.body.textContent ?? ''
     expect(text).not.toMatch(BROKEN)
     const labels = [...document.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label') ?? '').join(' | ')

@@ -15,6 +15,7 @@ const sections = [
 ]
 
 import { ScoreCoverage } from '../components/scoreboard/ScoreCoverage'
+import { BuildForecast } from '../features/forge/BuildForecast'
 
 export function MethodologyPage() {
   const { policy, source, loading } = usePublicPolicy()
@@ -24,6 +25,7 @@ export function MethodologyPage() {
   return (
     <div className="page methodology-page">
       <PageHeader eyebrow="TRANSPARENT FORECASTING" title="Methodology" description="What ASP measures, how forecasts are produced, and where uncertainty remains." />
+      <BuildForecast />
 
       <section className="methodology-hero">
         <span className="methodology-hero__icon"><BrainCircuit size={29} /></span>

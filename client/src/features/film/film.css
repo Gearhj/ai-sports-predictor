@@ -1,0 +1,34 @@
+/* THE FILM ROOM — steel frame, navy wells; CALLED IT emerald, FOOLED rose, AISP gold rings on funded bets. */
+.fr { display: grid; gap: 10px; padding: 14px 16px; margin: 0 0 14px; border-radius: 14px; background: var(--tt-frame, linear-gradient(180deg, #2a3442, #1b2330)); border: 1px solid var(--tt-steel-line, #4d586a); border-top: 3px solid #fbbf24; color: #e2e8f0; }
+.fr__head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.fr__head h2 { margin: 0; font: 900 17px/1 system-ui; letter-spacing: .18em; color: #fde68a; }
+.fr__head span { font-size: 13.5px; color: #cbd5e1; }
+.fr__fold { margin-left: auto; font: 800 12px system-ui; color: #fde68a; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.55); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.fr__muted { margin: 0; font-size: 12.5px; color: #94a3b8; }
+.fr__controls { display: flex; gap: 10px 18px; flex-wrap: wrap; }
+.fr__chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.fr__chips button { font: 800 12px system-ui; padding: 6px 11px; border-radius: 999px; border: 1px solid #334155; background: #0b1220; color: #cbd5e1; cursor: pointer; }
+.fr__chips button[aria-pressed='true'] { background: #1e293b; border-color: #fbbf24; color: #fde68a; }
+.fr__score { display: grid; grid-template-columns: repeat(3, 130px) minmax(0, 1fr); gap: 8px; align-items: stretch; }
+.fr__tile { display: grid; gap: 2px; padding: 8px 12px; border-radius: 12px; background: #0b1220; border-top: 3px solid #64748b; }
+.fr__tile small { font: 800 10.5px ui-monospace; letter-spacing: .1em; color: #94a3b8; } .fr__tile b { font: 900 26px/1 ui-monospace, monospace; }
+.fr__tile--called { border-top-color: #34d399; } .fr__tile--called b { color: #6ee7b7; } .fr__tile--fooled { border-top-color: #fb7185; } .fr__tile--fooled b { color: #fecdd3; }
+.fr__verdict { margin: 0; align-self: center; font-size: 13.5px; line-height: 1.5; color: #cbd5e1; } .fr__verdict b { color: #f8fafc; } .fr__verdict .is-market { color: #93c5fd; } .fr__verdict .is-aisp { color: #fde68a; }
+.fr__svg { width: 100%; height: auto; display: block; background: #070d18; border-radius: 12px; }
+.fr-room--called { fill: rgba(52,211,153,.07); } .fr-room--fooled { fill: rgba(244,63,94,.07); } .fr-room--rode { fill: rgba(148,163,184,.05); }
+.fr-split { stroke: rgba(148,163,184,.3); } .fr-bar { stroke: #fbbf24; stroke-width: 1.5; stroke-dasharray: 5 4; }
+.fr-tag { fill: #94a3b8; font: 800 11px system-ui; letter-spacing: .08em; } .fr-tag--called { fill: #34d399; } .fr-tag--fooled { fill: #fb7185; } .fr-tag--bar { fill: #fbbf24; }
+.fr-side { fill: #64748b; font: 800 10.5px system-ui; letter-spacing: .12em; }
+.fr-ax text { fill: #64748b; font: 10px ui-monospace, monospace; } .fr-ax path, .fr-ax line { stroke: rgba(148,163,184,.25); }
+.fr-dot { stroke: rgba(7,13,24,.9); stroke-width: 1; } .fr-dot:hover { stroke: #fff; stroke-width: 2; }
+.fr-dot.is-bet { stroke: #fbbf24; stroke-width: 2.2; } .fr-dot.is-pick { stroke: #fff; stroke-width: 3; filter: drop-shadow(0 0 6px #fff); }
+.fr__strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.fr__frame { display: grid; gap: 3px; padding: 10px 12px; border-radius: 10px; background: #0b1220; border: 1px solid #1e293b; border-left: 4px solid #fbbf24; opacity: 0; animation: fr-roll .4s ease forwards; }
+.fr__frame:nth-child(2) { animation-delay: .25s; border-left-color: #93c5fd; } .fr__frame:nth-child(3) { animation-delay: .5s; } .fr__frame:nth-child(4) { animation-delay: .75s; }
+.fr__frame small { font: 800 10.5px ui-monospace; letter-spacing: .1em; color: #94a3b8; } .fr__frame b { font: 900 16px system-ui; color: #f8fafc; } .fr__frame span { font-size: 12px; color: #94a3b8; }
+.fr__frame--won { border-left-color: #34d399; } .fr__frame--won b { color: #6ee7b7; } .fr__frame--lost { border-left-color: #fb7185; } .fr__frame--lost b { color: #fecdd3; }
+.fr__tele { grid-column: 1 / -1; margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(251,191,36,.08); border: 1px dashed rgba(251,191,36,.45); font-size: 13.5px; color: #fef3c7; opacity: 0; animation: fr-roll .4s ease 1s forwards; }
+.fr__tele a { color: #fde68a; font-weight: 800; margin-left: 6px; }
+@keyframes fr-roll { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .fr__frame, .fr__tele { animation: none; opacity: 1; } }
+@media (max-width: 900px) { .fr__score { grid-template-columns: repeat(3, minmax(0, 1fr)); } .fr__verdict { grid-column: 1 / -1; } .fr__strip { grid-template-columns: 1fr 1fr; } }

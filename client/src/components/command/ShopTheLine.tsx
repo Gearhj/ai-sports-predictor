@@ -8,9 +8,10 @@
  * Reads the market coverage the page already loads (moneyline quotes AISP collected). Research only: a price shown
  * here may be stale, and nothing here is advice or a wager signal.
  */
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useMarketCoverage } from '../../services/commandCenter'
 import { Crest } from '../../features/flow/Crest'
+import { isUsBook } from '../../features/edge/MarketEdge'
 import './shopTheLine.css'
 
 type Side = 'HOME' | 'AWAY'
@@ -20,14 +21,16 @@ type Row = { g: Game; side: Side; team: string; prices: Array<{ book: string; de
 
 const am = (n: number | null) => (n == null ? '—' : n > 0 ? `+${n}` : `${n}`)
 
-export function ShopTheLine({ day }: { day: string }) {
+export function ShopTheLine({ day, side }: { day: string; side?: ReactNode }) {
   const coverage = useMarketCoverage(day)
   const [hover, setHover] = useState<{ row: Row; book: string; am: number | null; x: number; y: number } | null>(null)
+  // US-regulated books by default (owner rule 10-25: the books you can actually bet at); offshore on request.
+  const [usOnly, setUsOnly] = useState(true)
   const rows = useMemo(() => {
     const out: Row[] = []
     for (const g of ((coverage.data?.games ?? []) as unknown as Game[])) {
       // Compare like with like: only quotes taken within 30 minutes of the game's newest quote.
-      const all = (g.quotes ?? []).filter((q) => q.market === 'MONEYLINE')
+      const all = (g.quotes ?? []).filter((q) => q.market === 'MONEYLINE' && (!usOnly || isUsBook(q.sportsbook)))
       const newest = Math.max(...all.map((q) => Date.parse(q.observed_at ?? '') || 0))
       const ml = all.filter((q) => newest - (Date.parse(q.observed_at ?? '') || 0) <= 30 * 60_000)
       for (const side of ['HOME', 'AWAY'] as Side[]) {
@@ -40,7 +43,7 @@ export function ShopTheLine({ day }: { day: string }) {
       }
     }
     return out
-  }, [coverage.data])
+  }, [coverage.data, usOnly])
   if (!rows.length) return null
   // one row per game: the side where shopping mattered more
   const perGame = new Map<string, Row>()
@@ -60,6 +63,10 @@ export function ShopTheLine({ day }: { day: string }) {
         <header>
           <h2>Shop the Line</h2>
           <small>same team, same game, different books: what a $100 stake pays more at the best price than the worst</small>
+          <span className="stl__toggle" role="group" aria-label="Which books">
+            <button type="button" aria-pressed={usOnly} onClick={() => setUsOnly(true)}>US books</button>
+            <button type="button" aria-pressed={!usOnly} onClick={() => setUsOnly(false)}>+ offshore</button>
+          </span>
         </header>
         <div className="stl__hero">
           <span className="stl__big"><small>typical side today</small><b>+${avg.toFixed(2)}</b><em>more profit per $100 at the best book (median of {rows.length} sides with 3+ books, quotes within 30 minutes, prices -400 to +300)</em></span>
@@ -87,6 +94,7 @@ export function ShopTheLine({ day }: { day: string }) {
         </ol>
       </div>
       <aside className="stl__books">
+        {side}
         <h3>Best price, most often</h3>
         <small>how many of today's sides each book had the top price on</small>
         <ul>{board.map(([book, n], i) => <li key={book}><span className="stl__rank">{i + 1}</span><b>{book}</b><span className="stl__bar"><i style={{ width: `${(n / maxBest) * 100}%` }} /></span><em>{n}</em></li>)}</ul>

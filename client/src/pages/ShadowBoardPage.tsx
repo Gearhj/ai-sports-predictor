@@ -7,6 +7,7 @@ import { formatTimestamp } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
 import { teamIdentity } from '../services/teamIdentity'
 import { useSportSelection } from '../hooks/useSportSelection'
+import { TheCombine } from '../features/combine/TheCombine'
 import type {
   ProspectiveRescore,
   ShadowBoardData,
@@ -104,6 +105,7 @@ export function ShadowBoardPage() {
         description="Challenger models that are not trusted with AISP's paper money yet make their calls here against real sportsbook prices. Nothing is bet. If a challenger keeps beating the market, it earns promotion."
         actions={<span className="admin-chip"><FlaskConical size={14} /> RESEARCH SHADOW</span>}
       />
+      <TheCombine />
 
       <section className="sbx" aria-label="What the Shadow Board is">
         <div className="sbx__card"><b>1 · Who plays here</b><span>Research models from Model Studio that have not earned real paper money yet, such as the NFL M1 prospective model and the MLB research tracks.</span></div>

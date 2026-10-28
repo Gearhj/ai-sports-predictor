@@ -16,6 +16,8 @@ import { useMissionControl } from '../mission/missionData'
 import { allPositions, resultOf, usePulse } from '../pulse/pulseData'
 import '../slate/slate.css'
 import './start.css'
+import { QuestCard } from '../progress/QuestCard'
+import { GAMES_ON } from '../release/flags'
 
 export const START_SEEN_KEY = 'aisp.start.seen'
 
@@ -98,6 +100,7 @@ export function StartPage() {
           <div className="sl-title"><small>START HERE</small><h1>The map of AISP</h1><p>{NAV_ITEMS.length} pages, three reasons to be here. Pick yours and follow the light.</p></div>
         </header>
         <main id="main-content" className="st-body">
+          {GAMES_ON && <QuestCard />}
           <section className="st-trails" aria-label="Choose what you want to do">
             {TRAILS.map((x) => (
               <button key={x.key} type="button" className={`st-trail${x.key === trail ? ' is-on' : ''}`} aria-pressed={x.key === trail} onClick={() => setTrail(x.key)}>

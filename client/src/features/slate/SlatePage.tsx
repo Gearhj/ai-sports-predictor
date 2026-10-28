@@ -22,14 +22,17 @@ import { GamePlanBar } from '../flow/GamePlanBar'
 import { addToSlip } from '../flow/slip'
 import { useMissionControl, type MissionGame } from '../mission/missionData'
 import { usePreviewPicks, removePick } from '../../services/previewPicks'
+import { useAuth } from '../../hooks/useAuth'
+import type { PreviewPick } from '../../services/previewPicks'
 import './slate.css'
+import { SlateHeatMap } from './SlateHeatMap'
 
 type Sport = 'ALL' | SportCode
 type Tab = 'all' | 'live' | 'soon' | 'bets' | 'edges' | 'done'
 const SPORTS: Array<{ key: SportCode; label: string; long: string; color: string; icon: string }> = [
-  { key: 'NFL', label: 'NFL', long: 'NFL', color: '#6ea4ff', icon: '🏈' }, { key: 'CFB', label: 'CFB', long: 'College Football', color: '#b88cff', icon: '🏈' },
-  { key: 'NBA', label: 'NBA', long: 'NBA', color: '#ffb14a', icon: '🏀' }, { key: 'NHL', label: 'NHL', long: 'NHL', color: '#7cc4e4', icon: '🏒' },
-  { key: 'MLB', label: 'MLB', long: 'MLB', color: '#ff6b57', icon: '⚾' },
+  { key: 'NFL', label: 'NFL', long: 'NFL', color: '#34d399', icon: '🏈' }, { key: 'CFB', label: 'CFB', long: 'College Football', color: '#c084fc', icon: '🏈' },
+  { key: 'NBA', label: 'NBA', long: 'NBA', color: '#ff9f43', icon: '🏀' }, { key: 'NHL', label: 'NHL', long: 'NHL', color: '#67e8f9', icon: '🏒' },
+  { key: 'MLB', label: 'MLB', long: 'MLB', color: '#ff6b6b', icon: '⚾' },
 ]
 const NAV = [
   { to: '/', label: 'Home', icon: '⌂' }, { to: '/live', label: 'Live View', icon: '◉' }, { to: '/games', label: 'Games', icon: '▦', on: true }, { to: '/my-picks', label: 'My Picks', icon: '✓' },
@@ -101,6 +104,7 @@ export function SlatePage() {
   const mission = useMissionControl(day)
   const missionById = useMemo(() => new Map((mission.data?.games ?? []).map((m) => [m.game_id, m])), [mission.data])
   const slipPicks = usePreviewPicks()
+  const { user } = useAuth()
   const onSlip = useMemo(() => new Set(slipPicks.map((p) => p.game_id)), [slipPicks])
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(t) }, [])
@@ -148,7 +152,7 @@ export function SlatePage() {
       <AispSide>
         <small className="hq-side__label">SPORTS</small>
         <nav className="hq-nav hq-nav--sports">
-          {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(sport === s.key ? 'ALL' : s.key)}><i aria-hidden="true">{s.icon}</i>{s.label}<em>{counts.get(s.key) ?? 0}</em></button>)}
+          {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} style={{ ['--sc' as string]: s.color } as CSSProperties} onClick={() => setSport(sport === s.key ? 'ALL' : s.key)}><i aria-hidden="true">{s.icon}</i>{s.label}<em>{counts.get(s.key) ?? 0}</em></button>)}
           <Link to="/mma" className="hq-nav__mma" title="UFC Fight Night: historical archive"><i aria-hidden="true">🥊</i>MMA · UFC</Link>
           <button type="button" disabled title="Not covered by AISP yet"><i aria-hidden="true">🥊</i>Boxing</button>
         </nav>
@@ -173,9 +177,9 @@ export function SlatePage() {
             <section className="sl-kpis" aria-label="Today at a glance">
               <Kpi tone="green" icon="((•))" big={String(live.length)} label="Live Games" sub="Across all sports" onClick={() => setTab('live')} />
               <Kpi tone="blue" icon="◷" big={mins == null ? '—' : mins >= 120 ? `${Math.round(mins / 60)} hr` : `${mins} min`} label="Next Model Run" sub={nextRun ? `${new Date(nextRun.windowOpensAt!).toDateString() === new Date(now).toDateString() ? 'Today' : etClock(nextRun.windowOpensAt, { weekday: 'short' })} ${etClock(nextRun.windowOpensAt)} ET` : 'No window scheduled'} />
-              <Kpi tone="violet" icon="▤" big={String(open.length)} label="Open Wagers" sub={`${openLive.length} live · ${open.length - openLive.length} upcoming`} onClick={() => setTab('bets')} />
-              <Kpi tone="gold" icon="$" big={usd(stake)} label="Stake at Risk" sub={`Potential payout ${usd(payout)}`} />
-              <Kpi tone="teal" icon="▥" big={bankroll == null ? '—' : usd(bankroll)} label="Bankroll" sub={bankroll ? <span className={monthPl >= 0 ? 'is-up' : 'is-down'}>{signed((monthPl / Math.max(1, bankroll - monthPl)) * 100, 1, '%')} this month</span> : 'paper experiment'} />
+              <Kpi tone="violet" icon="▤" big={String(open.length)} label="AISP Open Bets" sub={`${openLive.length} live · ${open.length - openLive.length} upcoming`} onClick={() => setTab('bets')} />
+              <Kpi tone="gold" icon="$" big={usd(stake)} label="AISP Stake at Risk" sub={`Potential payout ${usd(payout)}`} />
+              <Kpi tone="teal" icon="▥" big={bankroll == null ? '—' : usd(bankroll)} label="AISP Bankroll" sub={bankroll ? <span className={monthPl >= 0 ? 'is-up' : 'is-down'}>{signed((monthPl / Math.max(1, bankroll - monthPl)) * 100, 1, '%')} this month</span> : 'paper experiment'} />
               <Kpi tone="orange" icon="⚡" big={strongest ? `${shortName(sideOf(strongest.g, strongest.p!.side).abbr, 10)} ${strongest.p!.price != null ? american(strongest.p!.price) : ''}` : '—'} label="Strongest Edge Today" sub={strongest ? <span className="is-up">{signed(strongest.p!.edge, 1, '%')}</span> : 'needs a fresh price'} onClick={strongest ? () => openGame(strongest.g) : undefined} />
             </section>
 
@@ -187,21 +191,9 @@ export function SlatePage() {
               <span className="sl-view"><button type="button" className={view === 'cards' ? 'is-on' : ''} onClick={() => setView('cards')}>▦ Cards</button><button type="button" className={view === 'table' ? 'is-on' : ''} onClick={() => setView('table')}>☰ Table</button></span>
             </section>
 
-            {nextUp.length ? (
-              <section className="sl-next" aria-label="Next up">
-                <header><h2>Next Up</h2><small>{nextUp.length} games in the next 6 hours</small></header>
-                <div className="sl-next__rail" ref={nextRef}>
-                  {nextUp.slice(0, 14).map((g) => (
-                    <button key={g.id} type="button" className="sl-nx" onClick={() => openGame(g)} style={{ ['--sc' as string]: SPORTS.find((s) => s.key === g.sport)?.color } as CSSProperties}>
-                      <span className="sl-nx__top"><b>{etClock(g.startsAt)}</b><em>{g.sport}</em></span>
-                      <span className="sl-nx__teams"><Crest sport={g.sport} abbr={g.away.abbr} size={26} /><small>vs</small><Crest sport={g.sport} abbr={g.home.abbr} size={26} /></span>
-                      <span className="sl-nx__abbr">{shortName(g.away.abbr, 8)} · {shortName(g.home.abbr, 8)}</span>
-                    </button>
-                  ))}
-                </div>
-                <button type="button" className="sl-next__arrow" aria-label="More" onClick={() => nextRef.current?.scrollBy({ left: 500, behavior: 'smooth' })}>›</button>
-              </section>
-            ) : null}
+            {/* Next Up removed 10-26 (owner): the same games are listed below. */}
+
+            <SlateHeatMap games={dayGames.filter((g) => sport === 'ALL' || g.sport === sport)} onOpen={openGame} />
 
             {SPORTS.filter((s) => sport === 'ALL' || s.key === sport).map((s) => {
               const list = shown.filter((g) => g.sport === s.key)
@@ -222,11 +214,13 @@ export function SlatePage() {
             <footer className="hq-foot">Research and paper only. Forecasts, prices, positions and scores come from AISP's read models; live win probability is ESPN's (test-mode feed). Spreads and totals are not collected. Picks, bets and edges are the paper experiment's, never advice or a wager signal.</footer>
           </main>
 
-          <aside className="sl-rail" aria-label="Your wagers and insights">
-            <section className="sl-card">
-              <header className="sl-card__head"><h2>My Active Wagers</h2><Link to="/experiment">View All ›</Link></header>
+          <aside className="sl-rail" aria-label="Your picks, AISP's bets and insights">
+            <YourPicks picks={slipPicks} games={gameById} who={user?.display_name ?? null} onOpen={openGame} />
+            <section className="sl-card sl-card--aisp">
+              <header className="sl-card__head"><span className="sl-badge sl-badge--aisp">AISP</span><h2>AISP's Bets</h2><Link to="/experiment">View All ›</Link></header>
+              <p className="sl-card__note">The model's own paper wagers. Not yours, and never mixed with your picks.</p>
               <div className="sl-mini">
-                <span className="tone-violet"><i>▤</i><b>{open.length}</b><small>Open Wagers</small></span>
+                <span className="tone-violet"><i>▤</i><b>{open.length}</b><small>Open Bets</small></span>
                 <span className="tone-gold"><i>$</i><b>{usd(stake)}</b><small>Stake at Risk</small></span>
                 <span className="tone-green"><i>↗</i><b>{usd(payout)}</b><small>Potential Payout</small></span>
                 <span className="tone-teal"><i>▥</i><b>{bankroll == null ? '—' : usd(bankroll)}</b><small>Bankroll</small></span>
@@ -234,7 +228,7 @@ export function SlatePage() {
               <span className="sl-wtabs">{([['active', `Active (${open.length})`], ['live', `Live (${openLive.length})`], ['upcoming', `Upcoming (${open.length - openLive.length})`]] as const).map(([k, l]) => <button key={k} type="button" className={wtab === k ? 'is-on' : ''} onClick={() => setWtab(k)}>{l}</button>)}</span>
               <ul className="sl-wagers">
                 {wagers.slice(0, 7).map((p) => <Wager key={p.position_id} p={p} g={gameById.get(p.game_id) ?? null} onOpen={(g) => openGame(g)} />)}
-                {!wagers.length ? <li className="sl-empty">No {wtab === 'active' ? 'open' : wtab} paper wagers.</li> : null}
+                {!wagers.length ? <li className="sl-empty">No {wtab === 'active' ? 'open' : wtab} AISP bets.</li> : null}
               </ul>
             </section>
             <section className="sl-card">
@@ -336,6 +330,39 @@ function Ready({ m }: { m: MissionGame }) {
     return <span key={key} className={`sl-ready__i is-${state.toLowerCase()}`} title={s?.detail ?? ''}>{state === 'DONE' ? '✓' : state === 'BLOCKED' ? '!' : state === 'WAITING' ? '◷' : state === 'NOT_APPLICABLE' ? '–' : '?'} {name}{s?.label ? <em>{s.label}</em> : null}</span>
   }
   return <div className="sl-ready" aria-label="Readiness">{item('forecast', 'Forecast')}{item('approval', 'Approval')}{item('prices', 'Prices')}{item('decision', 'Decision')}<Link to="/mission-control" className="sl-ready__mc">Mission Control ›</Link></div>
+}
+
+/** The reader's OWN picks (the slip / My Picks), always apart from AISP's bets. Emerald so it never reads as the model's. */
+function YourPicks({ picks, games, who, onOpen }: { picks: PreviewPick[]; games: Map<string, PulseGame>; who: string | null; onOpen: (g: PulseGame) => void }) {
+  const mine = picks.filter((p) => games.has(p.game_id))
+  const locked = mine.filter((p) => p.status === 'locked')
+  const stake = locked.reduce((a, p) => a + (p.stake ?? 0), 0)
+  return (
+    <section className="sl-card sl-card--you">
+      <header className="sl-card__head"><span className="sl-badge sl-badge--you">YOU</span><h2>{who ? `${who}'s Picks` : 'Your Picks'}</h2><Link to="/my-picks">My Picks ›</Link></header>
+      <div className="sl-mini">
+        <span className="tone-green"><i>✓</i><b>{locked.length}</b><small>Locked</small></span>
+        <span className="tone-teal"><i>+</i><b>{mine.length - locked.length}</b><small>On your slip</small></span>
+      </div>
+      <ul className="sl-wagers">
+        {mine.slice(0, 6).map((p) => {
+          const g = games.get(p.game_id) ?? null
+          const live = g ? isLive(g) : false
+          return (
+            <li key={p.id}>
+              <button type="button" onClick={() => g && onOpen(g)} disabled={!g}>
+                <span className="sl-w__logo"><Crest sport={p.sport as SportCode} abbr={p.selection} size={30} /></span>
+                <span className="sl-w__main"><small>{p.sport} · {p.matchup}</small><b>{p.selection} {p.price_american != null ? <span className="is-up">{american(p.price_american)}</span> : null}</b><em>{p.status === 'locked' ? `${usd(p.stake ?? 0)} play money · locked` : 'On your slip, not locked'}</em></span>
+                <span className={`sl-w__st${live ? ' is-live' : ''}`}>{live ? (g?.score ? `LIVE ${g.score.away}-${g.score.home}` : 'LIVE') : g?.phase === 'FINAL' ? 'Final' : 'Upcoming'}</span>
+              </button>
+            </li>
+          )
+        })}
+        {!mine.length ? <li className="sl-empty sl-empty--you">No picks on today's slate yet. Hit <b>+ Add to slip</b> on any game to track your own side.</li> : null}
+      </ul>
+      {locked.length ? <small className="sl-card__foot">{usd(stake)} play money at stake on your locked picks.</small> : null}
+    </section>
+  )
 }
 
 function Wager({ p, g, onOpen }: { p: LedgerPosition & { sport: SportCode }; g: PulseGame | null; onOpen: (g: PulseGame) => void }) {

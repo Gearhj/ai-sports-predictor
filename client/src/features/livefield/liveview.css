@@ -570,3 +570,14 @@
 .fb-actor.is-hot .fb-actor__face { box-shadow: 0 0 0 3px #fde047, 0 0 16px 6px rgba(249, 115, 22, .9); animation: heat-aura .7s ease-in-out infinite alternate; }
 .fb-ball.is-fire { filter: drop-shadow(0 0 6px #f97316) drop-shadow(0 0 14px rgba(249, 115, 22, .9)) drop-shadow(0 0 3px #fde047); }
 .fb-trail--ball.is-fire { stroke: #f97316 !important; stroke-width: 5 !important; filter: drop-shadow(0 0 6px #f97316); }
+
+/* 10-26 (owner): Live View uses the site's standard shell: the full left menu (with the sports list under it),
+   Tonight's Game Plan bar, then a slim search / Ask the Booth row. */
+.hq.ls { display: grid; grid-template-columns: 224px minmax(0, 1fr); grid-template-rows: none; min-height: 100vh; }
+.ls-rail--in-menu { position: static; height: auto; overflow: visible; background: none; border: 0; padding: 4px 2px 8px; display: grid; gap: 2px; }
+.ls-rail--in-menu small { padding: 10px 10px 4px; font-size: 10px; letter-spacing: .2em; }
+.ls-rail--in-menu button { font-size: 13px; padding: 7px 12px; }
+.ls-top--slim { position: static; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 8px 16px; grid-template-columns: none; background: transparent; border-bottom: 0; }
+.ls-top--slim .ls-search { flex: 0 1 380px; }
+.ls-booth { font: 800 13px system-ui; color: #052e16; background: linear-gradient(180deg, #5eead4, #2dd4bf); border: 0; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+@media (max-width: 860px) { .hq.ls { grid-template-columns: 1fr; } }

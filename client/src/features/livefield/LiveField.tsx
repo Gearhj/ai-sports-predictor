@@ -22,6 +22,8 @@ import { FootballField } from './football/FootballField'
 import { LeadersCard, PlayList, StatsCard, TendenciesCard } from './football/FootballPanels'
 import { latestAnimatable, ordinalDown, parseFbPlay, playbookSigns, useFootballLive, type FbPlay } from './football/footballData'
 import { NextPlayPanel } from './football/NextPlayPanel'
+import { YouCallIt } from './football/YouCallIt'
+import './football/youcall.css'
 import { unlockAudio } from './football/fx'
 import { MomentumChart } from './football/MomentumChart'
 import { FootballDashboard } from './football/FootballDashboard'
@@ -45,6 +47,7 @@ import {
 import type { MissionGame } from '../mission/missionData'
 import './livefield.css'
 import './liveview.css'
+import { VibeBox } from '../crowd/VibeBox'
 
 function slateDate(iso: string): string {
   // MLB schedules by the local (ET) calendar day of first pitch.
@@ -86,7 +89,20 @@ export function LiveField() {
     homeName: demo ? demo[3] : game?.home.name ?? game?.home.abbr ?? '', awayName: demo ? demo[2] : game?.away.name ?? game?.away.abbr ?? '',
     enabled: Boolean(isFb && (game || demo)), live: !demo && (game?.status === 'live' || game?.phase === 'STARTED'),
   })
-  const fb = fbRes.data?.found ? fbRes.data : null
+  // REHEARSAL (?demo=...&rehearse=1): a finished game replayed as LIVE from the first snap, one logged play every
+  // 8 seconds, so You Call It's Live mode can be tested at any hour.
+  const rehearse = Boolean(demo) && params.get('rehearse') === '1'
+  const [rehStart] = useState(() => Date.now())
+  const [rehTick, setRehTick] = useState(0)
+  useEffect(() => { if (!rehearse) return undefined; const t = window.setInterval(() => setRehTick((n) => n + 1), 2000); return () => window.clearInterval(t) }, [rehearse])
+  const rawFb = fbRes.data?.found ? fbRes.data : null
+  const fb = useMemo(() => {
+    if (!rawFb || !rehearse || !rawFb.plays?.length) return rawFb
+    const n = Math.min(rawFb.plays.length, 3 + Math.floor((Date.now() - rehStart) / 8000))
+    const plays = rawFb.plays.slice(0, n)
+    const last = plays[plays.length - 1]
+    return { ...rawFb, event_id: `rehearsal:${rehStart}:${rawFb.event_id ?? 'demo'}`, plays, status: { ...(rawFb.status ?? { detail: null, short: null }), state: n < rawFb.plays.length ? 'in' as const : 'post' as const, period: last.period, clock: last.clock, detail: n < rawFb.plays.length ? 'REHEARSAL' : 'Final' } }
+  }, [rawFb, rehearse, rehStart, rehTick])
   const fbMissing = String(fbRes.error ?? '').includes(PREVIEW_ONLY)
   const [pickedId, setPickedId] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
@@ -327,6 +343,7 @@ export function LiveField() {
           strip={{ league: game.sport, week: null, season: null, venue: live?.venue ?? null, city: null, weather: live?.weather?.condition ? { text: live.weather.condition, temp: live.weather.temp ? Number(live.weather.temp) : null } : null, model: game.sport === 'MLB' ? 'MLB V18' : game.sport, broadcast: null, live: Boolean(inPlay), clock: inPlay && live?.status ? `${live.status.inning_state ?? ''} ${live.status.inning_ordinal ?? ''}`.trim() : '', status: finalFeed ? 'FINAL' : 'PREGAME', date: game.starts_at }}
           onBooth={() => document.querySelector('.lf-booth, .booth')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
           <main id="main-content" className="lf-main">
+            <div className="lf-score-row">
             <section className="lf-score" aria-label="Score">
               <div className="lf-score__team">
                 {game.sport === 'MLB' ? <TeamLogo league="MLB" abbreviation={awayAbbr} size={60} /> : null}<span className="lf-score__abbr">{awayAbbr}</span>
@@ -353,6 +370,8 @@ export function LiveField() {
                 <span className="lf-muted">AISP score: {score?.available ? `${score.away_score ?? '–'}-${score.home_score ?? '–'} (${score.freshness?.state ?? 'state unknown'})` : 'not collected yet'}</span>
               </div>
             </section>
+            <VibeBox league={game.sport} home={{ abbr: homeAbbr, name: fb?.teams?.home.name ?? game.home.name }} away={{ abbr: awayAbbr, name: fb?.teams?.away.name ?? game.away.name }} />
+            </div>
 
             {isMlb && live ? <HeatSpotlight items={mlbHeat(live, (side) => (side === 'home' ? '#f87171' : '#60a5fa'))} /> : null}
             <div className="lf-grid">
@@ -408,6 +427,8 @@ export function LiveField() {
               <aside className="lf-col lf-col--cards">
                 {isFb && fb ? (
                   <>
+                    {fb.teams ? <YouCallIt event={fb.event_id ?? 'demo'} plays={fbPlays ?? []} grid={playGrid} homeId={homeTeamId} live={fb.status?.state === 'in'} isNfl={isNfl}
+                      abbrOf={(id) => (id === fb.teams!.home.id ? fb.teams!.home.abbr : id === fb.teams!.away.id ? fb.teams!.away.abbr : '—')} /> : null}
                     <NextPlayPanel forecast={forecast} next={nextForecast} grid={playGrid} team={offenseTeam?.abbr ?? 'the offense'} actualClass={shownPlay ? actual.cls : null} actualCategory={shownPlay ? actual.category : null} wpa={wpa} league={isNfl ? 'nfl' : 'college-football'} live={fb.status?.state === 'in'} />
                     <StatsCard fb={fb} />
                     <TendenciesCard fb={fb} offenseId={shownPlay?.offense ?? shownPlay?.start.team ?? null} />

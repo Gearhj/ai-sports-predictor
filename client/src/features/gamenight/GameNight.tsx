@@ -3,7 +3,10 @@
  *
  *   Act I    "The 10,000": the focused game's stored draws rain onto a score grid
  *   Act II   score bugs for every bet in play, and the bankroll heartbeat
- *   Act III  Gap Watch: the model-warning rule as a scoreboard
+ *   Act III  Gap Watch: the model-warning rule as a scoreboard (TV wall only since 10-26; off the page)
+ *
+ * Owner 10-26: the Monte Carlo is the page's centrepiece and sits at the top, with BUILD YOUR MODEL directly under
+ * it: once the user moves an input, their own 10,000 replay on the same score grid. The Sweat Meter follows.
  *
  * TV mode (?tv=1) runs it by itself: a director cuts between held games every
  * 45 s, cuts at once when a held game's score changes, and a settlement the
@@ -37,12 +40,20 @@ import { allTimeHigh, momentsFor, nightStartOf, pointKey, settledSince, settleme
 import { TopBar, etShort, nextJobRun, type BoardState, type ScoreFreshness } from './TopBar'
 import { GameReel } from './GameReel'
 import { StormStage, type StormInfo } from './ScoreStorm'
+import type { StormSource } from './gameNightData'
+import { SweatMeter } from './SweatMeter'
+import { ExperimentLab } from '../lab/ExperimentLab'
+import { InjuryWatch, MyModelRail } from '../lab/RailPanels'
 import { SweatRail } from './SweatRail'
 import { Heartbeat, mmdd } from './Heartbeat'
 import { MomentOverlay } from './MomentOverlay'
 import { GapMini, GapWatch } from './GapWatch'
 import { PHONE_QUERY, WIDE_QUERY, useAutoScroll, useMediaQuery, usePageVisible } from './gnHooks'
 import './gamenight.css'
+import './gamenight-shell.css'
+import { VibeBox } from '../crowd/VibeBox'
+import { MatchupCard } from './MatchupCard'
+import { QuickRead } from './QuickRead'
 
 export const CUT_MS = 45_000
 export const CUT_MS_REDUCED = 90_000
@@ -82,7 +93,14 @@ export function GameNight() {
   const queue = useMemo(() => directorQueue(gn.targets, { now, lastScoreChange: gn.scoreChanges.map }), [gn.targets, now, gn.scoreChanges.map])
   const known = (id: string | null) => Boolean(id) && (gn.targets.some((t) => t.gameId === id) || external?.gameId === id)
   const loaded = gn.mission.data != null
-  const baseFocus = known(focusId) ? focusId : (queue[0] ?? gn.targets[0]?.gameId ?? null)
+  // On a page the stage opens on what matters now: a live game (ours first), else the next game to start with a
+  // forecast (so BUILD YOUR MODEL has a game to work on); the TV wall keeps the director's queue.
+  const pageDefault = useMemo(() => {
+    const live = gn.targets.filter((t) => t.game?.status === 'live' || t.game?.phase === 'STARTED')
+    const next = gn.targets.filter((t) => t.hasForecast && t.startsAt && Date.parse(t.startsAt) > now).sort((a, b) => Date.parse(a.startsAt!) - Date.parse(b.startsAt!))
+    return (live.find((t) => t.held) ?? live[0] ?? next[0])?.gameId ?? null
+  }, [gn.targets, now])
+  const baseFocus = known(focusId) ? focusId : ((!tv ? pageDefault : null) ?? queue[0] ?? gn.targets[0]?.gameId ?? null)
   const baseTarget: FocusTarget | null = external?.gameId === baseFocus ? external : gn.targets.find((t) => t.gameId === baseFocus) ?? null
   const unknownLink = loaded && focusParam && !known(focusParam)
 
@@ -94,6 +112,9 @@ export function GameNight() {
     }
   }, [external, setParams])
   const onFocus = useCallback((id: string) => chooseFocus(id, { manual: true }), [chooseFocus])
+  // BUILD YOUR MODEL hands its own 10,000 to the stage (null = AISP's stored draws).
+  const [userStorm, setUserStorm] = useState<{ src: StormSource | null; key: string }>({ src: null, key: '' })
+  const onUser = useCallback((src: StormSource | null, key: string) => setUserStorm({ src, key }), [])
   const onFocusExternal = useCallback((held: HeldBet) => {
     const inBoard = gn.targets.find((x) => x.gameId === held.gameId)
     if (inBoard) { chooseFocus(held.gameId, { manual: true }); return }
@@ -405,7 +426,15 @@ export function GameNight() {
         onWake={toggleWake}
       />
 
-      <p className="gn-headline" aria-live="off">
+      {!tvLayout && (
+        <section className="gn-band" aria-label="Tonight at a glance">
+          <span><small>Tonight settled</small><b className={tonight && tonight.profit > 0 ? 'is-up' : tonight && tonight.profit < 0 ? 'is-down' : ''}>{tonight ? usd(tonight.profit, true) : '…'}</b><em>{tonight ? `${tonight.n} bet${tonight.n === 1 ? '' : 's'} on ${usd(tonight.stake).replace('.00', '')}` : 'reading the ledger'}</em></span>
+          <span><small>Open bets</small><b>{board === 'ready' ? openBets.length : '…'}</b><em>AISP paper positions in play</em></span>
+          <span><small>Bankroll</small><b>{bankroll == null ? '…' : usd(bankroll)}</b><em>{ath ? `high ${usd(ath.bankroll)}${ath.at ? ` on ${mmdd(ath.at)}` : ''}` : 'paper money'}</em></span>
+          <span><small>Games tonight</small><b>{gn.targets.length || '…'}</b><em>pick one below to put it on the stage</em></span>
+        </section>
+      )}
+      <p className={`gn-headline${tvLayout ? '' : ' gn-headline--page'}`} aria-live="off">
         {tonight ? (
           <span title={nightTitle}><b>Tonight:</b> {tonight.n} settled · <span className={tonight.profit > 0 ? 'is-up' : tonight.profit < 0 ? 'is-down' : ''}>{usd(tonight.profit, true)}</span> on {usd(tonight.stake).replace('.00', '')}</span>
         ) : <span>{gn.ledger.error ? 'Tonight: unknown (the ledger could not be read)' : 'Tonight: loading…'}</span>}
@@ -420,16 +449,30 @@ export function GameNight() {
       </p>
 
       <div className="gn-main">
+        {/* Owner 10-27: on a page the reel runs full width, so the rail starts level with the Monte Carlo stage and
+            Build Your Model takes the full width under both. The TV wall keeps the reel inside the stage column. */}
+        {!tvLayout && (
+          <div className="gn-reelrow">
+            <RegionBoundary label="game reel">
+              <GameReel targets={gn.targets} focusId={effectiveFocus} onFocus={onFocus} now={now} board={board} />
+            </RegionBoundary>
+          </div>
+        )}
         <div className="gn-act1">
-          <RegionBoundary label="game reel">
-            <GameReel targets={gn.targets} focusId={effectiveFocus} onFocus={onFocus} now={now} board={board} />
-          </RegionBoundary>
+          {tvLayout && (
+            <RegionBoundary label="game reel">
+              <GameReel targets={gn.targets} focusId={effectiveFocus} onFocus={onFocus} now={now} board={board} />
+            </RegionBoundary>
+          )}
           <div className={`gn-cut gn-cut--${sport}`} key={target?.gameId ?? 'none'}>
             <RegionBoundary label="score storm">
               {target ? (
                 <StormStage key={target.gameId} target={target} bet={focusHeld} gap={focusGap} selection={focusDecision?.selection ?? null}
                   decisionAt={focusDecision?.recommended_at ?? null} live={focusLive} observedFinal={observedFinal}
-                  reducedMotion={reducedMotion} tv={tvLayout} fast={momentTarget != null} onInfo={setInfo} />
+                  reducedMotion={reducedMotion} tv={tvLayout} fast={momentTarget != null} onInfo={setInfo}
+                  userSource={!tvLayout && userStorm.src?.gameId === target.gameId ? userStorm.src : null} userKey={userStorm.key}
+                  picker={!tvLayout && target.hasForecast ? <QuickRead target={target} /> : null}
+                  extra={!tvLayout ? <MatchupCard target={target} /> : null} />
               ) : (
                 <div className="gn-storm gn-storm--idle">
                   <p className="gn-storm__empty">{gn.mission.error ? 'Tonight’s board could not be read, so no game can be focused.' : loaded ? 'No game with a stored forecast on tonight’s board.' : 'Reading tonight’s board…'}</p>
@@ -440,17 +483,33 @@ export function GameNight() {
         </div>
         <aside className="gn-rail" aria-labelledby="gn-sweat-title">
           <div className="gn-rail__inner" ref={railRef}>
+          {!tvLayout && <VibeBox inline league={target?.sport ?? 'nfl'} home={target?.home} away={target?.away} />}
           <RegionBoundary label="sweat rail">
             <SweatRail bets={openBets} results={settledTonight} focusId={effectiveFocus} settlementAt={settlementAt}
               scoresFailed={Boolean(gn.scoreboard.error)} reducedMotion={reducedMotion} onFocus={onFocus}
               board={board} now={now} />
           </RegionBoundary>
-          <RegionBoundary label="gap summary">
-            <GapMini board={tonightBoard} label={gn.early ? `${gn.yesterday.slice(5)} + ${day.slice(5)}` : 'tonight'} />
-          </RegionBoundary>
+          {!tvLayout && (
+            <RegionBoundary label="injury watch and my model">
+              <InjuryWatch />
+              <MyModelRail onOpen={() => document.querySelector('.lb')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
+            </RegionBoundary>
+          )}
+          {tvLayout && (
+            <RegionBoundary label="gap summary">
+              <GapMini board={tonightBoard} label={gn.early ? `${gn.yesterday.slice(5)} + ${day.slice(5)}` : 'tonight'} />
+            </RegionBoundary>
+          )}
           </div>
         </aside>
-        {(!tvLayout || band === 'heart') && (
+        {!tvLayout && (
+          <div className="gn-labrow">
+            <RegionBoundary label="build your model">
+              <ExperimentLab focusId={effectiveFocus} onFocus={onFocus} onUser={onUser} />
+            </RegionBoundary>
+          </div>
+        )}
+        {tvLayout && band === 'heart' && (
           <div className="gn-slot gn-slot--heart">
             <RegionBoundary label="bankroll heartbeat">
               <Heartbeat ledger={ledgerData} restored={gn.ledger.restored} stale={Boolean(gn.ledger.error)} failed={Boolean(gn.ledger.error)}
@@ -459,7 +518,7 @@ export function GameNight() {
             </RegionBoundary>
           </div>
         )}
-        {(!tvLayout || band === 'gap') && (
+        {tvLayout && band === 'gap' && (
           <div className="gn-slot gn-slot--gap">
             <RegionBoundary label="gap watch">
               <GapWatch today={day} prevDay={prevDay} tonightLabel={tonightLabel} todayBoard={tonightBoard} boardResource={gn.decisions}
@@ -469,6 +528,7 @@ export function GameNight() {
         )}
       </div>
 
+      {!tvLayout && <RegionBoundary label="sweat meter"><SweatMeter /></RegionBoundary>}
       {!tvLayout && <Methods gn={gn} info={info} day={day} />}
       <footer className="gn-foot">
         Research and paper only. Nothing on this page can place a wager, trigger a job or change data. Settlement is recorded separately from observed scores.

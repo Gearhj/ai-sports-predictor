@@ -7,17 +7,20 @@ feeds with short caches, AISP read-only queries (SET TRANSACTION READ ONLY), loc
 """
 from __future__ import annotations
 
+import json
 import re
 import threading
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import AppSettings, CurrentUser
+from app.core.rate_limit import rate_limit
 
 router = APIRouter(prefix="/preview-api", include_in_schema=False)
 
@@ -134,6 +137,54 @@ async def insights(kind: str, days: int = 0) -> JSONResponse:
         return _json(await run_in_threadpool(calls[kind]))
     except Exception as exc:
         return _json({"error": f"insights unavailable: {type(exc).__name__}"}, 502)
+
+
+@router.get("/vibe", dependencies=[Depends(rate_limit("feeds:vibe", category="compute"))])
+async def vibe(league: str = "", home: str = "", away: str = "", home_name: str = "", away_name: str = "") -> JSONResponse:
+    """THE CROWD box (owner 10-27): public Bluesky + Mastodon posts about a game or league, scored locally, $0."""
+    if league not in ("nfl", "cfb", "nba", "nhl", "mlb"):
+        return _json({"error": "league (nfl|cfb|nba|nhl|mlb) is required"}, 400)
+    home_name, away_name = home_name[:40], away_name[:40]
+    if bad := _bad(home=home, away=away, home_name=home_name, away_name=away_name):
+        return _json({"error": bad}, 400)
+    from app.preview_feeds import crowd_vibe
+
+    try:
+        return _json(await run_in_threadpool(crowd_vibe.vibe, league, home, away, home_name, away_name))
+    except Exception as exc:
+        return _json({"league": league.upper(), "label": "QUIET", "posts": 0, "quotes": [], "reason": type(exc).__name__}, 502)
+
+
+# The gate alarm's self-heal log (Mission Control's Repair Drone). Only display fields leave the machine: no run ids,
+# provider payloads, paths or exception text.
+HEAL_LOG = Path(r"C:\Users\james\aisp-analysis\gate-alarm\heal.jsonl")
+_HEAL_FIELDS = ("at", "heal", "job", "why", "status", "terminated")
+
+
+def _heals() -> list[dict[str, Any]]:
+    out = []
+    for line in HEAL_LOG.read_text(encoding="utf-8").splitlines()[-60:]:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        item = {k: row[k] for k in _HEAL_FIELDS if isinstance(row.get(k), (str, bool))}
+        if row.get("error"):
+            item["error"] = "error"
+        if row.get("issued"):
+            item["issued"] = "week grant"
+        out.append(item)
+    return out
+
+
+@router.get("/heals")
+async def heals() -> JSONResponse:
+    try:
+        return _json({"heals": await run_in_threadpool(_heals)})
+    except OSError:
+        return _json({"heals": []})
 
 
 @router.get("/arena/live")

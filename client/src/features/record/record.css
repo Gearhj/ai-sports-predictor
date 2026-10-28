@@ -97,3 +97,7 @@
 .rc-river__verdict { margin: 0; font-size: 15px; color: var(--sl-muted); }
 .rc-river__verdict b { color: #fff; } .rc-river__verdict .is-dog { color: #fb923c; } .rc-river__verdict .is-fav { color: #60a5fa; }
 .rc-river__verdict .is-up { color: #34d399; } .rc-river__verdict .is-down { color: #f87171; }
+.rc-chartwrap { position: relative; }
+.rc-xmode { position: absolute; right: 8px; top: -2px; z-index: 2; display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: #0b1220; border: 1px solid #334155; }
+.rc-xmode button { border: 0; border-radius: 999px; padding: 4px 10px; background: none; color: #94a3b8; font: 700 11.5px system-ui; cursor: pointer; }
+.rc-xmode button.is-on { background: #e2e8f0; color: #0b1220; }

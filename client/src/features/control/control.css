@@ -169,3 +169,21 @@
 .mx-wp small { font-size: 12px; color: var(--sl-dim); }
 .mx-flow .sl-card__head, .mx-night .sl-card__head { flex-wrap: wrap; }
 @media (max-width: 640px) { .mx-flow__sum { margin-left: 0; width: 100%; font-size: 14px; } .mx-replay { padding: 5px 10px; } .mx .sl-card__head h2 small { display: block; margin: 2px 0 0; } .mx-cards { grid-template-columns: minmax(0, 1fr); } }
+
+/* READY TO BET (owner 10-26) and the how-to line */
+.mx-howto { margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--tt-frame-flat, #2a313c); border: 1px solid var(--tt-steel-line, #4d586a); font-size: 13.5px; color: #cbd5e1; line-height: 1.5; }
+.mx-howto b { color: #f8fafc; } .mx-howto i { font-style: normal; color: #a7f3d0; font-weight: 700; }
+.mx-howto__ready { padding: 1px 8px; border-radius: 999px; background: rgba(52,211,153,.18); color: #6ee7b7; font-weight: 800; box-shadow: 0 0 10px rgba(52,211,153,.4); }
+.mx-card.is-ready { border-color: #34d399 !important; box-shadow: 0 0 0 2px rgba(52,211,153,.55), 0 0 26px rgba(52,211,153,.35); animation: mx-ready-glow 2.2s ease-in-out infinite; }
+@keyframes mx-ready-glow { 50% { box-shadow: 0 0 0 2px rgba(52,211,153,.9), 0 0 38px rgba(52,211,153,.55); } }
+.mx-ready { display: grid; gap: 1px; margin: 2px 0 4px; padding: 6px 10px; border-radius: 8px; background: linear-gradient(90deg, rgba(52,211,153,.28), rgba(52,211,153,.06)); color: #6ee7b7; font: 900 13px/1.2 system-ui; letter-spacing: .08em; text-align: left; }
+.mx-ready small { font: 600 11px system-ui; letter-spacing: 0; color: #a7f3d0; }
+.mx-ready--done { background: rgba(148,163,184,.14); color: #cbd5e1; }
+.mx-ready--done.is-bet { background: linear-gradient(90deg, rgba(251,191,36,.3), rgba(251,191,36,.06)); color: #fde68a; }
+@media (prefers-reduced-motion: reduce) { .mx-card.is-ready { animation: none; } }
+
+/* readiness auras (owner 10-27): green = ready, yellow = one piece missing, red = two or more */
+.mx-card.mx-aura--yellow { border-color: rgba(251, 191, 36, .75) !important; box-shadow: 0 0 0 1px rgba(251, 191, 36, .45), 0 0 22px rgba(251, 191, 36, .22); }
+.mx-card.mx-aura--red { border-color: rgba(251, 113, 133, .75) !important; box-shadow: 0 0 0 1px rgba(251, 113, 133, .45), 0 0 22px rgba(251, 113, 133, .22); }
+.mx-ready--yellow { background: linear-gradient(90deg, rgba(251, 191, 36, .26), rgba(251, 191, 36, .05)); color: #fde68a; } .mx-ready--yellow small { color: #fef3c7; }
+.mx-ready--red { background: linear-gradient(90deg, rgba(251, 113, 133, .26), rgba(251, 113, 133, .05)); color: #fecdd3; } .mx-ready--red small { color: #ffe4e6; }
