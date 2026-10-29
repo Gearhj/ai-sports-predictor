@@ -187,6 +187,31 @@ async def heals() -> JSONResponse:
         return _json({"heals": []})
 
 
+@router.post("/arena/sync", dependencies=[Depends(rate_limit("feeds:arena", category="compute"))])
+async def arena_sync(request: Request, user: CurrentUser, settings: AppSettings) -> JSONResponse:
+    """The signed-in player's LIVE Arena calls (a game; never AISP's bankroll)."""
+    from app.preview_feeds import arena_league
+
+    body = await request.body()
+    if len(body) > 400_000:
+        return _json({"error": "too large"}, 413)
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else {}
+    except ValueError:
+        return _json({"error": "bad JSON"}, 400)
+    out, status = await run_in_threadpool(arena_league.sync, arena_league.store_path(settings), str(user.id),
+                                          user.display_name, payload if isinstance(payload, dict) else {})
+    return _json(out, status)
+
+
+@router.get("/arena/league")
+async def arena_league_board(user: CurrentUser, settings: AppSettings) -> JSONResponse:
+    """Every player's calls; a rival's side stays hidden until you lock the same game or it starts."""
+    from app.preview_feeds import arena_league
+
+    return _json(await run_in_threadpool(arena_league.league, arena_league.store_path(settings), str(user.id)))
+
+
 @router.get("/arena/live")
 async def arena_live(league: str = "", date: str = "", home: str = "", away: str = "") -> JSONResponse:
     from app.preview_feeds import court_live

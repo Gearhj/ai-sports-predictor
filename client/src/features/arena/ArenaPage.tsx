@@ -100,7 +100,7 @@ export function ArenaPage() {
     startRehearsal(shiftDate(realToday, -1), Math.min(...night.map((g) => Date.parse(g.startsAt))))
   }
   const arena = useArena()
-  useOptionalUser()
+  const user = useOptionalUser()
   const you = currentProfile()
   const league = useLeague()
   // In a rehearsal the rival is a labelled bot (60% the model's favourite, otherwise the other side), seeded per game.
@@ -239,9 +239,11 @@ export function ArenaPage() {
               <header className="ar-card__head">
                 <h1>{mode === 'REWIND' ? 'Rewind: call last night blind' : reh.active ? 'Rehearsal fight card' : "Tonight's fight card"}</h1>
                 {/* Rehearse last night: retired 10-27 */}
-                <label className="ar-who">Playing as <select value={you} onChange={(e) => { void switchProfile(e.target.value) }}>
-                  {[...new Set([...PROFILES, you])].map((p) => <option key={p} value={p}>{p}</option>)}
-                </select></label>
+                {user ? <span className="ar-who">Playing as <b>{user.display_name}</b></span> : (
+                  <label className="ar-who">Playing as <select value={you} onChange={(e) => { void switchProfile(e.target.value) }}>
+                    {[...new Set([...PROFILES, you])].map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select> <a href="/login">Sign in to join the league</a></label>
+                )}
                 <div className="ar-tabs" role="tablist">
                   <button role="tab" aria-selected={mode === 'TONIGHT'} className={mode === 'TONIGHT' ? 'is-on' : ''} onClick={() => setMode('TONIGHT')}>Tonight</button>
                   <button role="tab" aria-selected={mode === 'REWIND'} className={mode === 'REWIND' ? 'is-on' : ''} onClick={() => setMode('REWIND')}>Rewind ⟲</button>

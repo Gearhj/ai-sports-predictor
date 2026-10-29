@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from 'react'
 import { isRehearsing } from '../rehearsal/rehearsal'
+import { boothAuth } from '../../services/boothAuth'
 
 export type Side = 'HOME' | 'AWAY'
 export interface ArenaCall {
@@ -57,7 +58,10 @@ export function currentProfile(): string { try { return localStorage.getItem(PRO
 async function push(remove: string[] = []): Promise<void> {
   if (isRehearsing()) return // rehearsal calls never reach the shared league store
   const calls = read().calls.filter((c) => c.mode === 'LIVE')
-  await fetch('/preview-api/arena/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ profile: currentProfile(), calls, remove }) }).catch(() => undefined)
+  // Live site (10-29): a signed-in player IS their account; the server answers with the account's name.
+  const res = await fetch('/preview-api/arena/sync', { method: 'POST', headers: { 'content-type': 'application/json', ...boothAuth() }, body: JSON.stringify({ profile: currentProfile(), calls, remove }) }).catch(() => null)
+  const out = res && res.ok ? await res.json().catch(() => null) as { profile?: string } | null : null
+  if (out?.profile && out.profile !== currentProfile()) { try { localStorage.setItem(PROFILE_KEY, out.profile); window.dispatchEvent(new Event(EVENT)) } catch { /* private window */ } }
 }
 /** Switch player: park this profile's record, load the other's, then merge its LIVE calls from the shared store. */
 export async function switchProfile(next: string): Promise<void> {
@@ -69,7 +73,7 @@ export async function switchProfile(next: string): Promise<void> {
     localStorage.setItem(PROFILE_KEY, name)
     write(parked ? { ...EMPTY, ...(JSON.parse(parked) as ArenaState) } : EMPTY)
   } catch { return }
-  const league = await fetch(`/preview-api/arena/league?me=${name}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) as LeagueResponse | null
+  const league = await fetch(`/preview-api/arena/league?me=${name}`, { headers: boothAuth() }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as LeagueResponse | null
   const remote = league?.players.find((p) => p.profile === name)?.calls ?? []
   const s = read()
   const have = new Set(s.calls.map((c) => c.game_id))
@@ -85,7 +89,7 @@ export function useLeague(enabled = true): LeagueResponse | null {
   useEffect(() => {
     if (!enabled) return undefined
     let alive = true
-    const load = () => fetch(`/preview-api/arena/league?me=${me}`).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d) setData(d as LeagueResponse) }).catch(() => undefined)
+    const load = () => fetch(`/preview-api/arena/league?me=${me}`, { headers: boothAuth() }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d) setData(d as LeagueResponse) }).catch(() => undefined)
     void load()
     const t = window.setInterval(load, 30_000)
     const on = () => window.setTimeout(load, 400)
