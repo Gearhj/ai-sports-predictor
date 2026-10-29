@@ -134,6 +134,7 @@ AVAILABLE_JOBS = {
     "ingest-nhl-finals-espn": "Ingest NHL Finals From ESPN's Free Public Scoreboard (results for NHL settlement; off by default)",
     "collect-nba-availability": "Collect NBA Injury Lists and Box-Score Minutes From ESPN's Free Public Feeds (star-out gate; off by default)",
     "collect-availability": "Collect Injury Lists and Key-Player Inputs for Every Sport From ESPN's Free Public Feeds ($0)",
+    "collect-pinnacle-benchmark": "Collect Pinnacle Moneylines Near Each Start as a Sharp-Close Benchmark (never consensus or execution)",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
@@ -330,6 +331,7 @@ class JobOrchestrator:
             "ingest-nhl-finals-espn": self.ingest_nhl_finals_espn,
             "collect-nba-availability": self.collect_nba_availability,
             "collect-availability": self.collect_availability,
+            "collect-pinnacle-benchmark": self.collect_pinnacle_benchmark,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
@@ -785,6 +787,71 @@ class JobOrchestrator:
         from app.nba.availability import collect
 
         return collect(self.session, self.settings)
+
+    async def collect_pinnacle_benchmark(self, event_date: date) -> dict[str, Any]:
+        """Pinnacle moneylines near each game's start (The Odds API EU region, 1 credit per sport request).
+
+        Stored apart from odds_snapshots (app/services/sharp_benchmark.py): never consensus, never an execution
+        price. Off unless PINNACLE_BENCHMARK_ENABLED; capped per day; leaves HEADROOM requests of the shared daily
+        budget for the betting lanes; every request reserved in the provider ledger first.
+        """
+
+        from app.services import sharp_benchmark as sharp
+
+        if not getattr(self.settings, "pinnacle_benchmark_enabled", False):
+            return {"records": 0, "status": "DISABLED", "provider_called": False}
+        planned = sharp.plan(self.session, self.settings)
+        if not planned["due"]:
+            return {"records": 0, "status": "NOT_DUE", "provider_called": False, "plan": planned}
+        if not self.settings.the_odds_api_key:
+            raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+        results = []
+        for item in planned["due"]:
+            league = item["league"]
+            try:
+                self._enforce_odds_quota_policy(1, request_holdback=sharp.HEADROOM, holdback_for="the betting lanes")
+            except SourceError as refusal:
+                results.append({"league": league, "status": "BUDGET_REFUSED", "detail": str(refusal)})
+                break
+            ledger = self._reserve_provider_request(
+                sharp.PROVIDER, sharp.endpoint_key(league), controlled_live_request=False,
+                request_shape={"sport_key": item["sport_key"], "regions": sharp.REGION, "markets": sharp.MARKETS,
+                               "request_window": int(datetime.now(UTC).timestamp() // (25 * 60))})
+            self.session.commit()
+            try:
+                response = await TheOddsAPIAdapter(self.settings.the_odds_api_key, list(sharp.MARKETS), sharp.REGION,
+                                                   sport_key=item["sport_key"]).get_market_snapshot()
+                archive = self.archive.write(response.envelope.source, response.raw_payload)
+                received_at = response.envelope.fetched_at
+                rows = sharp.extract(response.raw_payload, league=league, received_at=received_at)
+                path = sharp.store(self.settings, league, rows, received_at)
+                metadata = response.envelope.metadata or {}
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key, requested_at=ledger.requested_at,
+                    completed_at=datetime.now(UTC), status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=_int_or_none(metadata.get("requests_last")),
+                    quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                    records_received=len(rows), controlled_live_request=False, source_mode="LIVE",
+                    job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                    response_metadata={"request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                                       "response_received": True, "pinnacle_lines": len(rows),
+                                       "archive_payload_sha256": archive.payload_checksum}))
+                self.session.commit()
+                results.append({"league": league, "status": "OK", "pinnacle_lines": len(rows), "file": path.name,
+                                "quota_cost": metadata.get("requests_last"), "remaining": metadata.get("requests_remaining")})
+            except Exception as exc:  # noqa: BLE001 - one sport's failure never stops the next
+                self.session.rollback()
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key, requested_at=ledger.requested_at,
+                    completed_at=datetime.now(UTC), status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=None, quota_remaining=None, records_received=None, controlled_live_request=False,
+                    source_mode="LIVE", job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                    error_type=type(exc).__name__,
+                    response_metadata={"request_shape": (ledger.response_metadata or {}).get("request_shape")}))
+                self.session.commit()
+                results.append({"league": league, "status": "FAILED", "error": type(exc).__name__})
+        return {"records": sum(r.get("pinnacle_lines", 0) for r in results), "provider_called": True,
+                "results": results, "plan": planned}
 
     async def collect_availability(self, event_date: date) -> dict[str, Any]:
         """Injury lists and key-player inputs for NBA, NHL, NFL, CFB and MLB (ESPN public feeds); files only, $0."""

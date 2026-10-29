@@ -799,6 +799,9 @@ def record(session: Session, era: ShadowExperiment, game: dict[str, Any], decisi
         if position is not None or prior_reason == decision["reason"] or prior_reason not in PREREQUISITE_REASONS:
             return _jsonable({**decision, "persisted": "REUSED_EXISTING_DECISION", "decision_id": prior.id,
                               "position_id": position.id if position else None})
+    # Starting goalies + injuries on every NHL decision; the owner backup-goalie rule (10-28) may make it record-only.
+    from app.nhl.goalie_receipt import apply as goalie_apply
+    decision = goalie_apply(session, decision, game, moment, settings)
     selection = decision.get("selection") or decision.get("best") or {}
     from app.services.owner_funding_restrictions import apply_to_decision
     decision = apply_to_decision(decision, "NHL", moment, settings)

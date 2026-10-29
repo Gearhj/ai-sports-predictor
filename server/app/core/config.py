@@ -562,6 +562,13 @@ class Settings(BaseSettings):
     #: consensus/no-vig/market probability but are never the execution price.
     #: ON by default (owner-approved); false exists only for rollback.
     execution_us_regulated_only: bool = True
+    #: AISP_OWNER_NHL_BACKUP_GOALIE_RECORD_ONLY_V1 (owner 2026-10-28, app/nhl/goalie_receipt.py): from this clock a
+    #: qualified NHL bet on a team starting its backup goalie is recorded with no stake. None = receipt only.
+    nhl_backup_goalie_gate_effective_from: datetime | None = None
+    #: Pinnacle benchmark lane (owner 2026-10-28, app/services/sharp_benchmark.py): Pinnacle moneylines near each
+    #: game's start, stored apart from odds_snapshots (never consensus, never an execution price). Off by default.
+    pinnacle_benchmark_enabled: bool = False
+    pinnacle_benchmark_daily_request_cap: int = Field(default=40, ge=0, le=100)
     # Exact already-approved NFL week7 funding gate; actual release clock only.
     owner_nfl_qb_out_record_only_effective_from: datetime | None = None
     owner_nfl_qb_out_admissions_root: str | None = None

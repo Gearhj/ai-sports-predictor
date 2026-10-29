@@ -63,14 +63,22 @@ def _long_term(raw: str | None) -> bool:
 
 
 # ---------------------------------------------------------------- parsing --
+def _probables(competitor: dict[str, Any]) -> list[dict[str, Any]]:
+    """ESPN's probables for one side (MLB starting pitcher, NHL starting goalie), with ESPN's own status
+    ("Confirmed" / "Probable" / ...) and kind ("probableStartingGoalie"), exactly as listed."""
+
+    return [{"espn_athlete_id": str((p.get("athlete") or {}).get("id")), "name": (p.get("athlete") or {}).get("displayName"),
+             "kind": p.get("name"), "status": str(((p.get("status") or {}).get("type") or (p.get("status") or {}).get("name") or "")).upper() or None}
+            for p in competitor.get("probables") or [] if (p.get("athlete") or {}).get("id")]
+
+
 def parse_summary(raw: dict[str, Any], *, league: str, event_id: str, observed_at: datetime, url: str) -> dict[str, Any]:
     comp = (((raw.get("header") or {}).get("competitions") or [{}])[0])
     teams, probables = {}, {}
     for c in comp.get("competitors") or []:
         t = c.get("team") or {}
         teams[c.get("homeAway")] = {"espn_team_id": str(t.get("id")), "abbreviation": t.get("abbreviation"), "name": t.get("displayName")}
-        probables[str(t.get("id"))] = [{"espn_athlete_id": str((p.get("athlete") or {}).get("id")), "name": (p.get("athlete") or {}).get("displayName")}
-                                       for p in c.get("probables") or [] if (p.get("athlete") or {}).get("id")]
+        probables[str(t.get("id"))] = _probables(c)
     injuries = {}
     for block in raw.get("injuries") or []:
         tid = str((block.get("team") or {}).get("id"))
@@ -199,7 +207,15 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
                 url = f"{BASE}/{cfg['path']}/summary?event={eid}"
                 try:
                     observed = datetime.now(UTC) if now is None else moment
-                    data = _dump(parse_summary(fetch_json(url), league=lg, event_id=eid, observed_at=observed, url=url))
+                    snap = parse_summary(fetch_json(url), league=lg, event_id=eid, observed_at=observed, url=url)
+                    # ESPN's game summary carries no probables for hockey; the scoreboard read this cycle does
+                    # (NHL confirmed / probable starting goalies, 10-28), so an empty side takes them from there.
+                    board_probables = {str((c.get("team") or {}).get("id")): _probables(c) for c in comp.get("competitors") or []}
+                    for tid, listed in board_probables.items():
+                        if listed and not (snap["probables"].get(tid) or []):
+                            snap["probables"][tid] = listed
+                            snap["probables_source"] = "ESPN_SCOREBOARD"
+                    data = _dump(snap)
                     _write_once(folder / f"{observed.strftime('%Y%m%dT%H%M%SZ')}_{hashlib.sha256(data).hexdigest()[:16]}.json", data)
                     stats["snapshots"] += 1
                 except Exception as error:  # noqa: BLE001

@@ -923,6 +923,19 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "collect-availability", "settings": settings},
             **common,
         )
+    # Pinnacle sharp-close benchmark (owner 2026-10-28): a 10-minute tick; plan() asks only for a sport with a game
+    # inside 50 minutes that was not asked in the last 25, under its own daily cap and the shared budget's headroom.
+    if getattr(settings, "pinnacle_benchmark_enabled", False):
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=10,
+            jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=4),
+            id="asp-ls-pinnacle-benchmark",
+            kwargs={"job_name": "collect-pinnacle-benchmark", "settings": settings},
+            **common,
+        )
     # NFL pregame odds: one object, spent close to a game's decision
     # checkpoint so the quote is still inside the 240-minute freshness window
     # when the policy evaluates it. Every cycle outside a game's 75-minute
