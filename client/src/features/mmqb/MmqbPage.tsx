@@ -7,7 +7,6 @@
  * "What changed because of it" timeline is the only hand-kept part; each entry that is a live rule is checked
  * against the rules Mission Control reports as in force right now, so the page never claims a change that is off.
  */
-import { FilmRoom } from '../film/FilmRoom'
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import * as d3 from 'd3'
@@ -89,7 +88,7 @@ export function MmqbPage() {
         </header>
         <main id="main-content" className="mq-body">
           <WeekendReview />
-          <FilmRoom />
+          {/* 10-30 cleanup (owner): the all-sports Film Room was a second film room; the report's own (this week) stays. */}
           {!r ? <p className="sl-empty">{report.error ? `The report could not be read: ${report.error}` : 'Building the report from one read-only snapshot…'}</p> : <Report r={r} rules={rules} rulesKnown={Boolean(mission.data)} />}
         </main>
         <footer className="hq-foot">Research and paper only. Built from a read-only database snapshot; it changes no record, rule or stake. {r ? fixText(r.data_cutoff.statement) : ''}</footer>

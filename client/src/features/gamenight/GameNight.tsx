@@ -43,7 +43,8 @@ import { StormStage, type StormInfo } from './ScoreStorm'
 import type { StormSource } from './gameNightData'
 import { SweatMeter } from './SweatMeter'
 import { ExperimentLab } from '../lab/ExperimentLab'
-import { InjuryWatch, MyModelRail } from '../lab/RailPanels'
+import { InjuryWatch } from '../lab/RailPanels'
+import { useModelTracker } from '../lab/ModelRecord'
 import { SweatRail } from './SweatRail'
 import { Heartbeat, mmdd } from './Heartbeat'
 import { MomentOverlay } from './MomentOverlay'
@@ -81,6 +82,7 @@ export function GameNight() {
   const phone = useMediaQuery(PHONE_QUERY)
   const tvLayout = tv && wide
   const now = useNow(30_000)
+  useModelTracker() // the My model rail card (removed 10-30: Build Your Model below shows the same plays) ran this
   const day = etToday(now)
   const nightStart = nightStartOf(now)
 
@@ -490,9 +492,8 @@ export function GameNight() {
               board={board} now={now} />
           </RegionBoundary>
           {!tvLayout && (
-            <RegionBoundary label="injury watch and my model">
+            <RegionBoundary label="injury watch">
               <InjuryWatch />
-              <MyModelRail onOpen={() => document.querySelector('.lb')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
             </RegionBoundary>
           )}
           {tvLayout && (

@@ -21,7 +21,6 @@ import { allPositions, american, etClock, resultOf, usd, usePulse, type PulseGam
 import { GamePlanBar } from '../flow/GamePlanBar'
 import '../slate/slate.css'
 import './record.css'
-import { TimeMachine } from './TimeMachine'
 import { ModelRecordCard } from '../lab/ModelRecord'
 
 type Sport = 'ALL' | SportCode
@@ -130,9 +129,7 @@ export function RecordPage() {
             <section className="rc-filters" aria-label="Filters">
               <span className="sl-tabs">
                 <button type="button" className={sport === 'ALL' ? 'is-on' : ''} onClick={() => setSport('ALL')}>All Sports</button>
-                {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(s.key)}>{s.label}</button>)}
-                <button type="button" disabled title="Not covered by AISP yet">MMA</button><button type="button" disabled title="Not covered by AISP yet">Boxing</button>
-              </span>
+                {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(s.key)}>{s.label}</button>)}              </span>
               <span className="rc-selects">
                 <select value={range} onChange={(e) => setRange(e.target.value as Range)} aria-label="Date range"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="season">This season</option><option value="all">All time</option></select>
                 <select value="ML" disabled aria-label="Market" title="The paper policy bets moneylines only"><option value="ML">All Markets (moneyline)</option></select>
@@ -144,15 +141,13 @@ export function RecordPage() {
             <section className="rc-kpis" aria-label="Headline numbers">
               <Tile tone="teal" icon="▤" label="Paper Bankroll" big={bankroll == null ? '—' : usd(bankroll)} sub={<><span className={periodPl >= 0 ? 'is-up' : 'is-down'}>{usdS(periodPl)}</span> · starting {usd(starting)}</>} />
               <Tile tone="green" icon="↗" label="Net Profit / Loss" big={usdS(periodPl)} bigCls={periodPl >= 0 ? 'is-up' : 'is-down'} sub={<>ROI {sgn(st.roi == null ? null : st.roi * 100, 2, '%')} · wagered {usd(st.staked)}</>} />
-              <Tile tone="blue" icon="◎" label="Win Rate" big={pctS(st.win)} sub={<>{st.w} / {st.w + st.l} wins / decided</>} />
-              <Tile tone="gold" icon="♛" label="Record" big={`${st.w}-${st.l}-${st.pu}`} sub="wins · losses · pushes" />
+              <Tile tone="blue" icon="◎" label="Win Rate" big={pctS(st.win)} sub={<>record {st.w}-{st.l}-{st.pu} (W-L-P)</>} />
               <Tile tone="violet" icon="≡" label="Avg Stake" big={avgStake == null ? '—' : usd(avgStake)} sub={`median ${medStake == null ? '—' : usd(medStake)}`} />
               <Tile tone="orange" icon="◔" label="Open Exposure" big={usd(exposure)} sub={`${open.length} open bets`} />
               <Tile tone={streak >= 0 ? 'green' : 'red'} icon="🔥" label="Current Streak" big={streak ? `${Math.abs(streak)} ${streak > 0 ? 'Win' : 'Loss'}${Math.abs(streak) > 1 ? (streak > 0 ? 's' : 'es') : ''}` : '—'} sub={<span className="rc-dots">{last5.map((r, i) => <i key={i} className={`is-${r.toLowerCase()}`}>{r[0]}</i>)}</span>} />
             </section>
 
-            <TimeMachine start={starting} bets={all.filter((p) => p.settled_at && p.profit_loss != null && ['WIN', 'LOSS', 'PUSH'].includes(resultOf(p)) && (sport === 'ALL' || p.sport === sport))
-              .map((p) => ({ at: p.settled_at!, sport: p.sport, stake: p.stake ?? 0, profit: p.profit_loss ?? 0, label: `${p.sport} ${p.matchup ?? ''} · ${p.selection ?? ''} · ${resultOf(p)} ${usd(p.profit_loss ?? 0, true)}` }))} />
+            {/* 10-30 cleanup (owner): the Time Machine replay repeated the Bankroll Performance chart below. */}
             <ModelRecordCard />
             <div className="rc-row">
               <section className="sl-card rc-chart" aria-label="Bankroll performance">

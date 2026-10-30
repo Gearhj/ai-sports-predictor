@@ -2,7 +2,9 @@
  * The home page: YOUR SPORTS COMMAND CENTER (owner's design, sent several times; 2026-10-24 final pass).
  *   hero (welcome, tonight's stars from the live football games, five doors) · Your Performance
  *   Today's Games (featured live card + game cards) · My Upcoming Bets
- *   AISP Top Model Picks Today · Betting Opportunities · Live Games + Recent Key Insights
+ *   AISP Top Model Picks Today · Live Games + Recent Key Insights
+ * Cleanup 10-30 (owner: "get rid of any duplication, especially on the same page"): one sport filter, the Today's
+ * Games tabs, which also drive the picks table; Betting Opportunities repeated the picks table and is gone.
  * The attack map and the model edge explorer live on the Live View, not here (owner).
  * Theme: navy + brushed steel. Every number comes from AISP's read models; the live win-probability lines
  * and player cutouts come from ESPN through the test-mode preview feed. Paper experiment only.
@@ -92,7 +94,6 @@ export function HqHome() {
   const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get('day') ?? '') ? (params.get('day') as string) : today
   const pulse = usePulse(day)
   const [sport, setSport] = useState<Sport>('ALL')
-  const [pickSport, setPickSport] = useState<Sport>('ALL')
   const [order, setOrder] = useState<'bets' | 'time' | 'edge'>('bets')
   const [q, setQ] = useState('')
   const navigate = useNavigate()
@@ -108,7 +109,7 @@ export function HqHome() {
   const gameById = useMemo(() => new Map(pulse.games.map((g) => [g.id, g])), [pulse.games])
   const cards = useMemo(() => dayGames.filter((g) => sport === 'ALL' || g.sport === sport).sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || (order === 'bets' ? Number(Boolean(b.position)) - Number(Boolean(a.position)) : 0) || (order === 'edge' ? (picks.get(b.id)?.edge ?? -99) - (picks.get(a.id)?.edge ?? -99) : 0) || Date.parse(a.startsAt) - Date.parse(b.startsAt)), [dayGames, sport, order, picks])
   const featured = cards.find((g) => isLive(g) && isFootball(g)) ?? cards.find(isLive) ?? null
-  const ranked = useMemo(() => dayGames.filter((g) => g.phase !== 'FINAL' && (pickSport === 'ALL' || g.sport === pickSport)).map((g) => ({ g, p: picks.get(g.id) })).filter((x): x is { g: PulseGame; p: Pick } => Boolean(x.p && x.p.edge != null && x.p.edge > 0)).sort((a, b) => (b.p.edge ?? 0) - (a.p.edge ?? 0)), [dayGames, picks, pickSport])
+  const ranked = useMemo(() => dayGames.filter((g) => g.phase !== 'FINAL' && (sport === 'ALL' || g.sport === sport)).map((g) => ({ g, p: picks.get(g.id) })).filter((x): x is { g: PulseGame; p: Pick } => Boolean(x.p && x.p.edge != null && x.p.edge > 0)).sort((a, b) => (b.p.edge ?? 0) - (a.p.edge ?? 0)), [dayGames, picks, sport])
   const stars = useStars(live.filter(isFootball))
   const railRef = useRef<HTMLDivElement | null>(null)
   const slip = usePreviewPicks()
@@ -119,19 +120,11 @@ export function HqHome() {
 
   return (
     <div className="hq hm">
-      <AispSide>
-        <small className="hq-side__label">SPORTS</small>
-        <nav className="hq-nav hq-nav--sports">
-          {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(sport === s.key ? 'ALL' : s.key)}><i aria-hidden="true">{s.icon}</i>{s.label}<em>{counts.get(s.key) ?? 0}</em></button>)}
-          <Link to="/mma" className="hq-nav__mma" title="UFC Fight Night: historical archive"><i aria-hidden="true">🥊</i>MMA · UFC</Link>
-          <button type="button" disabled title="Not covered by AISP yet"><i aria-hidden="true">🥊</i>Boxing</button>
-        </nav>
-      </AispSide>
+      <AispSide />
       <div className="hq-main" id="main-content" role="main">
         <header className="hm-top">
           <label className="hq-search"><span className="lf-sr">Search</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams, players, games, or ask a question…" /></label>
           <span className="hq-date"><button type="button" aria-label="Previous day" onClick={() => setParams({ day: shiftDate(day, -1) })}>‹</button><b>📅 {day === today ? 'Today, ' : ''}{new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${day}T12:00:00Z`))}</b><button type="button" aria-label="Next day" onClick={() => setParams({ day: shiftDate(day, 1) })}>›</button></span>
-          <select className="hq-select" value={sport} onChange={(e) => setSport(e.target.value as Sport)} aria-label="Sport"><option value="ALL">All Sports</option>{SPORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
           <Link to="/mission-control" className="hq-bell" title="Alerts">🔔{live.length ? <i>{live.length}</i> : null}</Link>
           <Link to="/account" className="hq-avatar">JG</Link>
         </header>
@@ -166,7 +159,6 @@ export function HqHome() {
                 <span className="hm-tabs">
                   <button type="button" className={sport === 'ALL' ? 'is-on' : ''} onClick={() => setSport('ALL')}>All Sports ({dayGames.length})</button>
                   {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(s.key)} disabled={!counts.get(s.key)}>{s.label} ({counts.get(s.key) ?? 0})</button>)}
-                  <button type="button" disabled>MMA (0)</button><button type="button" disabled>Boxing (0)</button>
                 </span>
                 <label className="hm-show">Show <select value={order} onChange={(e) => setOrder(e.target.value as typeof order)}><option value="bets">My Bets First</option><option value="edge">Biggest Edge</option><option value="time">Start Time</option></select></label>
               </header>
@@ -180,10 +172,8 @@ export function HqHome() {
               </div>
             </section>
 
-            <div className="hm-pair">
-              <section className="sl-card hm-picks" aria-label="AISP top model picks today">
+            <section className="sl-card hm-picks" aria-label="AISP top model picks today">
                 <header className="sl-card__head"><h2>AISP Top Model Picks Today</h2>
-                  <span className="hm-tabs hm-tabs--sm"><button type="button" className={pickSport === 'ALL' ? 'is-on' : ''} onClick={() => setPickSport('ALL')}>All Sports</button>{SPORTS.map((s) => <button key={s.key} type="button" className={pickSport === s.key ? 'is-on' : ''} onClick={() => setPickSport(s.key)}>{s.label}</button>)}</span>
                   <Link to="/decisions" className="hm-all">View All ›</Link>
                 </header>
                 <table className="hm-table">
@@ -204,25 +194,6 @@ export function HqHome() {
                   </tbody>
                 </table>
               </section>
-              <section className="sl-card hm-opps" aria-label="Betting opportunities">
-                <header className="sl-card__head"><h2>Betting Opportunities</h2><Link to="/markets" className="hm-all">View All ›</Link></header>
-                <span className="hm-tabs hm-tabs--sm"><button type="button" disabled title="Spreads are not collected by AISP">Spreads</button><button type="button" disabled title="Totals are not collected by AISP">Totals</button><button type="button" className="is-on">Moneyline</button><button type="button" disabled title="Prop prices are not collected">Player Props</button></span>
-                <table className="hm-table">
-                  <thead><tr><th>Game</th><th>Market</th><th>AISP</th><th>Edge</th><th>Chart</th></tr></thead>
-                  <tbody>
-                    {ranked.slice(0, 6).map((x) => { const team = sideOf(x.g, x.p.side); return (
-                      <tr key={x.g.id} onClick={() => openGame(x.g)}>
-                        <td><span className="hm-game"><Crest sport={x.g.sport} abbr={team.abbr} size={20} /><span>{short(x.g.away.abbr)} @ {short(x.g.home.abbr)}</span></span></td>
-                        <td>{short(team.abbr)} {x.p.price != null ? american(x.p.price) : ''}</td>
-                        <td>{pct(x.p.model)}</td>
-                        <td className="is-up">{sgn(x.p.edge, 1, '%')}</td>
-                        <td><span className="hm-bar"><u style={{ width: `${Math.min(100, (x.p.edge ?? 0) * 4)}%` }} /></span></td>
-                      </tr>) })}
-                    {!ranked.length ? <tr><td colSpan={5} className="sl-empty">Prices are still coming in.</td></tr> : null}
-                  </tbody>
-                </table>
-              </section>
-            </div>
           </div>
 
           <aside className="hm-side">

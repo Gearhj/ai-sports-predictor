@@ -138,7 +138,7 @@ export function ControlPage() {
 
             <RepairDrone />
             {games.length ? <SlateFlow games={games} onShow={showGames} /> : null}
-            {games.length ? <NightTimeline games={games} now={now} isToday={day === today} onOpen={(g) => { setFocus(null); setTab('all'); setSport('ALL'); setOpen(g.game_id); window.setTimeout(() => document.getElementById(`mx-g-${g.game_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 40) }} /> : null}
+            {/* 10-30 cleanup (owner): the night timeline and the Departures list repeated the board's games. */}
 
             <section className="mx-board" ref={boardRef} aria-label="Every game, every gate">
               <header className="mx-board__head">
@@ -160,7 +160,6 @@ export function ControlPage() {
           </main>
 
           <aside className="sl-rail mx-rail" aria-label="Departures, health and money">
-            <Departures games={games} now={now} onOpen={(g) => { setOpen(g.game_id); setFocus(null); setTab('all'); window.setTimeout(() => document.getElementById(`mx-g-${g.game_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 40) }} />
             <HealthCard data={data} now={now} />
             <AllowanceCard data={data} />
             <BankrollCard data={data} />

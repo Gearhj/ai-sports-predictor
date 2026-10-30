@@ -25,7 +25,6 @@ import { usePreviewPicks, removePick } from '../../services/previewPicks'
 import { useAuth } from '../../hooks/useAuth'
 import type { PreviewPick } from '../../services/previewPicks'
 import './slate.css'
-import { SlateHeatMap } from './SlateHeatMap'
 
 type Sport = 'ALL' | SportCode
 type Tab = 'all' | 'live' | 'soon' | 'bets' | 'edges' | 'done'
@@ -149,14 +148,7 @@ export function SlatePage() {
 
   return (
     <div className="hq">
-      <AispSide>
-        <small className="hq-side__label">SPORTS</small>
-        <nav className="hq-nav hq-nav--sports">
-          {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} style={{ ['--sc' as string]: s.color } as CSSProperties} onClick={() => setSport(sport === s.key ? 'ALL' : s.key)}><i aria-hidden="true">{s.icon}</i>{s.label}<em>{counts.get(s.key) ?? 0}</em></button>)}
-          <Link to="/mma" className="hq-nav__mma" title="UFC Fight Night: historical archive"><i aria-hidden="true">🥊</i>MMA · UFC</Link>
-          <button type="button" disabled title="Not covered by AISP yet"><i aria-hidden="true">🥊</i>Boxing</button>
-        </nav>
-      </AispSide>
+      <AispSide />
       <div className="hq-main">
         <header className="sl-top">
           <div className="sl-title"><small>Games</small><h1>The Slate</h1><p>All games. Model forecasts. Real-time lines. Your edge.</p></div>
@@ -166,7 +158,7 @@ export function SlatePage() {
             <b>📅 {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${day}T12:00:00Z`))}</b>
             <button type="button" aria-label="Next day" onClick={() => setParams({ day: shiftDate(day, 1) })}>›</button>
           </span>
-          <select className="hq-select" value={sport} onChange={(e) => setSport(e.target.value as Sport)} aria-label="Sport"><option value="ALL">All Sports</option>{SPORTS.map((s) => <option key={s.key} value={s.key}>{s.long}</option>)}</select>
+          <select className="hq-select" value={sport} onChange={(e) => setSport(e.target.value as Sport)} aria-label="Sport"><option value="ALL">All Sports ({dayGames.length})</option>{SPORTS.map((s) => <option key={s.key} value={s.key}>{s.long} ({counts.get(s.key) ?? 0})</option>)}</select>
           <Link to="/mission-control" className="hq-bell" title="Alerts and pipeline health">🔔{live.length ? <i>{live.length}</i> : null}</Link>
           <Link to="/account" className="hq-avatar">JG</Link>
         </header>
@@ -193,7 +185,7 @@ export function SlatePage() {
 
             {/* Next Up removed 10-26 (owner): the same games are listed below. */}
 
-            <SlateHeatMap games={dayGames.filter((g) => sport === 'ALL' || g.sport === sport)} onOpen={openGame} />
+            {/* Heat map removed 10-30 (owner cleanup): it repeated the sport rows below. */}
 
             {SPORTS.filter((s) => sport === 'ALL' || s.key === sport).map((s) => {
               const list = shown.filter((g) => g.sport === s.key)
@@ -218,13 +210,7 @@ export function SlatePage() {
             <YourPicks picks={slipPicks} games={gameById} who={user?.display_name ?? null} onOpen={openGame} />
             <section className="sl-card sl-card--aisp">
               <header className="sl-card__head"><span className="sl-badge sl-badge--aisp">AISP</span><h2>AISP's Bets</h2><Link to="/experiment">View All ›</Link></header>
-              <p className="sl-card__note">The model's own paper wagers. Not yours, and never mixed with your picks.</p>
-              <div className="sl-mini">
-                <span className="tone-violet"><i>▤</i><b>{open.length}</b><small>Open Bets</small></span>
-                <span className="tone-gold"><i>$</i><b>{usd(stake)}</b><small>Stake at Risk</small></span>
-                <span className="tone-green"><i>↗</i><b>{usd(payout)}</b><small>Potential Payout</small></span>
-                <span className="tone-teal"><i>▥</i><b>{bankroll == null ? '—' : usd(bankroll)}</b><small>Bankroll</small></span>
-              </div>
+              <p className="sl-card__note">The model's own paper wagers. Not yours, and never mixed with your picks. Totals are in the tiles above.</p>
               <span className="sl-wtabs">{([['active', `Active (${open.length})`], ['live', `Live (${openLive.length})`], ['upcoming', `Upcoming (${open.length - openLive.length})`]] as const).map(([k, l]) => <button key={k} type="button" className={wtab === k ? 'is-on' : ''} onClick={() => setWtab(k)}>{l}</button>)}</span>
               <ul className="sl-wagers">
                 {wagers.slice(0, 7).map((p) => <Wager key={p.position_id} p={p} g={gameById.get(p.game_id) ?? null} onOpen={(g) => openGame(g)} />)}
@@ -382,15 +368,13 @@ function Wager({ p, g, onOpen }: { p: LedgerPosition & { sport: SportCode }; g: 
 
 function Insights({ games, picks, settled, open, now, onOpen }: { games: PulseGame[]; picks: Map<string, Pick | null>; settled: LedgerPosition[]; open: LedgerPosition[]; now: number; onOpen: (g: PulseGame) => void }) {
   const items: Array<{ tone: string; icon: string; text: ReactNode; sub: string; g?: PulseGame }> = []
-  const best = games.filter((g) => g.phase !== 'FINAL').map((g) => ({ g, p: picks.get(g.id) })).filter((x) => x.p?.edge != null).sort((a, b) => (b.p!.edge ?? 0) - (a.p!.edge ?? 0))[0]
-  if (best) items.push({ tone: 'green', icon: '↗', text: <><b>{shortName(sideOf(best.g, best.p!.side).abbr, 14)} {best.p!.price != null ? american(best.p!.price) : ''}</b> is today&apos;s biggest edge</>, sub: `Model ${pct(best.p!.model)} vs market ${pct(best.p!.market)} (${signed(best.p!.edge, 1, '%')})`, g: best.g })
+  // The biggest edge and the open-wager total are headline tiles; they are not repeated here (10-30 cleanup).
   const soon = games.filter((g) => g.phase === 'UPCOMING' && Date.parse(g.startsAt) - now < 3600_000 && Date.parse(g.startsAt) > now)
   if (soon.length) items.push({ tone: 'blue', icon: '◷', text: <><b>{soon.length} game{soon.length > 1 ? 's' : ''}</b> starting in the next hour</>, sub: [...new Set(soon.map((g) => g.sport))].join(', ') + ' action coming up' })
   const upset = games.filter((g) => isLive(g) && g.score && g.modelHome != null).map((g) => { const favHome = g.modelHome! >= 0.5; return { g, favHome, lead: (g.score!.home - g.score!.away) * (favHome ? 1 : -1) } }).sort((a, b) => a.lead - b.lead)[0]
   if (upset && upset.lead < 0) items.push({ tone: 'red', icon: '!', text: <>Upset watch: <b>{shortName(upset.favHome ? upset.g.home.abbr : upset.g.away.abbr, 14)}</b> trails by {Math.abs(upset.lead)}</>, sub: `Model favourite at ${pct(Math.max(upset.g.modelHome!, 1 - upset.g.modelHome!))} · ${upset.g.score!.detail || 'live'}`, g: upset.g })
   const week = settled.filter((p) => (p.settled_at ?? '') >= new Date(now - 7 * 86_400_000).toISOString())
   if (week.length) { const w = week.filter((p) => resultOf(p) === 'WIN').length; const l = week.filter((p) => resultOf(p) === 'LOSS').length; const pl = week.reduce((t, p) => t + (p.profit_loss ?? 0), 0); items.push({ tone: pl >= 0 ? 'teal' : 'red', icon: '▥', text: <>Last 7 days: <b>{w}-{l}</b>, <span className={pl >= 0 ? 'is-up' : 'is-down'}>{usd(pl, true)}</span></>, sub: `${week.length} settled paper positions` }) }
-  if (open.length) items.push({ tone: 'violet', icon: '▤', text: <><b>{open.length}</b> open paper wagers, {usd(open.reduce((t, p) => t + (p.stake ?? 0), 0))} at risk</>, sub: 'Within the $100 daily allowance' })
   if (!items.length) items.push({ tone: 'blue', icon: '✦', text: 'Insights appear as forecasts, prices and scores arrive.', sub: '' })
   return <ul className="sl-ins">{items.slice(0, 5).map((it, i) => <li key={i}><button type="button" onClick={() => it.g && onOpen(it.g)} disabled={!it.g}><i className={`tone-${it.tone}`}>{it.icon}</i><span><p>{it.text}</p><small>{it.sub}</small></span>{it.g ? <em>›</em> : null}</button></li>)}</ul>
 }
