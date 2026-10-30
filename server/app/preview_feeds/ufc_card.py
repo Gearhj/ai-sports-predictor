@@ -258,3 +258,50 @@ def card(date: str = "") -> dict:
                   "Odds: the sportsbook ESPN lists (usually DraftKings), opening and current moneyline. Information only: AISP has no UFC model or wager.",
                   "Style read is AISP's plain-language summary of each fighter's career striking, takedown and submission rates."],
     }
+
+
+_BOUT_STATS = {
+    "kd": "knockDowns", "sig": "sigStrikesLanded", "sig_att": "sigStrikesAttempted", "total": "totalStrikesLanded",
+    "td": "takedownsLanded", "td_att": "takedownsAttempted", "sub": "submissions", "rev": "reversals",
+    "adv": "advances", "ctrl": "timeInControl",
+}
+
+
+def _bout_side(event_id: str, comp_id: str, aid: str, ttl: float) -> dict:
+    s = _safe(f"{CORE}/leagues/ufc/events/{event_id}/competitions/{comp_id}/competitors/{aid}/statistics?lang=en&region=us", ttl) or {}
+    raw = {}
+    for cat in ((s.get("splits") or {}).get("categories") or []):
+        for x in cat.get("stats") or []:
+            raw[x.get("name")] = x.get("displayValue") if x.get("name") in ("timeInControl", "wallclock") else _num(x.get("value"))
+    out = {k: raw.get(v) for k, v in _BOUT_STATS.items()}
+    # Significant strikes by target, summed over distance, clinch and ground.
+    for target in ("Head", "Body", "Leg"):
+        out[target.lower()] = sum(raw.get(f"sig{pos}{target}StrikesLanded") or 0 for pos in ("Distance", "Clinch", "Ground")) if raw else None
+    out["updated"] = raw.get("wallclock")
+    sc = _safe(f"{CORE}/leagues/ufc/events/{event_id}/competitions/{comp_id}/competitors/{aid}/linescores?lang=en&region=us", ttl) or {}
+    item = (sc.get("items") or [None])[0] or {}
+    out["judges"] = [int(j["value"]) for j in sorted(item.get("linescores") or [], key=lambda j: j.get("order") or 0) if j.get("value") is not None]
+    out["has_stats"] = bool(raw)
+    return out
+
+
+def bout(event_id: str, comp_id: str, a_id: str, b_id: str) -> dict:
+    """One fight in detail: both fighters' official fight stats (live while it is on), ESPN's fight timeline
+    (round starts and ends, takedowns with their clock) and the judges' scores. ESPN's timeline does not say which
+    fighter took a takedown, and it records no strikes, so strikes and knockdowns come from the stat counters."""
+    for v in (event_id, comp_id, a_id, b_id):
+        if not re.fullmatch(r"\d{1,12}", v or ""):
+            return {"found": False, "reason": "event, comp, a and b must be ESPN ids"}
+    st = _safe(f"{CORE}/leagues/ufc/events/{event_id}/competitions/{comp_id}/status?lang=en&region=us", 10) or {}
+    state = ((st.get("type") or {}).get("state")) or "pre"
+    ttl = 10 if state == "in" else 86400 if state == "post" else 300
+    plays = _safe(f"{CORE}/leagues/ufc/events/{event_id}/competitions/{comp_id}/plays?limit=400&lang=en&region=us", ttl) or {}
+    keep = {"Round Start", "Round End", "Takedown", "Takedown Attempt", "Reversal", "Fight Over"}
+    timeline = [{"type": p["type"]["text"], "round": (p.get("period") or {}).get("number"), "clock": (p.get("clock") or {}).get("value")}
+                for p in plays.get("items") or [] if (p.get("type") or {}).get("text") in keep]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        sa, sb = pool.map(lambda aid: _bout_side(event_id, comp_id, aid, ttl), (a_id, b_id))
+    result = st.get("result") or {}
+    return {"found": True, "state": state, "period": st.get("period"), "clock": st.get("displayClock"),
+            "result": result.get("displayName"), "a": sa, "b": sb, "timeline": timeline,
+            "retrieved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

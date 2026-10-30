@@ -43,6 +43,7 @@ export function MmaPage() {
   const [fighterId, setFighterId] = useState<string | null>(null)
   const [run, setRun] = useState(0)
   const [which, setWhich] = useState<'next' | 'last'>('next')
+  const [archiveOpen, setArchiveOpen] = useState(false)
   const live = useUfcCard(which)
   useEffect(() => {
     let alive = true
@@ -61,14 +62,15 @@ export function MmaPage() {
       <AispSide />
       <div className="hq-main">
         <header className="sl-top">
-          <div className="sl-title"><small>MMA · UFC</small><h1>Fight Night</h1><p>This weekend's card with the tale of the tape and the odds, then every fight in the archive and how it ended.</p></div>
-          <span className="mma-flag">{live.card?.found ? `${live.card.event.live ? 'LIVE · ' : ''}${live.card.event.name.split(':')[0]} · ${new Date(live.card.event.date).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' })}` : 'No UFC card listed this week'}</span>
+          <div className="sl-title"><small>MMA · UFC</small><h1>Fight Night</h1><p>Pick a fight on the card. The cage plays it out: live on fight night, or as a replay once it is over.</p></div>
         </header>
         {live.card?.found ? <div className="mma-body fn-wrap"><FightNight card={live.card} which={which} onWhich={setWhich} /></div> : live.error ? <p className="sl-empty">This weekend's card could not be read ({live.error}).</p> : null}
-        {data ? <h2 className="mma-archive-h">From the archive <small>{data.coverage.events} cards · {dateText(data.coverage.first)} – {dateText(data.coverage.last)} · results and fight stats</small></h2> : null}
-        {error ? <p className="sl-empty">The UFC archive could not be read ({error}).</p> : null}
-        {!data && !error ? <p className="sl-empty">Loading 1,504 fights…</p> : null}
-        {data && event && bout ? (
+        <button type="button" className="mma-archive-h" aria-expanded={archiveOpen} onClick={() => setArchiveOpen((o) => !o)}>
+          {archiveOpen ? '▾' : '▸'} Fight archive <small>{data ? `${data.coverage.events} cards · ${dateText(data.coverage.first)} – ${dateText(data.coverage.last)} · ` : ''}every result, fight stats and how UFC fights end</small>
+        </button>
+        {archiveOpen && error ? <p className="sl-empty">The UFC archive could not be read ({error}).</p> : null}
+        {archiveOpen && !data && !error ? <p className="sl-empty">Loading 1,504 fights…</p> : null}
+        {archiveOpen && data && event && bout ? (
           <div className="mma-body">
             <Reel events={data.events} bouts={data.bouts} fighters={F} on={event.id} onPick={(id) => { setEventId(id); setBoutId(null); setRun((r) => r + 1) }} />
             <div className="mma-grid">
@@ -294,7 +296,7 @@ function Profile({ f, bouts, onClose, onBout }: { f: Fighter; bouts: Record<stri
 function RoadToLive({ flipped }: { flipped: number }) {
   const steps: Array<[string, string, 'done' | 'now' | 'james' | 'next']> = [
     ['Historical archive on AISP', 'This page: 126 cards, corrected winners', 'done'],
-    ['Corrected UFC model (Codex)', `Gen1 withdrawn (${flipped} archive winners were flipped). Codex refit on corrected labels 10-25: 57% winners, log loss 0.673 vs Elo 0.687 on 2019–22. Needs a fresh test before live use.`, 'now'],
+    ['Corrected UFC model (Codex)', `Gen1 withdrawn (${flipped} archive winners were flipped). The refit on corrected labels (10-25) picks 57% of winners on 2019–22, only a hair better than a simple rating (log loss 0.673 vs 0.677), and has never been tested against betting lines. No forecasts for current cards yet.`, 'now'],
     ['Live fight-card feed', 'ESPN card, results and odds plus UFC.com rankings, on this page since 10-30', 'done'],
     ['Forecast contract + importer', 'Claude builds it once the corrected model publishes', 'next'],
     ['Odds + paper account', 'The Odds API MMA lines; MMA $1,000 paper account; shared $100', 'next'],

@@ -261,6 +261,17 @@ async def ufc_card(date: str = "", card: str = "") -> JSONResponse:
         return _json({"found": False, "reason": f"ESPN unavailable: {type(exc).__name__}"}, 502)
 
 
+@router.get("/ufc/bout")
+async def ufc_bout(event: str = "", comp: str = "", a: str = "", b: str = "") -> JSONResponse:
+    """One fight: official fight stats (live while it is on), ESPN's timeline and the judges' scores."""
+    from app.preview_feeds import ufc_card as feed
+
+    try:
+        return _json(await run_in_threadpool(feed.bout, event, comp, a, b))
+    except Exception as exc:
+        return _json({"found": False, "reason": f"ESPN unavailable: {type(exc).__name__}"}, 502)
+
+
 @router.get("/health")
 async def health() -> JSONResponse:
     from app.preview_feeds import feeds
