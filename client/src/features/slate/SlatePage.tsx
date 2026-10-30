@@ -24,6 +24,7 @@ import { useMissionControl, type MissionGame } from '../mission/missionData'
 import { usePreviewPicks, removePick } from '../../services/previewPicks'
 import { useAuth } from '../../hooks/useAuth'
 import type { PreviewPick } from '../../services/previewPicks'
+import { useOpeners } from './openers'
 import './slate.css'
 
 type Sport = 'ALL' | SportCode
@@ -261,6 +262,7 @@ function SlateRow({ g, pick, onOpen, onLive, dense, mission, slipped }: { g: Pul
   const leadHome = (homeNow ?? 0.5) >= 0.5
   const t = tierOf(pick?.edge ?? null)
   const mkHome = g.marketFresh ? g.marketHome : null
+  const opened = useOpeners()[g.id]
   return (
     <article className={`sl-row${live ? ' is-live' : ''}${g.position ? ' has-bet' : ''}${dense ? ' is-dense' : ''}`} style={{ ['--ca' as string]: ca, ['--ch' as string]: ch } as CSSProperties}>
       <div className="sl-row__when">
@@ -284,6 +286,7 @@ function SlateRow({ g, pick, onOpen, onLive, dense, mission, slipped }: { g: Pul
         <span><em>{shortName(g.away.abbr, 6)}</em><b>{g.bestAway?.american != null ? american(g.bestAway.american) : '—'}</b><i>{american(fair(g.modelHome == null ? null : 1 - g.modelHome))}</i></span>
         <span><em>{shortName(g.home.abbr, 6)}</em><b>{g.bestHome?.american != null ? american(g.bestHome.american) : '—'}</b><i>{american(fair(g.modelHome))}</i></span>
         <small className="sl-row__mlkey">Market · Model</small>
+        {opened ? <small className="sl-row__open" title={`Opening price: the best US price when first collected, ${etClock(opened.received_at_utc, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} ET (${opened.books} books). Display only; AISP still bets about 30 minutes before the start.`}>Opened {shortName(g.away.abbr, 6)} {american(opened.best_away.american)} · {shortName(g.home.abbr, 6)} {american(opened.best_home.american)}</small> : null}
       </div>
       <div className="sl-row__mm">
         <small>Market · Model</small>

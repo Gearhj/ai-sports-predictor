@@ -187,6 +187,18 @@ async def heals() -> JSONResponse:
         return _json({"heals": []})
 
 
+@router.get("/opening-lines")
+async def opening_lines(settings: AppSettings) -> JSONResponse:
+    """Day-before opening moneylines by game id (app/services/opening_lines.py): files only, display only."""
+
+    from app.services.opening_lines import openers
+
+    try:
+        return _json({"openers": await run_in_threadpool(openers, settings)})
+    except OSError:
+        return _json({"openers": {}})
+
+
 @router.post("/arena/sync", dependencies=[Depends(rate_limit("feeds:arena", category="compute"))])
 async def arena_sync(request: Request, user: CurrentUser, settings: AppSettings) -> JSONResponse:
     """The signed-in player's LIVE Arena calls (a game; never AISP's bankroll)."""

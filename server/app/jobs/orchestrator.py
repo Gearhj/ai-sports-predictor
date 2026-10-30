@@ -135,6 +135,7 @@ AVAILABLE_JOBS = {
     "collect-nba-availability": "Collect NBA Injury Lists and Box-Score Minutes From ESPN's Free Public Feeds (star-out gate; off by default)",
     "collect-availability": "Collect Injury Lists and Key-Player Inputs for Every Sport From ESPN's Free Public Feeds ($0)",
     "collect-pinnacle-benchmark": "Collect Pinnacle Moneylines Near Each Start as a Sharp-Close Benchmark (never consensus or execution)",
+    "collect-opening-lines": "Collect Day-Before Opening Moneylines Once per Sport per Day (display only; never consensus or execution)",
     "open-model-era-at-boundary": "Open an Armed Model Era at Its Exact Boundary",
     "refresh-nfl-shadow-odds": "Refresh NFL Research-Shadow Odds",
     "collect-odds-checkpoint": "Collect Odds at the Next Budgeted Checkpoint",
@@ -332,6 +333,7 @@ class JobOrchestrator:
             "collect-nba-availability": self.collect_nba_availability,
             "collect-availability": self.collect_availability,
             "collect-pinnacle-benchmark": self.collect_pinnacle_benchmark,
+            "collect-opening-lines": self.collect_opening_lines,
             "open-model-era-at-boundary": self.open_model_era_at_boundary,
             "refresh-nfl-shadow-odds": self.refresh_nfl_shadow_odds,
             "collect-odds-checkpoint": self.collect_odds_checkpoint,
@@ -851,6 +853,74 @@ class JobOrchestrator:
                 self.session.commit()
                 results.append({"league": league, "status": "FAILED", "error": type(exc).__name__})
         return {"records": sum(r.get("pinnacle_lines", 0) for r in results), "provider_called": True,
+                "results": results, "plan": planned}
+
+    async def collect_opening_lines(self, event_date: date) -> dict[str, Any]:
+        """Day-before opening moneylines (The Odds API US region, 1 credit per sport request, once per ET day).
+
+        Stored apart from odds_snapshots (app/services/opening_lines.py): display only, never consensus, never an
+        execution price, never read by the decision policy. Off unless OPENING_LINES_ENABLED; leaves HEADROOM
+        requests of the shared daily budget for the betting lanes; every request reserved in the provider ledger first.
+        """
+
+        from app.services import opening_lines as ol
+
+        if not getattr(self.settings, "opening_lines_enabled", False):
+            return {"records": 0, "status": "DISABLED", "provider_called": False}
+        planned = ol.plan(self.session, self.settings)
+        if not planned["due"]:
+            return {"records": 0, "status": "NOT_DUE", "provider_called": False, "plan": planned}
+        if not self.settings.the_odds_api_key:
+            raise SourceError("THE_ODDS_API", "THE_ODDS_API_KEY is not configured", retryable=False)
+        results = []
+        for item in planned["due"]:
+            league = item["league"]
+            try:
+                self._enforce_odds_quota_policy(1, request_holdback=ol.HEADROOM, holdback_for="the betting lanes")
+            except SourceError as refusal:
+                results.append({"league": league, "status": "BUDGET_REFUSED", "detail": str(refusal)})
+                break
+            ledger = self._reserve_provider_request(
+                ol.PROVIDER, ol.endpoint_key(league), controlled_live_request=False,
+                request_shape={"sport_key": item["sport_key"], "regions": ol.REGION, "markets": ol.MARKETS,
+                               "request_day": datetime.now(UTC).astimezone(ol.ET).date().isoformat()})
+            self.session.commit()
+            try:
+                response = await TheOddsAPIAdapter(self.settings.the_odds_api_key, list(ol.MARKETS), ol.REGION,
+                                                   sport_key=item["sport_key"]).get_market_snapshot()
+                archive = self.archive.write(response.envelope.source, response.raw_payload)
+                received_at = response.envelope.fetched_at
+                rows = ol.bind(self.session, league, ol.extract(response.raw_payload, league=league,
+                                                                received_at=received_at))
+                path = ol.store(self.settings, league, rows, received_at)
+                bound = sum(1 for r in rows if r.get("game_id"))
+                metadata = response.envelope.metadata or {}
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key, requested_at=ledger.requested_at,
+                    completed_at=datetime.now(UTC), status="SUCCEEDED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=_int_or_none(metadata.get("requests_last")),
+                    quota_remaining=_int_or_none(metadata.get("requests_remaining")),
+                    records_received=len(rows), controlled_live_request=False, source_mode="LIVE",
+                    job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                    response_metadata={"request_shape": (ledger.response_metadata or {}).get("request_shape"),
+                                       "response_received": True, "opening_lines": len(rows), "bound": bound,
+                                       "archive_payload_sha256": archive.payload_checksum}))
+                self.session.commit()
+                results.append({"league": league, "status": "OK", "opening_lines": len(rows), "bound": bound,
+                                "file": path.name, "quota_cost": metadata.get("requests_last"),
+                                "remaining": metadata.get("requests_remaining")})
+            except Exception as exc:  # noqa: BLE001 - one sport's failure never stops the next
+                self.session.rollback()
+                self.session.add(ProviderRequestLedger(
+                    provider=ledger.provider, endpoint_key=ledger.endpoint_key, requested_at=ledger.requested_at,
+                    completed_at=datetime.now(UTC), status="FAILED", request_fingerprint=ledger.request_fingerprint,
+                    quota_cost=None, quota_remaining=None, records_received=None, controlled_live_request=False,
+                    source_mode="LIVE", job_run_id=self._active_job_run_id, reservation_id=ledger.id,
+                    error_type=type(exc).__name__,
+                    response_metadata={"request_shape": (ledger.response_metadata or {}).get("request_shape")}))
+                self.session.commit()
+                results.append({"league": league, "status": "FAILED", "error": type(exc).__name__})
+        return {"records": sum(r.get("opening_lines", 0) for r in results), "provider_called": True,
                 "results": results, "plan": planned}
 
     async def collect_availability(self, event_date: date) -> dict[str, Any]:

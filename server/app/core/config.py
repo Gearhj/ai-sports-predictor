@@ -569,6 +569,9 @@ class Settings(BaseSettings):
     #: game's start, stored apart from odds_snapshots (never consensus, never an execution price). Off by default.
     pinnacle_benchmark_enabled: bool = False
     pinnacle_benchmark_daily_request_cap: int = Field(default=40, ge=0, le=100)
+    #: Day-before opening prices (owner 2026-10-30, app/services/opening_lines.py): one US-region moneyline request
+    #: per sport per Eastern day, stored apart from odds_snapshots (display only, never a decision input). Off by default.
+    opening_lines_enabled: bool = False
     # Exact already-approved NFL week7 funding gate; actual release clock only.
     owner_nfl_qb_out_record_only_effective_from: datetime | None = None
     owner_nfl_qb_out_admissions_root: str | None = None

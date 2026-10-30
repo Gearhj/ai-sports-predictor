@@ -142,10 +142,20 @@ def _teams(session: Any, league: str) -> Any:
     from app.models import League, Team
 
     by_name: dict[str, set[Any]] = {}
-    for team_id, name in session.execute(select(Team.id, Team.name).join(League, League.id == Team.league_id)
-                                         .where(League.code == league)).all():
+    by_abbr: dict[str, set[Any]] = {}
+    for team_id, name, abbr in session.execute(select(Team.id, Team.name, Team.abbreviation)
+                                               .join(League, League.id == Team.league_id)
+                                               .where(League.code == league)).all():
         by_name.setdefault(normalise(name), set()).add(team_id)
-    return lambda name: (lambda ids: next(iter(ids)) if len(ids) == 1 else None)(by_name.get(normalise(name), set()))
+        by_abbr.setdefault(str(abbr or "").upper(), set()).add(team_id)
+    one = lambda ids: next(iter(ids)) if len(ids) == 1 else None  # noqa: E731
+    if league == "NFL":
+        # The NFL lane binds by abbreviation (AISP still names LV "Oakland Raiders"; the feed says "Las Vegas").
+        from app.services.nfl_shadow_odds_service import NFL_ODDS_TEAM_IDENTITIES
+
+        return lambda name: one(by_abbr.get(NFL_ODDS_TEAM_IDENTITIES.get(str(name or "").strip(), ""), set())) \
+            or one(by_name.get(normalise(name), set()))
+    return lambda name: one(by_name.get(normalise(name), set()))
 
 
 def bind(session: Any, league: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

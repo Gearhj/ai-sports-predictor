@@ -936,6 +936,19 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
             kwargs={"job_name": "collect-pinnacle-benchmark", "settings": settings},
             **common,
         )
+    # Day-before opening prices (owner 2026-10-30): a 30-minute tick; plan() asks each sport once per Eastern day,
+    # from 10:00 ET, for every game in the next 48 hours, under the shared budget's headroom. Display only.
+    if getattr(settings, "opening_lines_enabled", False):
+        scheduler.add_job(
+            execute_scheduled_job,
+            "interval",
+            minutes=30,
+            jitter=None,
+            next_run_time=datetime.now(UTC) + timedelta(minutes=5),
+            id="asp-ls-opening-lines",
+            kwargs={"job_name": "collect-opening-lines", "settings": settings},
+            **common,
+        )
     # NFL pregame odds: one object, spent close to a game's decision
     # checkpoint so the quote is still inside the 240-minute freshness window
     # when the policy evaluates it. Every cycle outside a game's 75-minute
