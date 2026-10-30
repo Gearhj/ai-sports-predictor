@@ -128,4 +128,73 @@
 
 @media (max-width: 1350px) { .mma-grid { grid-template-columns: minmax(0, 1fr); } .mma-rail { position: static; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); } }
 @media (max-width: 900px) { .mma-oct__stage { grid-template-columns: 1fr; } .mma-tape { grid-template-columns: 1fr; } .mma-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .mma-row__tag, .mma-row__line { grid-column: 1 / -1; } .mma-row__res { grid-column: 1 / -1; justify-content: flex-start; } .mma-corner b { font-size: 18px; } }
-@media (prefers-reduced-motion: reduce) { .mma *, .mma *::before { animation: none !important; } }
+/* FIGHT NIGHT LIVE (10-30): this weekend's card, the tale of the tape, odds, and the gold title-fight treatment. */
+.fn-wrap { padding-bottom: 0; }
+.fn { display: grid; gap: 12px; min-width: 0; }
+.fn-head { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; justify-content: space-between; padding: 16px 18px; border-radius: 16px; border: 1px solid rgba(239, 68, 68, .3);
+  background: radial-gradient(120% 140% at 0% 0%, rgba(239, 68, 68, .22), transparent 55%), radial-gradient(120% 140% at 100% 100%, rgba(59, 130, 246, .2), transparent 55%), #0a101c; }
+.fn-head small { font-size: 11px; font-weight: 900; letter-spacing: .14em; color: #fca5a5; display: inline-flex; align-items: center; gap: 6px; }
+.fn-head h2 { margin: 2px 0 0; font-size: clamp(22px, 3vw, 32px); font-weight: 900; color: #fff; text-wrap: balance; }
+.fn-head p { margin: 2px 0 0; font-size: 13px; color: var(--sl-muted); }
+.fn-times { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.fn-times li { display: grid; padding: 6px 12px; border-radius: 10px; background: rgba(7, 13, 26, .6); border: 1px solid var(--sl-steel-line); }
+.fn-times small { font-size: 10px; letter-spacing: .1em; color: var(--sl-dim); } .fn-times b { font-size: 15px; font-weight: 900; color: #fff; }
+.fn-which { display: flex; gap: 4px; margin-bottom: 8px; }
+.fn-which button { font: inherit; font-size: 11.5px; font-weight: 800; color: #cbd5e1; background: rgba(7, 13, 26, .6); border: 1px solid var(--sl-steel-line); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.fn-which button.is-on { color: #1a1405; background: #fbbf24; border-color: #fbbf24; }
+.fn-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 0 rgba(239, 68, 68, .7); animation: fn-ping 1.4s infinite; }
+@keyframes fn-ping { 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+.fn-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+.fn-cage { position: relative; overflow: hidden; }
+.fn-cage.is-title { border-color: rgba(251, 191, 36, .75); box-shadow: 0 0 0 1px rgba(251, 191, 36, .35), 0 0 42px rgba(251, 191, 36, .22), inset 0 1px 0 rgba(255, 255, 255, .1);
+  background: repeating-linear-gradient(90deg, rgba(255, 220, 120, .03) 0 1px, transparent 1px 3px), linear-gradient(180deg, #3a2f12, #1d1808 55%, #120f06); }
+.fn-cage.is-title::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(115deg, transparent 35%, rgba(255, 236, 170, .16) 50%, transparent 65%); background-size: 250% 100%; animation: fn-sheen 4.5s ease-in-out infinite; }
+@keyframes fn-sheen { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.fn-ribbon { margin: -2px 0 8px; text-align: center; font-size: 12px; font-weight: 900; letter-spacing: .16em; color: #1a1405; padding: 7px 10px; border-radius: 8px; background: linear-gradient(90deg, #b8860b, #fde68a, #b8860b); }
+.fn-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 380px) minmax(0, 1fr); gap: 10px; align-items: center; padding: 12px; border-radius: 14px; background: radial-gradient(80% 90% at 50% 40%, #142038, #05080f 75%); border: 1px solid rgba(120, 160, 220, .14); }
+.fn-cage.is-title .fn-stage { background: radial-gradient(80% 90% at 50% 40%, #2b2410, #070604 75%); border-color: rgba(251, 191, 36, .3); }
+.fn-face { position: relative; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--c) 45%, #0b1526), #0b1526); box-shadow: 0 0 0 3px var(--c), 0 0 26px color-mix(in srgb, var(--c) 55%, transparent); }
+.fn-face > img:first-child { width: 100%; height: 100%; object-fit: cover; object-position: top; border-radius: 50%; }
+.fn-face > b { color: #fff; font-weight: 900; }
+.fn-flag { position: absolute; right: -4px; bottom: 2px; width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid #0b1526; background: #0b1526; }
+.mma-corner.is-won .fn-face { box-shadow: 0 0 0 4px #fbbf24, 0 0 34px rgba(251, 191, 36, .6); }
+.fn-badges { display: flex; gap: 4px; }
+.fn-badge { font-style: normal; font-size: 10.5px; font-weight: 900; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px; color: #e2e8f0; background: rgba(148, 163, 184, .16); }
+.fn-badge.is-champ { color: #1a1405; background: linear-gradient(90deg, #d4a017, #fde68a); } .fn-badge.is-un { color: var(--sl-dim); }
+.fn-odds { display: grid; justify-items: center; gap: 1px; margin-top: 4px; padding: 6px 14px; border-radius: 12px; background: rgba(7, 13, 26, .6); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); }
+.fn-odds em { font-style: normal; font-size: 26px; font-weight: 900; color: #fff; font-variant-numeric: tabular-nums; }
+.fn-odds small { font-size: 11px; } .fn-move.is-in { color: #34d399 !important; } .fn-move.is-out { color: #fca5a5 !important; }
+.fn-pad { animation: fn-pulse 2.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes fn-pulse { 50% { transform: scale(1.18); opacity: 1; } }
+.fn-live-ring { fill: none; stroke: #ef4444; stroke-width: 3; stroke-dasharray: 12 10; animation: fn-spin 6s linear infinite; transform-origin: 200px 200px; }
+@keyframes fn-spin { to { transform: rotate(360deg); } }
+.fn-split { display: flex; gap: 10px; align-items: baseline; justify-content: center; margin-top: -4px; font-size: 18px; font-weight: 900; } .fn-split small { font-size: 11px; font-weight: 700; color: var(--sl-muted); }
+.fn-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 12px; }
+.fn-tape, .fn-battle { display: grid; gap: 5px; align-content: start; }
+.fn-tape h3, .fn-battle h3 { text-align: center; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; }
+.fn-tape__row { display: grid; grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr); gap: 8px; align-items: center; padding: 5px 8px; border-radius: 8px; background: rgba(7, 13, 26, .5); animation: mma-walk-l .5s ease-out both; }
+.fn-tape__row span { text-align: center; font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--sl-dim); }
+.fn-tape__row b { font-size: 13px; font-weight: 800; color: #e2e8f0; overflow-wrap: anywhere; } .fn-tape__row b:last-child { text-align: right; }
+.fn-tape__row b.is-edge { color: #fff; } .fn-tape__row b.is-edge::after { content: " ◆"; font-size: 9px; } .fn-tape__row b.is-edge.is-red::after { color: #f87171; } .fn-tape__row b.is-edge.is-blue::after { color: #60a5fa; }
+.fn-styles { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; }
+.fn-style { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: rgba(7, 13, 26, .55); border-left: 4px solid currentColor; }
+.fn-style small { font-size: 11px; color: var(--sl-muted); font-weight: 800; } .fn-style b { font-size: 14px; color: #fff; }
+.fn-read { grid-column: 1 / -1; margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; line-height: 1.45; color: #dfe7f2; }
+.fn-list { display: grid; gap: 10px; min-width: 0; position: sticky; top: 76px; }
+.fn-list h4 { margin: 0 0 4px; letter-spacing: .12em; text-transform: uppercase; font-size: 11px; color: var(--sl-dim); }
+.fn-list ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.fn-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr); gap: 3px 8px; align-items: center; font: inherit; color: inherit; text-align: left; padding: 8px 10px; border-radius: 10px; cursor: pointer; border: 1px solid var(--sl-line); background: linear-gradient(160deg, #141d2c, #0b1320); }
+.fn-row:hover { border-color: #64748b; } .fn-row.is-on { outline: 2px solid #fbbf24; outline-offset: 1px; }
+.fn-row.is-title { border-color: rgba(251, 191, 36, .6); background: linear-gradient(160deg, #33290e, #15110a); }
+.fn-row__tag { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; font-size: 10px; font-weight: 900; letter-spacing: .1em; color: #fde68a; text-transform: uppercase; }
+.fn-live { font-style: normal; color: #fff; background: #dc2626; border-radius: 4px; padding: 1px 5px; animation: fn-blink 1.2s steps(2) infinite; } @keyframes fn-blink { 50% { opacity: .55; } }
+.fn-row__f { display: flex; gap: 6px; align-items: baseline; min-width: 0; } .fn-row__f.is-r { justify-content: flex-end; }
+.fn-row__f b { font-size: 14px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .fn-row__f small { font-size: 11px; color: var(--sl-muted); font-variant-numeric: tabular-nums; }
+.fn-row__f.is-won b::after { content: " ✓"; color: #34d399; }
+.fn-row__bar { height: 6px; border-radius: 3px; background: #3b82f6; overflow: hidden; } .fn-row__bar i { display: block; height: 100%; background: #ef4444; animation: mma-fill .9s ease-out both; }
+.fn-row__res { grid-column: 1 / -1; font-size: 11px; font-weight: 800; color: #34d399; }
+.fn-src { font-size: 10.5px; color: var(--sl-dim); line-height: 1.4; }
+.mma-archive-h { margin: 6px 16px 0; font-size: 18px; font-weight: 900; color: #fff; } .mma-archive-h small { font-size: 12px; font-weight: 700; color: var(--sl-muted); margin-left: 8px; }
+@media (max-width: 1350px) { .fn-grid { grid-template-columns: minmax(0, 1fr); } .fn-list { position: static; } }
+@media (max-width: 900px) { .fn-stage { grid-template-columns: 1fr; } .fn-cols, .fn-styles { grid-template-columns: 1fr; } .fn-odds em { font-size: 22px; } }
+@media (prefers-reduced-motion: reduce) { .mma *, .mma *::before, .mma *::after { animation: none !important; } }

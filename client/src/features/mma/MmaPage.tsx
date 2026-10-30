@@ -11,12 +11,13 @@
  *   fight was fought (distance/clinch/ground), and an UPSET stamp when the underdog won.
  *
  * Around it: the card reel, the full fight card, fighter profiles, how fights end, and the road to a live UFC model.
- * There is no current card, no odds and no wager here. Probabilities are historical reconstructions, never advice.
+ * Above it (10-30): this weekend's real card, see FightNight.tsx. Archive probabilities are historical reconstructions, never advice.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { AispSide } from '../flow/AispSide'
 import '../slate/slate.css'
 import './mma.css'
+import { FightNight, useUfcCard } from './FightNight'
 
 type Side = { kd: number | null; str: number | null; td: number | null; sub: number | null; ctrl: number | null; sig_pct: number | null; head: number | null; body: number | null; leg: number | null; distance: number | null; clinch: number | null; ground: number | null }
 type Bout = { id: string; event: string; date: string; order: number; weight_class: string | null; split: string; a: string; b: string; elo_fixed_a: number; elo_rating_a: number; elo_rating_b: number; gen1_hgb_a_invalid: number | null; winner: 'A' | 'B' | null; handoff_winner_flipped: boolean; method: string | null; method_short: string; round: number | null; time: string | null; format: string | null; referee: string | null; stats: { a: Side; b: Side } }
@@ -41,6 +42,8 @@ export function MmaPage() {
   const [boutId, setBoutId] = useState<string | null>(null)
   const [fighterId, setFighterId] = useState<string | null>(null)
   const [run, setRun] = useState(0)
+  const [which, setWhich] = useState<'next' | 'last'>('next')
+  const live = useUfcCard(which)
   useEffect(() => {
     let alive = true
     fetch('/preview-api/ufc/archive', { headers: { accept: 'application/json' } })
@@ -58,9 +61,11 @@ export function MmaPage() {
       <AispSide />
       <div className="hq-main">
         <header className="sl-top">
-          <div className="sl-title"><small>MMA · UFC</small><h1>Fight Night</h1><p>Every card, every fight, how it ended, and how the numbers saw it coming.</p></div>
-          <span className="mma-flag">Historical archive · no live card yet</span>
+          <div className="sl-title"><small>MMA · UFC</small><h1>Fight Night</h1><p>This weekend's card with the tale of the tape and the odds, then every fight in the archive and how it ended.</p></div>
+          <span className="mma-flag">{live.card?.found ? `${live.card.event.live ? 'LIVE · ' : ''}${live.card.event.name.split(':')[0]} · ${new Date(live.card.event.date).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' })}` : 'No UFC card listed this week'}</span>
         </header>
+        {live.card?.found ? <div className="mma-body fn-wrap"><FightNight card={live.card} which={which} onWhich={setWhich} /></div> : live.error ? <p className="sl-empty">This weekend's card could not be read ({live.error}).</p> : null}
+        {data ? <h2 className="mma-archive-h">From the archive <small>{data.coverage.events} cards · {dateText(data.coverage.first)} – {dateText(data.coverage.last)} · results and fight stats</small></h2> : null}
         {error ? <p className="sl-empty">The UFC archive could not be read ({error}).</p> : null}
         {!data && !error ? <p className="sl-empty">Loading 1,504 fights…</p> : null}
         {data && event && bout ? (
@@ -80,7 +85,7 @@ export function MmaPage() {
             </div>
           </div>
         ) : null}
-        <footer className="hq-foot">Research and paper only. UFC probabilities on this page are historical reconstructions from a transparent Elo baseline, not an AISP model and never a wager signal. No odds are collected for MMA yet.</footer>
+        <footer className="hq-foot">Research and paper only. This weekend's odds are the sportsbook's moneylines, shown for information. Archive probabilities are historical reconstructions from a transparent Elo baseline. Neither is an AISP model or a wager signal.</footer>
       </div>
     </div>
   )
@@ -290,7 +295,7 @@ function RoadToLive({ flipped }: { flipped: number }) {
   const steps: Array<[string, string, 'done' | 'now' | 'james' | 'next']> = [
     ['Historical archive on AISP', 'This page: 126 cards, corrected winners', 'done'],
     ['Corrected UFC model (Codex)', `Gen1 withdrawn (${flipped} archive winners were flipped). Codex refit on corrected labels 10-25: 57% winners, log loss 0.673 vs Elo 0.687 on 2019–22. Needs a fresh test before live use.`, 'now'],
-    ['Live fight-card feed', 'FighterAPI free tier: James creates the account and key', 'james'],
+    ['Live fight-card feed', 'ESPN card, results and odds plus UFC.com rankings, on this page since 10-30', 'done'],
     ['Forecast contract + importer', 'Claude builds it once the corrected model publishes', 'next'],
     ['Odds + paper account', 'The Odds API MMA lines; MMA $1,000 paper account; shared $100', 'next'],
   ]

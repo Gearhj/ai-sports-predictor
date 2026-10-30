@@ -236,6 +236,19 @@ async def ufc_archive() -> JSONResponse:
         return _json({"error": f"UFC archive unavailable: {type(exc).__name__}"}, 502)
 
 
+@router.get("/ufc/card")
+async def ufc_card(date: str = "", card: str = "") -> JSONResponse:
+    """This weekend's UFC card (or the last finished one): ESPN public feeds + UFC.com rankings, read-only."""
+    from app.preview_feeds import ufc_card as feed
+
+    if (why := _bad(date=date)):
+        return _json({"error": why}, 400)
+    try:
+        return _json(await run_in_threadpool(feed.card, "last" if card == "last" else date.replace("-", "")))
+    except Exception as exc:  # the provider being down is a 502, never a crash
+        return _json({"found": False, "reason": f"ESPN unavailable: {type(exc).__name__}"}, 502)
+
+
 @router.get("/health")
 async def health() -> JSONResponse:
     from app.preview_feeds import feeds
