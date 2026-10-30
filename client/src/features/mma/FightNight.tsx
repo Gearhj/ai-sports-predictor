@@ -255,7 +255,7 @@ function Hero({ card, b, which, onWhich, times }: { card: UfcCard; b: Bout; whic
       </header>
 
       <div className="fn-stage">
-        <CornerCard f={A} c={b.a} color={RED} side="red" won={winner === 'a'} title={b.title_fight} />
+        <CornerCard f={A} c={b.a} color={RED} side="red" won={!playing && winner === 'a'} title={b.title_fight} />
         <div className="fn-arena">
           <Arena b={b} A={A} B={B} fx={fx} pose={pose} winner={playing ? null : winner} pA={pA} clock={clock} />
           <div className="fn-count" aria-label="Fight stats so far">
@@ -269,7 +269,7 @@ function Hero({ card, b, which, onWhich, times }: { card: UfcCard; b: Bout; whic
             {b.state === 'post' && d?.a.judges.length ? <small className="fn-judges">Judges: {d.a.judges.map((s, i) => `${s}-${d.b.judges[i] ?? '?'}`).join(' · ')}</small> : null}
           </div>
         </div>
-        <CornerCard f={B} c={b.b} color={BLUE} side="blue" won={winner === 'b'} title={b.title_fight} />
+        <CornerCard f={B} c={b.b} color={BLUE} side="blue" won={!playing && winner === 'b'} title={b.title_fight} />
       </div>
 
       <div className="mma-rounds" aria-label="Rounds">
