@@ -26,6 +26,7 @@ import '../slate/slate.css'
 import { TheDrop } from '../drop/TheDrop'
 import './home.css'
 import { GameSearch, matchesGame } from './GameSearch'
+import { HqAvatar } from './HqAvatar'
 
 type Sport = 'ALL' | SportCode
 const SPORTS: Array<{ key: SportCode; label: string; color: string; icon: string }> = [
@@ -127,7 +128,7 @@ export function HqHome() {
           <GameSearch games={pulse.games.filter((g) => g.day === day)} value={q} onChange={setQ} onOpen={openGame} />
           <span className="hq-date"><button type="button" aria-label="Previous day" onClick={() => setParams({ day: shiftDate(day, -1) })}>‹</button><b>📅 {day === today ? 'Today, ' : ''}{new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${day}T12:00:00Z`))}</b><button type="button" aria-label="Next day" onClick={() => setParams({ day: shiftDate(day, 1) })}>›</button></span>
           <Link to="/mission-control" className="hq-bell" title="Alerts">🔔{live.length ? <i>{live.length}</i> : null}</Link>
-          <Link to="/account" className="hq-avatar">JG</Link>
+          <HqAvatar />
         </header>
         <GamePlanBar current="scan" />
 

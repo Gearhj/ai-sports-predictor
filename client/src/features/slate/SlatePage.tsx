@@ -27,6 +27,7 @@ import type { PreviewPick } from '../../services/previewPicks'
 import { useOpeners } from './openers'
 import './slate.css'
 import { GameSearch, matchesGame } from '../hq/GameSearch'
+import { HqAvatar } from '../hq/HqAvatar'
 
 type Sport = 'ALL' | SportCode
 type Tab = 'all' | 'live' | 'soon' | 'bets' | 'edges' | 'done'
@@ -162,7 +163,7 @@ export function SlatePage() {
           </span>
           <select className="hq-select" value={sport} onChange={(e) => setSport(e.target.value as Sport)} aria-label="Sport"><option value="ALL">All Sports ({dayGames.length})</option>{SPORTS.map((s) => <option key={s.key} value={s.key}>{s.long} ({counts.get(s.key) ?? 0})</option>)}</select>
           <Link to="/mission-control" className="hq-bell" title="Alerts and pipeline health">🔔{live.length ? <i>{live.length}</i> : null}</Link>
-          <Link to="/account" className="hq-avatar">JG</Link>
+          <HqAvatar />
         </header>
 
         <GamePlanBar current="edges" />
