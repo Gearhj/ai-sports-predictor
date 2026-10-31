@@ -11,6 +11,7 @@ describe('view mode', () => {
     expect(readMode()).toBe('full')
     expect(FOCUS_PASSTHROUGH.test('/login')).toBe(true)
     expect(FOCUS_PASSTHROUGH.test('/account')).toBe(true)
+    expect(FOCUS_PASSTHROUGH.test('/mma')).toBe(true)
     expect(FOCUS_PASSTHROUGH.test('/live')).toBe(false)
   })
 })
