@@ -117,3 +117,12 @@ def test_mission_control_is_cached_but_never_served_older_than_ninety_seconds():
     cache.entries[key].generated -= 120                      # past 90 s: recomputed before answering
     late = client.get("/api/v1/mission-control?date=2026-10-17")
     assert late.headers["x-aisp-cache"] == "MISS" and late.json()["n"] > first.json()["n"]
+
+
+def test_compete_standings_are_cached_but_their_per_person_children_never_are():
+    cache = read_cache.ReadCache(prefix="/api/v1")
+    get = lambda path: {"type": "http", "method": "GET", "path": path}  # noqa: E731
+    assert cache.cacheable(get("/api/v1/house-divided"))
+    assert not cache.cacheable(get("/api/v1/house-divided/account"))
+    assert not cache.cacheable(get("/api/v1/house-divided/market-board"))
+    assert read_cache.MAX_STALE_BY_PATH["/house-divided"] == 60.0

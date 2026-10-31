@@ -192,9 +192,30 @@ def store(settings: Any, league: str, rows: list[dict[str, Any]], received_at: d
     return path
 
 
+#: Owner 10-31 tester launch: every home-page view read the opener files again. They change once a day per sport,
+#: so a minute-old answer is the same answer.
+_MEMO: dict[tuple[str, str, int], tuple[float, dict[str, dict[str, Any]]]] = {}
+MEMO_SECONDS = 60.0
+
+
 def openers(settings: Any, *, now: datetime | None = None, days_back: int = 3) -> dict[str, dict[str, Any]]:
     """The earliest bound line received before each game's start, from the last ``days_back`` Eastern days."""
 
+    if now is not None:
+        return _openers(settings, now=now, days_back=days_back)
+    import time
+
+    key = (str(root(settings)), _aware(datetime.now(UTC)).astimezone(ET).date().isoformat(), days_back)
+    hit = _MEMO.get(key)
+    if hit and time.monotonic() - hit[0] < MEMO_SECONDS:
+        return hit[1]
+    out = _openers(settings, now=None, days_back=days_back)
+    _MEMO.clear()
+    _MEMO[key] = (time.monotonic(), out)
+    return out
+
+
+def _openers(settings: Any, *, now: datetime | None, days_back: int) -> dict[str, dict[str, Any]]:
     today = _aware(now or datetime.now(UTC)).astimezone(ET).date()
     days = [(today - timedelta(days=n)).isoformat() for n in range(days_back + 1)]
     first: dict[str, dict[str, Any]] = {}

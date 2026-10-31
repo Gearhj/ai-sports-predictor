@@ -46,7 +46,9 @@ MAX_STALE_SECONDS = 15 * 60.0
 #: Past this age the request recomputes instead of serving the old body.
 MAX_STALE_BY_PATH: dict[str, float] = {"/sports/readiness": 120.0,
                                        # Mission Control's chips name live clocks and countdowns.
-                                       "/mission-control": 90.0}
+                                       "/mission-control": 90.0,
+                                       # Compete standings move when a wager is placed or settles.
+                                       "/house-divided": 60.0}
 MAX_ENTRIES = 256
 MAX_BODY_BYTES = 4 * 1024 * 1024
 
@@ -60,6 +62,10 @@ ALLOWLIST: tuple[str, ...] = (
     "/research/model-era", "/research/model-performance", "/research/wager-results", "/research/nfl-scorecard", "/show-board", "/cfb/research", "/price-coverage", "/public/config",
     "/mission-control", "/availability",
 )
+#: Paths cached only as an exact match (never their sub-paths). Owner 10-31 tester launch: Compete's public
+#: standings (~2 s, the slowest home-page read) take no caller; its /account and /market-board children are
+#: per-person or price-live and stay uncached.
+EXACT: tuple[str, ...] = ("/house-divided",)
 
 
 @dataclass
@@ -86,7 +92,7 @@ class ReadCache:
         if not path.startswith(self.prefix):
             return False
         rest = path[len(self.prefix):]
-        return any(rest == p.rstrip("/") or rest.startswith(p) for p in ALLOWLIST)
+        return rest in EXACT or any(rest == p.rstrip("/") or rest.startswith(p) for p in ALLOWLIST)
 
 
 #: The running middleware, so the warmer can reach its cache.
