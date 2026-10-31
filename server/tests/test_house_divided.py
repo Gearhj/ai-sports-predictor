@@ -1,4 +1,4 @@
-"""A House Divided: the risks the owner named, each pinned.
+﻿"""A House Divided: the risks the owner named, each pinned.
 
 independent balances - locked pregame terms - authorized entry - automatic
 model copying - insufficient funds - duplicate imports - win/loss/push/void
@@ -491,6 +491,66 @@ def test_nfl_decisions_use_the_nfl_policy_sizing(world):
     wager = session.scalar(select(CompetitionWager).where(CompetitionWager.sport == "NFL"))
     # 3% quarter-Kelly would be $30; the NFL policy's 0.5% position cap binds at $5.
     assert wager.stake == Decimal("5.00") and wager.staking_detail["bound_by"] == "position_cap"
+
+
+def _nhl(world, monkeypatch, *, on=True):
+    session = world["session"]
+    from app.core import config
+
+    real = config.get_settings()
+    monkeypatch.setattr(config, "get_settings", lambda: real.model_copy(update={
+        "nhl_paper_checkpoint_enabled": on, "nhl_paper_decisions_enabled": on}))
+    sport = Sport(code="HOCKEY", name="Hockey")
+    session.add(sport)
+    session.flush()
+    league = League(sport_id=sport.id, code="NHL", name="NHL")
+    session.add(league)
+    session.flush()
+    season = Season(league_id=league.id, name="2026-27", starts_at=datetime(2026, 10, 1, tzinfo=UTC),
+                    ends_at=datetime(2027, 6, 30, tzinfo=UTC))
+    session.add(season)
+    session.flush()
+    world["leagues"]["NHL"] = (league, season)
+    hd.ensure_competition(session)
+    nhl = ShadowExperiment(
+        name="NHL paper", version=401, started_at=datetime(2026, 10, 16, tzinfo=UTC), start_date=date(2026, 10, 16),
+        starting_bankroll=1000, sport="NHL", recommendation_policy_version=hd.NHL_POLICY,
+        staking_policy_version="AISP_QUARTER_KELLY_NHL_V1", decision_policy=hd.NHL_POLICY,
+        controlling_engine="NHL_GEN1_FINAL_TWO_WAY", supported_markets=["MONEYLINE"], kelly_fraction=0.25,
+        unit_percentage=0.01, max_position_percentage=0.005, max_same_game_percentage=0.01,
+        max_daily_percentage=0.02, code_commit="t", code_identity="t", is_active=True)
+    session.add(nhl)
+    session.flush()
+    return nhl
+
+
+def test_nhl_starts_only_while_its_paper_switches_are_on(world, monkeypatch):
+    _nhl(world, monkeypatch, on=False)
+    with pytest.raises(hd.CompetitionError) as off:
+        hd.start_sport(world["session"], "NHL", actor=world["admin"], now=T0)
+    assert off.value.code == "NO_ELIGIBLE_MODEL_PIPELINE"
+
+
+def test_nhl_decisions_copy_the_official_nhl_stake(world, monkeypatch):
+    session = world["session"]
+    nhl = _nhl(world, monkeypatch)
+    hd.start_sport(session, "NHL", actor=world["admin"], now=T0)
+    game, o = add_game(world, "NHL", tag="H")
+    snap = quote(world, o["away_ml"], at=KICK - timedelta(minutes=40), american=148)
+    row = decision(world, game, o["away_ml"], snap, at=KICK - timedelta(minutes=20), experiment=nhl, sport="NHL")
+    session.add(OfficialAspPosition(market_outcome_id=o["away_ml"].id, odds_snapshot_id=snap.id,
+                                    placed_at=KICK - timedelta(minutes=20), stake=4.37,
+                                    decimal_odds=snap.decimal_odds, shadow_experiment_id=nhl.id,
+                                    shadow_decision_id=row.id))
+    session.flush()
+    report = hd.mirror_model_decisions(session, now=KICK)
+    assert report["sports"]["NHL"]["imported"] == 1
+    wager = session.scalar(select(CompetitionWager).where(CompetitionWager.sport == "NHL"))
+    # The same bet AISP placed: its own frozen stake, never re-sized against a second daily cap.
+    assert wager.stake == Decimal("4.37") and wager.staking_detail["bound_by"] == "official_stake"
+    final(game, home=2, away=3)
+    hd.settle_open(session, now=KICK + timedelta(hours=4))
+    assert wager.result == "WIN" and wager.profit_loss == Decimal("6.47")
 
 
 def test_the_finalize_step_never_raises(world, monkeypatch, settings):

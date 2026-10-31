@@ -41,7 +41,7 @@ def _refuse(exc: competition.CompetitionError) -> HTTPException:
 
 @router.get("")
 def house_divided(session: DatabaseSession,
-                  sport: Literal["MLB", "NFL", "NBA", "CFB", "ALL"] = Query("MLB")) -> dict:
+                  sport: Literal["MLB", "NFL", "NBA", "CFB", "NHL", "ALL"] = Query("MLB")) -> dict:
     """Standings, bankroll paths, the side-by-side game board and full history."""
 
     try:
@@ -52,7 +52,7 @@ def house_divided(session: DatabaseSession,
 
 @router.get("/board")
 def house_divided_board(session: DatabaseSession,
-                        sport: Literal["MLB", "NFL", "NBA", "CFB"] | None = Query(None),
+                        sport: Literal["MLB", "NFL", "NBA", "CFB", "NHL"] | None = Query(None),
                         day: str | None = Query(None, alias="date", pattern=r"^\d{4}-\d{2}-\d{2}$")) -> dict:
     """Sportsbook lobby for one ET date. Only current prices are selectable.
 
@@ -68,7 +68,7 @@ def house_divided_board(session: DatabaseSession,
 @router.get("/account")
 def house_divided_account(session: DatabaseSession, user: CurrentUser,
                           participant: str = Query(..., max_length=24),
-                          sport: Literal["MLB", "NFL", "NBA", "CFB"] = Query("MLB")) -> dict:
+                          sport: Literal["MLB", "NFL", "NBA", "CFB", "NHL"] = Query("MLB")) -> dict:
     """Available funds, open picks and drafts for a participant this login may act for."""
 
     try:
@@ -79,7 +79,7 @@ def house_divided_account(session: DatabaseSession, user: CurrentUser,
 
 @router.get("/games")
 def house_divided_open_games(session: DatabaseSession,
-                             sport: Literal["MLB", "NFL", "NBA", "CFB"] = Query("MLB")) -> dict:
+                             sport: Literal["MLB", "NFL", "NBA", "CFB", "NHL"] = Query("MLB")) -> dict:
     """Games still accepting picks (before the pregame cutoff) in a started sport."""
 
     return {"sport": sport, "games": competition.open_games(session, sport)}

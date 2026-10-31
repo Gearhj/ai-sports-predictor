@@ -7,7 +7,7 @@
  */
 import { API_BASE_URL, ApiError, apiRequest, getStoredToken } from './api'
 
-export type CompetitionSport = 'MLB' | 'NFL' | 'NBA' | 'CFB'
+export type CompetitionSport = 'MLB' | 'NFL' | 'NBA' | 'CFB' | 'NHL'
 export type SportView = CompetitionSport | 'ALL'
 export type ParticipantKey = 'JAMES' | 'SCOTTY' | 'RED_LOU' | string
 

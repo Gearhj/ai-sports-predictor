@@ -28,7 +28,9 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'standings', label: 'STANDINGS' },
   { key: 'history', label: 'WAGER HISTORY' },
 ]
-const VIEWS: SportView[] = ['MLB', 'NFL', 'NBA', 'CFB', 'ALL']
+// Owner 10-31: All Sports opens first (the MLB season is over, so opening on MLB showed a frozen balance), and NHL,
+// the sport AISP bets nightly, sits beside NFL.
+const VIEWS: SportView[] = ['ALL', 'NFL', 'NHL', 'NBA', 'CFB', 'MLB']
 const ET: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York' }
 
 const when = (iso: string | null | undefined, withDate = true): string => {
@@ -47,7 +49,7 @@ export function HouseDividedPage() {
   const [params, setParams] = useSearchParams()
   const rawSport = params.get('sport')?.toUpperCase() ?? null
   const urlSport: SportView | null = rawSport && (VIEWS as string[]).includes(rawSport) ? (rawSport as SportView) : null
-  const view: SportView = urlSport ?? 'MLB'
+  const view: SportView = urlSport ?? 'ALL'
   const setView = useCallback((next: SportView) => setParams((old) => {
     const copy = new URLSearchParams(old)
     copy.set('sport', next)

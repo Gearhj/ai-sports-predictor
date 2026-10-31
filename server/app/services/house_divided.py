@@ -9,7 +9,7 @@ never top up, and never reset.
 WHEN A SPORT STARTS
 -------------------
 A sport starts at a recorded instant, and only a sport whose official model
-pipeline actually issues decisions can start (MLB and NFL today). Nothing
+pipeline actually issues decisions can start (MLB, NFL and NHL today). Nothing
 issued before that instant is ever imported; there is no backfill. A sport that
 has not started shows "Not started" with every $1,000 intact.
 
@@ -66,7 +66,7 @@ from app.bankroll.service import SettlementResult, settle_profit
 from app.bankroll.settlement import _outcome_line, determine_result
 from app.models import (
     CompetitionAccount, CompetitionParticipant, CompetitionWager, ExperimentDecisionPhase, Game,
-    GameStatus, GameTeam, League, Market, MarketOutcome, MarketType, OddsSnapshot, OddsStatus,
+    GameStatus, GameTeam, League, Market, MarketOutcome, MarketType, OddsSnapshot, OddsStatus, OfficialAspPosition,
     PositionResult, ShadowExperiment, ShadowExperimentDecision, Sportsbook, Team, User, UserRole,
 )
 from app.models.house_divided import (
@@ -74,7 +74,7 @@ from app.models.house_divided import (
     WAGER_UNFUNDED,
 )
 
-SPORTS: tuple[str, ...] = ("MLB", "NFL", "NBA", "CFB")
+SPORTS: tuple[str, ...] = ("MLB", "NFL", "NBA", "CFB", "NHL")
 #: The existing pregame cutoff (FINAL_PREGAME_CUTOFF_MINUTES).
 CUTOFF = timedelta(minutes=15)
 #: The existing quote-freshness rule (MAX_QUOTE_AGE_MINUTES).
@@ -84,15 +84,18 @@ ET = ZoneInfo("America/New_York")
 CENT = Decimal("0.01")
 
 MARKET_NAMES = {MarketType.MONEYLINE: "MONEYLINE", MarketType.SPREAD: "SPREAD", MarketType.TOTAL: "TOTAL"}
-SPREAD_LABEL = {"MLB": "Run line", "NFL": "Spread", "NBA": "Spread", "CFB": "Spread"}
+SPREAD_LABEL = {"MLB": "Run line", "NFL": "Spread", "NBA": "Spread", "CFB": "Spread", "NHL": "Puck line"}
 
 MLB_POLICY = "AISP_PRACTICAL_PREGAME_POLICY_V2_1"
 NFL_POLICY = "AISP_NFL_PAPER_POLICY_V1"
 CFB_POLICY = "AISP_CFB_PAPER_POLICY_V1"
+NHL_POLICY = "AISP_NHL_PAPER_POLICY_V1"
 
 NOT_ELIGIBLE_REASON = {
     "NBA": ("The NBA paper decision owner is not active (its consumer or activation control is off), "
             "so there are no official NBA model decisions to copy."),
+    "NHL": ("The NHL paper checkpoint or its decision switch is off, so there are no official NHL "
+            "model decisions to copy."),
     "CFB": ("The College Football paper decision owner is not active (its consumer or activation "
             "control is off), so there are no official model decisions to copy."),
 }
@@ -173,6 +176,20 @@ def official_experiment(session: Session, sport: str, *, now: datetime | None = 
         return session.scalar(select(ShadowExperiment).where(
             ShadowExperiment.sport == "NBA",
             ShadowExperiment.decision_policy == "AISP_NBA_PAPER_POLICY_V1",
+            ShadowExperiment.is_active.is_(True),
+        ).order_by(ShadowExperiment.started_at.desc()).limit(1))
+    if sport == "NHL":
+        # Owner 10-31: the NHL paper era (in-process Gen1, live since 10-16) is the one sport AISP bets
+        # nightly, so Compete mirrors it too. Official only while its checkpoint switches are on.
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if not (getattr(settings, "nhl_paper_checkpoint_enabled", False)
+                and getattr(settings, "nhl_paper_decisions_enabled", False)):
+            return None
+        return session.scalar(select(ShadowExperiment).where(
+            ShadowExperiment.sport == "NHL",
+            ShadowExperiment.decision_policy == NHL_POLICY,
             ShadowExperiment.is_active.is_(True),
         ).order_by(ShadowExperiment.started_at.desc()).limit(1))
     if sport != "MLB":
@@ -386,6 +403,15 @@ def _policy_stake(session: Session, experiment: ShadowExperiment, decision: Shad
             "same_game_cap": max(0.0, experiment.max_same_game_percentage * basis - same_game),
             "daily_cap": max(0.0, experiment.max_daily_percentage * basis - same_day),
         }
+        policy = experiment.staking_policy_version
+    elif experiment.sport == "NHL":
+        # app.nhl.paper sizes each bet itself (quarter Kelly, 0.5% cap, $5 max, under the owner's shared $100
+        # daily allowance) and freezes the result on the decision. James's NHL wager is that same bet, so it
+        # takes the official stake rather than re-sizing it against a second, competition-only daily cap.
+        official = float(session.scalar(select(func.coalesce(func.sum(OfficialAspPosition.stake), 0)).where(
+            OfficialAspPosition.shadow_decision_id == decision.id)) or 0)
+        basis = bankroll
+        limits = {"official_stake": official}
         policy = experiment.staking_policy_version
     else:
         from app.services.shadow_experiment_service import ShadowExperimentService
@@ -1365,6 +1391,7 @@ PROP_GROUPS = {
     "NFL": ["Passing", "Rushing", "Receiving", "Touchdowns", "Receptions"],
     "NBA": ["Points", "Rebounds", "Assists", "Three-pointers"],
     "CFB": [],
+    "NHL": ["Goals", "Points", "Shots on goal", "Saves"],
 }
 PROPS_UNAVAILABLE = "Player props are not available yet for this game."
 
@@ -1403,7 +1430,7 @@ def _expected_prices_at(sport: str, game: Game) -> datetime | None:
 
     if sport == "MLB":
         return _cutoff(game) - MAX_QUOTE_AGE
-    if sport == "NFL":
+    if sport in ("NFL", "NHL"):
         return _aware(game.starts_at) - timedelta(minutes=75)
     return None
 
@@ -1578,7 +1605,7 @@ def _slip_view(session: Session, wager: CompetitionWager, participant: Competiti
     lock_at, basis = human_lock(game, reveal)
     line = wager.line
     push_possible = (wager.market_type in ("SPREAD", "TOTAL") and line is not None and float(line).is_integer()) \
-        or (wager.market_type == "MONEYLINE" and wager.sport != "MLB")
+        or (wager.market_type == "MONEYLINE" and wager.sport not in ("MLB", "NHL"))
     view.update({
         "matchup": f"{(teams.get('away') or {}).get('abbreviation', 'Away')} @ "
                    f"{(teams.get('home') or {}).get('abbreviation', 'Home')}",

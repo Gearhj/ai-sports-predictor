@@ -14,7 +14,7 @@ import { useMissionControl, useTick, countdownText, type MissionGame } from '../
 import { Crest } from '../../features/flow/Crest'
 import './raceTrack.css'
 
-const COMPETITION = new Set(['MLB', 'NFL', 'NBA', 'CFB'])
+const COMPETITION = new Set(['MLB', 'NFL', 'NBA', 'CFB', 'NHL'])
 const money = (v: number, signed = false) => `${signed && v > 0 ? '+' : v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export function RaceTrack({ onPicks }: { onPicks: () => void }) {

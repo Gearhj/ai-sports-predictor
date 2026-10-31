@@ -20,7 +20,7 @@ import {
 
 const QUICK_STAKES = [5, 10, 25, 50]
 const ET: Intl.DateTimeFormatOptions = { timeZone: 'America/New_York' }
-const SPORTS: CompetitionSport[] = ['MLB', 'NFL', 'NBA', 'CFB']
+const SPORTS: CompetitionSport[] = ['NFL', 'NHL', 'NBA', 'CFB', 'MLB']
 export type LobbyFilter = 'POPULAR' | 'MONEYLINE' | 'SPREAD' | 'TOTAL' | 'PROPS' | 'ALL'
 
 const clock = (iso: string | null | undefined) => (iso
