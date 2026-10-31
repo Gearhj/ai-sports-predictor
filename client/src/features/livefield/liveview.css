@@ -581,3 +581,21 @@
 .ls-top--slim .ls-search { flex: 0 1 380px; }
 .ls-booth { font: 800 13px system-ui; color: #052e16; background: linear-gradient(180deg, #5eead4, #2dd4bf); border: 0; border-radius: 10px; padding: 8px 14px; cursor: pointer; }
 @media (max-width: 860px) { .hq.ls { grid-template-columns: 1fr; } }
+
+/* 10-31 tester launch: the scoreboard's team cell is ~207px when the attack map and the left rail share the row
+   (desktop) and 66px on a 375px phone, so the 76px logo + full name + 72px score overflowed and the score sat on the
+   team name. Each team cell is its own size container and scales logo, name and score to the width it has; on a
+   phone the clock drops under the two teams. */
+.sb__row .sb__team { container-type: inline-size; gap: clamp(5px, 3cqi, 14px); }
+.sb__row .sb__logo { width: clamp(28px, 19cqi, 76px); height: clamp(28px, 19cqi, 76px); flex: none; }
+.sb__row .sb__who { min-width: min-content; }
+.sb__row .sb__who b { font-size: clamp(15px, 10cqi, 32px); }
+.sb__row .sb__who span { font-size: clamp(10.5px, 5.2cqi, 15px); }
+.sb__row .sb__num { font-size: clamp(28px, 18cqi, 72px); flex: none; }
+@media (max-width: 560px) {
+  .sb__row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: 6px; }
+  .sb__row .sb__team { grid-row: 1; grid-column: 1; gap: 4px; }
+  .sb__row .sb__team.is-home { grid-column: 2; }
+  .sb__row .sb__mid { grid-row: 2; grid-column: 1 / -1; min-width: 0; }
+  .sb__row .sb__ball { font-size: 11px; }
+}
