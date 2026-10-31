@@ -26,6 +26,7 @@ import { useAuth } from '../../hooks/useAuth'
 import type { PreviewPick } from '../../services/previewPicks'
 import { useOpeners } from './openers'
 import './slate.css'
+import { GameSearch, matchesGame } from '../hq/GameSearch'
 
 type Sport = 'ALL' | SportCode
 type Tab = 'all' | 'live' | 'soon' | 'bets' | 'edges' | 'done'
@@ -116,7 +117,7 @@ export function SlatePage() {
   const open = useMemo(() => positions.filter((p) => resultOf(p) === 'OPEN').sort((a, b) => Date.parse(a.starts_at ?? '') - Date.parse(b.starts_at ?? '')), [positions])
   const settled = useMemo(() => positions.filter((p) => resultOf(p) !== 'OPEN' && p.settled_at).sort((a, b) => Date.parse(a.settled_at!) - Date.parse(b.settled_at!)), [positions])
   const picks = useMemo(() => new Map(dayGames.map((g) => [g.id, pickOf(g)])), [dayGames])
-  const matches = (g: PulseGame) => (sport === 'ALL' || g.sport === sport) && (!q.trim() || `${g.away.abbr} ${g.away.name} ${g.home.abbr} ${g.home.name}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const matches = (g: PulseGame) => (sport === 'ALL' || g.sport === sport) && matchesGame(g, q)
   const inTab = (g: PulseGame) => {
     const p = picks.get(g.id)
     switch (tab) {
@@ -153,7 +154,7 @@ export function SlatePage() {
       <div className="hq-main">
         <header className="sl-top">
           <div className="sl-title"><small>Games</small><h1>The Slate</h1><p>All games. Model forecasts. Real-time lines. Your edge.</p></div>
-          <label className="hq-search"><span className="lf-sr">Search</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams, players, games, or ask a question…" /></label>
+          <GameSearch games={dayGames} value={q} onChange={setQ} onOpen={openGame} />
           <span className="hq-date">
             <button type="button" aria-label="Previous day" onClick={() => setParams({ day: shiftDate(day, -1) })}>‹</button>
             <b>📅 {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${day}T12:00:00Z`))}</b>

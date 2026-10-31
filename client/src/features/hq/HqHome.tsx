@@ -25,6 +25,7 @@ import { removePick, usePreviewPicks } from '../../services/previewPicks'
 import '../slate/slate.css'
 import { TheDrop } from '../drop/TheDrop'
 import './home.css'
+import { GameSearch, matchesGame } from './GameSearch'
 
 type Sport = 'ALL' | SportCode
 const SPORTS: Array<{ key: SportCode; label: string; color: string; icon: string }> = [
@@ -99,7 +100,7 @@ export function HqHome() {
   const navigate = useNavigate()
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(t) }, [])
-  const dayGames = useMemo(() => pulse.games.filter((g) => g.day === day && (!q.trim() || `${g.away.abbr} ${g.away.name} ${g.home.abbr} ${g.home.name}`.toLowerCase().includes(q.trim().toLowerCase()))), [pulse.games, day, q])
+  const dayGames = useMemo(() => pulse.games.filter((g) => g.day === day && matchesGame(g, q)), [pulse.games, day, q])
   const live = useMemo(() => dayGames.filter(isLive), [dayGames])
   const counts = useMemo(() => { const m = new Map<string, number>(); for (const g of dayGames) m.set(g.sport, (m.get(g.sport) ?? 0) + 1); return m }, [dayGames])
   const picks = useMemo(() => new Map(dayGames.map((g) => [g.id, pickOf(g)])), [dayGames])
@@ -123,7 +124,7 @@ export function HqHome() {
       <AispSide />
       <div className="hq-main" id="main-content" role="main">
         <header className="hm-top">
-          <label className="hq-search"><span className="lf-sr">Search</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams, players, games, or ask a question…" /></label>
+          <GameSearch games={pulse.games.filter((g) => g.day === day)} value={q} onChange={setQ} onOpen={openGame} />
           <span className="hq-date"><button type="button" aria-label="Previous day" onClick={() => setParams({ day: shiftDate(day, -1) })}>‹</button><b>📅 {day === today ? 'Today, ' : ''}{new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${day}T12:00:00Z`))}</b><button type="button" aria-label="Next day" onClick={() => setParams({ day: shiftDate(day, 1) })}>›</button></span>
           <Link to="/mission-control" className="hq-bell" title="Alerts">🔔{live.length ? <i>{live.length}</i> : null}</Link>
           <Link to="/account" className="hq-avatar">JG</Link>
