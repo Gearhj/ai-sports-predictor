@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Required outside tests (see ``require_explicit_credentials``).
     secret_key: str = ""
     access_token_minutes: int = Field(default=60, ge=5, le=1440)
+    #: Security review 11-01: a token whose lifetime (exp - iat) exceeds this is refused on decode, whatever key signed
+    #: it. 720 keeps the 360-minute operator tokens working. The effective cap is never below access_token_minutes.
+    access_token_max_minutes: int = Field(default=720, ge=5, le=10_080)
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # Abuse controls. In-process only (non-distributed); a multi-instance public
@@ -63,10 +66,20 @@ class Settings(BaseSettings):
     #: lock that email out for the rest of the window, whatever IP the attempts come from.
     login_failure_limit: int = Field(default=5, ge=1, le=100)
     login_failure_window_seconds: int = Field(default=900, ge=60, le=86_400)
+    #: Security review 11-01: the hard lockout above is keyed on (email, client), so another tester cannot lock the
+    #: owner out. This looser per-account cap (same window) only turns further WRONG passwords into 429; a correct
+    #: password still signs in from any client that is not itself locked.
+    login_account_failure_limit: int = Field(default=30, ge=1, le=10_000)
     #: Who may create an account. "invite" (default): only an email on REGISTRATION_ALLOWLIST; "closed": nobody
     #: (the admin creates accounts); "open": anyone (never for a shared deployment).
     registration_mode: Literal["invite", "closed", "open"] = "invite"
     registration_allowlist: str = ""
+    #: Security review 11-01: bind registration to the Cloudflare Access identity. When true, /auth/register needs a
+    #: valid Cf-Access-Jwt-Assertion (RS256, verified against the team's JWKS) whose email equals the body email.
+    registration_require_access_identity: bool = False
+    cf_access_certs_url: str = "https://wild-mud-d39d.cloudflareaccess.com/cdn-cgi/access/certs"
+    cf_access_issuer: str = "https://wild-mud-d39d.cloudflareaccess.com"
+    cf_access_aud: str = "a5727f574ec000df83e1fdef285f4e0a9df8730e4b9fc892efa678c274992948"
     #: Host names this backend answers to (TrustedHostMiddleware). The public tunnel name is added at deploy time.
     trusted_hosts: str = "127.0.0.1,localhost,aisportspredictor.app"
     #: The Booth (paid language-model answers): signed-in users only, a per-user cap and a whole-site daily cap.

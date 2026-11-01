@@ -669,6 +669,9 @@ def _parse_stake(stake: Any, *, allow_zero: bool = False) -> Decimal:
     return value
 
 
+MAX_OPEN_DRAFTS = 200
+
+
 def save_draft(session: Session, *, participant_key: str, odds_snapshot_id: Any, stake: Any, actor: User,
                wager_id: Any = None, now: datetime | None = None) -> CompetitionWager:
     """Create or edit a draft. Drafts commit no money and may change freely."""
@@ -689,6 +692,12 @@ def save_draft(session: Session, *, participant_key: str, odds_snapshot_id: Any,
         if wager.status != WAGER_DRAFT:
             raise CompetitionError("LOCKED", "A submitted wager's terms are locked.")
     else:
+        # Security review 11-01: one participant cannot grow the drafts table without limit.
+        open_drafts = session.scalar(select(func.count()).select_from(CompetitionWager).where(
+            CompetitionWager.participant_id == participant.id, CompetitionWager.status == WAGER_DRAFT)) or 0
+        if open_drafts >= MAX_OPEN_DRAFTS:
+            raise CompetitionError("TOO_MANY_DRAFTS", f"You have {MAX_OPEN_DRAFTS} open drafts. Submit or discard "
+                                   "some before starting another.", 409, {"limit": MAX_OPEN_DRAFTS})
         wager = CompetitionWager(account_id=account.id, participant_id=participant.id, sport=sport,
                                  source=SOURCE_HUMAN, status=WAGER_DRAFT)
         session.add(wager)

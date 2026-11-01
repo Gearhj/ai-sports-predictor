@@ -15,30 +15,26 @@ from __future__ import annotations
 import html
 import json
 import re
-import threading
 import time
 import unicodedata
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
+from app.preview_feeds.bounded_cache import FEED_CACHE, cached_fetch, fetch_limit
+
 SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard"
 CORE = "https://sports.core.api.espn.com/v2/sports/mma"
-_cache: dict[str, tuple[float, object]] = {}
-_lock = threading.Lock()
 
 
 def _get(url: str, ttl: float):
-    now = time.time()
-    with _lock:
-        hit = _cache.get(url)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    with _lock:
-        _cache[url] = (now, data)
-    return data
+    """One ESPN read through the shared bounded cache (security review 11-01: the old dict never evicted)."""
+    def fetch():
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        return json.loads(raw.decode("utf-8")), len(raw)
+
+    return cached_fetch(FEED_CACHE, url, ttl, fetch)
 
 
 def _safe(url: str, ttl: float):
@@ -143,15 +139,15 @@ def _norm(name: str | None) -> str:
 def _ranks() -> dict:
     """UFC.com's official rankings: normalised division -> {"champion": name, "ranked": {name: rank}}.
     (ESPN's ranking feed is years stale, e.g. it still lists Sterling as bantamweight champion, so it is not used.)"""
-    now = time.time()
-    with _lock:
-        hit = _cache.get(RANKINGS)
-        if hit and now - hit[0] < 6 * 3600:
-            return hit[1]
+    hit = FEED_CACHE.get(RANKINGS, 6 * 3600)
+    if hit is not None:
+        return hit
+    now = FEED_CACHE.now()
     try:
         req = urllib.request.Request(RANKINGS, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            page = resp.read().decode("utf-8", "replace")
+        with fetch_limit(), urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        page = raw.decode("utf-8", "replace")
     except Exception:
         return {}
     out = {}
@@ -163,8 +159,7 @@ def _ranks() -> dict:
         names = re.findall(r"views-field-title[^>]*>\s*<a[^>]*>(.*?)</a>", group, re.S)
         out[_norm(div.group(1))] = {"champion": _norm(champ.group(1)) if champ else None,
                                     "ranked": {_norm(n): i + 1 for i, n in enumerate(names)}}
-    with _lock:
-        _cache[RANKINGS] = (now, out)
+    FEED_CACHE.set(RANKINGS, out, 6 * 3600, weight=len(raw), stored_at=now)
     return out
 
 

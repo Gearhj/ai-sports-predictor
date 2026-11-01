@@ -10,7 +10,7 @@ caller. Recomputing them on every navigation made pages wait seconds.
 
 WHAT IT DOES
 ------------
-For an allowlisted GET path (keyed by path + query):
+For an allowlisted GET path (keyed by path + its declared query parameters, see ``QUERY_PARAMS``):
 
 * fresh (younger than ``FRESH_SECONDS``): served from memory;
 * stale (up to ``MAX_STALE_SECONDS``): served from memory immediately, and one
@@ -67,6 +67,37 @@ ALLOWLIST: tuple[str, ...] = (
 #: per-person or price-live and stay uncached.
 EXACT: tuple[str, ...] = ("/house-divided",)
 
+#: The query parameters that key each cached read (security review 11-01: a raw query-string key let junk
+#: parameters force cold 6-12 s recomputes and evict warmed entries). Each list is exactly the query parameters the
+#: endpoint DECLARES (FastAPI ignores every other one, so dropping it from the key can never change the answer);
+#: ``test_security_20261101_platform`` fails if a cached route declares a parameter missing here. Keys are the path
+#: after the API prefix; a trailing "/" entry covers that prefix's sub-paths (path parameters).
+QUERY_PARAMS: dict[str, tuple[str, ...]] = {
+    "/public/config": (), "/sports/registry": (), "/sports/readiness": (),
+    "/today": ("date", "sport"), "/games/slate": ("date",), "/markets/board": ("date",),
+    "/bankroll": ("experiment",),
+    "/markets/rff": ("date", "league", "limit", "market"), "/markets/rff/": ("include_tape", "market"),
+    "/coverage/price-funnel": ("event_date", "league"), "/research/model-era": ("event_date",),
+    "/research/nfl-scorecard": (), "/research/model-performance": ("league", "test_data"),
+    "/research/model-performance/overview": ("forecast_type", "lead", "model", "sport", "test_data"),
+    "/research/wager-results": ("date_from", "date_to", "engine", "era", "sport"),
+    "/show-board": ("date",), "/show-board/game": ("date", "game_key"), "/show-board/contract": (),
+    "/experiment/comparison": (), "/experiment/funnel": ("days",),
+    "/experiment/qualification-funnel": ("date", "policy"),
+    "/nfl/markets/": (), "/nfl/weeks": (), "/nfl/weeks/": (),
+    "/prediction-markets/board": ("date", "sport"), "/mlb/totals": ("date", "overs_only", "scenario_line"),
+    "/slate-status": ("date", "timezone"),
+    "/command-center/ledger": (), "/command-center/decisions": ("date",), "/command-center/markets": ("date",),
+    "/command-center/replay": (), "/command-center/assessments": ("date",),
+    "/availability": ("date",), "/mission-control": ("date",), "/cfb/research": ("date",),
+    "/price-coverage": ("date",), "/house-divided": ("sport",),
+}
+#: At most this many cache computations (MISS, background refresh, warm) run at once. A MISS that finds every slot
+#: busy is served the last copy it has (labelled STALE, with its real age) or 503 + Retry-After instead of queueing
+#: another 6-12 s recompute on the database pool.
+MAX_CONCURRENT_COMPUTES = 6
+OVERLOAD_RETRY_AFTER_SECONDS = 5
+
 
 @dataclass
 class _Entry:
@@ -82,8 +113,14 @@ class ReadCache:
     entries: dict[str, _Entry] = field(default_factory=dict)
     refreshing: set[str] = field(default_factory=set)
     #: Synchronous (MISS) computations in flight, per key: concurrent misses share one.
-    inflight: dict[str, "asyncio.Future[_Entry | None]"] = field(default_factory=dict)
-    stats: dict[str, int] = field(default_factory=lambda: {"HIT": 0, "STALE": 0, "MISS": 0, "BYPASS": 0})
+    inflight: dict[str, "asyncio.Future[_Captured]"] = field(default_factory=dict)
+    stats: dict[str, int] = field(default_factory=lambda: {"HIT": 0, "STALE": 0, "MISS": 0, "BYPASS": 0,
+                                                           "OVERLOAD": 0})
+    #: Computations running now (bounded by ``MAX_CONCURRENT_COMPUTES``). This is the semaphore: it is taken
+    #: synchronously before a computation is scheduled, so the bound can never overshoot.
+    computing: int = 0
+    #: Keys the warmers keep; evicted only after every other entry.
+    warmed: set[str] = field(default_factory=set)
 
     def cacheable(self, scope: dict[str, Any]) -> bool:
         if scope.get("type") != "http" or scope.get("method") != "GET":
@@ -168,8 +205,52 @@ async def warm_mission_control_forever(prefix: str = "/api/v1") -> None:
         await asyncio.sleep(MISSION_WARM_EVERY_SECONDS)
 
 
-def _key(scope: dict[str, Any]) -> str:
-    return f"{scope.get('path')}?{scope.get('query_string', b'').decode('latin-1')}"
+def _allowed_params(rest: str) -> tuple[str, ...] | None:
+    """The declared query parameters for a path after the API prefix; None = unknown path (keep every one)."""
+
+    rest = rest.rstrip("/") or "/"
+    if rest in QUERY_PARAMS:
+        return QUERY_PARAMS[rest]
+    best = None
+    for prefix in QUERY_PARAMS:
+        if prefix.endswith("/") and rest.startswith(prefix) and (best is None or len(prefix) > len(best)):
+            best = prefix
+    return QUERY_PARAMS[best] if best is not None else None
+
+
+def normalized_query(scope: dict[str, Any], prefix: str = "/api/v1") -> str:
+    """The query string reduced to the endpoint's declared parameters, ordered by name (each name's values keep
+    their order, so "last value wins" is unchanged)."""
+
+    from urllib.parse import parse_qsl, urlencode
+
+    raw = scope.get("query_string", b"") or b""
+    if isinstance(raw, bytes):
+        raw = raw.decode("latin-1")
+    path = scope.get("path", "") or ""
+    rest = path[len(prefix):] if path.startswith(prefix) else path
+    allowed = _allowed_params(rest)
+    pairs = parse_qsl(raw, keep_blank_values=True)
+    if allowed is not None:
+        pairs = [(k, v) for k, v in pairs if k in allowed]
+    pairs.sort(key=lambda kv: kv[0])
+    return urlencode(pairs)
+
+
+def _key(scope: dict[str, Any], prefix: str | None = None) -> str:
+    if prefix is None:
+        prefix = ACTIVE.cache.prefix if ACTIVE is not None else "/api/v1"
+    return f"{scope.get('path')}?{normalized_query(scope, prefix)}"
+
+
+@dataclass
+class _Captured:
+    """One endpoint run, kept whole so a response that cannot be cached is still answered without running twice."""
+
+    status: int
+    headers: list[tuple[bytes, bytes]]
+    body: bytes
+    entry: "_Entry | None"
 
 
 class ReadCacheMiddleware:
@@ -191,30 +272,42 @@ class ReadCacheMiddleware:
         scope = self._scope_for(url)
         if not self.cache.cacheable(scope):
             return
-        key = _key(scope)
+        key = self._cache_key(scope)
+        self.cache.warmed.add(key)
         entry = self.cache.entries.get(key)
         if entry is not None and time.time() - entry.generated < FRESH_SECONDS or key in self.cache.refreshing:
             return
+        # The warmer waits (up to a minute) for a free slot rather than skipping, and takes only one.
+        for _ in range(120):
+            if self.cache.computing < MAX_CONCURRENT_COMPUTES:
+                break
+            await asyncio.sleep(0.5)
+        else:
+            return
+        if key in self.cache.refreshing:
+            return
         self.cache.refreshing.add(key)
+        self.cache.computing += 1
         try:
-            computed = await self._compute(scope)
-            if computed is not None:
-                self._store(key, computed)
+            computed = await self._compute(self._normalized_scope(scope))
+            if computed.entry is not None:
+                self._store(key, computed.entry)
         finally:
+            self.cache.computing -= 1
             self.cache.refreshing.discard(key)
 
     async def fetch_json(self, url: str) -> Any:
         import json
 
         await self.warm(url)
-        entry = self.cache.entries.get(_key(self._scope_for(url)))
+        entry = self.cache.entries.get(self._cache_key(self._scope_for(url)))
         return json.loads(entry.body) if entry else None
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if not self.cache.cacheable(scope):
             await self.app(scope, receive, send)
             return
-        key = _key(scope)
+        key = self._cache_key(scope)
         entry = self.cache.entries.get(key)
         now = time.time()
         rest = scope.get("path", "")[len(self.cache.prefix):]
@@ -222,22 +315,59 @@ class ReadCacheMiddleware:
         if entry is not None and now - entry.generated <= max_stale:
             fresh = now - entry.generated <= FRESH_SECONDS
             state = "HIT" if fresh else "STALE"
-            if not fresh and key not in self.cache.refreshing:
+            if (not fresh and key not in self.cache.refreshing
+                    and self.cache.computing < MAX_CONCURRENT_COMPUTES):
                 self.cache.refreshing.add(key)
-                asyncio.create_task(self._refresh(key, scope))
+                self.cache.computing += 1
+                asyncio.create_task(self._refresh(key, self._normalized_scope(scope)))
             self.cache.stats[state] += 1
             await self._send(entry, state, scope, send)
             return
-        computed = await self._compute_once(key, scope)
-        if computed is None:  # not cacheable after all (error, too large, streamed)
-            self.cache.stats["BYPASS"] += 1
-            await self.app(scope, receive, send)
+        if key not in self.cache.inflight and self.cache.computing >= MAX_CONCURRENT_COMPUTES:
+            # Every compute slot is busy: answer with the last copy (honestly aged) or ask the client to retry.
+            self.cache.stats["OVERLOAD"] += 1
+            if entry is not None:
+                await self._send(entry, "STALE", scope, send)
+            else:
+                await self._send_overloaded(send)
             return
-        self._store(key, computed)
+        computed = await self._compute_once(key, scope)
+        if computed.entry is None:  # not cacheable (error, too large): answer with the run already made
+            self.cache.stats["BYPASS"] += 1
+            await self._replay(computed, send)
+            return
+        self._store(key, computed.entry)
         self.cache.stats["MISS"] += 1
-        await self._send(computed, "MISS", scope, send)
+        await self._send(computed.entry, "MISS", scope, send)
 
-    async def _compute_once(self, key: str, scope: dict[str, Any]) -> _Entry | None:
+    def _cache_key(self, scope: dict[str, Any]) -> str:
+        return _key(scope, self.cache.prefix)
+
+    def _normalized_scope(self, scope: dict[str, Any]) -> dict[str, Any]:
+        """The scope the endpoint runs with: exactly the query the cache key names."""
+
+        inner = dict(scope)
+        inner["query_string"] = normalized_query(scope, self.cache.prefix).encode("latin-1")
+        return inner
+
+    @staticmethod
+    async def _send_overloaded(send: Any) -> None:
+        body = b'{"detail":"This page is busy. Please retry in a few seconds."}'
+        await send({"type": "http.response.start", "status": 503, "headers": [
+            (b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()),
+            (b"retry-after", str(OVERLOAD_RETRY_AFTER_SECONDS).encode()), (b"cache-control", b"no-store"),
+            (b"x-aisp-cache", b"OVERLOAD")]})
+        await send({"type": "http.response.body", "body": body})
+
+    @staticmethod
+    async def _replay(captured: "_Captured", send: Any) -> None:
+        headers = [(k, v) for k, v in captured.headers if k.lower() != b"content-length"]
+        headers.append((b"content-length", str(len(captured.body)).encode()))
+        headers.append((b"x-aisp-cache", b"BYPASS"))
+        await send({"type": "http.response.start", "status": captured.status or 500, "headers": headers})
+        await send({"type": "http.response.body", "body": captured.body})
+
+    async def _compute_once(self, key: str, scope: dict[str, Any]) -> "_Captured":
         """Single flight for a MISS: a hover prefetch and the page load (or two tabs) asking for the same
         uncached key share ONE computation instead of each building it. The body does not vary by caller
         (the cache keys by path + query only), so every waiter can be answered with it. A waiter that
@@ -245,10 +375,12 @@ class ReadCacheMiddleware:
 
         running = self.cache.inflight.get(key)
         if running is None:
-            running = asyncio.ensure_future(self._compute(scope))
+            self.cache.computing += 1           # the slot is taken before scheduling: the bound never overshoots
+            running = asyncio.ensure_future(self._compute(self._normalized_scope(scope)))
             self.cache.inflight[key] = running
 
-            def _done(task: "asyncio.Future[_Entry | None]", k: str = key) -> None:
+            def _done(task: "asyncio.Future[_Captured]", k: str = key) -> None:
+                self.cache.computing -= 1
                 if self.cache.inflight.get(k) is task:
                     self.cache.inflight.pop(k, None)
                 if not task.cancelled():
@@ -257,21 +389,26 @@ class ReadCacheMiddleware:
         return await asyncio.shield(running)
 
     async def _refresh(self, key: str, scope: dict[str, Any]) -> None:
+        """Background refresh of a stale entry; the caller already took its compute slot."""
+
         try:
             computed = await self._compute(scope)
-            if computed is not None:
-                self._store(key, computed)
+            if computed.entry is not None:
+                self._store(key, computed.entry)
         finally:
+            self.cache.computing -= 1
             self.cache.refreshing.discard(key)
 
     def _store(self, key: str, entry: _Entry) -> None:
         if len(self.cache.entries) >= MAX_ENTRIES and key not in self.cache.entries:
-            oldest = min(self.cache.entries, key=lambda k: self.cache.entries[k].generated)
+            # Entries the warmers keep go last, so a flood of new keys cannot push out the first viewports.
+            pool = [k for k in self.cache.entries if k not in self.cache.warmed] or list(self.cache.entries)
+            oldest = min(pool, key=lambda k: self.cache.entries[k].generated)
             self.cache.entries.pop(oldest, None)
         self.cache.entries[key] = entry
 
-    async def _compute(self, scope: dict[str, Any]) -> _Entry | None:
-        """Run the real endpoint with a private receive/send pair and capture it."""
+    async def _compute(self, scope: dict[str, Any]) -> "_Captured":
+        """Run the real endpoint with a private receive/send pair and capture it (``entry`` None = not cacheable)."""
 
         started = time.time()
         status = {"code": 0}
@@ -294,10 +431,10 @@ class ReadCacheMiddleware:
         await self.app(inner_scope, receive, capture)
         body = b"".join(chunks)
         if status["code"] != 200 or len(body) > MAX_BODY_BYTES:
-            return None
+            return _Captured(status=status["code"], headers=headers, body=body, entry=None)
         kept = [(k, v) for k, v in headers if k.lower() in (b"content-type",)]
-        return _Entry(body=body, headers=kept, generated=started,
-                      etag='"' + hashlib.sha1(body).hexdigest() + '"')
+        entry = _Entry(body=body, headers=kept, generated=started, etag='"' + hashlib.sha1(body).hexdigest() + '"')
+        return _Captured(status=200, headers=headers, body=body, entry=entry)
 
     async def _send(self, entry: _Entry, state: str, scope: dict[str, Any], send: Any) -> None:
         age = max(0, int(time.time() - entry.generated))

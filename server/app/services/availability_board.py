@@ -29,7 +29,8 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from app.nba.availability import (
-    ROLE_FREEZE, TRIGGER, _aware, _dump, _http_get, _minutes, _team_roles, _when, _write_once, normalize_status, root,
+    _ESPN_ID, ROLE_FREEZE, TRIGGER, _aware, _dump, _espn_id, _http_get, _minutes, _team_roles, _when, _write_once,
+    normalize_status, root,
 )
 
 ET = ZoneInfo("America/New_York")
@@ -121,7 +122,14 @@ def _box_dir(lg: str) -> str:
     return "box2" if lg == "NHL" else "box"
 
 
+def _safe_id(value: Any) -> bool:
+    """Security review 11-01: ESPN ids become .runtime path segments; only ASCII letters and digits may."""
+    return bool(_ESPN_ID.fullmatch(str(value)))
+
+
 def _nhl_skaters(out: Path, team_id: str, freeze: datetime, listed: set[str]) -> dict[str, Any]:
+    if not _safe_id(team_id):
+        return {"state": "ROLE_UNKNOWN", "reason": "BAD_TEAM_ID"}
     files = sorted((out / "schedules" / team_id).glob("*.json")) if (out / "schedules" / team_id).exists() else []
     if not files:
         return {"state": "ROLE_UNKNOWN", "reason": "NO_TEAM_SCHEDULE_HELD"}
@@ -133,6 +141,8 @@ def _nhl_skaters(out: Path, team_id: str, freeze: datetime, listed: set[str]) ->
     names: dict[str, str] = {}
     recent: set[str] = set()
     for k, e in enumerate(done):
+        if not _safe_id(e.get("id")):
+            return {"state": "ROLE_UNKNOWN", "reason": "BAD_EVENT_ID"}
         p = out / "box2" / f"{e['id']}.json"
         if not p.exists():
             return {"state": "ROLE_UNKNOWN", "reason": "BOX_SCORE_NOT_HELD"}
@@ -193,6 +203,8 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
                 comp = (ev.get("competitions") or [{}])[0]
                 state = ((comp.get("status") or {}).get("type") or {}).get("state")
                 eid = str(ev.get("id"))
+                if not _safe_id(eid):
+                    stats["failures"].append(f"{lg} scoreboard {d}: bad event id"); continue
                 index[eid] = {"name": ev.get("name"), "starts_at": ev.get("date"), "state": state,
                               "teams": {c.get("homeAway"): {"espn_team_id": str((c.get("team") or {}).get("id")), "abbreviation": (c.get("team") or {}).get("abbreviation")} for c in comp.get("competitors") or []}}
                 if start is None or state != "pre" or not (moment < start <= moment + AHEAD):
@@ -201,7 +213,8 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
                 latest = max((p.stat().st_mtime for p in folder.glob("*.json")), default=None) if folder.exists() else None
                 need = FRESH_NEAR if start - moment <= NEAR else FRESH_FAR
                 for side in index[eid]["teams"].values():
-                    teams.add(side["espn_team_id"])
+                    if _safe_id(side["espn_team_id"]):
+                        teams.add(side["espn_team_id"])
                 if latest is not None and moment.timestamp() - latest < need.total_seconds() - 30:
                     continue
                 url = f"{BASE}/{cfg['path']}/summary?event={eid}"
@@ -226,6 +239,7 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
         stamp = f"{moment.strftime('%Y%m%d')}-{moment.hour // 4}"
         for tid in sorted(teams):
             try:
+                tid = _espn_id(tid)
                 if cfg["role"] in ("minutes", "nhl"):
                     sched_path = out / "schedules" / tid / f"{stamp}.json"
                     if not sched_path.exists():
@@ -233,6 +247,8 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
                         _write_once(sched_path, _dump({"team": tid, "events": [{"id": str(e.get("id")), "date": e.get("date"),
                                     "completed": bool((((e.get("competitions") or [{}])[0].get("status") or {}).get("type") or {}).get("completed"))} for e in sched.get("events") or []]}))
                     for e in json.loads(sched_path.read_bytes()).get("events") or []:
+                        if not _safe_id(e.get("id")):
+                            continue
                         box_path = out / _box_dir(lg) / f"{e['id']}.json"
                         if e.get("completed") and not box_path.exists():
                             box = parse_box(fetch_json(f"{BASE}/{cfg['path']}/summary?event={e['id']}"), event_id=e["id"])
@@ -265,6 +281,8 @@ def _latest(folder: Path, moment: datetime) -> dict[str, Any] | None:
 
 
 def _nhl_goalie(out: Path, team_id: str, freeze: datetime) -> dict[str, Any] | None:
+    if not _safe_id(team_id):
+        return None
     files = sorted((out / "schedules" / team_id).glob("*.json")) if (out / "schedules" / team_id).exists() else []
     if not files:
         return None
@@ -272,6 +290,8 @@ def _nhl_goalie(out: Path, team_id: str, freeze: datetime) -> dict[str, Any] | N
                   key=lambda e: e.get("date") or "")[-5:]
     starts: dict[str, list[Any]] = {}
     for e in done:
+        if not _safe_id(e.get("id")):
+            return None
         p = out / "box2" / f"{e['id']}.json"
         if not p.exists():
             return None
@@ -286,7 +306,7 @@ def _nhl_goalie(out: Path, team_id: str, freeze: datetime) -> dict[str, Any] | N
 
 def game_view(settings: Any, lg: str, eid: str, meta: dict[str, Any], moment: datetime) -> dict[str, Any]:
     out = _lg_root(settings, lg)
-    snap = _latest(out / "snapshots" / eid, moment)
+    snap = _latest(out / "snapshots" / eid, moment) if _safe_id(eid) else None
     view: dict[str, Any] = {"league": lg, "espn_event_id": eid, "name": meta.get("name"), "starts_at": meta.get("starts_at"),
                             "teams": {}, "state": "UNKNOWN", "reason": "NO_SNAPSHOT_HELD"}
     if snap is None:
@@ -314,7 +334,7 @@ def game_view(settings: Any, lg: str, eid: str, meta: dict[str, Any], moment: da
                 g = _nhl_goalie(out, str(tid), freeze)
                 if g: keys.append(g)
         elif role == "qb":
-            files = sorted((out / "depth" / str(tid)).glob("*.json")) if (out / "depth" / str(tid)).exists() else []
+            files = sorted((out / "depth" / str(tid)).glob("*.json")) if _safe_id(tid) and (out / "depth" / str(tid)).exists() else []
             q = json.loads(files[-1].read_bytes()).get("qb1") if files else None
             if q: keys = [{**q, "role": "QB1"}]
             else: known = False

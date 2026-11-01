@@ -36,6 +36,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
@@ -53,6 +54,18 @@ SNAPSHOT_MAX_AGE = timedelta(minutes=45)
 COLLECT_AHEAD = timedelta(hours=8)
 TRIGGER = frozenset({"OUT", "DOUBTFUL", "QUESTIONABLE"})
 TIMEOUT = 15.0
+# Security review 11-01: ESPN ids (game, team, event) become .runtime path segments. Real ESPN ids are 1-12 digits;
+# the check admits only ASCII letters and digits (no ".", separators, drive colons or whitespace), so no id can leave
+# its folder. Letters are allowed because the test fixtures use synthetic ids such as "e1".
+_ESPN_ID = re.compile(r"[A-Za-z0-9]{1,24}", re.ASCII)
+
+
+def _espn_id(value: Any) -> str:
+    """The id as a safe path segment, or ValueError (never "..", a separator or a drive)."""
+    text = str(value)
+    if not _ESPN_ID.fullmatch(text):
+        raise ValueError("not a safe ESPN id")
+    return text
 
 
 def _aware(value: datetime) -> datetime:
@@ -204,23 +217,24 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
     boxes = 0
     teams: set[str] = set()
     for g in games:
-        url = f"{BASE}/summary?event={g['espn_game_id']}"
         try:
+            gid = _espn_id(g["espn_game_id"])
+            url = f"{BASE}/summary?event={gid}"
             raw = get(url); requests += 1
             observed = datetime.now(UTC) if now is None else moment
             snap = parse_snapshot(json.loads(raw), espn_game_id=g["espn_game_id"], observed_at=observed, url=url)
             data = _dump(snap)
             sha = hashlib.sha256(data).hexdigest()
-            _write_once(out / "snapshots" / g["espn_game_id"] / f"{observed.strftime('%Y%m%dT%H%M%SZ')}_{sha[:16]}.json", data)
+            _write_once(out / "snapshots" / gid / f"{observed.strftime('%Y%m%dT%H%M%SZ')}_{sha[:16]}.json", data)
             snapshots += 1
-            teams.update(t["espn_team_id"] for t in snap["teams"].values() if t.get("espn_team_id"))
+            teams.update(str(t["espn_team_id"]) for t in snap["teams"].values() if t.get("espn_team_id"))
         except Exception as error:  # noqa: BLE001 - reported, never raised
             failures.append(f"summary {g['espn_game_id']}: {type(error).__name__}")
     # The schedule is re-read every 4 hours, so last night's late finish is never missed for long.
     day = f"{moment.strftime('%Y%m%d')}-{moment.hour // 4}"
     for tid in sorted(teams):
-        sched_path = out / "schedules" / tid / f"{day}.json"
         try:
+            sched_path = out / "schedules" / _espn_id(tid) / f"{day}.json"
             if sched_path.exists():
                 sched = json.loads(sched_path.read_bytes())
             else:
@@ -235,10 +249,13 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
             for e in sched.get("events") or []:
                 if not e.get("completed"):
                     continue
-                box_path = out / "box" / f"{e['id']}.json"
+                if not _ESPN_ID.fullmatch(str(e.get("id"))):
+                    failures.append(f"team {tid}: bad event id"); continue
+                eid = str(e["id"])
+                box_path = out / "box" / f"{eid}.json"
                 if box_path.exists():
                     continue
-                box = parse_box(json.loads(get(f"{BASE}/summary?event={e['id']}")), espn_event_id=e["id"]); requests += 1
+                box = parse_box(json.loads(get(f"{BASE}/summary?event={eid}")), espn_event_id=eid); requests += 1
                 if box["completed"]:
                     box["held_at_utc"] = datetime.now(UTC).isoformat()
                     _write_once(box_path, _dump(box)); boxes += 1
@@ -250,7 +267,10 @@ def collect(session: Any, settings: Any, *, now: datetime | None = None,
 
 # ------------------------------------------------------------------- assess --
 def _latest_snapshot(out: Path, espn_game_id: str, moment: datetime) -> dict[str, Any] | None:
-    folder = out / "snapshots" / espn_game_id
+    try:
+        folder = out / "snapshots" / _espn_id(espn_game_id)
+    except ValueError:
+        return None  # fails closed: NO_AVAILABILITY_SNAPSHOT_HELD
     if not folder.exists():
         return None
     best = None
@@ -270,7 +290,10 @@ def _latest_snapshot(out: Path, espn_game_id: str, moment: datetime) -> dict[str
 
 
 def _team_roles(out: Path, team_id: str, freeze: datetime, listed: set[str]) -> dict[str, Any]:
-    sched_dir = out / "schedules" / team_id
+    try:
+        sched_dir = out / "schedules" / _espn_id(team_id)
+    except ValueError:
+        return {"state": "ROLE_UNKNOWN", "reason": "BAD_TEAM_ID"}
     files = sorted(sched_dir.glob("*.json")) if sched_dir.exists() else []
     if not files:
         return {"state": "ROLE_UNKNOWN", "reason": "NO_TEAM_SCHEDULE_HELD"}
@@ -283,7 +306,10 @@ def _team_roles(out: Path, team_id: str, freeze: datetime, listed: set[str]) -> 
     names: dict[str, str] = {}
     recent: set[str] = set()
     for k, e in enumerate(done):
-        p = out / "box" / f"{e['id']}.json"
+        try:
+            p = out / "box" / f"{_espn_id(e['id'])}.json"
+        except ValueError:
+            return {"state": "ROLE_UNKNOWN", "reason": "BAD_EVENT_ID", "games": len(done)}
         if not p.exists():
             return {"state": "ROLE_UNKNOWN", "reason": "BOX_SCORE_NOT_HELD", "event": e["id"], "games": len(done)}
         box = json.loads(p.read_bytes())

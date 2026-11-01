@@ -13,9 +13,10 @@ as INVALID (trained on flipped labels); `elo_fixed_a` is a transparent Elo on th
 1500 start, every fight rated only from strictly earlier dates).
 """
 import csv
-import importlib.util
+import hashlib
 import json
 import pathlib
+import types
 
 HANDOFF = pathlib.Path(r"C:\Users\james\asp-model-studio\outputs\mma-historical-product-handoff-20261009-v1")
 OVERLAY = HANDOFF / "display-identities-v1" / "DISPLAY_IDENTITIES.json"
@@ -35,10 +36,37 @@ def _i(v):
     return None if x is None else int(x)
 
 
+# Security review 11-01: the handoff's loader is code from another checkout, run on an unauthenticated GET. It is
+# pinned: the bytes executed must hash to what was reviewed on 2026-11-01, and so must CONTRACT.json (which in turn
+# pins every data file by sha256 and size inside load_handoff). Any change fails closed: build() raises, the route
+# answers 502 and the MMA page shows "The UFC archive could not be read". Re-pin only after reviewing the new file.
+PINNED_SHA256 = {
+    "read_handoff.py": "0256d54a982d8868b16254d18438db5ee5fa0e51a0db55c3e31b6bb4198be7d0",
+    "CONTRACT.json": "ae33cb4b79f80b51b465de2c9cc8bb5204eee613f04fd920bd4d0774c4dac0af",
+}
+
+
+class HandoffPinError(RuntimeError):
+    """A pinned handoff file is missing or its bytes changed since review."""
+
+
+def _pinned_bytes(name: str) -> bytes:
+    try:
+        data = (HANDOFF / name).read_bytes()
+    except OSError as exc:
+        raise HandoffPinError(f"{name} is unreadable") from exc
+    if hashlib.sha256(data).hexdigest() != PINNED_SHA256[name]:
+        raise HandoffPinError(f"{name} does not match its pinned sha256")
+    return data
+
+
 def _loader():
-    spec = importlib.util.spec_from_file_location("mma_historical_handoff", HANDOFF / "read_handoff.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    _pinned_bytes("CONTRACT.json")
+    source = _pinned_bytes("read_handoff.py")
+    # Execute exactly the bytes that were hashed (no second read from disk, no stale __pycache__).
+    mod = types.ModuleType("mma_historical_handoff")
+    mod.__file__ = str(HANDOFF / "read_handoff.py")
+    exec(compile(source, mod.__file__, "exec"), mod.__dict__)  # noqa: S102 - pinned, reviewed source
     return mod.load_handoff(HANDOFF, include_outcomes=True)  # explicit historical-results view
 
 

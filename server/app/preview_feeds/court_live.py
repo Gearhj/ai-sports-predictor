@@ -7,23 +7,24 @@ import json
 import time
 import urllib.request
 
+from app.preview_feeds.bounded_cache import FEED_CACHE, cached_fetch
+
 BASE = "https://site.api.espn.com/apis/site/v2/sports"
 PATH = {"nba": "basketball/nba", "nhl": "hockey/nhl"}
 # AISP abbreviations -> ESPN's
 ALIAS = {"nba": {"CHO": "CHA", "PHO": "PHX", "GSW": "GS", "NOP": "NO", "BRK": "BKN", "NYK": "NY", "SAS": "SA", "UTA": "UTAH", "WAS": "WSH"},
          "nhl": {"TBL": "TB", "UTA": "UTAH", "LAK": "LA", "NJD": "NJ", "SJS": "SJ", "VEG": "VGK"}}
-_cache: dict = {}
 
 
 def _get(url: str, ttl: float):
-    hit = _cache.get(url)
-    if hit and time.time() - hit[0] < ttl:
-        return hit[1]
-    req = urllib.request.Request(url, headers={"User-Agent": "Python-urllib/3.12", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=12) as r:
-        data = json.loads(r.read().decode("utf-8"))
-    _cache[url] = (time.time(), data)
-    return data
+    """One ESPN read through the shared bounded cache (security review 11-01: the old dict never evicted)."""
+    def fetch():
+        req = urllib.request.Request(url, headers={"User-Agent": "Python-urllib/3.12", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            raw = r.read()
+        return json.loads(raw.decode("utf-8")), len(raw)
+
+    return cached_fetch(FEED_CACHE, url, ttl, fetch)
 
 
 def _n(v) -> str:

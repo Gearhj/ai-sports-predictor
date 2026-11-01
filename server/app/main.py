@@ -185,6 +185,11 @@ def create_app(settings=None) -> FastAPI:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
+    # LAST, so it is the outermost user middleware: an oversized POST is refused (413) before CORS, the cache or
+    # any route reads and parses it on the event loop (security review 11-01).
+    from app.core.body_limit import BodyLimitMiddleware
+
+    application.add_middleware(BodyLimitMiddleware, api_prefix=settings.api_v1_prefix)
     application.include_router(router, prefix=settings.api_v1_prefix)
     application.include_router(house_divided_router, prefix=settings.api_v1_prefix)
     from app.api.feedback_routes import router as feedback_router

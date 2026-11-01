@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -1274,11 +1274,21 @@ def application_health(session: DatabaseSession, user: AdminUser) -> dict:
     tags=["authentication"],
     dependencies=[Depends(rate_limit("auth:register", category="auth"))],
 )
-def register(body: RegisterRequest, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
+def register(body: RegisterRequest, request: Request, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
     from app.services.auth_service import RegistrationClosedError
 
+    # Security review 11-01: prove ownership of the invited email with the SIGNED Cloudflare Access assertion only
+    # (never the plain Cf-Access-Authenticated-User-Email header). Verified only when the setting asks for it.
+    verified_email = None
+    if settings.registration_require_access_identity:
+        from app.core.access_identity import ASSERTION_HEADER, verified_access_email
+
+        verified_email = verified_access_email(request.headers.get(ASSERTION_HEADER), settings)
     try:
-        return register_user(session, settings, body.email, body.password, body.display_name)
+        return register_user(
+            session, settings, body.email, body.password, body.display_name,
+            verified_access_email=verified_email,
+        )
     except RegistrationClosedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except DuplicateEmailError as exc:
@@ -1291,23 +1301,32 @@ def register(body: RegisterRequest, session: DatabaseSession, settings: AppSetti
     tags=["authentication"],
     dependencies=[Depends(rate_limit("auth:login", category="auth"))],
 )
-def login(body: LoginRequest, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
-    # Per-account lockout (security review 10-27): failures are counted per email, so rotating IPs cannot keep
-    # guessing one account's password. A success clears the count.
-    from app.core.rate_limit import get_rate_limiter
+def login(body: LoginRequest, request: Request, session: DatabaseSession, settings: AppSettings) -> AuthResponse:
+    # Lockout (security review 10-27, re-keyed 11-01). The HARD lockout is keyed on (email, client): one client's
+    # wrong guesses lock only that client out of that account, so another tester cannot lock the owner out. A
+    # looser per-account cap (any client) is consulted only AFTER a failed verification, so it slows distributed
+    # guessing without ever refusing a correct password. A success clears only this client's count.
+    from app.core.rate_limit import _client_key, get_rate_limiter
 
-    account = f"login-fail:{body.email.strip().lower()}"
+    email = body.email.strip().lower()
+    window = settings.login_failure_window_seconds
+    client_lock = f"login-fail:{email}:{_client_key(request, settings)}"
+    account_cap = f"login-fail-account:{email}"
     limiter = get_rate_limiter()
-    if settings.rate_limit_enabled and limiter.count(account, settings.login_failure_window_seconds) >= settings.login_failure_limit:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                            detail="Too many failed sign-ins for this account. Try again in 15 minutes.")
+    too_many = HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                             detail="Too many failed sign-ins for this account. Try again in 15 minutes.")
+    if settings.rate_limit_enabled and limiter.count(client_lock, window) >= settings.login_failure_limit:
+        raise too_many
     try:
         response = authenticate_user(session, settings, body.email, body.password)
     except AuthenticationError as exc:
         if settings.rate_limit_enabled:
-            limiter.record(account)
+            limiter.record(client_lock)
+            limiter.record(account_cap)
+            if limiter.count(account_cap, window) > settings.login_account_failure_limit:
+                raise too_many from exc
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-    limiter.clear(account)
+    limiter.clear(client_lock)
     return response
 
 
@@ -1866,8 +1885,10 @@ def slate_status_endpoint(
 
 
 @router.get("/provider-budget", tags=["operations"])
-def provider_budget(session: DatabaseSession) -> dict:
+def provider_budget(session: DatabaseSession, user: AdminUser) -> dict:
     """The shared provider allocation, and what it can actually cover.
+
+    Admin only (security review 11-01): it discloses the SportsGameOdds plan and allowance, and no page calls it.
 
     One budget for every SportsGameOdds consumer, planned against the account's
     own reported balance rather than a local guess, with each lane's share and

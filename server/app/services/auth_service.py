@@ -39,13 +39,41 @@ class RegistrationClosedError(Exception):
     pass
 
 
-def register_user(session: Session, settings: Settings, email: str, password: str, display_name: str) -> AuthResponse:
+#: One message for "not invited" and "invited but not proven to own the email" (security review 11-01), so the
+#: response never tells a caller which emails are on the invitation list.
+REGISTRATION_REFUSED_MESSAGE = (
+    "Registration is by invitation and must be completed while signed in through the tester gate "
+    "with the invited email. Ask the owner to add your email."
+)
+
+
+def register_user(
+    session: Session,
+    settings: Settings,
+    email: str,
+    password: str,
+    display_name: str,
+    *,
+    verified_access_email: str | None = None,
+) -> AuthResponse:
+    """Create a member account.
+
+    ``verified_access_email`` is the email from a VERIFIED Cloudflare Access assertion (see
+    ``app.core.access_identity``), or ``None`` when there was none. When
+    ``registration_require_access_identity`` is on, it must equal the body email.
+    """
+
     normalized_email = email.strip().lower()
     mode = getattr(settings, "registration_mode", "invite")
     # Security review 10-27: a shared deployment never lets strangers in. "invite" admits only an email the owner
     # listed; one account per email makes each invitation single-use.
     if mode == "closed" or (mode == "invite" and normalized_email not in settings.registration_allowlist_set):
-        raise RegistrationClosedError("Registration is by invitation. Ask the owner to add your email.")
+        raise RegistrationClosedError(REGISTRATION_REFUSED_MESSAGE)
+    # Security review 11-01 (invite squatting): the allowlist alone is no proof that the caller owns the email.
+    if getattr(settings, "registration_require_access_identity", False):
+        proven = (verified_access_email or "").strip().lower()
+        if not proven or proven != normalized_email:
+            raise RegistrationClosedError(REGISTRATION_REFUSED_MESSAGE)
     existing = session.scalar(select(User).where(func.lower(User.email) == normalized_email))
     if existing:
         raise DuplicateEmailError("This invitation has already been used. Sign in instead.")
@@ -67,10 +95,10 @@ def authenticate_user(session: Session, settings: Settings, email: str, password
     user = session.scalar(select(User).where(func.lower(User.email) == normalized_email))
     encoded = user.password_hash if user else _DUMMY_PASSWORD_HASH
     password_valid = verify_password(password, encoded)
-    if not user or not password_valid:
+    # Security review 11-01: an inactive account gets the same generic failure as a wrong password, whatever
+    # password was sent, so the response never reveals whether a password was right.
+    if not user or not password_valid or user.status != UserStatus.ACTIVE:
         raise AuthenticationError("Invalid email or password")
-    if user.status != UserStatus.ACTIVE:
-        raise AuthenticationError("Account is not active")
     user.last_login_at = datetime.now(UTC)
     session.commit()
     return _auth_response(user, settings)

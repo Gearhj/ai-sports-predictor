@@ -33,9 +33,10 @@ import re
 import winreg
 from collections import deque
 
+from app.preview_feeds.bounded_cache import FEED_CACHE, cached_fetch
+
 STATS = "https://statsapi.mlb.com/api"
 HEADSHOT = "https://img.mlbstatic.com/mlb-photos/image/upload/w_213,ar_1:1,c_fill,g_face,q_auto:best/v1/people/{pid}/headshot/67/current"
-_cache: dict = {}
 BOOTH_MODEL = "claude-haiku-5-5"
 BOOTH_MAX_TOKENS = 200
 BOOTH_RATE = deque(maxlen=30)  # timestamps of the last 30 questions (max 30 / 5 min)
@@ -54,15 +55,14 @@ def _anthropic_key():
 
 
 def _fetch_json(url: str, ttl: float):
-    now = time.time()
-    hit = _cache.get(url)
-    if hit and now - hit[0] < ttl:
-        return hit[1]
-    req = urllib.request.Request(url, headers={"User-Agent": "Python-urllib/3.12"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    _cache[url] = (now, data)
-    return data
+    """One provider read through the shared bounded cache (security review 11-01: the old dict never evicted)."""
+    def fetch():
+        req = urllib.request.Request(url, headers={"User-Agent": "Python-urllib/3.12"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+        return json.loads(raw.decode("utf-8")), len(raw)
+
+    return cached_fetch(FEED_CACHE, url, ttl, fetch)
 
 
 def _person(node):

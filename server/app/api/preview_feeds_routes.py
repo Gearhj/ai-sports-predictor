@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import re
 import threading
-from datetime import datetime
+from datetime import date as date_cls
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,26 +27,74 @@ router = APIRouter(prefix="/preview-api", include_in_schema=False)
 
 # Security review 10-27: values that reach provider URLs are validated (a date, a team code or name), and the
 # research window is clamped, so a query string cannot reshape an outbound request or force a huge scan.
-_DATE = re.compile(r"^(\d{8}|\d{4}-\d{2}-\d{2})$")
-_TEAM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .&'()-]{0,39}$")
+# Security review 11-01: fullmatch (a "$" anchor let a trailing newline through), and a date must be a real calendar
+# day between 2015-01-01 and 30 days from now. The window is wide on purpose: Live View and Game Center open old,
+# finished games; it only stops a caller from walking the provider's calendar without end.
+_DATE = re.compile(r"(\d{8}|\d{4}-\d{2}-\d{2})", re.ASCII)
+_TEAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .&'()-]{0,39}")
+EARLIEST_DATE = date_cls(2015, 1, 1)
+FUTURE_DAYS = 30
+
+
+def _date_ok(value: str) -> bool:
+    if not _DATE.fullmatch(value):
+        return False
+    try:
+        day = datetime.strptime(value.replace("-", ""), "%Y%m%d").date()
+    except ValueError:  # 20261340, 2026-02-30
+        return False
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    return EARLIEST_DATE <= day <= today + timedelta(days=FUTURE_DAYS)
 
 
 def _bad(**values: str) -> str | None:
     for key, value in values.items():
         if not value:
             continue
-        if key == "date" and not _DATE.match(value):
-            return "date must be YYYYMMDD or YYYY-MM-DD"
-        if key != "date" and not _TEAM.match(value):
+        if key == "date" and not _date_ok(value):
+            return f"date must be a real day (YYYYMMDD or YYYY-MM-DD) from {EARLIEST_DATE:%Y-%m-%d} to {FUTURE_DAYS} days ahead"
+        if key != "date" and not _TEAM.fullmatch(value):
             return f"{key} must be a team code or name"
     return None
+
+
+def _feed_limit(name: str, per_minute: int):
+    """Per-client sliding-window budget for one unauthenticated feed (security review 11-01).
+
+    The shared "compute" category (30/min) is too tight for the site's own polling: Game Night reads /scores every
+    20 s per league and Alerts every 45 s per league, Live Views poll every 10 s, the Slate polls every live football
+    game every 30 s, and a tester may keep several tabs open. Each feed therefore gets its own budget, sized at
+    several times one heavy user's polling, on the same limiter, client key and kill switch as rate_limit()."""
+    from fastapi import HTTPException, status
+
+    from app.core.rate_limit import _client_key, get_rate_limiter
+
+    def dependency(request: Request, settings: AppSettings) -> None:
+        if not settings.rate_limit_enabled:
+            return
+        try:
+            retry = get_rate_limiter().check(f"feeds:{name}:{_client_key(request, settings)}", limit=per_minute,
+                                             window_seconds=60.0)
+        except Exception:  # noqa: BLE001 - an availability control fails open, like rate_limit()
+            return
+        if retry is not None:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                                detail="Too many requests. Please slow down and retry shortly.",
+                                headers={"Retry-After": str(int(retry) + 1)})
+
+    return Depends(dependency)
+
+
+# Requests per minute per client. One heavy user (several tabs) stays well under each.
+FEED_LIMITS = {"mlb": 120, "football": 180, "scores": 240, "arena_live": 120, "ufc_card": 30, "ufc_bout": 90,
+               "logos": 30, "arena_league": 90}
 
 
 def _json(obj: Any, status: int = 200) -> JSONResponse:
     return JSONResponse(obj, status_code=status, headers={"Cache-Control": "no-store"})
 
 
-@router.get("/mlb/live")
+@router.get("/mlb/live", dependencies=[_feed_limit("mlb", FEED_LIMITS["mlb"])])
 async def mlb_live(date: str = "", home: str = "", away: str = "") -> JSONResponse:
     from app.preview_feeds import feeds
 
@@ -60,7 +109,7 @@ async def mlb_live(date: str = "", home: str = "", away: str = "") -> JSONRespon
         return _json({"source": "MLB_STATS_API", "found": False, "reason": f"MLB Stats API unavailable: {type(exc).__name__}"}, 502)
 
 
-@router.get("/football/live")
+@router.get("/football/live", dependencies=[_feed_limit("football", FEED_LIMITS["football"])])
 async def football_live(date: str = "", league: str = "nfl", home: str = "", home_name: str = "", away: str = "",
                         away_name: str = "", lite: str = "") -> JSONResponse:
     from app.preview_feeds import feeds
@@ -85,7 +134,7 @@ async def football_live(date: str = "", league: str = "nfl", home: str = "", hom
     return _json(data)
 
 
-@router.get("/logos/cfb")
+@router.get("/logos/cfb", dependencies=[_feed_limit("logos", FEED_LIMITS["logos"])])
 async def cfb_logos() -> JSONResponse:
     from app.preview_feeds import feeds
 
@@ -109,7 +158,7 @@ async def cfb_logos() -> JSONResponse:
         return _json({"source": "ESPN", "teams": [], "reason": type(exc).__name__}, 502)
 
 
-@router.get("/scores")
+@router.get("/scores", dependencies=[_feed_limit("scores", FEED_LIMITS["scores"])])
 async def scores(league: str = "", date: str = "") -> JSONResponse:
     from app.preview_feeds import court_live
 
@@ -216,7 +265,7 @@ async def arena_sync(request: Request, user: CurrentUser, settings: AppSettings)
     return _json(out, status)
 
 
-@router.get("/arena/league")
+@router.get("/arena/league", dependencies=[_feed_limit("arena_league", FEED_LIMITS["arena_league"])])
 async def arena_league_board(user: CurrentUser, settings: AppSettings) -> JSONResponse:
     """Every player's calls; a rival's side stays hidden until you lock the same game or it starts."""
     from app.preview_feeds import arena_league
@@ -224,7 +273,7 @@ async def arena_league_board(user: CurrentUser, settings: AppSettings) -> JSONRe
     return _json(await run_in_threadpool(arena_league.league, arena_league.store_path(settings), str(user.id)))
 
 
-@router.get("/arena/live")
+@router.get("/arena/live", dependencies=[_feed_limit("arena_live", FEED_LIMITS["arena_live"])])
 async def arena_live(league: str = "", date: str = "", home: str = "", away: str = "") -> JSONResponse:
     from app.preview_feeds import court_live
 
@@ -248,7 +297,7 @@ async def ufc_archive() -> JSONResponse:
         return _json({"error": f"UFC archive unavailable: {type(exc).__name__}"}, 502)
 
 
-@router.get("/ufc/card")
+@router.get("/ufc/card", dependencies=[_feed_limit("ufc_card", FEED_LIMITS["ufc_card"])])
 async def ufc_card(date: str = "", card: str = "") -> JSONResponse:
     """This weekend's UFC card (or the last finished one): ESPN public feeds + UFC.com rankings, read-only."""
     from app.preview_feeds import ufc_card as feed
@@ -261,7 +310,7 @@ async def ufc_card(date: str = "", card: str = "") -> JSONResponse:
         return _json({"found": False, "reason": f"ESPN unavailable: {type(exc).__name__}"}, 502)
 
 
-@router.get("/ufc/bout")
+@router.get("/ufc/bout", dependencies=[_feed_limit("ufc_bout", FEED_LIMITS["ufc_bout"])])
 async def ufc_bout(event: str = "", comp: str = "", a: str = "", b: str = "") -> JSONResponse:
     """One fight: official fight stats (live while it is on), ESPN's timeline and the judges' scores."""
     from app.preview_feeds import ufc_card as feed
