@@ -191,7 +191,7 @@ function Start-Backend {
      The child is launched through cmd.exe with `2>&1` so stdout and stderr
      arrive as ONE stream that can be read synchronously. Reading both streams
      of a bare process from a single thread deadlocks when either pipe fills. #>
-  $inner = '"{0}" -m uvicorn app.main:app --app-dir server --host 127.0.0.1 --port {1} 2>&1' -f $python, $Port
+  $inner = '"{0}" -m uvicorn app.main:app --app-dir server --host 127.0.0.1 --port {1} --loop app.winloop:ResilientProactorEventLoop 2>&1' -f $python, $Port
 
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName               = "$env:ComSpec"
