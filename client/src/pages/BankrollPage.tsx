@@ -27,9 +27,17 @@ import { usePositionExplanation } from '../hooks/useExplanation'
 
 import { useScoreboard } from '../hooks/useScoreboard'
 import { GameScoreboard } from '../components/scoreboard/GameScoreboard'
+import { asSport, gameHref } from '../services/commandCenter'
 import type { GameScoreboard as Scoreboard } from '../types/scoreboard'
 
 type PositionRow = BankrollData['positions'][number]
+
+/** The position's game page, in its own sport (a sport-less /games/{id} used to open NBA/NHL games as MLB). */
+function positionGameHref(position: PositionRow, demo: boolean): string {
+  if (demo) return `/demo/games/${position.game_id}`
+  const sport = asSport(position.league)
+  return sport ? gameHref(sport, position.game_id) : `/games/${position.game_id}`
+}
 type ExperimentKey = 'v1' | 'v2'
 
 /** "AISP_PRACTICAL_PREGAME_POLICY_V2_1" → "V2.1"; null when no version suffix. */
@@ -213,7 +221,7 @@ function LedgerRow({
           </div>
         </td>
         <td>
-          <Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>
+          <Link to={positionGameHref(position, demo)}>
             <strong>{position.selection}</strong>
           </Link>
           {position.model_engine_id && (
@@ -250,7 +258,7 @@ function LedgerRow({
               <div><dt>Sportsbook at decision</dt><dd>{position.sportsbook ?? 'Unavailable'}</dd></div>
               <div><dt>Raw edge</dt><dd>{formatEdgePts(position.raw_edge)}</dd></div>
               <div><dt>Beat the close</dt><dd>{position.beat_close == null ? 'No closing quote recorded' : position.beat_close ? 'Yes' : 'No'}</dd></div>
-              <div><dt>Game</dt><dd><Link to={`${demo ? '/demo' : ''}/games/${position.game_id}`}>{position.game_id}</Link></dd></div>
+              <div><dt>Game</dt><dd><Link to={positionGameHref(position, demo)}>{position.game_id}</Link></dd></div>
             </dl>
             {scoreboard?.available && (
               <div className="ledger-score ledger-score--detail">

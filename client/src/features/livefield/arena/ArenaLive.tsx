@@ -38,7 +38,7 @@ export function ArenaLive({ game, games, onPickGame, sportFilter, onSport, booth
   return (
     <LiveShell games={games} gameId={game.game_id} onPick={onPickGame} sportFilter={sportFilter} onSport={onSport} favs={favs} onFav={toggleFav} strip={strip} onBooth={() => setBoothOpen((v) => !v)}>
       <div className="ar" data-league={league}>
-        {!feed ? <p className="ar-note">{error ? (error.includes('preview') ? 'The live NBA/NHL feed is only wired on the test-mode preview server (127.0.0.1:5199).' : `Live feed error: ${error}`) : data && !data.found ? data.reason : 'Loading the play-by-play…'}</p> : (
+        {!feed ? <p className="ar-note">{error ? (error.includes('preview') ? 'Live data is unavailable right now. It will retry automatically.' : `Live feed error: ${error}`) : data && !data.found ? data.reason : 'Loading the play-by-play…'}</p> : (
           <>
             <div className="lf-score-row"><ScoreBug feed={feed} league={league} /><VibeBox league={league} home={{ abbr: game.home.abbr, name: game.home.name }} away={{ abbr: game.away.abbr, name: game.away.name }} /></div>
             <Pregame game={game} feed={feed} />

@@ -242,7 +242,7 @@ export function ArenaPage() {
                 {user ? <span className="ar-who">Playing as <b>{user.display_name}</b></span> : (
                   <label className="ar-who">Playing as <select value={you} onChange={(e) => { void switchProfile(e.target.value) }}>
                     {[...new Set([...PROFILES, you])].map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select> <a href="/login">Sign in to join the league</a></label>
+                  </select> <Link to="/login">Sign in to join the league</Link></label>
                 )}
                 <div className="ar-tabs" role="tablist">
                   <button role="tab" aria-selected={mode === 'TONIGHT'} className={mode === 'TONIGHT' ? 'is-on' : ''} onClick={() => setMode('TONIGHT')}>Tonight</button>

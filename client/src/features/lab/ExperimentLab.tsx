@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { Crest } from '../flow/Crest'
 import { addPick, usePreviewPicks } from '../../services/previewPicks'
-import { useMarketCoverage } from '../../services/commandCenter'
+import { gameHref, useMarketCoverage } from '../../services/commandCenter'
 import { operationalToday } from '../../services/operationalDate'
 import { american, etClock, pct, usePulse, type PulseGame } from '../pulse/pulseData'
 import { stormFromUser, type StormSource } from '../gamenight/gameNightData'
@@ -223,7 +223,7 @@ export function ExperimentLab({ focusId = null, onFocus, onUser }: LabProps = {}
             {sides.every((v) => v.price == null) ? <span className="lb__wait">⏳ Waiting on sportsbook lines: AISP buys US-book prices about 75 minutes before the start ({etClock(new Date(Date.parse(g.startsAt) - 75 * 60_000).toISOString())} ET for this game).</span> : null}
             {bestSide && (bestSide.ev ?? 0) > 0 ? (onSlip ? <Link to="/my-picks" className="lb__added">✓ on your slip</Link> : (
               <button type="button" className="lb__add" onClick={() => addPick({ game_id: g.id, sport: g.sport, matchup: `${g.away.abbr} @ ${g.home.abbr}`, away: g.away.abbr, home: g.home.abbr, side: bestSide.s, selection: bestSide.team,
-                model_home_two_way: yours, href: `/games/${g.id}`, price_american: bestSide.price, price_book: bestSide.book, price_seen_at: new Date().toISOString(), market_prob: market == null ? null : bestSide.s === 'HOME' ? market : 1 - market, status: 'slip', starts_at: g.startsAt })}>
+                model_home_two_way: yours, href: gameHref(g.sport, g.id), price_american: bestSide.price, price_book: bestSide.book, price_seen_at: new Date().toISOString(), market_prob: market == null ? null : bestSide.s === 'HOME' ? market : 1 - market, status: 'slip', starts_at: g.startsAt })}>
                 + My Picks: {bestSide.team} {american(bestSide.price)} at {bestSide.book}</button>)) : null}
           </div>
           {/* the charts fill the results column beside the inputs instead of sitting under both */}
@@ -270,7 +270,7 @@ export function ModelBoard({ sport, f, games, board, rows, onClose, live = false
               <td className={(best?.ev ?? 0) > 0 ? 'is-up' : ''}>{best?.ev == null ? '—' : `${best.ev >= 0 ? '+' : ''}${(best.ev * 100).toFixed(1)}%`}</td>
               <td>{on ? <span className="lb__added">✓</span> : best?.q && (best.ev ?? 0) > 0 ? (
                 <button type="button" className="lb__add" onClick={() => addPick({ game_id: g.id, sport: g.sport, matchup: `${g.away.abbr} @ ${g.home.abbr}`, away: g.away.abbr, home: g.home.abbr, side: best.s, selection: best.s === 'HOME' ? g.home.abbr : g.away.abbr,
-                  model_home_two_way: r.p, href: `/games/${g.id}`, price_american: best.q!.american, price_book: best.q!.book, price_seen_at: new Date().toISOString(), market_prob: market == null ? null : best.s === 'HOME' ? market : 1 - market, status: 'slip', starts_at: g.startsAt })}>+ Pick</button>) : null}</td>
+                  model_home_two_way: r.p, href: gameHref(g.sport, g.id), price_american: best.q!.american, price_book: best.q!.book, price_seen_at: new Date().toISOString(), market_prob: market == null ? null : best.s === 'HOME' ? market : 1 - market, status: 'slip', starts_at: g.startsAt })}>+ Pick</button>) : null}</td>
             </tr>
           )
         })}</tbody>

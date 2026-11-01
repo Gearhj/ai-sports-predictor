@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom'
 import { Crest } from '../flow/Crest'
 import { american, etClock, pct, type PulseGame } from '../pulse/pulseData'
 import { teamIdentity } from '../../services/teamIdentity'
-import type { SportCode } from '../../services/commandCenter'
+import { gameHref, type SportCode } from '../../services/commandCenter'
 import { KIND_LABEL, chooseDrop, dropTime } from './drop'
 import './drop.css'
 
@@ -112,7 +112,7 @@ function DropCard({ d }: { d: NonNullable<ReturnType<typeof chooseDrop>> }) {
         </div>
         <div className="dp-card__acts">
           {GAMES_ON && <Link to="/arena" className="dp-btn dp-btn--go">Call it in The Arena →</Link>}
-          <Link to={`/games/${g.id}`} className="dp-btn">Game page</Link>
+          <Link to={gameHref(g.sport, g.id)} className="dp-btn">Game page</Link>
         </div>
       </div>
       <figure className="dp-dots" aria-label={`In 100 games like this the model sees ${team.abbr} winning ${model}${market == null ? '' : `; the market prices ${market}`}.`}>

@@ -10,6 +10,7 @@ import { Crest } from '../flow/Crest'
 import { etClock } from '../pulse/pulseData'
 import { useMissionControl, type MissionGame } from '../mission/missionData'
 import { operationalToday, shiftDate } from '../../services/operationalDate'
+import { gameHref } from '../../services/commandCenter'
 import { GATES, GATE_LABEL, VERDICT_LABEL, litGates, readGame, type Read, type Verdict } from './verdict'
 import './machine.css'
 
@@ -64,7 +65,7 @@ function MachineRow({ g, r, i }: { g: MissionGame; r: Read; i: number }) {
   const delay = Math.min(i, 12) * 0.12
   return (
     <li className={`dm-row dm-row--${r.verdict.toLowerCase()}`} style={{ '--d': `${delay}s` } as CSSProperties}>
-      <Link to={`/games/${g.game_id}`} className="dm-row__game">
+      <Link to={gameHref(g.sport, g.game_id)} className="dm-row__game">
         <Crest sport={g.sport} abbr={g.away.abbr} size={26} /><Crest sport={g.sport} abbr={g.home.abbr} size={26} />
         <span><b>{g.away.abbr} @ {g.home.abbr}</b><small>{g.sport} · {etClock(g.starts_at)} ET</small></span>
       </Link>

@@ -19,6 +19,6 @@
   "shortcuts": [
     { "name": "Tonight", "url": "/?view=focus&source=app" },
     { "name": "Game Night", "url": "/game-night?view=full" },
-    { "name": "Mission Control", "url": "/control?view=full" }
+    { "name": "Mission Control", "url": "/mission-control?view=full" }
   ]
 }

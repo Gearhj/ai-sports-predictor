@@ -10,7 +10,7 @@
  * Research only: never advice or a wager signal.
  */
 import { useMemo, useState, type CSSProperties } from 'react'
-import { useMarketCoverage } from '../../services/commandCenter'
+import { gameHref, useMarketCoverage } from '../../services/commandCenter'
 import { shiftDate } from '../../services/operationalDate'
 import { Crest } from '../flow/Crest'
 import { Link } from 'react-router-dom'
@@ -92,7 +92,7 @@ export function ValueFinder({ day }: { day: string }) {
                 <td>{slip.some((p) => p.game_id === r.g.game_id && p.side === r.side) ? <Link to="/my-picks" className="ed-added">✓ on slip</Link>
                   : <button type="button" className="ed-add" disabled={!isUsBook(r.book)} title={isUsBook(r.book) ? `Add ${team} ${am(r.american)} at ${r.book} to My Picks` : 'Offshore book: AISP only uses US-regulated books for picks'}
                       onClick={() => addPick({ game_id: r.g.game_id, sport: r.g.league, matchup: r.g.matchup, away: r.g.away.abbreviation, home: r.g.home.abbreviation, side: r.side, selection: team,
-                        model_home_two_way: r.g.model?.home_two_way ?? r.g.model?.home ?? null, href: `/games/${r.g.game_id}`, price_american: r.american, price_book: r.book, price_seen_at: new Date().toISOString(),
+                        model_home_two_way: r.g.model?.home_two_way ?? r.g.model?.home ?? null, href: gameHref(r.g.league, r.g.game_id), price_american: r.american, price_book: r.book, price_seen_at: new Date().toISOString(),
                         market_prob: r.fair, status: 'slip', starts_at: r.g.starts_at })}>+ My Picks</button>}</td>
               </tr>
             )

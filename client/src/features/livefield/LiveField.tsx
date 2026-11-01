@@ -379,7 +379,7 @@ export function LiveField() {
                 {isMlb ? (
                   <>
                     <Diamond field={field.data ?? null} homeAbbr={homeAbbr} awayAbbr={awayAbbr} />
-                    {feedMissing ? <p className="lf-note">The field feed is only wired on the test-mode preview server (127.0.0.1:5199).</p> : null}
+                    {feedMissing ? <p className="lf-note">Live data is unavailable right now. It will retry automatically.</p> : null}
                     {field.data && !field.data.found ? <p className="lf-note">{field.data.reason}</p> : null}
                     {field.error && !feedMissing ? <p className="lf-note">Field feed error: {String(field.error)}</p> : null}
                     {boothEl}
@@ -409,7 +409,7 @@ export function LiveField() {
                     ) : (
                       <section className="lf-field lf-field--other"><div className="lf-other">
                         <h3>{SPORT_LABEL[game.sport] ?? game.sport} field view</h3>
-                        {fbMissing ? <p>The football feed is only wired on the test-mode preview server (127.0.0.1:5199).</p> : fbRes.data && !fbRes.data.found ? <p>{fbRes.data.reason}</p> : fbRes.error ? <p>Football feed error: {String(fbRes.error)}</p> : <p>Loading the play-by-play…</p>}
+                        {fbMissing ? <p>Live data is unavailable right now. It will retry automatically.</p> : fbRes.data && !fbRes.data.found ? <p>{fbRes.data.reason}</p> : fbRes.error ? <p>Football feed error: {String(fbRes.error)}</p> : <p>Loading the play-by-play…</p>}
                       </div></section>
                     )}
                   </>

@@ -33,7 +33,9 @@ interface Rff {
   band?: { key: string; label: string; description: string } | null
   evidence_coverage?: number
   explanation?: string
-  contributions?: { key: string; label: string; score: number; share_of_score: number }[]
+  // Mirrors server/app/services/rff_index.py: each driver's share of the full
+  // 100-point measure and of the observed (known) contribution.
+  contributions?: { key: string; label: string; score: number | null; share_of_measure: number; share_of_known_contribution: number }[]
   authority?: { statement: string }
   status?: string
 }
@@ -102,8 +104,8 @@ export const MarketDetail = memo(function MarketDetail({ game, family }: { game:
           {rff.data
             ? <>
               <p className="cc-rff__band">{band ? `${band.label} — ${band.description}` : 'Not scored'}{rff.data.evidence_coverage != null ? ` · ${Math.round(rff.data.evidence_coverage * 100)}% evidence coverage` : ''}</p>
-              {(rff.data.contributions ?? []).filter((c) => c.share_of_score > 0).slice(0, 3).map((c) => (
-                <p key={c.key} className="cc-rff__driver"><i style={{ width: `${Math.round(c.share_of_score * 100)}%` }} />{c.label} <b>{Math.round(c.score)}</b></p>
+              {(rff.data.contributions ?? []).filter((c) => (c.share_of_known_contribution ?? 0) > 0).slice(0, 3).map((c) => (
+                <p key={c.key} className="cc-rff__driver"><i style={{ width: `${Math.round(c.share_of_known_contribution * 100)}%` }} />{c.label} <b>{c.score != null ? Math.round(c.score) : '—'}</b></p>
               ))}
               <p className="cc-rff__note">Research index — not a sportsbook market, not a betting signal, and not an input to any decision.</p>
             </>

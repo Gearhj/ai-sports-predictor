@@ -6,6 +6,7 @@ import { endpoints } from '../services/api'
 import { formatTimestamp } from '../services/format'
 import { resolveOperationalDate } from '../services/operationalDate'
 import { teamIdentity } from '../services/teamIdentity'
+import { gameHref } from '../services/commandCenter'
 import { useSportSelection } from '../hooks/useSportSelection'
 import { TheCombine } from '../features/combine/TheCombine'
 import type {
@@ -207,7 +208,7 @@ export function ShadowBoardPage() {
               )}
               {/* Straight into this event's own analysis, from the card. */}
               {game.canonical_game_id && (
-                <Link className="lab-game__action" to={`/games/${game.canonical_game_id}`}>
+                <Link className="lab-game__action" to={gameHref(!game.sport || game.sport === 'BASEBALL' ? 'MLB' : game.sport, game.canonical_game_id)}>
                   Open game analysis <ArrowRight size={13} aria-hidden="true" />
                 </Link>
               )}
