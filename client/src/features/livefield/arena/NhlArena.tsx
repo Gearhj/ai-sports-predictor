@@ -414,7 +414,7 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
   return (
     <section className="nh-card nh-rink" aria-label="The living rink">
       <header>
-        <h2>The Living Rink <small>{mode === 'replay' ? '⟲ instant replay · the goal from its faceoff' : mode === 'new' ? 'live: the newest play' : mode === 'recent' ? 'catching up: the last plays, once' : 'between plays · it moves when ESPN posts the next one'}</small></h2>
+        <h2>The Living Rink <small>{mode === 'replay' ? '⟲ instant replay · the goal from its faceoff' : mode === 'new' ? 'live: the newest play' : mode === 'recent' ? (events.length ? 'catching up: the last plays, once' : 'waiting for the puck to drop') : 'between plays · it moves when ESPN posts the next one'}</small></h2>
         <span className="ar-seg">{([['flow', 'Puck + shots'], ['heat', '🔥 Heat map'], ['shots', 'Every attempt']] as const).map(([k, l]) => <button key={k} type="button" className={lens === k ? 'is-on' : ''} onClick={() => setLens(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[['all', 'Both'], [away.id, away.abbr], [home.id, home.abbr]].map(([k, l]) => <button key={k} type="button" className={team === k ? 'is-on' : ''} onClick={() => setTeam(k)}>{l}</button>)}</span>
       </header>

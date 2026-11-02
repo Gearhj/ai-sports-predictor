@@ -451,7 +451,7 @@ function TheArena({ ctx, replay }: { ctx: Ctx; replay: { shot: Shot; n: number }
   return (
     <section className="nb-card nb-arena" aria-label="The arena">
       <header>
-        <h2>The Arena <small>{run.mode === 'replay' ? '⟲ instant replay' : run.mode === 'new' ? 'live: the newest plays' : run.mode === 'recent' ? 'catching up: the last plays, once' : 'between plays · it moves when ESPN posts the next one'} · tap a player</small></h2>
+        <h2>The Arena <small>{run.mode === 'replay' ? '⟲ instant replay' : run.mode === 'new' ? 'live: the newest plays' : run.mode === 'recent' ? (feed.plays.length ? 'catching up: the last plays, once' : 'waiting for tip-off') : 'between plays · it moves when ESPN posts the next one'} · tap a player</small></h2>
         <span className="ar-seg">{([['shots', 'Every shot'], ['zones', '🔥 Hot zones']] as const).map(([k, l]) => <button key={k} type="button" className={lens === k ? 'is-on' : ''} onClick={() => setLens(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[['all', 'Both'], [away.id, away.abbr], [home.id, home.abbr]].map(([k, l]) => <button key={k} type="button" className={team === k ? 'is-on' : ''} onClick={() => setTeam(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[0, ...periods].map((k) => <button key={k} type="button" className={period === k ? 'is-on' : ''} onClick={() => setPeriod(k)}>{k ? periodName('nba', k) : 'All'}</button>)}</span>
