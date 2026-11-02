@@ -121,3 +121,31 @@
 @media (max-width: 760px) { .ar-box__grid, .ar-leaders__grid { grid-template-columns: 1fr; } .ar-sb__team b { font-size: 20px; } .ar-sb__team strong { font-size: 40px; } .ar-sb__team img { width: 44px; height: 44px; } .ar-call b { font-size: 34px; } .ar-goalcall b { font-size: 44px; } .ar-onice__row > span { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .ar { padding: 10px 8px 18px; } .ar-sb { padding: 10px; gap: 6px; } .ar-sb__team { gap: 6px; } .ar-sb__team small { display: none; } .ar-sb__team > span { display: none; } .ar-sb__team strong { font-size: 34px; margin: 0; } .ar-sb__team img { width: 36px; height: 36px; } .ar-sb__mid table { font-size: 11px; } .ar-sb__mid th, .ar-sb__mid td { padding: 1px 4px; } .ar-sb__mid > b { font-size: 14px; } }
 @media (prefers-reduced-motion: reduce) { .ar *, .ar *::before { animation: none !important; } }
+
+/* between plays (owner 11-01): a past play moves only under the replay badge; a stoppage brings up the board */
+.ar-replay { position: absolute; z-index: 5; left: 12px; top: 12px; display: grid; gap: 1px; padding: 6px 12px 6px 10px; border-radius: 10px; background: rgba(7, 13, 26, .92); border: 1px solid rgba(251, 191, 36, .55); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); pointer-events: none; }
+.ar-replay b { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 900; letter-spacing: .12em; color: #fbbf24; }
+.ar-replay b i { font-style: normal; display: inline-block; animation: ar-spin 1.6s linear infinite; }
+.ar-replay small { font-size: 11px; color: #cbd5e1; }
+@keyframes ar-spin { to { transform: rotate(-360deg); } }
+.is-replay::before, .is-replay::after { content: ''; position: absolute; left: 0; right: 0; height: 7%; background: #050a14; z-index: 4; pointer-events: none; animation: ar-bars .5s ease-out both; }
+.is-replay::before { top: 0; } .is-replay::after { bottom: 0; }
+@keyframes ar-bars { from { transform: scaleY(0); } }
+.is-replay > svg { filter: saturate(.85) contrast(1.05); }
+.ar-sofar { position: absolute; z-index: 5; left: 12px; right: 12px; bottom: 12px; border-radius: 12px; overflow: hidden; background: linear-gradient(180deg, rgba(7, 13, 26, .94), rgba(11, 21, 38, .96)); border: 1px solid rgba(255, 255, 255, .14); border-left: 4px solid var(--c); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); animation: ar-rise .45s ease-out both; }
+@keyframes ar-rise { from { transform: translateY(14px); opacity: 0; } }
+.ar-sofar > header { display: flex; align-items: center; gap: 10px; padding: 7px 12px 0; }
+.ar-sofar > header b { font-size: 12px; font-weight: 900; letter-spacing: .1em; color: #fff; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--c) 70%, #000); }
+.ar-sofar > header span { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: #a9b4c4; }
+.ar-sofar > header nav { margin-left: auto; display: flex; gap: 5px; }
+.ar-sofar > header nav button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .25); cursor: pointer; } .ar-sofar > header nav button.is-on { background: var(--c); }
+.ar-sofar__slide { padding: 6px 12px 10px; animation: ar-fadein .35s ease-out both; }
+@keyframes ar-fadein { from { opacity: 0; transform: translateX(8px); } }
+.ar-sofar__slide h4 { margin: 0 0 6px; font-size: 13px; font-weight: 900; color: #fff; }
+.ar-sofar__bar { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--c); transform-origin: left; animation: ar-bar linear both; }
+@keyframes ar-bar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.ar-sofar table { border-collapse: collapse; width: 100%; font-size: 13px; } .ar-sofar th, .ar-sofar td { padding: 2px 6px; text-align: center; color: #e2e8f0; white-space: nowrap; } .ar-sofar th { color: #a9b4c4; font-size: 10.5px; letter-spacing: .06em; font-weight: 800; } .ar-sofar td:first-child, .ar-sofar th:first-child { text-align: left; font-weight: 900; }
+.ar-sofar__leaders { display: flex; gap: 14px; flex-wrap: wrap; } .ar-sofar__leaders > span { display: flex; align-items: center; gap: 8px; } .ar-sofar__leaders img, .ar-sofar__leaders > span > i { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #1f2937; border: 2px solid var(--tc, #94a3b8); flex: none; } .ar-sofar__leaders b { display: block; font-size: 13px; color: #fff; } .ar-sofar__leaders small { font-size: 11px; color: #a9b4c4; }
+.ar-sofar__swing { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; } .ar-sofar__swing > span { display: grid; } .ar-sofar__swing b { font-size: 20px; font-weight: 900; color: #fff; line-height: 1.1; } .ar-sofar__swing small { font-size: 10.5px; letter-spacing: .08em; color: #a9b4c4; font-weight: 800; }
+@media (max-width: 640px) { .ar-sofar { left: 6px; right: 6px; bottom: 6px; } .ar-sofar__slide { padding: 4px 10px 8px; } .ar-sofar table { font-size: 12px; } .ar-replay { left: 6px; top: 6px; } }
+@media (prefers-reduced-motion: reduce) { .ar-replay b i, .ar-sofar, .ar-sofar__slide, .ar-sofar__bar, .is-replay::before, .is-replay::after { animation: none !important; } }

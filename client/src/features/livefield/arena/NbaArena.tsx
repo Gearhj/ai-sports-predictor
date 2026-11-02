@@ -3,8 +3,10 @@
  * animation, free throw graphics, changing stats ... where is the HOLY SHIT moment?").
  *
  * THE ARENA: a full hardwood court, each team attacking its own basket, every shot at its real spot (made = filled,
- * missed = x). The ball flies to the rim in a D3 arc for every new shot and replays the last run of shots on a loop:
- * SPLASH on a three, SLAM on a dunk, the net ripples on a make, CLANK on a miss, and free throws leave the line.
+ * missed = x). The ball flies to the rim in a D3 arc for every new shot: SPLASH on a three, SLAM on a dunk, the net
+ * ripples on a make, CLANK on a miss, and free throws leave the line. Between plays the court RESTS (owner 11-01: a
+ * loop of old plays "makes me question the validity"): a past play moves again only under an INSTANT REPLAY badge,
+ * and a timeout or quiet stretch brings up the GAME SO FAR board instead (ArenaIdle.tsx).
  * HE'S ON FIRE: three straight makes and the player's face goes up in flames (NBA Jam), their shots burn on the court.
  * HEX HEAT: hexagons sized by attempts and coloured by how far the shooting runs above or below the league norm.
  * BIG MOMENTS: dunks, threes, and-ones, lead changes and clutch buckets, each replayable on the court.
@@ -14,6 +16,7 @@
 import * as d3 from 'd3'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { elapsedAt, hex, periodName, teamPair, type ArenaAthlete, type ArenaFeed, type ArenaPlay, type ArenaTeam } from './arenaData'
+import { agoText, GameSoFar, ReplayBadge, stoppageOf, useTicker, type Slide } from './ArenaIdle'
 import { NbaPlayers, NbaStory } from './NbaExtras'
 import './nba.css'
 
@@ -209,7 +212,8 @@ function HotZones({ shots, homeEnd, id }: { shots: Shot[]; homeEnd: boolean; id:
 
 // ------------------------------------------------------------ the arena --
 
-type Mode = 'recent' | 'new' | 'replay'
+/** recent = catching up once on load; new = the plays ESPN just posted; replay = a past play, badged; idle = at rest. */
+type Mode = 'recent' | 'new' | 'replay' | 'idle'
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms))
 const MEANING = /substitution|rebound|turnover|steal/i
 
@@ -226,25 +230,49 @@ function TheArena({ ctx, replay }: { ctx: Ctx; replay: { shot: Shot; n: number }
   const [run, setRun] = useState<{ mode: Mode; n: number }>({ mode: 'recent', n: 0 })
   const svgRef = useRef<SVGSVGElement | null>(null); const tokRef = useRef<SVGGElement | null>(null); const fxRef = useRef<SVGGElement | null>(null)
   const lineups = useMemo(() => lineupsByPlay(feed), [feed])
-  const live = useRef({ feed, col, fire, lineups, shots, replay }); live.current = { feed, col, fire, lineups, shots, replay }
+  const live = useRef({ feed, col, fire, lineups, shots }); live.current = { feed, col, fire, lineups, shots }
+  // Which past play is on the court and why: a tap in Big Moments, or the venue bringing the best recent bucket back.
+  const target = useRef<{ shot: Shot; auto: boolean } | null>(null)
   const seen = useRef<string | null | undefined>(undefined)
   const lastPlay = feed.plays[feed.plays.length - 1] ?? null
-  useEffect(() => { if (replay) setRun((r) => ({ mode: 'replay', n: r.n + 1 })) }, [replay])
+  useEffect(() => { if (replay) { target.current = { shot: replay.shot, auto: false }; setRun((r) => ({ mode: 'replay', n: r.n + 1 })) } }, [replay])
   useEffect(() => {
     if (!lastPlay) return
     if (seen.current === undefined) { seen.current = lastPlay.id; return }
-    if (lastPlay.id !== seen.current) setRun((r) => (r.mode === 'replay' ? r : { mode: 'new', n: r.n + 1 }))
+    // a new play interrupts the venue's own replay, never one the user asked for
+    if (lastPlay.id !== seen.current) setRun((r) => (r.mode === 'replay' && !target.current?.auto ? r : { mode: 'new', n: r.n + 1 }))
   }, [lastPlay])
-  useEffect(() => { const t = window.setInterval(() => setRun((r) => (r.mode === 'recent' ? { mode: 'recent', n: r.n + 1 } : r)), 26_000); return () => window.clearInterval(t) }, [])
+  // Owner 11-01: never a silent loop. After any run the court rests; at most once every two minutes, after 45 quiet
+  // seconds of a live game, the best recent bucket comes back under the INSTANT REPLAY badge.
+  const lastAuto = useRef(0)
+  useEffect(() => {
+    if (run.mode !== 'idle' || feed.status.state !== 'in') return undefined
+    const t = window.setTimeout(() => {
+      if (Date.now() - lastAuto.current < 120_000) return
+      const made = live.current.shots.slice(-14).filter((s) => s.made && !s.ft)
+      const pick = [...made].reverse().find((s) => s.three || isDunk(s.p)) ?? made[made.length - 1] ?? null
+      if (!pick) return
+      lastAuto.current = Date.now(); target.current = { shot: pick, auto: true }
+      setRun((r) => ({ mode: 'replay', n: r.n + 1 }))
+    }, 45_000)
+    return () => window.clearTimeout(t)
+  }, [run, feed.status.state])
+  const now = useTicker(run.mode === 'idle')
+  const idleSince = useRef(Date.now())
+  useEffect(() => { if (run.mode === 'idle') idleSince.current = Date.now() }, [run.mode])
+  const stop = stoppageOf(lastPlay)
+  const quietFor = now - Math.max(idleSince.current, lastPlay?.wallclock ? Date.parse(lastPlay.wallclock) || 0 : 0)
+  const board = run.mode === 'idle' && (feed.status.state === 'post' || (feed.status.state === 'in' && (stop !== null || quietFor >= 20_000)))
+  const soFar = useMemo(() => nbaSlides(feed, shots, col), [feed, shots, col])
 
   useEffect(() => {
     const svgEl = svgRef.current; const tokEl = tokRef.current; const fxEl = fxRef.current
-    if (!svgEl || !tokEl || !fxEl) return undefined
+    if (!svgEl || !tokEl || !fxEl || run.mode === 'idle') return undefined
     const L = live.current; const plays = L.feed.plays
     const idx = (id: string) => plays.findIndex((p) => p.id === id)
     const isEvent = (p: ArenaPlay) => p.shooting || MEANING.test(p.type ?? '')
     let from: number; let to = plays.length - 1
-    if (run.mode === 'replay' && L.replay) { to = idx(L.replay.shot.p.id); from = to; let k = 0; while (from > 0 && k < 2) { from--; if (isEvent(plays[from])) k++ } }
+    if (run.mode === 'replay') { if (!target.current) return undefined; to = idx(target.current.shot.p.id); if (to < 0) return undefined; from = to; let k = 0; while (from > 0 && k < 2) { from--; if (isEvent(plays[from])) k++ } }
     else if (run.mode === 'new') { const s = seen.current ? idx(seen.current) : to - 1; from = Math.max(s + 1, to - 12); seen.current = plays[to]?.id ?? null }
     else { from = to; let k = 0; while (from > 0 && k < 11) { from--; if (isEvent(plays[from])) k++ } }
     const events = plays.slice(Math.max(0, from), to + 1).map((p, i) => ({ p, i: Math.max(0, from) + i })).filter((e) => isEvent(e.p))
@@ -404,7 +432,8 @@ function TheArena({ ctx, replay }: { ctx: Ctx; replay: { shot: Shot; n: number }
       const off = first.p.shooting ? first.p.team : (first.p.players[0] && teamOfPlayer(first.p.players[0].id)) || first.p.team
       if (off) await formation(L.lineups[Math.max(0, first.i - 1)], off, 700)
       for (const e of events) { if (dead) return; draw(L.lineups[e.i]); if (!e.p.shooting) setCaption(e.p); await step(e); await sleep(big ? 350 : 220) }
-      if (!dead && run.mode !== 'recent') window.setTimeout(() => !dead && setRun((r) => ({ mode: 'recent', n: r.n })), 2500)
+      // then the court rests until ESPN posts the next play
+      if (!dead) window.setTimeout(() => !dead && setRun((r) => ({ mode: 'idle', n: r.n })), run.mode === 'recent' ? 1200 : 2500)
     })()
     return () => { dead = true; svg.interrupt('cam'); svg.attr('viewBox', `0 0 ${W} ${H}`); fx.selectAll('*').interrupt().remove(); tok.selectAll('*').interrupt() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -422,12 +451,12 @@ function TheArena({ ctx, replay }: { ctx: Ctx; replay: { shot: Shot; n: number }
   return (
     <section className="nb-card nb-arena" aria-label="The arena">
       <header>
-        <h2>The Arena <small>{run.mode === 'replay' ? 'replaying the moment' : run.mode === 'new' ? 'live: the newest plays' : 'the last run of plays, on a loop'} · tap a player</small></h2>
+        <h2>The Arena <small>{run.mode === 'replay' ? '⟲ instant replay' : run.mode === 'new' ? 'live: the newest plays' : run.mode === 'recent' ? 'catching up: the last plays, once' : 'between plays · it moves when ESPN posts the next one'} · tap a player</small></h2>
         <span className="ar-seg">{([['shots', 'Every shot'], ['zones', '🔥 Hot zones']] as const).map(([k, l]) => <button key={k} type="button" className={lens === k ? 'is-on' : ''} onClick={() => setLens(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[['all', 'Both'], [away.id, away.abbr], [home.id, home.abbr]].map(([k, l]) => <button key={k} type="button" className={team === k ? 'is-on' : ''} onClick={() => setTeam(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[0, ...periods].map((k) => <button key={k} type="button" className={period === k ? 'is-on' : ''} onClick={() => setPeriod(k)}>{k ? periodName('nba', k) : 'All'}</button>)}</span>
       </header>
-      <div className={`nb-arena__wrap${shake ? ' is-shake' : ''}`} style={{ ['--nb-paint' as string]: hex(home.color, '#1d428a') } as CSSProperties}>
+      <div className={`nb-arena__wrap${shake ? ' is-shake' : ''}${run.mode === 'replay' ? ' is-replay' : ''}`} style={{ ['--nb-paint' as string]: hex(home.color, '#1d428a') } as CSSProperties}>
         <div className="nb-jumbo" aria-label="Scoreboard">
           <span style={{ color: col[away.id] }}>{away.logo ? <img src={away.logo} alt="" /> : null}{away.abbr} <Tween value={away.score} /></span>
           <em>{feed.status.state === 'in' ? `${periodName('nba', feed.status.period)} ${feed.status.clock ?? ''}` : feed.status.short}</em>
@@ -450,6 +479,9 @@ function TheArena({ ctx, replay }: { ctx: Ctx; replay: { shot: Shot; n: number }
           <g ref={fxRef} />
         </svg>
         {take ? <Takeover p={take.p} word={take.word} ctx={ctx} /> : null}
+        {run.mode === 'replay' && target.current ? <ReplayBadge auto={target.current.auto} when={agoText(target.current.shot.p.wallclock, Date.now())} what={`${periodName('nba', target.current.shot.p.period)} ${target.current.shot.p.clock ?? ''}`.trim()} /> : null}
+        {board ? <GameSoFar accent={col[home.id]} slides={soFar} note={feed.status.state === 'in' && !stop ? 'the court moves when ESPN posts the next play' : null}
+          label={feed.status.state === 'post' ? 'FINAL' : !stop ? 'BETWEEN PLAYS' : stop.kind === 'end' ? `END OF ${periodName('nba', lastPlay?.period ?? feed.status.period)}` : stop.kind === 'timeout' && lastPlay?.team ? `${teamOf(lastPlay.team).abbr} ${stop.label}` : stop.label} /> : null}
         {cardA ? <CourtCard a={cardA} ctx={ctx} onClose={() => setCard(null)} /> : null}
       </div>
       <div className="nb-caption" style={{ ['--c' as string]: caption ? col[caption.team ?? ''] ?? '#94a3b8' : '#94a3b8' } as CSSProperties} aria-live="polite">
@@ -461,6 +493,42 @@ function TheArena({ ctx, replay }: { ctx: Ctx; replay: { shot: Shot; n: number }
       <div className="ar-rink__key"><span>faces = the ten on the floor (tap one) · number = points tonight</span><span>● made · × missed</span><span className="is-hot">🔥 = 3+ straight makes</span>{lens === 'zones' ? <span>zones: red = shooting above the NBA norm, blue = below</span> : null}</div>
     </section>
   )
+}
+
+/** The board shown while the court rests: shooting, who is scoring, and the game in numbers. All from tonight's feed. */
+function nbaSlides(feed: ArenaFeed, shots: Shot[], col: Record<string, string>): Slide[] {
+  const { home, away } = feed.teams
+  const line = (t: ArenaTeam) => {
+    const mine = shots.filter((s) => s.p.team === t.id)
+    const f = (sel: (s: Shot) => boolean) => { const a = mine.filter(sel); const m = a.filter((s) => s.made).length; return a.length ? `${m}/${a.length} · ${Math.round((m / a.length) * 100)}%` : '—' }
+    return [f((s) => !s.ft), f((s) => s.three), f((s) => s.ft)]
+  }
+  const shooting: Slide = { key: 'shooting', title: 'Shooting tonight', body: (
+    <table><thead><tr><th /><th>FG</th><th>3PT</th><th>FT</th></tr></thead><tbody>
+      {[away, home].map((t) => <tr key={t.id}><td style={{ color: col[t.id] }}>{t.abbr}</td>{line(t).map((v, k) => <td key={k}>{v}</td>)}</tr>)}
+    </tbody></table>) }
+  const top = feed.athletes.filter((a) => Number(a.stats.points) > 0).sort((a, b) => Number(b.stats.points) - Number(a.stats.points)).slice(0, 4)
+  const leaders: Slide | null = top.length ? { key: 'leaders', title: 'Scoring leaders', body: (
+    <div className="ar-sofar__leaders">{top.map((a) => (
+      <span key={a.id} style={{ ['--tc' as string]: col[a.team ?? ''] ?? '#94a3b8' } as CSSProperties}>
+        {a.headshot ? <img src={a.headshot} alt="" /> : <i />}
+        <span><b>{a.short ?? a.name}</b><small>{a.stats.points} pts · {a.stats['fieldGoalsMade-fieldGoalsAttempted'] ?? '—'} FG · {a.stats.rebounds ?? '—'} reb · {a.stats.assists ?? '—'} ast</small></span>
+      </span>))}</div>) } : null
+  const wp = feed.win_probability; const first = wp[0]?.home; const last = wp[wp.length - 1]?.home
+  // the night's biggest run: points by one team between the other's scores
+  let best: { tid: string; pts: number } | null = null; let tid: string | null = null; let pts = 0
+  for (const p of feed.plays) { if (!p.scoring || !p.team) continue; if (p.team === tid) pts += p.value ?? 0; else { tid = p.team; pts = p.value ?? 0 } if (!best || pts > best.pts) best = { tid, pts } }
+  let changes = 0; let who: 'h' | 'a' | null = null
+  for (const p of feed.plays) { if (p.home == null || p.away == null || p.home === p.away) continue; const w = p.home > p.away ? 'h' : 'a'; if (who && w !== who) changes++; who = w }
+  const side = (h: number) => (h >= 0.5 ? home : away); const lean = (h: number) => pct(h >= 0.5 ? h : 1 - h)
+  const numbers: Slide = { key: 'numbers', title: 'The game in numbers', body: (
+    <div className="ar-sofar__swing">
+      {last != null ? <span><b style={{ color: col[side(last).id] }}>{side(last).abbr} {lean(last)}</b><small>TO WIN · ESPN{first != null ? ` · ${side(first).abbr} ${lean(first)} AT TIP` : ''}</small></span> : null}
+      {best && best.pts >= 6 ? <span><b style={{ color: col[best.tid] }}>{best.pts}–0</b><small>BIGGEST RUN · {(best.tid === home.id ? home : away).abbr}</small></span> : null}
+      <span><b>{changes}</b><small>LEAD CHANGES</small></span>
+      <span><b>{shots.filter((s) => s.three && s.made).length}</b><small>THREES MADE</small></span>
+    </div>) }
+  return [shooting, ...(leaders ? [leaders] : []), numbers]
 }
 
 function Tween({ value }: { value: number }) {

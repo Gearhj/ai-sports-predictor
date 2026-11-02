@@ -13,6 +13,7 @@
 import * as d3 from 'd3'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { periodName, teamPair, type ArenaAthlete, type ArenaFeed, type ArenaTeam } from './arenaData'
+import { agoText, GameSoFar, ReplayBadge, stoppageOf, useTicker, type Slide } from './ArenaIdle'
 import { goalSequence, isAttempt, rinkEvents, winSeries, type RinkEvent, type WinPoint } from './nhlModel'
 import { HeatSpotlight, Takeover } from '../heat/Heat'
 import { hotIds, nhlHeat } from '../heat/rules'
@@ -151,7 +152,8 @@ function RinkLines({ ctx }: { ctx: Ctx }) {
   )
 }
 
-type Mode = 'recent' | 'replay' | 'new'
+/** recent = catching up once on load; new = the play ESPN just posted; replay = a goal from its faceoff, badged; idle = at rest. */
+type Mode = 'recent' | 'replay' | 'new' | 'idle'
 
 function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: number } | null }) {
   const { feed, events, col, teamOf } = ctx
@@ -164,29 +166,48 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
   const puckRef = useRef<SVGGElement | null>(null)
   const lastSeen = useRef<string | null | undefined>(undefined)
   const latest = events[events.length - 1] ?? null
-  useEffect(() => { if (replay) setRun((r) => ({ mode: 'replay', n: r.n + 1 })) }, [replay])
+  // Which goal is on the rink and why: a tap in Goal Moments, or the venue bringing the last goal back once.
+  const target = useRef<{ goal: RinkEvent; auto: boolean } | null>(null)
+  useEffect(() => { if (replay) { target.current = { goal: replay.goal, auto: false }; setRun((r) => ({ mode: 'replay', n: r.n + 1 })) } }, [replay])
   useEffect(() => {
     if (!latest) return
     if (lastSeen.current === undefined) { lastSeen.current = latest.id; return }
-    if (latest.id !== lastSeen.current) { lastSeen.current = latest.id; setRun((r) => (r.mode === 'replay' ? r : { mode: 'new', n: r.n + 1 })) }
+    // a new play interrupts the venue's own replay, never one the user asked for
+    if (latest.id !== lastSeen.current) { lastSeen.current = latest.id; setRun((r) => (r.mode === 'replay' && !target.current?.auto ? r : { mode: 'new', n: r.n + 1 })) }
   }, [latest])
-  useEffect(() => {
-    // the recent run of play replays on its own, so the rink is never still
-    const t = window.setInterval(() => setRun((r) => (r.mode === 'recent' ? { mode: 'recent', n: r.n + 1 } : r)), 18_000)
-    return () => window.clearInterval(t)
-  }, [])
   const eventsRef = useRef(events); eventsRef.current = events
   const colRef = useRef(col); colRef.current = col
-  const replayRef = useRef(replay); replayRef.current = replay
   const feedRef = useRef(feed); feedRef.current = feed
   const hotRef = useRef(ctx.hot); hotRef.current = ctx.hot
   const ctxRef = useRef(ctx); ctxRef.current = ctx
+  // Owner 11-01: never a silent loop. The rink rests between plays; at most once every two minutes, after 45 quiet
+  // seconds of a live game, the last goal comes back from its faceoff under the INSTANT REPLAY badge.
+  const lastAuto = useRef(0)
+  useEffect(() => {
+    if (run.mode !== 'idle' || feed.status.state !== 'in') return undefined
+    const t = window.setTimeout(() => {
+      if (Date.now() - lastAuto.current < 120_000) return
+      const goal = [...eventsRef.current].reverse().find((e) => e.kind === 'goal') ?? null
+      if (!goal) return
+      lastAuto.current = Date.now(); target.current = { goal, auto: true }
+      setRun((r) => ({ mode: 'replay', n: r.n + 1 }))
+    }, 45_000)
+    return () => window.clearTimeout(t)
+  }, [run, feed.status.state])
+  const now = useTicker(run.mode === 'idle')
+  const idleSince = useRef(Date.now())
+  useEffect(() => { if (run.mode === 'idle') idleSince.current = Date.now() }, [run.mode])
+  const lastPlay = feed.plays[feed.plays.length - 1] ?? null
+  const stop = stoppageOf(lastPlay)
+  const quietFor = now - Math.max(idleSince.current, lastPlay?.wallclock ? Date.parse(lastPlay.wallclock) || 0 : 0)
+  const board = run.mode === 'idle' && (feed.status.state === 'post' || (feed.status.state === 'in' && (stop !== null || quietFor >= 20_000)))
+  const soFar = useMemo(() => nhlSlides(feed, events, col), [feed, events, col])
   const svgRef = useRef<SVGSVGElement | null>(null); const tokRef = useRef<SVGGElement | null>(null)
   const [shake, setShake] = useState(false)
   useEffect(() => {
     const fxEl = puckRef.current; const tokEl = tokRef.current; const svgEl = svgRef.current
     const evs = eventsRef.current; const F = feedRef.current; const hot = hotRef.current
-    const seq = run.mode === 'replay' && replayRef.current ? goalSequence(evs, replayRef.current.goal) : run.mode === 'new' ? evs.slice(-3) : evs.slice(-9)
+    const seq = run.mode === 'idle' ? [] : run.mode === 'replay' ? (target.current ? goalSequence(evs, target.current.goal) : []) : run.mode === 'new' ? evs.slice(-3) : evs.slice(-9)
     if (!fxEl || !tokEl || !svgEl || !seq.length) return undefined
     const fx = d3.select(fxEl); const tok = d3.select(tokEl); const svg = d3.select(svgEl)
     fx.selectAll('*').interrupt(); fx.selectAll('*').remove()
@@ -372,7 +393,8 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
       const first = seq[0]; const t0 = (first.players[0] && info.get(first.players[0].id)?.team) || first.shooter || H0
       await shape({ x: RX(first.nx), y: RY(first.ny) }, t0, null, 700)
       for (const e of seq) { if (dead) return; await play(e); await sleep(big ? 380 : 260) }
-      if (!dead && run.mode !== 'recent') window.setTimeout(() => { if (!dead) setRun((r) => ({ mode: 'recent', n: r.n })) }, 1800)
+      // then the rink rests until ESPN posts the next play
+      if (!dead) window.setTimeout(() => { if (!dead) setRun((r) => ({ mode: 'idle', n: r.n })) }, run.mode === 'recent' ? 1000 : 1800)
     })()
     return () => { dead = true; svg.interrupt('cam'); svg.attr('viewBox', '0 0 800 340'); fx.selectAll('*').interrupt(); fx.selectAll('*').remove(); tok.selectAll('*').interrupt() }
   }, [run])
@@ -392,11 +414,11 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
   return (
     <section className="nh-card nh-rink" aria-label="The living rink">
       <header>
-        <h2>The Living Rink <small>{mode === 'replay' ? 'replaying the goal from its faceoff' : mode === 'new' ? 'the newest play' : 'the last run of play, on a loop'}</small></h2>
+        <h2>The Living Rink <small>{mode === 'replay' ? '⟲ instant replay · the goal from its faceoff' : mode === 'new' ? 'live: the newest play' : mode === 'recent' ? 'catching up: the last plays, once' : 'between plays · it moves when ESPN posts the next one'}</small></h2>
         <span className="ar-seg">{([['flow', 'Puck + shots'], ['heat', '🔥 Heat map'], ['shots', 'Every attempt']] as const).map(([k, l]) => <button key={k} type="button" className={lens === k ? 'is-on' : ''} onClick={() => setLens(k)}>{l}</button>)}</span>
         <span className="ar-seg">{[['all', 'Both'], [away.id, away.abbr], [home.id, home.abbr]].map(([k, l]) => <button key={k} type="button" className={team === k ? 'is-on' : ''} onClick={() => setTeam(k)}>{l}</button>)}</span>
       </header>
-      <div className={`ar-rink__wrap${shake ? ' is-shake' : ''}`}>
+      <div className={`ar-rink__wrap${shake ? ' is-shake' : ''}${mode === 'replay' ? ' is-replay' : ''}`}>
         <div className="nh-jumbo" aria-label="Scoreboard">
           <span style={{ color: col[away.id] }}>{away.logo ? <img src={away.logo} alt="" /> : null}{away.abbr} <b key={`a${away.score}`}>{away.score}</b></span>
           <em>{feed.status.state === 'in' ? `${periodName('nhl', feed.status.period)} ${feed.status.clock ?? ''}` : feed.status.short}</em>
@@ -431,6 +453,9 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
           <g ref={puckRef} />
         </svg>
         {call ? <GoalTakeover e={call} ctx={ctx} /> : null}
+        {mode === 'replay' && target.current ? <ReplayBadge auto={target.current.auto} when={agoText(target.current.goal.wallclock, Date.now())} what={`${periodName('nhl', target.current.goal.period)} ${target.current.goal.clock ?? ''}`.trim()} /> : null}
+        {board ? <GameSoFar accent={col[home.id]} slides={soFar} note={feed.status.state === 'in' && !stop ? 'the rink moves when ESPN posts the next play' : null}
+          label={feed.status.state === 'post' ? 'FINAL' : !stop ? 'BETWEEN PLAYS' : stop.kind === 'end' ? `END OF ${ORD[(lastPlay?.period ?? feed.status.period ?? 1) - 1] ?? periodName('nhl', lastPlay?.period ?? feed.status.period)}` : stop.kind === 'timeout' && lastPlay?.team ? `${teamOf(lastPlay.team).abbr} ${stop.label}` : stop.label} /> : null}
       </div>
       <div className="nh-caption" style={{ ['--c' as string]: caption ? col[caption.shooter ?? caption.team ?? ''] ?? '#94a3b8' : '#94a3b8' } as CSSProperties} aria-live="polite">
         {caption ? (<>
@@ -441,6 +466,33 @@ function LivingRink({ ctx, replay }: { ctx: Ctx; replay: { goal: RinkEvent; n: n
       <div className="ar-rink__key"><span>● shot on goal</span><span>○ missed the net</span><span>□ blocked</span><span>bigger dot = closer to the net</span><span>faces on the ice = the skaters and goalies (tap one) · number = points tonight</span>{lens === 'heat' ? <span className="is-slot">heat = where each team shoots from</span> : null}</div>
     </section>
   )
+}
+
+/** The board shown while the rink rests: shots and goalies, who has the points, and how the goals came. */
+function nhlSlides(feed: ArenaFeed, events: RinkEvent[], col: Record<string, string>): Slide[] {
+  const { home, away } = feed.teams
+  const n = (id: string, sel: (e: RinkEvent) => boolean) => events.filter((e) => e.shooter === id && sel(e)).length
+  const goalie = (id: string) => feed.athletes.filter((a) => a.team === id && a.group === 'goalies').sort((a, b) => num(b.stats.shotsAgainst) - num(a.stats.shotsAgainst))[0] ?? null
+  const shots: Slide = { key: 'shots', title: 'Shots & goalies', body: (
+    <table><thead><tr><th /><th>SOG</th><th>HIGH-DANGER</th><th>BLOCKED</th><th>GOALIE</th></tr></thead><tbody>
+      {[away, home].map((t) => { const g = goalie(t.id); return (
+        <tr key={t.id}><td style={{ color: col[t.id] }}>{t.abbr}</td><td>{n(t.id, (e) => e.kind === 'shot' || e.kind === 'goal')}</td><td>{n(t.id, (e) => e.danger === 'high' && isAttempt(e.kind))}</td><td>{n(t.id, (e) => e.kind === 'block')}</td>
+          <td>{g ? `${(g.short ?? g.name ?? '').replace(/^\w\. /, '')} · ${g.stats.saves ?? '—'}/${g.stats.shotsAgainst ?? '—'}${g.stats.savePct ? ` · ${g.stats.savePct}` : ''}` : '—'}</td></tr>) })}
+    </tbody></table>) }
+  const top = feed.athletes.filter((a) => a.group !== 'goalies' && num(a.stats.goals) + num(a.stats.assists) > 0)
+    .sort((a, b) => (num(b.stats.goals) + num(b.stats.assists)) - (num(a.stats.goals) + num(a.stats.assists)) || num(b.stats.goals) - num(a.stats.goals)).slice(0, 4)
+  const leaders: Slide | null = top.length ? { key: 'leaders', title: 'Points tonight', body: (
+    <div className="ar-sofar__leaders">{top.map((a) => (
+      <span key={a.id} style={{ ['--tc' as string]: col[a.team ?? ''] ?? '#94a3b8' } as CSSProperties}>
+        {a.headshot ? <img src={a.headshot} alt="" /> : <i />}
+        <span><b>{(a.short ?? a.name ?? '').replace(/^\w\. /, '')}</b><small>{a.stats.goals ?? 0} G · {a.stats.assists ?? 0} A · {a.stats.shotsTotal ?? '—'} shots{a.stats.timeOnIce ? ` · ${a.stats.timeOnIce} TOI` : ''}</small></span>
+      </span>))}</div>) } : null
+  const goals = events.filter((e) => e.kind === 'goal')
+  const story: Slide = { key: 'goals', title: goals.length ? 'How the goals came' : 'No goals yet', body: goals.length ? (
+    <div className="ar-sofar__swing">{goals.slice(-4).map((e) => { const who = e.players.find((p) => p.role === 'scorer') ?? e.players[0]; return (
+      <span key={e.id}><b style={{ color: col[e.shooter ?? ''] ?? '#fff' }}>{(who?.short ?? who?.name ?? '').replace(/^\w\. /, '') || 'Goal'}</b><small>{periodName('nhl', e.period)} {e.clock}{e.strength && e.strength !== 'Even Strength' ? ` · ${e.strength.toUpperCase()}` : ''} · {e.away ?? '?'}–{e.home ?? '?'}</small></span>) })}</div>
+  ) : <div className="ar-sofar__swing"><span><b>{n(away.id, (e) => isAttempt(e.kind)) + n(home.id, (e) => isAttempt(e.kind))}</b><small>SHOT ATTEMPTS</small></span><span><b>{events.filter((e) => e.kind === 'hit').length}</b><small>HITS</small></span><span><b>{events.filter((e) => e.kind === 'penalty').length}</b><small>PENALTIES</small></span></div> }
+  return [shots, ...(leaders ? [leaders] : []), story]
 }
 
 /** The red light: the rink flashes, rings and sparks burst from the spot and the scorer's face blows up there. */
