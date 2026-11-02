@@ -139,6 +139,8 @@ async def lifespan(application: FastAPI):
 
         warmer = asyncio.create_task(warm_forever(settings.api_v1_prefix))
         mission_warmer = asyncio.create_task(warm_mission_control_forever(settings.api_v1_prefix))
+        # Kept on the app so /healthz can say whether the warmers are still alive (scale plan Phase 1, item 5).
+        application.state.warmers = (warmer, mission_warmer)
     yield
     if warmer:
         warmer.cancel()
@@ -210,9 +212,59 @@ def create_app(settings=None) -> FastAPI:
 
     application.include_router(admin_users_router, prefix=settings.api_v1_prefix)
 
+    import time as _time
+
+    started_monotonic = _time.monotonic()
+
     @application.get("/healthz", include_in_schema=False)
-    def healthz() -> dict:
-        return {"status": "ok"}
+    def healthz() -> JSONResponse:
+        """Liveness with a verdict (scale plan Phase 1, item 5): always 200 while the process answers, with
+        ``status`` "ok" or "degraded" and the checks behind it, so an external monitor and the site's own status
+        line can tell "up" from "up but not working". Booleans and names only, never credentials or job detail.
+        """
+        from datetime import UTC, datetime
+
+        from sqlalchemy import text
+
+        from app.db.session import SessionLocal
+        from app.frontend import build_identity, default_dist
+
+        checks: dict[str, str] = {}
+        ok = True
+        try:
+            with SessionLocal() as session:
+                session.execute(text("SELECT 1"))
+            checks["database"] = "reachable"
+        except Exception:
+            checks["database"] = "unreachable"
+            ok = False
+        if not settings.scheduler_enabled or settings.app_env == "test":
+            checks["scheduler"] = "disabled"
+        elif scheduler_is_running():
+            checks["scheduler"] = "running"
+        else:
+            checks["scheduler"] = "not_running"
+            ok = False
+        warmers = getattr(application.state, "warmers", None)
+        if not warmers:
+            checks["cache_warmers"] = "disabled"
+        elif all(not task.done() for task in warmers):
+            checks["cache_warmers"] = "running"
+        else:
+            checks["cache_warmers"] = "stopped"
+            ok = False
+        try:
+            build = build_identity(default_dist()).get("build", {}) or {}
+            commit = build.get("commit") if isinstance(build, dict) else None
+        except Exception:
+            commit = None
+        return JSONResponse(status_code=200, content={
+            "status": "ok" if ok else "degraded",
+            "checks": checks,
+            "uptime_seconds": int(_time.monotonic() - started_monotonic),
+            "build": commit,
+            "as_of": datetime.now(UTC).isoformat(),
+        })
 
     @application.get("/readyz", include_in_schema=False)
     def readyz() -> JSONResponse:

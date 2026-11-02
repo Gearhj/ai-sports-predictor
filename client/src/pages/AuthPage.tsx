@@ -4,7 +4,7 @@
  * signed-in member can resend the verification, change their password, or delete the account.
  */
 import { useEffect, useState, type FormEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { CheckCircle2, CloudUpload, KeyRound, LogOut, MailCheck, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { PageHeader, Panel } from '../components/ui'
 import { useAuth } from '../hooks/useAuth'
@@ -112,7 +112,7 @@ export function AuthPage() {
             {mode === 'login' && <button type="button" className="link-button auth-forgot" onClick={() => { setMode('forgot'); setMessage(null) }}>Forgot your password?</button>}
             {mode === 'forgot' && <button type="button" className="link-button auth-forgot" onClick={() => { setMode('login'); setMessage(null) }}>Back to sign in</button>}
           </form>
-          <p className="auth-privacy">AI Sports Predictor is an information and entertainment service: probabilities, prices and a public record, not advice, not guaranteed outcomes, and never a wagering service.</p>
+          <p className="auth-privacy">AI Sports Predictor is an information and entertainment service: probabilities, prices and a public record, not advice, not guaranteed outcomes, and never a wagering service. You must be 18 or older. By continuing you accept the <Link to="/terms">terms of use</Link> and the <Link to="/privacy">privacy policy</Link>.</p>
         </section>
       </div>
     </div>

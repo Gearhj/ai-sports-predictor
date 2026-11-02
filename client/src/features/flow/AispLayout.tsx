@@ -5,6 +5,7 @@
  */
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { ILLUSTRATIVE_DEMO_LABEL } from '../../config/publicModel'
+import { DegradedBar } from '../../components/DegradedBar'
 import { AispSide } from './AispSide'
 import { GamePlanBar, type PlanStep } from './GamePlanBar'
 import { GameHero } from './GameHero'
@@ -28,6 +29,7 @@ export function AispLayout() {
     <div className="hq aisp-legacy">
       <AispSide />
       <div className="hq-main">
+        <DegradedBar />
         <GamePlanBar current={step} />
         {demo ? <div className="demo-context-strip" role="status"><strong>{ILLUSTRATIVE_DEMO_LABEL}</strong><span>Static examples only.</span><Link to="/">View live application</Link></div> : null}
         <main id="main-content" className="aisp-legacy__page" tabIndex={-1}>{gid ? <GameHero key={gid} id={gid} /> : null}<Outlet /></main>

@@ -51,6 +51,8 @@ const MissionControl = lazy(() => import('./features/mission/MissionControl').th
 const MmaPage = lazy(() => import('./features/mma/MmaPage').then((module) => ({ default: module.MmaPage })))
 const MmqbPage = lazy(() => import('./features/mmqb/MmqbPage').then((module) => ({ default: module.MmqbPage })))
 const StartPage = lazy(() => import('./features/start/StartPage').then((module) => ({ default: module.StartPage })))
+const TermsPage = lazy(() => import('./features/legal/LegalPage').then((module) => ({ default: module.TermsPage })))
+const PrivacyPage = lazy(() => import('./features/legal/LegalPage').then((module) => ({ default: module.PrivacyPage })))
 const UnderdogPage = lazy(() => import('./features/underdogs/UnderdogPage').then((module) => ({ default: module.UnderdogPage })))
 import { PremiumGate } from './components/PremiumGate'
 import { GAMES_ON, WELCOME_ON } from './features/release/flags'
@@ -147,6 +149,8 @@ export default function App() {
                 {/* UFC Fight Night (2026-10-25): historical archive, orientation-corrected, test mode. */}
                 <Route path="mma" element={<MmaPage />} />
                 <Route path="start" element={<StartPage />} />
+                <Route path="terms" element={<TermsPage />} />
+                <Route path="privacy" element={<PrivacyPage />} />
                 <Route path="welcome" element={WELCOME_ON ? <WelcomePage /> : <Navigate to="/" replace />} />
                 {/* Premium features (scale plan Phase 1): labelled during the beta, locked once gating is on. */}
                 <Route path="underdogs" element={<PremiumGate feature="The Underdog Report" blurb="Every underdog the AI likes against the books, with the prices that make it a value."><UnderdogPage /></PremiumGate>} />

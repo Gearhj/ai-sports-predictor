@@ -36,4 +36,4 @@ export function useMode(): ViewMode {
 
 /** Paths that stay as they are in Focus mode (sign-in, account, admin, the TV wall). UFC Fight Night (10-30):
  *  phones default to Focus, and the live fight card has no Focus screen. */
-export const FOCUS_PASSTHROUGH = /^\/(login|account|admin|encore|welcome|underdogs|mma)(\/|$)/
+export const FOCUS_PASSTHROUGH = /^\/(login|account|admin|encore|welcome|underdogs|mma|terms|privacy)(\/|$)/

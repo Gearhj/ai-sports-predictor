@@ -111,7 +111,7 @@ export function AispSide({ children, compact = false }: { children?: ReactNode; 
         <AlertsBell />
         {user?.role === 'ADMIN' ? <Link to="/admin" className={pathname === '/admin' ? 'is-on' : ''}><i aria-hidden="true">⛁</i>Data health</Link> : null}
         <Link to="/account" className={pathname === '/account' ? 'is-on' : ''}><i aria-hidden="true">⚙</i>{user ? user.display_name : 'Account & sign in'}</Link>
-        <span className="as-note">Research &amp; paper only · no real-money wagering</span>
+        <span className="as-note">Information &amp; entertainment · no wagering, no prizes · <Link to="/terms">Terms</Link> · <Link to="/privacy">Privacy</Link></span>
       </nav>
     </nav>
   )
