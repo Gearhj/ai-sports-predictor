@@ -3,6 +3,19 @@
 Status as of **2026-09-16**. Read this before committing, pushing, deploying or
 restoring anything.
 
+> **Status 2026-11-01.** The deployed line now lives on GitHub as branch
+> `main-live-snapshot-20261023` (mirror of the original checkout's branch of the
+> same name, through original `cc612fd` = the 11-01 night release, plus the
+> fixture-marker commit `d0f5083`). It was transferred as patches per section 6;
+> the pairs are in the commit map under the 2026-11-01 header. Two lessons for
+> the next transfer: `git am` strips CRs, so a patch to a CRLF file (`*.ps1`)
+> must be applied with `git apply --index <pristine patch>` then `git am
+> --continue`; and a hotfix that reached the base through a merge shows up as an
+> already-applied patch (`git apply --check -R` succeeds) and is skipped. Test
+> passwords in `server/tests` carry the `secret-guard: test-fixture` marker in
+> both histories. The nightly database dump (section 8) is still on this PC's
+> disk only; the off-machine destination is an open owner decision.
+
 ## 1. The two checkouts
 
 | | Clean checkout | Original checkout |
