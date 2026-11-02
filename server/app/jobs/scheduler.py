@@ -333,6 +333,38 @@ def _stand_down(job_name: str) -> None:
             pass
 
 
+#: Research-only jobs that step aside while an NFL decision is being made (owner 11-01). They share the process and
+#: its GIL with the NFL FINAL import, generation and checkpoint; on 11-01 the 30-minute shadow re-import ran 41 min
+#: beside them and LAC@LAR missed its window. Each skipped tick is logged; the next tick outside the window runs.
+#: The model-exchange consumer is NOT here: it also imports NBA and CFB forecasts their own decisions need.
+YIELD_TO_NFL_DECISIONS = frozenset({
+    "import-nfl-shadow-forecast-bundle",
+    "evaluate-nfl-research-forecasts",
+    "evaluate-mlb-v18-research-forecasts",
+})
+#: Kickoffs this far ahead cover FINAL generation (T-60), its import and the T-30..T-15 checkpoint.
+NFL_DECISION_GUARD = (timedelta(minutes=10), timedelta(minutes=75))
+
+
+def nfl_decision_window_open(session: Any, now: datetime | None = None) -> bool:
+    """True while any scheduled NFL game kicks off between 10 and 75 minutes from now. Fails open (False)."""
+
+    from app.models.entities import League
+
+    moment = now or datetime.now(UTC)
+    try:
+        hit = session.scalar(
+            select(Game.id).join(League, League.id == Game.league_id)
+            .where(League.code == "NFL", Game.status == GameStatus.SCHEDULED,
+                   Game.starts_at >= moment + NFL_DECISION_GUARD[0],
+                   Game.starts_at <= moment + NFL_DECISION_GUARD[1])
+            .limit(1))
+    except Exception as exc:  # a failed check never blocks a job
+        logger.warning("nfl_decision_window_check_failed", error=str(exc))
+        return False
+    return hit is not None
+
+
 async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
     # Asked on every tick rather than once at startup: ownership is lost while
     # the process is running, not before it starts.
@@ -340,6 +372,9 @@ async def execute_scheduled_job(job_name: str, settings: Settings) -> None:
         _stand_down(job_name)
         return
     with SessionLocal() as session:
+        if job_name in YIELD_TO_NFL_DECISIONS and nfl_decision_window_open(session):
+            logger.info("scheduled_job_yielded_to_nfl_decision", job=job_name)
+            return
         orchestrator = JobOrchestrator(session, settings)
         try:
             event_dates = _scheduled_event_dates(job_name, orchestrator, settings)
