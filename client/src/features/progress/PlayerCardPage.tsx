@@ -90,7 +90,7 @@ export function PlayerCardPage() {
               {p.badges.map((b) => <li key={b.id} className={b.got ? 'is-got' : ''}><i>{b.icon}</i><b>{b.name}</b><small>{b.how}</small></li>)}
             </ul>
           </section>
-          <p className="pc-fine">Saved only in this browser. <button type="button" className="pc-reset" onClick={() => { if (window.confirm('Reset your XP, streak and site trophies? (Arena calls stay; reset those in The Arena.)')) resetProgress() }}>reset site progress</button></p>
+          <p className="pc-fine">Saved to your account when you are signed in, so it follows you to any device; signed out, it stays in this browser. <button type="button" className="pc-reset" onClick={() => { if (window.confirm('Reset your XP, streak and site trophies? (Arena calls stay; reset those in The Arena.)')) resetProgress() }}>reset site progress</button></p>
         </main>
       </div>
     </div>

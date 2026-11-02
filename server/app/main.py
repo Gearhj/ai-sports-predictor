@@ -199,6 +199,10 @@ def create_app(settings=None) -> FastAPI:
     from app.api.preview_feeds_routes import router as preview_feeds_router
 
     application.include_router(preview_feeds_router)
+    # The account's copies of the browser-local stores (scale plan Phase 1, 2026-11-02).
+    from app.api.user_state_routes import router as user_state_router
+
+    application.include_router(user_state_router, prefix=settings.api_v1_prefix)
 
     @application.get("/healthz", include_in_schema=False)
     def healthz() -> dict:

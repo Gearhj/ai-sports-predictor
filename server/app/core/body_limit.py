@@ -36,6 +36,10 @@ PATH_MAX_BODY_BYTES: dict[str, int] = {
     "/preview-api/booth": 64 * 1024,
     "{api}/probability/evaluate": 128 * 1024,
 }
+#: Path prefixes with their own cap (the account's store copies: one store is at most 1 MB, see services/user_state.py).
+PREFIX_MAX_BODY_BYTES: dict[str, int] = {
+    "{api}/me/state/": 1_100_000,
+}
 UNLIMITED_METHODS = frozenset({"GET", "HEAD"})
 
 
@@ -59,9 +63,16 @@ class BodyLimitMiddleware:
         self.default_max = default_max
         caps = PATH_MAX_BODY_BYTES if path_caps is None else path_caps
         self.caps = {path.replace("{api}", api_prefix.rstrip("/")): cap for path, cap in caps.items()}
+        self.prefix_caps = {path.replace("{api}", api_prefix.rstrip("/")): cap for path, cap in PREFIX_MAX_BODY_BYTES.items()}
 
     def cap_for(self, path: str) -> int:
-        return self.caps.get(path.rstrip("/") or "/", self.caps.get(path, self.default_max))
+        exact = self.caps.get(path.rstrip("/") or "/", self.caps.get(path))
+        if exact is not None:
+            return exact
+        for prefix, cap in self.prefix_caps.items():
+            if path.startswith(prefix):
+                return cap
+        return self.default_max
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http" or scope.get("method", "GET").upper() in UNLIMITED_METHODS:

@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     #: The Booth (paid language-model answers): signed-in users only, a per-user cap and a whole-site daily cap.
     #: Per-visitor brake on the CPU-heavy research calculators (scenario re-forecast, probability evaluate).
     compute_rate_limit_per_minute: int = Field(default=30, ge=1, le=10_000)
+    #: /me/state reads and writes (a dozen stores, each pushed a moment after it changes; one household shares an IP).
+    sync_rate_limit_per_minute: int = Field(default=240, ge=1, le=100_000)
     booth_per_user_per_day: int = Field(default=20, ge=0, le=1000)
     booth_site_per_day: int = Field(default=200, ge=0, le=100_000)
 

@@ -200,6 +200,18 @@ class Entitlement(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (UniqueConstraint("user_id", "kind", name="uq_entitlement_user_kind"),)
 
 
+class UserState(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """The account's copy of one browser-local store (My Picks, Arena, XP, ...); see services/user_state.py."""
+
+    __tablename__ = "user_state"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    store: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[Any] = mapped_column(JSON, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (UniqueConstraint("user_id", "store", name="uq_user_state_user_store"),)
+
+
 class Sport(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "sports"
     code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)

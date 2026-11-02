@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { clearToken, endpoints, getStoredToken, storeToken } from '../services/api'
 import { setCacheScope } from '../services/queryCache'
+import { startUserState } from '../services/userState'
 import type { AuthUser } from '../types/domain'
 
 interface AuthContextValue {
@@ -62,6 +63,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the shared cache so nothing from the previous scope can be rendered.
   useEffect(() => {
     setCacheScope(user ? `user:${user.id}` : 'anon')
+    // The browser-local stores (picks, Arena, XP, ...) follow the account from here on; signed out they stay local.
+    startUserState(user ? user.id : null)
   }, [user])
 
   const value = useMemo(() => ({ user, loading, login, register, logout }), [user, loading, login, register, logout])

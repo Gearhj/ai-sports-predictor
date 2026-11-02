@@ -24,7 +24,7 @@ export function MyPicksPage() {
         description="Play-money preview picks you tracked from a Game Brief — separate from the AISP paper experiment under Record."
       />
       <p className="mypicks__banner" role="note">
-        <b>Personal preview · play money.</b> No cash value; stored only in this browser. These place no price,
+        <b>Personal preview · play money.</b> No cash value; saved to your account when you are signed in (this browser only otherwise). These place no price,
         record no decision and settle no result. They are <b>not</b> the official AISP $1,000 paper experiment
         (<Link to="/experiment">Record</Link>), and following another entrant never copies picks.
       </p>

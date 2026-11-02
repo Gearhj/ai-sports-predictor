@@ -194,6 +194,8 @@ def _limit_for(settings, category: str) -> int:
         return settings.admin_rate_limit_per_minute
     if category == "compute":
         return getattr(settings, "compute_rate_limit_per_minute", 30)
+    if category == "sync":
+        return getattr(settings, "sync_rate_limit_per_minute", 240)
     return 0
 
 

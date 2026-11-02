@@ -51,7 +51,7 @@ export function MyPickCard({ story }: { story: Story }) {
         })}
       </div>
       <p className="gs-mypick__note">
-        Play money · no cash value · stored only in this browser. <b>Not</b> an official AISP paper position
+        Play money · no cash value · saved to your account when signed in. <b>Not</b> an official AISP paper position
         (those are under <Link to="/experiment">Record</Link>).
         {current ? <> · <Link to="/my-picks">View My Picks →</Link></> : null}
       </p>
