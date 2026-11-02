@@ -1170,3 +1170,6 @@ body.bx-dark .route-loading { color: #54687f; background: #f6f4f1; }
 .bx-markets__alt { margin: 12px 0 0; font-size: 14px; font-weight: 700; }
 .bx-markets__alt a { color: var(--bx-accent, #0f766e); text-decoration: none; }
 .bx-markets__alt a:hover { text-decoration: underline; }
+
+/* Sweep 11-01: at 375 px the crest + team line could not wrap and pushed /markets 10 px wide. */
+@media (max-width: 520px) { .bx-mkt__row { gap: 10px; padding: 14px 12px; } .bx-mkt__crests { flex-wrap: wrap; gap: 6px; font-size: 15px; min-width: 0; } }
