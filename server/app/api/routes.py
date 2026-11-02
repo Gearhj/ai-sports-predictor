@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -1358,6 +1358,12 @@ def admin_jobs(session: DatabaseSession, user: AdminUser) -> dict:
     }
 
 
+#: Jobs that write producer or exchange authority state; never two at once, across processes (11-01).
+SINGLE_RUN_ADMIN_JOBS = frozenset({
+    "generate-nfl-final-pregame-forecasts", "freeze-nfl-final-pregame", "import-nfl-final-pair",
+})
+
+
 @router.post(
     "/admin/jobs/{job_name}",
     response_model=JobTriggerResponse,
@@ -1365,6 +1371,19 @@ def admin_jobs(session: DatabaseSession, user: AdminUser) -> dict:
     dependencies=[Depends(rate_limit("admin:jobs", category="admin"))],
 )
 async def trigger_job(job_name: str, session: DatabaseSession, settings: AppSettings, user: AdminUser) -> JobTriggerResponse:
+    # 11-01: a manual NFL FINAL generation started here while the scheduler's own run was still going in another
+    # process; the two runs wrote the producer's index and the exchange locator out of step and every later FINAL
+    # run failed ("inventories differ") -- SNF PHI@WAS missed its window. The scheduler's max_instances guard is
+    # per process, so the admin path checks job_runs: one of these may never start while another is RUNNING.
+    if job_name in SINGLE_RUN_ADMIN_JOBS:
+        from app.models.entities import RunStatus
+
+        busy = session.scalar(select(JobRun.id).where(
+            JobRun.job_name == job_name, JobRun.status == RunStatus.RUNNING,
+            JobRun.started_at > datetime.now(UTC) - timedelta(hours=2)).limit(1))
+        if busy is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail=f"{job_name} is already running (run {busy}); wait for it instead of starting a second one.")
     try:
         run = await JobOrchestrator(session, settings).run(job_name, requested_by_user_id=user.id)
     except ValueError as exc:
