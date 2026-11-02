@@ -183,6 +183,8 @@ class User(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # before their natural expiry (logout, password/security-sensitive change).
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: When the owner proved they can read this email (verification link, or a password reset, which proves the same).
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
@@ -210,6 +212,17 @@ class UserState(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (UniqueConstraint("user_id", "store", name="uq_user_state_user_store"),)
+
+
+class UserToken(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """A single-use email-verification or password-reset token, stored only as its SHA-256 (services/account_service.py)."""
+
+    __tablename__ = "user_tokens"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Sport(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

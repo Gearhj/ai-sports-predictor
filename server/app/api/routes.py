@@ -1285,7 +1285,7 @@ def register(body: RegisterRequest, request: Request, session: DatabaseSession, 
 
         verified_email = verified_access_email(request.headers.get(ASSERTION_HEADER), settings)
     try:
-        return register_user(
+        response = register_user(
             session, settings, body.email, body.password, body.display_name,
             verified_access_email=verified_email,
         )
@@ -1293,6 +1293,20 @@ def register(body: RegisterRequest, request: Request, session: DatabaseSession, 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except DuplicateEmailError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    # Scale plan Phase 1: a new account gets its "confirm your email" message at once (best effort: the account
+    # exists either way, and the Account page can ask for the message again).
+    try:
+        from uuid import UUID
+
+        from app.models import User
+        from app.services.account_service import send_verification
+
+        new_user = session.get(User, UUID(response.user.id))
+        if new_user is not None:
+            send_verification(session, settings, new_user)
+    except Exception:  # noqa: BLE001 - never fail a registration over mail
+        pass
+    return response
 
 
 @router.post(

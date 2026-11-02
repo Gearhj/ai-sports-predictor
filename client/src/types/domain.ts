@@ -901,6 +901,8 @@ export interface AuthUser {
   email: string
   display_name: string
   role: 'ADMIN' | 'MEMBER'
+  /** The owner has opened a verification (or reset) link for this email. Absent on older responses. */
+  email_verified?: boolean
 }
 
 export interface AuthResponse {

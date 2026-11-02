@@ -908,6 +908,7 @@ class AuthUser(BaseModel):
     email: EmailStr
     display_name: str
     role: Literal["ADMIN", "MEMBER"]
+    email_verified: bool = False
 
 
 class LoginRequest(BaseModel):

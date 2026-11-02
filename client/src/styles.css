@@ -716,6 +716,13 @@ h1, h2, h3, p { margin-top: 0; }
 .auth-submit { width: 100%; min-height: 41px; margin-top: 4px; }
 .form-error { padding: 9px 10px; color: var(--red); background: var(--red-soft); border: 1px solid #ecc3c6; border-radius: 4px; font-size: 11px; }
 .auth-privacy { margin: 18px 0 0; color: #95a1ae; font-size: 11px; line-height: 1.5; text-align: center; }
+.link-button { padding: 0; border: 0; background: none; color: var(--teal); font: inherit; font-size: inherit; text-decoration: underline; cursor: pointer; }
+.link-button:disabled { opacity: .6; cursor: default; }
+.auth-forgot { align-self: center; margin-top: 6px; font-size: 11px; }
+.account-sync { display: flex; gap: 8px; align-items: flex-start; margin: 0 18px 12px; font-size: 11px; line-height: 1.45; }
+.account-sync svg { flex: none; margin-top: 2px; }
+.account-page .auth-form { padding: 14px 18px; }
+.account-page .auth-form .primary-button, .account-page .auth-form .secondary-button { align-self: flex-start; }
 .auth-loading { color: var(--muted); font-size: 11px; }
 .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .profile-card { display: flex; align-items: center; gap: 15px; padding: 18px; border-bottom: 1px solid var(--line); }

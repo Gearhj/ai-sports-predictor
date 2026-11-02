@@ -305,6 +305,13 @@ export const endpoints = {
       body: JSON.stringify({ email, password, display_name }),
     }),
   logout: () => apiRequest<{ status: string }>('/auth/logout', { method: 'POST' }),
+  // Self-serve accounts (scale plan Phase 1): the emailed links land on /account?verify= and /login?reset=.
+  requestVerification: () => apiRequest<{ status: string }>('/auth/verify/request', { method: 'POST' }),
+  confirmVerification: (token: string) => apiRequest<{ status: string; email: string }>('/auth/verify/confirm', { method: 'POST', body: JSON.stringify({ token }) }),
+  forgotPassword: (email: string) => apiRequest<{ status: string }>('/auth/password/forgot', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (token: string, password: string) => apiRequest<AuthResponse>('/auth/password/reset', { method: 'POST', body: JSON.stringify({ token, password }) }),
+  changePassword: (current_password: string, new_password: string) => apiRequest<AuthResponse>('/auth/password/change', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
+  deleteAccount: (password: string) => apiRequest<{ status: string }>('/auth/account/delete', { method: 'POST', body: JSON.stringify({ password }) }),
   runJob: (job: string) => apiRequest<{ id?: string; job_id?: string; status: string }>(`/admin/jobs/${encodeURIComponent(job)}`, { method: 'POST' }),
   liveShadowStatus: (signal?: AbortSignal) => apiRequest<LiveShadowStatus>('/admin/live-shadow/status', {}, signal),
 }

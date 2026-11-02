@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     compute_rate_limit_per_minute: int = Field(default=30, ge=1, le=10_000)
     #: /me/state reads and writes (a dozen stores, each pushed a moment after it changes; one household shares an IP).
     sync_rate_limit_per_minute: int = Field(default=240, ge=1, le=100_000)
+    #: Self-serve accounts (scale plan Phase 1). Verification and reset links are built on PUBLIC_BASE_URL. The
+    #: sender is pluggable: "outbox" (default) writes each message to EMAIL_OUTBOX_DIR (or <runtime>/outbox) for
+    #: the owner to read, so the whole flow works with no provider; a real provider is a Phase 2 decision.
+    public_base_url: str = "https://aisportspredictor.app"
+    email_provider: Literal["outbox"] = "outbox"
+    email_outbox_dir: str = ""
+    email_from: str = "AI Sports Predictor <no-reply@aisportspredictor.app>"
+    verify_token_hours: int = Field(default=24, ge=1, le=24 * 14)
+    reset_token_minutes: int = Field(default=60, ge=5, le=24 * 60)
     booth_per_user_per_day: int = Field(default=20, ge=0, le=1000)
     booth_site_per_day: int = Field(default=200, ge=0, le=100_000)
 

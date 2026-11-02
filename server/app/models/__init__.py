@@ -40,7 +40,7 @@ from app.models.entities import (
     ShadowQuoteCapture, ShadowRescore,
     Sportsbook, StarterObservation, StatcastPlayerObservation, Team, TeamFeature,
     TeamGameHistoryObservation, TeamGameStat, TeamRatingObservation,
-    TrainingDatasetManifest, User, UserRole, UserState, UserStatus,
+    TrainingDatasetManifest, User, UserRole, UserState, UserStatus, UserToken,
     UserVirtualBankroll, Venue, VirtualPosition, WeatherSnapshot, LineupEntry,
     LineupObservation,
 )

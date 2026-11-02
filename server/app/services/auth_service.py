@@ -32,6 +32,7 @@ def public_user(user: User) -> AuthUser:
         email=user.email,
         display_name=user.display_name,
         role=user.role.value.upper(),
+        email_verified=getattr(user, "email_verified_at", None) is not None,
     )
 
 

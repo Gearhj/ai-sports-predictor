@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { clearToken, endpoints, getStoredToken, storeToken } from '../services/api'
 import { setCacheScope } from '../services/queryCache'
 import { startUserState } from '../services/userState'
-import type { AuthUser } from '../types/domain'
+import type { AuthResponse, AuthUser } from '../types/domain'
 
 interface AuthContextValue {
   user: AuthUser | null
@@ -10,6 +10,10 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, displayName: string) => Promise<void>
   logout: () => void
+  /** Re-read /auth/me (after a verification link, a password change) so the page shows the account as it now is. */
+  refresh: () => Promise<void>
+  /** Keep a freshly minted session (password change or reset hands one back) without a round trip. */
+  adopt: (response: AuthResponse) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -67,7 +71,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     startUserState(user ? user.id : null)
   }, [user])
 
-  const value = useMemo(() => ({ user, loading, login, register, logout }), [user, loading, login, register, logout])
+  const refresh = useCallback(async () => {
+    if (!getStoredToken()) return
+    try { setUser(normalizeUser(await endpoints.me())) } catch { /* the stored session will be judged on the next load */ }
+  }, [])
+
+  const adopt = useCallback((response: AuthResponse) => {
+    storeToken(response.access_token)
+    setUser(normalizeUser(response.user))
+  }, [])
+
+  const value = useMemo(() => ({ user, loading, login, register, logout, refresh, adopt }), [user, loading, login, register, logout, refresh, adopt])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
