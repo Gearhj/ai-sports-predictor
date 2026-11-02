@@ -37,7 +37,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Freshness, SkeletonCards, SkeletonTable } from '../components/ui'
 import {
-  ArrowRight, ChevronDown, Flame, History, Layers, RefreshCw, Radio, Sigma,
+  ArrowRight, ChevronDown, History, Layers, RefreshCw, Radio, Sigma,
 } from 'lucide-react'
 import { useApiResource } from '../hooks/useApiResource'
 import { STALE_TIME, cacheKey } from '../services/queryCache'
@@ -57,7 +57,7 @@ import {
   LeagueTag, Panel, SourceBadge, agoOf, american, clockOf, decimals, pct,
   signedPoints, useBroadcastTheme,
 } from '../components/broadcast/primitives'
-import { ReplayView, RffView, type ReplayChoice } from '../components/broadcast/MarketViews'
+import { ReplayView, type ReplayChoice } from '../components/broadcast/MarketViews'
 import { MlbTotalsView } from '../components/markets/MlbTotalsView'
 import { ParlayWatchView } from '../components/markets/ParlayWatchView'
 import {
@@ -73,8 +73,8 @@ import type { NflEvent, NflMarketBlock, NflWeeks } from '../types/nfl'
 import '../broadcast.css'
 
 type Family = 'MONEYLINE' | 'SPREAD' | 'TOTAL'
-type View = 'PRICES' | 'TOTALS' | 'PARLAY' | 'REPLAY' | 'RFF'
-const VIEW_KEYS = ['PRICES', 'TOTALS', 'PARLAY', 'REPLAY', 'RFF'] as const
+type View = 'PRICES' | 'TOTALS' | 'PARLAY' | 'REPLAY'
+const VIEW_KEYS = ['PRICES', 'TOTALS', 'PARLAY', 'REPLAY'] as const
 function readView(value: string | null): View {
   const upper = (value ?? '').toUpperCase()
   return (VIEW_KEYS as readonly string[]).includes(upper) ? (upper as View) : 'PRICES'
@@ -85,7 +85,6 @@ const VIEWS: { key: View; label: string; hint: string }[] = [
   { key: 'TOTALS', label: 'Over / Under', hint: "V18's own run distribution priced against the recorded total." },
   { key: 'PARLAY', label: 'Parlay Watch', hint: 'Two- and three-leg research combinations, priced from stored quotes.' },
   { key: 'REPLAY', label: 'Replay', hint: 'Watch one market move from its first observation to the cutoff.' },
-  { key: 'RFF', label: 'RFF Lens', hint: 'Market reality check: a provisional research index of market unrest.' },
 ]
 const FAMILIES: Family[] = ['MONEYLINE', 'SPREAD', 'TOTAL']
 const FAMILY_LABEL: Record<'MLB' | 'NFL', Record<Family, string>> = {
@@ -122,7 +121,7 @@ export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean 
   const [params, setParams] = useSearchParams()
   const [family, setFamily] = useState<Family>('MONEYLINE')
   const [query, setQuery] = useState('')
-  // Replay and the RFF Lab are views of THIS page, not new destinations: the
+  // Replay is a view of THIS page, not new destinations: the
   // sidebar already has ten entries and neither is a place you go, it is
   // something you do to the board you are already looking at.
   //
@@ -130,7 +129,6 @@ export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean 
   // market is a link someone can send rather than a set of clicks to describe.
   const view = readView(params.get('view'))
   const replayGame = params.get('game')
-  const rffGame = params.get('rff')
   const [replayBook, setReplayBook] = useState<string | null>(null)
   const setParam = useCallback((key: string, value: string | null) => {
     setParams((old) => {
@@ -267,7 +265,7 @@ export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean 
         <header className="bx-head">
           <div>
             <span className="bx-eyebrow"><Radio size={13} aria-hidden="true" /> Detailed market views</span>
-            <h2 style={{ margin: 0 }}>Totals, parlays, replay and the <em>RFF Lens</em></h2>
+            <h2 style={{ margin: 0 }}>Totals, parlays and <em>replay</em></h2>
             <p className="bx-muted" style={{ marginTop: 8, maxWidth: '60ch' }}>
               One row per game. Sportsbooks and prediction markets stay separate.
             </p>
@@ -314,7 +312,6 @@ export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean 
             <button key={entry.key} type="button" aria-pressed={view === entry.key}
               title={entry.hint} onClick={() => setView(entry.key)}>
               {entry.key === 'REPLAY' && <History size={13} aria-hidden="true" />}
-              {entry.key === 'RFF' && <Flame size={13} aria-hidden="true" />}
               {entry.key === 'TOTALS' && <Sigma size={13} aria-hidden="true" />}
               {entry.key === 'PARLAY' && <Layers size={13} aria-hidden="true" />}
               {entry.label}
@@ -450,10 +447,6 @@ export function UnifiedMarketsPage({ auditOnly = false }: { auditOnly?: boolean 
           />
         )}
 
-        {view === 'RFF' && (
-          <RffView day={day} league={sport === 'MLB' || sport === 'NFL' ? sport : null} family={family}
-            selected={rffGame} onSelect={(id) => setParam('rff', id)} />
-        )}
         </BoardsWrap>
       </div>
     </div>
@@ -1205,7 +1198,7 @@ function BoardsWrap({ auditOnly, open, children }: { auditOnly: boolean; open: b
   if (auditOnly) return <>{children}</>
   return (
     <details className="cc-below" open={open || undefined}>
-      <summary>Detailed boards — every price row, totals, parlay watch, replay, RFF Lens and prediction markets</summary>
+      <summary>Detailed boards — every price row, totals, parlay watch, replay and prediction markets</summary>
       {children}
     </details>
   )

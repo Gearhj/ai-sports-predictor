@@ -1,12 +1,8 @@
 /**
- * Selected-game market detail: the moneyline / spread / total summary, the RFF
- * market-risk lens, and how the consensus moved against the model.
- *
- * Reads only persisted evidence: the coverage read model (already cached), the
- * market tape (`/markets/tape/{game}`) and the RFF index (`/markets/rff/{game}`),
- * each fetched once per game and cached. Movement is drawn only when the tape
- * holds more than one observed instant; a single observation is said to be one.
- * RFF is a research lens -- not a market, not an input to any decision.
+ * Selected-game market detail: the moneyline / spread / total summary and how the consensus moved against the
+ * model. Reads only persisted evidence: the coverage read model (already cached) and the market tape
+ * (`/markets/tape/{game}`), fetched once per game and cached. Movement is drawn only when the tape holds more than
+ * one observed instant; a single observation is said to be one. (The RFF lens was removed 11-01 by the owner.)
  */
 import * as d3 from 'd3'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
@@ -26,18 +22,6 @@ interface Tape {
   first_observed_utc: string | null
   last_observed_utc: string | null
   model_probability_series: { generated_at_utc: string; home_win_probability: number | null; lifecycle?: string }[]
-}
-interface Rff {
-  schema_version: string
-  score: number | null
-  band?: { key: string; label: string; description: string } | null
-  evidence_coverage?: number
-  explanation?: string
-  // Mirrors server/app/services/rff_index.py: each driver's share of the full
-  // 100-point measure and of the observed (known) contribution.
-  contributions?: { key: string; label: string; score: number | null; share_of_measure: number; share_of_known_contribution: number }[]
-  authority?: { statement: string }
-  status?: string
 }
 
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
@@ -70,16 +54,12 @@ export const MarketDetail = memo(function MarketDetail({ game, family }: { game:
   const tapeLoader = useCallback((signal: AbortSignal) =>
     apiRequest<Tape>(`/markets/tape/${game.game_id}?market=MONEYLINE`, {}, signal), [game.game_id])
   const tape = useApiResource<Tape>(tapeLoader, { key: cacheKey('markets-tape', { game: game.game_id }), staleTimeMs: STALE_TIME.slate })
-  const rffLoader = useCallback((signal: AbortSignal) =>
-    apiRequest<Rff>(`/markets/rff/${game.game_id}`, {}, signal), [game.game_id])
-  const rff = useApiResource<Rff>(rffLoader, { key: cacheKey('markets-rff-game', { game: game.game_id }), staleTimeMs: STALE_TIME.slate })
 
   const families: { key: Family; label: string }[] = [
     { key: 'MONEYLINE', label: 'Moneyline' },
     { key: 'SPREAD', label: game.league === 'MLB' ? 'Run line' : 'Spread' },
     { key: 'TOTAL', label: 'Total' },
   ]
-  const band = rff.data?.band
   return (
     <div className="cc-mdetail">
       <dl className="cc-mdetail__summary">
@@ -96,21 +76,6 @@ export const MarketDetail = memo(function MarketDetail({ game, family }: { game:
       </dl>
 
       <div className="cc-mdetail__row">
-        <section className={`cc-rff${(rff.data?.score ?? 0) >= 55 ? ' cc-rff--hot' : ''}`} aria-label="RFF market-risk lens">
-          <header>
-            <span>RFF · market-risk lens</span>
-            <b>{rff.data?.score != null ? Math.round(rff.data.score) : '—'}</b>
-          </header>
-          {rff.data
-            ? <>
-              <p className="cc-rff__band">{band ? `${band.label} — ${band.description}` : 'Not scored'}{rff.data.evidence_coverage != null ? ` · ${Math.round(rff.data.evidence_coverage * 100)}% evidence coverage` : ''}</p>
-              {(rff.data.contributions ?? []).filter((c) => (c.share_of_known_contribution ?? 0) > 0).slice(0, 3).map((c) => (
-                <p key={c.key} className="cc-rff__driver"><i style={{ width: `${Math.round(c.share_of_known_contribution * 100)}%` }} />{c.label} <b>{c.score != null ? Math.round(c.score) : '—'}</b></p>
-              ))}
-              <p className="cc-rff__note">Research index — not a sportsbook market, not a betting signal, and not an input to any decision.</p>
-            </>
-            : <p className="cc-muted">{rff.error ? 'RFF unavailable for this game.' : 'Loading RFF…'}</p>}
-        </section>
 
         <section className="cc-move" aria-label="Market movement">
           <header>

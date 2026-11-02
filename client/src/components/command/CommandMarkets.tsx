@@ -26,7 +26,6 @@ import {
 import { useApiResource } from '../../hooks/useApiResource'
 import { apiRequest } from '../../services/api'
 import { STALE_TIME, cacheKey } from '../../services/queryCache'
-import type { RffBoard } from '../../types/marketIntelligence'
 import { bookRange, gapOf } from '../../services/marketMath'
 import { BookSpread } from './BookSpread'
 import { LazyDetails } from './LazyDetails'
@@ -40,11 +39,10 @@ import './command.css'
 
 // Research families load their (heavier) views only when their tab is opened.
 const ParlaysPanel = lazy(() => import('./MarketResearch').then((m) => ({ default: m.ParlaysPanel })))
-const RffPanel = lazy(() => import('./MarketResearch').then((m) => ({ default: m.RffPanel })))
 const TotalsModelPanel = lazy(() => import('./MarketResearch').then((m) => ({ default: m.TotalsModelPanel })))
 
 type Market = 'MONEYLINE' | 'SPREAD' | 'TOTAL'
-type FamilyTab = Market | 'PARLAYS' | 'RFF'
+type FamilyTab = Market | 'PARLAYS'
 const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`)
 const shortBook = (name: string | null | undefined) => (name ?? '').replace(/\s*\(.*\)\s*$/, '')
@@ -81,11 +79,6 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
   const positions = useMemo(() => (ledger.data?.sports ?? []).flatMap((s) => s.positions.map((p) => ({ ...p, sport: s.sport }))), [ledger.data])
   const recorded = chosen ? positions.filter((p) => p.game_id === chosen.game_id) : []
   const sports = SPORT_CODES.filter((c) => evidenceGames.some((g) => asSport(g.league) === c))
-  const rffDay = evidence.data?.date ?? day
-  const rffBoard = useApiResource(useCallback((signal: AbortSignal) =>
-    apiRequest<RffBoard>(`/markets/rff?date=${rffDay}&market=MONEYLINE`, {}, signal), [rffDay]),
-    { key: cacheKey('markets/rff', { day: rffDay, league: null, family: 'MONEYLINE' }), staleTimeMs: STALE_TIME.slate })
-  const rffByGame = useMemo(() => Object.fromEntries((rffBoard.data?.games ?? []).map((g) => [g.game_id, g])), [rffBoard.data])
 
   const scheduledPanel = scheduled.length > 0 && (
         <section className="cc-mpanel" aria-label="Scheduled for collection">
@@ -152,7 +145,7 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
 
       <div className="cc-feedbar">
         <div className="cc-tabs" role="tablist" aria-label="Market family">
-          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays'], ['RFF', 'RFF Lens']] as const).map(([key, label]) => (
+          {([['MONEYLINE', 'Moneyline'], ['SPREAD', 'Spread / run line'], ['TOTAL', 'Totals'], ['PARLAYS', 'Parlays']] as const).map(([key, label]) => (
             <button key={key} role="tab" type="button" aria-selected={tab === key} onClick={() => setTab(key)}>{label}</button>
           ))}
         </div>
@@ -168,7 +161,6 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
       </div>
 
       {tab === 'PARLAYS' && <Suspense fallback={<p className="cc-empty">Loading parlays…</p>}><ParlaysPanel day={evidence.data?.date ?? day} /></Suspense>}
-      {tab === 'RFF' && <Suspense fallback={<p className="cc-empty">Loading RFF…</p>}><RffPanel day={evidence.data?.date ?? day} league={sport === 'MLB' || sport === 'NFL' ? sport : null} /></Suspense>}
 
       {(tab === 'MONEYLINE' || tab === 'SPREAD' || tab === 'TOTAL') && (!evidence.data
         ? <p className="cc-empty" role="status">{evidence.error ? `Market evidence is unavailable: ${evidence.error}` : 'Loading stored quotes…'}</p>
@@ -187,7 +179,7 @@ export function CommandMarkets({ day, onDay, initialSport }: { day: string; onDa
               <section className="cc-mpanel" aria-label={market === 'MONEYLINE' ? 'Model versus consensus' : 'Lines by game'}>
                 <h3>{market === 'MONEYLINE' ? `Model vs no-vig consensus · ${withQuotes.length} priced games` : `${market === 'TOTAL' ? 'Total' : 'Spread / run line'} by game · book range and median`}</h3>
                 {market === 'MONEYLINE'
-                  ? <ConsensusBoard games={games} selected={chosen?.game_id ?? null} onSelect={setSelected} rff={rffByGame} />
+                  ? <ConsensusBoard games={games} selected={chosen?.game_id ?? null} onSelect={setSelected} />
                   : <LinesBoard games={games} market={market} selected={chosen?.game_id ?? null} onSelect={setSelected} />}
                 {market === 'TOTAL' && (
                   <LazyDetails className="cc-inline-details" summary="V18 run distribution against the recorded total (MLB)">
@@ -238,7 +230,7 @@ function shiftDay(iso: string, days: number): string {
 }
 
 /** One row per game: book range, consensus tick, model dot, gap stem; largest gaps highlighted. */
-const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect, rff = {} }: { games: CoverageGame[]; selected: string | null; onSelect: (id: string) => void; rff?: Record<string, { score: number | null; band?: { label: string } | null }> }) {
+const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect }: { games: CoverageGame[]; selected: string | null; onSelect: (id: string) => void }) {
   const { ref, width } = useWidth<HTMLDivElement>()
   const { tip, show, hide, frame } = useTooltip()
   const axis = useRef<SVGGElement | null>(null)
@@ -269,7 +261,6 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect,
           <dt>Consensus</dt><dd>{pct(g.consensus_no_vig_home)}{g.consensus_is_current ? '' : ' · stale'}</dd>
           <dt>Gap</dt><dd>{gapOf(g) != null ? `${(gapOf(g)! * 100).toFixed(1)} pts` : '—'}</dd>
           <dt>Book range</dt><dd>{range ? `${pct(range[0])}–${pct(range[1])}` : '—'} ({g.books} books)</dd>
-          {rff[g.game_id]?.score != null && <><dt>RFF Lens</dt><dd>{Math.round(rff[g.game_id].score as number)} · {rff[g.game_id].band?.label ?? 'scored'}</dd></>}
           {best && <><dt>Latest</dt><dd>{shortBook(best.sportsbook)} {am(best.sides.AWAY?.american)}/{am(best.sides.HOME?.american)}</dd>
             <dt>Provider</dt><dd>{best.provider} · {best.classification.toLowerCase()}</dd>
             <dt>Observed</dt><dd>{etTime(best.observed_at, true)} ({relative(best.observed_at)})</dd></>}
@@ -299,12 +290,6 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect,
                 className={gap >= 0 ? 'cc-stem cc-stem--up' : 'cc-stem cc-stem--down'} strokeWidth={hot ? 3 : 1.5} />}
               <line x1={x(g.consensus_no_vig_home!)} x2={x(g.consensus_no_vig_home!)} y1={cy - 8} y2={cy + 8} className="cc-consensus" />
               {g.model?.home_two_way != null && <circle cx={x(g.model.home_two_way)} cy={cy} r={hot ? 7 : 5.5} fill={SPORT_COLORS[code]} className="cc-dot__mark" />}
-              {rff[g.game_id]?.score != null && (
-                <g transform={`translate(${width - 22}, ${cy})`} className="cc-rffchip">
-                  <rect x={-18} y={-9} width={36} height={18} rx={9} style={{ opacity: 0.25 + 0.75 * Math.min(1, (rff[g.game_id].score as number) / 100) }} />
-                  <text textAnchor="middle" y={4}>{Math.round(rff[g.game_id].score as number)}</text>
-                </g>
-              )}
             </g>
           )
         })}
@@ -314,7 +299,6 @@ const ConsensusBoard = memo(function ConsensusBoard({ games, selected, onSelect,
         <li><i className="cc-key cc-key--book" style={{ borderRadius: 4, width: 16 }} />Book range</li>
         <li><i className="cc-key cc-key--consensus" />No-vig consensus</li>
         <li><i className="cc-key cc-key--forecast" />Model (home, two-way)</li>
-        <li><i className="cc-key cc-key--rff" />RFF market-risk score (research lens)</li>
         <li>Largest gaps in bold · select a row for its books</li>
       </ul>
       <ChartTable caption="Model and consensus by game">

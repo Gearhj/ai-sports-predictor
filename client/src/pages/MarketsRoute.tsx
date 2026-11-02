@@ -29,8 +29,8 @@ export function MarketsRoute() {
     copy.set('date', next)
     return copy
   }, { replace: true }), [setParams])
-  // A shared replay / RFF link opens the detailed boards directly.
-  const deepLink = Boolean(params.get('view') || params.get('game') || params.get('rff'))
+  // A shared replay link opens the detailed boards directly.
+  const deepLink = Boolean(params.get('view') || params.get('game'))
   return (
     <div className="bx bx-markets">
       <div className="bx__inner">
@@ -47,7 +47,7 @@ export function MarketsRoute() {
           <CommandMarkets key={initialSport ?? 'ALL'} day={day} onDay={onDay} initialSport={initialSport} />
         </RegionBoundary>
         <p className="bx-markets__alt"><Link to={`/markets/board?date=${day}`}>Every game side by side in one table →</Link></p>
-        <LazyDetails defaultOpen={deepLink} summary="Detailed boards — every price row, replay, prediction markets and the full RFF Lens">
+        <LazyDetails defaultOpen={deepLink} summary="Detailed boards — every price row, replay and prediction markets">
           <div className="cc-nested"><Boards /></div>
         </LazyDetails>
       </div>

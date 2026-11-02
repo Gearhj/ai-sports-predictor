@@ -316,7 +316,6 @@ function RundownRow({ game, slate }: { game: ShowGame; slate: string }) {
         <p className="sb-row__notes">
           {game.comparison && <span className="is-up">Preview model-market difference {pts(game.comparison.difference)} on {game.comparison.team}</span>}
           {key.map((m) => <span key={m.code}>{m.message}</span>)}
-          <span className="sb-muted">RFF: not computed at the preview horizon</span>
         </p>
       )}
       {/* What the model must be shown with, never abbreviated away. A number
