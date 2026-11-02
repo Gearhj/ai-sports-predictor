@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     email_outbox_dir: str = ""
     email_from: str = "AI Sports Predictor <no-reply@aisportspredictor.app>"
     verify_token_hours: int = Field(default=24, ge=1, le=24 * 14)
+    #: When true, routes that depend on PremiumUser need an active PREMIUM entitlement; false during the beta,
+    #: when everything is open and the entitlement is only recorded and labelled.
+    premium_gating_enabled: bool = False
     reset_token_minutes: int = Field(default=60, ge=5, le=24 * 60)
     booth_per_user_per_day: int = Field(default=20, ge=0, le=1000)
     booth_site_per_day: int = Field(default=200, ge=0, le=100_000)

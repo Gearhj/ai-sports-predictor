@@ -115,7 +115,7 @@ def reset_password(session: Session, settings: Settings, raw: str, new_password:
     if user.email_verified_at is None:
         user.email_verified_at = datetime.now(UTC)  # a reset link read from the inbox proves the email as well
     revoke_user_tokens(session, user)
-    return _auth_response(user, settings)
+    return _auth_response(user, settings, session)
 
 
 def change_password(session: Session, settings: Settings, user: User, current_password: str, new_password: str):
@@ -123,7 +123,7 @@ def change_password(session: Session, settings: Settings, user: User, current_pa
         raise AuthenticationError("The current password is not right.")
     user.password_hash = hash_password(new_password)
     revoke_user_tokens(session, user)
-    return _auth_response(user, settings)
+    return _auth_response(user, settings, session)
 
 
 def delete_account(session: Session, user: User, password: str) -> None:

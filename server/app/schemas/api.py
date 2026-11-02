@@ -36,6 +36,8 @@ class PublicConfigData(BaseModel):
     # resolve "today" in the configured display timezone instead of UTC.
     display_timezone: str = "America/New_York"
     operational_date: date | None = None
+    #: Scale plan Phase 1: when false (the beta) every page is open and the client only labels premium features.
+    premium_gating_enabled: bool = False
 
 
 class TeamSummary(BaseModel):
@@ -909,6 +911,8 @@ class AuthUser(BaseModel):
     display_name: str
     role: Literal["ADMIN", "MEMBER"]
     email_verified: bool = False
+    #: Active entitlement kinds ("premium", ...); empty for a plain member.
+    entitlements: list[str] = []
 
 
 class LoginRequest(BaseModel):

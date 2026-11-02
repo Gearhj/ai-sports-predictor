@@ -1,5 +1,6 @@
 import type { GameSimulationData, ScenarioCapabilities, ScenarioResult } from '../types/simulation'
 import type {
+  AdminAccount,
   AuthResponse,
   AuthUser,
   BankrollData,
@@ -312,6 +313,10 @@ export const endpoints = {
   resetPassword: (token: string, password: string) => apiRequest<AuthResponse>('/auth/password/reset', { method: 'POST', body: JSON.stringify({ token, password }) }),
   changePassword: (current_password: string, new_password: string) => apiRequest<AuthResponse>('/auth/password/change', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
   deleteAccount: (password: string) => apiRequest<{ status: string }>('/auth/account/delete', { method: 'POST', body: JSON.stringify({ password }) }),
+  // The owner's view of accounts and the hand-granted PREMIUM entitlement (until a billing provider does it).
+  adminUsers: (q: string, signal?: AbortSignal) => apiRequest<{ users: AdminAccount[]; count: number }>(`/admin/users?q=${encodeURIComponent(q)}`, {}, signal),
+  setEntitlement: (userId: string, body: { kind: string; active: boolean; expires_at?: string | null }) =>
+    apiRequest<AdminAccount>(`/admin/users/${encodeURIComponent(userId)}/entitlements`, { method: 'POST', body: JSON.stringify(body) }),
   runJob: (job: string) => apiRequest<{ id?: string; job_id?: string; status: string }>(`/admin/jobs/${encodeURIComponent(job)}`, { method: 'POST' }),
   liveShadowStatus: (signal?: AbortSignal) => apiRequest<LiveShadowStatus>('/admin/live-shadow/status', {}, signal),
 }

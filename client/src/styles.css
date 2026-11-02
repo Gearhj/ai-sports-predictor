@@ -723,6 +723,17 @@ h1, h2, h3, p { margin-top: 0; }
 .account-sync svg { flex: none; margin-top: 2px; }
 .account-page .auth-form { padding: 14px 18px; }
 .account-page .auth-form .primary-button, .account-page .auth-form .secondary-button { align-self: flex-start; }
+/* Premium features (scale plan Phase 1): a tag during the beta, a wall once gating is on. */
+.premium-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid #d9b85a; border-radius: 999px; color: #8a6d12; background: #fff7dc; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.premium-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--muted); font-size: 11px; }
+.premium-wall { max-width: 560px; margin: 24px auto; padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel, #fff); text-align: center; }
+.premium-wall h2 { margin: 10px 0 6px; }
+.premium-wall p { margin: 6px 0; font-size: 13px; line-height: 1.5; }
+.premium-wall__fine { color: var(--muted); font-size: 11px; }
+.accounts-admin__search { display: flex; gap: 8px; padding: 12px 18px 0; }
+.accounts-admin__search input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+.accounts-admin__table td { vertical-align: middle; }
+.accounts-admin__table .primary-button, .accounts-admin__table .secondary-button { padding: 4px 9px; font-size: 11px; }
 .auth-loading { color: var(--muted); font-size: 11px; }
 .account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .profile-card { display: flex; align-items: center; gap: 15px; padding: 18px; border-bottom: 1px solid var(--line); }

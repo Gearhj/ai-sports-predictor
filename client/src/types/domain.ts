@@ -19,6 +19,8 @@ export interface PublicConfig extends DataProvenance {
   }
   display_timezone?: string
   operational_date?: string | null
+  /** False during the beta: premium features are labelled, never locked. */
+  premium_gating_enabled?: boolean
 }
 export type Trend = 'positive' | 'negative' | 'neutral'
 export type ReadinessState = 'ready' | 'watch' | 'stale' | 'missing'
@@ -903,6 +905,21 @@ export interface AuthUser {
   role: 'ADMIN' | 'MEMBER'
   /** The owner has opened a verification (or reset) link for this email. Absent on older responses. */
   email_verified?: boolean
+  /** Active entitlement kinds ('premium', ...); empty or absent for a plain member. */
+  entitlements?: string[]
+}
+
+export interface AdminAccount {
+  id: string
+  email: string
+  display_name: string
+  role: 'ADMIN' | 'MEMBER'
+  status: string
+  email_verified: boolean
+  created_at: string | null
+  last_login_at: string | null
+  entitlements: Array<{ kind: string; active: boolean; status: string; starts_at: string | null; expires_at: string | null; source: string; provider: string | null }>
+  active: string[]
 }
 
 export interface AuthResponse {

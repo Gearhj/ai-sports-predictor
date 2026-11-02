@@ -52,6 +52,7 @@ const MmaPage = lazy(() => import('./features/mma/MmaPage').then((module) => ({ 
 const MmqbPage = lazy(() => import('./features/mmqb/MmqbPage').then((module) => ({ default: module.MmqbPage })))
 const StartPage = lazy(() => import('./features/start/StartPage').then((module) => ({ default: module.StartPage })))
 const UnderdogPage = lazy(() => import('./features/underdogs/UnderdogPage').then((module) => ({ default: module.UnderdogPage })))
+import { PremiumGate } from './components/PremiumGate'
 import { GAMES_ON, WELCOME_ON } from './features/release/flags'
 const WelcomePage = lazy(() => import('./features/start/WelcomePage').then((module) => ({ default: module.WelcomePage })))
 const ControlPage = lazy(() => import('./features/control/ControlPage').then((module) => ({ default: module.ControlPage })))
@@ -147,8 +148,9 @@ export default function App() {
                 <Route path="mma" element={<MmaPage />} />
                 <Route path="start" element={<StartPage />} />
                 <Route path="welcome" element={WELCOME_ON ? <WelcomePage /> : <Navigate to="/" replace />} />
-                <Route path="underdogs" element={<UnderdogPage />} />
-                <Route path="mmqb" element={<MmqbPage />} />
+                {/* Premium features (scale plan Phase 1): labelled during the beta, locked once gating is on. */}
+                <Route path="underdogs" element={<PremiumGate feature="The Underdog Report" blurb="Every underdog the AI likes against the books, with the prices that make it a value."><UnderdogPage /></PremiumGate>} />
+                <Route path="mmqb" element={<PremiumGate feature="Monday Morning QB" blurb="The weekly NFL report: every call the AI made, graded against the market and the result."><MmqbPage /></PremiumGate>} />
                 {/* Model Lab withdrawn 2026-10-25 (owner: real model-building tools or none); the code stays for the rebuild. */}
                 <Route path="model-lab" element={<Navigate to="/performance" replace />} />
                 {/* Every page not yet rebuilt runs inside the shared AISP shell (one menu, navy + steel). */}

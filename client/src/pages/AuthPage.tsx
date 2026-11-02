@@ -161,7 +161,7 @@ function AccountView({ notice, onNotice }: { notice: string | null; onNotice: (n
           <dl className="account-details">
             <div><dt>Email</dt><dd>{user.email_verified ? <><MailCheck size={13} /> Confirmed</> : <>Not confirmed yet · <button type="button" className="link-button" onClick={resend} disabled={busy === 'resend'}>{busy === 'resend' ? 'Sending…' : 'send the link again'}</button></>}</dd></div>
             <div><dt>Account ID</dt><dd className="mono">{user.id}</dd></div>
-            <div><dt>Access</dt><dd>Beta member · everything is open during the beta</dd></div>
+            <div><dt>Access</dt><dd>{user.entitlements?.includes('premium') ? 'Premium member' : user.role === 'ADMIN' ? 'Owner' : 'Beta member'} · everything is open during the beta</dd></div>
             <div><dt>Session</dt><dd><CheckCircle2 size={13} /> Active</dd></div>
           </dl>
           <SyncLine />

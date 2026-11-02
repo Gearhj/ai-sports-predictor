@@ -131,6 +131,7 @@ def public_config(session: DatabaseSession, settings: AppSettings) -> PublicConf
         component_weights=normalized,
         display_timezone=settings.display_timezone,
         operational_date=local_today(settings.display_timezone),
+        premium_gating_enabled=bool(getattr(settings, "premium_gating_enabled", False)),
         bankroll_policy={
             "kelly_fraction": 0.25,
             "maximum_stake_percentage": settings.official_max_stake_percentage,
@@ -1345,8 +1346,8 @@ def login(body: LoginRequest, request: Request, session: DatabaseSession, settin
 
 
 @router.get("/auth/me", response_model=AuthUser, tags=["authentication"])
-def me(user: CurrentUser) -> AuthUser:
-    return public_user(user)
+def me(user: CurrentUser, session: DatabaseSession) -> AuthUser:
+    return public_user(user, session)
 
 
 @router.post("/auth/logout", tags=["authentication"])

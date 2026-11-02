@@ -26,13 +26,19 @@ class BootstrapConflictError(RuntimeError):
 _DUMMY_PASSWORD_HASH = hash_password("fixed-dummy-password-never-used")
 
 
-def public_user(user: User) -> AuthUser:
+def public_user(user: User, session: Session | None = None) -> AuthUser:
+    entitlements: list[str] = []
+    if session is not None:
+        from app.services.entitlements import active_kinds
+
+        entitlements = active_kinds(session, user.id)
     return AuthUser(
         id=str(user.id),
         email=user.email,
         display_name=user.display_name,
         role=user.role.value.upper(),
         email_verified=getattr(user, "email_verified_at", None) is not None,
+        entitlements=entitlements,
     )
 
 
@@ -88,7 +94,7 @@ def register_user(
     session.add(user)
     session.commit()
     session.refresh(user)
-    return _auth_response(user, settings)
+    return _auth_response(user, settings, session)
 
 
 def authenticate_user(session: Session, settings: Settings, email: str, password: str) -> AuthResponse:
@@ -102,7 +108,7 @@ def authenticate_user(session: Session, settings: Settings, email: str, password
         raise AuthenticationError("Invalid email or password")
     user.last_login_at = datetime.now(UTC)
     session.commit()
-    return _auth_response(user, settings)
+    return _auth_response(user, settings, session)
 
 
 def ensure_admin(session: Session, settings: Settings) -> User:
@@ -146,11 +152,11 @@ def revoke_user_tokens(session: Session, user: User) -> None:
     session.commit()
 
 
-def _auth_response(user: User, settings: Settings) -> AuthResponse:
+def _auth_response(user: User, settings: Settings, session: Session | None = None) -> AuthResponse:
     token = create_access_token(
         str(user.id),
         settings.secret_key,
         settings.access_token_minutes,
         claims={"role": user.role.value, "ver": int(user.token_version)},
     )
-    return AuthResponse(access_token=token, user=public_user(user))
+    return AuthResponse(access_token=token, user=public_user(user, session))

@@ -56,3 +56,20 @@ def require_admin(user: CurrentUser) -> User:
 
 
 AdminUser = Annotated[User, Depends(require_admin)]
+
+
+def require_premium(user: CurrentUser, session: DatabaseSession, settings: AppSettings) -> User:
+    """A signed-in member with an active PREMIUM entitlement, or anyone while gating is off (the beta)."""
+    if not getattr(settings, "premium_gating_enabled", False) or user.role == UserRole.ADMIN:
+        return user
+    from app.services.entitlements import has_premium
+
+    if not has_premium(session, user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "PREMIUM_REQUIRED", "message": "This part of the site is for premium members."},
+        )
+    return user
+
+
+PremiumUser = Annotated[User, Depends(require_premium)]

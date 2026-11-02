@@ -206,6 +206,9 @@ def create_app(settings=None) -> FastAPI:
     from app.api.account_routes import router as account_router
 
     application.include_router(account_router, prefix=settings.api_v1_prefix)
+    from app.api.admin_users_routes import router as admin_users_router
+
+    application.include_router(admin_users_router, prefix=settings.api_v1_prefix)
 
     @application.get("/healthz", include_in_schema=False)
     def healthz() -> dict:

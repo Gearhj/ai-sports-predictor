@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Activity, Database, Gauge, KeyRound, Play, RefreshCw, ServerCog, TriangleAlert } from 'lucide-react'
 import { DataModeBanner, DataStatePanel, MetricCard, PageHeader, Panel, StatusPill, TableScroll } from '../components/ui'
 import { LiveShadowStatusCard } from '../components/LiveShadowStatusCard'
+import { AccountsAdmin } from '../components/AccountsAdmin'
 import { OddsCollectionPanel } from '../components/OddsCollectionPanel'
 import { demoHealth } from '../data/demo'
 import { useApiResource } from '../hooks/useApiResource'
@@ -70,6 +71,7 @@ export function HealthPage({ demo = false }: { demo?: boolean }) {
       <PageHeader eyebrow={demo ? 'ILLUSTRATIVE OPERATIONS EXAMPLE' : 'OPERATIONS · ADMIN'} title="Data Health" description={demo ? 'Static source cards demonstrate the operations interface. No controls can run.' : 'Source freshness, pipeline status, and controlled manual operations.'} actions={<span className="admin-chip"><ServerCog size={14} /> {demo ? 'DEMO · CONTROLS DISABLED' : user?.role === 'ADMIN' ? 'ADMIN SESSION' : 'READ-ONLY'}</span>} />
       <DataModeBanner state={state} loading={loading} error={error} onRetry={refresh} />
       {!demo && <LiveShadowStatusCard />}
+      {!demo && user?.role === 'ADMIN' && <AccountsAdmin />}
 
       <div className="section-heading">
         <div><p className="eyebrow">CURRENT LIVE DATA</p><h2>Current Live Data</h2></div>
