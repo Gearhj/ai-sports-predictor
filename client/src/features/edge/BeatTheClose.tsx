@@ -18,7 +18,7 @@ export function BeatTheClose() {
   const rows = useMemo(() => settled.filter((r) => r.close_after_bet).sort((a, b) => a.starts_at.localeCompare(b.starts_at)), [settled])
   const sports = Array.from(new Set(rows.map((r) => r.sport))).sort()
   const shown = rows.filter((r) => sport === 'ALL' || r.sport === sport)
-  if (error) return <section className="ed-card"><h2>Beat the Close</h2><p className="ed-muted">The closing-line feed is only on the test-mode preview ({error}).</p></section>
+  if (error) return <section className="ed-card"><h2>Beat the Close</h2><p className="ed-muted">The closing-line feed is unavailable right now ({error}).</p></section>
   if (!data) return <section className="ed-card"><h2>Beat the Close</h2><p className="ed-muted">Grading every AISP bet against the closing line…</p></section>
   if (!shown.length) return null
   const beat = shown.filter((r) => r.clv_pct > 0).length

@@ -159,6 +159,7 @@ export function RecordPage() {
               </section>
               <section className="sl-card rc-sports" aria-label="Performance by sport">
                 <header className="sl-card__head"><h2>Performance by Sport</h2></header>
+                <div className="rc-scroll">
                 <table className="rc-table rc-table--sports">
                   <thead><tr><th>Sport</th><th>Record</th><th>Win rate</th><th>P/L</th><th>ROI</th></tr></thead>
                   <tbody>
@@ -174,6 +175,7 @@ export function RecordPage() {
                     {!bySport.length ? <tr><td colSpan={5} className="sl-empty">No settled bets in this range.</td></tr> : null}
                   </tbody>
                 </table>
+                </div>
                 <p className="rc-tiny">Click a sport to filter the whole page.</p>
               </section>
             </div>

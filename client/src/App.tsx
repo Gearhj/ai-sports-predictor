@@ -8,6 +8,7 @@ import { AuthProvider } from './hooks/useAuth'
 import { PublicPolicyProvider } from './hooks/usePublicPolicy'
 import { SportRegistryProvider } from './hooks/useSportRegistry'
 import { SportSelectionProvider, legacySportHref, sportHref } from './hooks/useSportSelection'
+import { gameHref } from './services/commandCenter'
 import { DEMO_ROUTES_ENABLED } from './config/demoAccess'
 import { BuildRefresh } from './components/BuildRefresh'
 
@@ -84,6 +85,8 @@ function GameRoute({ simulation = false }: { simulation?: boolean }) {
     const sport = /^\d{4}_\d{2}_[A-Z]+_[A-Z]+$/.test(gameId) ? 'NFL' : 'MLB'
     return <Navigate to={sportHref(`${location.pathname}${location.search}${location.hash}`, sport)} replace />
   }
+  // NHL, NBA and CFB game pages live under their own paths; a sport-tagged /games link goes straight there.
+  if (!simulation && (requested === 'NHL' || requested === 'NBA' || requested === 'CFB')) return <Navigate to={gameHref(requested, gameId)} replace />
   return requested === 'NFL'
     ? simulation ? <NflLabPage /> : <NflGamePage />
     : simulation ? <GameSimulationPage /> : <GameAnalysisPage />
@@ -104,13 +107,13 @@ function ScrollToTop() {
 const FocusApp = lazy(() => import('./features/focus/FocusApp').then((m) => ({ default: m.FocusApp })))
 
 /** Focus mode (owner 10-27) replaces every page but sign-in/account/admin with the four Focus screens; the
- *  FULL / FOCUS toggle sits top-right on every page. The TV wall (?tv=1) never shows the toggle. */
+ *  FULL / FOCUS toggle floats at the bottom of every page. The TV wall (?tv=1) never shows the toggle. */
 function ModeGate({ children }: { children: ReactNode }) {
   const mode = useMode()
   const { pathname, search } = useLocation()
   const tv = new URLSearchParams(search).get('tv') === '1'
   if (mode === 'focus' && !FOCUS_PASSTHROUGH.test(pathname)) return <FocusApp />
-  return <>{children}{tv ? null : <ModeToggle />}</>
+  return <>{children}{tv ? null : <ModeToggle floating />}</>
 }
 
 export default function App() {

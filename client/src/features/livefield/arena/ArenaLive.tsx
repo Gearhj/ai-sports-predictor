@@ -46,7 +46,7 @@ export function ArenaLive({ game, games, onPickGame, sportFilter, onSport, booth
           </>
         )}
         {boothOpen ? <div className="ar-booth">{booth}</div> : null}
-        <footer className="ar-foot">Research and paper only. Play-by-play, coordinates, players and {league === 'nba' ? 'win probability' : 'on-ice lineups'}: ESPN's public feed via the test-mode preview server, never stored and never used for settlement. AISP's pregame numbers come from Mission Control.</footer>
+        <footer className="ar-foot">Research and paper only. Play-by-play, coordinates, players and {league === 'nba' ? 'win probability' : 'on-ice lineups'}: ESPN's public feed, never stored and never used for settlement. AISP's pregame numbers come from Mission Control.</footer>
       </div>
     </LiveShell>
   )

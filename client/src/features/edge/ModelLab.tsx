@@ -65,7 +65,7 @@ export function ModelLab() {
       <AispSide />
       <div className="hq-main">
         <header className="sl-top"><div className="sl-title"><small>Research · Model Lab</small><h1>Build Your Own Model</h1><p>Blend AISP's model with the market, add caution, choose when to bet, and replay every decided game.</p></div></header>
-        {error ? <p className="sl-empty">The lab's history is only on the test-mode preview ({error}).</p> : !data ? <p className="sl-empty">Loading every decided game…</p> : (
+        {error ? <p className="sl-empty">The lab's history is unavailable right now ({error}).</p> : !data ? <p className="sl-empty">Loading every decided game…</p> : (
           <div className="ed-lab__body">
             <section className="ed-card ed-dials" aria-label="Your model">
               <h2>Your model</h2>

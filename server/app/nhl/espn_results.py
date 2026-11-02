@@ -73,6 +73,15 @@ was decided, OT/SO, the final) is a NEW row naming ``supersedesResultSha256`` = 
 re-read with the same substance writes nothing. A game whose current result came from another
 source (the producer's manifest) is left alone and reported as ``HELD_FROM_OTHER_SOURCE``.
 
+A DROPPED GOAL IN ESPN'S PERIOD LINES (11-01)
+---------------------------------------------
+ESPN's scoreboard sometimes reports a correct final but loses a goal in one period's line (MIN@VAN
+10-25: VAN 0-0-1 by period, final 2). A final that disagrees with its own lines is still refused --
+unless NHL's own public game center (api-web.nhle.com, keyless, $0, one GET for that game only)
+confirms the game is over IN REGULATION with exactly ESPN's final. Then the regulation goals are the
+final score (a regulation decision has no other goals) and the derivation names the confirmation.
+Never for a tie, an extra period, or a status that mentions OT/SO.
+
 POSTPONED / CANCELLED
 ---------------------
 A matched event that ESPN reports postponed or cancelled, for a game AISP still holds as
@@ -104,6 +113,10 @@ DOCUMENT_SCHEMA = "AISP_NHL_ESPN_RESULT_V1"
 DEFAULT_INTERVAL_MINUTES = 30
 #: A regulation NHL game takes about two and a half hours; before that nothing is asked.
 SETTLE_AFTER_START = timedelta(hours=2, minutes=30)
+
+#: NHL's public game center, asked only to confirm a regulation final ESPN's period lines contradict.
+NHL_LANDING_URL = "https://api-web.nhle.com/v1/gamecenter/{game}/landing"
+NHL_CONFIRMATION_SOURCE = "NHL_GAMECENTER_PUBLIC"
 #: Both clubs plus a start within this distance. The same orientation never meets twice inside
 #: twelve hours, so a moved start still matches and a rematch never collides.
 START_TOLERANCE = timedelta(hours=12)
@@ -358,8 +371,14 @@ def _lines(competitor: dict[str, Any]) -> dict[int, int]:
     return out
 
 
-def derive_result(event: Event, target: Target, *, supersedes: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The contract result for a FINAL event (and how it was derived), or ``Refused``."""
+def derive_result(event: Event, target: Target, *, supersedes: str | None,
+                  confirm: Callable[[str | None], dict[str, Any] | None] | None = None,
+                  ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The contract result for a FINAL event (and how it was derived), or ``Refused``.
+
+    ``confirm(canonical_game_ref)`` returns NHL's own view ``{"state", "periodType", "home", "away"}`` (or
+    None); it is consulted only when ESPN's regulation lines contradict ESPN's final.
+    """
 
     if not event.final:
         raise Refused(f"NOT_FINAL:{event.status_name or 'UNKNOWN'}")
@@ -388,6 +407,7 @@ def derive_result(event: Event, target: Target, *, supersedes: str | None) -> tu
     rh, ra = hl[1] + hl[2] + hl[3], al[1] + al[2] + al[3]
     words = set(re.split(r"[^A-Z0-9]+", event.detail.upper()))
     tally = None
+    confirmed_by: str | None = None
     overtime: dict[str, Any] | None = None
     shootout: dict[str, Any] | None = None
     if rh != ra:
@@ -395,7 +415,14 @@ def derive_result(event: Event, target: Target, *, supersedes: str | None) -> tu
         if any(hl[p] or al[p] for p in extra):
             raise Refused("EXTRA_TIME_GOALS_AFTER_A_REGULATION_DECISION")
         if (final_home, final_away) != (rh, ra):
-            raise Refused("FINAL_DIFFERS_FROM_REGULATION_LINESCORE")
+            regulation_only = (not extra and event.period in (None, 3) and final_home != final_away
+                               and not ({"OT", "SO", "SHOOTOUT", "OVERTIME"} & words)
+                               and not any(w.endswith("OT") for w in words))
+            official = confirm(target.canonical_game_ref) if (confirm and regulation_only) else None
+            if not (official and official.get("state") in ("OFF", "FINAL") and official.get("periodType") == "REG"
+                    and (official.get("home"), official.get("away")) == (final_home, final_away)):
+                raise Refused("FINAL_DIFFERS_FROM_REGULATION_LINESCORE")
+            rh, ra, confirmed_by = final_home, final_away, NHL_CONFIRMATION_SOURCE
     elif game_type == "PLAYOFF":
         oh, oa = sum(hl[p] for p in extra), sum(al[p] for p in extra)
         if oh + oa != 1:
@@ -454,6 +481,7 @@ def derive_result(event: Event, target: Target, *, supersedes: str | None) -> tu
     if problems:
         raise Refused("CONTRACT_INVALID:" + ",".join(problems))
     derivation = {"statusName": event.status_name, "statusDetail": event.detail or None,
+                  "regulationConfirmedBy": confirmed_by,
                   "statusPeriod": event.period, "homeLinescores": [hl[p] for p in sorted(hl)],
                   "awayLinescores": [al[p] for p in sorted(al)], "shootoutTally": tally,
                   "official": "ESPN reports the event completed (STATUS_FINAL, state post); public scoreboard, "
@@ -497,6 +525,28 @@ def fetch_scoreboard(day: str) -> bytes:
     return response.content
 
 
+def fetch_nhl_landing(canonical_game_ref: str | None) -> dict[str, Any] | None:
+    """NHL's own state and final for one game (``nhl:game:<id>``); None when it cannot be read. One keyless GET."""
+
+    import httpx
+
+    number = str(canonical_game_ref or "").rsplit(":", 1)[-1]
+    if not re.fullmatch(r"\d{10}", number):
+        return None
+    try:
+        with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=False,
+                          headers={"Accept": "application/json", "User-Agent": "AISP-nhl-results/1.0"}) as client:
+            response = client.get(NHL_LANDING_URL.format(game=number))
+        if response.status_code != 200:
+            return None
+        body = response.json()
+        return {"state": body.get("gameState"), "periodType": (body.get("periodDescriptor") or {}).get("periodType"),
+                "home": _int((body.get("homeTeam") or {}).get("score")),
+                "away": _int((body.get("awayTeam") or {}).get("score"))}
+    except Exception:  # noqa: BLE001 - no confirmation means the ESPN refusal stands
+        return None
+
+
 def _events(raw: bytes, *, day: str, retrieved_at: datetime) -> list[Event]:
     payload = json.loads(raw)
     if not isinstance(payload, dict) or not isinstance(payload.get("events", []), list):
@@ -514,12 +564,16 @@ def _events(raw: bytes, *, day: str, retrieved_at: datetime) -> list[Event]:
 # ------------------------------------------------------------------ cycle --
 def ingest(session: Session, settings: Any, *, now: datetime | None = None,
            fetch: Callable[[str], bytes] | None = None,
-           clock: Callable[[], datetime] | None = None) -> dict[str, Any]:
+           clock: Callable[[], datetime] | None = None,
+           confirm: Callable[[str | None], dict[str, Any] | None] | None = None) -> dict[str, Any]:
     """One cycle: ask ESPN for the dates of due NHL games and write what is final. Commits its work."""
 
     from app.nhl.gen1_import import ImportSummary, _receipt, apply_official_final, bind_game
 
     clock = clock or (lambda: datetime.now(UTC))
+    # The live path confirms against NHL's game center; an injected scoreboard (tests) confirms only if told how.
+    if confirm is None and fetch is None:
+        confirm = fetch_nhl_landing
     base: dict[str, Any] = {"source": SOURCE, "costUsd": 0, "research_only": True,
                             "settlement_owner": "app.nhl.paper.settle"}
     if not getattr(settings, "nhl_espn_results_enabled", False):
@@ -618,7 +672,8 @@ def ingest(session: Session, settings: Any, *, now: datetime | None = None,
                 continue
             try:
                 document, derivation = derive_result(
-                    event, target, supersedes=current.result_sha256 if current is not None else None)
+                    event, target, supersedes=current.result_sha256 if current is not None else None,
+                    confirm=confirm)
             except Refused as why:
                 refuse(target, event, str(why))
                 continue
@@ -677,4 +732,4 @@ def ingest(session: Session, settings: Any, *, now: datetime | None = None,
 
 
 __all__ = ["DOCUMENT_SCHEMA", "ESPN_TO_NHL", "NHL_CODES", "SCOREBOARD_URL", "SOURCE", "Refused", "derive_result",
-           "due_games", "fetch_scoreboard", "ingest", "nhl_code", "parse_event", "row_fields"]
+           "due_games", "fetch_nhl_landing", "fetch_scoreboard", "ingest", "nhl_code", "parse_event", "row_fields"]

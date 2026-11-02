@@ -12,7 +12,7 @@ export function usePreviewJson<T>(path: string | null, refreshMs = 0): { data: T
     if (!path) return undefined
     let alive = true
     const load = () => fetch(path, { headers: { accept: 'application/json' } })
-      .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() : Promise.reject(new Error(r.status === 404 ? 'only on the test-mode preview' : `HTTP ${r.status}`))))
+      .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() : Promise.reject(new Error(r.status === 404 ? 'not available on this server' : `HTTP ${r.status}`))))
       .then((d: T) => { if (alive) { setData(d); setError(null) } })
       .catch((e: Error) => { if (alive) setError(e.message) })
     load()

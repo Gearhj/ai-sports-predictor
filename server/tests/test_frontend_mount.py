@@ -38,6 +38,16 @@ def test_hashed_assets_are_served(client):
     assert client.get("/assets/app-abc123.js").status_code == 200
 
 
+def test_hashed_assets_are_cached_long_and_gzipped(client, tmp_path):
+    response = client.get("/assets/app-abc123.js")
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    (tmp_path / "assets" / "big-def456.js").write_text("x" * 5000, encoding="utf-8")
+    big = client.get("/assets/big-def456.js", headers={"Accept-Encoding": "gzip"})
+    assert big.status_code == 200
+    assert big.headers.get("content-encoding") == "gzip"
+    assert big.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
 def test_a_real_top_level_file_is_served_as_itself(client):
     assert client.get("/favicon.svg").text == "<svg/>"
 

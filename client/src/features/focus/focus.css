@@ -177,3 +177,14 @@
 .fm-install button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .fm-install small { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; width: 230px; padding: 9px 11px; border-radius: 10px; font-size: 12px; line-height: 1.4;
   color: #e2e8f0; background: #0b1729; border: 1px solid rgba(94, 234, 212, .5); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+
+/* Sweep 11-01: the floating switch lives at the bottom of the screen, where page content can scroll out from under it
+   (top-right it permanently covered header controls). Centered on wide screens; bottom-left on phones, above the tab
+   bar and clear of the wagers pill on the right. Pages get matching bottom room so their last row is reachable. */
+.fm-toggle--float { top: auto; right: auto; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); border-top: 1.5px solid #34d399; border-radius: 999px; padding: 4px 5px 4px 10px; }
+body:has(.fm-toggle--float) { padding-bottom: 64px; }
+body:has(.rh) .fm-toggle--float { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 760px) {
+  .fm-toggle--float { left: 12px; transform: none; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  body:has(.fm-toggle--float) { padding-bottom: 120px; }
+}

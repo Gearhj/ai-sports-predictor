@@ -78,3 +78,8 @@ export function useAuth() {
 export function useOptionalUser() {
   return useContext(AuthContext)?.user ?? null
 }
+
+/** True while a stored sign-in is still being checked (so chrome can wait instead of showing "Sign in"). */
+export function useAuthLoading(): boolean {
+  return useContext(AuthContext)?.loading ?? false
+}

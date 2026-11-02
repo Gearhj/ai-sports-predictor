@@ -119,7 +119,7 @@ export function MarketMovers({ day }: { day: string }) {
         <span className="ed-seg"><button type="button" className={!steamOnly ? 'is-on' : ''} onClick={() => setSteamOnly(false)}>Biggest moves</button><button type="button" className={steamOnly ? 'is-on' : ''} onClick={() => setSteamOnly(true)}>Steam only ({steamCount})</button></span>
       </header>
       {data && !error ? <SteamRadar items={(data.games ?? []).filter((m) => names.has(m.game_id)).map((m) => { const g = names.get(m.game_id)!; return { m, label: g.matchup, league: g.league, mover: m.move >= 0 ? g.home.abbreviation : g.away.abbreviation } })} /> : null}
-      {error ? <p className="ed-muted">Market history is only on the test-mode preview ({error}).</p> : !data ? <p className="ed-muted">Reading the price history…</p> : !list.length ? <p className="ed-muted">No market moves to show for today's board yet.</p> : (
+      {error ? <p className="ed-muted">Market history is unavailable right now ({error}).</p> : !data ? <p className="ed-muted">Reading the price history…</p> : !list.length ? <p className="ed-muted">No market moves to show for today's board yet.</p> : (
         <div className="ed-mm__grid">
           {list.map((m) => {
             const g = names.get(m.game_id)!

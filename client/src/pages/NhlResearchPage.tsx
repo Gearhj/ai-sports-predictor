@@ -81,9 +81,9 @@ export function NhlResearchGamePage() {
   return (
     <div className="nhlpage">
       <PageHeader
-        eyebrow={data?.wagering.enabled ? 'NHL · Virtual paper' : 'NHL · Research only'}
+        eyebrow={!data ? 'NHL' : data.wagering.enabled ? 'NHL · Virtual paper' : 'NHL · Research only'}
         title={data ? `${data.away?.name ?? 'Away'} at ${data.home?.name ?? 'Home'}` : 'NHL game'}
-        description={data?.wagering.enabled
+        description={!data ? 'NHL Gen1 forecast for this game.' : data.wagering.enabled
           ? 'NHL Gen1 forecast with the paper checkpoint\'s recorded decision and position, as stored. Virtual paper only.'
           : 'NHL Gen1 research forecast. No market price, edge, recommendation or position exists for NHL.'}
       />

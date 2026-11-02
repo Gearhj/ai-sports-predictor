@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Dices, Info, Pause, Play, RotateCcw, Target } from 'lucide-react'
 import { ScoreBar } from '../shared/ScoreBug'
+import { gameHref } from '../../services/commandCenter'
 import { teamIdentity } from '../../services/teamIdentity'
 import { distribution, fairAmerican, lineOutcome, makeSampler, useSimModel, type Cell, type SimModel } from './simData'
 import { FORECAST_TIMING_SUMMARY, forecastRefreshText } from '../../services/forecastCadence'
@@ -36,7 +37,7 @@ export function SimulatorPage() {
   return (
     <div className="sim">
       <nav className="sim__crumbs">
-        <Link to={`/games/${gameId}?sport=${sport}`}><ArrowLeft size={14} /> Game brief</Link>
+        <Link to={gameHref(sport, gameId)}><ArrowLeft size={14} /> Game brief</Link>
         <span>Game Simulator</span>
       </nav>
       {hasField ? (

@@ -1,7 +1,7 @@
 /**
  * The home page: YOUR SPORTS COMMAND CENTER (owner's design, sent several times; 2026-10-24 final pass).
- *   hero (welcome, tonight's stars from the live football games, five doors) · Your Performance
- *   Today's Games (featured live card + game cards) · My Upcoming Bets
+ *   hero (welcome, tonight's stars from the live football games, five doors) · AISP Performance
+ *   Today's Games (featured live card + game cards) · AISP's Upcoming Bets
  *   AISP Top Model Picks Today · Live Games + Recent Key Insights
  * Cleanup 10-30 (owner: "get rid of any duplication, especially on the same page"): one sport filter, the Today's
  * Games tabs, which also drive the picks table; Betting Opportunities repeated the picks table and is gone.
@@ -33,7 +33,7 @@ const SPORTS: Array<{ key: SportCode; label: string; color: string; icon: string
   { key: 'NFL', label: 'NFL', color: '#6ea4ff', icon: '🏈' }, { key: 'CFB', label: 'CFB', color: '#b88cff', icon: '🏈' }, { key: 'NBA', label: 'NBA', color: '#ffb14a', icon: '🏀' },
   { key: 'NHL', label: 'NHL', color: '#7cc4e4', icon: '🏒' }, { key: 'MLB', label: 'MLB', color: '#ff6b57', icon: '⚾' },
 ]
-const NAV = [{ to: '/', label: 'Home', icon: '⌂', on: true }, { to: '/live', label: 'Live View', icon: '◉' }, { to: '/experiment', label: 'My Bets', icon: '▤' }, { to: '/games', label: 'Games', icon: '▦' }, { to: '/performance', label: 'Analytics', icon: '▥' }, { to: '/research/history', label: 'Research', icon: '◎' }, { to: '/a-house-divided', label: 'Leaderboard', icon: '♛' }, { to: '/markets', label: 'Community', icon: '☺' }]
+const NAV = [{ to: '/', label: 'Home', icon: '⌂', on: true }, { to: '/live', label: 'Live View', icon: '◉' }, { to: '/experiment', label: 'AISP Bets', icon: '▤' }, { to: '/games', label: 'Games', icon: '▦' }, { to: '/performance', label: 'Analytics', icon: '▥' }, { to: '/research/history', label: 'Research', icon: '◎' }, { to: '/a-house-divided', label: 'Leaderboard', icon: '♛' }, { to: '/markets', label: 'Community', icon: '☺' }]
 const isLive = (g: PulseGame) => g.phase === 'LIVE' || g.phase === 'STARTED'
 const isFootball = (g: PulseGame) => g.sport === 'NFL' || g.sport === 'CFB'
 const sideOf = (g: PulseGame, side: 'HOME' | 'AWAY') => (side === 'HOME' ? g.home : g.away)
@@ -116,7 +116,8 @@ export function HqHome() {
   const railRef = useRef<HTMLDivElement | null>(null)
   const slip = usePreviewPicks()
   const onSlip = new Set(slip.map((p) => p.game_id))
-  const openGame = (g: PulseGame) => navigate(isLive(g) && isFootball(g) ? `/live?game=${g.id}` : gameHref(g.sport, g.id))
+  // Any live game opens the Live View (football, NBA/NHL arena and MLB all render there); others open their game page.
+  const openGame = (g: PulseGame) => navigate(isLive(g) ? `/live?game=${g.id}` : gameHref(g.sport, g.id))
   const stakes = settled.map((p) => p.stake ?? 0).filter((v) => v > 0).sort((a, b) => a - b)
   const unit = stakes.length ? stakes[Math.floor(stakes.length / 2)] : 5
 
@@ -148,7 +149,7 @@ export function HqHome() {
               <nav className="hm-doors" aria-label="Shortcuts">
                 <Link to="/live"><i>◉</i><span><b>Live Games</b><small>Watch, track, analyze</small></span></Link>
                 <Link to="/decisions"><i>✦</i><span><b>AI Model Picks</b><small>Our highest-confidence plays</small></span></Link>
-                <Link to="/experiment"><i>▤</i><span><b>Your Bets</b><small>Track your action in real time</small></span></Link>
+                <Link to="/my-picks"><i>▤</i><span><b>Your Picks</b><small>Your own play-money slip</small></span></Link>
                 <Link to="/performance"><i>▥</i><span><b>Advanced Analytics</b><small>Find edges, explore trends</small></span></Link>
                 <Link to="/live"><i>💬</i><span><b>Ask the Booth</b><small>Get instant answers</small></span></Link>
               </nav>
@@ -162,7 +163,7 @@ export function HqHome() {
                   <button type="button" className={sport === 'ALL' ? 'is-on' : ''} onClick={() => setSport('ALL')}>All Sports ({dayGames.length})</button>
                   {SPORTS.map((s) => <button key={s.key} type="button" className={sport === s.key ? 'is-on' : ''} onClick={() => setSport(s.key)} disabled={!counts.get(s.key)}>{s.label} ({counts.get(s.key) ?? 0})</button>)}
                 </span>
-                <label className="hm-show">Show <select value={order} onChange={(e) => setOrder(e.target.value as typeof order)}><option value="bets">My Bets First</option><option value="edge">Biggest Edge</option><option value="time">Start Time</option></select></label>
+                <label className="hm-show">Show <select value={order} onChange={(e) => setOrder(e.target.value as typeof order)}><option value="bets">AISP Bets First</option><option value="edge">Biggest Edge</option><option value="time">Start Time</option></select></label>
               </header>
               <div className="hm-railwrap">
                 <div className="hm-rail" ref={railRef}>
@@ -200,8 +201,8 @@ export function HqHome() {
 
           <aside className="hm-side">
             <Performance settled={settled} unit={unit} now={now} />
-            <section className="sl-card hm-upcoming" aria-label="My upcoming bets">
-              <header className="sl-card__head"><h2>My Upcoming Bets</h2><Link to="/experiment" className="hm-all">View All ›</Link></header>
+            <section className="sl-card hm-upcoming" aria-label="AISP's upcoming paper bets">
+              <header className="sl-card__head"><h2>AISP&apos;s Upcoming Bets</h2><Link to="/experiment" className="hm-all">View All ›</Link></header>
               <ul className="hm-list">
                 {open.slice(0, 4).map((p) => { const g = gameById.get(p.game_id); return (
                   <li key={p.position_id}><button type="button" onClick={() => g && openGame(g)}>
@@ -209,7 +210,7 @@ export function HqHome() {
                     <span className="hm-list__main"><b>{short(p.selection ?? '', 18)} {p.entry.american != null ? american(p.entry.american) : ''}</b><small className="is-up">{((p.stake ?? 0) / unit).toFixed(1)}u · {usd(p.stake)}</small></span>
                     <span className="hm-list__meta"><b>{g && isLive(g) ? 'LIVE' : etClock(p.starts_at, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</b><small>{p.sport}</small></span><em>›</em>
                   </button></li>) })}
-                {!open.length ? <li className="sl-empty">No open paper bets.</li> : null}
+                {!open.length ? <li className="sl-empty">AISP has no open paper bets.</li> : null}
               </ul>
             </section>
             <section className="sl-card hm-live" aria-label="Live games">
@@ -293,7 +294,9 @@ function Performance({ settled, unit, now }: { settled: LedgerPosition[]; unit: 
   const [range, setRange] = useState<'month' | 'season' | 'all'>('month')
   const today = operationalToday(new Date(now))
   const since = range === 'month' ? `${today.slice(0, 7)}-01` : range === 'season' ? `${Number(today.slice(5, 7)) >= 8 ? today.slice(0, 4) : String(Number(today.slice(0, 4)) - 1)}-08-01` : ''
-  const rows = settled.filter((p) => !since || (p.settled_at ?? '') >= since)
+  // Settle times are UTC; the month and season start on the US-Eastern calendar (sweep 11-01: a 10-31 evening
+  // settlement read as November).
+  const rows = settled.filter((p) => !since || (p.settled_at ? operationalToday(new Date(p.settled_at)) : '') >= since)
   const w = rows.filter((p) => resultOf(p) === 'WIN').length; const l = rows.filter((p) => resultOf(p) === 'LOSS').length
   const pl = rows.reduce((t, p) => t + (p.profit_loss ?? 0), 0); const staked = rows.reduce((t, p) => t + (p.stake ?? 0), 0)
   let streak = 0
@@ -305,8 +308,8 @@ function Performance({ settled, unit, now }: { settled: LedgerPosition[]; unit: 
   const Y = (v: number) => 8 + (1 - (v - mn) / (mx - mn || 1)) * (H - 18)
   const first = rows[0]?.settled_at; const lastAt = rows[rows.length - 1]?.settled_at
   return (
-    <section className="sl-card hm-perf" aria-label="Your performance">
-      <header className="sl-card__head"><h2>Your Performance</h2><Link to="/experiment" className="hm-all">View Details ›</Link></header>
+    <section className="sl-card hm-perf" aria-label="AISP's paper-bet performance">
+      <header className="sl-card__head"><h2>AISP Performance</h2><Link to="/experiment" className="hm-all">View Details ›</Link></header>
       <span className="hm-tabs hm-tabs--fill">{(['month', 'season', 'all'] as const).map((r) => <button key={r} type="button" className={range === r ? 'is-on' : ''} onClick={() => setRange(r)}>{r === 'month' ? 'This Month' : r === 'season' ? 'This Season' : 'All Time'}</button>)}</span>
       <div className="hm-kpis">
         <span><small>Record</small><b>{w} - {l}</b><em>({w + l ? ((w / (w + l)) * 100).toFixed(1) : '0.0'}%)</em></span>

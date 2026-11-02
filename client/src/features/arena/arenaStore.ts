@@ -54,9 +54,12 @@ export function arenaState(): ArenaState { return read() }
 // call made or changed after the start and keeps rivals' sides hidden until you lock the same game.
 const PROFILE_KEY = 'aisp-arena-profile'
 export const PROFILES = ['JAMES', 'ELVIS', 'MOM'] as const
-export function currentProfile(): string { try { return localStorage.getItem(PROFILE_KEY) || 'JAMES' } catch { return 'JAMES' } }
+// A visitor who never signed in plays as GUEST on this device (sweep 11-01: the default was the owner's own name).
+export function currentProfile(): string { try { return localStorage.getItem(PROFILE_KEY) || 'GUEST' } catch { return 'GUEST' } }
+const signedIn = (): boolean => 'Authorization' in boothAuth()
 async function push(remove: string[] = []): Promise<void> {
   if (isRehearsing()) return // rehearsal calls never reach the shared league store
+  if (!signedIn()) return // the league store answers signed-in players only (no 401 noise for guests)
   const calls = read().calls.filter((c) => c.mode === 'LIVE')
   // Live site (10-29): a signed-in player IS their account; the server answers with the account's name.
   const res = await fetch('/preview-api/arena/sync', { method: 'POST', headers: { 'content-type': 'application/json', ...boothAuth() }, body: JSON.stringify({ profile: currentProfile(), calls, remove }) }).catch(() => null)
@@ -89,7 +92,7 @@ export function useLeague(enabled = true): LeagueResponse | null {
   useEffect(() => {
     if (!enabled) return undefined
     let alive = true
-    const load = () => fetch(`/preview-api/arena/league?me=${me}`, { headers: boothAuth() }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d) setData(d as LeagueResponse) }).catch(() => undefined)
+    const load = () => (!signedIn() ? Promise.resolve() : fetch(`/preview-api/arena/league?me=${me}`, { headers: boothAuth() }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d) setData(d as LeagueResponse) }).catch(() => undefined))
     void load()
     const t = window.setInterval(load, 30_000)
     const on = () => window.setTimeout(load, 400)

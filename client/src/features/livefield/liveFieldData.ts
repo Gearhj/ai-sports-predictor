@@ -124,7 +124,7 @@ export function useStory(gameId: string | null) {
   return useApiResource<GameStory | null>(loader, { key: cacheKey('lf-story', { gameId: gameId ?? '' }), staleTimeMs: 60_000, refreshIntervalMs: gameId ? 60_000 : undefined })
 }
 
-export const PREVIEW_ONLY = 'The field feed exists only on the test-mode preview server.'
+export const PREVIEW_ONLY = 'The live field feed is unavailable right now.'
 
 async function fetchPreview<T>(path: string, signal: AbortSignal): Promise<T> {
   const res = await fetch(path, { signal, headers: { accept: 'application/json' } })
@@ -171,7 +171,7 @@ export function useBooth(contextRef: { current: unknown }) {
         body: JSON.stringify({ question: q, context: contextRef.current }),
       })
       const type = res.headers.get('content-type') ?? ''
-      if (!type.includes('application/json')) throw new Error('The Booth is only wired on the test-mode preview server.')
+      if (!type.includes('application/json')) throw new Error('The Booth is unavailable right now.')
       const body = (await res.json()) as Partial<BoothAnswer> & { error?: string }
       if (!res.ok || !body.answer) throw new Error(body.error ?? `HTTP ${res.status}`)
       setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, answer: body as BoothAnswer } : t)))

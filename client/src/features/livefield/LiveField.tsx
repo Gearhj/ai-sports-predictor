@@ -282,7 +282,7 @@ export function LiveField() {
     now, game: demo ? null : game, story: demo ? null : story.data ?? null, field: isMlb ? live : null,
     scoreboard: score ? { status: score.status, status_detail: score.status_detail, away_score: score.away_score, home_score: score.home_score } : null,
     football: fb ? {
-      source: 'ESPN play-by-play (free public feed, test-mode preview server)', retrieved_at: fb.retrieved_at, status: fb.status?.state === 'in' ? fb.status : undefined,
+      source: 'ESPN play-by-play (free public feed)', retrieved_at: fb.retrieved_at, status: fb.status?.state === 'in' ? fb.status : undefined,
       score: { away: fb.teams?.away.score, home: fb.teams?.home.score, away_team: fb.teams?.away.abbr, home_team: fb.teams?.home.abbr }, situation: fb.situation,
       shown_play: shownPlay ? { offense: offenseTeam?.abbr, defense: offenseTeam ? (offenseTeam.id === fb.teams?.home.id ? fb.teams?.away.abbr : fb.teams?.home.abbr) : undefined, period: shownPlay.period, clock: shownPlay.clock, down_distance: `${ordinalDown(shownPlay.start.down)} & ${shownPlay.start.distance}`, spot: shownPlay.start.possessionText, kind: parseFbPlay(shownPlay).kind, text: shownPlay.text } : null,
       recent_plays: (fb.plays ?? []).slice(-8).map((p) => ({ period: p.period, clock: p.clock, down: p.start.down, distance: p.start.distance, text: p.text })),

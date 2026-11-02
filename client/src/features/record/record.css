@@ -101,3 +101,6 @@
 .rc-xmode { position: absolute; right: 8px; top: -2px; z-index: 2; display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: #0b1220; border: 1px solid #334155; }
 .rc-xmode button { border: 0; border-radius: 999px; padding: 4px 10px; background: none; color: #94a3b8; font: 700 11.5px system-ui; cursor: pointer; }
 .rc-xmode button.is-on { background: #e2e8f0; color: #0b1220; }
+
+/* Sweep 11-01: at 375 px the sport table pushed the page 453 px wide; it scrolls inside its card instead. */
+.rc-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }

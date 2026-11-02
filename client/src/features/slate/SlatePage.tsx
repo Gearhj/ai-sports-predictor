@@ -141,7 +141,7 @@ export function SlatePage() {
   const payout = open.reduce((t, p) => t + (p.stake ?? 0) * (p.entry.decimal ?? 1), 0)
   const bankroll = pulse.ledger?.totals.realized_bankroll ?? null
   const monthStart = `${day.slice(0, 7)}-01`
-  const monthPl = settled.filter((p) => (p.settled_at ?? '') >= monthStart).reduce((t, p) => t + (p.profit_loss ?? 0), 0)
+  const monthPl = settled.filter((p) => (p.settled_at ? operationalToday(new Date(p.settled_at)) : '') >= monthStart).reduce((t, p) => t + (p.profit_loss ?? 0), 0)
   const strongest = [...dayGames].filter((g) => g.phase !== 'FINAL').map((g) => ({ g, p: picks.get(g.id) })).filter((x) => x.p?.edge != null).sort((a, b) => (b.p!.edge ?? 0) - (a.p!.edge ?? 0))[0] ?? null
   const openLive = open.filter((p) => { const g = gameById.get(p.game_id); return g ? isLive(g) : false })
   const nextUp = pulse.games.filter((g) => g.phase === 'UPCOMING' && Date.parse(g.startsAt) > now - 60_000 && Date.parse(g.startsAt) - now < 6 * 3600_000).sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
@@ -180,7 +180,7 @@ export function SlatePage() {
 
             <section className="sl-bar" aria-label="Filters">
               <span className="sl-tabs" role="tablist">
-                {([['all', 'All Games'], ['live', 'Live'], ['soon', 'Starting Soon'], ['bets', 'My Bets'], ['edges', 'Biggest Edges'], ['done', 'Completed']] as Array<[Tab, string]>).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{l} <em>({tabCount(k)})</em></button>)}
+                {([['all', 'All Games'], ['live', 'Live'], ['soon', 'Starting Soon'], ['bets', 'AISP Bets'], ['edges', 'Biggest Edges'], ['done', 'Completed']] as Array<[Tab, string]>).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{l} <em>({tabCount(k)})</em></button>)}
               </span>
               <label className="sl-sort">Sort by <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}><option value="time">Start Time</option><option value="edge">Biggest Edge</option></select></label>
               <span className="sl-view"><button type="button" className={view === 'cards' ? 'is-on' : ''} onClick={() => setView('cards')}>▦ Cards</button><button type="button" className={view === 'table' ? 'is-on' : ''} onClick={() => setView('table')}>☰ Table</button></span>
@@ -206,7 +206,7 @@ export function SlatePage() {
             })}
             {!pulse.loading && !shown.length ? <p className="sl-empty">No games match these filters.</p> : null}
             {pulse.loading && !dayGames.length ? <p className="sl-empty">Loading the slate…</p> : null}
-            <footer className="hq-foot">Research and paper only. Forecasts, prices, positions and scores come from AISP's read models; live win probability is ESPN's (test-mode feed). Spreads and totals are not collected. Picks, bets and edges are the paper experiment's, never advice or a wager signal.</footer>
+            <footer className="hq-foot">Research and paper only. Forecasts, prices, positions and scores come from AISP's read models; live win probability is ESPN's public feed. Spreads and totals are not collected. Picks, bets and edges are the paper experiment's, never advice or a wager signal.</footer>
           </main>
 
           <aside className="sl-rail" aria-label="Your picks, AISP's bets and insights">
@@ -278,7 +278,7 @@ function SlateRow({ g, pick, onOpen, onLive, dense, mission, slipped }: { g: Pul
       <div className="sl-row__wp">
         <small>{wp?.home.length ? 'Live win probability' : 'Model win probability'}</small>
         <div className="sl-row__wpline">
-          <b style={{ color: leadHome ? ch : ca }}>{shortName(leadHome ? g.home.abbr : g.away.abbr, 8)} {homeNow == null ? '—' : pct(leadHome ? homeNow : 1 - homeNow)}</b>
+          <b className="sl-row__wplead" style={{ borderLeftColor: leadHome ? ch : ca }}>{shortName(leadHome ? g.home.abbr : g.away.abbr, 8)} {homeNow == null ? '—' : pct(leadHome ? homeNow : 1 - homeNow)}</b>
           {wp?.home.length && !dense ? <Spark series={wp.home} ca={ca} ch={ch} /> : <span className="sl-split"><u style={{ width: `${(1 - (homeNow ?? 0.5)) * 100}%`, background: ca }} /><u style={{ width: `${(homeNow ?? 0.5) * 100}%`, background: ch }} /></span>}
         </div>
         {!dense && wp?.home.length && g.modelHome != null ? <small className="sl-row__pre">pregame model: {g.away.abbr.length > 10 ? shortName(g.away.abbr, 8) : g.away.abbr} {pct(1 - g.modelHome)} · {shortName(g.home.abbr, 8)} {pct(g.modelHome)}</small> : null}

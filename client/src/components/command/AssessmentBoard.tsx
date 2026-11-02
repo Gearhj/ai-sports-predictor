@@ -322,7 +322,8 @@ export const AssessmentCard = memo(function AssessmentCard({ card, day, ledger, 
       </ExpandableDetails>
       <footer className="as-actions">
         <Link to={gameHref(sport, card.key)}>Analyze</Link>
-        <Link to={simulate}>Simulate</Link>
+        {/* NHL stores no score distribution (sweep 11-01: the link led to 'No simulation for this game yet'). */}
+        {sport === 'NHL' ? null : <Link to={simulate}>Simulate</Link>}
         <Link to={`/markets?date=${day}&sport=${sport}`}>Shop Books</Link>
         {lead.funded && <Link to={`/experiment?position=${lead.funded.positionId}`}>View position</Link>}
       </footer>

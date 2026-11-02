@@ -442,3 +442,50 @@ async def test_the_orchestrator_runs_it_only_when_on(session, settings, monkeypa
     on = await JobOrchestrator(session, _on(settings)).run("ingest-nhl-finals-espn")
     assert on.result["status"] == "CHECKED" and calls and on.result["records"] == 0
     assert json.loads(json.dumps(on.result))["source"] == er.SOURCE
+
+
+def test_a_dropped_period_goal_is_accepted_only_when_nhl_confirms_the_regulation_final():
+    """MIN@VAN 10-25: ESPN's lines say VAN 0-0-1 but its final says VAN 2 (NHL: two VAN goals in the 3rd)."""
+
+    raw = {"id": "401892581", "date": "2026-10-26T02:00Z", "season": {"type": 2}, "competitions": [{
+        "competitors": [
+            {"homeAway": "home", "team": {"abbreviation": "VAN"}, "score": "2", "winner": False,
+             "linescores": [{"value": v} for v in (0, 0, 1)]},
+            {"homeAway": "away", "team": {"abbreviation": "MIN"}, "score": "4", "winner": True,
+             "linescores": [{"value": v} for v in (1, 2, 1)]}],
+        "status": {"period": 3, "type": {"name": "STATUS_FINAL", "state": "post", "completed": True,
+                                         "detail": "Final"}}}]}
+    event = er.parse_event(raw, request={"url": "fixture"}, retrieved_at=NOW)
+    target = er.Target(game_id=None, starts_at=NOW, status=GameStatus.SCHEDULED, source_mode="RESEARCH_SHADOW",
+                       canonical_game_ref="nhl:game:2026020184", home_code="VAN", away_code="MIN",
+                       home_ref="nhl:team:23", away_ref="nhl:team:30")
+    asked = []
+
+    def nhl(view):
+        def confirm(ref):
+            asked.append(ref)
+            return view
+        return confirm
+
+    # No confirmer, or NHL disagreeing / not final / not regulation: the refusal stands.
+    for confirm in (None, nhl(None), nhl({"state": "OFF", "periodType": "REG", "home": 1, "away": 4}),
+                    nhl({"state": "LIVE", "periodType": "REG", "home": 2, "away": 4}),
+                    nhl({"state": "OFF", "periodType": "OT", "home": 2, "away": 4})):
+        with pytest.raises(er.Refused, match="FINAL_DIFFERS_FROM_REGULATION_LINESCORE"):
+            er.derive_result(event, target, supersedes=None, confirm=confirm)
+    doc, how = er.derive_result(event, target, supersedes=None,
+                                confirm=nhl({"state": "OFF", "periodType": "REG", "home": 2, "away": 4}))
+    assert doc["decidedIn"] == "REGULATION" and doc["final"]["winner"] == "AWAY"
+    assert doc["regulation"]["homeGoals"] == 2 and doc["regulation"]["awayGoals"] == 4
+    assert how["regulationConfirmedBy"] == "NHL_GAMECENTER_PUBLIC" and how["homeLinescores"] == [0, 0, 1]
+    assert set(asked) == {"nhl:game:2026020184"}
+
+    # A status naming overtime is never confirmed into a regulation result; NHL is not even asked.
+    asked.clear()
+    for status in (event.raw["competitions"][0]["status"],):
+        status["type"]["detail"] = "Final/OT"
+    ot = er.parse_event(raw, request={"url": "fixture"}, retrieved_at=NOW)
+    with pytest.raises(er.Refused, match="FINAL_DIFFERS_FROM_REGULATION_LINESCORE"):
+        er.derive_result(ot, target, supersedes=None,
+                         confirm=nhl({"state": "OFF", "periodType": "REG", "home": 2, "away": 4}))
+    assert asked == []

@@ -201,3 +201,8 @@ button.sl-kpi { cursor: pointer; } button.sl-kpi:hover { border-color: var(--t);
 .sl-badge--aisp { color: #2a200b; background: linear-gradient(180deg, #fde68a, #d4a017); }
 .sl-card--aisp .sl-mini span, .sl-card--aisp .sl-wagers button { background: rgba(30, 22, 6, .6); border-color: rgba(253, 230, 138, .14); }
 .sl-card--aisp .sl-wtabs { background: rgba(30, 22, 6, .6); } .sl-card--aisp .sl-wtabs button.is-on { background: #b8860b; color: #1c1405; }
+
+/* Sweep 11-01: the leader label was drawn in the team colour (navy clubs vanished on navy); white text, colour bar. */
+.sl-row__wplead { color: #f8fafc; border-left: 4px solid transparent; padding-left: 6px; }
+/* Sweep 11-01: at phone width two tiles a row cut values ("AISP Bankroll $5,0..."); one tile a row. */
+@media (max-width: 480px) { .sl-kpis { grid-template-columns: 1fr; } }

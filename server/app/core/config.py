@@ -470,7 +470,7 @@ class Settings(BaseSettings):
     nhl_espn_results_enabled: bool = False
     nhl_espn_results_interval_minutes: int = Field(default=30, ge=10, le=120)
     #: How far back an unresolved game is still asked about.
-    nhl_espn_results_lookback_days: int = Field(default=7, ge=1, le=14)
+    nhl_espn_results_lookback_days: int = Field(default=10, ge=1, le=14)
     #: How long a game final from this source is re-read, so a later score change is seen.
     nhl_espn_results_correction_hours: int = Field(default=48, ge=0, le=168)
     #: The discovery pointer the consumer reads; the pinned handoff must bind a

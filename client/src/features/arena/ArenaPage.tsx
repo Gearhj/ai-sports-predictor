@@ -22,7 +22,7 @@ import { teamIdentity } from '../../services/teamIdentity'
 import { etClock, pct, usePulse, type PulseGame } from '../pulse/pulseData'
 import type { SportCode } from '../../services/commandCenter'
 import {
-  PROFILES, badgesOf, levelOf, currentProfile, dropCall, lockCall, markSeen, resetArena, reveal, settle, switchProfile, titleOf, useArena, useLeague, xpOf,
+  badgesOf, levelOf, currentProfile, dropCall, lockCall, markSeen, resetArena, reveal, settle, titleOf, useArena, useLeague, xpOf,
   type ArenaCall, type LeagueCall, type Side,
 } from './arenaStore'
 import { BOSS_HIT, bossOf, rivalryOf, weekStart } from './league'
@@ -240,9 +240,7 @@ export function ArenaPage() {
                 <h1>{mode === 'REWIND' ? 'Rewind: call last night blind' : reh.active ? 'Rehearsal fight card' : "Tonight's fight card"}</h1>
                 {/* Rehearse last night: retired 10-27 */}
                 {user ? <span className="ar-who">Playing as <b>{user.display_name}</b></span> : (
-                  <label className="ar-who">Playing as <select value={you} onChange={(e) => { void switchProfile(e.target.value) }}>
-                    {[...new Set([...PROFILES, you])].map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select> <Link to="/login">Sign in to join the league</Link></label>
+                  <span className="ar-who">Playing as <b>Guest</b> · calls stay on this device · <Link to="/login">Sign in to join the league</Link></span>
                 )}
                 <div className="ar-tabs" role="tablist">
                   <button role="tab" aria-selected={mode === 'TONIGHT'} className={mode === 'TONIGHT' ? 'is-on' : ''} onClick={() => setMode('TONIGHT')}>Tonight</button>

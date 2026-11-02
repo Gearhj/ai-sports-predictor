@@ -11,8 +11,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 export function useWidth<T extends HTMLElement>(fallback = 720) {
   const ref = useRef<T | null>(null)
   const [width, setWidth] = useState(fallback)
+  // Re-checked after every render, not only at mount: many charts render nothing until their data arrives, so the
+  // node appears later (sweep 11-01: a chart stuck at its 560 px fallback pushed /markets to 627 px on a phone).
+  const watched = useRef<{ node: T | null; observer: ResizeObserver | null }>({ node: null, observer: null })
   useLayoutEffect(() => {
     const node = ref.current
+    if (node === watched.current.node) return
+    watched.current.observer?.disconnect()
+    watched.current = { node, observer: null }
     if (!node) return
     setWidth(node.getBoundingClientRect().width || fallback)
     if (typeof ResizeObserver === 'undefined') return
@@ -21,8 +27,9 @@ export function useWidth<T extends HTMLElement>(fallback = 720) {
       if (next > 0) setWidth(next)
     })
     observer.observe(node)
-    return () => observer.disconnect()
-  }, [fallback])
+    watched.current.observer = observer
+  })
+  useEffect(() => () => { watched.current.observer?.disconnect() }, [])
   return { ref, width }
 }
 

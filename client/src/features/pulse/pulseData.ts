@@ -42,8 +42,9 @@ export interface ScoreEntry {
  */
 export type Phase = 'LIVE' | 'FINAL' | 'UPCOMING' | 'STARTED' | 'STALE'
 
-/** A price older than this is history, not a market to compare against. */
-export const MARKET_FRESH_HOURS = 36
+/** A price older than this is history, not a market to compare against. Matches the server's 240-minute
+ *  current-price window (sweep 11-01: at 36 h, 4-hour-old reference prices drove edges and the Biggest Edges tab). */
+export const MARKET_FRESH_HOURS = 4
 
 export interface PulseGame {
   id: string

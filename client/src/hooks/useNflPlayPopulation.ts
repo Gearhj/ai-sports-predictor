@@ -19,7 +19,8 @@ export interface PlayPopulationResource {
   cached: (scenarioId: string) => NflPlayPopulation | null
 }
 
-export function useNflPlayPopulation(gameId: string, scenarioId: string): PlayPopulationResource {
+/** `enabled` false (the game has no play-level evidence) asks nothing (sweep 11-01: a certain 404 on every visit). */
+export function useNflPlayPopulation(gameId: string, scenarioId: string, enabled = true): PlayPopulationResource {
   const [population, setPopulation] = useState<NflPlayPopulation | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,7 +37,7 @@ export function useNflPlayPopulation(gameId: string, scenarioId: string): PlayPo
   }, [gameId])
 
   useEffect(() => {
-    if (!gameId || !scenarioId) return
+    if (!gameId || !scenarioId || !enabled) return
     const hit = cache.current.get(scenarioId)
     if (hit) { setPopulation(hit); setError(null); setLoading(false); return }
     const controller = new AbortController()
@@ -50,7 +51,7 @@ export function useNflPlayPopulation(gameId: string, scenarioId: string): PlayPo
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [gameId, scenarioId, fetchOne])
+  }, [gameId, scenarioId, fetchOne, enabled])
 
   const preload = useCallback(async (scenario: string) => {
     try { return await fetchOne(scenario) } catch { return null }

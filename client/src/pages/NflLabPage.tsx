@@ -60,7 +60,7 @@ export function NflLabPage() {
   // imported joint score distribution supports.
   const defaultView: View = theater.index || theater.indexLoading ? 'population' : 'explorer'
   const view: View = requested && VIEWS.includes(requested) ? requested : defaultView
-  const populationResource = useNflPlayPopulation(gameId, scenarioId)
+  const populationResource = useNflPlayPopulation(gameId, scenarioId, Boolean(theater.index))
   const resource = useApiResource<NflGameDetail>(
     useCallback((signal: AbortSignal) => endpoints.nflGame(gameId, signal), [gameId]),
     { key: cacheKey('nfl/game', { gameId }), staleTimeMs: STALE_TIME.game },

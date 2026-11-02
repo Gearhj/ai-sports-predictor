@@ -1643,3 +1643,6 @@
 .aisp-legacy__page .metric-card::before { background: linear-gradient(180deg, var(--metric-accent, #282e34), color-mix(in srgb, var(--metric-accent, #282e34) 35%, transparent)); }
 .aisp-legacy__page .decision-flow__label { color: #b7bac0; }
 .aisp-legacy__page .calibration-readout h3 { color: #d1d4d7; }
+
+/* Sweep 11-01: page-header eyebrows were the light-theme teal (#087f7a) on this navy page -- near invisible. */
+.aisp-legacy__page .eyebrow, .aisp-legacy__page .panel-eyebrow { color: #5eead4; }

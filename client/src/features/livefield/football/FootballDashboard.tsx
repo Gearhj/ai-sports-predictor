@@ -229,7 +229,7 @@ export function FootballDashboard(p: DashProps) {
         </div>
         <div className="lv-paper">
         {tabBody[tab]}
-        <footer className="lf-foot lf-muted">Research and paper only. Plays, scores, win probability and box score: ESPN's public feed through the test-mode preview server, never stored and never used for settlement. Player positions on the field are drawn, not tracked. Expected points, call probabilities, projected results and fourth-down numbers are models and league tables from NFL snaps (nflverse 2015-2026): estimates, not predictions of this game or wager signals.</footer>
+        <footer className="lf-foot lf-muted">Research and paper only. Plays, scores, win probability and box score: ESPN's public feed, never stored and never used for settlement. Player positions on the field are drawn, not tracked. Expected points, call probabilities, projected results and fourth-down numbers are models and league tables from NFL snaps (nflverse 2015-2026): estimates, not predictions of this game or wager signals.</footer>
         </div>
       </div>
       <div className={`lv-booth${boothOpen ? ' is-open' : ''}`} aria-hidden={!boothOpen}>

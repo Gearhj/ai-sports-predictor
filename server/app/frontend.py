@@ -37,6 +37,19 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
+
+#: Hashed asset names change with every build, so a browser (and Cloudflare's edge) may keep them for a year.
+ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+class HashedAssets(StaticFiles):
+    """StaticFiles for content-hashed build output: long-lived cache headers on every hit."""
+
+    def file_response(self, *args: Any, **kwargs: Any):  # type: ignore[override]
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = ASSET_CACHE_CONTROL
+        return response
 
 #: Paths the SPA fallback must never answer.
 RESERVED_PREFIXES = ("api/", "api", "healthz", "readyz", "frontendz", "docs", "redoc", "openapi.json")
@@ -81,8 +94,10 @@ def mount_frontend(application: FastAPI, dist: Path | None = None) -> None:
 
     assets = root / "assets"
     if assets.is_dir():
-        # Content-hashed file names: safe to cache for a long time.
-        application.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+        # Content-hashed file names: safe to cache for a long time (sweep 11-01: they were sent with no
+        # Cache-Control and uncompressed, so every page load refetched 3-9 s chunks). Gzip the text assets too.
+        application.mount("/assets", GZipMiddleware(HashedAssets(directory=assets), minimum_size=1024),
+                          name="frontend-assets")
 
     @application.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str) -> FileResponse:
@@ -101,4 +116,4 @@ def mount_frontend(application: FastAPI, dist: Path | None = None) -> None:
         return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
 
-__all__ = ["RESERVED_PREFIXES", "build_identity", "default_dist", "mount_frontend"]
+__all__ = ["ASSET_CACHE_CONTROL", "HashedAssets", "RESERVED_PREFIXES", "build_identity", "default_dist", "mount_frontend"]
