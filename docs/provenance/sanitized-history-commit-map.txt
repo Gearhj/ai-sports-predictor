@@ -362,3 +362,11 @@ cc612fdbc63745f9fad4f6e4cefe8742c8a7682d 50c1d21a5c7b561c85dfe16f6cbf98451bf2dab
 # 2026-11-02 transfer: Live View between-plays release (frontend only).
 69f5ead0f4abf4f9e2c2987eb569bfe8f317cb79 c38ff69247ce6cad3b87238b5d7b5cd0e57a587d
 58d3598ad8c6b2287930326dbda2185f1528143b 2eb3a741dfd8672f8aed28b1b25b44ed6b008385
+# 2026-11-03 transfer: scale plan Phase 1 release (accounts, user_state sync, PREMIUM, legal, healthz, load check).
+35fc374984c1d4d1aa2de69f136fb9a7c16fbf1c 91f74a4cb4296aaedcb16a35195c2e58954a20a9
+8373c5cf0d1915273c56eb42ebf320dbac5b5b82 9aefbf97e8c8c730cd8f9f51f510dc1c4ba91100
+583e3f7d5f32b05ae3243d3eb64d191827afcad5 3eea20620e9484e5a2099b7eb9861edecae08ed5
+3547d1c1cc2b22754a36c819c39a1cd042fdf63f 1cc6ca29d16e1736ffe7791d8a30925f640b4fee
+bd0986be59dc0253e600b31d4d110395161fa414 a7eb4036844530131d38b9171aff1aaf412cd737
+# f44e0cf (password-label ternary order) is folded into the sanitized account commit above; the mirror's tree equals the original at f44e0cf.
+f44e0cf7cae72c70578b871fac2cb735960bfd1a 9aefbf97e8c8c730cd8f9f51f510dc1c4ba91100
